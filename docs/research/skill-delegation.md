@@ -1,8 +1,8 @@
 # Skill Delegation and Human Input
 
-Date: 2026-09-12. Status: incomplete draft, not an approved design.
-Recovered after the research worker hit a service usage limit. The ticket remains open;
-verify the cited findings before using this report to resolve it.
+Date: 2026-09-12. Status: verified research report, not an approved design.
+Recovered after the research worker hit a service usage limit, then completed by a
+second pass that checked the cited documentation and source claims (see Verification).
 Question: [Verify skill delegation and human-input constraints][issue].
 Map: [Map the first Operator orchestration workflow][map].
 
@@ -39,11 +39,11 @@ Line references identify the exact point where a delegated workflow needs care.
 | --- | --- | --- |
 | `implement` | Lines 4, 9, 13-15: user-only invocation; TDD at pre-agreed seams; review; commit to the current branch. An Operator cannot automatically invoke this unchanged user-only skill under upstream's rule. [U2][U1] | A human invokes it, or approves a separately named worker adaptation. Pass the approved spec, seams, review base, worktree, and commit authority. |
 | `implement-spec` | Lines 4, 23-35: user-only invocation; draft PR; independent implementer worktrees; merger subagents; review; ready PR; worktree cleanup. It is a second coordinator, not a simple implementation worker. [U3] | Do not nest it unchanged under Operator. PR creation, integration, and deletion need the map's distinct approval rules; do not infer them from the skill text. |
-| `research` | Lines 6-12: start a background agent, use primary sources, and save one cited Markdown file. Wayfinder also tells the already spawned researcher to load this skill. [U4][U7] | Clarify coordinator versus worker entry. The worker performs the research body without spawning another complete researcher. This report follows that explicit assignment; it is not a built-in recursion guard. |
+| `research` | Lines 6-12: start a background agent, use primary sources, and save one cited Markdown file. Wayfinder also tells the already spawned researcher to load this skill. [U4][U7] | Clarify coordinator versus worker entry. This verification pass used a background agent for documentation checks, while the assigned crew member owned the final report. That division is not a built-in recursion guard. |
 | `code-review` | Lines 19, 32, 58-78: ask for a missing fixed point or spec; run Standards and Spec in parallel; preserve separate reports. [U5] | Supply an approved fixed-point SHA and spec pointer. Missing inputs return to Operator, not invented defaults. Run the two axes at a host level that can launch them. |
 | `grilling` | Lines 8, 24, 26, 28: ask the current frontier; wait for user answers; facts are the agent's job; decisions are the user's; do not act until the user confirms shared understanding. [U6] | Relay actual human answers. An Operator recommendation, inferred preference, or technical decision cannot fill the user's side of this interview. |
 | `wayfinder` | Lines 4, 75-80, 105, 115, 123-125: user-only; HITL resolves through live exchange; research is AFK; at most one non-research resolution per session; claim first; publish resolution and update map. [U7] | Keep HITL decisions live. Main Operator serializes tracker writes in this assignment; workers return artifacts. This write-ownership split is an explicit local adaptation. |
-| `grill-me`, `grill-with-docs` | Both have `disable-model-invocation: true`; their bodies call `grilling`, with `domain-modeling` added by `grill-with-docs`. [U8] | Operator can call the model-invoked primitives, not automatically invoke these user-only wrappers. The human requirements remain. |
+| `grill-me`, `grill-with-docs` | Both have `disable-model-invocation: true`; their bodies call `grilling`, with `domain-modeling` added by `grill-with-docs`. [U8][U12] | Operator can call the model-invoked primitives, not automatically invoke these user-only wrappers. The human requirements remain. |
 
 `implement` also reaches a less visible human gate: installed TDD lines 20-24 require
 the seams to be written down and confirmed by the user before any test is written.
@@ -174,8 +174,8 @@ It explicitly says to choose one, because installing both duplicates the skills.
 
 The inspected plugin manifest is version `1.2.3` and lists 25 promoted skills. It excludes
 `implement-spec`, which remains under `in-progress`; installing the plugin is not equivalent
-to this project's full copied set. The official marketplace entry, pinned below, currently
-points at the same upstream commit examined here. Future updates depend on that catalog
+to this project's full copied set. The official marketplace entry, pinned below, currently points through its `sha` field
+at the same upstream commit examined here. Future updates depend on that catalog
 pin and the client's update policy, not merely on upstream publishing a tag. [U10][U11]
 
 Claude's official marketplace enables auto-update by default, but users and administrators
@@ -206,8 +206,38 @@ settings and provenance without exporting credentials, then verify in each workt
 
 ## Verification
 
-Completed: instruction and issue reads; upstream Git blob comparison; official documentation
-review; pinned OpenCode source checks; marketplace pin check; local binary version checks.
+First pass, completed before the worker's usage-limit interruption: instruction and issue
+reads; upstream Git blob comparison; official documentation review; pinned OpenCode source
+checks; marketplace pin check; local binary version checks.
+
+Second pass, 2026-09-12, re-ran the verification independently:
+
+- Fresh clone of `mattpocock/skills`; all eight `SKILL.md` files and all eight
+  `agents/openai.yaml` files re-compared by git blob ID against this worktree: all 16 match. [L1][U1]
+- Cited line references in `implement`, `implement-spec`, `research`, `code-review`,
+  `grilling`, `wayfinder`, `grill-me`, `grill-with-docs`, and `tdd` re-read locally; each
+  quoted requirement (user-only entry, live-exchange HITL, pre-agreed seams, review axes,
+  parallel sub-agents) appears at the cited lines.
+- Every OpenCode and Claude Code documentation citation re-fetched and checked: all claims
+  confirmed, including skill discovery paths and worktree boundary, unknown-frontmatter
+  ignoring, `disable-model-invocation` semantics, subagent depth, `AskUserQuestion`
+  removal from normal subagents, permission-prompt surfacing for background subagents,
+  headless denial, `canUseTool`, and settings layer merging.
+- Pinned OpenCode source re-checked: `skill/index.ts` logs a duplicate-name warning and
+  stores one value per name with no guaranteed precedence; `task.ts` enforces
+  `subagent_depth` default 1 and the background-subagents flag; `agent.ts` denies
+  `question` by default while Build and Plan allow it.
+- `plugin.json` re-checked: version 1.2.3, 25 promoted skills, `implement-spec` excluded;
+  the official marketplace entry pins upstream by its `sha` field. [U10][U11]
+- Local binaries re-checked: OpenCode 1.18.29, Claude Code 2.1.260.
+- `skills-lock.json` re-inspected: 37 entries, each with source, source type, path, and
+  computed hash, and no upstream commit field. [L1]
+
+Minor corrections made during verification: `grill-me` and `grilling` live under
+`skills/productivity/` upstream (not `engineering/`); the marketplace entry uses a `sha`
+field rather than a ref; the duplicate-name warning appears in source code while the docs
+only say to keep names unique.
+
 Not completed: end-to-end skill discovery, denial, nesting, question relay, resume, or mixed
 crew tests. No configuration or skill update was installed to obtain these findings.
 The later capability test should cover all four host pairs with conflicting skill names,
@@ -230,6 +260,7 @@ side effect, and recovery after interruption. A blocked question must remain blo
 [U9]: https://github.com/fveracoechea/operator/blob/b6071e66ff3c0398d191dc258d3a434c2014d889/.agents/skills/tdd/SKILL.md#L18-L26
 [U10]: https://github.com/mattpocock/skills/blob/3cca18b368ae95cdbdebbff572ccafa662551015/.claude-plugin/plugin.json
 [U11]: https://github.com/anthropics/claude-plugins-official/blob/3deb821cb71ccfaaf2ffa9935e977df314ce5cd5/.claude-plugin/marketplace.json
+[U12]: https://github.com/mattpocock/skills/blob/3cca18b368ae95cdbdebbff572ccafa662551015/skills/productivity/grill-me/SKILL.md
 [O1]: https://opencode.ai/docs/skills/
 [O2]: https://opencode.ai/docs/agents/
 [O3]: https://opencode.ai/docs/config/
