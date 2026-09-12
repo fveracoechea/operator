@@ -17,6 +17,7 @@ The first feature will be a setup skill that prepares a project for agent orches
 3. Crew members use skills such as `implement`, `research`, `improve-codebase-architecture`, and `grilling` to do their work.
 4. Crew members report findings and ask questions through the Operator. It uses established decisions and brings questions that need your judgment back to you.
 5. Work passes the agreed tests and review checks before the Operator presents the results for acceptance.
+6. The Operator closes completed crew agents and removes their Herdr-managed worktrees after results are preserved and the required approval is in place. Pending cleanup remains visible until it is complete or explicitly deferred.
 
 You can interact with a crew member directly, but that is an optional path, not the main workflow. The Matrix-inspired name for crew members is still open.
 
@@ -26,9 +27,9 @@ Herdr should provide as much of the terminal and agent control as possible. Oper
 
 An implementation-ready specification for the first Operator orchestration workflow: project setup, isolated crew work, questions routed through the Operator, and reviewed results. The specification must also settle the supporting CLI, distribution, release, and quality requirements.
 
-We will use `wayfinder` to chart this work in [GitHub Issues](https://github.com/fveracoechea/operator/issues). Its map will index decision tickets and their dependencies. Questions that are not yet clear enough to become tickets will remain in the map's **Not yet specified** section.
+Follow [Map the first Operator orchestration workflow](https://github.com/fveracoechea/operator/issues/1) for the approved scope and current decision tickets. The map uses native GitHub sub-issues and blocking relationships. Questions that are not yet clear enough to become tickets remain in its **Not yet specified** section.
 
-This effort ends when the route to implementation is clear. Building and releasing the production workflow comes afterward. The map has not been created yet.
+This effort ends when the route to implementation is clear. Building and releasing the production workflow comes afterward.
 
 ## Technical Requirements
 
@@ -55,19 +56,11 @@ A GitHub source reference and the GitHub Packages registry are different deliver
 
 Fast local feedback and CI checks must agree on what passes. The specification will define test boundaries, review gates, and failure handling before implementation starts.
 
-## Decisions Ahead
+## Decision Tracking
 
-The initial discussion needs to cover:
+The map is the planning index, not a build backlog. Each child ticket holds one question and, when resolved, its answer. Human decision tickets require live discussion; research findings do not stand in for user approval.
 
-- What setup changes in a project, what it changes in agent configuration, and how it preserves existing settings.
-- Which Herdr features cover worktree creation, agent startup, communication, monitoring, and recovery.
-- What the Operator may decide alone, what requires your approval, and how human-in-the-loop skills retain real human input.
-- How OpenCode and Claude Code participate in the same workflow.
-- How work is claimed, reviewed, integrated, and recovered after an interruption.
-- Which operations need deterministic CLI support rather than skill instructions alone.
-- How skills and CLI versions are installed, updated, tested, and released together.
-
-These are discussion areas, not a fixed backlog. Once the map exists, its decision tickets will hold the answers.
+The open discussions include [Matrix-inspired crew terminology](https://github.com/fveracoechea/operator/issues/6) and [safe crew cleanup after completion](https://github.com/fveracoechea/operator/issues/12).
 
 ## Working in This Repo
 
