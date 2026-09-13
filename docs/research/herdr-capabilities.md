@@ -2,8 +2,12 @@
 
 Date: 2026-09-12. Research for [Verify Herdr control and recovery capabilities][issue]
 in [Map the first Operator orchestration workflow][map].
-Status: incomplete draft recovered after the research worker hit a service usage limit.
-The ticket remains open. Verify the cited findings before using this report to resolve it.
+Status: complete. Citations were re-verified against the primary sources:
+all linked pages and pinned files resolve, and the specific claims checked
+against them were supported. One functional error in the recovered draft's
+cleanup sequencing was found by review and corrected here (see Cleanup
+Ownership). Read-only probes against the installed Herdr confirmed the
+client/server version and the CLI record shapes.
 Scope: one machine, Linux or macOS, mixed OpenCode and Claude Code crew.
 This report informs decisions. It does not select a support contract or authorize setup.
 
@@ -11,6 +15,12 @@ This report informs decisions. It does not select a support contract or authoriz
 
 - **D**: verified in first-party documentation, not tested in a running session.
 - **S**: verified by reading pinned implementation source, not runtime testing.
+- **T**: observed on the running installed server with read-only commands only
+  (`herdr status`, `--help` surfaces, `agent list`, `worktree list`). No pane was
+  inspected beyond list metadata, and no agent was prompted, started, or resumed.
+  This describes this report's verification session only; the wider Operator
+  effort dispatches crew agents that do run, and that dispatch is outside this
+  report's evidence boundary.
 - **I**: inference from those facts; a design implication, not a Herdr guarantee.
 - **U**: unknown or untested behavior that needs separate evidence.
 - Started with the [Herdr agent guide][guide], then its CLI, socket, agents,
@@ -20,9 +30,13 @@ This report informs decisions. It does not select a support contract or authoriz
   `b99002ac99b09e00b4ca692436cb15a6b0d676f1` [release].
 - Source references below pin that release. Live documentation links were read
   on this report's date; they can change independently of the release.
-- No Herdr binary, socket, user pane, integration installer, or global config was
-  accessed. No agent was started or resumed. Source was cloned into approved
-  scratch for read-only review. Installed versions and machine readiness remain U.
+- Reading note for future verification: only `https://herdr.dev/agent-guide.md`
+  serves markdown; the `/docs/<page>.md` variants return the homepage shell with
+  HTTP 200, so read the trailing-slash pages or their rendered HTML.
+- No Herdr socket command mutated state, no user pane was controlled, no
+  integration installer, global config change, agent start, or resume was run.
+  Source and docs were reviewed read-only. macOS machine readiness and the
+  installed OpenCode/Claude application versions remain U.
 
 ## Capability Matrix
 
@@ -30,20 +44,21 @@ This report informs decisions. It does not select a support contract or authoriz
 | --- | --- | --- | --- |
 | Worktree creation | `worktree create` creates a Git checkout plus grouped workspace, tab, and root pane; accepts branch, base, path, and no-focus. | I: suitable for one checkout per crew member, not a security sandbox. | D [cli]; S [worktree]; D [git] |
 | Worktree ownership | Workspace records contain Git provenance; `worktree list` discovers checkouts; `open` can reuse an already-open workspace. | I: provenance is not an assignment lease or exclusive write permission. | D [socket] |
-| Checkout cleanup | `workspace close` removes runtime state, not the checkout. `worktree remove` uses Git, requires force for dirty-checkout refusal, and retains the branch. | I: keep approval for deletion separate from closing a workspace. | D [cli] |
+| Checkout cleanup | `workspace close` removes runtime state, not the checkout. `worktree remove --workspace ID` runs `git worktree remove`, never deletes the branch, and requires force for dirty-checkout refusal. | D: the documented remove surface targets a workspace ID. S: the remove handler itself closes the linked workspace after success, so the workspace must still exist when remove runs. | D [cli]; S [wt-remove], [wt-remove-finish] |
 | Agent launch | `agent start NAME --kind opencode\|claude --pane ID -- ...` uses an existing available shell and waits for readiness. | D: it does not create topology; blocked startup returns `agent_not_ready`, not an absent process. | D [automation] |
 | Identity | Targets are a unique live name or pane ID; agent records can expose native `agent_session`. | D: names belong to the current occupant and one server, not a durable task. | D [cli]; S [agent-schema] |
 | OpenCode lifecycle | Active official plugin reports working, blocked, idle, and native session identity. | S: reports are best effort; blocked also covers `session.error`. No task success result is reported. | D [agents]; S [oc-plugin] |
 | Claude lifecycle | Foreground process plus screen manifest determines state; official hook reports native session identity only. | D: unknown dialog shapes can fall back to idle, including when actually waiting for input. | D [agents]; S [claude-hook] |
 | Prompt submission | `agent prompt` sends text and delayed Enter in order, with bracketed-paste handling and optional combined wait. | D: no-wait success acknowledges writes, not a turn; a working agent's older turn can satisfy the wait. | D [cli], [socket] |
 | Questions and approvals | Wait for blocked, read the visible UI, and use deliberate `agent send-keys`. Prompt rejects already-blocked agents. | I: Herdr is terminal transport, not a structured question inbox, answer ledger, or authorization policy. | D [automation]; S [agent-schema], [oc-plugin] |
-| Completion | Waits observe semantic state and pin the current occupant. | D: done is unseen idle; idle, done, blocked, and unknown do not prove the assigned work passed review or tests. | D [cli], [socket] |
+| Completion | Waits observe semantic state and pin the current occupant. | D: done is unseen idle; idle, done, blocked, and unknown do not prove the assigned work passed review or tests. I: the map requires a separate code-review crew pass per completed task; Herdr supplies no review signal. | D [cli], [socket] |
 | Output | Visible, recent, unwrapped, and detection reads; read-only live terminal streams. | D: alternate-screen history reads can scroll an idle agent; output waits can match old text. | D [automation], [cli] |
 | Reconnect | Snapshot plus live subscriptions can rebuild a runtime cache. | D: lifecycle subscriptions do not replay earlier events; reconnect needs a new snapshot. | D [socket] |
 | Detach | Server-owned pane processes continue after client detach or SSH loss. | I: this permits unattended work while the server survives, not after host/server failure. | D [guide], [recovery] |
 | Cold restart | Saved layout/cwd returns; eligible native sessions can resume after client attach. | D/S: new processes, not preserved tests or tool calls; missing cwd can fall back to HOME. | D [recovery]; S [restore] |
 | Durable coordination | Snapshots save layout, provenance, selected identity fields, and native references. | I: no durable Operator assignments, pending-question records, approvals, or verified results are supplied by these fields. | S [snapshot]; D [socket] |
-| Platforms and permissions | Linux/macOS releases, Unix sockets, foreground-process detection, same-host terminal control. | S/I: socket owner access is broad control, not a per-crew-member permission boundary. | D [install], [agents]; S [api-server], [platform-linux], [platform-macos] |
+| Platforms and permissions | Linux/macOS releases, Unix sockets, foreground-process detection, same-host terminal control. | S/I: socket owner access is broad control, not a per-crew-member permission boundary. | D [install], [socket], [agents]; S [api-server], [platform-linux], [platform-macos] |
+| Installed surface | T: client and server both 0.9.0 on Linux, protocol 22, endpoint compatible, no update restart flagged. CLI groups and worktree/agent flags match the docs. `agent list` records carry native `agent_session`, live `name`, state, `screen_detection_skipped`, and `interactive_ready`; `worktree list` records carry Git provenance and `open_workspace_id`, all matching the pinned schema. | T/I: this confirms one Linux machine at 0.9.0; it is not a support contract, and macOS, OpenCode/Claude application versions, and integration revisions on it remain U. | T (probes); S [agent-schema] |
 
 ## Worktree and Runtime Control
 
@@ -69,6 +84,58 @@ Git trust refusal is not permission to retry with trust automatically [cli], [wo
 They clear on exit, release, or replacement. A cross-workspace pane move changes
 the public pane ID, keeps a launch-time alias for that terminal, and ends an
 existing agent wait with `agent_not_running` [automation].
+
+## Cleanup Ownership
+
+**Map requirement:** the Operator owns closing completed crew agents and
+removing their Herdr-managed worktrees, subject to result preservation and the
+agreed approval requirements. Worktree deletion, merge, and package publication
+remain separate approval points, and the cleanup policy is still an open map
+decision. Herdr supplies the mechanics below; it does not enforce the policy.
+
+**D:** The documented surfaces: `worktree remove --workspace ID [--force]`
+targets the workspace that owns the checkout, runs `git worktree remove`,
+never deletes the branch, and requires `--force` when Git refuses a dirty
+checkout. `workspace close` removes runtime state only [cli]. Branch deletion
+and any push are separate Git actions the Operator must treat as distinct
+steps. The source below confirms that remove needs a live workspace handle.
+
+**S:** The pinned remove handler confirms and extends this. It resolves
+`workspace_id` first and fails `workspace_not_found` when the workspace is
+gone; it refuses non-linked worktree workspaces (`not_linked_worktree`),
+in-progress operations (`worktree_operation_in_progress`), and, on Windows
+only, an unforced dirty checkout up front. On Unix, it shuts down the
+workspace's pane terminal runtimes before removal only when `--force` is set.
+After a successful `git worktree remove`, the same handler closes the linked
+workspace itself, refocuses the parent repo workspace if the removed one was
+active, and emits `WorkspaceClosed` then `WorktreeRemoved`. On failure the
+workspace stays open: dirty refusals return `dirty_worktree_requires_force`
+and other Git errors `worktree_remove_failed`, with force-shutdown panes
+restored. A forced removal can also clear a leftover prunable checkout by
+deleting its directory after verifying it matches the repo [wt-remove],
+[wt-remove-finish], [wt-close], [wt-prunable].
+
+**D:** `workspace close --group` closes the primary workspace and its linked
+worktree workspaces together; a plain close can fail with
+`workspace_group_close_required`. It must never be used merely to bypass that
+error, and closing workspaces one did not create requires explicit authority
+[guide].
+
+**I:** The corrected cleanup flow for the first workflow: preserve results
+first (artifact files, commits, test evidence); the workspace is not a durable
+store. Then remove the checkout with `worktree remove --workspace ID` under
+its own approval. That one call both deletes the checkout and closes the
+workspace; no separate `workspace close` precedes it, and closing the
+workspace first would make remove fail. Recheck for uncommitted work before
+requesting `--force`, because it discards dirty state and, on Unix, shuts down
+the workspace's panes. `workspace close` alone is for handing back runtime
+state when the checkout must survive. Pane history is off by default, so
+transcript evidence does not survive either path [recovery].
+
+**U:** Whether the Operator should keep the branch, when deletion is safe
+relative to review, and who approves dirty-checkout force removal are cleanup
+policy decisions the map still owes. The remove handler's failure and restore
+paths are source-read, not runtime-tested.
 
 ## Lifecycle, Prompts, and Questions
 
@@ -107,13 +174,21 @@ crew-written question artifact are possible follow-ups, not verified Herdr featu
 Mixed-agent free text, multi-select, cancellation, nested questions, and simultaneous
 human input need E2E tests before unattended answer routing can be claimed.
 
+**Map requirement:** every completed task triggers a separate code-review crew
+pass using the code-review skill. This report only records the capability
+implication: Herdr lifecycle states report turn completion, not review
+verdicts, so review evidence must come from that separate review pass, not
+from `idle`, `done`, or output reads. How review results route back and gate
+completion is a policy decision this report does not resolve.
+
 ## Output and Event Transport
 
 **D:** CLI wrappers use the same local socket control surface. Most commands
 return JSON; reads print text directly. Raw reads return `.result.read.text`.
 Unix transport is newline-delimited JSON with response IDs; raw clients are useful
 for subscriptions. Exported schema describes the installed binary, not proof of
-the running server's version. Unsupported methods must be handled [cli], [socket].
+the running server's version. Unsupported methods must be handled [cli], [socket];
+`.result.read.text` is documented on the automation page [automation].
 
 **D:** Recent reads default to the last 80 rendered rows. For idle recognized
 alternate-screen agents, a larger text read may scroll through transcript pages
@@ -184,9 +259,9 @@ boundary still needs a human decision [recovery].
   separate runtime namespaces but share global config, not a security boundary
   [api-server], [client-socket], [remote].
 - **D/S:** Claude installation changes `settings.json` and writes a hook under
-  `~/.claude` or `CLAUDE_CONFIG_DIR`. The Unix hook needs `python3`; if absent it
+  `~/.claude` or `CLAUDE_CONFIG_DIR` [integrations]. The Unix hook needs `python3`; if absent it
   silently exits. It reports only root `SessionStart` identity and catches socket
-  failures. Screen state still works without successful session reporting [integrations], [claude-hook].
+  failures. Screen state still works without successful session reporting [claude-hook].
 - **S, docs gap:** The OpenCode installer writes `plugins/herdr-agent-state.js`,
   root `herdr-tui-session.js`, and updates `tui.jsonc` under `~/.config/opencode`.
   Its path helper does not use `OPENCODE_CONFIG_DIR` or `XDG_CONFIG_HOME`.
@@ -218,16 +293,40 @@ These are suggested ticket scopes, not new issues or selected decisions.
    collisions, concurrent create/open, interrupted creation, deleted paths, dirty and
    locked worktrees, and existing-workspace ownership. Decide whether submodules are
    supported; Git documents incomplete multiple-checkout support [git].
-6. **Set the support and permission contract.** Record CLI/server/integration/agent
-   versions and detection manifests; test both OS families. Decide what same-user
+6. **Set the support and permission contract.** This Linux machine's Herdr
+   client/server version is recorded (0.9.0, protocol 22). Still open: macOS
+   versions, the installed OpenCode/Claude application versions, integration
+   revisions, and detection manifests on both OS families. Decide what same-user
    socket authority, global setup approval, and degraded screen detection permit.
 
 ## Verification Status
 
-Primary docs and pinned release source reviewed; no runtime capability is E2E-verified.
-No installation, global change, pane access, recovery experiment, or production
-implementation was performed. The source's tests were inspected where relevant,
-not executed. This report is the only intended project change.
+A citation-verification pass re-read every linked documentation page and every
+pinned source file at commit `b99002ac99b09e00b4ca692436cb15a6b0d676f1`,
+checking the specific claims each citation carries. All resolved, and the
+checked claims were supported; this validates those claim-citation pairs, not
+every sentence of this report independently. Four corrections were made in
+this revision: Unix sockets are documented on the socket page, not the install
+page; the Claude hook's `python3` dependency is in the hook source, not the
+integration page; `.result.read.text` is on the automation page; and the
+cleanup sequencing was functionally wrong. The pinned `worktree.remove`
+handler shows the remove call closes the linked workspace itself after
+success, so the draft's "close the workspace, then remove" order would fail
+with `workspace_not_found`; Cleanup Ownership now carries the corrected,
+source-verified ordering. The release check confirmed v0.9.0 is the latest
+stable release, published 2026-09-07, at that commit, with bundled integration
+revisions Claude 9 and OpenCode/TUI 11 matching the sources.
+
+Read-only probes against the running installed server (`herdr status`, help
+surfaces, `agent list`, `worktree list`) confirmed the 0.9.0 client/server pair
+on Linux and that live agent and worktree records match the pinned schema.
+No runtime capability of this report's own is E2E-verified: the verification
+session started no agent, prompted nothing, read no pane output, and ran no
+install, global change, recovery experiment, or destructive probe. The
+Operator dispatch that produced this crew and started its agents is a separate
+activity outside this evidence boundary. The source's tests were inspected
+where relevant, not executed. This report is the only intended project change
+on this branch.
 
 ## Sources
 
@@ -245,6 +344,10 @@ not executed. This report is the only intended project change.
 [remote]: https://herdr.dev/docs/persistence-remote/
 [git]: https://git-scm.com/docs/git-worktree/2.54.0
 [worktree]: https://github.com/herdrdev/herdr/blob/b99002ac99b09e00b4ca692436cb15a6b0d676f1/src/worktree.rs#L154-L276
+[wt-remove]: https://github.com/herdrdev/herdr/blob/b99002ac99b09e00b4ca692436cb15a6b0d676f1/src/app/api/worktrees/deferred.rs#L215-L364
+[wt-remove-finish]: https://github.com/herdrdev/herdr/blob/b99002ac99b09e00b4ca692436cb15a6b0d676f1/src/app/api/worktrees/deferred.rs#L480-L599
+[wt-close]: https://github.com/herdrdev/herdr/blob/b99002ac99b09e00b4ca692436cb15a6b0d676f1/src/app/worktrees.rs#L4-L37
+[wt-prunable]: https://github.com/herdrdev/herdr/blob/b99002ac99b09e00b4ca692436cb15a6b0d676f1/src/worktree.rs#L343-L364
 [agent-schema]: https://github.com/herdrdev/herdr/blob/b99002ac99b09e00b4ca692436cb15a6b0d676f1/src/api/schema/agents.rs
 [oc-plugin]: https://github.com/herdrdev/herdr/blob/b99002ac99b09e00b4ca692436cb15a6b0d676f1/src/integration/assets/opencode/herdr-agent-state.js
 [oc-tui]: https://github.com/herdrdev/herdr/blob/b99002ac99b09e00b4ca692436cb15a6b0d676f1/src/integration/assets/opencode/herdr-tui-session.js
