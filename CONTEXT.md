@@ -13,8 +13,17 @@ The group of sub-agents coordinated by the Operator.
 **Crew member**:
 A sub-agent assigned work by the Operator. This is the working term until a Matrix-inspired name is chosen.
 
+**Assignment**:
+An approved unit of work with its inputs, dependencies, questions, and result. It persists across the loss or replacement of the crew process doing the work.
+
+**Attempt**:
+One crew execution of an assignment, associated with its agent session and execution resources. A replacement crew process starts a new attempt on the same assignment.
+
 **Operator decision**:
 A decision made by the Operator within authority delegated by the user. It is distinct from a human answer, even when based on recorded human requirements.
 
 **Human answer**:
 A response given by the user to a question. An Operator inference or summary is not itself a human answer.
+
+**Operator release**:
+A matched version of the Operator CLI and Operator-owned skills, released together. Required upstream skills have separate revisions.

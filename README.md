@@ -47,15 +47,16 @@ These are requirements for the planned implementation, not tools already configu
 | Tests | Bun tests, including end-to-end checks of CLI behavior |
 | Versioning | Changesets |
 | Releases | Automated GitHub Actions release workflow |
-| Distribution | GitHub-hosted source and GitHub Packages; the exact delivery path needs verification |
+| Distribution | Both GitHub-hosted source and GitHub Packages |
 
 The requested invocation is a design target, **not an installation command that works today**:
 
 ```sh
 bunx github:fveracoechea/operator some-operation
+bunx @fveracoechea/operator some-operation
 ```
 
-A GitHub source reference and the GitHub Packages registry are different delivery paths. We still need to verify this command, version pinning, authentication, and how each path relates to a Changesets release.
+A GitHub source reference and the GitHub Packages registry are different delivery paths. The approved [CLI and skill distribution contract](https://github.com/fveracoechea/operator/issues/7#issuecomment-5653511210) defines authentication, exact release selection, skill installation, updates, runtime boundaries, and publication approval. The actual CLI and release flow still need implementation and end-to-end verification.
 
 Fast local feedback and CI checks must agree on what passes. The specification will define test boundaries, review gates, and failure handling before implementation starts.
 
