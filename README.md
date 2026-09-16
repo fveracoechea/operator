@@ -4,6 +4,9 @@ Personal skills and CLI tools for coordinating coding agents in OpenCode and Cla
 
 The name comes from *The Matrix*: the crew member who loads programs, guides missions, and keeps the people in the field connected. Here, the Operator is your primary agent. You give it direction; it coordinates a crew of sub-agents.
 
+<img width="1080" height="607" alt="image" src="https://github.com/user-attachments/assets/4f3cb9ff-7bea-4d7d-9a5f-79f1f6bc6164" />
+
+
 ## Status
 
 **Planning, not a working CLI.** This repo currently contains Matt Pocock's installed skills and their project configuration. The orchestration skill, CLI commands, quality checks, and release automation are not implemented yet.
