@@ -4,7 +4,7 @@ Personal skills and CLI tools for coordinating coding agents in OpenCode and Cla
 
 The name comes from *The Matrix*: the crew member who loads programs, guides missions, and keeps the people in the field connected. Here, the Operator is your primary agent. You give it direction; it coordinates a crew of sub-agents.
 
-<img width="1080" height="607" alt="image" src="https://github.com/user-attachments/assets/4f3cb9ff-7bea-4d7d-9a5f-79f1f6bc6164" />
+<img width="1600" height="689" alt="image" src="https://github.com/user-attachments/assets/800655fa-8603-47d5-9f2e-6cf0b56dcad6" />
 
 
 ## Status
