@@ -19,6 +19,12 @@ An approved unit of work with its inputs, dependencies, questions, and result. I
 **Attempt**:
 One crew execution of an assignment, associated with its agent session and execution resources. A replacement crew process starts a new attempt on the same assignment.
 
+**Result submission**:
+The handoff of an assignment's result and supporting evidence for separate review. It is not accepted completion.
+
+**Accepted completion**:
+The Operator's acceptance of an assignment result after required review and quality gates are satisfied. It permits dependent assignments to use that result.
+
 **Operator decision**:
 A decision made by the Operator within authority delegated by the user. It is distinct from a human answer, even when based on recorded human requirements.
 
