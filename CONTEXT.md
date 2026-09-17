@@ -10,8 +10,9 @@ The primary agent that is the user's main point of contact and coordinates the c
 **Crew**:
 The group of sub-agents coordinated by the Operator.
 
-**Crew member**:
-A sub-agent assigned work by the Operator. This is the working term until a Matrix-inspired name is chosen.
+**Operative**:
+A sub-agent assigned work by the Operator.
+Operative is the preferred term; "Crew member" is an accepted alternative for the same role.
 
 **Assignment**:
 An approved unit of work with its inputs, dependencies, questions, and result. It persists across the loss or replacement of the crew process doing the work.
