@@ -24,7 +24,7 @@ async function runImportedOperator(args: string[]) {
       "bun",
       "--no-install",
       "-e",
-      'import { main } from "@fveracoechea/operator/cli"; await main(process.argv.slice(1));',
+      'import { main } from "@fveracoechea/operator/cli"; await main(Bun.argv.slice(1));',
       "--",
       ...args,
     ],

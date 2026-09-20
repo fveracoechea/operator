@@ -1,2 +1,3 @@
 node_modules/
-module-boundary.probe.ts
+module-boundary-probe-*.ts
+modules/module-boundary-probe-*

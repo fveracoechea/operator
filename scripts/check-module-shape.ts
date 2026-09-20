@@ -26,7 +26,11 @@ function normalized(path: string): string {
   return path.split(sep).join("/");
 }
 
-function hasExportModifier(node: ts.Node): boolean {
+function isExportedStatement(node: ts.Statement): boolean {
+  if (ts.isExportDeclaration(node) || ts.isExportAssignment(node)) {
+    return true;
+  }
+
   return (
     ts.canHaveModifiers(node) &&
     (ts.getModifiers(node)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ??
@@ -63,7 +67,7 @@ function projectTarget(importer: string, specifier: string): string | undefined 
 }
 
 function checkModuleInterface(path: string, sourceFile: ts.SourceFile): void {
-  const exports = sourceFile.statements.filter(hasExportModifier);
+  const exports = sourceFile.statements.filter(isExportedStatement);
   const exported = exports[0];
 
   if (exports.length !== 1 || !exported || !ts.isVariableStatement(exported)) {

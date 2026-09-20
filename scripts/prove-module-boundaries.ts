@@ -62,55 +62,69 @@ async function proveViolation(violation: Violation): Promise<void> {
 
 await requireCleanGraph("The clean module graph did not pass");
 
+const probeIdentity = crypto.randomUUID();
 const violations: Violation[] = [
   {
     name: "private module import",
     files: {
-      "module-boundary.probe.ts": 'require("./modules/operator-cli/run.ts");\n',
+      [`module-boundary-probe-${probeIdentity}.test.ts`]:
+        'require("./modules/operator-cli/run.ts");\n',
     },
-    cleanupPath: "module-boundary.probe.ts",
+    cleanupPath: `module-boundary-probe-${probeIdentity}.test.ts`,
     expectedDiagnostic: "imports private module file",
   },
   {
     name: "missing module interface",
     files: {
-      "modules/missing-interface/private.ts": "export {};\n",
+      [`modules/module-boundary-probe-missing-${probeIdentity}/private.ts`]: "export {};\n",
     },
-    cleanupPath: "modules/missing-interface",
+    cleanupPath: `modules/module-boundary-probe-missing-${probeIdentity}`,
     expectedDiagnostic: "every module requires one public interface",
   },
   {
     name: "data-only module interface",
     files: {
-      "modules/data-interface/main.ts": "export const DataInterface = { value: true };\n",
+      [`modules/module-boundary-probe-data-${probeIdentity}/main.ts`]:
+        "export const DataInterface = { value: true };\n",
     },
-    cleanupPath: "modules/data-interface",
+    cleanupPath: `modules/module-boundary-probe-data-${probeIdentity}`,
     expectedDiagnostic: "properties are action methods",
+  },
+  {
+    name: "barrel module interface",
+    files: {
+      [`modules/module-boundary-probe-barrel-${probeIdentity}/main.ts`]:
+        'export const BarrelInterface = { run() {} };\nexport { helper } from "./helper.ts";\n',
+      [`modules/module-boundary-probe-barrel-${probeIdentity}/helper.ts`]:
+        "export function helper() {}\n",
+    },
+    cleanupPath: `modules/module-boundary-probe-barrel-${probeIdentity}`,
+    expectedDiagnostic: "must export exactly one variable statement",
   },
   {
     name: "flat production module file",
     files: {
-      "modules/flat.probe.ts": "export {};\n",
+      [`modules/module-boundary-probe-${probeIdentity}.ts`]: "export {};\n",
     },
-    cleanupPath: "modules/flat.probe.ts",
+    cleanupPath: `modules/module-boundary-probe-${probeIdentity}.ts`,
     expectedDiagnostic: "production files must be inside a feature module",
   },
   {
     name: "production code outside modules",
     files: {
-      "services/outside.probe.ts": "export {};\n",
+      [`module-boundary-probe-${probeIdentity}.ts`]: "export {};\n",
     },
-    cleanupPath: "services",
+    cleanupPath: `module-boundary-probe-${probeIdentity}.ts`,
     expectedDiagnostic: "production TypeScript must live",
   },
   {
     name: "module dependency cycle",
     files: {
-      "modules/cycle-probe/main.ts":
+      [`modules/module-boundary-probe-cycle-${probeIdentity}/main.ts`]:
         'import "./worker.ts";\nexport const CycleProbe = { run() {} };\n',
-      "modules/cycle-probe/worker.ts": 'import "./main.ts";\n',
+      [`modules/module-boundary-probe-cycle-${probeIdentity}/worker.ts`]: 'import "./main.ts";\n',
     },
-    cleanupPath: "modules/cycle-probe",
+    cleanupPath: `modules/module-boundary-probe-cycle-${probeIdentity}`,
     expectedDiagnostic: "no-module-cycles",
   },
 ];

@@ -7,5 +7,5 @@ export async function main(args: string[]): Promise<void> {
 }
 
 if (import.meta.main) {
-  await main(process.argv.slice(2));
+  await main(Bun.argv.slice(2));
 }
