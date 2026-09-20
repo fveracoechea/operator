@@ -15,10 +15,15 @@
     "lint": "bunx --bun --no-install oxlint --deny-warnings cli.ts modules scripts dependency-cruiser.config.cjs",
     "lint:modules": "bun scripts/check-module-shape.ts && bunx --bun --no-install depcruise --config dependency-cruiser.config.cjs cli.ts modules scripts",
     "preinstall": "bun scripts/require-bun.ts",
+    "schema:check": "bun scripts/generate-config-schema.ts --check",
+    "schema:generate": "bun scripts/generate-config-schema.ts",
     "test:module-boundaries": "bun scripts/prove-module-boundaries.ts",
     "test": "bun test",
     "typecheck": "bunx --bun --no-install tsc --noEmit -p tsconfig.json",
-    "quality": "bun run format:check && bun run lint && bun run typecheck && bun run lint:modules && bun run test:module-boundaries && bun run test"
+    "quality": "bun run format:check && bun run lint && bun run typecheck && bun run schema:check && bun run lint:modules && bun run test:module-boundaries && bun run test"
+  },
+  "dependencies": {
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@types/bun": "1.4.2",
