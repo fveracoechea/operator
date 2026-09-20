@@ -9,9 +9,28 @@ The name comes from *The Matrix*: the crew member who loads programs, guides mis
 
 ## Status
 
-**Planning, not a working CLI.** This repo currently contains Matt Pocock's installed skills and their project configuration. The orchestration skill, CLI commands, quality checks, and release automation are not implemented yet.
+**Foundation in progress.**
+The repository now contains the first Bun CLI slice and its local and CI quality gate.
+The orchestration workflow, project setup, and release automation are not implemented yet.
 
 The first feature will be a setup skill that prepares a project for agent orchestration through Herdr.
+
+## CLI Foundation
+
+Use `bun cli.ts --version` for human output or `bun cli.ts --version --json` for the versioned machine result.
+The package also exports `main(args)` from `@fveracoechea/operator/cli`.
+
+CLI exit meanings are stable across commands:
+
+| Exit | Meaning |
+| ---: | --- |
+| 0 | Completed |
+| 1 | Definite failure |
+| 2 | Invalid request or input |
+| 3 | Missing condition or approval |
+| 4 | State or ownership conflict |
+| 5 | Uncertain external effect |
+| 6 | Recorded operation still pending |
 
 ## The Workflow We Want
 
@@ -74,7 +93,8 @@ Start with [AGENTS.md](AGENTS.md) for the engineering skill configuration and [C
 - [Triage labels](docs/agents/triage-labels.md): the five default triage roles.
 - [Domain documentation](docs/agents/domain.md): how skills read the glossary and architecture decisions.
 
-Installed skills live in `.agents/skills/`; `skills-lock.json` records their upstream sources and hashes. There are no application build or test commands yet.
+Installed skills live in `.agents/skills/`; `skills-lock.json` records their upstream sources and hashes.
+Run `bun run quality` for the same formatting, linting, typechecking, module-boundary, and test gate used in CI.
 
 ## References
 

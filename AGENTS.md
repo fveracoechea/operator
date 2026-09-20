@@ -11,3 +11,10 @@ The five canonical triage roles use their default label strings. See `docs/agent
 ### Domain docs
 
 Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+### Production modules
+
+Production code lives in flat `modules/<feature-or-capability>/` directories.
+Each module exports one named PascalCase interface object from `main.ts`.
+Import another module only through its `main.ts`; implementation files are private.
+Run `bun run lint:modules` to enforce module shape, boundaries, and dependency cycles.
