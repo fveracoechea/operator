@@ -36,10 +36,10 @@ export async function runCrewOwn(
       json: parsed.json,
       result: {
         outcome: "conflict",
-        reason: "stale_revision",
+        reason: "ownership_revision_stale",
         blockers: [
           {
-            reason: "stale_revision",
+            reason: "ownership_revision_stale",
             ownerLabel: result.ownership.ownerLabel,
             recordedRevision: result.ownership.revision,
           },

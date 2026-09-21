@@ -162,7 +162,7 @@ operator work accept --request <id> --owner-token <token> --assignment <id> --re
 Every mutation carries a request identity.
 A repeat under the same identity returns the recorded result of a mutation that changed state, with no new effect, and `repeated` in the result says so.
 A refused mutation records nothing, so a repeat of it is checked again against the current state.
-The same identity carrying different input is refused.
+Once an identity has recorded an outcome, the same identity carrying different input is refused.
 See [ADR 0003](docs/adr/0003-crew-state-is-one-sqlite-file-created-once.md) and [ADR 0004](docs/adr/0004-the-frontier-is-the-only-dispatch-rule.md).
 
 ## The Workflow We Want

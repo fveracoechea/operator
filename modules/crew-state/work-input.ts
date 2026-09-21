@@ -87,7 +87,14 @@ export function kindOf(item: WorkItem): AssignmentKind {
   return "kind" in item ? item.kind : kindByWayfinderType[item.wayfinderType];
 }
 
-/** Planning work is registered so dependencies resolve, but it is never dispatched. */
+/**
+ * The two questions a recorded kind answers. Each is an allowlist, so a value this release does
+ * not know is neither dispatched nor given review priority.
+ */
 export function isExecutable(kind: string): boolean {
   return kind === "production" || kind === "review";
+}
+
+export function isReview(kind: string): boolean {
+  return kind === "review";
 }

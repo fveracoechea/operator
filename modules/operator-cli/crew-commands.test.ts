@@ -243,7 +243,7 @@ describe("operator crew own", () => {
     ]);
 
     expect(result.exitCode).toBe(4);
-    expect(result.json.reason).toBe("stale_revision");
+    expect(result.json.reason).toBe("ownership_revision_stale");
     expect(result.json.blockers[0]).toMatchObject({ recordedRevision: 1 });
   });
 
@@ -662,6 +662,42 @@ describe("operator work claim", () => {
     const retried = await runJson(root, claimSecond);
     expect(retried.json.reason).toBe("assignment_claimed");
     expect(retried.json.data.repeated).toBe(false);
+  });
+
+  test("re-checks a request identity whose first use recorded nothing", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+    const registered = await register(root, token, { items: [item({ key: "a" })] });
+    const requestId = request();
+
+    const missing = await runJson(root, [
+      "work",
+      "claim",
+      "--request",
+      requestId,
+      "--owner-token",
+      token,
+      "--assignment",
+      "0".repeat(32),
+      "--revision",
+      "1",
+    ]);
+    expect(missing.json.reason).toBe("unknown_assignment");
+
+    // The refused request recorded nothing, so this identity carries no input to disagree with.
+    const claimed = await runJson(root, [
+      "work",
+      "claim",
+      "--request",
+      requestId,
+      "--owner-token",
+      token,
+      "--assignment",
+      assignmentIdOf(registered.json, "a"),
+      "--revision",
+      "1",
+    ]);
+    expect(claimed.json.reason).toBe("assignment_claimed");
   });
 
   test("refuses a reused request identity that carries different input", async () => {

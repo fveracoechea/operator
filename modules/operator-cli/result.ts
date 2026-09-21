@@ -75,6 +75,7 @@ export type Reason =
   | "attempt_not_expected"
   | "unknown_assignment"
   | "stale_revision"
+  | "ownership_revision_stale"
   | "planning_only"
   | "assignment_accepted"
   | "frontier_ready"

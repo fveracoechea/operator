@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import type { CrewReader } from "./database.ts";
 import type { Capacity } from "./capacity.ts";
 import { assignmentDependencies, assignments, attempts, workSources } from "./schema.ts";
-import { isExecutable } from "./work-input.ts";
+import { isExecutable, isReview } from "./work-input.ts";
 
 export type FrontierEntry = {
   assignmentId: string;
@@ -36,7 +36,7 @@ export type Frontier = {
 
 /** Review outranks production; inside one kind the recorded source order decides. */
 function byPriority(left: FrontierEntry, right: FrontierEntry): number {
-  const rank = (entry: FrontierEntry) => (entry.kind === "review" ? 0 : 1);
+  const rank = (entry: FrontierEntry) => (isReview(entry.kind) ? 0 : 1);
   return (
     rank(left) - rank(right) ||
     left.sourceOrder - right.sourceOrder ||
@@ -119,8 +119,8 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
     return attempt === undefined ? [] : [{ ...one, attemptId: attempt.id }];
   });
 
-  const activeProduction = activeEntries.filter((one) => one.kind !== "review").length;
-  const activeReview = activeEntries.filter((one) => one.kind === "review").length;
+  const activeReview = activeEntries.filter((one) => isReview(one.kind)).length;
+  const activeProduction = activeEntries.length - activeReview;
 
   const freeSlots = Math.max(0, capacity.limit - activeProduction - activeReview);
   let openSlots = freeSlots;
@@ -155,7 +155,7 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
       continue;
     }
 
-    if (one.kind !== "review" && heldProduction >= capacity.productionLimit) {
+    if (!isReview(one.kind) && heldProduction >= capacity.productionLimit) {
       blocked.push({
         ...one,
         blockers: [
@@ -167,7 +167,7 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
 
     dispatchable.push(one);
     openSlots -= 1;
-    if (one.kind !== "review") {
+    if (!isReview(one.kind)) {
       heldProduction += 1;
     }
   }

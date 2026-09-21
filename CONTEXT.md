@@ -83,7 +83,7 @@ A takeover replaces it, and the replaced token can no longer change crew state.
 The caller's name for one mutation.
 A repeat under the same identity returns the recorded outcome of a mutation that changed state, with no new effect.
 A mutation that changed nothing records nothing, so a repeat of a refused request is checked again against the current state.
-The same identity carrying different input is refused.
+The same identity carrying different input is refused once that identity has recorded an outcome.
 
 **Assignment kind**:
 The recorded class of one assignment, which fixes both its planning boundary and its dispatch priority.
