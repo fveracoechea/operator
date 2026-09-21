@@ -403,7 +403,12 @@ async function runDispose(parsed: ParsedArguments): Promise<Handled> {
   report({
     json: parsed.json,
     result: {
-      outcome: result.outstanding.length === 0 ? "completed" : "pending",
+      // A finding with no disposition, and an accepted correction that has no rework yet, both
+      // leave work between this review and acceptance.
+      outcome:
+        result.outstanding.length === 0 && result.corrections.length === 0
+          ? "completed"
+          : "pending",
       reason: "findings_disposed",
       blockers: result.outstanding.map((findingId) => ({
         reason: "findings_undisposed" as const,
