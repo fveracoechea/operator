@@ -7,6 +7,9 @@ export const REVIEW_AXES = ["standards", "spec"] as const;
 
 export type ReviewAxis = (typeof REVIEW_AXES)[number];
 
+/** A review is registered until it either reports both axes or records what stopped it. */
+export type ReviewState = "registered" | "reported" | "blocked";
+
 export type ReviewRow = typeof reviews.$inferSelect;
 export type ReviewReportRow = typeof reviewReports.$inferSelect;
 export type ReviewFindingRow = typeof reviewFindings.$inferSelect;
@@ -64,7 +67,7 @@ export function updateReview(
   db: CrewWriter,
   request: {
     review: ReviewRow;
-    state: string;
+    state: ReviewState;
     host: string;
     subAgents: unknown;
     blocker: unknown;
@@ -79,6 +82,26 @@ export function updateReview(
       subAgents: request.subAgents === null ? null : JSON.stringify(request.subAgents),
       blocker: request.blocker === null ? null : JSON.stringify(request.blocker),
       reportedAt: request.reportedAt,
+      revision: request.review.revision + 1,
+      updatedAt: request.now,
+    })
+    .where(eq(reviews.id, request.review.id))
+    .run();
+}
+
+/**
+ * Returns one unfinished review to registered so a replacement attempt can report it.
+ * A blocked review is a stopped review, not a verdict, so the crew may try it again under the
+ * replacement limit. A reported review is finished and is never reopened this way.
+ */
+export function reopenReview(db: CrewWriter, request: { review: ReviewRow; now: string }): void {
+  db.update(reviews)
+    .set({
+      state: "registered",
+      host: null,
+      subAgents: null,
+      blocker: null,
+      reportedAt: null,
       revision: request.review.revision + 1,
       updatedAt: request.now,
     })

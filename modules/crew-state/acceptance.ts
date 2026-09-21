@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { endAttempt, readAttempt } from "./attempt.ts";
 import type { CrewWriter } from "./database.ts";
 import { activeAttempt, readAssignment } from "./frontier.ts";
 import {
@@ -8,7 +9,7 @@ import {
   reviewOfAssignment,
   reviewOfSubmission,
 } from "./review.ts";
-import { assignments, attempts, submissions } from "./schema.ts";
+import { assignments, submissions } from "./schema.ts";
 import type { SubmittedCheck, SubmittedCode } from "./submission-input.ts";
 import { latestSubmission, type SubmissionRow } from "./submission.ts";
 import { isExecutable, isReview } from "./work-input.ts";
@@ -218,10 +219,7 @@ export function acceptAssignment(db: CrewWriter, request: AcceptRequest): Accept
       };
     }
 
-    db.update(attempts)
-      .set({ state: "accepted", endedAt: request.now, revision: live.revision + 1 })
-      .where(eq(attempts.id, live.id))
-      .run();
+    endAttempt(db, { attempt: live, state: "accepted", now: request.now });
     db.update(assignments)
       .set({ state: "accepted", revision, updatedAt: request.now })
       .where(eq(assignments.id, row.id))
@@ -255,10 +253,10 @@ export function acceptAssignment(db: CrewWriter, request: AcceptRequest): Accept
     return blocked;
   }
 
-  db.update(attempts)
-    .set({ state: "accepted", endedAt: request.now })
-    .where(eq(attempts.id, submission.attemptId))
-    .run();
+  const submitted = readAttempt(db, submission.attemptId);
+  if (submitted !== null) {
+    endAttempt(db, { attempt: submitted, state: "accepted", now: request.now });
+  }
   db.update(submissions)
     .set({ state: "accepted", revision: submission.revision + 1, updatedAt: request.now })
     .where(eq(submissions.id, submission.id))

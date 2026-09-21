@@ -1,81 +1,28 @@
 import { afterEach, describe, expect, test } from "bun:test";
-// Bun has no recursive directory removal or real-path API.
-import { realpath, rm } from "node:fs/promises";
+// Bun has no recursive directory removal API.
+import { rm } from "node:fs/promises";
+import {
+  headCommit,
+  herdrCalls,
+  requestId as request,
+  runJson,
+  runOperator,
+  type Workspace,
+  workspaces,
+} from "./fixtures/workspace.ts";
 
-const cliPath = new URL("../../cli.ts", import.meta.url).pathname;
-const fakeHerdr = new URL("./fixtures/fake-herdr.sh", import.meta.url).pathname;
-const temporaryRoots: string[] = [];
+const fixtures = workspaces();
 
 afterEach(async () => {
-  await Promise.all(
-    temporaryRoots.splice(0).map((root) => rm(root, { force: true, recursive: true })),
-  );
+  await fixtures.removeAll();
 });
 
-type Workspace = { root: string; repo: string; herdr: string; bin: string };
-
 async function makeWorkspace(config: unknown = { crew: { host: "claude-code" } }) {
-  const root = `${Bun.env.TMPDIR ?? "/tmp"}/operator-attempt-${crypto.randomUUID()}`;
-  temporaryRoots.push(root);
-
-  const workspace: Workspace = {
-    root,
-    repo: `${root}/repo`,
-    herdr: `${root}/herdr`,
-    bin: `${root}/bin`,
-  };
-  await Bun.$`mkdir -p ${workspace.repo} ${workspace.herdr} ${workspace.bin}`.quiet();
-  await Bun.$`cp ${fakeHerdr} ${workspace.bin}/herdr`.quiet();
-  await Bun.$`chmod +x ${workspace.bin}/herdr`.quiet();
-
-  await Bun.write(`${workspace.repo}/.operator/config.json`, `${JSON.stringify(config)}\n`);
-  await Bun.write(`${workspace.repo}/README.md`, "# Fixture\n");
-  await Bun.$`git init -b main ${workspace.repo}`.quiet();
-  await Bun.$`git -C ${workspace.repo} add -A`.quiet();
-  await Bun.$`git -C ${workspace.repo} -c user.email=t@example.com -c user.name=Test commit -m first`.quiet();
-
-  // The CLI reports the directory it resolved, so the fixture compares against the same reading.
-  workspace.repo = await realpath(workspace.repo);
-  return workspace;
-}
-
-async function headCommit(workspace: Workspace): Promise<string> {
-  return (await Bun.$`git -C ${workspace.repo} rev-parse HEAD`.quiet()).stdout.toString().trim();
-}
-
-async function runOperator(workspace: Workspace, args: string[], cwd = workspace.repo) {
-  const child = Bun.spawn(["bun", cliPath, ...args], {
-    cwd,
-    stderr: "pipe",
-    stdout: "pipe",
-    env: {
-      ...process.env,
-      PATH: `${workspace.bin}:${process.env.PATH ?? ""}`,
-      HERDR_FAKE_DIR: workspace.herdr,
-    },
-  });
-  const [exitCode, stderr, stdout] = await Promise.all([
-    child.exited,
-    new Response(child.stderr).text(),
-    new Response(child.stdout).text(),
-  ]);
-  return { exitCode, stderr, stdout };
-}
-
-async function runJson(workspace: Workspace, args: string[], cwd = workspace.repo) {
-  const result = await runOperator(workspace, [...args, "--json"], cwd);
-  return { ...result, json: JSON.parse(result.stdout) };
-}
-
-function request(): string {
-  return crypto.randomUUID();
+  return fixtures.make({ config });
 }
 
 async function calls(workspace: Workspace): Promise<string[]> {
-  const file = Bun.file(`${workspace.herdr}/calls.log`);
-  return (await file.exists())
-    ? (await file.text()).split("\n").filter((line) => line.length > 0)
-    : [];
+  return herdrCalls(workspace);
 }
 
 async function claimedAttempt(workspace: Workspace) {

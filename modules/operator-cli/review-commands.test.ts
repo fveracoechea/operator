@@ -1,21 +1,25 @@
 import { afterEach, describe, expect, test } from "bun:test";
-// Bun has no recursive directory removal or real-path API.
-import { realpath, rm } from "node:fs/promises";
+// Bun has no recursive directory removal API.
+import { rm } from "node:fs/promises";
 import { ContentIdentity } from "../content-identity/main.ts";
+import {
+  headCommit,
+  herdrCalls,
+  requestId as request,
+  runJson,
+  type Workspace as Fixture,
+  workspaces,
+} from "./fixtures/workspace.ts";
 
-const cliPath = new URL("../../cli.ts", import.meta.url).pathname;
-const fakeHerdr = new URL("./fixtures/fake-herdr.sh", import.meta.url).pathname;
-const temporaryRoots: string[] = [];
+const fixtures = workspaces();
 
 afterEach(async () => {
-  await Promise.all(
-    temporaryRoots.splice(0).map((root) => rm(root, { force: true, recursive: true })),
-  );
+  await fixtures.removeAll();
 });
 
 type Host = "claude-code" | "opencode";
 
-type Workspace = { root: string; repo: string; herdr: string; bin: string; host: Host };
+type Workspace = Fixture & { host: Host };
 
 const REQUIREMENTS = ["The quality gate passes."];
 const REQUIREMENTS_IDENTITY = ContentIdentity.of(REQUIREMENTS);
@@ -30,80 +34,26 @@ async function makeWorkspace(
   options: { host?: Host; maxActiveAgents?: number; reviewSkill?: boolean } = {},
 ): Promise<Workspace> {
   const host = options.host ?? "claude-code";
-  const root = `${Bun.env.TMPDIR ?? "/tmp"}/operator-review-${crypto.randomUUID()}`;
-  temporaryRoots.push(root);
-
-  const workspace: Workspace = {
-    root,
-    repo: `${root}/repo`,
-    herdr: `${root}/herdr`,
-    bin: `${root}/bin`,
-    host,
-  };
-  await Bun.$`mkdir -p ${workspace.repo} ${workspace.herdr} ${workspace.bin}`.quiet();
-  await Bun.$`cp ${fakeHerdr} ${workspace.bin}/herdr`.quiet();
-  await Bun.$`chmod +x ${workspace.bin}/herdr`.quiet();
-
-  const config = {
-    crew: {
-      host,
-      ...(options.maxActiveAgents === undefined
-        ? {}
-        : { maxActiveAgents: options.maxActiveAgents }),
+  const fixture = await fixtures.make({
+    config: {
+      crew: {
+        host,
+        ...(options.maxActiveAgents === undefined
+          ? {}
+          : { maxActiveAgents: options.maxActiveAgents }),
+      },
     },
-  };
-  await Bun.write(`${workspace.repo}/.operator/config.json`, `${JSON.stringify(config)}\n`);
-  await Bun.write(`${workspace.repo}/README.md`, "# Fixture\n");
-  if (options.reviewSkill !== false) {
-    await Bun.write(`${workspace.repo}/${SKILL_PATH[host]}`, "---\nname: code-review\n---\n");
-  }
-
-  await Bun.$`git init -b main ${workspace.repo}`.quiet();
-  await Bun.$`git -C ${workspace.repo} add -A`.quiet();
-  await Bun.$`git -C ${workspace.repo} -c user.email=t@example.com -c user.name=Test commit -m first`.quiet();
-
-  workspace.repo = await realpath(workspace.repo);
-  return workspace;
-}
-
-async function headCommit(workspace: Workspace, cwd = workspace.repo): Promise<string> {
-  return (await Bun.$`git -C ${cwd} rev-parse HEAD`.quiet()).stdout.toString().trim();
-}
-
-async function runJson(workspace: Workspace, args: string[], cwd = workspace.repo) {
-  const child = Bun.spawn(["bun", cliPath, ...args, "--json"], {
-    cwd,
-    stderr: "pipe",
-    stdout: "pipe",
-    env: {
-      ...process.env,
-      PATH: `${workspace.bin}:${process.env.PATH ?? ""}`,
-      HERDR_FAKE_DIR: workspace.herdr,
-    },
+    files:
+      options.reviewSkill === false ? {} : { [SKILL_PATH[host]]: "---\nname: code-review\n---\n" },
   });
-  const [exitCode, stderr, stdout] = await Promise.all([
-    child.exited,
-    new Response(child.stderr).text(),
-    new Response(child.stdout).text(),
-  ]);
-  return { exitCode, stderr, stdout, json: JSON.parse(stdout) };
-}
 
-function request(): string {
-  return crypto.randomUUID();
+  return { ...fixture, host };
 }
 
 async function writeInput(workspace: Workspace, value: unknown): Promise<string> {
   const path = `${workspace.root}/input-${crypto.randomUUID()}.json`;
   await Bun.write(path, JSON.stringify(value));
   return path;
-}
-
-async function herdrCalls(workspace: Workspace): Promise<string[]> {
-  const file = Bun.file(`${workspace.herdr}/calls.log`);
-  return (await file.exists())
-    ? (await file.text()).split("\n").filter((line) => line.length > 0)
-    : [];
 }
 
 /** One production assignment, claimed, dispatched into its own worktree, and acknowledged. */
@@ -292,6 +242,7 @@ async function startReviewer(
   producer: Producer,
   submitted: { data: { reviewAssignmentId: string; reviewId: string } },
   commit: string,
+  revision = 1,
 ) {
   const claimed = await runJson(workspace, [
     "work",
@@ -303,7 +254,7 @@ async function startReviewer(
     "--assignment",
     submitted.data.reviewAssignmentId,
     "--revision",
-    "1",
+    String(revision),
   ]);
   const attemptId = claimed.json.data.attemptId;
   const worktreePath = `${workspace.root}/reviewer`;
@@ -426,6 +377,76 @@ async function acceptProduction(
     options.submissionId,
     ...(options.prHead === undefined ? [] : ["--pr-head", options.prHead]),
   ]);
+}
+
+/** Records a blocker on one review, then replaces its stopped reviewer with a new attempt. */
+async function blockThenReplace(
+  workspace: Workspace,
+  producer: Producer,
+  request_: {
+    reviewId: string;
+    submissionIdentity: string;
+    attemptId: string;
+    worktreePath: string;
+  },
+) {
+  await reportReview(workspace, request_, request_.reviewId, {
+    kind: "blocked",
+    submissionIdentity: request_.submissionIdentity,
+    host: workspace.host,
+    blocker: { reason: "credentials_missing", detail: "The host has no provider credential." },
+  });
+  await rm(`${workspace.herdr}/agent-live`, { force: true });
+
+  const inspected = await runJson(workspace, [
+    "attempt",
+    "replace",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--attempt",
+    request_.attemptId,
+  ]);
+  if (inspected.json.reason !== "inspection_required") {
+    return inspected;
+  }
+
+  return runJson(workspace, [
+    "attempt",
+    "replace",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--attempt",
+    request_.attemptId,
+    "--inspection",
+    inspected.json.data.identity,
+  ]);
+}
+
+async function relaunchReviewer(
+  workspace: Workspace,
+  producer: Producer,
+  attemptId: string,
+  worktreePath: string,
+) {
+  await runJson(workspace, [
+    "attempt",
+    "dispatch",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--attempt",
+    attemptId,
+  ]);
+  await runJson(
+    workspace,
+    ["attempt", "acknowledge", "--request", request(), "--attempt", attemptId],
+    worktreePath,
+  );
 }
 
 describe("operator attempt submit", () => {
@@ -691,6 +712,18 @@ describe("operator review report", () => {
     );
     expect(reported.exitCode).toBe(0);
     expect(reported.json.reason).toBe("review_reported");
+
+    const shown = await runJson(workspace, [
+      "review",
+      "show",
+      "--review",
+      submitted.json.data.reviewId,
+    ]);
+    expect(shown.json.data.review.host).toBe("opencode");
+    expect(shown.json.data.review.subAgents.map((one: { host: string }) => one.host)).toEqual([
+      "opencode",
+      "opencode",
+    ]);
 
     // A non-code result carries no pull request, so acceptance needs no head.
     const accepted = await acceptProduction(workspace, producer, {
@@ -1032,6 +1065,85 @@ describe("operator work accept", () => {
     });
     expect(accepted.exitCode).toBe(6);
     expect(accepted.json.reason).toBe("rework_pending");
+  });
+
+  test("a replacement reviewer reopens a blocked review, and the attempts are bounded", async () => {
+    const workspace = await makeWorkspace();
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const artifact = await commitArtifact(workspace, producer, "# Result\n");
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const reviewId = submitted.json.data.reviewId;
+    const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
+
+    // The writer must be proven stopped and its partial work inspected before a replacement.
+    const replaced = await blockThenReplace(workspace, producer, {
+      reviewId,
+      submissionIdentity: submitted.json.data.identity,
+      attemptId: reviewer.attemptId,
+      worktreePath: reviewer.worktreePath,
+    });
+    expect(replaced.exitCode).toBe(0);
+
+    const reopened = await runJson(workspace, ["review", "show", "--review", reviewId]);
+    expect(reopened.json.data.review.state).toBe("registered");
+    expect(reopened.json.data.review.blocker).toBeNull();
+
+    // The replacement reviewer reads the same fixed submission and reports it itself.
+    const second = { worktreePath: reviewer.worktreePath };
+    await relaunchReviewer(workspace, producer, replaced.json.data.attemptId, second.worktreePath);
+    const reported = await reportReview(
+      workspace,
+      second,
+      reviewId,
+      reportBody({ submissionIdentity: submitted.json.data.identity, host: workspace.host }),
+    );
+    expect(reported.json.reason).toBe("review_reported");
+    expect(reported.exitCode).toBe(0);
+  });
+
+  test("a failing review host escalates instead of taking the crew", async () => {
+    const workspace = await makeWorkspace();
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const artifact = await commitArtifact(workspace, producer, "# Result\n");
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const reviewId = submitted.json.data.reviewId;
+    const first = await startReviewer(workspace, producer, submitted.json, artifact.commit);
+
+    const shared = {
+      reviewId,
+      submissionIdentity: submitted.json.data.identity,
+      worktreePath: first.worktreePath,
+    };
+
+    const second = await blockThenReplace(workspace, producer, {
+      ...shared,
+      attemptId: first.attemptId,
+    });
+    await relaunchReviewer(workspace, producer, second.json.data.attemptId, first.worktreePath);
+
+    const third = await blockThenReplace(workspace, producer, {
+      ...shared,
+      attemptId: second.json.data.attemptId,
+    });
+    await relaunchReviewer(workspace, producer, third.json.data.attemptId, first.worktreePath);
+
+    const refused = await blockThenReplace(workspace, producer, {
+      ...shared,
+      attemptId: third.json.data.attemptId,
+    });
+    expect(refused.json.reason).toBe("review_attempt_limit");
+    expect(refused.exitCode).toBe(3);
+    expect(refused.json.blockers[0]).toMatchObject({ reviewId, limit: 3 });
+
+    // The limit is not a pass, so the result is still unaccepted.
+    const accepted = await acceptProduction(workspace, producer, {
+      submissionId: submitted.json.data.submissionId,
+      revision: submitted.json.data.revision,
+      prHead: artifact.commit,
+    });
+    expect(accepted.json.reason).toBe("review_incomplete");
   });
 });
 

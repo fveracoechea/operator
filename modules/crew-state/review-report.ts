@@ -45,7 +45,8 @@ export type ReportOutcome =
       gaps: Array<{ axis: string; missing: string[] }>;
     };
 
-function statedAxes(entries: Array<{ axis: string }>): string[] {
+/** The required axes one list does not state exactly once, which is what makes it incomplete. */
+function axesNotStatedOnce(entries: Array<{ axis: string }>): string[] {
   return REVIEW_AXES.filter((axis) => entries.filter((one) => one.axis === axis).length !== 1);
 }
 
@@ -124,7 +125,9 @@ export function recordReviewReport(
     };
   }
 
-  const missing = [...new Set([...statedAxes(input.reports), ...statedAxes(input.subAgents)])];
+  const missing = [
+    ...new Set([...axesNotStatedOnce(input.reports), ...axesNotStatedOnce(input.subAgents)]),
+  ];
   if (missing.length > 0) {
     return { status: "axes-incomplete", reviewId: review.id, missing };
   }

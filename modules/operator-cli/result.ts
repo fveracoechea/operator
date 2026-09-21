@@ -144,7 +144,8 @@ export type Reason =
   | "checks_unproven"
   | "pr_authority_missing"
   | "pr_head_required"
-  | "pr_head_changed";
+  | "pr_head_changed"
+  | "review_attempt_limit";
 
 type Operation =
   | "parse_arguments"

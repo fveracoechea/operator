@@ -22,6 +22,10 @@ A non-code result requires the artifacts, the requirements, the citations, and t
 A review report ends the review chain.
 It is not a submitted result, so `operator attempt submit` refuses a review attempt and no review triggers another review.
 
+A blocked review is a stopped review, not a verdict.
+`operator attempt replace` returns it to registered, so the replacement reviewer reads the same fixed submission and reports it itself.
+One review holds at most three attempts, so a failing review host escalates to the user instead of consuming the crew.
+
 `operator review dispose` records what the Operator decided about each finding.
 A finding is corrected, rejected with a reason, or deferred with a reason and a follow-up.
 A blocker is never deferred, because deferring one would waive an approved requirement through technical judgment alone.
@@ -55,8 +59,17 @@ There would be nothing to bind the review evidence to, and acceptance would rest
 Rework is not in this release.
 A finding disposed as corrected blocks acceptance with `rework_pending` until the rework workflow lands.
 
-A failed or blocked review has no replacement in this release.
-The replacement limit of two attempts per submitted revision belongs with the rework cycle limit.
+The sub-agent records are the reviewer's own report, as an acknowledgement is.
+Operator does not run the other host's sub-agents, so it cannot observe them.
+It records what the reviewer states, refuses a report that contradicts itself, and binds every report to the submission identity it read.
+A live probe of the selected hosts is what proves the capability itself.
+
+The pull request head is the head the Operator read, not a head Operator fetched.
+There is no tracker boundary in this release, so acceptance compares the stated head against the reviewed head and nothing else.
+
+A blocker may be rejected with a stated reason.
+That is the Operator's delegated authority, and the reason is recorded beside the finding.
+Only deferring a blocker is refused, because a deferral leaves the requirement unanswered while the result is accepted.
 
 Review work that a source registered by hand carries no submission, so it accepts straight from its attempt.
 Only a review this workflow created holds a review record, and only that record gates its acceptance.

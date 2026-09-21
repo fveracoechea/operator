@@ -1,5 +1,7 @@
 import { and, eq, ne } from "drizzle-orm";
 import type { CrewReader, CrewWriter } from "./database.ts";
+import type { AssignmentRow } from "./assignment.ts";
+import { attemptCount, type AttemptRow } from "./attempt.ts";
 import { currentOwnership } from "./ownership.ts";
 import { reviewOfAssignment, type ReviewRow } from "./review.ts";
 import { assignments, attemptDispatch, attempts, externalOperations } from "./schema.ts";
@@ -22,8 +24,6 @@ export function isDispatchStage(kind: string): kind is DispatchStage {
   return DISPATCH_STAGES.some((stage) => stage === kind);
 }
 
-export type AttemptRow = typeof attempts.$inferSelect;
-export type AssignmentRow = typeof assignments.$inferSelect;
 export type DispatchRow = typeof attemptDispatch.$inferSelect;
 export type OperationRow = typeof externalOperations.$inferSelect;
 
@@ -36,6 +36,8 @@ export type AttemptContext = {
   dispatch: DispatchRow | null;
   operations: OperationRow[];
   review: ReviewContext | null;
+  // How many attempts this assignment has held, which bounds a replacement.
+  attempts: number;
   // True while the Operator that claimed this attempt still owns the crew.
   current: boolean;
 };
@@ -108,6 +110,7 @@ export function lookupAttempt(db: CrewReader, attemptId: string): AttemptLookup 
       dispatch: readDispatchRow(db, attempt.id),
       operations: liveOperations(db, attempt.id),
       review: readReviewContext(db, assignment.id),
+      attempts: attemptCount(db, assignment.id),
       current: currentOwnership(db)?.token === attempt.ownerToken,
     },
   };
@@ -232,34 +235,6 @@ export function recordAcknowledgement(
       now: request.now,
     });
   }
-}
-
-/** Ends one attempt without ending its assignment, which a replacement starts again. */
-export function endAttempt(
-  db: CrewWriter,
-  request: { attempt: AttemptRow; state: string; now: string },
-): void {
-  db.update(attempts)
-    .set({ state: request.state, endedAt: request.now, revision: request.attempt.revision + 1 })
-    .where(eq(attempts.id, request.attempt.id))
-    .run();
-}
-
-export function startAttempt(
-  db: CrewWriter,
-  request: { attemptId: string; assignmentId: string; ownerToken: string; now: string },
-): void {
-  db.insert(attempts)
-    .values({
-      id: request.attemptId,
-      assignmentId: request.assignmentId,
-      ownerToken: request.ownerToken,
-      state: "active",
-      revision: 1,
-      startedAt: request.now,
-      endedAt: null,
-    })
-    .run();
 }
 
 export function recordInspection(

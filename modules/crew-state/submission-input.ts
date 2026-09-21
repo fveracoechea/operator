@@ -86,9 +86,14 @@ export type SubmittedArtifact = SubmissionInput["artifacts"][number];
 export type SubmittedCheck = z.infer<typeof check>;
 export type SubmittedCode = z.infer<typeof codeRevisions>;
 
+/** One predicate owns what a recorded result kind means, so no reader decides it again. */
+export function isCodeResult(resultKind: string): boolean {
+  return resultKind === "code";
+}
+
 /** The tokens each axis report must state for this result kind, so coverage is checkable. */
 export function requiredCoverage(resultKind: string): string[] {
-  return resultKind === "code"
+  return isCodeResult(resultKind)
     ? ["diff", "requirements", "checks"]
     : ["artifacts", "requirements", "citations", "provenance"];
 }

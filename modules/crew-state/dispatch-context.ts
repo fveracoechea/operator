@@ -1,9 +1,9 @@
 import { OperativeDispatch } from "../operative-dispatch/main.ts";
 import { ProjectReadiness } from "../project-readiness/main.ts";
-import { requiredCoverage } from "./submission-input.ts";
+import { isCodeResult, requiredCoverage } from "./submission-input.ts";
 import { REVIEW_AXES } from "./review.ts";
+import type { AssignmentRow } from "./assignment.ts";
 import {
-  type AssignmentRow,
   type AttemptContext,
   type ReviewContext,
   type AttemptLookup,
@@ -58,17 +58,21 @@ export type ContextRead =
 type ReviewBrief = NonNullable<Brief["review"]>;
 
 /** The fixed result one review reads, taken from the submission that started it. */
-function reviewBriefOf(context: ReviewContext, producerTitle: string): ReviewBrief {
+function reviewBriefOf(
+  context: ReviewContext,
+  request: { attemptId: string; producerTitle: string },
+): ReviewBrief {
   const { review, submission } = context;
   return {
     reviewId: review.id,
+    attemptId: request.attemptId,
     submissionId: submission.id,
     submissionIdentity: submission.identity,
-    resultKind: submission.resultKind,
+    resultKind: isCodeResult(submission.resultKind) ? "code" : "non-code",
     axes: [...REVIEW_AXES],
     requiredCoverage: requiredCoverage(submission.resultKind),
     producerAssignmentId: submission.assignmentId,
-    producerTitle,
+    producerTitle: request.producerTitle,
     assignmentRevision: submission.assignmentRevision,
     sourceRevision: submission.sourceRevision,
     requirementsIdentity: submission.requirementsIdentity,
@@ -85,7 +89,7 @@ function reviewBriefOf(context: ReviewContext, producerTitle: string): ReviewBri
 export function briefOf(
   assignment: AssignmentRow,
   attemptId: string,
-  review: ReviewContext | null = null,
+  review: ReviewContext | null,
 ): Brief {
   return {
     assignmentId: assignment.id,
@@ -99,7 +103,10 @@ export function briefOf(
     approvedScope: assignment.approvedScope,
     permissions: JSON.parse(assignment.permissions),
     fixedInputs: JSON.parse(assignment.fixedInputs),
-    review: review === null ? null : reviewBriefOf(review, assignment.title),
+    review:
+      review === null
+        ? null
+        : reviewBriefOf(review, { attemptId, producerTitle: assignment.title }),
   };
 }
 

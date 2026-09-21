@@ -239,6 +239,7 @@ A code result requires the diff, the requirements, and the checks.
 A non-code result requires the artifacts, the requirements, the citations, and the provenance of each recorded answer.
 Two axes that ran one after the other are refused, and so is a sub-agent that ran outside the reviewer host.
 A host that cannot run the axes records a blocker instead of a partial review.
+A blocked review is a stopped review, so `operator attempt replace` returns it to registered for one replacement reviewer, up to three attempts in all.
 
 A review report ends the review chain, so a reviewer never submits a result and no review triggers another review.
 

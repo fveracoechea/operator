@@ -157,7 +157,7 @@ export async function readWorktreeReference(request: {
       result: {
         outcome: "missing-condition",
         reason: "attempt_reference_missing",
-        blockers: [{ reason: "attempt_reference_missing" }],
+        blockers: [{ reason: "attempt_reference_missing", attemptId: request.expectedAttemptId }],
         operation: request.operation,
       },
       lines: [

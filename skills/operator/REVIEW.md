@@ -43,7 +43,17 @@ Install it in the project and dispatch again. Do not copy it by hand into the wo
 - `review_blocked`: the host could not run the axes, or a credential or input is missing.
 
 A blocked or partial review accepts nothing.
-Bring the blocker to the user. Repeated launches are not a remedy.
+
+A blocked review is a stopped review, not a verdict.
+Correct what it names, then replace the stopped reviewer:
+
+1. `operator attempt replace --request <id> --owner-token <token> --attempt <id> --json` reports the partial work.
+2. Repeat it with `--inspection <identity>` to approve that exact reading.
+3. `operator attempt dispatch` launches the replacement into the same checkout.
+
+The replacement reads the same fixed submission and reports it itself.
+One review holds at most three attempts.
+`review_attempt_limit` means another launch is not a remedy. Bring the blocker to the user.
 
 ## Findings are yours to judge
 

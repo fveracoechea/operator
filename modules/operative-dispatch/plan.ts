@@ -85,6 +85,42 @@ function slug(value: string): string {
   );
 }
 
+/** The reporting protocol of an Operative that produces a result. */
+function productionProtocolSection(brief: Brief): string[] {
+  return [
+    "## Reporting protocol",
+    "",
+    "Acknowledge this assignment before you change any file:",
+    "",
+    "```",
+    `operator attempt acknowledge --request <a new identity you generate> --attempt ${brief.attemptId} --json`,
+    "```",
+    "",
+    "Run it from this worktree.",
+    "The Operator treats you as started only after that acknowledgement.",
+    "Report progress, questions, and results through the Operator CLI, never through terminal text alone.",
+    "",
+    "Hand over your finished result for review:",
+    "",
+    "```",
+    `operator attempt submit --request <a new identity you generate> --attempt ${brief.attemptId} --input <path> --json`,
+    "```",
+    "",
+    "A submission is a handoff to a separate review, never accepted completion.",
+    "",
+  ];
+}
+
+/** The sections that differ between producing a result and reviewing one. */
+function roleSections(brief: Brief): { result: string[]; protocol: string[] } {
+  return brief.review === null
+    ? { result: [], protocol: productionProtocolSection(brief) }
+    : {
+        result: submittedResultSection(brief.review),
+        protocol: reviewProtocolSection(brief.review),
+      };
+}
+
 function briefDocument(request: {
   brief: Brief;
   snapshot: Snapshot;
@@ -94,6 +130,7 @@ function briefDocument(request: {
   controllingCheckout: string;
 }): string {
   const { brief, snapshot } = request;
+  const role = roleSections(brief);
 
   return [
     `# Operative brief for attempt ${brief.attemptId}`,
@@ -130,7 +167,7 @@ function briefDocument(request: {
     "",
     "Work outside these limits needs a question to the Operator, never your own decision.",
     "",
-    ...(brief.review === null ? [] : submittedResultSection(brief.review)),
+    ...role.result,
     "## Fixed inputs",
     "",
     ...(brief.fixedInputs.length === 0
@@ -152,49 +189,30 @@ function briefDocument(request: {
     `- Lock data: ${snapshot.lock.name ?? "none"} (${snapshot.lock.identity ?? "none"})`,
     `- Skills: ${snapshot.skills.identity}`,
     "",
-    ...(brief.review === null
-      ? [
-          "## Reporting protocol",
-          "",
-          "Acknowledge this assignment before you change any file:",
-          "",
-          "```",
-          `operator attempt acknowledge --request <a new identity you generate> --attempt ${brief.attemptId} --json`,
-          "```",
-          "",
-          "Run it from this worktree.",
-          "The Operator treats you as started only after that acknowledgement.",
-          "Report progress, questions, and results through the Operator CLI, never through terminal text alone.",
-          "",
-          "Hand over your finished result for review:",
-          "",
-          "```",
-          `operator attempt submit --request <a new identity you generate> --attempt ${brief.attemptId} --input <path> --json`,
-          "```",
-          "",
-          "A submission is a handoff to a separate review, never accepted completion.",
-          "",
-        ]
-      : reviewProtocolSection(brief.review)),
+    ...role.protocol,
   ].join("\n");
 }
 
 function promptDocument(brief: Brief): string {
-  return [
+  const read = `Read ${BRIEF_PATH} in this worktree first. It carries your scope, authority limits, and reporting protocol.`;
+  const acknowledge = `Then acknowledge the assignment with: operator attempt acknowledge --request <a new identity you generate> --attempt ${brief.attemptId} --json`;
+
+  return (
     brief.review === null
-      ? `You are the Operative on Operator attempt ${brief.attemptId} for assignment ${brief.assignmentId}.`
-      : `You are the reviewer on Operator attempt ${brief.attemptId} for review ${brief.review.reviewId}.`,
-    `Read ${BRIEF_PATH} in this worktree first. It carries your scope, authority limits, and reporting protocol.`,
-    ...(brief.review === null
-      ? []
+      ? [
+          `You are the Operative on Operator attempt ${brief.attemptId} for assignment ${brief.assignmentId}.`,
+          read,
+          acknowledge,
+          "Do not change any file before that acknowledgement succeeds.",
+        ]
       : [
+          `You are the reviewer on Operator attempt ${brief.attemptId} for review ${brief.review.reviewId}.`,
+          read,
           "Load the `code-review` skill and run its Standards and Spec axes as parallel sub-agents of this host.",
-        ]),
-    `Then acknowledge the assignment with: operator attempt acknowledge --request <a new identity you generate> --attempt ${brief.attemptId} --json`,
-    brief.review === null
-      ? "Do not change any file before that acknowledgement succeeds."
-      : "Never edit, commit, or rework the result you review.",
-  ].join("\n");
+          acknowledge,
+          "Never edit, commit, or rework the result you review.",
+        ]
+  ).join("\n");
 }
 
 /**

@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import type { CrewWriter } from "./database.ts";
-import { assignmentId, identityOf } from "./identity.ts";
+import { insertAssignment, nextOrderIndex } from "./assignment.ts";
+import { assignmentId } from "./identity.ts";
 import { assignmentDependencies, assignments, workSources } from "./schema.ts";
 import { isExecutable, kindOf, type WorkInput } from "./work-input.ts";
 
@@ -141,7 +142,7 @@ export function registerWork(
   const held = db.select().from(assignments).where(eq(assignments.sourceId, source.id)).all();
   const existing: RegisteredAssignment[] = [];
   const registered: RegisteredAssignment[] = [];
-  let nextOrder = held.reduce((highest, row) => Math.max(highest, row.orderIndex + 1), 0);
+  let nextOrder = nextOrderIndex(held);
 
   for (const item of input.items) {
     const id = assignmentId(source.id, item.key);
@@ -151,27 +152,23 @@ export function registerWork(
       continue;
     }
 
-    const kind = kindOf(item);
-    const row = {
-      id,
-      sourceId: source.id,
-      sourceKey: item.key,
-      sourceRevision: source.revision,
-      title: item.title,
-      kind,
-      orderIndex: nextOrder,
-      approvedScope: item.approvedScope,
-      acceptanceRequirements: JSON.stringify(item.acceptanceRequirements),
-      permissions: JSON.stringify(item.permissions),
-      fixedInputs: JSON.stringify(item.fixedInputs),
-      fixedInputsIdentity: identityOf(item.fixedInputs),
-      state: "registered",
-      revision: 1,
-      registeredAt: now,
-      updatedAt: now,
-    };
+    const row = insertAssignment(
+      db,
+      {
+        sourceId: source.id,
+        sourceKey: item.key,
+        sourceRevision: source.revision,
+        title: item.title,
+        kind: kindOf(item),
+        orderIndex: nextOrder,
+        approvedScope: item.approvedScope,
+        acceptanceRequirements: item.acceptanceRequirements,
+        permissions: item.permissions,
+        fixedInputs: item.fixedInputs,
+      },
+      now,
+    );
     nextOrder += 1;
-    db.insert(assignments).values(row).run();
     registered.push(reported(row));
   }
 

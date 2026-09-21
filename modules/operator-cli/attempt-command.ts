@@ -471,6 +471,30 @@ async function runReplace(parsed: ParsedArguments): Promise<Handled> {
     return reportUnreadableSnapshot(parsed, "attempt_replace", result);
   }
 
+  if (result.status === "review-attempt-limit") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "missing-condition",
+        reason: "review_attempt_limit",
+        blockers: [
+          {
+            reason: "review_attempt_limit",
+            reviewId: result.reviewId,
+            limit: result.limit,
+          },
+        ],
+        operation: "attempt_replace",
+        data: { attemptId: result.attemptId },
+      },
+      lines: [
+        `Review ${result.reviewId} already used its ${result.limit} attempts.`,
+        "Another launch is not a remedy. Bring the blocker to the user.",
+      ],
+    });
+    return "reported";
+  }
+
   report({
     json: parsed.json,
     result: {

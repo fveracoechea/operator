@@ -8,14 +8,12 @@ import {
   type Snapshot,
   type WorkInspection,
 } from "./dispatch-context.ts";
-import {
-  endAttempt,
-  openOperation,
-  recordInspection,
-  recordPlan,
-  settleOperation,
-  startAttempt,
-} from "./dispatch.ts";
+import { endAttempt, startAttempt } from "./attempt.ts";
+import { reopenReview } from "./review.ts";
+import { openOperation, recordInspection, recordPlan, settleOperation } from "./dispatch.ts";
+
+/** One review, plus at most two replacements after a failure is inspected. */
+const REVIEW_ATTEMPT_LIMIT = 3;
 
 export type ReplaceResult =
   | {
@@ -33,6 +31,7 @@ export type ReplaceResult =
   | { status: "snapshot-unreadable"; attemptId: string; detail: string }
   | { status: "reconciliation-required"; attemptId: string; pending: string[] }
   | { status: "not-dispatched"; attemptId: string }
+  | { status: "review-attempt-limit"; attemptId: string; reviewId: string; limit: number }
   | AttemptFailure
   | Shared;
 
@@ -58,6 +57,22 @@ export async function replaceAttempt(request: {
   const dispatch = read.context.dispatch;
   if (dispatch === null) {
     return { status: "not-dispatched", attemptId: request.attemptId };
+  }
+
+  // A stopped or blocked review may be tried again, and a bounded number of times, so a failing
+  // review host escalates to the user instead of consuming the crew.
+  const context = read.context.review;
+  if (
+    context !== null &&
+    context.review.state !== "reported" &&
+    read.context.attempts >= REVIEW_ATTEMPT_LIMIT
+  ) {
+    return {
+      status: "review-attempt-limit",
+      attemptId: request.attemptId,
+      reviewId: context.review.id,
+      limit: REVIEW_ATTEMPT_LIMIT,
+    };
   }
 
   const pending = read.context.operations.filter(
@@ -150,6 +165,10 @@ export async function replaceAttempt(request: {
         now,
       });
       endAttempt(tx, { attempt: previous, state: "replaced", now });
+      if (context !== null && context.review.state !== "reported") {
+        // The replacement reviewer reads the same fixed submission and reports it itself.
+        reopenReview(tx, { review: context.review, now });
+      }
       startAttempt(tx, {
         attemptId,
         assignmentId: previous.assignmentId,

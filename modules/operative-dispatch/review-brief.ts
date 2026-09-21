@@ -1,16 +1,23 @@
+// These follow the submission contract in crew-state. A launch cannot import that module,
+// because crew-state is what calls this one, so the union shapes are restated rather than widened.
 export type ReviewArtifact = {
   name: string;
-  kind: string;
+  kind: "value" | "path";
   value: string;
   contentIdentity: string;
   storedPath: string | null;
 };
 
+export type ReviewPullRequest =
+  | { status: "open"; number: number; headCommit: string }
+  | { status: "authority-missing"; detail: string };
+
 export type ReviewBrief = {
   reviewId: string;
+  attemptId: string;
   submissionId: string;
   submissionIdentity: string;
-  resultKind: string;
+  resultKind: "code" | "non-code";
   axes: string[];
   requiredCoverage: string[];
   producerAssignmentId: string;
@@ -24,11 +31,20 @@ export type ReviewBrief = {
     resultCommit: string;
     mergeBase: string;
     branch: string;
-    pullRequest: { status: string; number?: number; headCommit?: string; detail?: string };
+    pullRequest: ReviewPullRequest;
   } | null;
-  checks: Array<{ name: string; command: string; outcome: string; detail: string }>;
+  checks: Array<{
+    name: string;
+    command: string;
+    outcome: "passed" | "failed" | "flaky" | "not-run";
+    detail: string;
+  }>;
   concerns: string[];
-  decisions: Array<{ statement: string; authority: string; reason: string }>;
+  decisions: Array<{
+    statement: string;
+    authority: "requirement" | "human-answer" | "operator-decision";
+    reason: string;
+  }>;
   artifacts: ReviewArtifact[];
 };
 
@@ -41,15 +57,10 @@ export function reviewInputPath(artifact: ReviewArtifact): string | null {
     : `${REVIEW_INPUT_DIR}/${artifact.storedPath.split("/").slice(-1)[0] ?? artifact.name}`;
 }
 
-function pullRequestLine(review: ReviewBrief): string {
-  const pull = review.code?.pullRequest;
-  if (pull === undefined) {
-    return "- Pull request: none recorded";
-  }
-
+function pullRequestLine(pull: ReviewPullRequest): string {
   return pull.status === "open"
     ? `- Pull request: #${pull.number} at head ${pull.headCommit}`
-    : `- Pull request: not created (${pull.detail ?? "no authority recorded"})`;
+    : `- Pull request: not created (${pull.detail})`;
 }
 
 /** The fixed result the two axes read. Every line here is pinned at submission. */
@@ -70,7 +81,7 @@ export function submittedResultSection(review: ReviewBrief): string[] {
           `- Submitted commit: ${review.code.resultCommit}`,
           `- Merge base: ${review.code.mergeBase}`,
           `- Branch: ${review.code.branch}`,
-          pullRequestLine(review),
+          pullRequestLine(review.code.pullRequest),
         ]),
     "",
     "### Artifacts",
@@ -142,7 +153,7 @@ export function reviewProtocolSection(review: ReviewBrief): string[] {
     "Acknowledge this assignment before you read anything:",
     "",
     "```",
-    "operator attempt acknowledge --request <a new identity you generate> --attempt <this attempt> --json",
+    `operator attempt acknowledge --request <a new identity you generate> --attempt ${review.attemptId} --json`,
     "```",
     "",
     "Write your result to a JSON file, then record it:",

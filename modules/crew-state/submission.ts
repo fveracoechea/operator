@@ -1,14 +1,14 @@
 import { eq } from "drizzle-orm";
 import type { CrewReader, CrewWriter } from "./database.ts";
-import { assignmentId, identityOf } from "./identity.ts";
-import { assignments, attempts, reviews, submissions } from "./schema.ts";
+import { type AttemptRow, endAttempt } from "./attempt.ts";
+import { type AssignmentRow, insertAssignment, nextOrderIndex } from "./assignment.ts";
+import { identityOf } from "./identity.ts";
+import { assignments, reviews, submissions } from "./schema.ts";
 import { REVIEW_AXES } from "./review.ts";
 import type { SubmissionInput } from "./submission-input.ts";
 import type { StoredArtifact } from "./submission-store.ts";
 
 export type SubmissionRow = typeof submissions.$inferSelect;
-type AssignmentRow = typeof assignments.$inferSelect;
-type AttemptRow = typeof attempts.$inferSelect;
 
 export type SubmitOutcome =
   | {
@@ -81,7 +81,6 @@ function registerReview(
     held.filter((row) => row.sourceKey.startsWith(`${request.producer.sourceKey}#review.`)).length +
     1;
   const sourceKey = `${request.producer.sourceKey}#review.${round}`;
-  const id = assignmentId(request.producer.sourceId, sourceKey);
   const commands = [...new Set(request.input.checks.map((one) => one.command))];
 
   const fixedInputs = [
@@ -105,41 +104,37 @@ function registerReview(
     })),
   ];
 
-  db.insert(assignments)
-    .values({
-      id,
+  const row = insertAssignment(
+    db,
+    {
       sourceId: request.producer.sourceId,
       sourceKey,
       sourceRevision: request.producer.sourceRevision,
       title: `Review ${request.producer.title}`,
       kind: "review",
-      orderIndex: held.reduce((highest, row) => Math.max(highest, row.orderIndex + 1), 0),
+      orderIndex: nextOrderIndex(held),
       approvedScope: `Review submission ${request.submissionId} of assignment ${request.producer.id} on the Standards and Spec axes.`,
-      acceptanceRequirements: JSON.stringify([
+      acceptanceRequirements: [
         `Record one Standards report and one Spec report for submission ${request.submissionId}.`,
         "Run both axes as native sub-agents of this host, in parallel and in separate contexts.",
         "Never edit, commit, push, or rework the submitted result.",
-      ]),
-      permissions: JSON.stringify({
-        // A reviewer writes its own report and nothing else, so rework can never hide inside it.
+      ],
+      // A reviewer writes its own report and nothing else, so rework can never hide inside it.
+      permissions: {
         writePaths: [".operator/local/"],
         allowedCommands: commands,
         network: false,
-      }),
-      fixedInputs: JSON.stringify(fixedInputs),
-      fixedInputsIdentity: identityOf(fixedInputs),
-      state: "registered",
-      revision: 1,
-      registeredAt: request.now,
-      updatedAt: request.now,
-    })
-    .run();
+      },
+      fixedInputs,
+    },
+    request.now,
+  );
 
   db.insert(reviews)
     .values({
       id: request.reviewId,
       submissionId: request.submissionId,
-      assignmentId: id,
+      assignmentId: row.id,
       axes: JSON.stringify(REVIEW_AXES),
       state: "registered",
       host: null,
@@ -152,7 +147,7 @@ function registerReview(
     })
     .run();
 
-  return { assignmentId: id, sourceKey };
+  return { assignmentId: row.id, sourceKey };
 }
 
 /**
@@ -253,10 +248,7 @@ export function submitResult(
     })
     .run();
 
-  db.update(attempts)
-    .set({ state: "submitted", endedAt: request.now, revision: attempt.revision + 1 })
-    .where(eq(attempts.id, attempt.id))
-    .run();
+  endAttempt(db, { attempt, state: "submitted", now: request.now });
 
   const revision = assignment.revision + 1;
   db.update(assignments)

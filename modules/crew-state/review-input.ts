@@ -1,6 +1,7 @@
 import { z } from "zod";
+import { REVIEW_AXES } from "./review.ts";
 
-const axis = z.enum(["standards", "spec"]);
+const axis = z.enum(REVIEW_AXES);
 
 const finding = z.strictObject({
   key: z.string().min(1),
