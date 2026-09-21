@@ -1,6 +1,6 @@
 import { CrewState } from "../crew-state/main.ts";
-import type { ParsedArguments } from "./arguments.ts";
-import { readStructuredInput, reportSharedFailure } from "./crew-result.ts";
+import { type ParsedArguments, readRevision } from "./arguments.ts";
+import { readStructuredInput, reportInvalidInput, reportSharedFailure } from "./crew-result.ts";
 import { type Handled, report } from "./result.ts";
 
 type Mutation = { requestId: string; ownerToken: string };
@@ -10,15 +10,6 @@ function mutationArguments(parsed: ParsedArguments): Mutation | null {
   return requestId === undefined || ownerToken === undefined ? null : { requestId, ownerToken };
 }
 
-function readRevision(parsed: ParsedArguments): number | null {
-  const raw = parsed.crew.revision;
-  if (raw === undefined || !/^\d+$/.test(raw)) {
-    return null;
-  }
-
-  return Number(raw);
-}
-
 async function runRegister(parsed: ParsedArguments): Promise<Handled> {
   const mutation = mutationArguments(parsed);
   const inputPath = parsed.crew.inputPath;
@@ -26,18 +17,13 @@ async function runRegister(parsed: ParsedArguments): Promise<Handled> {
     return "invalid-arguments";
   }
 
-  const read = await readStructuredInput(inputPath);
-  if (!read.ok) {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "invalid",
-        reason: "invalid_work_input",
-        blockers: [{ reason: "invalid_work_input", detail: read.detail }],
-        operation: "work_register",
-      },
-      lines: [`The work registration request cannot be read: ${read.detail}`],
-    });
+  const read = await readStructuredInput({
+    parsed,
+    operation: "work_register",
+    reason: "invalid_work_input",
+    path: inputPath,
+  });
+  if (read.status !== "read") {
     return "reported";
   }
 
@@ -52,20 +38,12 @@ async function runRegister(parsed: ParsedArguments): Promise<Handled> {
   }
 
   if (result.status === "invalid-input") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "invalid",
-        reason: "invalid_work_input",
-        blockers: result.issues.map((issue) => ({ reason: "invalid_work_input" as const, issue })),
-        operation: "work_register",
-      },
-      lines: [
-        "The work registration request is not valid:",
-        ...result.issues.map((one) => `  ${one}`),
-      ],
+    return reportInvalidInput({
+      parsed,
+      operation: "work_register",
+      reason: "invalid_work_input",
+      issues: result.issues,
     });
-    return "reported";
   }
 
   if (result.status === "source-revision-changed") {

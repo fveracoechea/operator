@@ -1,52 +1,8 @@
 import { CrewState } from "../crew-state/main.ts";
-import type { ParsedArguments } from "./arguments.ts";
-import { readStructuredInput, reportSharedFailure } from "./crew-result.ts";
+import { type ParsedArguments, readRevision } from "./arguments.ts";
+import { readStructuredInput, reportInvalidInput, reportSharedFailure } from "./crew-result.ts";
 import { requireReference } from "./reference.ts";
 import { type Handled, type Operation, type Reason, report } from "./result.ts";
-
-function readRevision(parsed: ParsedArguments): number | null {
-  const raw = parsed.crew.revision;
-  return raw === undefined || !/^\d+$/.test(raw) ? null : Number(raw);
-}
-
-/** Reports a structured request that could not be read from its file or from standard input. */
-function reportUnreadable(
-  parsed: ParsedArguments,
-  operation: Operation,
-  reason: Reason,
-  detail: string,
-): Handled {
-  report({
-    json: parsed.json,
-    result: {
-      outcome: "invalid",
-      reason,
-      blockers: [{ reason, detail }],
-      operation,
-    },
-    lines: [`The request cannot be read: ${detail}`],
-  });
-  return "reported";
-}
-
-function reportIssues(
-  parsed: ParsedArguments,
-  operation: Operation,
-  reason: Reason,
-  issues: string[],
-): Handled {
-  report({
-    json: parsed.json,
-    result: {
-      outcome: "invalid",
-      reason,
-      blockers: issues.map((issue) => ({ reason, issue })),
-      operation,
-    },
-    lines: ["The request is not valid:", ...issues.map((one) => `  ${one}`)],
-  });
-  return "reported";
-}
 
 type QuestionOutcome = {
   reason: Reason;
@@ -154,9 +110,14 @@ async function runRaise(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
-  const input = await readStructuredInput(inputPath);
-  if (!input.ok) {
-    return reportUnreadable(parsed, "question_raise", "invalid_question_input", input.detail);
+  const input = await readStructuredInput({
+    parsed,
+    operation: "question_raise",
+    reason: "invalid_question_input",
+    path: inputPath,
+  });
+  if (input.status !== "read") {
+    return "reported";
   }
 
   const { result } = await CrewState.raiseQuestion({
@@ -170,7 +131,12 @@ async function runRaise(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
   if (result.status === "invalid-input") {
-    return reportIssues(parsed, "question_raise", "invalid_question_input", result.issues);
+    return reportInvalidInput({
+      parsed,
+      operation: "question_raise",
+      reason: "invalid_question_input",
+      issues: result.issues,
+    });
   }
 
   if (result.status === "question-open") {
@@ -249,9 +215,14 @@ async function runRevise(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
-  const input = await readStructuredInput(inputPath);
-  if (!input.ok) {
-    return reportUnreadable(parsed, "question_revise", "invalid_question_input", input.detail);
+  const input = await readStructuredInput({
+    parsed,
+    operation: "question_revise",
+    reason: "invalid_question_input",
+    path: inputPath,
+  });
+  if (input.status !== "read") {
+    return "reported";
   }
 
   const { result } = await CrewState.reviseQuestion({
@@ -267,7 +238,12 @@ async function runRevise(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
   if (result.status === "invalid-input") {
-    return reportIssues(parsed, "question_revise", "invalid_question_input", result.issues);
+    return reportInvalidInput({
+      parsed,
+      operation: "question_revise",
+      reason: "invalid_question_input",
+      issues: result.issues,
+    });
   }
   if (reportQuestionOutcome(parsed, "question_revise", result)) {
     return "reported";
@@ -353,9 +329,14 @@ async function runEscalate(parsed: ParsedArguments): Promise<Handled> {
     return "invalid-arguments";
   }
 
-  const input = await readStructuredInput(inputPath);
-  if (!input.ok) {
-    return reportUnreadable(parsed, "question_escalate", "invalid_question_input", input.detail);
+  const input = await readStructuredInput({
+    parsed,
+    operation: "question_escalate",
+    reason: "invalid_question_input",
+    path: inputPath,
+  });
+  if (input.status !== "read") {
+    return "reported";
   }
 
   const { result } = await CrewState.escalateQuestion({
@@ -371,7 +352,12 @@ async function runEscalate(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
   if (result.status === "invalid-input") {
-    return reportIssues(parsed, "question_escalate", "invalid_question_input", result.issues);
+    return reportInvalidInput({
+      parsed,
+      operation: "question_escalate",
+      reason: "invalid_question_input",
+      issues: result.issues,
+    });
   }
   if (reportQuestionOutcome(parsed, "question_escalate", result)) {
     return "reported";
@@ -438,9 +424,14 @@ async function runAnswer(parsed: ParsedArguments): Promise<Handled> {
     return "invalid-arguments";
   }
 
-  const input = await readStructuredInput(inputPath);
-  if (!input.ok) {
-    return reportUnreadable(parsed, "question_answer", "invalid_answer_input", input.detail);
+  const input = await readStructuredInput({
+    parsed,
+    operation: "question_answer",
+    reason: "invalid_answer_input",
+    path: inputPath,
+  });
+  if (input.status !== "read") {
+    return "reported";
   }
 
   const { result } = await CrewState.answerQuestion({
@@ -456,7 +447,12 @@ async function runAnswer(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
   if (result.status === "invalid-input") {
-    return reportIssues(parsed, "question_answer", "invalid_answer_input", result.issues);
+    return reportInvalidInput({
+      parsed,
+      operation: "question_answer",
+      reason: "invalid_answer_input",
+      issues: result.issues,
+    });
   }
   if (reportQuestionOutcome(parsed, "question_answer", result)) {
     return "reported";

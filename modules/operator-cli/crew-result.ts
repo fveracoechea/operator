@@ -1,6 +1,6 @@
 import type { ParsedArguments } from "./arguments.ts";
 import type { Operation } from "./result.ts";
-import { type Reason, report } from "./result.ts";
+import { type Handled, type Reason, report } from "./result.ts";
 
 type SharedReport = {
   reason: Reason;
@@ -100,14 +100,57 @@ export function reportSharedFailure<Result extends { status: string }>(
   return true;
 }
 
-/** Reads a structured request from a file, or from standard input when the path is `-`. */
-export async function readStructuredInput(
-  path: string,
-): Promise<{ ok: true; value: unknown } | { ok: false; detail: string }> {
+/**
+ * Reads a structured request from a file, or from standard input when the path is `-`.
+ * A request that cannot be read is reported here, so every command that takes one refuses it
+ * the same way and the caller handles only a request it actually holds.
+ */
+export async function readStructuredInput(request: {
+  parsed: ParsedArguments;
+  operation: Operation;
+  reason: Reason;
+  path: string;
+}): Promise<{ status: "read"; value: unknown } | { status: "reported" }> {
+  const { reason } = request;
+  let value: unknown;
   try {
-    const text = path === "-" ? await Bun.stdin.text() : await Bun.file(path).text();
-    return { ok: true, value: JSON.parse(text) };
+    const text =
+      request.path === "-" ? await Bun.stdin.text() : await Bun.file(request.path).text();
+    value = JSON.parse(text);
   } catch (error) {
-    return { ok: false, detail: String(error) };
+    report({
+      json: request.parsed.json,
+      result: {
+        outcome: "invalid",
+        reason,
+        blockers: [{ reason, detail: String(error) }],
+        operation: request.operation,
+      },
+      lines: [`The request cannot be read: ${String(error)}`],
+    });
+    return { status: "reported" };
   }
+
+  return { status: "read", value };
+}
+
+/** Reports the reasons one structured request failed its schema. */
+export function reportInvalidInput(request: {
+  parsed: ParsedArguments;
+  operation: Operation;
+  reason: Reason;
+  issues: string[];
+}): Handled {
+  const { reason } = request;
+  report({
+    json: request.parsed.json,
+    result: {
+      outcome: "invalid",
+      reason,
+      blockers: request.issues.map((issue) => ({ reason, issue })),
+      operation: request.operation,
+    },
+    lines: ["The request is not valid:", ...request.issues.map((one) => `  ${one}`)],
+  });
+  return "reported";
 }

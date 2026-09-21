@@ -1,7 +1,7 @@
 import { CrewState } from "../crew-state/main.ts";
-import type { ParsedArguments } from "./arguments.ts";
-import { readStructuredInput, reportSharedFailure } from "./crew-result.ts";
-import { type Handled, type Operation, report } from "./result.ts";
+import { type ParsedArguments, readRevision } from "./arguments.ts";
+import { readStructuredInput, reportInvalidInput, reportSharedFailure } from "./crew-result.ts";
+import { type Handled, report } from "./result.ts";
 
 // The record belongs to the crew state, so this command reads its shape from that interface.
 type ApprovalRecord = Extract<
@@ -17,57 +17,23 @@ function approvalLines(approval: ApprovalRecord): string[] {
   ];
 }
 
-async function readInput(
-  parsed: ParsedArguments,
-  operation: Operation,
-): Promise<{ status: "read"; value: unknown } | { status: "reported" } | "invalid-arguments"> {
-  const inputPath = parsed.crew.inputPath;
-  if (inputPath === undefined) {
-    return "invalid-arguments";
-  }
-
-  const input = await readStructuredInput(inputPath);
-  if (input.ok) {
-    return { status: "read", value: input.value };
-  }
-
-  report({
-    json: parsed.json,
-    result: {
-      outcome: "invalid",
-      reason: "invalid_approval_input",
-      blockers: [{ reason: "invalid_approval_input", detail: input.detail }],
-      operation,
-    },
-    lines: [`The approval request cannot be read: ${input.detail}`],
-  });
-  return { status: "reported" };
-}
-
-function reportIssues(parsed: ParsedArguments, operation: Operation, issues: string[]): Handled {
-  report({
-    json: parsed.json,
-    result: {
-      outcome: "invalid",
-      reason: "invalid_approval_input",
-      blockers: issues.map((issue) => ({ reason: "invalid_approval_input" as const, issue })),
-      operation,
-    },
-    lines: ["The approval request is not valid:", ...issues.map((one) => `  ${one}`)],
-  });
-  return "reported";
-}
-
 async function runGrant(parsed: ParsedArguments): Promise<Handled> {
   const { requestId, ownerToken } = parsed.crew;
   if (requestId === undefined || ownerToken === undefined) {
     return "invalid-arguments";
   }
 
-  const input = await readInput(parsed, "approval_grant");
-  if (input === "invalid-arguments") {
-    return input;
+  const inputPath = parsed.crew.inputPath;
+  if (inputPath === undefined) {
+    return "invalid-arguments";
   }
+
+  const input = await readStructuredInput({
+    parsed,
+    operation: "approval_grant",
+    reason: "invalid_approval_input",
+    path: inputPath,
+  });
   if (input.status !== "read") {
     return "reported";
   }
@@ -83,7 +49,12 @@ async function runGrant(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
   if (result.status === "invalid-input") {
-    return reportIssues(parsed, "approval_grant", result.issues);
+    return reportInvalidInput({
+      parsed,
+      operation: "approval_grant",
+      reason: "invalid_approval_input",
+      issues: result.issues,
+    });
   }
 
   report({
@@ -101,13 +72,13 @@ async function runGrant(parsed: ParsedArguments): Promise<Handled> {
 }
 
 async function runRevoke(parsed: ParsedArguments): Promise<Handled> {
-  const { requestId, ownerToken, approvalId, revision } = parsed.crew;
+  const { requestId, ownerToken, approvalId } = parsed.crew;
+  const revision = readRevision(parsed);
   if (
     requestId === undefined ||
     ownerToken === undefined ||
     approvalId === undefined ||
-    revision === undefined ||
-    !/^\d+$/.test(revision)
+    revision === null
   ) {
     return "invalid-arguments";
   }
@@ -117,7 +88,7 @@ async function runRevoke(parsed: ParsedArguments): Promise<Handled> {
     requestId,
     ownerToken,
     approvalId,
-    revision: Number(revision),
+    revision,
   });
 
   if (reportSharedFailure(parsed, "approval_revoke", result)) {
@@ -188,10 +159,17 @@ async function runRevoke(parsed: ParsedArguments): Promise<Handled> {
 }
 
 async function runCheck(parsed: ParsedArguments): Promise<Handled> {
-  const input = await readInput(parsed, "approval_check");
-  if (input === "invalid-arguments") {
-    return input;
+  const inputPath = parsed.crew.inputPath;
+  if (inputPath === undefined) {
+    return "invalid-arguments";
   }
+
+  const input = await readStructuredInput({
+    parsed,
+    operation: "approval_check",
+    reason: "invalid_approval_input",
+    path: inputPath,
+  });
   if (input.status !== "read") {
     return "reported";
   }
@@ -205,7 +183,12 @@ async function runCheck(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
   if (result.status === "invalid-input") {
-    return reportIssues(parsed, "approval_check", result.issues);
+    return reportInvalidInput({
+      parsed,
+      operation: "approval_check",
+      reason: "invalid_approval_input",
+      issues: result.issues,
+    });
   }
 
   if (result.status === "matched") {

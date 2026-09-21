@@ -92,8 +92,17 @@ function item(overrides: ItemOverrides) {
   };
 }
 
+type Crew = {
+  ownerToken: string;
+  worktree: string;
+  assignmentId: string;
+  assignmentRevision: number;
+  attemptId: string;
+  registered: Array<{ sourceKey: string; assignmentId: string }>;
+};
+
 /** A crew with one dispatched and acknowledged Operative, which is what a question needs. */
-async function dispatchedCrew(workspace: Workspace, keys: string[] = ["21.1"]) {
+async function dispatchedCrew(workspace: Workspace, keys: string[] = ["21.1"]): Promise<Crew> {
   const owned = await runJson(workspace, [
     "crew",
     "own",
@@ -162,12 +171,9 @@ async function dispatchedCrew(workspace: Workspace, keys: string[] = ["21.1"]) {
     ownerToken,
     worktree,
     assignmentId: first.assignmentId,
-    assignmentRevision: claimed.json.data.revision as number,
+    assignmentRevision: claimed.json.data.revision,
     attemptId: claimed.json.data.attemptId,
-    registered: registered.json.data.registered as Array<{
-      sourceKey: string;
-      assignmentId: string;
-    }>,
+    registered: registered.json.data.registered,
   };
 }
 
