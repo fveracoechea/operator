@@ -65,7 +65,9 @@ It records what the reviewer states, refuses a report that contradicts itself, a
 A live probe of the selected hosts is what proves the capability itself.
 
 The pull request head is the head the Operator read, not a head Operator fetched.
-There is no tracker boundary in this release, so acceptance compares the stated head against the reviewed head and nothing else.
+There is no tracker boundary in this release, so acceptance compares the stated head against the head the submission recorded, and nothing else.
+The command output says so, because a message that claims more than the check performs is the way a gate becomes trusted for what it does not do.
+Reading the live head is follow-up work for [Complete and recover GitHub tracker updates](https://github.com/fveracoechea/operator/issues/24), which owns the tracker boundary.
 
 A blocker may be rejected with a stated reason.
 That is the Operator's delegated authority, and the reason is recorded beside the finding.

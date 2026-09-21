@@ -308,6 +308,7 @@ function reportBody(options: {
   sequential?: boolean;
   subAgentHost?: string;
   failedAxis?: string;
+  observedChecks?: Array<{ name: string; outcome: string }>;
 }) {
   const checked = options.checked ?? ["diff", "requirements", "checks"];
   const axes = ["standards", "spec"] as const;
@@ -327,6 +328,7 @@ function reportBody(options: {
       axis,
       summary: `The ${axis} axis read the fixed inputs.`,
       checked,
+      observedChecks: axis === "standards" ? (options.observedChecks ?? []) : [],
       findings:
         axis === "standards" ? (options.standardsFindings ?? []) : (options.specFindings ?? []),
     })),
@@ -587,7 +589,10 @@ describe("operator review report", () => {
     expect(brief).toContain("They must never edit a file, commit, push, or perform rework.");
     // The reviewer writes its own report and nothing else, so rework cannot hide inside a review.
     expect(brief).toContain("Write only inside these paths:\n- .operator/local/");
-    expect(brief).toContain("Run only these commands:\n- bun run quality");
+    // The brief authorizes the commands the reviewer must run, not only the checks it may re-run.
+    expect(brief).toContain(
+      "Run only these commands:\n- operator attempt acknowledge\n- operator review report\n- bun run quality",
+    );
 
     const copied = await Bun.file(
       `${reviewer.worktreePath}/.operator/local/review/0-result.md`,
@@ -685,6 +690,10 @@ describe("operator review report", () => {
     expect(brief).toContain("This result is not code.");
     expect(brief).toContain("supported by a citation you can follow");
     expect(brief).toContain("artifacts, requirements, citations, provenance");
+    // A non-code result records no check, and the reviewer can still report what it read.
+    expect(brief).toContain(
+      "Run only these commands:\n- operator attempt acknowledge\n- operator review report\n",
+    );
 
     const codeCoverage = await reportReview(
       workspace,
@@ -732,6 +741,113 @@ describe("operator review report", () => {
     });
     expect(accepted.exitCode).toBe(0);
     expect(accepted.json.reason).toBe("assignment_accepted");
+  });
+
+  test("refuses a report from a worktree the reviewer changed", async () => {
+    const workspace = await makeWorkspace();
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const artifact = await commitArtifact(workspace, producer, "# Result\n");
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
+
+    // A reviewer may read and run checks. Repairing what it found is rework, and rework is a
+    // separate assignment that a fresh Operative receives.
+    await Bun.write(`${reviewer.worktreePath}/${artifact.path}`, "# Repaired by the reviewer\n");
+
+    const reported = await reportReview(
+      workspace,
+      reviewer,
+      submitted.json.data.reviewId,
+      reportBody({ submissionIdentity: submitted.json.data.identity, host: workspace.host }),
+    );
+
+    expect(reported.json.reason).toBe("review_worktree_changed");
+    expect(reported.exitCode).toBe(4);
+    expect(reported.json.blockers[0]).toMatchObject({ path: artifact.path });
+  });
+
+  test("refuses a report from a worktree the reviewer committed to", async () => {
+    const workspace = await makeWorkspace();
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const artifact = await commitArtifact(workspace, producer, "# Result\n");
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
+
+    await Bun.write(`${reviewer.worktreePath}/${artifact.path}`, "# Repaired by the reviewer\n");
+    await Bun.$`git -C ${reviewer.worktreePath} add ${artifact.path}`.quiet();
+    await Bun.$`git -C ${reviewer.worktreePath} -c user.email=t@example.com -c user.name=Test commit -m rework`.quiet();
+
+    const reported = await reportReview(
+      workspace,
+      reviewer,
+      submitted.json.data.reviewId,
+      reportBody({ submissionIdentity: submitted.json.data.identity, host: workspace.host }),
+    );
+
+    expect(reported.json.reason).toBe("review_worktree_changed");
+    expect(
+      reported.json.blockers.some((one: { commit?: string }) => one.commit !== undefined),
+    ).toBe(true);
+  });
+
+  test("refuses a report that names a host the launch did not use", async () => {
+    const workspace = await makeWorkspace();
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const artifact = await commitArtifact(workspace, producer, "# Result\n");
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
+
+    const reported = await reportReview(
+      workspace,
+      reviewer,
+      submitted.json.data.reviewId,
+      reportBody({ submissionIdentity: submitted.json.data.identity, host: "opencode" }),
+    );
+
+    expect(reported.json.reason).toBe("review_sub_agent_host_mismatch");
+    expect(reported.exitCode).toBe(4);
+    expect(reported.json.blockers[0]).toMatchObject({ host: "opencode", recorded: "claude-code" });
+  });
+
+  test("records a missing review input as a blocker, not as a verdict", async () => {
+    const workspace = await makeWorkspace();
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const artifact = await commitArtifact(workspace, producer, "# Result\n");
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
+
+    const blocked = await reportReview(workspace, reviewer, submitted.json.data.reviewId, {
+      kind: "blocked",
+      submissionIdentity: submitted.json.data.identity,
+      host: workspace.host,
+      blocker: {
+        reason: "inputs_missing",
+        detail: "The spec the assignment names is not readable.",
+      },
+    });
+    expect(blocked.json.reason).toBe("review_blocked");
+    expect(blocked.exitCode).toBe(3);
+
+    const shown = await runJson(workspace, [
+      "review",
+      "show",
+      "--review",
+      submitted.json.data.reviewId,
+    ]);
+    expect(shown.json.data.review.state).toBe("blocked");
+    expect(shown.json.data.review.blocker.reason).toBe("inputs_missing");
+
+    const accepted = await acceptProduction(workspace, producer, {
+      submissionId: submitted.json.data.submissionId,
+      revision: submitted.json.data.revision,
+      prHead: artifact.commit,
+    });
+    expect(accepted.json.reason).toBe("review_incomplete");
+    expect(accepted.json.blockers[0].blocker.reason).toBe("inputs_missing");
   });
 
   test("refuses two axes that ran one after the other", async () => {
@@ -901,6 +1017,70 @@ describe("operator work accept", () => {
     ]);
     expect(reviewAccepted.exitCode).toBe(3);
     expect(reviewAccepted.json.reason).toBe("review_incomplete");
+  });
+
+  test("refuses acceptance when a review observed a check the producer called passed", async () => {
+    const workspace = await makeWorkspace();
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const artifact = await commitArtifact(workspace, producer, "# Result\n");
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
+
+    const reported = await reportReview(
+      workspace,
+      reviewer,
+      submitted.json.data.reviewId,
+      reportBody({
+        submissionIdentity: submitted.json.data.identity,
+        host: workspace.host,
+        observedChecks: [{ name: "quality", outcome: "failed" }],
+      }),
+    );
+    expect(reported.json.reason).toBe("review_reported");
+
+    const accepted = await acceptProduction(workspace, producer, {
+      submissionId: submitted.json.data.submissionId,
+      revision: submitted.json.data.revision,
+      prHead: artifact.commit,
+    });
+
+    expect(accepted.json.reason).toBe("checks_contradicted");
+    expect(accepted.exitCode).toBe(4);
+    expect(accepted.json.blockers[0]).toMatchObject({
+      name: "quality",
+      recorded: "passed",
+      observed: "failed",
+      axis: "standards",
+    });
+  });
+
+  test("accepts when the review observed the same outcomes the producer recorded", async () => {
+    const workspace = await makeWorkspace();
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const artifact = await commitArtifact(workspace, producer, "# Result\n");
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
+    await reportReview(
+      workspace,
+      reviewer,
+      submitted.json.data.reviewId,
+      reportBody({
+        submissionIdentity: submitted.json.data.identity,
+        host: workspace.host,
+        observedChecks: [{ name: "quality", outcome: "passed" }],
+      }),
+    );
+
+    const accepted = await acceptProduction(workspace, producer, {
+      submissionId: submitted.json.data.submissionId,
+      revision: submitted.json.data.revision,
+      prHead: artifact.commit,
+    });
+
+    expect(accepted.json.reason).toBe("assignment_accepted");
+    expect(accepted.exitCode).toBe(0);
   });
 
   test("refuses acceptance while a check did not pass", async () => {

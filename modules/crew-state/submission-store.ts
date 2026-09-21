@@ -1,18 +1,26 @@
 // Bun has no path manipulation API.
 import { basename } from "node:path";
+import { z } from "zod";
 import { ContentIdentity } from "../content-identity/main.ts";
+import { readStored } from "./stored.ts";
 import type { SubmittedArtifact } from "./submission-input.ts";
 
 export const SUBMISSION_STORE = ".operator/local/submissions";
 
 /** One artifact as the review reads it: a value, or a durable copy outside the worktree. */
-export type StoredArtifact = {
-  name: string;
-  kind: string;
-  value: string;
-  contentIdentity: string;
-  storedPath: string | null;
-};
+const storedArtifact = z.strictObject({
+  name: z.string(),
+  kind: z.enum(["value", "path"]),
+  value: z.string(),
+  contentIdentity: z.string(),
+  storedPath: z.string().nullable(),
+});
+
+export type StoredArtifact = z.infer<typeof storedArtifact>;
+
+export function storedArtifacts(stored: string): StoredArtifact[] {
+  return readStored("artifact list", z.array(storedArtifact), stored);
+}
 
 export type StoreOutcome =
   | { status: "stored"; artifacts: StoredArtifact[] }

@@ -36,6 +36,7 @@ export type ReviewReport = {
     axis: string;
     summary: string;
     checked: unknown;
+    observedChecks: unknown;
     findingCount: number;
     identity: string;
   }>;
@@ -113,6 +114,7 @@ export async function showReview(request: {
         axis: one.axis,
         summary: one.summary,
         checked: JSON.parse(one.checked),
+        observedChecks: JSON.parse(one.observedChecks),
         findingCount: one.findingCount,
         identity: one.identity,
       })),

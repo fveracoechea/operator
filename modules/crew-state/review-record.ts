@@ -1,3 +1,4 @@
+import { OperativeDispatch } from "../operative-dispatch/main.ts";
 import { OperatorConfig } from "../operator-config/main.ts";
 import { type AttemptFailure, readContext, type Shared } from "./dispatch-context.ts";
 import { mutate, readState } from "./operations.ts";
@@ -14,6 +15,12 @@ export type RecordReviewResult =
   | { status: "not-dispatched"; attemptId: string }
   | { status: "not-acknowledged"; attemptId: string }
   | { status: "reference-mismatch"; attemptId: string; detail: string }
+  | {
+      status: "worktree-changed";
+      attemptId: string;
+      changes: string[];
+      commits: string[];
+    }
   | AttemptFailure
   | Shared;
 
@@ -67,6 +74,25 @@ export async function recordReview(request: {
     return {
       repeated: false,
       result: { status: "not-acknowledged", attemptId: request.attemptId },
+    };
+  }
+
+  // A review reads and runs checks. An edit or a commit in its own checkout is rework, which
+  // belongs to a fresh Operative, so the report is refused instead of recorded beside it.
+  const worktree = await OperativeDispatch.inspectReviewWorktree({
+    worktreePath: request.worktreePath,
+    baseCommit: dispatch.baseCommit,
+    agentHost: dispatch.agentHost,
+  });
+  if (worktree.changes.length > 0 || worktree.commits.length > 0) {
+    return {
+      repeated: false,
+      result: {
+        status: "worktree-changed",
+        attemptId: request.attemptId,
+        changes: worktree.changes,
+        commits: worktree.commits,
+      },
     };
   }
 

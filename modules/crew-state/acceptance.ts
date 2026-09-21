@@ -6,11 +6,13 @@ import {
   findingsOf,
   missingAxes,
   reportsOf,
+  type ReviewReportRow,
   reviewOfAssignment,
   reviewOfSubmission,
 } from "./review.ts";
 import { assignments, submissions } from "./schema.ts";
-import type { SubmittedCheck, SubmittedCode } from "./submission-input.ts";
+import { type ReviewBlocker, storedBlocker, storedObservedChecks } from "./review-input.ts";
+import { storedChecks, storedCode } from "./submission-input.ts";
 import { latestSubmission, type SubmissionRow } from "./submission.ts";
 import { isExecutable, isReview } from "./work-input.ts";
 
@@ -29,7 +31,7 @@ export type AcceptResult =
       assignmentId: string;
       reviewId: string | null;
       state: string;
-      blocker: unknown;
+      blocker: ReviewBlocker | null;
     }
   | { status: "review-axes-incomplete"; assignmentId: string; reviewId: string; missing: string[] }
   | { status: "findings-undisposed"; assignmentId: string; reviewId: string; findingIds: string[] }
@@ -38,6 +40,12 @@ export type AcceptResult =
       status: "checks-unproven";
       assignmentId: string;
       checks: Array<{ name: string; outcome: string }>;
+    }
+  | {
+      status: "checks-contradicted";
+      assignmentId: string;
+      reviewId: string;
+      checks: Array<{ name: string; axis: string; recorded: string; observed: string }>;
     }
   | { status: "pr-authority-missing"; assignmentId: string; detail: string }
   | { status: "pr-head-required"; assignmentId: string; headCommit: string }
@@ -52,12 +60,46 @@ type AcceptRequest = {
   now: string;
 };
 
+/** The recorded blocker of one review, or null while it has none. */
+function blockerOf(stored: string | null): ReviewBlocker | null {
+  return stored === null ? null : storedBlocker(stored);
+}
+
 /** Every recorded check must have passed. A flaky or unrun check proves nothing. */
 function unprovenChecks(submission: SubmissionRow): Array<{ name: string; outcome: string }> {
-  const checks: SubmittedCheck[] = JSON.parse(submission.checks);
-  return checks
+  return storedChecks(submission.checks)
     .filter((check) => check.outcome !== "passed")
     .map((check) => ({ name: check.name, outcome: check.outcome }));
+}
+
+/**
+ * Every check outcome a review observed that the producer did not record the same way.
+ * A reviewer that ran a command for itself is independent evidence, so a producer that wrote
+ * `passed` over a failing or flaky run cannot reach acceptance.
+ */
+function contradictedChecks(
+  submission: SubmissionRow,
+  reports: ReviewReportRow[],
+): Array<{ name: string; axis: string; recorded: string; observed: string }> {
+  const recorded = new Map(
+    storedChecks(submission.checks).map((check) => [check.name, check.outcome]),
+  );
+
+  return reports.flatMap((report) =>
+    storedObservedChecks(report.observedChecks).flatMap((observed) => {
+      const producer = recorded.get(observed.name) ?? "not-recorded";
+      return observed.outcome === "passed" && producer === "passed"
+        ? []
+        : [
+            {
+              name: observed.name,
+              axis: report.axis,
+              recorded: producer,
+              observed: observed.outcome,
+            },
+          ];
+    }),
+  );
 }
 
 /**
@@ -127,11 +169,22 @@ function reviewGate(
     };
   }
 
+  // What a reviewer ran for itself outranks what the producer wrote about its own work.
+  const contradicted = contradictedChecks(submission, reportsOf(db, review.id));
+  if (contradicted.length > 0) {
+    return {
+      status: "checks-contradicted",
+      assignmentId: submission.assignmentId,
+      reviewId: review.id,
+      checks: contradicted,
+    };
+  }
+
   if (submission.code === null) {
     return null;
   }
 
-  const code: SubmittedCode = JSON.parse(submission.code);
+  const code = storedCode(submission.code);
   if (code.pullRequest.status !== "open") {
     return {
       status: "pr-authority-missing",
@@ -215,7 +268,7 @@ export function acceptAssignment(db: CrewWriter, request: AcceptRequest): Accept
         assignmentId: row.id,
         reviewId: review.id,
         state: review.state,
-        blocker: review.blocker === null ? null : JSON.parse(review.blocker),
+        blocker: blockerOf(review.blocker),
       };
     }
 

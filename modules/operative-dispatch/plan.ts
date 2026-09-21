@@ -62,6 +62,9 @@ export type DispatchPlan = {
 // The recorded host names stay full; Herdr names the executable it starts.
 const agentKindByHost = { "claude-code": "claude", opencode: "opencode" } as const;
 
+/** Everything a launch writes into a worktree lives under this root. */
+export const LOCAL_ROOT = ".operator/";
+
 export const BRIEF_PATH = ".operator/local/brief.md";
 export const REFERENCE_PATH = ".operator/local/attempt.json";
 export const RELEASE_PATH = ".operator/local/release.json";

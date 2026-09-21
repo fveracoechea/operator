@@ -254,7 +254,9 @@ A blocker is never deferred.
 operator work accept --request <id> --owner-token <token> --assignment <id> --attempt <id> --revision <n> --submission <id> --pr-head <sha> --json
 ```
 
-Acceptance verifies the current ownership, the assignment revision, the exact submission, both axis reports, a disposition on every finding, no correction still waiting for rework, a passing outcome on every recorded check, and the pull request head the review saw.
+Acceptance verifies the current ownership, the assignment revision, the exact submission, both axis reports, a disposition on every finding, no correction still waiting for rework, a passing outcome on every recorded check, and the pull request head you name against the head the submission stated.
+A check outcome a review observed for itself outranks the producer's own word, so a contradiction blocks.
+Operator does not read the pull request itself; the tracker boundary arrives with #24.
 A stopped reviewer, a missing input, an unavailable review capability, a missing pull-request authority, a failed check, and a flaky check each block instead of passing.
 See [ADR 0006](docs/adr/0006-review-is-crew-work-and-acceptance-reads-only-recorded-evidence.md).
 

@@ -72,6 +72,11 @@ Never edit the result yourself, and never ask the reviewer to repair what it fou
 
 Name the exact submission you read, and the pull request head you read.
 
+Operator does not read the pull request itself.
+It compares the head you name against the head the submission stated.
+Read the live head before you accept, and name that.
+Tracker reads arrive with the GitHub integration in #24.
+
 Acceptance refuses on:
 
 - `submission_mismatch`: the assignment holds a different submission.

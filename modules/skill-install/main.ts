@@ -92,6 +92,11 @@ export const SkillInstall = {
     return hasher.digest("hex");
   },
 
+  /** The directory one target keeps its skills in, relative to a project root. */
+  targetRoot(request: { target: SkillTarget }): string {
+    return skillTargets[request.target];
+  },
+
   /**
    * Reports whether one checkout already holds a named skill for one target.
    * Operator installs only the skills it owns, so a skill it requires but does not ship, such

@@ -182,6 +182,7 @@ export function reviewProtocolSection(review: ReviewBrief): string[] {
           axis,
           summary: `<what the ${axis} axis found>`,
           checked: review.requiredCoverage,
+          observedChecks: [{ name: "<a recorded check you ran>", outcome: "passed" }],
           findings: [
             {
               key: "<a short stable key>",
@@ -199,6 +200,10 @@ export function reviewProtocolSection(review: ReviewBrief): string[] {
     "",
     `Each axis states in \`checked\` what it read. This result kind requires ${review.requiredCoverage.join(", ")}.`,
     "The two sub-agent windows must overlap, because the two axes run at the same time.",
+    "",
+    "Record in `observedChecks` every recorded check you ran for yourself, with what you saw.",
+    "That reading outranks the producer's own word, so an outcome that differs blocks acceptance.",
+    "Leave the list empty when an axis ran no check.",
     "",
     "If this host cannot run the required sub-agents, or a credential or input is missing, record",
     "the blocker instead of a partial review:",

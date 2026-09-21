@@ -3,7 +3,7 @@ import { identityOf } from "./identity.ts";
 import type { AxisReport, ReviewReportInput, SubAgentRecord } from "./review-input.ts";
 import { findingId, REVIEW_AXES, type ReviewRow, updateReview } from "./review.ts";
 import { reviewFindings, reviewReports } from "./schema.ts";
-import { requiredCoverage } from "./submission-input.ts";
+import { type ResultKind, requiredCoverage, storedResultKind } from "./submission-input.ts";
 import type { SubmissionRow } from "./submission.ts";
 
 export type ReportedFinding = {
@@ -37,6 +37,7 @@ export type ReportOutcome =
       reviewId: string;
       windows: Array<{ axis: string; startedAt: string; endedAt: string }>;
     }
+  | { status: "host-mismatch"; reviewId: string; recorded: string; stated: string }
   | { status: "sub-agent-host-mismatch"; reviewId: string; recorded: string; stated: string[] }
   | { status: "sub-agent-failed"; reviewId: string; axes: string[] }
   | {
@@ -67,7 +68,7 @@ function ranInParallel(subAgents: SubAgentRecord[]): boolean {
 
 function coverageGaps(
   reports: AxisReport[],
-  resultKind: string,
+  resultKind: ResultKind,
 ): Array<{ axis: string; missing: string[] }> {
   const required = requiredCoverage(resultKind);
   return reports.flatMap((report) => {
@@ -103,6 +104,16 @@ export function recordReviewReport(
       reviewId: review.id,
       recorded: submission.identity,
       stated: input.submissionIdentity,
+    };
+  }
+
+  // The stated host is what `review show` reports, so it must be the host the launch recorded.
+  if (input.host !== request.agentHost) {
+    return {
+      status: "host-mismatch",
+      reviewId: review.id,
+      recorded: request.agentHost,
+      stated: input.host,
     };
   }
 
@@ -162,7 +173,7 @@ export function recordReviewReport(
     };
   }
 
-  const gaps = coverageGaps(input.reports, submission.resultKind);
+  const gaps = coverageGaps(input.reports, storedResultKind(submission.resultKind));
   if (gaps.length > 0) {
     return { status: "coverage-incomplete", reviewId: review.id, gaps };
   }
@@ -176,6 +187,7 @@ export function recordReviewReport(
         axis: report.axis,
         summary: report.summary,
         checked: JSON.stringify(report.checked),
+        observedChecks: JSON.stringify(report.observedChecks),
         findingCount: report.findings.length,
         identity: identityOf(report),
         recordedAt: request.now,

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { readStored, readStoredValue } from "./stored.ts";
 
 /**
  * An artifact is fixed by its content identity, never by its path alone.
@@ -17,11 +18,14 @@ const artifact = z
     path: ["contentIdentity"],
   });
 
+/** What one run of a check actually did. Only `passed` is evidence that it passed. */
+export const checkOutcome = z.enum(["passed", "failed", "flaky", "not-run"]);
+
 /** A check states its command and what that command actually did, including a flaky run. */
 const check = z.strictObject({
   name: z.string().min(1),
   command: z.string().min(1),
-  outcome: z.enum(["passed", "failed", "flaky", "not-run"]),
+  outcome: checkOutcome,
   detail: z.string(),
 });
 
@@ -85,15 +89,37 @@ export type SubmissionInput = z.infer<typeof submissionInputSchema>;
 export type SubmittedArtifact = SubmissionInput["artifacts"][number];
 export type SubmittedCheck = z.infer<typeof check>;
 export type SubmittedCode = z.infer<typeof codeRevisions>;
+export type SubmittedDecision = z.infer<typeof decision>;
 
-/** One predicate owns what a recorded result kind means, so no reader decides it again. */
-export function isCodeResult(resultKind: string): boolean {
-  return resultKind === "code";
-}
+export const resultKindSchema = z.enum(["code", "non-code"]);
+
+export type ResultKind = z.infer<typeof resultKindSchema>;
 
 /** The tokens each axis report must state for this result kind, so coverage is checkable. */
-export function requiredCoverage(resultKind: string): string[] {
-  return isCodeResult(resultKind)
+export function requiredCoverage(resultKind: ResultKind): string[] {
+  return resultKind === "code"
     ? ["diff", "requirements", "checks"]
     : ["artifacts", "requirements", "citations", "provenance"];
+}
+
+// A submission row stores these columns, and every reader takes them back through the schema
+// that wrote them rather than asserting the shape it expected.
+export function storedResultKind(stored: string): ResultKind {
+  return readStoredValue("result kind", resultKindSchema, stored);
+}
+
+export function storedChecks(stored: string): SubmittedCheck[] {
+  return readStored("check list", z.array(check), stored);
+}
+
+export function storedCode(stored: string): SubmittedCode {
+  return readStored("code revision record", codeRevisions, stored);
+}
+
+export function storedConcerns(stored: string): string[] {
+  return readStored("concern list", z.array(z.string()), stored);
+}
+
+export function storedDecisions(stored: string): SubmittedDecision[] {
+  return readStored("decision list", z.array(decision), stored);
 }

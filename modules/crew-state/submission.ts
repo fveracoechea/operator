@@ -10,6 +10,9 @@ import type { StoredArtifact } from "./submission-store.ts";
 
 export type SubmissionRow = typeof submissions.$inferSelect;
 
+/** The Operator commands every reviewer runs, whatever the result it reads. */
+const REVIEWER_COMMANDS = ["operator attempt acknowledge", "operator review report"];
+
 export type SubmitOutcome =
   | {
       status: "submitted";
@@ -81,7 +84,12 @@ function registerReview(
     held.filter((row) => row.sourceKey.startsWith(`${request.producer.sourceKey}#review.`)).length +
     1;
   const sourceKey = `${request.producer.sourceKey}#review.${round}`;
-  const commands = [...new Set(request.input.checks.map((one) => one.command))];
+  // A reviewer reports through the CLI, so the brief authorizes those commands as well as the
+  // checks it may re-run. A result that recorded no check still leaves the reviewer able to report.
+  const commands = [
+    ...REVIEWER_COMMANDS,
+    ...new Set(request.input.checks.map((one) => one.command)),
+  ];
 
   const fixedInputs = [
     {

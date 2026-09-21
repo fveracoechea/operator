@@ -1,6 +1,14 @@
 import { OperativeDispatch } from "../operative-dispatch/main.ts";
 import { ProjectReadiness } from "../project-readiness/main.ts";
-import { isCodeResult, requiredCoverage } from "./submission-input.ts";
+import {
+  requiredCoverage,
+  storedChecks,
+  storedCode,
+  storedConcerns,
+  storedDecisions,
+  storedResultKind,
+} from "./submission-input.ts";
+import { storedArtifacts } from "./submission-store.ts";
 import { REVIEW_AXES } from "./review.ts";
 import type { AssignmentRow } from "./assignment.ts";
 import {
@@ -63,25 +71,26 @@ function reviewBriefOf(
   request: { attemptId: string; producerTitle: string },
 ): ReviewBrief {
   const { review, submission } = context;
+  const resultKind = storedResultKind(submission.resultKind);
   return {
     reviewId: review.id,
     attemptId: request.attemptId,
     submissionId: submission.id,
     submissionIdentity: submission.identity,
-    resultKind: isCodeResult(submission.resultKind) ? "code" : "non-code",
+    resultKind,
     axes: [...REVIEW_AXES],
-    requiredCoverage: requiredCoverage(submission.resultKind),
+    requiredCoverage: requiredCoverage(resultKind),
     producerAssignmentId: submission.assignmentId,
     producerTitle: request.producerTitle,
     assignmentRevision: submission.assignmentRevision,
     sourceRevision: submission.sourceRevision,
     requirementsIdentity: submission.requirementsIdentity,
     reviewBase: submission.reviewBase,
-    code: submission.code === null ? null : JSON.parse(submission.code),
-    checks: JSON.parse(submission.checks),
-    concerns: JSON.parse(submission.concerns),
-    decisions: JSON.parse(submission.decisions),
-    artifacts: JSON.parse(submission.artifacts),
+    code: submission.code === null ? null : storedCode(submission.code),
+    checks: storedChecks(submission.checks),
+    concerns: storedConcerns(submission.concerns),
+    decisions: storedDecisions(submission.decisions),
+    artifacts: storedArtifacts(submission.artifacts),
   };
 }
 

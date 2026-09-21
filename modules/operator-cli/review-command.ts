@@ -79,6 +79,32 @@ async function runReport(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
+  if (result.status === "worktree-changed") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "conflict",
+        reason: "review_worktree_changed",
+        blockers: [
+          ...result.changes.map((path) => ({ reason: "review_worktree_changed" as const, path })),
+          ...result.commits.map((commit) => ({
+            reason: "review_worktree_changed" as const,
+            commit,
+          })),
+        ],
+        operation: "review_report",
+        data: { attemptId: result.attemptId },
+      },
+      lines: [
+        "This review changed its own checkout, so its report is refused:",
+        ...result.changes.map((path) => `  changed ${path}`),
+        ...result.commits.map((commit) => `  committed ${commit}`),
+        "A review reads and runs checks. Rework is a separate assignment for a fresh Operative.",
+      ],
+    });
+    return "reported";
+  }
+
   if (result.status === "review-not-assigned") {
     report({
       json: parsed.json,
@@ -174,6 +200,30 @@ async function runReport(parsed: ParsedArguments): Promise<Handled> {
       lines: [
         "The two axes ran one after the other, so they were not separate parallel contexts.",
         ...result.windows.map((one) => `  ${one.axis}: ${one.startedAt} to ${one.endedAt}`),
+      ],
+    });
+    return "reported";
+  }
+
+  if (result.status === "host-mismatch") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "conflict",
+        reason: "review_sub_agent_host_mismatch",
+        blockers: [
+          {
+            reason: "review_sub_agent_host_mismatch",
+            host: result.stated,
+            recorded: result.recorded,
+          },
+        ],
+        operation: "review_report",
+        data: { reviewId: result.reviewId },
+      },
+      lines: [
+        `This reviewer was launched on ${result.recorded}, and the report names ${result.stated}.`,
+        "A review reports the host it actually ran on.",
       ],
     });
     return "reported";

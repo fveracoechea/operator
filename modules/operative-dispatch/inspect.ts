@@ -68,3 +68,46 @@ export async function inspectWork(request: {
 
   return { ...inspection, identity: ContentIdentity.of(inspection) };
 }
+
+export type ReviewWorktreeInspection = {
+  present: boolean;
+  commits: string[];
+  changes: string[];
+};
+
+/** Splits one porcelain line into its status and the path it names, rename targets included. */
+function changedPath(line: string): string {
+  const path = line.replace(/^\S+\s+/, "");
+  const renamed = path.split(" -> ");
+  return renamed[renamed.length - 1] ?? path;
+}
+
+/**
+ * Reads what a reviewer changed in its own checkout.
+ * A launch writes its own inputs there, so those paths are excluded and whatever remains is
+ * the reviewer's own edit. A review may read and run checks; it may never change the work.
+ */
+export async function inspectReviewWork(request: {
+  worktreePath: string;
+  baseCommit: string;
+  allowedPrefixes: string[];
+}): Promise<ReviewWorktreeInspection> {
+  const head = await git(request.worktreePath, ["rev-parse", "HEAD"]);
+  if (head === null) {
+    return { present: false, commits: [], changes: [] };
+  }
+
+  const [status, log] = await Promise.all([
+    // Every untracked file is listed on its own, so a collapsed directory cannot hide an edit.
+    git(request.worktreePath, ["status", "--porcelain", "-uall"]),
+    git(request.worktreePath, ["log", "--format=%H", `${request.baseCommit}..HEAD`]),
+  ]);
+
+  return {
+    present: true,
+    commits: lines(log),
+    changes: lines(status)
+      .map(changedPath)
+      .filter((path) => !request.allowedPrefixes.some((prefix) => path.startsWith(prefix))),
+  };
+}

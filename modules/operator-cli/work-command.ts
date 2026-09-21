@@ -572,6 +572,31 @@ async function runAccept(parsed: ParsedArguments): Promise<"reported" | "invalid
     return "reported";
   }
 
+  if (result.status === "checks-contradicted") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "conflict",
+        reason: "checks_contradicted",
+        blockers: result.checks.map((check) => ({
+          reason: "checks_contradicted" as const,
+          ...check,
+        })),
+        operation: "work_accept",
+        data: { reviewId: result.reviewId },
+      },
+      lines: [
+        "The review ran these checks itself and saw a different outcome:",
+        ...result.checks.map(
+          (check) =>
+            `  ${check.name}: the producer recorded ${check.recorded}, the ${check.axis} axis saw ${check.observed}`,
+        ),
+        "What a reviewer ran outranks what the producer wrote about its own work.",
+      ],
+    });
+    return "reported";
+  }
+
   if (result.status === "pr-authority-missing") {
     report({
       json: parsed.json,
@@ -614,9 +639,10 @@ async function runAccept(parsed: ParsedArguments): Promise<"reported" | "invalid
       },
       lines: [
         required
-          ? `Name the pull request head you read with --pr-head. The review saw ${result.headCommit}.`
-          : `The pull request now heads ${result.stated}, not the reviewed ${result.recorded}.`,
+          ? `Name the pull request head you read with --pr-head. The submission stated ${result.headCommit}.`
+          : `You read head ${result.stated}. The submission stated ${result.recorded}.`,
         "Evidence binds to the revision it was proven against.",
+        "Operator does not read the pull request itself, so the head you name is the head it checks.",
       ],
     });
     return "reported";

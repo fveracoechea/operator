@@ -1,7 +1,9 @@
 import { HerdrControl } from "../herdr-control/main.ts";
+import { SkillInstall } from "../skill-install/main.ts";
 import { type PrepareOutcome, prepareInputs } from "./inputs.ts";
-import { inspectWork, type WorkInspection } from "./inspect.ts";
+import { inspectReviewWork, inspectWork, type WorkInspection } from "./inspect.ts";
 import { readReference } from "./reference.ts";
+import { LOCAL_ROOT } from "./plan.ts";
 import { readSnapshot } from "./snapshot.ts";
 import {
   agentKindFor,
@@ -177,6 +179,28 @@ export const OperativeDispatch = {
     }
 
     return { status: "succeeded", value: { status: submitted.value.status } };
+  },
+
+  /**
+   * Reads what a reviewer changed in its own checkout.
+   * Operator writes the launch inputs and its own skills there, so those paths are excluded
+   * and whatever remains is an edit a review was never authorized to make.
+   */
+  async inspectReviewWorktree(request: {
+    worktreePath: string;
+    baseCommit: string;
+    agentHost: string;
+  }) {
+    const prefixes = [LOCAL_ROOT];
+    if (isSupportedHost(request.agentHost)) {
+      prefixes.push(`${SkillInstall.targetRoot({ target: request.agentHost })}/`);
+    }
+
+    return inspectReviewWork({
+      worktreePath: request.worktreePath,
+      baseCommit: request.baseCommit,
+      allowedPrefixes: prefixes,
+    });
   },
 
   /**
