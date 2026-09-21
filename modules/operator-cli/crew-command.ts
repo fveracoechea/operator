@@ -6,9 +6,16 @@ import { report } from "./result.ts";
 export async function runCrewOwn(
   parsed: ParsedArguments,
 ): Promise<"reported" | "invalid-arguments"> {
-  const requestId = parsed.crew["--request"];
-  const ownerLabel = parsed.crew["--owner-label"];
+  const { requestId, ownerLabel, ownershipRevision } = parsed.crew;
   if (requestId === undefined || ownerLabel === undefined) {
+    return "invalid-arguments";
+  }
+
+  // A takeover names the ownership revision it saw; a first claim has none to name.
+  if (parsed.takeover === (ownershipRevision === undefined)) {
+    return "invalid-arguments";
+  }
+  if (ownershipRevision !== undefined && !/^\d+$/.test(ownershipRevision)) {
     return "invalid-arguments";
   }
 
@@ -17,9 +24,33 @@ export async function runCrewOwn(
     requestId,
     ownerLabel,
     takeover: parsed.takeover,
+    ownershipRevision: ownershipRevision === undefined ? null : Number(ownershipRevision),
   });
 
   if (reportSharedFailure(parsed, "crew_own", result)) {
+    return "reported";
+  }
+
+  if (result.status === "stale-ownership-revision") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "conflict",
+        reason: "stale_revision",
+        blockers: [
+          {
+            reason: "stale_revision",
+            ownerLabel: result.ownership.ownerLabel,
+            recordedRevision: result.ownership.revision,
+          },
+        ],
+        operation: "crew_own",
+      },
+      lines: [
+        `This crew is at ownership revision ${result.ownership.revision}.`,
+        "Read the ownership again, then take over from the revision you inspected.",
+      ],
+    });
     return "reported";
   }
 
@@ -45,10 +76,6 @@ export async function runCrewOwn(
       ],
     });
     return "reported";
-  }
-
-  if (result.status !== "acquired") {
-    return "invalid-arguments";
   }
 
   report({

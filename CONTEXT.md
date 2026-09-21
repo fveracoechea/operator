@@ -81,4 +81,11 @@ A takeover replaces it, and the replaced token can no longer change crew state.
 
 **Request identity**:
 The caller's name for one mutation.
-A repeat under the same identity returns the recorded outcome with no new effect, and the same identity carrying different input is refused.
+A repeat under the same identity returns the recorded outcome of a mutation that changed state, with no new effect.
+A mutation that changed nothing records nothing, so a repeat of a refused request is checked again against the current state.
+The same identity carrying different input is refused.
+
+**Assignment kind**:
+The recorded class of one assignment, which fixes both its planning boundary and its dispatch priority.
+Production work and review work are executable, and review work is offered first.
+Planning work is not executable, so it carries no kind of its own beyond the planning boundary.

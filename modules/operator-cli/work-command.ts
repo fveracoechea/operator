@@ -6,13 +6,12 @@ import { report } from "./result.ts";
 type Mutation = { requestId: string; ownerToken: string };
 
 function mutationArguments(parsed: ParsedArguments): Mutation | null {
-  const requestId = parsed.crew["--request"];
-  const ownerToken = parsed.crew["--owner-token"];
+  const { requestId, ownerToken } = parsed.crew;
   return requestId === undefined || ownerToken === undefined ? null : { requestId, ownerToken };
 }
 
 function readRevision(parsed: ParsedArguments): number | null {
-  const raw = parsed.crew["--revision"];
+  const raw = parsed.crew.revision;
   if (raw === undefined || !/^\d+$/.test(raw)) {
     return null;
   }
@@ -22,7 +21,7 @@ function readRevision(parsed: ParsedArguments): number | null {
 
 async function runRegister(parsed: ParsedArguments): Promise<"reported" | "invalid-arguments"> {
   const mutation = mutationArguments(parsed);
-  const inputPath = parsed.crew["--input"];
+  const inputPath = parsed.crew.inputPath;
   if (mutation === null || inputPath === undefined) {
     return "invalid-arguments";
   }
@@ -116,6 +115,31 @@ async function runRegister(parsed: ParsedArguments): Promise<"reported" | "inval
     return "reported";
   }
 
+  if (result.status === "dependencies-changed") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "conflict",
+        reason: "dependencies_changed",
+        blockers: [
+          {
+            reason: "dependencies_changed",
+            sourceKey: result.sourceKey,
+            assignmentId: result.assignmentId,
+            recorded: result.recorded,
+            requested: result.requested,
+          },
+        ],
+        operation: "work_register",
+      },
+      lines: [
+        `Item ${result.sourceKey} is registered with different dependencies.`,
+        "Assignment dependencies stay fixed, so a changed dependency needs your decision.",
+      ],
+    });
+    return "reported";
+  }
+
   if (result.status === "dependency-cycle") {
     report({
       json: parsed.json,
@@ -131,10 +155,6 @@ async function runRegister(parsed: ParsedArguments): Promise<"reported" | "inval
       ],
     });
     return "reported";
-  }
-
-  if (result.status !== "registered") {
-    return "invalid-arguments";
   }
 
   report({
@@ -167,7 +187,7 @@ async function runRegister(parsed: ParsedArguments): Promise<"reported" | "inval
 
 async function runClaim(parsed: ParsedArguments): Promise<"reported" | "invalid-arguments"> {
   const mutation = mutationArguments(parsed);
-  const assignmentId = parsed.crew["--assignment"];
+  const assignmentId = parsed.crew.assignmentId;
   const revision = readRevision(parsed);
   if (mutation === null || assignmentId === undefined || revision === null) {
     return "invalid-arguments";
@@ -291,10 +311,6 @@ async function runClaim(parsed: ParsedArguments): Promise<"reported" | "invalid-
     return "reported";
   }
 
-  if (result.status !== "claimed") {
-    return "invalid-arguments";
-  }
-
   report({
     json: parsed.json,
     result: {
@@ -322,15 +338,11 @@ async function runClaim(parsed: ParsedArguments): Promise<"reported" | "invalid-
 
 async function runAccept(parsed: ParsedArguments): Promise<"reported" | "invalid-arguments"> {
   const mutation = mutationArguments(parsed);
-  const assignmentId = parsed.crew["--assignment"];
-  const attemptId = parsed.crew["--attempt"];
+  const assignmentId = parsed.crew.assignmentId;
+  // Planning work carries no attempt, so the attempt is optional here and checked by kind.
+  const attemptId = parsed.crew.attemptId ?? null;
   const revision = readRevision(parsed);
-  if (
-    mutation === null ||
-    assignmentId === undefined ||
-    attemptId === undefined ||
-    revision === null
-  ) {
+  if (mutation === null || assignmentId === undefined || revision === null) {
     return "invalid-arguments";
   }
 
@@ -400,6 +412,30 @@ async function runAccept(parsed: ParsedArguments): Promise<"reported" | "invalid
     return "reported";
   }
 
+  if (result.status === "attempt-required" || result.status === "attempt-not-expected") {
+    const required = result.status === "attempt-required";
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "invalid",
+        reason: required ? "attempt_required" : "attempt_not_expected",
+        blockers: [
+          {
+            reason: required ? "attempt_required" : "attempt_not_expected",
+            assignmentId: result.assignmentId,
+          },
+        ],
+        operation: "work_accept",
+      },
+      lines: [
+        required
+          ? `Assignment ${result.assignmentId} is executable, so acceptance names the attempt that holds it.`
+          : `Assignment ${result.assignmentId} is planning work, so acceptance names no attempt.`,
+      ],
+    });
+    return "reported";
+  }
+
   if (result.status === "attempt-mismatch") {
     report({
       json: parsed.json,
@@ -415,13 +451,13 @@ async function runAccept(parsed: ParsedArguments): Promise<"reported" | "invalid
         ],
         operation: "work_accept",
       },
-      lines: [`Assignment ${result.assignmentId} is held by attempt ${result.attemptId}.`],
+      lines: [
+        result.attemptId === null
+          ? `Assignment ${result.assignmentId} has no active attempt.`
+          : `Assignment ${result.assignmentId} is held by attempt ${result.attemptId}.`,
+      ],
     });
     return "reported";
-  }
-
-  if (result.status !== "accepted") {
-    return "invalid-arguments";
   }
 
   report({
@@ -444,13 +480,9 @@ async function runAccept(parsed: ParsedArguments): Promise<"reported" | "invalid
 }
 
 async function runFrontier(parsed: ParsedArguments): Promise<"reported" | "invalid-arguments"> {
-  const result = await CrewState.frontier({ projectRoot: process.cwd() });
+  const { result } = await CrewState.frontier({ projectRoot: process.cwd() });
   if (reportSharedFailure(parsed, "work_frontier", result)) {
     return "reported";
-  }
-
-  if (result.status !== "reported") {
-    return "invalid-arguments";
   }
 
   const reason =

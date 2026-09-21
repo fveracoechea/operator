@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-// Bun has no filesystem link or recursive removal API.
-import { link, rm } from "node:fs/promises";
+// Bun has no filesystem link, directory creation, or recursive removal API.
+import { link, mkdir, rm } from "node:fs/promises";
 // Bun has no path manipulation API.
 import { dirname } from "node:path";
 import { CREATE_STATEMENTS, crewStateSchema, STATE_VERSION } from "./schema.ts";
@@ -95,8 +95,7 @@ export async function createState(
     return { status: "exists" };
   }
 
-  const directory = dirname(path);
-  await Bun.$`mkdir -p ${directory}`.quiet();
+  await mkdir(dirname(path), { recursive: true });
   const temporaryPath = `${path}.${crypto.randomUUID()}.tmp`;
 
   try {

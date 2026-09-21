@@ -90,6 +90,8 @@ export async function run(args: string[]): Promise<void> {
       parsed.unsupported.length > 0 ||
       parsed.targets.length > 0 ||
       parsed.approvedPlan !== undefined ||
+      // Only crew ownership can be taken over, so any other command refuses the flag.
+      (command === "work" && parsed.takeover) ||
       hasSelectionOrProbeArguments(parsed)
     ) {
       rejectArguments(parsed.json);

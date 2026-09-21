@@ -31,15 +31,27 @@ export function requireOwnership(db: CrewReader, token: string): OwnershipCheck 
 
 export type ClaimOwnershipResult =
   | { status: "acquired"; ownership: Ownership; replaced: Ownership | null }
-  | { status: "held"; ownership: Ownership };
+  | { status: "held"; ownership: Ownership }
+  | { status: "stale-ownership-revision"; ownership: Ownership };
 
 export function claimOwnership(
   db: CrewWriter,
-  request: { ownerLabel: string; takeover: boolean; token: string; now: string },
+  request: {
+    ownerLabel: string;
+    takeover: boolean;
+    ownershipRevision: number | null;
+    token: string;
+    now: string;
+  },
 ): ClaimOwnershipResult {
   const held = currentOwnership(db);
   if (held !== null && !request.takeover) {
     return { status: "held", ownership: held };
+  }
+
+  // A takeover states the ownership it inspected, so two takeovers cannot both believe they won.
+  if (held !== null && request.ownershipRevision !== held.revision) {
+    return { status: "stale-ownership-revision", ownership: held };
   }
 
   const ownership: Ownership = {

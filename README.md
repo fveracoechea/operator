@@ -117,11 +117,12 @@ Ownership creates the crew state, which is one SQLite database in `.operator/loc
 
 ```sh
 operator crew own --request <id> --owner-label <label> --json
-operator crew own --request <id> --owner-label <label> --takeover --json
+operator crew own --request <id> --owner-label <label> --takeover --ownership-revision <n> --json
 ```
 
 The result carries the owner token that every later mutation must present.
-A takeover invalidates the former token, so a stale Operator session cannot change crew state.
+A takeover names the ownership revision it inspected, so two Operators cannot both believe they won.
+It invalidates the former token, so a stale Operator session cannot change crew state.
 
 Work is registered from an approved specification, a ready ticket, or a wayfinder map.
 The request is a JSON file, or `-` to read standard input.
@@ -132,7 +133,7 @@ operator work register --request <id> --owner-token <token> --input work.json --
 
 Registration records each item with its source revision, approved scope, acceptance requirements, permissions, fixed inputs, dependencies, and planning boundary.
 Registering the same item twice names the existing assignment instead of creating a second one.
-A dependency cycle is refused before anything is dispatched.
+A dependency cycle is refused before anything is dispatched, and so is a re-registration that states different dependencies.
 
 ```sh
 operator work frontier --json
@@ -150,13 +151,18 @@ A limit of one runs one assignment at a time.
 Queued review is offered before new production work.
 
 A dependent starts only after its dependencies reach accepted completion.
+Executable work is accepted from the attempt that holds it.
+The Operator resolves planning work itself, so planning work is accepted with no attempt.
 
 ```sh
 operator work accept --request <id> --owner-token <token> --assignment <id> --attempt <id> --revision <n> --json
+operator work accept --request <id> --owner-token <token> --assignment <id> --revision <n> --json
 ```
 
 Every mutation carries a request identity.
-A repeat under the same identity returns the recorded result with no new effect, and the same identity carrying different input is refused.
+A repeat under the same identity returns the recorded result of a mutation that changed state, with no new effect, and `repeated` in the result says so.
+A refused mutation records nothing, so a repeat of it is checked again against the current state.
+The same identity carrying different input is refused.
 See [ADR 0003](docs/adr/0003-crew-state-is-one-sqlite-file-created-once.md) and [ADR 0004](docs/adr/0004-the-frontier-is-the-only-dispatch-rule.md).
 
 ## The Workflow We Want

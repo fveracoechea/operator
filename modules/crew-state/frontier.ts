@@ -114,17 +114,16 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
   }
 
   const entries = rows.map(entry).toSorted(byPriority);
-  const activeEntries = entries
-    .filter((one) => attemptByAssignment.has(one.assignmentId))
-    .map((one) => ({
-      ...one,
-      attemptId: attemptByAssignment.get(one.assignmentId)?.id ?? "",
-    }));
+  const activeEntries = entries.flatMap((one) => {
+    const attempt = attemptByAssignment.get(one.assignmentId);
+    return attempt === undefined ? [] : [{ ...one, attemptId: attempt.id }];
+  });
 
   const activeProduction = activeEntries.filter((one) => one.kind !== "review").length;
   const activeReview = activeEntries.filter((one) => one.kind === "review").length;
 
-  let freeSlots = Math.max(0, capacity.limit - activeProduction - activeReview);
+  const freeSlots = Math.max(0, capacity.limit - activeProduction - activeReview);
+  let openSlots = freeSlots;
   let heldProduction = activeProduction;
 
   const dispatchable: FrontierEntry[] = [];
@@ -151,7 +150,7 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
       continue;
     }
 
-    if (freeSlots === 0) {
+    if (openSlots === 0) {
       blocked.push({ ...one, blockers: [{ reason: "crew_at_capacity", limit: capacity.limit }] });
       continue;
     }
@@ -167,7 +166,7 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
     }
 
     dispatchable.push(one);
-    freeSlots -= 1;
+    openSlots -= 1;
     if (one.kind !== "review") {
       heldProduction += 1;
     }

@@ -18,6 +18,10 @@ Planning work is registered so dependencies resolve, and it is never dispatched.
 A specification or a ticket states the planning boundary of each item.
 A wayfinder ticket states it through its own type, where `research`, `grilling`, and `prototype` are planning and `task` is production.
 
+The Operator resolves planning work itself, so planning work reaches accepted completion with no attempt.
+Executable work reaches it only from the attempt that holds the assignment.
+Without that, a task blocked by a research ticket could never start, because the research ticket could never be claimed.
+
 ## Considered options
 
 Checking capacity only at dispatch was rejected.
@@ -36,3 +40,8 @@ The review workflow adds its preconditions to that same transition rather than a
 
 A registered source is fixed at the revision it was registered with.
 Registering the same source at a different revision is a conflict that needs a decision, because assignment inputs stay fixed once they exist.
+A re-registration at the same revision may add items, and an item it already holds keeps the dependencies it was registered with.
+A request that states different dependencies for a recorded item is the same kind of conflict.
+
+One `kind` field carries both the planning boundary and the dispatch priority, so review work is always executable.
+That is deliberate for this release: review work is produced by the review workflow, and planning review has no meaning yet.

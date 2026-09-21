@@ -8,6 +8,7 @@ import {
   readAssignment,
 } from "./frontier.ts";
 import { assignments, attempts } from "./schema.ts";
+import { isExecutable } from "./work-input.ts";
 
 export type ClaimResult =
   | {
@@ -23,7 +24,7 @@ export type ClaimResult =
   | { status: "stale-revision"; assignmentId: string; recordedRevision: number }
   | { status: "planning-only"; assignmentId: string; kind: string }
   | { status: "already-accepted"; assignmentId: string }
-  | { status: "already-claimed"; assignmentId: string; attemptId: string; ownerToken: string }
+  | { status: "already-claimed"; assignmentId: string; attemptId: string }
   | { status: "not-dispatchable"; assignmentId: string; blockers: FrontierBlocker[] };
 
 export function claimAssignment(
@@ -50,12 +51,7 @@ export function claimAssignment(
   // the revision, because the holder is what a caller racing for this work needs to know.
   const live = activeAttempt(db, row.id);
   if (live !== null) {
-    return {
-      status: "already-claimed",
-      assignmentId: row.id,
-      attemptId: live.id,
-      ownerToken: live.ownerToken,
-    };
+    return { status: "already-claimed", assignmentId: row.id, attemptId: live.id };
   }
 
   // The caller states the revision it inspected, so a state that moved under it is refused.
@@ -113,19 +109,23 @@ export function claimAssignment(
 }
 
 export type AcceptResult =
-  | { status: "accepted"; assignmentId: string; attemptId: string; revision: number }
+  | { status: "accepted"; assignmentId: string; attemptId: string | null; revision: number }
   | { status: "unknown-assignment"; assignmentId: string }
   | { status: "stale-revision"; assignmentId: string; recordedRevision: number }
   | { status: "not-claimed"; assignmentId: string; state: string }
-  | { status: "attempt-mismatch"; assignmentId: string; attemptId: string };
+  | { status: "attempt-required"; assignmentId: string }
+  | { status: "attempt-not-expected"; assignmentId: string }
+  | { status: "attempt-mismatch"; assignmentId: string; attemptId: string | null };
 
 /**
  * Records accepted completion, the only state that unblocks a dependent assignment.
+ * Executable work is accepted from the attempt that holds it. The Operator resolves planning
+ * work itself, so planning work is accepted straight from registered with no attempt.
  * Review gates on top of this transition arrive with the review workflow.
  */
 export function acceptAssignment(
   db: CrewWriter,
-  request: { assignmentId: string; revision: number; attemptId: string; now: string },
+  request: { assignmentId: string; revision: number; attemptId: string | null; now: string },
 ): AcceptResult {
   const row = readAssignment(db, request.assignmentId);
   if (row === null) {
@@ -134,13 +134,34 @@ export function acceptAssignment(
   if (row.revision !== request.revision) {
     return { status: "stale-revision", assignmentId: row.id, recordedRevision: row.revision };
   }
+
+  const revision = row.revision + 1;
+
+  if (!isExecutable(row.kind)) {
+    if (request.attemptId !== null) {
+      return { status: "attempt-not-expected", assignmentId: row.id };
+    }
+    if (row.state !== "registered") {
+      return { status: "not-claimed", assignmentId: row.id, state: row.state };
+    }
+
+    db.update(assignments)
+      .set({ state: "accepted", revision, updatedAt: request.now })
+      .where(eq(assignments.id, row.id))
+      .run();
+    return { status: "accepted", assignmentId: row.id, attemptId: null, revision };
+  }
+
+  if (request.attemptId === null) {
+    return { status: "attempt-required", assignmentId: row.id };
+  }
   if (row.state !== "claimed") {
     return { status: "not-claimed", assignmentId: row.id, state: row.state };
   }
 
   const live = activeAttempt(db, row.id);
   if (live === null || live.id !== request.attemptId) {
-    return { status: "attempt-mismatch", assignmentId: row.id, attemptId: live?.id ?? "" };
+    return { status: "attempt-mismatch", assignmentId: row.id, attemptId: live?.id ?? null };
   }
 
   db.update(attempts)
@@ -148,7 +169,6 @@ export function acceptAssignment(
     .where(eq(attempts.id, live.id))
     .run();
 
-  const revision = row.revision + 1;
   db.update(assignments)
     .set({ state: "accepted", revision, updatedAt: request.now })
     .where(eq(assignments.id, row.id))

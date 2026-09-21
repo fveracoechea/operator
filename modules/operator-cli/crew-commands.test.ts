@@ -139,7 +139,7 @@ async function accept(
   root: string,
   token: string,
   assignmentId: string,
-  attemptId: string,
+  attemptId: string | null,
   revision: number,
 ) {
   return runJson(root, [
@@ -151,8 +151,7 @@ async function accept(
     token,
     "--assignment",
     assignmentId,
-    "--attempt",
-    attemptId,
+    ...(attemptId === null ? [] : ["--attempt", attemptId]),
     "--revision",
     String(revision),
   ]);
@@ -195,6 +194,59 @@ describe("operator crew own", () => {
     expect(result.json.blockers[0]).toMatchObject({ ownerLabel: "first-session" });
   });
 
+  test("a repeated ownership request returns the recorded token", async () => {
+    const root = await makeProject();
+    const requestId = request();
+    const ownArguments = ["crew", "own", "--request", requestId, "--owner-label", "first-session"];
+
+    const first = await runJson(root, ownArguments);
+    const second = await runJson(root, ownArguments);
+
+    expect(second.exitCode).toBe(0);
+    expect(second.json.data.ownerToken).toBe(first.json.data.ownerToken);
+    expect(second.json.data.repeated).toBe(true);
+    expect(second.json.data.revision).toBe(1);
+  });
+
+  test("refuses a takeover that names no ownership revision", async () => {
+    const root = await makeProject();
+    await own(root, "first-session");
+
+    const result = await runJson(root, [
+      "crew",
+      "own",
+      "--request",
+      request(),
+      "--owner-label",
+      "second-session",
+      "--takeover",
+    ]);
+
+    expect(result.exitCode).toBe(2);
+    expect(result.json.reason).toBe("invalid_arguments");
+  });
+
+  test("refuses a takeover from an ownership revision the crew has moved past", async () => {
+    const root = await makeProject();
+    await own(root, "first-session");
+
+    const result = await runJson(root, [
+      "crew",
+      "own",
+      "--request",
+      request(),
+      "--owner-label",
+      "second-session",
+      "--takeover",
+      "--ownership-revision",
+      "7",
+    ]);
+
+    expect(result.exitCode).toBe(4);
+    expect(result.json.reason).toBe("stale_revision");
+    expect(result.json.blockers[0]).toMatchObject({ recordedRevision: 1 });
+  });
+
   test("an explicit takeover invalidates the former token", async () => {
     const root = await makeProject();
     const first = await own(root, "first-session");
@@ -209,6 +261,8 @@ describe("operator crew own", () => {
       "--owner-label",
       "second-session",
       "--takeover",
+      "--ownership-revision",
+      "1",
     ]);
     expect(taken.json.reason).toBe("ownership_acquired");
     expect(taken.json.data.revision).toBe(2);
@@ -344,6 +398,109 @@ describe("operator work register", () => {
     });
   });
 
+  test("refuses a re-registration that states different dependencies", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+    await register(root, token, { items: [item({ key: "a" }), item({ key: "b" })] });
+
+    const changed = await register(root, token, {
+      items: [
+        item({ key: "a", dependsOn: [{ key: "b" }] }),
+        item({ key: "b", dependsOn: [{ key: "a" }] }),
+      ],
+    });
+
+    expect(changed.exitCode).toBe(4);
+    expect(changed.json.reason).toBe("dependencies_changed");
+
+    const frontier = await runJson(root, ["work", "frontier"]);
+    expect(
+      frontier.json.data.dispatchable.map((one: { sourceKey: string }) => one.sourceKey),
+    ).toEqual(["a", "b"]);
+  });
+
+  test("registers a dependency that names another source", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+    await register(root, token, { id: "github:operator#15", items: [item({ key: "a" })] });
+
+    const second = await register(root, token, {
+      sourceKind: "ticket",
+      id: "github:operator#19",
+      items: [item({ key: "b", dependsOn: [{ sourceId: "github:operator#15", key: "a" }] })],
+    });
+
+    expect(second.json.reason).toBe("work_registered");
+
+    const frontier = await runJson(root, ["work", "frontier"]);
+    expect(
+      frontier.json.data.dispatchable.map((one: { sourceKey: string }) => one.sourceKey),
+    ).toEqual(["a"]);
+    expect(frontier.json.data.blocked[0]).toMatchObject({
+      sourceKey: "b",
+      blockers: [{ reason: "dependency_pending" }],
+    });
+  });
+
+  test("refuses a dependency on work that is not registered", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+
+    const result = await register(root, token, {
+      items: [item({ key: "a", dependsOn: [{ key: "missing" }] })],
+    });
+
+    expect(result.exitCode).toBe(2);
+    expect(result.json.reason).toBe("unknown_dependency");
+  });
+
+  test("treats a wayfinder prototype as planning work", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+
+    const registered = await register(root, token, {
+      sourceKind: "wayfinder",
+      id: "github:operator#1",
+      items: [item({ key: "prototype-1", wayfinderType: "prototype" })],
+    });
+
+    expect(registered.json.data.registered[0]).toMatchObject({
+      kind: "planning",
+      executable: false,
+    });
+  });
+
+  test("reads a registration request from standard input", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+    const body = JSON.stringify({
+      sourceKind: "ticket",
+      source: { id: "github:operator#19", revision: "rev-1", tracker: "github" },
+      items: [item({ key: "19" })],
+    });
+
+    const child = Bun.spawn(
+      [
+        "bun",
+        cliPath,
+        "work",
+        "register",
+        "--request",
+        request(),
+        "--owner-token",
+        token,
+        "--input",
+        "-",
+        "--json",
+      ],
+      { cwd: root, stdin: new TextEncoder().encode(body), stdout: "pipe", stderr: "pipe" },
+    );
+    const [exitCode, stdout] = await Promise.all([child.exited, new Response(child.stdout).text()]);
+
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(stdout).reason).toBe("work_registered");
+  });
+
   test("reports every invalid field of a registration request", async () => {
     const root = await makeProject();
     const token = await own(root);
@@ -398,7 +555,7 @@ describe("operator work claim", () => {
     });
   });
 
-  test("refuses a claim that names a revision the state has moved past", async () => {
+  test("names the holding attempt before it reports the revision", async () => {
     const root = await makeProject();
     const token = await own(root);
     const registered = await register(root, token, {
@@ -411,6 +568,20 @@ describe("operator work claim", () => {
 
     expect(stale.exitCode).toBe(4);
     expect(stale.json.reason).toBe("assignment_already_claimed");
+  });
+
+  test("refuses a stale revision on work that an accepted attempt released", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+    const registered = await register(root, token, { items: [item({ key: "a" })] });
+    const id = assignmentIdOf(registered.json, "a");
+    const claimed = await claim(root, token, id, 1);
+    await accept(root, token, id, claimed.json.data.attemptId, claimed.json.data.revision);
+
+    const stale = await claim(root, token, id, 1);
+
+    expect(stale.exitCode).toBe(4);
+    expect(stale.json.reason).toBe("assignment_already_accepted");
   });
 
   test("refuses a stale revision on an assignment nobody holds", async () => {
@@ -457,6 +628,42 @@ describe("operator work claim", () => {
     expect(frontier.json.data.active.length).toBe(1);
   });
 
+  test("checks a refused request again instead of replaying its refusal", async () => {
+    const root = await makeProject({
+      ".operator/config.json": `${JSON.stringify({ operator: {}, crew: { maxActiveAgents: 1 } })}\n`,
+    });
+    const token = await own(root);
+    const registered = await register(root, token, {
+      items: [item({ key: "a" }), item({ key: "b" })],
+    });
+    const first = assignmentIdOf(registered.json, "a");
+    const second = assignmentIdOf(registered.json, "b");
+    const claimSecond = [
+      "work",
+      "claim",
+      "--request",
+      request(),
+      "--owner-token",
+      token,
+      "--assignment",
+      second,
+      "--revision",
+      "1",
+    ];
+
+    const claimed = await claim(root, token, first, 1);
+    const refused = await runJson(root, claimSecond);
+    expect(refused.exitCode).toBe(3);
+    expect(refused.json.reason).toBe("assignment_not_dispatchable");
+
+    await accept(root, token, first, claimed.json.data.attemptId, claimed.json.data.revision);
+
+    // A refused request left no record, so the same identity is checked against the new state.
+    const retried = await runJson(root, claimSecond);
+    expect(retried.json.reason).toBe("assignment_claimed");
+    expect(retried.json.data.repeated).toBe(false);
+  });
+
   test("refuses a reused request identity that carries different input", async () => {
     const root = await makeProject();
     const token = await own(root);
@@ -492,6 +699,70 @@ describe("operator work claim", () => {
 
     expect(changed.exitCode).toBe(2);
     expect(changed.json.reason).toBe("request_input_changed");
+  });
+});
+
+describe("operator work accept", () => {
+  test("accepts planning work with no attempt and unblocks its dependent", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+    const registered = await register(root, token, {
+      sourceKind: "wayfinder",
+      id: "github:operator#1",
+      items: [
+        item({ key: "research-1", wayfinderType: "research" }),
+        item({ key: "task-1", wayfinderType: "task", dependsOn: [{ key: "research-1" }] }),
+      ],
+    });
+    const research = assignmentIdOf(registered.json, "research-1");
+    const task = assignmentIdOf(registered.json, "task-1");
+
+    const blocked = await runJson(root, ["work", "frontier"]);
+    expect(blocked.json.data.dispatchable).toEqual([]);
+
+    const accepted = await accept(root, token, research, null, 1);
+    expect(accepted.exitCode).toBe(0);
+    expect(accepted.json.reason).toBe("assignment_accepted");
+    expect(accepted.json.data.attemptId).toBe(null);
+
+    const open = await runJson(root, ["work", "frontier"]);
+    expect(
+      open.json.data.dispatchable.map((one: { assignmentId: string }) => one.assignmentId),
+    ).toEqual([task]);
+  });
+
+  test("refuses to accept executable work that names no attempt", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+    const registered = await register(root, token, { items: [item({ key: "a" })] });
+    const id = assignmentIdOf(registered.json, "a");
+    const claimed = await claim(root, token, id, 1);
+
+    const result = await accept(root, token, id, null, claimed.json.data.revision);
+
+    expect(result.exitCode).toBe(2);
+    expect(result.json.reason).toBe("attempt_required");
+  });
+
+  test("refuses to accept planning work that names an attempt", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+    const registered = await register(root, token, {
+      sourceKind: "wayfinder",
+      id: "github:operator#1",
+      items: [item({ key: "research-1", wayfinderType: "research" })],
+    });
+
+    const result = await accept(
+      root,
+      token,
+      assignmentIdOf(registered.json, "research-1"),
+      crypto.randomUUID(),
+      1,
+    );
+
+    expect(result.exitCode).toBe(2);
+    expect(result.json.reason).toBe("attempt_not_expected");
   });
 });
 
@@ -626,6 +897,20 @@ describe("operator work frontier", () => {
     expect(
       frontier.json.data.dispatchable.map((one: { sourceKey: string }) => one.sourceKey),
     ).toEqual(["review-a"]);
+  });
+});
+
+describe("commands that own no crew state", () => {
+  test("refuse a crew flag they have no use for", async () => {
+    const root = await makeProject();
+
+    const installed = await runJson(root, ["install", "--claude", "--request", request()]);
+    const planned = await runJson(root, ["setup", "plan", "--claude", "--owner-label", "session"]);
+
+    expect(installed.exitCode).toBe(2);
+    expect(installed.json.reason).toBe("invalid_arguments");
+    expect(planned.exitCode).toBe(2);
+    expect(planned.json.reason).toBe("invalid_arguments");
   });
 });
 

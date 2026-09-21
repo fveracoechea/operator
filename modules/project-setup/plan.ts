@@ -34,8 +34,8 @@ export type SetupPlan = {
   conflicts: SetupConflict[];
 };
 
-export const CONFIG_PATH = ".operator/config.json";
-export const SCHEMA_PATH = ".operator/config.schema.json";
+export const CONFIG_PATH = OperatorConfig.configPath();
+export const SCHEMA_PATH = OperatorConfig.schemaPath();
 export const IGNORE_PATH = ".gitignore";
 export const INSTRUCTIONS_PATH = "AGENTS.md";
 export const CLAUDE_IMPORT_PATH = "CLAUDE.md";

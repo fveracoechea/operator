@@ -14,6 +14,17 @@ A failed creation therefore leaves nothing, and two Operator processes that star
 The create statements and the Drizzle table definitions are two renderings of one schema.
 A test creates the tables and compares every column and null rule against the Drizzle definitions, so the two cannot disagree.
 
+A request record is the recovery record of a local mutation.
+It holds the caller's request identity, the identity of the input, and the outcome, and it is written in the same transaction as the effect.
+An interrupted caller therefore repeats its request and reads the recorded result instead of repeating the effect.
+
+A mutation that changed nothing records nothing, because its transaction rolled back.
+A repeat of a refused request is therefore checked again against the current state, and it can succeed once the blocker is gone.
+That is the behaviour a recovering Operator needs, because a recorded refusal would replay forever.
+The reported `repeated` field is how a caller tells a replay from a fresh effect.
+
+An external operation that leaves an effect outside this database needs its own record, which the workflow that performs it will add.
+
 ## Considered options
 
 Generated migration files were rejected.
@@ -29,6 +40,9 @@ The frontier reads assignments, dependencies, and attempts in one transaction, a
 
 A change to the tables needs the state version to change, and a version change needs a migration path before the release that makes it.
 Until that path exists, the drift test is the only guard that the two renderings of the schema agree.
+
+`skipLibCheck` is on, because `drizzle-orm` ships type errors for the Gel and MySQL dialects whose peer packages this project does not install.
+The cost is that library type errors are silenced for every dependency, so a dependency upgrade is checked by the tests rather than by the compiler.
 
 Every mutation runs in one immediate transaction.
 Two Operator processes therefore serialize on a write instead of interleaving, and a partial write cannot survive an interrupted command.

@@ -1,6 +1,9 @@
+import { z } from "zod";
 import { describeIssue, operatorConfigJsonSchema, operatorConfigSchema } from "./schema.ts";
 
 const SCHEMA_FILE_REFERENCE = "./config.schema.json";
+const CONFIG_PATH = ".operator/config.json";
+const SCHEMA_PATH = ".operator/config.schema.json";
 
 export const OperatorConfig = {
   /** Validates untrusted configuration input and reports every issue with its field. */
@@ -11,6 +14,20 @@ export const OperatorConfig = {
     }
 
     return { ok: true as const, config: result.data };
+  },
+
+  /** Names one validation problem with the field it belongs to. */
+  describeIssue(issue: z.core.$ZodIssue): string {
+    return describeIssue(issue);
+  },
+
+  /** The project-relative path of the configuration file and its generated schema. */
+  configPath(): string {
+    return CONFIG_PATH;
+  },
+
+  schemaPath(): string {
+    return SCHEMA_PATH;
   },
 
   jsonSchemaText(): string {

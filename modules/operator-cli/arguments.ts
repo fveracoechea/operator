@@ -5,21 +5,24 @@ export type SelectionOverrides = {
   crew?: { host?: AgentTarget; model?: string };
 };
 
-// Crew and work commands share these value flags; the keys are the only list of them.
-const crewFlagNames = {
-  "--request": true,
-  "--owner-token": true,
-  "--owner-label": true,
-  "--assignment": true,
-  "--attempt": true,
-  "--revision": true,
-  "--input": true,
+// Crew and work commands share these value flags; the keys map each spelling to its field.
+const crewFieldByFlag = {
+  "--request": "requestId",
+  "--owner-token": "ownerToken",
+  "--owner-label": "ownerLabel",
+  "--ownership-revision": "ownershipRevision",
+  "--assignment": "assignmentId",
+  "--attempt": "attemptId",
+  "--revision": "revision",
+  "--input": "inputPath",
 } as const;
 
-export type CrewFlag = keyof typeof crewFlagNames;
+type CrewFlag = keyof typeof crewFieldByFlag;
+
+export type CrewArguments = Partial<Record<(typeof crewFieldByFlag)[CrewFlag], string>>;
 
 function isCrewFlag(value: string): value is CrewFlag {
-  return Object.hasOwn(crewFlagNames, value);
+  return Object.hasOwn(crewFieldByFlag, value);
 }
 
 export type ParsedArguments = {
@@ -29,7 +32,7 @@ export type ParsedArguments = {
   approvedProbe: string | undefined;
   overrides: SelectionOverrides;
   takeover: boolean;
-  crew: Partial<Record<CrewFlag, string>>;
+  crew: CrewArguments;
   unsupported: string[];
 };
 
@@ -88,7 +91,7 @@ export function parseArguments(args: string[]): ParsedArguments {
       }
 
       index += 1;
-      parsed.crew[argument] = value;
+      parsed.crew[crewFieldByFlag[argument]] = value;
     } else if (argument === "--opencode" || argument === "--claude") {
       const target = targetByFlag[argument];
       if (!parsed.targets.includes(target)) {

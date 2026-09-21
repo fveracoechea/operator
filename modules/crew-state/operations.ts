@@ -74,55 +74,55 @@ export async function mutate<Outcome extends { status: string }>(
   }
 
   const inputIdentity = identityOf(request.input);
-  const held: {
-    reported: { repeated: boolean; result: Outcome | StateFailure | RequestFailure } | null;
-  } = { reported: null };
+  type Reported = { repeated: boolean; result: Outcome | StateFailure | RequestFailure };
+  const held: { reported: Reported | null } = { reported: null };
 
   try {
     return opened.db.transaction(
       (tx) => {
+        /** Leaves the transaction with no effect and carries out the reason to report. */
+        function abort(reported: Reported): never {
+          held.reported = reported;
+          return tx.rollback();
+        }
+
         const recorded = lookupRequest<Outcome>(tx, {
           requestId: request.requestId,
           operation: request.operation,
           inputIdentity,
         });
         if (recorded.status === "input-changed") {
-          held.reported = {
+          abort({
             repeated: false,
             result: {
               status: "request-input-changed",
               requestId: request.requestId,
               recordedOperation: recorded.operation,
             },
-          };
-          tx.rollback();
+          });
         }
         if (recorded.status === "repeat") {
-          held.reported = { repeated: true, result: recorded.outcome };
-          tx.rollback();
+          abort({ repeated: true, result: recorded.outcome });
         }
 
         let ownership: Ownership | null = null;
         if (request.ownerToken !== null) {
           const check = requireOwnership(tx, request.ownerToken);
           if (check.status !== "ok") {
-            held.reported = {
+            abort({
               repeated: false,
               result:
                 check.status === "unowned"
                   ? { status: "unowned" }
                   : { status: "ownership-stale", ownership: check.ownership },
-            };
-            tx.rollback();
-          } else {
-            ownership = check.ownership;
+            });
           }
+          ownership = check.ownership;
         }
 
         const done = body({ tx, ownership, now: request.now });
         if (!done.commit) {
-          held.reported = { repeated: false, result: done.outcome };
-          tx.rollback();
+          abort({ repeated: false, result: done.outcome });
         }
 
         recordRequest(tx, {

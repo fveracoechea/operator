@@ -34,6 +34,13 @@ export type RegisterResult =
       sourceKey: string;
       dependency: { sourceId: string; key: string };
     }
+  | {
+      status: "dependencies-changed";
+      sourceKey: string;
+      assignmentId: string;
+      recorded: string[];
+      requested: string[];
+    }
   | { status: "dependency-cycle"; cycle: string[] };
 
 function reported(row: typeof assignments.$inferSelect): RegisteredAssignment {
@@ -177,11 +184,11 @@ export function registerWork(
       .map((row) => row.id),
   );
 
+  // Every item states its dependencies, including an item this request did not create.
+  // An item that already exists keeps the edges it was registered with.
   for (const item of input.items) {
     const id = assignmentId(source.id, item.key);
-    if (!newIds.has(id)) {
-      continue;
-    }
+    const requested: string[] = [];
 
     for (const dependency of item.dependsOn) {
       const dependsOnSource = dependency.sourceId ?? source.id;
@@ -193,11 +200,35 @@ export function registerWork(
           dependency: { sourceId: dependsOnSource, key: dependency.key },
         };
       }
+      requested.push(dependsOnId);
+    }
 
-      db.insert(assignmentDependencies)
-        .values({ assignmentId: id, dependsOnId })
-        .onConflictDoNothing()
-        .run();
+    if (newIds.has(id)) {
+      for (const dependsOnId of requested) {
+        db.insert(assignmentDependencies)
+          .values({ assignmentId: id, dependsOnId })
+          .onConflictDoNothing()
+          .run();
+      }
+      continue;
+    }
+
+    const recorded = db
+      .select()
+      .from(assignmentDependencies)
+      .where(eq(assignmentDependencies.assignmentId, id))
+      .all()
+      .map((edge) => edge.dependsOnId)
+      .toSorted();
+    const stated = [...new Set(requested)].toSorted();
+    if (recorded.join(",") !== stated.join(",")) {
+      return {
+        status: "dependencies-changed",
+        sourceKey: item.key,
+        assignmentId: id,
+        recorded,
+        requested: stated,
+      };
     }
   }
 

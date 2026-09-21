@@ -1,11 +1,12 @@
-import { type Capacity, readCapacity } from "./capacity.ts";
+import { OperatorConfig } from "../operator-config/main.ts";
+import { readCapacity } from "./capacity.ts";
 import { acceptAssignment, claimAssignment } from "./claims.ts";
 import { calculateFrontier } from "./frontier.ts";
 import { mutate, readState } from "./operations.ts";
 import { claimOwnership, currentOwnership } from "./ownership.ts";
 import { registerWork } from "./registration.ts";
 import { STATE_VERSION } from "./schema.ts";
-import { describeIssue, workInputSchema } from "./work-input.ts";
+import { workInputSchema } from "./work-input.ts";
 
 type Located = { projectRoot: string };
 type Mutation = Located & { requestId: string; ownerToken: string };
@@ -18,19 +19,19 @@ function commitOn<Outcome extends { status: string }>(
   return { commit: outcome.status === accepted, outcome };
 }
 
-async function capacityOrFailure(
-  projectRoot: string,
-): Promise<Capacity | { status: "invalid-configuration"; issues: string[] }> {
-  const read = await readCapacity(projectRoot);
-  return read.status === "ok" ? read.capacity : read;
-}
-
 export const CrewState = {
   /**
    * Takes durable crew ownership, creating the crew state when this crew has none.
    * A takeover replaces the active token, so every later mutation under the old token fails.
    */
-  async own(request: Located & { requestId: string; ownerLabel: string; takeover: boolean }) {
+  async own(
+    request: Located & {
+      requestId: string;
+      ownerLabel: string;
+      takeover: boolean;
+      ownershipRevision: number | null;
+    },
+  ) {
     return mutate(
       {
         projectRoot: request.projectRoot,
@@ -38,7 +39,11 @@ export const CrewState = {
         ownerToken: null,
         now: new Date().toISOString(),
         operation: "crew_own",
-        input: { ownerLabel: request.ownerLabel, takeover: request.takeover },
+        input: {
+          ownerLabel: request.ownerLabel,
+          takeover: request.takeover,
+          ownershipRevision: request.ownershipRevision,
+        },
         create: true,
       },
       ({ tx, now }) =>
@@ -46,6 +51,7 @@ export const CrewState = {
           claimOwnership(tx, {
             ownerLabel: request.ownerLabel,
             takeover: request.takeover,
+            ownershipRevision: request.ownershipRevision,
             token: crypto.randomUUID(),
             now,
           }),
@@ -65,7 +71,7 @@ export const CrewState = {
         repeated: false,
         result: {
           status: "invalid-input" as const,
-          issues: parsed.error.issues.map(describeIssue),
+          issues: parsed.error.issues.map(OperatorConfig.describeIssue),
         },
       };
     }
@@ -86,8 +92,8 @@ export const CrewState = {
 
   /** Claims one dispatchable assignment. Exactly one concurrent claim wins. */
   async claim(request: Mutation & { assignmentId: string; revision: number }) {
-    const capacity = await capacityOrFailure(request.projectRoot);
-    if ("status" in capacity) {
+    const capacity = await readCapacity(request.projectRoot);
+    if (capacity.status !== "ok") {
       return { repeated: false, result: capacity };
     }
 
@@ -107,7 +113,7 @@ export const CrewState = {
             revision: request.revision,
             ownerToken: request.ownerToken,
             attemptId: crypto.randomUUID(),
-            capacity,
+            capacity: capacity.capacity,
             now,
           }),
           "claimed",
@@ -116,7 +122,9 @@ export const CrewState = {
   },
 
   /** Records accepted completion, which is the only result that unblocks a dependent. */
-  async accept(request: Mutation & { assignmentId: string; attemptId: string; revision: number }) {
+  async accept(
+    request: Mutation & { assignmentId: string; attemptId: string | null; revision: number },
+  ) {
     return mutate(
       {
         projectRoot: request.projectRoot,
@@ -145,12 +153,12 @@ export const CrewState = {
 
   /** Reports the work a crew of this size may start now, and why the rest waits. Writes nothing. */
   async frontier(request: Located) {
-    const capacity = await capacityOrFailure(request.projectRoot);
-    if ("status" in capacity) {
-      return capacity;
+    const capacity = await readCapacity(request.projectRoot);
+    if (capacity.status !== "ok") {
+      return { repeated: false, result: capacity };
     }
 
-    return readState(request.projectRoot, (db) => {
+    const result = await readState(request.projectRoot, (db) => {
       const ownership = currentOwnership(db);
       return {
         status: "reported" as const,
@@ -164,8 +172,11 @@ export const CrewState = {
                 acquiredAt: ownership.acquiredAt,
                 revision: ownership.revision,
               },
-        ...calculateFrontier(db, capacity),
+        ...calculateFrontier(db, capacity.capacity),
       };
     });
+
+    // Every action on this interface answers in one shape, so a caller handles them alike.
+    return { repeated: false, result };
   },
 };

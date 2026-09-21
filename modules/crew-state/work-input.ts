@@ -89,10 +89,5 @@ export function kindOf(item: WorkItem): AssignmentKind {
 
 /** Planning work is registered so dependencies resolve, but it is never dispatched. */
 export function isExecutable(kind: string): boolean {
-  return kind !== "planning";
-}
-
-export function describeIssue(issue: z.core.$ZodIssue): string {
-  const field = issue.path.join(".");
-  return field ? `${field}: ${issue.message}` : issue.message;
+  return kind === "production" || kind === "review";
 }

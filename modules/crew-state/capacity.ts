@@ -1,7 +1,6 @@
 import { OperatorConfig } from "../operator-config/main.ts";
 
 export const DEFAULT_ACTIVE_AGENTS = 3;
-export const CONFIG_PATH = ".operator/config.json";
 
 export type Capacity = {
   limit: number;
@@ -25,7 +24,7 @@ export function capacityFor(limit: number, source: Capacity["limitSource"]): Cap
 
 /** Reads the crew concurrency this project selected. Unreadable configuration is refused. */
 export async function readCapacity(projectRoot: string): Promise<CapacityRead> {
-  const file = Bun.file(`${projectRoot}/${CONFIG_PATH}`);
+  const file = Bun.file(`${projectRoot}/${OperatorConfig.configPath()}`);
   if (!(await file.exists())) {
     return { status: "ok", capacity: capacityFor(DEFAULT_ACTIVE_AGENTS, "operator-default") };
   }
