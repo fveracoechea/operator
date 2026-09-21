@@ -1,3 +1,6 @@
+// Bun has no path manipulation API.
+import { basename } from "node:path";
+
 // These follow the submission contract in crew-state. A launch cannot import that module,
 // because crew-state is what calls this one, so the union shapes are restated rather than widened.
 export type ReviewArtifact = {
@@ -54,7 +57,7 @@ export const REVIEW_INPUT_DIR = ".operator/local/review";
 export function reviewInputPath(artifact: ReviewArtifact): string | null {
   return artifact.storedPath === null
     ? null
-    : `${REVIEW_INPUT_DIR}/${artifact.storedPath.split("/").slice(-1)[0] ?? artifact.name}`;
+    : `${REVIEW_INPUT_DIR}/${basename(artifact.storedPath)}`;
 }
 
 function pullRequestLine(pull: ReviewPullRequest): string {

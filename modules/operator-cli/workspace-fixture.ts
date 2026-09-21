@@ -1,7 +1,7 @@
 // Bun has no recursive directory removal or real-path API.
 import { realpath, rm } from "node:fs/promises";
 
-const cliPath = new URL("../../../cli.ts", import.meta.url).pathname;
+const cliPath = new URL("../../cli.ts", import.meta.url).pathname;
 const fakeHerdrPath = new URL("./fake-herdr.sh", import.meta.url).pathname;
 
 export type Workspace = { root: string; repo: string; herdr: string; bin: string };
@@ -18,6 +18,8 @@ export type WorkspaceOptions = {
  * Every command runs through the real CLI against real Git and real SQLite, and Herdr is
  * controlled at its own external interface rather than mocked by path.
  */
+export type Workspaces = ReturnType<typeof workspaces>;
+
 export function workspaces() {
   const roots: string[] = [];
 

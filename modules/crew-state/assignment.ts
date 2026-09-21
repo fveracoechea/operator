@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import type { CrewWriter } from "./database.ts";
 import { assignmentId, identityOf } from "./identity.ts";
 import { assignments } from "./schema.ts";
@@ -59,4 +60,14 @@ export function insertAssignment(
 
   db.insert(assignments).values(row).run();
   return row;
+}
+
+/** Records accepted completion on one assignment row. The only writer of that transition. */
+export function markAccepted(db: CrewWriter, request: { row: AssignmentRow; now: string }): number {
+  const revision = request.row.revision + 1;
+  db.update(assignments)
+    .set({ state: "accepted", revision, updatedAt: request.now })
+    .where(eq(assignments.id, request.row.id))
+    .run();
+  return revision;
 }

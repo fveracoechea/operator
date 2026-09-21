@@ -1,24 +1,8 @@
 import { OperativeDispatch } from "../operative-dispatch/main.ts";
 import type { ParsedArguments } from "./arguments.ts";
-import { type Reason, report } from "./result.ts";
+import { type Operation, type Reason, report } from "./result.ts";
 
 type AttemptReference = NonNullable<Awaited<ReturnType<typeof OperativeDispatch.readReference>>>;
-
-type Operation =
-  | "crew_own"
-  | "work_register"
-  | "work_claim"
-  | "work_accept"
-  | "work_frontier"
-  | "attempt_dispatch"
-  | "attempt_acknowledge"
-  | "attempt_reconcile"
-  | "attempt_replace"
-  | "attempt_show"
-  | "attempt_submit"
-  | "review_report"
-  | "review_dispose"
-  | "review_show";
 
 type SharedReport = {
   reason: Reason;

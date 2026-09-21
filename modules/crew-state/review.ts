@@ -53,6 +53,16 @@ export function findingsOf(db: CrewReader, reviewId: string): ReviewFindingRow[]
     .toSorted((left, right) => left.id.localeCompare(right.id));
 }
 
+/** The findings that still carry no Operator answer. One rendering of that question. */
+export function undisposed(findings: ReviewFindingRow[]): ReviewFindingRow[] {
+  return findings.filter((one) => one.disposition === null);
+}
+
+/** The findings the Operator accepted for correction, which wait for delegated rework. */
+export function corrections(findings: ReviewFindingRow[]): ReviewFindingRow[] {
+  return findings.filter((one) => one.disposition === "corrected");
+}
+
 /** A finding is named by its review, axis, and reporter key, so the Operator can address it. */
 export function findingId(reviewId: string, axis: string, key: string): string {
   return identityOf({ reviewId, axis, key }).slice(0, 32);

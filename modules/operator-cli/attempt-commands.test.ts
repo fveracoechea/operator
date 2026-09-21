@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
+import { ContentIdentity } from "../content-identity/main.ts";
 import {
   headCommit,
   herdrCalls,
@@ -9,7 +10,20 @@ import {
   runOperator,
   type Workspace,
   workspaces,
-} from "./fixtures/workspace.ts";
+} from "./workspace-fixture.ts";
+import {
+  acceptProduction,
+  blockThenReplace,
+  commitArtifact,
+  makeReviewWorkspace,
+  relaunchReviewer,
+  reportBody,
+  reportReview,
+  startProducer,
+  startReviewer,
+  submissionBody,
+  submit,
+} from "./review-cycle-fixture.ts";
 
 const fixtures = workspaces();
 
@@ -19,6 +33,11 @@ afterEach(async () => {
 
 async function makeWorkspace(config: unknown = { crew: { host: "claude-code" } }) {
   return fixtures.make({ config });
+}
+
+/** A workspace that also carries the review skill one reviewer must load. */
+async function makeReviewingWorkspace(options: { reviewSkill?: boolean } = {}) {
+  return makeReviewWorkspace(fixtures, options);
 }
 
 async function calls(workspace: Workspace): Promise<string[]> {
@@ -727,5 +746,283 @@ describe("stale ownership", () => {
     );
     expect(acknowledged.exitCode).toBe(4);
     expect(acknowledged.json.reason).toBe("attempt_not_current");
+  });
+});
+
+describe("operator attempt submit", () => {
+  test("hands a fixed result to a separate review instead of accepting it", async () => {
+    const workspace = await makeReviewingWorkspace();
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const artifact = await commitArtifact(workspace, producer, "# Result\n\nThe finished work.\n");
+
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+
+    expect(submitted.exitCode).toBe(6);
+    expect(submitted.json.reason).toBe("result_submitted");
+    expect(submitted.json.blockers[0].reason).toBe("review_pending");
+
+    const frontier = await runJson(workspace, ["work", "frontier"]);
+    const producerEntry = frontier.json.data.blocked.find(
+      (one: { assignmentId: string }) => one.assignmentId === producer.assignmentId,
+    );
+    expect(producerEntry.blockers[0]).toMatchObject({
+      reason: "review_pending",
+      reviewAssignmentId: submitted.json.data.reviewAssignmentId,
+    });
+    // The producer attempt ended, so the slot it held is free for the reviewer.
+    expect(frontier.json.data.active).toEqual([]);
+    expect(
+      frontier.json.data.dispatchable.map((one: { assignmentId: string }) => one.assignmentId),
+    ).toEqual([submitted.json.data.reviewAssignmentId]);
+  });
+
+  test("refuses an artifact whose content no longer matches its stated identity", async () => {
+    const workspace = await makeReviewingWorkspace();
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const artifact = await commitArtifact(workspace, producer, "# Result\n");
+    await Bun.write(`${producer.worktreePath}/${artifact.path}`, "# Changed after the identity\n");
+
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+
+    expect(submitted.exitCode).toBe(4);
+    expect(submitted.json.reason).toBe("artifact_identity_changed");
+  });
+
+  test("refuses an artifact that is not in the worktree", async () => {
+    const workspace = await makeReviewingWorkspace();
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const artifact = await commitArtifact(workspace, producer, "# Result\n");
+
+    const submitted = await submit(
+      workspace,
+      producer,
+      submissionBody(producer, artifact, base, { artifactPath: "docs/absent.md" }),
+    );
+
+    expect(submitted.exitCode).toBe(3);
+    expect(submitted.json.reason).toBe("artifact_unreadable");
+  });
+
+  test("refuses a submission that states requirements the assignment does not hold", async () => {
+    const workspace = await makeReviewingWorkspace();
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const artifact = await commitArtifact(workspace, producer, "# Result\n");
+
+    const submitted = await submit(
+      workspace,
+      producer,
+      submissionBody(producer, artifact, base, {
+        requirementsIdentity: ContentIdentity.of(["Something else."]),
+      }),
+    );
+
+    expect(submitted.exitCode).toBe(4);
+    expect(submitted.json.reason).toBe("requirements_changed");
+  });
+
+  test("refuses a submission that states a stale assignment revision", async () => {
+    const workspace = await makeReviewingWorkspace();
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const artifact = await commitArtifact(workspace, producer, "# Result\n");
+
+    const submitted = await submit(
+      workspace,
+      producer,
+      submissionBody(producer, artifact, base, { assignmentRevision: 1 }),
+    );
+
+    expect(submitted.exitCode).toBe(4);
+    expect(submitted.json.reason).toBe("stale_revision");
+  });
+
+  test("a repeated submission reports the recorded one and creates no second review", async () => {
+    const workspace = await makeReviewingWorkspace();
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const artifact = await commitArtifact(workspace, producer, "# Result\n");
+    const body = submissionBody(producer, artifact, base);
+
+    const first = await submit(workspace, producer, body);
+    const second = await submit(workspace, producer, body);
+
+    expect(second.exitCode).toBe(0);
+    expect(second.json.reason).toBe("result_already_submitted");
+    expect(second.json.data.submissionId).toBe(first.json.data.submissionId);
+
+    const frontier = await runJson(workspace, ["work", "frontier"]);
+    expect(
+      frontier.json.data.dispatchable.filter((one: { kind: string }) => one.kind === "review")
+        .length,
+    ).toBe(1);
+  });
+});
+
+describe("operator attempt dispatch for a review", () => {
+  test("a review starts from the submitted commit, never a later one", async () => {
+    const workspace = await makeReviewingWorkspace();
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const artifact = await commitArtifact(workspace, producer, "# Result\n");
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+
+    const claimed = await runJson(workspace, [
+      "work",
+      "claim",
+      "--request",
+      request(),
+      "--owner-token",
+      producer.ownerToken,
+      "--assignment",
+      submitted.json.data.reviewAssignmentId,
+      "--revision",
+      "1",
+    ]);
+    const drifted = await runJson(workspace, [
+      "attempt",
+      "dispatch",
+      "--request",
+      request(),
+      "--owner-token",
+      producer.ownerToken,
+      "--attempt",
+      claimed.json.data.attemptId,
+      "--commit",
+      base,
+      "--worktree",
+      `${workspace.root}/reviewer`,
+    ]);
+
+    expect(drifted.exitCode).toBe(4);
+    expect(drifted.json.reason).toBe("review_base_changed");
+    expect(drifted.json.blockers[0]).toMatchObject({ recorded: artifact.commit, requested: base });
+  });
+
+  test("a checkout with no review skill blocks the reviewer before it starts", async () => {
+    const workspace = await makeReviewingWorkspace({ reviewSkill: false });
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const artifact = await commitArtifact(workspace, producer, "# Result\n");
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+
+    const claimed = await runJson(workspace, [
+      "work",
+      "claim",
+      "--request",
+      request(),
+      "--owner-token",
+      producer.ownerToken,
+      "--assignment",
+      submitted.json.data.reviewAssignmentId,
+      "--revision",
+      "1",
+    ]);
+    const dispatched = await runJson(workspace, [
+      "attempt",
+      "dispatch",
+      "--request",
+      request(),
+      "--owner-token",
+      producer.ownerToken,
+      "--attempt",
+      claimed.json.data.attemptId,
+      "--commit",
+      artifact.commit,
+      "--worktree",
+      `${workspace.root}/reviewer`,
+    ]);
+
+    expect(dispatched.exitCode).toBe(1);
+    expect(dispatched.json.reason).toBe("dispatch_stage_failed");
+    expect(dispatched.json.blockers[0]).toMatchObject({ stage: "input_preparation" });
+    expect(dispatched.json.blockers[0].detail).toContain("code-review");
+    // The reviewer host never started, so no partial review exists to reconcile.
+    const starts = (await herdrCalls(workspace)).filter((line) => line.startsWith("agent start "));
+    expect(starts).toHaveLength(1);
+  });
+});
+
+describe("operator attempt replace for a review", () => {
+  test("a replacement reviewer reopens a blocked review, and the attempts are bounded", async () => {
+    const workspace = await makeReviewingWorkspace();
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const artifact = await commitArtifact(workspace, producer, "# Result\n");
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const reviewId = submitted.json.data.reviewId;
+    const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
+
+    // The writer must be proven stopped and its partial work inspected before a replacement.
+    const replaced = await blockThenReplace(workspace, producer, {
+      reviewId,
+      submissionIdentity: submitted.json.data.identity,
+      attemptId: reviewer.attemptId,
+      worktreePath: reviewer.worktreePath,
+    });
+    expect(replaced.exitCode).toBe(0);
+
+    const reopened = await runJson(workspace, ["review", "show", "--review", reviewId]);
+    expect(reopened.json.data.review.state).toBe("registered");
+    expect(reopened.json.data.review.blocker).toBeNull();
+
+    // The replacement reviewer reads the same fixed submission and reports it itself.
+    const second = { worktreePath: reviewer.worktreePath };
+    await relaunchReviewer(workspace, producer, replaced.json.data.attemptId, second.worktreePath);
+    const reported = await reportReview(
+      workspace,
+      second,
+      reviewId,
+      reportBody({ submissionIdentity: submitted.json.data.identity, host: workspace.host }),
+    );
+    expect(reported.json.reason).toBe("review_reported");
+    expect(reported.exitCode).toBe(0);
+  });
+
+  test("a failing review host escalates instead of taking the crew", async () => {
+    const workspace = await makeReviewingWorkspace();
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const artifact = await commitArtifact(workspace, producer, "# Result\n");
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const reviewId = submitted.json.data.reviewId;
+    const first = await startReviewer(workspace, producer, submitted.json, artifact.commit);
+
+    const shared = {
+      reviewId,
+      submissionIdentity: submitted.json.data.identity,
+      worktreePath: first.worktreePath,
+    };
+
+    const second = await blockThenReplace(workspace, producer, {
+      ...shared,
+      attemptId: first.attemptId,
+    });
+    await relaunchReviewer(workspace, producer, second.json.data.attemptId, first.worktreePath);
+
+    const third = await blockThenReplace(workspace, producer, {
+      ...shared,
+      attemptId: second.json.data.attemptId,
+    });
+    await relaunchReviewer(workspace, producer, third.json.data.attemptId, first.worktreePath);
+
+    const refused = await blockThenReplace(workspace, producer, {
+      ...shared,
+      attemptId: third.json.data.attemptId,
+    });
+    expect(refused.json.reason).toBe("review_attempt_limit");
+    expect(refused.exitCode).toBe(3);
+    expect(refused.json.blockers[0]).toMatchObject({ reviewId, limit: 3 });
+
+    // The limit is not a pass, so the result is still unaccepted.
+    const accepted = await acceptProduction(workspace, producer, {
+      submissionId: submitted.json.data.submissionId,
+      revision: submitted.json.data.revision,
+      prHead: artifact.commit,
+    });
+    expect(accepted.json.reason).toBe("review_incomplete");
   });
 });

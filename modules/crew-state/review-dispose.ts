@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import type { CrewWriter } from "./database.ts";
 import type { DispositionInput } from "./review-input.ts";
-import { findingsOf, type ReviewRow } from "./review.ts";
+import { corrections, findingsOf, type ReviewRow, undisposed } from "./review.ts";
 import { reviewFindings } from "./schema.ts";
 
 export type DisposeOutcome =
@@ -69,7 +69,7 @@ export function disposeFindings(
       findingId: one.findingId,
       disposition: one.disposition,
     })),
-    outstanding: settled.filter((one) => one.disposition === null).map((one) => one.id),
-    corrections: settled.filter((one) => one.disposition === "corrected").map((one) => one.id),
+    outstanding: undisposed(settled).map((one) => one.id),
+    corrections: corrections(settled).map((one) => one.id),
   };
 }

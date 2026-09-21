@@ -120,6 +120,7 @@ export type Reason =
   | "review_pending"
   | "invalid_review_report"
   | "unknown_review"
+  | "review_submission_missing"
   | "review_not_assigned"
   | "review_settled"
   | "review_worktree_changed"
@@ -149,7 +150,7 @@ export type Reason =
   | "pr_head_changed"
   | "review_attempt_limit";
 
-type Operation =
+export type Operation =
   | "parse_arguments"
   | "startup"
   | "version"

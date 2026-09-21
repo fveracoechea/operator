@@ -1,5 +1,5 @@
 import { readState, type StateFailure } from "./operations.ts";
-import { findingsOf, missingAxes, readReview, reportsOf } from "./review.ts";
+import { findingsOf, missingAxes, readReview, reportsOf, undisposed } from "./review.ts";
 import { readSubmission } from "./submission.ts";
 
 export type ReviewReport = {
@@ -58,6 +58,7 @@ export type ReviewReport = {
 export type ShowReviewResult =
   | ({ status: "reported" } & ReviewReport)
   | { status: "unknown-review"; reviewId: string }
+  | { status: "submission-missing"; reviewId: string; submissionId: string }
   | StateFailure;
 
 /** Reports one review, its two axis reports, and every finding disposition. Writes nothing. */
@@ -73,7 +74,12 @@ export async function showReview(request: {
 
     const submission = readSubmission(db, review.submissionId);
     if (submission === null) {
-      return { status: "unknown-review" as const, reviewId: request.reviewId };
+      // The review exists. Saying it does not would send the reader looking for the wrong fault.
+      return {
+        status: "submission-missing" as const,
+        reviewId: review.id,
+        submissionId: review.submissionId,
+      };
     }
 
     const reports = reportsOf(db, review.id);
@@ -130,7 +136,7 @@ export async function showReview(request: {
         followUp: one.followUp,
       })),
       missingAxes: missingAxes(reports),
-      outstanding: findings.filter((one) => one.disposition === null).map((one) => one.id),
+      outstanding: undisposed(findings).map((one) => one.id),
     };
   });
 }

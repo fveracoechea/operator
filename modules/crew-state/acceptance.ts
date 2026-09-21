@@ -1,16 +1,19 @@
 import { eq } from "drizzle-orm";
+import { markAccepted } from "./assignment.ts";
 import { endAttempt, readAttempt } from "./attempt.ts";
 import type { CrewWriter } from "./database.ts";
 import { activeAttempt, readAssignment } from "./frontier.ts";
 import {
+  corrections,
   findingsOf,
   missingAxes,
   reportsOf,
   type ReviewReportRow,
   reviewOfAssignment,
   reviewOfSubmission,
+  undisposed,
 } from "./review.ts";
-import { assignments, submissions } from "./schema.ts";
+import { submissions } from "./schema.ts";
 import { type ReviewBlocker, storedBlocker, storedObservedChecks } from "./review-input.ts";
 import { storedChecks, storedCode } from "./submission-input.ts";
 import { latestSubmission, type SubmissionRow } from "./submission.ts";
@@ -137,26 +140,24 @@ function reviewGate(
   }
 
   const findings = findingsOf(db, review.id);
-  const undisposed = findings.filter((one) => one.disposition === null).map((one) => one.id);
-  if (undisposed.length > 0) {
+  const open = undisposed(findings);
+  if (open.length > 0) {
     return {
       status: "findings-undisposed",
       assignmentId: submission.assignmentId,
       reviewId: review.id,
-      findingIds: undisposed,
+      findingIds: open.map((one) => one.id),
     };
   }
 
   // An accepted correction is delegated rework, so it blocks acceptance until that work lands.
-  const corrections = findings
-    .filter((one) => one.disposition === "corrected")
-    .map((one) => one.id);
-  if (corrections.length > 0) {
+  const pending = corrections(findings);
+  if (pending.length > 0) {
     return {
       status: "rework-pending",
       assignmentId: submission.assignmentId,
       reviewId: review.id,
-      findingIds: corrections,
+      findingIds: pending.map((one) => one.id),
     };
   }
 
@@ -226,8 +227,6 @@ export function acceptAssignment(db: CrewWriter, request: AcceptRequest): Accept
     return { status: "stale-revision", assignmentId: row.id, recordedRevision: row.revision };
   }
 
-  const revision = row.revision + 1;
-
   if (!isExecutable(row.kind)) {
     if (request.attemptId !== null) {
       return { status: "attempt-not-expected", assignmentId: row.id };
@@ -236,11 +235,12 @@ export function acceptAssignment(db: CrewWriter, request: AcceptRequest): Accept
       return { status: "not-claimed", assignmentId: row.id, state: row.state };
     }
 
-    db.update(assignments)
-      .set({ state: "accepted", revision, updatedAt: request.now })
-      .where(eq(assignments.id, row.id))
-      .run();
-    return { status: "accepted", assignmentId: row.id, attemptId: null, revision };
+    return {
+      status: "accepted",
+      assignmentId: row.id,
+      attemptId: null,
+      revision: markAccepted(db, { row, now: request.now }),
+    };
   }
 
   if (request.attemptId === null) {
@@ -273,11 +273,12 @@ export function acceptAssignment(db: CrewWriter, request: AcceptRequest): Accept
     }
 
     endAttempt(db, { attempt: live, state: "accepted", now: request.now });
-    db.update(assignments)
-      .set({ state: "accepted", revision, updatedAt: request.now })
-      .where(eq(assignments.id, row.id))
-      .run();
-    return { status: "accepted", assignmentId: row.id, attemptId: live.id, revision };
+    return {
+      status: "accepted",
+      assignmentId: row.id,
+      attemptId: live.id,
+      revision: markAccepted(db, { row, now: request.now }),
+    };
   }
 
   // Production work reaches acceptance only through a submission, so a claimed assignment that
@@ -314,10 +315,11 @@ export function acceptAssignment(db: CrewWriter, request: AcceptRequest): Accept
     .set({ state: "accepted", revision: submission.revision + 1, updatedAt: request.now })
     .where(eq(submissions.id, submission.id))
     .run();
-  db.update(assignments)
-    .set({ state: "accepted", revision, updatedAt: request.now })
-    .where(eq(assignments.id, row.id))
-    .run();
 
-  return { status: "accepted", assignmentId: row.id, attemptId: submission.attemptId, revision };
+  return {
+    status: "accepted",
+    assignmentId: row.id,
+    attemptId: submission.attemptId,
+    revision: markAccepted(db, { row, now: request.now }),
+  };
 }

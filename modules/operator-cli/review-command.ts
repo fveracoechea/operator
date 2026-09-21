@@ -500,6 +500,28 @@ async function runShow(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
+  if (result.status === "submission-missing") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "conflict",
+        reason: "review_submission_missing",
+        blockers: [
+          {
+            reason: "review_submission_missing",
+            reviewId: result.reviewId,
+            submissionId: result.submissionId,
+          },
+        ],
+        operation: "review_show",
+      },
+      lines: [
+        `Review ${result.reviewId} names submission ${result.submissionId}, which the crew state does not hold.`,
+      ],
+    });
+    return "reported";
+  }
+
   report({
     json: parsed.json,
     result: {

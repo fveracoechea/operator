@@ -4,7 +4,8 @@ Read this before you review a submitted result or accept an assignment.
 
 ## Order of work
 
-1. The Operative runs `operator attempt submit` from its own worktree. You do not run it.
+1. The Operative runs `operator attempt submit` from its own worktree.
+   You do not run it.
 2. `operator work frontier --json` now offers the review assignment the submission registered.
 3. `operator work claim` and `operator attempt dispatch` launch the reviewer, exactly as for production work.
 4. The reviewer runs `operator review report` from its own worktree.
@@ -32,14 +33,17 @@ Never start a second Herdr agent for an axis.
 
 The reviewer needs the `code-review` skill in the checkout.
 A failed `input_preparation` stage that names `code-review` means the project does not carry it.
-Install it in the project and dispatch again. Do not copy it by hand into the worktree.
+Install it in the project and dispatch again.
+Do not copy it by hand into the worktree.
 
 ## What blocks a review
 
 - `review_axes_incomplete`: an axis is missing or reported twice.
 - `review_axes_not_parallel`: the two sub-agent windows do not overlap, so the axes did not run at the same time.
 - `review_sub_agent_host_mismatch`: an axis ran outside the reviewer host.
-- `review_coverage_incomplete`: an axis did not state what it read. A code result needs the diff, the requirements, and the checks. A non-code result needs the artifacts, the requirements, the citations, and the provenance.
+- `review_coverage_incomplete`: an axis did not state what it read.
+  A code result needs the diff, the requirements, and the checks.
+  A non-code result needs the artifacts, the requirements, the citations, and the provenance.
 - `review_blocked`: the host could not run the axes, or a credential or input is missing.
 
 A blocked or partial review accepts nothing.
@@ -53,14 +57,16 @@ Correct what it names, then replace the stopped reviewer:
 
 The replacement reads the same fixed submission and reports it itself.
 One review holds at most three attempts.
-`review_attempt_limit` means another launch is not a remedy. Bring the blocker to the user.
+`review_attempt_limit` means another launch is not a remedy.
+Bring the blocker to the user.
 
 ## Findings are yours to judge
 
 A finding is not an instruction.
 Record each one as corrected, rejected with a reason, or deferred with a reason and a follow-up reference.
 
-A blocker is corrected or rejected. It is never deferred.
+A blocker is corrected or rejected.
+It is never deferred.
 You may reject a finding you do not support.
 You may not waive an approved requirement through technical judgment.
 
