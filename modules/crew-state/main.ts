@@ -6,11 +6,18 @@ import { reconcileAttempt } from "./dispatch-reconcile.ts";
 import { replaceAttempt } from "./dispatch-replace.ts";
 import { showAttempt } from "./dispatch-report.ts";
 import { readCapacity } from "./capacity.ts";
-import { acceptAssignment, claimAssignment } from "./claims.ts";
+import { acceptAssignment } from "./acceptance.ts";
+import { claimAssignment } from "./claims.ts";
 import { calculateFrontier } from "./frontier.ts";
 import { mutate, readState } from "./operations.ts";
 import { claimOwnership, currentOwnership } from "./ownership.ts";
 import { registerWork } from "./registration.ts";
+import { dispositionInputSchema } from "./review-input.ts";
+import { disposeFindings, type DisposeOutcome } from "./review-dispose.ts";
+import { recordReview } from "./review-record.ts";
+import { showReview } from "./review-show.ts";
+import { readReview } from "./review.ts";
+import { submitAttemptResult } from "./submit.ts";
 import { STATE_VERSION } from "./schema.ts";
 import { workInputSchema } from "./work-input.ts";
 
@@ -127,9 +134,19 @@ export const CrewState = {
     );
   },
 
-  /** Records accepted completion, which is the only result that unblocks a dependent. */
+  /**
+   * Records accepted completion, which is the only result that unblocks a dependent.
+   * Production work reaches it only through a reviewed submission, so every review gate is
+   * checked here rather than on a second path to acceptance.
+   */
   async accept(
-    request: Mutation & { assignmentId: string; attemptId: string | null; revision: number },
+    request: Mutation & {
+      assignmentId: string;
+      attemptId: string | null;
+      revision: number;
+      submissionId: string | null;
+      prHead: string | null;
+    },
   ) {
     return mutate(
       {
@@ -142,6 +159,8 @@ export const CrewState = {
           assignmentId: request.assignmentId,
           attemptId: request.attemptId,
           revision: request.revision,
+          submissionId: request.submissionId,
+          prHead: request.prHead,
         },
       },
       ({ tx, now }) =>
@@ -150,11 +169,87 @@ export const CrewState = {
             assignmentId: request.assignmentId,
             attemptId: request.attemptId,
             revision: request.revision,
+            submissionId: request.submissionId,
+            prHead: request.prHead,
             now,
           }),
           "accepted",
         ),
     );
+  },
+
+  /**
+   * Records one fixed result as a durable handoff to a separate review.
+   * The assignment moves to awaiting review and its attempt ends, so the crew slot it held
+   * becomes free for the reviewer. A submission is never accepted completion.
+   */
+  async submit(
+    request: Located & {
+      requestId: string;
+      attemptId: string;
+      worktreePath: string;
+      input: unknown;
+    },
+  ) {
+    return submitAttemptResult(request);
+  },
+
+  /**
+   * Records the two axis reports of one review, or the blocker that stopped it.
+   * A review report ends the review chain, so it never becomes a submitted result of its own.
+   */
+  async report(
+    request: Located & {
+      requestId: string;
+      reviewId: string;
+      attemptId: string;
+      worktreePath: string;
+      input: unknown;
+    },
+  ) {
+    return recordReview(request);
+  },
+
+  /** Records what the Operator decided about each finding, so no finding disappears. */
+  async dispose(request: Mutation & { reviewId: string; input: unknown }) {
+    const parsed = dispositionInputSchema.safeParse(request.input);
+    if (!parsed.success) {
+      return {
+        repeated: false,
+        result: {
+          status: "invalid-input" as const,
+          issues: parsed.error.issues.map(OperatorConfig.describeIssue),
+        },
+      };
+    }
+
+    const input = parsed.data;
+    return mutate<DisposeOutcome | { status: "unknown-review"; reviewId: string }>(
+      {
+        projectRoot: request.projectRoot,
+        requestId: request.requestId,
+        ownerToken: request.ownerToken,
+        now: new Date().toISOString(),
+        operation: "review_dispose",
+        input: { reviewId: request.reviewId, dispositions: input.dispositions },
+      },
+      ({ tx, now }) => {
+        const review = readReview(tx, request.reviewId);
+        if (review === null) {
+          return {
+            commit: false,
+            outcome: { status: "unknown-review" as const, reviewId: request.reviewId },
+          };
+        }
+
+        return commitOn(disposeFindings(tx, { review, input, now }), "disposed");
+      },
+    );
+  },
+
+  /** Reports one review, its two axis reports, and every finding disposition. Writes nothing. */
+  async review(request: Located & { reviewId: string }) {
+    return { repeated: false, result: await showReview(request) };
   },
 
   /**

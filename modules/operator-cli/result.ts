@@ -107,7 +107,44 @@ export type Reason =
   | "inspection_required"
   | "inspection_stale"
   | "writer_live"
-  | "writer_unknown";
+  | "writer_unknown"
+  | "invalid_submission_input"
+  | "result_submitted"
+  | "result_already_submitted"
+  | "attempt_not_acknowledged"
+  | "review_result_not_submitted"
+  | "requirements_changed"
+  | "artifact_unreadable"
+  | "artifact_identity_changed"
+  | "review_base_changed"
+  | "review_pending"
+  | "invalid_review_report"
+  | "unknown_review"
+  | "review_not_assigned"
+  | "review_settled"
+  | "submission_drift"
+  | "review_axes_incomplete"
+  | "review_axes_not_parallel"
+  | "review_sub_agent_host_mismatch"
+  | "review_sub_agent_failed"
+  | "review_coverage_incomplete"
+  | "review_reported"
+  | "review_blocked"
+  | "invalid_disposition_input"
+  | "review_not_reported"
+  | "unknown_finding"
+  | "blocker_not_deferrable"
+  | "findings_disposed"
+  | "review_shown"
+  | "submission_required"
+  | "submission_mismatch"
+  | "review_incomplete"
+  | "findings_undisposed"
+  | "rework_pending"
+  | "checks_unproven"
+  | "pr_authority_missing"
+  | "pr_head_required"
+  | "pr_head_changed";
 
 type Operation =
   | "parse_arguments"
@@ -129,7 +166,11 @@ type Operation =
   | "attempt_acknowledge"
   | "attempt_reconcile"
   | "attempt_replace"
-  | "attempt_show";
+  | "attempt_show"
+  | "attempt_submit"
+  | "review_report"
+  | "review_dispose"
+  | "review_show";
 
 export const exitCodeByOutcome = {
   completed: 0,

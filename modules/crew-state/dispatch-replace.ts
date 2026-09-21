@@ -118,7 +118,7 @@ export async function replaceAttempt(request: {
   const attemptId = crypto.randomUUID();
   const launch = OperativeDispatch.plan({
     projectRoot: request.projectRoot,
-    brief: briefOf(read.context.assignment, attemptId),
+    brief: briefOf(read.context.assignment, attemptId, read.context.review),
     snapshot,
     baseCommit: dispatch.baseCommit,
     branch: dispatch.branch,

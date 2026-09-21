@@ -1,7 +1,14 @@
 import { eq } from "drizzle-orm";
 import type { CrewReader } from "./database.ts";
 import type { Capacity } from "./capacity.ts";
-import { assignmentDependencies, assignments, attempts, workSources } from "./schema.ts";
+import {
+  assignmentDependencies,
+  assignments,
+  attempts,
+  reviews,
+  submissions,
+  workSources,
+} from "./schema.ts";
 import { isExecutable, isReview } from "./work-input.ts";
 
 export type FrontierEntry = {
@@ -19,6 +26,7 @@ export type FrontierEntry = {
 
 export type FrontierBlocker =
   | { reason: "dependency_pending"; dependencies: Array<{ assignmentId: string; state: string }> }
+  | { reason: "review_pending"; reviewAssignmentId: string | null }
   | { reason: "review_capacity_reserved"; productionLimit: number }
   | { reason: "crew_at_capacity"; limit: number };
 
@@ -66,6 +74,22 @@ export function unmetDependencies(
     })
     .filter((dependency) => dependency.state !== "accepted")
     .toSorted((left, right) => left.assignmentId.localeCompare(right.assignmentId));
+}
+
+/** The review assignment that holds the latest submission of one producer assignment. */
+function reviewByProducer(db: CrewReader, assignmentId: string): string | null {
+  const latest = db
+    .select()
+    .from(submissions)
+    .where(eq(submissions.assignmentId, assignmentId))
+    .all()
+    .toSorted((left, right) => right.assignmentRevision - left.assignmentRevision)[0];
+  if (latest === undefined) {
+    return null;
+  }
+
+  const review = db.select().from(reviews).where(eq(reviews.submissionId, latest.id)).all()[0];
+  return review?.assignmentId ?? null;
 }
 
 export function activeAttempt(db: CrewReader, id: string) {
@@ -141,6 +165,17 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
       continue;
     }
     if (attemptByAssignment.has(one.assignmentId)) {
+      continue;
+    }
+
+    // A submitted result waits for its own review, not for a second attempt at the same work.
+    if (one.state === "awaiting-review") {
+      blocked.push({
+        ...one,
+        blockers: [
+          { reason: "review_pending", reviewAssignmentId: reviewByProducer(db, one.assignmentId) },
+        ],
+      });
       continue;
     }
 

@@ -3,6 +3,7 @@ import { hasCrewArguments, hasSelectionOrProbeArguments, parseArguments } from "
 import { runAttempt } from "./attempt-command.ts";
 import { runCrewOwn } from "./crew-command.ts";
 import { runInstall } from "./install-command.ts";
+import { runReview } from "./review-command.ts";
 import { runSetup } from "./setup-command.ts";
 import { exitCodeByOutcome, writeJsonResult } from "./result.ts";
 import { usage } from "./usage.ts";
@@ -82,7 +83,7 @@ export async function run(args: string[]): Promise<void> {
     return;
   }
 
-  if (command === "crew" || command === "work" || command === "attempt") {
+  if (command === "crew" || command === "work" || command === "attempt" || command === "review") {
     // A crew request names its operation in leading words, then carries only flags.
     const firstFlag = rest.findIndex((word) => word.startsWith("--"));
     const words = firstFlag === -1 ? rest : rest.slice(0, firstFlag);
@@ -108,7 +109,9 @@ export async function run(args: string[]): Promise<void> {
           : "invalid-arguments"
         : command === "attempt"
           ? await runAttempt(words, parsed)
-          : await runWork(words, parsed);
+          : command === "review"
+            ? await runReview(words, parsed)
+            : await runWork(words, parsed);
     if (handled !== "reported") {
       rejectArguments(parsed.json);
     }

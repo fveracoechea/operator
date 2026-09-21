@@ -1,7 +1,9 @@
 import { and, eq, ne } from "drizzle-orm";
 import type { CrewReader, CrewWriter } from "./database.ts";
 import { currentOwnership } from "./ownership.ts";
+import { reviewOfAssignment, type ReviewRow } from "./review.ts";
 import { assignments, attemptDispatch, attempts, externalOperations } from "./schema.ts";
+import { readSubmission, type SubmissionRow } from "./submission.ts";
 
 /** The external effects one launch performs, in the order a dispatch performs them. */
 export const DISPATCH_STAGES = [
@@ -25,11 +27,15 @@ export type AssignmentRow = typeof assignments.$inferSelect;
 export type DispatchRow = typeof attemptDispatch.$inferSelect;
 export type OperationRow = typeof externalOperations.$inferSelect;
 
+/** The fixed result a review attempt reads. Present only on a review assignment. */
+export type ReviewContext = { review: ReviewRow; submission: SubmissionRow };
+
 export type AttemptContext = {
   attempt: AttemptRow;
   assignment: AssignmentRow;
   dispatch: DispatchRow | null;
   operations: OperationRow[];
+  review: ReviewContext | null;
   // True while the Operator that claimed this attempt still owns the crew.
   current: boolean;
 };
@@ -58,6 +64,17 @@ export function liveOperations(db: CrewReader, attemptId: string): OperationRow[
 
 export function operationFor(operations: OperationRow[], kind: DispatchStage): OperationRow | null {
   return operations.find((one) => one.kind === kind) ?? null;
+}
+
+/** The review and submission one review assignment carries, if it is one. */
+function readReviewContext(db: CrewReader, assignmentId: string): ReviewContext | null {
+  const review = reviewOfAssignment(db, assignmentId);
+  if (review === null) {
+    return null;
+  }
+
+  const submission = readSubmission(db, review.submissionId);
+  return submission === null ? null : { review, submission };
 }
 
 /**
@@ -90,6 +107,7 @@ export function lookupAttempt(db: CrewReader, attemptId: string): AttemptLookup 
       assignment,
       dispatch: readDispatchRow(db, attempt.id),
       operations: liveOperations(db, attempt.id),
+      review: readReviewContext(db, assignment.id),
       current: currentOwnership(db)?.token === attempt.ownerToken,
     },
   };

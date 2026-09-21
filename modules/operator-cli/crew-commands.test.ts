@@ -570,10 +570,15 @@ describe("operator work claim", () => {
     expect(stale.json.reason).toBe("assignment_already_claimed");
   });
 
+  // Production work reaches acceptance through its reviewed submission, which needs a launched
+  // reviewer. These claim rules are the same for any executable kind, so they use review work
+  // that no submission produced, which accepts straight from its attempt.
   test("refuses a stale revision on work that an accepted attempt released", async () => {
     const root = await makeProject();
     const token = await own(root);
-    const registered = await register(root, token, { items: [item({ key: "a" })] });
+    const registered = await register(root, token, {
+      items: [item({ key: "a", kind: "review" })],
+    });
     const id = assignmentIdOf(registered.json, "a");
     const claimed = await claim(root, token, id, 1);
     await accept(root, token, id, claimed.json.data.attemptId, claimed.json.data.revision);
@@ -634,7 +639,7 @@ describe("operator work claim", () => {
     });
     const token = await own(root);
     const registered = await register(root, token, {
-      items: [item({ key: "a" }), item({ key: "b" })],
+      items: [item({ key: "a", kind: "review" }), item({ key: "b" })],
     });
     const first = assignmentIdOf(registered.json, "a");
     const second = assignmentIdOf(registered.json, "b");
@@ -807,7 +812,7 @@ describe("operator work frontier", () => {
     const root = await makeProject();
     const token = await own(root);
     const registered = await register(root, token, {
-      items: [item({ key: "a" }), item({ key: "b", dependsOn: [{ key: "a" }] })],
+      items: [item({ key: "a", kind: "review" }), item({ key: "b", dependsOn: [{ key: "a" }] })],
     });
     const first = assignmentIdOf(registered.json, "a");
     const second = assignmentIdOf(registered.json, "b");

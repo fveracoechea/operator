@@ -39,6 +39,7 @@ export type DispatchResult =
   | { status: "snapshot-unreadable"; attemptId: string; detail: string }
   | { status: "plan-changed"; attemptId: string; recorded: string; computed: string }
   | { status: "commit-required"; attemptId: string }
+  | { status: "review-base-changed"; attemptId: string; recorded: string; requested: string }
   | { status: "host-unnamed"; attemptId: string }
   | AttemptFailure
   | Shared;
@@ -169,6 +170,17 @@ export async function dispatchAttempt(request: {
     return { status: "commit-required", attemptId };
   }
 
+  // A review reads the exact commit the result was submitted on, never a later one.
+  const reviewBase = read.context.review?.submission.reviewBase ?? null;
+  if (reviewBase !== null && baseCommit !== reviewBase) {
+    return {
+      status: "review-base-changed",
+      attemptId,
+      recorded: reviewBase,
+      requested: baseCommit,
+    };
+  }
+
   // A recorded launch keeps the inputs it was planned with, so a request that names different
   // ones is a conflict rather than a silently ignored argument.
   const changed =
@@ -187,7 +199,7 @@ export async function dispatchAttempt(request: {
 
   const launch = OperativeDispatch.plan({
     projectRoot: request.projectRoot,
-    brief: briefOf(read.context.assignment, attemptId),
+    brief: briefOf(read.context.assignment, attemptId, read.context.review),
     snapshot,
     baseCommit,
     branch: recorded?.branch ?? request.branch,

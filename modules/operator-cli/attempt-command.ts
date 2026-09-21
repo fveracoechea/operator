@@ -1,7 +1,6 @@
 import { CrewState } from "../crew-state/main.ts";
-import { OperativeDispatch } from "../operative-dispatch/main.ts";
 import type { ParsedArguments } from "./arguments.ts";
-import { reportSharedFailure } from "./crew-result.ts";
+import { readStructuredInput, readWorktreeReference, reportSharedFailure } from "./crew-result.ts";
 import { report } from "./result.ts";
 
 type Handled = "reported" | "invalid-arguments";
@@ -75,6 +74,30 @@ async function runDispatch(parsed: ParsedArguments): Promise<Handled> {
   });
 
   if (reportSharedFailure(parsed, "attempt_dispatch", result)) {
+    return "reported";
+  }
+
+  if (result.status === "review-base-changed") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "conflict",
+        reason: "review_base_changed",
+        blockers: [
+          {
+            reason: "review_base_changed",
+            attemptId: result.attemptId,
+            recorded: result.recorded,
+            requested: result.requested,
+          },
+        ],
+        operation: "attempt_dispatch",
+      },
+      lines: [
+        `This review reads submitted commit ${result.recorded}, not ${result.requested}.`,
+        "Review inputs stay fixed, so the reviewer starts from the commit the result lives on.",
+      ],
+    });
     return "reported";
   }
 
@@ -236,41 +259,12 @@ async function runAcknowledge(parsed: ParsedArguments): Promise<Handled> {
     return "invalid-arguments";
   }
 
-  const reference = await OperativeDispatch.readReference({ worktreePath: process.cwd() });
+  const reference = await readWorktreeReference({
+    parsed,
+    operation: "attempt_acknowledge",
+    expectedAttemptId: attemptId,
+  });
   if (reference === null) {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: "attempt_reference_missing",
-        blockers: [{ reason: "attempt_reference_missing", attemptId }],
-        operation: "attempt_acknowledge",
-      },
-      lines: [
-        "This directory carries no Operator attempt reference.",
-        "Acknowledge from the worktree the Operator prepared for this attempt.",
-      ],
-    });
-    return "reported";
-  }
-
-  if (reference.attemptId !== attemptId) {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "attempt_reference_mismatch",
-        blockers: [
-          {
-            reason: "attempt_reference_mismatch",
-            attemptId,
-            recordedAttemptId: reference.attemptId,
-          },
-        ],
-        operation: "attempt_acknowledge",
-      },
-      lines: [`This worktree belongs to attempt ${reference.attemptId}.`],
-    });
     return "reported";
   }
 
@@ -524,6 +518,252 @@ async function runShow(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
+async function runSubmit(parsed: ParsedArguments): Promise<Handled> {
+  const { requestId, attemptId, inputPath } = parsed.crew;
+  if (requestId === undefined || attemptId === undefined || inputPath === undefined) {
+    return "invalid-arguments";
+  }
+
+  const reference = await readWorktreeReference({
+    parsed,
+    operation: "attempt_submit",
+    expectedAttemptId: attemptId,
+  });
+  if (reference === null) {
+    return "reported";
+  }
+
+  const read = await readStructuredInput(inputPath);
+  if (!read.ok) {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "invalid",
+        reason: "invalid_submission_input",
+        blockers: [{ reason: "invalid_submission_input", detail: read.detail }],
+        operation: "attempt_submit",
+      },
+      lines: [`The submission cannot be read: ${read.detail}`],
+    });
+    return "reported";
+  }
+
+  const { repeated, result } = await CrewState.submit({
+    projectRoot: reference.controllingCheckout,
+    requestId,
+    attemptId,
+    worktreePath: reference.worktreePath,
+    input: read.value,
+  });
+
+  if (reportSharedFailure(parsed, "attempt_submit", result)) {
+    return "reported";
+  }
+
+  if (result.status === "invalid-input") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "invalid",
+        reason: "invalid_submission_input",
+        blockers: result.issues.map((issue) => ({
+          reason: "invalid_submission_input" as const,
+          issue,
+        })),
+        operation: "attempt_submit",
+      },
+      lines: ["The submission is not valid:", ...result.issues.map((one) => `  ${one}`)],
+    });
+    return "reported";
+  }
+
+  if (result.status === "reference-mismatch") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "conflict",
+        reason: "attempt_reference_mismatch",
+        blockers: [{ reason: "attempt_reference_mismatch", attemptId, detail: result.detail }],
+        operation: "attempt_submit",
+      },
+      lines: [result.detail],
+    });
+    return "reported";
+  }
+
+  if (result.status === "artifact-unreadable" || result.status === "artifact-identity-changed") {
+    const unreadable = result.status === "artifact-unreadable";
+    report({
+      json: parsed.json,
+      result: {
+        outcome: unreadable ? "missing-condition" : "conflict",
+        reason: unreadable ? "artifact_unreadable" : "artifact_identity_changed",
+        blockers: [
+          {
+            reason: unreadable
+              ? ("artifact_unreadable" as const)
+              : ("artifact_identity_changed" as const),
+            name: result.name,
+            path: result.path,
+            ...(unreadable ? {} : { found: result.found }),
+          },
+        ],
+        operation: "attempt_submit",
+      },
+      lines: [
+        unreadable
+          ? `Artifact ${result.name} is not at ${result.path} in this worktree.`
+          : `Artifact ${result.name} at ${result.path} does not match the identity you stated.`,
+        "A review reads fixed evidence, so nothing was submitted.",
+      ],
+    });
+    return "reported";
+  }
+
+  if (result.status === "review-result-not-submitted") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "invalid",
+        reason: "review_result_not_submitted",
+        blockers: [{ reason: "review_result_not_submitted", assignmentId: result.assignmentId }],
+        operation: "attempt_submit",
+      },
+      lines: [
+        "A review reports through `operator review report`, never through a submission.",
+        "A review report ends the review chain and starts no second review.",
+      ],
+    });
+    return "reported";
+  }
+
+  if (result.status === "planning-only") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "invalid",
+        reason: "planning_only",
+        blockers: [
+          { reason: "planning_only", assignmentId: result.assignmentId, kind: result.kind },
+        ],
+        operation: "attempt_submit",
+      },
+      lines: [`Assignment ${result.assignmentId} is planning work, so it submits no result.`],
+    });
+    return "reported";
+  }
+
+  if (result.status === "not-claimed") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "conflict",
+        reason: "assignment_not_claimed",
+        blockers: [
+          {
+            reason: "assignment_not_claimed",
+            assignmentId: result.assignmentId,
+            state: result.state,
+          },
+        ],
+        operation: "attempt_submit",
+      },
+      lines: [`Assignment ${result.assignmentId} is ${result.state}, so it hands over nothing.`],
+    });
+    return "reported";
+  }
+
+  if (result.status === "stale-revision") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "conflict",
+        reason: "stale_revision",
+        blockers: [
+          {
+            reason: "stale_revision",
+            assignmentId: result.assignmentId,
+            recordedRevision: result.recordedRevision,
+          },
+        ],
+        operation: "attempt_submit",
+      },
+      lines: [`Assignment ${result.assignmentId} is at revision ${result.recordedRevision}.`],
+    });
+    return "reported";
+  }
+
+  if (result.status === "source-revision-changed" || result.status === "requirements-changed") {
+    const source = result.status === "source-revision-changed";
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "conflict",
+        reason: source ? "source_revision_changed" : "requirements_changed",
+        blockers: [
+          {
+            reason: source
+              ? ("source_revision_changed" as const)
+              : ("requirements_changed" as const),
+            assignmentId: result.assignmentId,
+            recorded: source ? result.recordedRevision : result.recordedIdentity,
+          },
+        ],
+        operation: "attempt_submit",
+      },
+      lines: [
+        source
+          ? `This assignment is registered at requirement revision ${result.recordedRevision}.`
+          : "The acceptance requirements you state are not the ones this assignment holds.",
+        "A submission fixes the revisions it was produced against, so this needs your decision.",
+      ],
+    });
+    return "reported";
+  }
+
+  if (result.status === "already-submitted") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "completed",
+        reason: "result_already_submitted",
+        blockers: [],
+        operation: "attempt_submit",
+        data: { attemptId: result.attemptId, submissionId: result.submissionId, repeated },
+      },
+      lines: [`This attempt already submitted result ${result.submissionId}.`],
+    });
+    return "reported";
+  }
+
+  report({
+    json: parsed.json,
+    result: {
+      outcome: "pending",
+      reason: "result_submitted",
+      blockers: [{ reason: "review_pending", reviewId: result.reviewId }],
+      operation: "attempt_submit",
+      data: {
+        submissionId: result.submissionId,
+        identity: result.identity,
+        assignmentId: result.assignmentId,
+        attemptId: result.attemptId,
+        revision: result.revision,
+        reviewId: result.reviewId,
+        reviewAssignmentId: result.reviewAssignmentId,
+        reviewSourceKey: result.reviewSourceKey,
+        repeated,
+      },
+    },
+    lines: [
+      `Submitted result ${result.submissionId} for assignment ${result.assignmentId}.`,
+      `Review ${result.reviewId} waits on assignment ${result.reviewAssignmentId}.`,
+      "A submission is a handoff to a separate review, never accepted completion.",
+    ],
+  });
+  return "reported";
+}
+
 export async function runAttempt(words: string[], parsed: ParsedArguments): Promise<Handled> {
   if (words.length !== 1) {
     return "invalid-arguments";
@@ -544,6 +784,9 @@ export async function runAttempt(words: string[], parsed: ParsedArguments): Prom
   }
   if (subcommand === "show") {
     return runShow(parsed);
+  }
+  if (subcommand === "submit") {
+    return runSubmit(parsed);
   }
 
   return "invalid-arguments";

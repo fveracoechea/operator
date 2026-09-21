@@ -126,6 +126,96 @@ export const externalOperations = sqliteTable("external_operations", {
 });
 
 /**
+ * The fixed result one attempt handed over for review.
+ * A submission never accepts the assignment; it moves it to awaiting review and pins every
+ * revision, artifact, check, concern, and decision the review reads.
+ */
+export const submissions = sqliteTable("submissions", {
+  id: text("id").primaryKey(),
+  assignmentId: text("assignment_id")
+    .notNull()
+    .references(() => assignments.id),
+  attemptId: text("attempt_id")
+    .notNull()
+    .references(() => attempts.id),
+  resultKind: text("result_kind").notNull(),
+  assignmentRevision: integer("assignment_revision").notNull(),
+  sourceRevision: text("source_revision").notNull(),
+  requirementsIdentity: text("requirements_identity").notNull(),
+  artifacts: text("artifacts").notNull(),
+  artifactsIdentity: text("artifacts_identity").notNull(),
+  checks: text("checks").notNull(),
+  concerns: text("concerns").notNull(),
+  decisions: text("decisions").notNull(),
+  code: text("code"),
+  reviewBase: text("review_base"),
+  identity: text("identity").notNull(),
+  state: text("state").notNull(),
+  revision: integer("revision").notNull(),
+  submittedAt: text("submitted_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+/**
+ * One separate review of one submission, held by its own review assignment.
+ * The two axis reports live beside it, so an incomplete review is visible as a missing axis
+ * rather than as an absent record.
+ */
+export const reviews = sqliteTable("reviews", {
+  id: text("id").primaryKey(),
+  submissionId: text("submission_id")
+    .notNull()
+    .references(() => submissions.id),
+  assignmentId: text("assignment_id")
+    .notNull()
+    .references(() => assignments.id),
+  axes: text("axes").notNull(),
+  state: text("state").notNull(),
+  host: text("host"),
+  subAgents: text("sub_agents"),
+  blocker: text("blocker"),
+  reportedAt: text("reported_at"),
+  revision: integer("revision").notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+/** One axis report of one review. The two axes stay separate and are never merged. */
+export const reviewReports = sqliteTable("review_reports", {
+  id: text("id").primaryKey(),
+  reviewId: text("review_id")
+    .notNull()
+    .references(() => reviews.id),
+  axis: text("axis").notNull(),
+  summary: text("summary").notNull(),
+  checked: text("checked").notNull(),
+  findingCount: integer("finding_count").notNull(),
+  identity: text("identity").notNull(),
+  recordedAt: text("recorded_at").notNull(),
+});
+
+/**
+ * One finding of one axis report, with the Operator disposition it carries.
+ * A finding with no disposition blocks acceptance, so no finding disappears in silence.
+ */
+export const reviewFindings = sqliteTable("review_findings", {
+  id: text("id").primaryKey(),
+  reviewId: text("review_id")
+    .notNull()
+    .references(() => reviews.id),
+  axis: text("axis").notNull(),
+  findingKey: text("finding_key").notNull(),
+  severity: text("severity").notNull(),
+  summary: text("summary").notNull(),
+  evidence: text("evidence").notNull(),
+  disposition: text("disposition"),
+  reason: text("reason"),
+  followUp: text("follow_up"),
+  disposedAt: text("disposed_at"),
+  recordedAt: text("recorded_at").notNull(),
+});
+
+/**
  * One row per completed mutation request. A repeated request identity returns the recorded
  * outcome instead of repeating the effect, so an interrupted caller recovers its own result.
  */
@@ -146,6 +236,10 @@ export const crewStateSchema = {
   attempts,
   attemptDispatch,
   externalOperations,
+  submissions,
+  reviews,
+  reviewReports,
+  reviewFindings,
   requestRecords,
 };
 
@@ -238,6 +332,69 @@ export const CREATE_STATEMENTS = [
     detail text,
     started_at text not null,
     settled_at text
+  ) strict`,
+  sql`create table submissions (
+    id text primary key,
+    assignment_id text not null references assignments(id),
+    attempt_id text not null references attempts(id),
+    result_kind text not null,
+    assignment_revision integer not null,
+    source_revision text not null,
+    requirements_identity text not null,
+    artifacts text not null,
+    artifacts_identity text not null,
+    checks text not null,
+    concerns text not null,
+    decisions text not null,
+    code text,
+    review_base text,
+    identity text not null,
+    state text not null,
+    revision integer not null,
+    submitted_at text not null,
+    updated_at text not null,
+    unique (attempt_id)
+  ) strict`,
+  sql`create table reviews (
+    id text primary key,
+    submission_id text not null references submissions(id),
+    assignment_id text not null references assignments(id),
+    axes text not null,
+    state text not null,
+    host text,
+    sub_agents text,
+    blocker text,
+    reported_at text,
+    revision integer not null,
+    created_at text not null,
+    updated_at text not null,
+    unique (assignment_id)
+  ) strict`,
+  sql`create table review_reports (
+    id text primary key,
+    review_id text not null references reviews(id),
+    axis text not null,
+    summary text not null,
+    checked text not null,
+    finding_count integer not null,
+    identity text not null,
+    recorded_at text not null,
+    unique (review_id, axis)
+  ) strict`,
+  sql`create table review_findings (
+    id text primary key,
+    review_id text not null references reviews(id),
+    axis text not null,
+    finding_key text not null,
+    severity text not null,
+    summary text not null,
+    evidence text not null,
+    disposition text,
+    reason text,
+    follow_up text,
+    disposed_at text,
+    recorded_at text not null,
+    unique (review_id, axis, finding_key)
   ) strict`,
   sql`create table request_records (
     id text primary key,

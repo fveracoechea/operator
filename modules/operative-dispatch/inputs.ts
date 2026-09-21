@@ -12,6 +12,7 @@ export type PrepareFailure =
   | "lock_data_missing"
   | "configuration_missing"
   | "skill_copy_conflict"
+  | "review_skill_missing"
   | "input_verification_failed";
 
 type Write = { path: string; bytes: Uint8Array };
@@ -59,8 +60,29 @@ async function intendedWrites(request: {
 
   const schema = await readBytes(`${request.projectRoot}/.operator/config.schema.json`);
 
+  // A review carries fixed copies of the submitted artifacts, so the reviewer never reads the
+  // producer worktree, which another attempt may still change.
+  const copies: Write[] = [];
+  for (const input of plan.extraInputs) {
+    const bytes = await readBytes(input.sourcePath);
+    if (bytes === null) {
+      return {
+        failure: "input_verification_failed",
+        detail: `The fixed copy at ${input.sourcePath} is gone.`,
+      };
+    }
+    if (ContentIdentity.ofBytes(bytes) !== input.identity) {
+      return {
+        failure: "input_verification_failed",
+        detail: `${input.path} no longer matches the identity the submission fixed.`,
+      };
+    }
+    copies.push({ path: input.path, bytes });
+  }
+
   return {
     writes: [
+      ...copies,
       { path: ".operator/config.json", bytes: configuration },
       ...(schema === null ? [] : [{ path: ".operator/config.schema.json", bytes: schema }]),
       { path: `.operator/local/${snapshot.lock.name}`, bytes: lock },
@@ -175,6 +197,23 @@ export async function prepareInputs(request: {
       reason: "input_verification_failed",
       detail: "The copied skills do not match this release.",
     };
+  }
+
+  // Operator installs its own skills. A skill it does not own, such as the review skill, must
+  // already be in the checkout, so a missing one blocks the launch instead of a silent fallback.
+  for (const skill of request.plan.requiredSkills) {
+    const found = await SkillInstall.locate({
+      projectRoot: request.plan.worktreePath,
+      target,
+      skill,
+    });
+    if (found.status !== "found") {
+      return {
+        status: "failed",
+        reason: "review_skill_missing",
+        detail: `This checkout holds no ${skill} skill at ${found.path}.`,
+      };
+    }
   }
 
   return {

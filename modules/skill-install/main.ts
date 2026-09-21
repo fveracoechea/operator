@@ -92,6 +92,17 @@ export const SkillInstall = {
     return hasher.digest("hex");
   },
 
+  /**
+   * Reports whether one checkout already holds a named skill for one target.
+   * Operator installs only the skills it owns, so a skill it requires but does not ship, such
+   * as the review skill, is located rather than copied.
+   */
+  async locate(request: { projectRoot: string; target: SkillTarget; skill: string }) {
+    const path = `${skillTargets[request.target]}/${request.skill}/SKILL.md`;
+    const found = await Bun.file(`${request.projectRoot}/${path}`).exists();
+    return { status: found ? ("found" as const) : ("absent" as const), path };
+  },
+
   /** Reports which skill copies differ from this release. Writes nothing. */
   async inspect(request: { projectRoot: string; targets: SkillTarget[] }) {
     const inspection = await inspectProject(request.projectRoot, request.targets);

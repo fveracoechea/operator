@@ -1,5 +1,8 @@
+import { OperativeDispatch } from "../operative-dispatch/main.ts";
 import type { ParsedArguments } from "./arguments.ts";
 import { type Reason, report } from "./result.ts";
+
+type AttemptReference = NonNullable<Awaited<ReturnType<typeof OperativeDispatch.readReference>>>;
 
 type Operation =
   | "crew_own"
@@ -11,7 +14,11 @@ type Operation =
   | "attempt_acknowledge"
   | "attempt_reconcile"
   | "attempt_replace"
-  | "attempt_show";
+  | "attempt_show"
+  | "attempt_submit"
+  | "review_report"
+  | "review_dispose"
+  | "review_show";
 
 type SharedReport = {
   reason: Reason;
@@ -70,6 +77,16 @@ const sharedFailures = {
     outcome: "missing-condition",
     line: "That attempt has no recorded launch. Dispatch it first.",
   },
+  "not-acknowledged": {
+    reason: "attempt_not_acknowledged",
+    outcome: "missing-condition",
+    line: "That attempt never acknowledged its brief, so it has nothing fixed to hand over.",
+  },
+  "unknown-review": {
+    reason: "unknown_review",
+    outcome: "invalid",
+    line: "No review is recorded under that identity.",
+  },
   "invalid-configuration": {
     reason: "invalid_configuration",
     outcome: "invalid",
@@ -121,4 +138,55 @@ export async function readStructuredInput(
   } catch (error) {
     return { ok: false, detail: String(error) };
   }
+}
+
+/**
+ * Reads the control reference of the worktree a command runs in.
+ * An Operative and a reviewer both report from their own checkout, so the reference is what
+ * names the attempt rather than a directory search.
+ */
+export async function readWorktreeReference(request: {
+  parsed: ParsedArguments;
+  operation: Operation;
+  expectedAttemptId: string | null;
+}): Promise<AttemptReference | null> {
+  const reference = await OperativeDispatch.readReference({ worktreePath: process.cwd() });
+  if (reference === null) {
+    report({
+      json: request.parsed.json,
+      result: {
+        outcome: "missing-condition",
+        reason: "attempt_reference_missing",
+        blockers: [{ reason: "attempt_reference_missing" }],
+        operation: request.operation,
+      },
+      lines: [
+        "This directory carries no Operator attempt reference.",
+        "Run this from the worktree the Operator prepared for this attempt.",
+      ],
+    });
+    return null;
+  }
+
+  if (request.expectedAttemptId !== null && reference.attemptId !== request.expectedAttemptId) {
+    report({
+      json: request.parsed.json,
+      result: {
+        outcome: "conflict",
+        reason: "attempt_reference_mismatch",
+        blockers: [
+          {
+            reason: "attempt_reference_mismatch",
+            attemptId: request.expectedAttemptId,
+            recordedAttemptId: reference.attemptId,
+          },
+        ],
+        operation: request.operation,
+      },
+      lines: [`This worktree belongs to attempt ${reference.attemptId}.`],
+    });
+    return null;
+  }
+
+  return reference;
 }

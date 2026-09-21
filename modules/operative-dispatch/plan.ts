@@ -1,6 +1,12 @@
 // Bun has no path manipulation API.
 import { basename, dirname } from "node:path";
 import { ContentIdentity } from "../content-identity/main.ts";
+import {
+  type ReviewBrief,
+  reviewInputPath,
+  reviewProtocolSection,
+  submittedResultSection,
+} from "./review-brief.ts";
 
 export type Brief = {
   assignmentId: string;
@@ -19,6 +25,8 @@ export type Brief = {
     value: string;
     contentIdentity: string | null;
   }>;
+  // Present only on a review assignment, which reads a fixed result instead of producing one.
+  review: ReviewBrief | null;
 };
 
 export type Snapshot = {
@@ -45,6 +53,10 @@ export type DispatchPlan = {
   promptText: string;
   promptIdentity: string;
   snapshotIdentity: string;
+  // The fixed copies this launch carries into the worktree, beyond the common release inputs.
+  extraInputs: Array<{ path: string; sourcePath: string; identity: string }>;
+  // The skills this launch requires the worktree to already hold, such as the review skill.
+  requiredSkills: string[];
 };
 
 // The recorded host names stay full; Herdr names the executable it starts.
@@ -118,6 +130,7 @@ function briefDocument(request: {
     "",
     "Work outside these limits needs a question to the Operator, never your own decision.",
     "",
+    ...(brief.review === null ? [] : submittedResultSection(brief.review)),
     "## Fixed inputs",
     "",
     ...(brief.fixedInputs.length === 0
@@ -139,27 +152,48 @@ function briefDocument(request: {
     `- Lock data: ${snapshot.lock.name ?? "none"} (${snapshot.lock.identity ?? "none"})`,
     `- Skills: ${snapshot.skills.identity}`,
     "",
-    "## Reporting protocol",
-    "",
-    "Acknowledge this assignment before you change any file:",
-    "",
-    "```",
-    `operator attempt acknowledge --request <a new identity you generate> --attempt ${brief.attemptId} --json`,
-    "```",
-    "",
-    "Run it from this worktree.",
-    "The Operator treats you as started only after that acknowledgement.",
-    "Report progress, questions, and results through the Operator CLI, never through terminal text alone.",
-    "",
+    ...(brief.review === null
+      ? [
+          "## Reporting protocol",
+          "",
+          "Acknowledge this assignment before you change any file:",
+          "",
+          "```",
+          `operator attempt acknowledge --request <a new identity you generate> --attempt ${brief.attemptId} --json`,
+          "```",
+          "",
+          "Run it from this worktree.",
+          "The Operator treats you as started only after that acknowledgement.",
+          "Report progress, questions, and results through the Operator CLI, never through terminal text alone.",
+          "",
+          "Hand over your finished result for review:",
+          "",
+          "```",
+          `operator attempt submit --request <a new identity you generate> --attempt ${brief.attemptId} --input <path> --json`,
+          "```",
+          "",
+          "A submission is a handoff to a separate review, never accepted completion.",
+          "",
+        ]
+      : reviewProtocolSection(brief.review)),
   ].join("\n");
 }
 
 function promptDocument(brief: Brief): string {
   return [
-    `You are the Operative on Operator attempt ${brief.attemptId} for assignment ${brief.assignmentId}.`,
+    brief.review === null
+      ? `You are the Operative on Operator attempt ${brief.attemptId} for assignment ${brief.assignmentId}.`
+      : `You are the reviewer on Operator attempt ${brief.attemptId} for review ${brief.review.reviewId}.`,
     `Read ${BRIEF_PATH} in this worktree first. It carries your scope, authority limits, and reporting protocol.`,
+    ...(brief.review === null
+      ? []
+      : [
+          "Load the `code-review` skill and run its Standards and Spec axes as parallel sub-agents of this host.",
+        ]),
     `Then acknowledge the assignment with: operator attempt acknowledge --request <a new identity you generate> --attempt ${brief.attemptId} --json`,
-    "Do not change any file before that acknowledgement succeeds.",
+    brief.review === null
+      ? "Do not change any file before that acknowledgement succeeds."
+      : "Never edit, commit, or rework the result you review.",
   ].join("\n");
 }
 
@@ -195,6 +229,20 @@ export function planDispatch(request: {
   const briefIdentity = ContentIdentity.ofText(briefText);
   const promptText = promptDocument(request.brief);
 
+  const review = request.brief.review;
+  const extraInputs = (review?.artifacts ?? []).flatMap((artifact) => {
+    const path = reviewInputPath(artifact);
+    return artifact.storedPath === null || path === null
+      ? []
+      : [
+          {
+            path,
+            sourcePath: `${request.projectRoot}/${artifact.storedPath}`,
+            identity: artifact.contentIdentity,
+          },
+        ];
+  });
+
   return {
     assignmentId: request.brief.assignmentId,
     attemptId: request.brief.attemptId,
@@ -211,6 +259,9 @@ export function planDispatch(request: {
     // Delivery identity covers the brief the prompt points at, so a changed brief is a new prompt.
     promptIdentity: ContentIdentity.of({ promptText, briefIdentity }),
     snapshotIdentity: ContentIdentity.of(request.snapshot),
+    extraInputs,
+    // A reviewer that cannot load the review skill is blocked before any agent starts.
+    requiredSkills: review === null ? [] : ["code-review"],
   };
 }
 

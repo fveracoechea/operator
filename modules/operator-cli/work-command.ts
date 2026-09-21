@@ -352,6 +352,8 @@ async function runAccept(parsed: ParsedArguments): Promise<"reported" | "invalid
     assignmentId,
     attemptId,
     revision,
+    submissionId: parsed.crew.submissionId ?? null,
+    prHead: parsed.crew.prHead ?? null,
   });
 
   if (reportSharedFailure(parsed, "work_accept", result)) {
@@ -455,6 +457,166 @@ async function runAccept(parsed: ParsedArguments): Promise<"reported" | "invalid
         result.attemptId === null
           ? `Assignment ${result.assignmentId} has no active attempt.`
           : `Assignment ${result.assignmentId} is held by attempt ${result.attemptId}.`,
+      ],
+    });
+    return "reported";
+  }
+
+  if (result.status === "submission-required" || result.status === "submission-mismatch") {
+    const required = result.status === "submission-required";
+    report({
+      json: parsed.json,
+      result: {
+        outcome: required ? "missing-condition" : "conflict",
+        reason: required ? "submission_required" : "submission_mismatch",
+        blockers: [
+          {
+            reason: required ? ("submission_required" as const) : ("submission_mismatch" as const),
+            assignmentId: result.assignmentId,
+            ...(required ? {} : { recordedSubmissionId: result.recordedSubmissionId }),
+          },
+        ],
+        operation: "work_accept",
+      },
+      lines: [
+        required
+          ? `Assignment ${result.assignmentId} has no submitted result to accept.`
+          : `Assignment ${result.assignmentId} holds submission ${result.recordedSubmissionId}.`,
+        "Acceptance names the exact submission it read.",
+      ],
+    });
+    return "reported";
+  }
+
+  if (result.status === "review-incomplete") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "missing-condition",
+        reason: "review_incomplete",
+        blockers: [
+          {
+            reason: "review_incomplete",
+            assignmentId: result.assignmentId,
+            reviewId: result.reviewId,
+            state: result.state,
+            blocker: result.blocker,
+          },
+        ],
+        operation: "work_accept",
+      },
+      lines: [
+        `The review of ${result.assignmentId} is ${result.state}, so nothing is accepted.`,
+        "A stopped process, a missing input, or an unavailable review capability is not a pass.",
+      ],
+    });
+    return "reported";
+  }
+
+  if (result.status === "review-axes-incomplete") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "missing-condition",
+        reason: "review_axes_incomplete",
+        blockers: result.missing.map((axis) => ({
+          reason: "review_axes_incomplete" as const,
+          axis,
+          reviewId: result.reviewId,
+        })),
+        operation: "work_accept",
+      },
+      lines: [`Review ${result.reviewId} is missing the ${result.missing.join(", ")} axis.`],
+    });
+    return "reported";
+  }
+
+  if (result.status === "findings-undisposed" || result.status === "rework-pending") {
+    const undisposed = result.status === "findings-undisposed";
+    report({
+      json: parsed.json,
+      result: {
+        outcome: undisposed ? "missing-condition" : "pending",
+        reason: undisposed ? "findings_undisposed" : "rework_pending",
+        blockers: result.findingIds.map((findingId) => ({
+          reason: undisposed ? ("findings_undisposed" as const) : ("rework_pending" as const),
+          findingId,
+          reviewId: result.reviewId,
+        })),
+        operation: "work_accept",
+      },
+      lines: [
+        undisposed
+          ? `${result.findingIds.length} finding(s) of review ${result.reviewId} carry no disposition.`
+          : `${result.findingIds.length} accepted correction(s) wait for a fresh Operative.`,
+      ],
+    });
+    return "reported";
+  }
+
+  if (result.status === "checks-unproven") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "missing-condition",
+        reason: "checks_unproven",
+        blockers: result.checks.map((check) => ({ reason: "checks_unproven" as const, ...check })),
+        operation: "work_accept",
+      },
+      lines: [
+        "These required checks did not pass:",
+        ...result.checks.map((check) => `  ${check.name}: ${check.outcome}`),
+        "A passing rerun does not erase a failure, and a flaky check proves nothing.",
+      ],
+    });
+    return "reported";
+  }
+
+  if (result.status === "pr-authority-missing") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "missing-condition",
+        reason: "pr_authority_missing",
+        blockers: [
+          {
+            reason: "pr_authority_missing",
+            assignmentId: result.assignmentId,
+            detail: result.detail,
+          },
+        ],
+        operation: "work_accept",
+      },
+      lines: [
+        "This implementation carries no pull request, so it cannot be accepted.",
+        result.detail,
+      ],
+    });
+    return "reported";
+  }
+
+  if (result.status === "pr-head-required" || result.status === "pr-head-changed") {
+    const required = result.status === "pr-head-required";
+    report({
+      json: parsed.json,
+      result: {
+        outcome: required ? "missing-condition" : "conflict",
+        reason: required ? "pr_head_required" : "pr_head_changed",
+        blockers: [
+          {
+            reason: required ? ("pr_head_required" as const) : ("pr_head_changed" as const),
+            assignmentId: result.assignmentId,
+            recorded: required ? result.headCommit : result.recorded,
+            ...(required ? {} : { stated: result.stated }),
+          },
+        ],
+        operation: "work_accept",
+      },
+      lines: [
+        required
+          ? `Name the pull request head you read with --pr-head. The review saw ${result.headCommit}.`
+          : `The pull request now heads ${result.stated}, not the reviewed ${result.recorded}.`,
+        "Evidence binds to the revision it was proven against.",
       ],
     });
     return "reported";

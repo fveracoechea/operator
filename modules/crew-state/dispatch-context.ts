@@ -1,8 +1,11 @@
 import { OperativeDispatch } from "../operative-dispatch/main.ts";
 import { ProjectReadiness } from "../project-readiness/main.ts";
+import { requiredCoverage } from "./submission-input.ts";
+import { REVIEW_AXES } from "./review.ts";
 import {
   type AssignmentRow,
   type AttemptContext,
+  type ReviewContext,
   type AttemptLookup,
   DISPATCH_STAGES,
   type DispatchRow,
@@ -52,8 +55,38 @@ export type ContextRead =
   | StateFailure
   | RequestFailure;
 
+type ReviewBrief = NonNullable<Brief["review"]>;
+
+/** The fixed result one review reads, taken from the submission that started it. */
+function reviewBriefOf(context: ReviewContext, producerTitle: string): ReviewBrief {
+  const { review, submission } = context;
+  return {
+    reviewId: review.id,
+    submissionId: submission.id,
+    submissionIdentity: submission.identity,
+    resultKind: submission.resultKind,
+    axes: [...REVIEW_AXES],
+    requiredCoverage: requiredCoverage(submission.resultKind),
+    producerAssignmentId: submission.assignmentId,
+    producerTitle,
+    assignmentRevision: submission.assignmentRevision,
+    sourceRevision: submission.sourceRevision,
+    requirementsIdentity: submission.requirementsIdentity,
+    reviewBase: submission.reviewBase,
+    code: submission.code === null ? null : JSON.parse(submission.code),
+    checks: JSON.parse(submission.checks),
+    concerns: JSON.parse(submission.concerns),
+    decisions: JSON.parse(submission.decisions),
+    artifacts: JSON.parse(submission.artifacts),
+  };
+}
+
 /** The fixed brief of one assignment, as the attempt that holds it receives it. */
-export function briefOf(assignment: AssignmentRow, attemptId: string): Brief {
+export function briefOf(
+  assignment: AssignmentRow,
+  attemptId: string,
+  review: ReviewContext | null = null,
+): Brief {
   return {
     assignmentId: assignment.id,
     attemptId,
@@ -66,6 +99,7 @@ export function briefOf(assignment: AssignmentRow, attemptId: string): Brief {
     approvedScope: assignment.approvedScope,
     permissions: JSON.parse(assignment.permissions),
     fixedInputs: JSON.parse(assignment.fixedInputs),
+    review: review === null ? null : reviewBriefOf(review, assignment.title),
   };
 }
 
