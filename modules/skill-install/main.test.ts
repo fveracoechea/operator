@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
+import { SkillInstall } from "./main.ts";
 
 const cliPath = new URL("../../cli.ts", import.meta.url).pathname;
 const bundledSkillsRoot = new URL("../../skills/", import.meta.url).pathname;
@@ -128,5 +129,14 @@ describe("operator install", () => {
 
     expect(result.exitCode).toBe(4);
     expect(await filesUnder(root)).toEqual([".claude/skills/operator/SKILL.md"]);
+  });
+});
+
+describe("Operator release skill contents", () => {
+  test("identifies the bundled skills with one stable content hash", async () => {
+    const [first, second] = await Promise.all([SkillInstall.identity(), SkillInstall.identity()]);
+
+    expect(first).toMatch(/^[0-9a-f]{64}$/);
+    expect(second).toBe(first);
   });
 });

@@ -5,7 +5,13 @@ import { usage } from "./usage.ts";
 /** Operator never infers a target from the agents it finds, so the caller must name one. */
 export function reportMissingTarget(
   parsed: ParsedArguments,
-  operation: "install" | "setup_plan" | "setup_apply",
+  operation:
+    | "install"
+    | "setup_plan"
+    | "setup_apply"
+    | "setup_readiness"
+    | "setup_probe_plan"
+    | "setup_probe_apply",
 ): void {
   console.error(usage);
   report({

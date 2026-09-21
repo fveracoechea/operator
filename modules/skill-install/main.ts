@@ -79,6 +79,19 @@ async function inspectProject(projectRoot: string, targets: SkillTarget[]): Prom
 }
 
 export const SkillInstall = {
+  /** Identifies the exact skill contents this release installs, for release and evidence matching. */
+  async identity(): Promise<string> {
+    const hasher = new Bun.CryptoHasher("sha256");
+    for (const skill of await readBundledSkills()) {
+      for (const asset of skill.assets) {
+        hasher.update(`${skill.name}/${asset.path}\n`);
+        hasher.update(asset.bytes);
+      }
+    }
+
+    return hasher.digest("hex");
+  },
+
   /** Reports which skill copies differ from this release. Writes nothing. */
   async inspect(request: { projectRoot: string; targets: SkillTarget[] }) {
     const inspection = await inspectProject(request.projectRoot, request.targets);

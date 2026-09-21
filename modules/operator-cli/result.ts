@@ -7,7 +7,7 @@ export type Outcome =
   | "uncertain"
   | "pending";
 
-type Reason =
+export type Reason =
   | "invalid_arguments"
   | "unsupported_bun"
   | "version_reported"
@@ -31,7 +31,26 @@ type Reason =
   | "setup_complete"
   | "setup_interrupted"
   | "unreadable_journal"
-  | "git_unavailable";
+  | "git_unavailable"
+  | "readiness_ready"
+  | "readiness_unverified"
+  | "readiness_blocked"
+  | "tool_unavailable"
+  | "lock_data_missing"
+  | "release_mismatch"
+  | "not_configured"
+  | "settings_incomplete"
+  | "skills_missing"
+  | "instructions_missing"
+  | "host_unnamed"
+  | "host_unavailable"
+  | "live_check_missing"
+  | "live_check_failed"
+  | "evidence_stale"
+  | "unreadable_evidence"
+  | "probe_plan_ready"
+  | "probe_blocked"
+  | "live_probe_unavailable";
 
 type Operation =
   | "parse_arguments"
@@ -40,7 +59,10 @@ type Operation =
   | "install"
   | "setup_plan"
   | "setup_apply"
-  | "setup_rollback";
+  | "setup_rollback"
+  | "setup_readiness"
+  | "setup_probe_plan"
+  | "setup_probe_apply";
 
 export const exitCodeByOutcome = {
   completed: 0,

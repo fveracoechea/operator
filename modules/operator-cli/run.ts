@@ -1,5 +1,5 @@
 import packageJson from "../../package.json" with { type: "json" };
-import { parseArguments } from "./arguments.ts";
+import { hasSelectionOrProbeArguments, parseArguments } from "./arguments.ts";
 import { runInstall } from "./install-command.ts";
 import { runSetup } from "./setup-command.ts";
 import { exitCodeByOutcome, writeJsonResult } from "./result.ts";
@@ -51,7 +51,11 @@ export async function run(args: string[]): Promise<void> {
 
   if (command === "install") {
     const parsed = parseArguments(rest);
-    if (parsed.unsupported.length > 0 || parsed.approvedPlan !== undefined) {
+    if (
+      parsed.unsupported.length > 0 ||
+      parsed.approvedPlan !== undefined ||
+      hasSelectionOrProbeArguments(parsed)
+    ) {
       rejectArguments(parsed.json);
       return;
     }
@@ -60,9 +64,11 @@ export async function run(args: string[]): Promise<void> {
   }
 
   if (command === "setup") {
-    const subcommand = rest[0]?.startsWith("--") ? undefined : rest[0];
-    const parsed = parseArguments(subcommand === undefined ? rest : rest.slice(1));
-    if (parsed.unsupported.length > 0 || (await runSetup(subcommand, parsed)) !== "reported") {
+    // A setup request names its operation in leading words, then carries only flags.
+    const firstFlag = rest.findIndex((word) => word.startsWith("--"));
+    const words = firstFlag === -1 ? rest : rest.slice(0, firstFlag);
+    const parsed = parseArguments(firstFlag === -1 ? [] : rest.slice(firstFlag));
+    if (parsed.unsupported.length > 0 || (await runSetup(words, parsed)) !== "reported") {
       rejectArguments(parsed.json);
     }
     return;

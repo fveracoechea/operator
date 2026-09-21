@@ -9,9 +9,9 @@ The name comes from *The Matrix*: the crew member who loads programs, guides mis
 
 ## Status
 
-**Project installation and setup work.**
-The repository contains the Bun CLI, its local and CI quality gate, `operator install`, and `operator setup`.
-Readiness checks, crew orchestration, and release automation are not implemented yet.
+**Project installation, setup, and readiness work.**
+The repository contains the Bun CLI, its local and CI quality gate, `operator install`, `operator setup`, and `operator setup readiness`.
+Crew orchestration, the live readiness probe, and release automation are not implemented yet.
 
 ## CLI Foundation
 
@@ -67,6 +67,48 @@ operator setup rollback --json
 
 Rollback restores only the files that still hold what setup wrote.
 A file changed after setup wrote it is preserved and reported as a conflict.
+
+## Project Readiness
+
+Configured is not ready.
+Configured means the approved setup plan is complete and the selected files and settings validate.
+Ready means the required checks passed for the exact selection and inputs you are about to launch.
+
+```sh
+operator setup readiness --claude --operator-host claude-code --json
+```
+
+The command reads the machine and the project and writes nothing.
+It reports one of three answers beside a separate `configured` field.
+
+| State | Meaning |
+| --- | --- |
+| `blocked` | A required check failed. The blockers name the reason, the paths, and the next action. |
+| `unverified` | Every required static check passed, and required live evidence is missing or stale. |
+| `ready` | Every required check passed against the current inputs. |
+
+Static checks observe the selected hosts, Bun, Git, Herdr, the GitHub CLI, the instruction files, the discoverable skill contents, the Operator release, its lock data, and the project settings.
+They never prove host termination, the native review sub-agents, or provider compatibility.
+Those need a live probe.
+
+Each selection field is resolved on its own, from a session override, then `.operator/config.json`, then the host default.
+A missing Crew host follows the Operator host, and a missing model stays with the selected host default.
+Operator never substitutes an unavailable host or model, and it never guesses a host that nothing names.
+
+A live probe launches agents and spends provider tokens, so it carries its own approval.
+
+```sh
+operator setup probe plan --claude --operator-host claude-code --json
+operator setup probe apply --claude --operator-host claude-code --approved-probe <probeId> --json
+```
+
+The plan shows the hosts, models, provider use, temporary resources, and checks before anything launches.
+A changed project or selection makes a new `probeId` and refuses the old approval.
+This release runs no live check yet, so an approved probe reports that the configuration stays unverified.
+
+Recorded live results live in `.operator/local/readiness.json` with the approved probe that produced them and the fingerprints of the inputs they were proven against.
+A changed input makes its own record stale and leaves unrelated records valid.
+See [ADR 0002](docs/adr/0002-readiness-is-derived-and-only-live-evidence-is-recorded.md).
 
 ## The Workflow We Want
 

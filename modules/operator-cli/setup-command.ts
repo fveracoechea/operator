@@ -1,5 +1,7 @@
 import { ProjectSetup } from "../project-setup/main.ts";
-import { type ParsedArguments, targetFlag } from "./arguments.ts";
+import { hasSelectionOrProbeArguments, type ParsedArguments, targetFlag } from "./arguments.ts";
+import { runProbeApply, runProbePlan } from "./probe-command.ts";
+import { runReadiness } from "./readiness-command.ts";
 import { reportMissingTarget } from "./missing-target.ts";
 import { report } from "./result.ts";
 
@@ -295,14 +297,46 @@ async function runRollback(parsed: ParsedArguments): Promise<void> {
 }
 
 export async function runSetup(
-  subcommand: string | undefined,
+  words: string[],
   parsed: ParsedArguments,
 ): Promise<"reported" | "invalid-arguments"> {
+  const [subcommand, second] = words;
+
+  if (subcommand === "probe") {
+    if (second !== "plan" && second !== "apply") {
+      return "invalid-arguments";
+    }
+    if (parsed.approvedPlan !== undefined) {
+      return "invalid-arguments";
+    }
+    if (second === "plan" && parsed.approvedProbe !== undefined) {
+      return "invalid-arguments";
+    }
+    await (second === "plan" ? runProbePlan(parsed) : runProbeApply(parsed));
+    return "reported";
+  }
+
+  if (words.length !== 1) {
+    return "invalid-arguments";
+  }
+
   if (subcommand === "rollback") {
-    if (parsed.targets.length > 0 || parsed.approvedPlan !== undefined) {
+    if (
+      parsed.targets.length > 0 ||
+      parsed.approvedPlan !== undefined ||
+      hasSelectionOrProbeArguments(parsed)
+    ) {
       return "invalid-arguments";
     }
     await runRollback(parsed);
+    return "reported";
+  }
+
+  if (subcommand === "readiness") {
+    if (parsed.approvedPlan !== undefined || parsed.approvedProbe !== undefined) {
+      return "invalid-arguments";
+    }
+    await runReadiness(parsed);
     return "reported";
   }
 
@@ -310,7 +344,10 @@ export async function runSetup(
     return "invalid-arguments";
   }
 
-  if (subcommand === "plan" && parsed.approvedPlan !== undefined) {
+  if (
+    hasSelectionOrProbeArguments(parsed) ||
+    (subcommand === "plan" && parsed.approvedPlan !== undefined)
+  ) {
     return "invalid-arguments";
   }
 

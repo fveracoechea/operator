@@ -119,4 +119,34 @@ describe("Operator CLI", () => {
       })}\n`,
     });
   });
+
+  const unsupportedRequests = [
+    ["install", "--claude", "--operator-host", "claude-code"],
+    ["setup", "plan", "--claude", "--crew-model", "sonnet"],
+    ["setup", "rollback", "--operator-host", "opencode"],
+    ["setup", "readiness", "--claude", "--approved-plan", "abc"],
+    ["setup", "readiness", "--claude", "--operator-host", "cursor"],
+    ["setup", "readiness", "--claude", "--operator-host"],
+    ["setup", "probe", "--claude"],
+    ["setup", "probe", "wibble", "--claude"],
+    ["setup", "probe", "plan", "--claude", "--approved-probe", "abc"],
+    ["setup", "probe", "apply", "--claude", "--approved-plan", "abc"],
+  ];
+
+  for (const args of unsupportedRequests) {
+    test(`refuses \`operator ${args.join(" ")}\``, async () => {
+      const result = await runOperator([...args, "--json"]);
+
+      expect(result.exitCode).toBe(2);
+      expect(JSON.parse(result.stdout).reason).toBe("invalid_arguments");
+    });
+  }
+
+  test("lists every supported command in its usage", async () => {
+    const result = await runOperator([]);
+
+    expect(result.stderr).toContain("operator setup readiness");
+    expect(result.stderr).toContain("operator setup probe plan");
+    expect(result.stderr).toContain("operator setup probe apply");
+  });
 });
