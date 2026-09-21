@@ -5,16 +5,15 @@ description: Use when asked to review a pull request by number or URL, or to pos
 
 # Pull request review
 
-This skill owns the posting seam, which turns findings into one GitHub review.
-The neighbour `code-review` owns the two-axis analysis, Standards and Spec.
-Invoke that skill when the agent lists it, and read the diff yourself when it is absent.
+This skill posts one GitHub review.
+The `code-review` skill does the analysis on two axes, Standards and Spec.
+Invoke it when the agent lists it, and read the diff yourself when it is absent.
 
 ## Contract
 
-A run posts one review, through `gh api`, with a single-line body.
-The review holds at most three inline comments, and each one sits on the exact line.
-A comment opens with `Blocker.` or `Nice to have.`, and it gives the evidence that you gathered.
-A blocker is a defect that the author fixes before the pull request merges, and everything else is a nice to have.
+A run posts one review through `gh api`, with a single-line body.
+Each inline comment sits on the exact line, opens with `Blocker.` or `Nice to have.`, and gives the evidence you gathered.
+A run that finds nothing posts the body alone.
 
 ## Process
 
@@ -27,21 +26,30 @@ Invoke `code-review` and give it `baseRefName` as its fixed point.
 
 ### 2. Verify every claim against its source
 
-Read the artefact itself, and treat the pull request body and the commit message as claims that you still check.
-Check a claim about a published package against the package tarball, so run `npm pack <name>@<version>` and read the extracted files, and check a claim about a route against the route file.
+Treat the pull request body and the commit message as claims, and check each one against the artefact itself.
+Check a claim about a published package against the tarball, so run `npm pack <name>@<version>` and read the extracted files.
+Check a claim about a route against the route file.
 Check a claim about behaviour by running the command and reading its output.
-Drop the claims that you cannot verify.
+Drop every claim you cannot verify.
 
-### 3. Keep the three that matter most
+### 3. Rank the findings and cut to the caps
 
-Rank the blockers above the nice-to-haves, and drop the remainder.
+A blocker is a defect the author fixes before the pull request merges.
+Keep the three that matter most.
+
+A nice to have is a follow-up, or a small fix the author may take before merge.
+Keep the two that matter most.
+
+Drop the rest.
+Both caps are ceilings, and the evidence from step 2 decides what earns a comment.
+A run can end this step with no blockers, with no nice to haves, or with nothing at all.
 
 ### 4. Anchor each comment to a line
 
 Run `gh api repos/<owner>/<repo>/pulls/<number>/files --paginate --jq '.[] | .filename, .patch'`.
 Count the right-side line numbers from each hunk header to get the value of `line`.
 GitHub omits `patch` on a large file and on a binary file, so read that file at `headRefOid` and count its lines instead.
-Every line sits inside a hunk of the diff, and one bad line returns 422 and rejects the whole review, so check all three before you post.
+Every line sits inside a hunk of the diff, and one bad line returns 422 and rejects the whole review, so check each comment before you post.
 
 ### 5. Show the findings and wait
 
@@ -51,6 +59,7 @@ Post after the user approves, or post at once when the user pre-authorised it in
 ### 6. Post one review
 
 Write the payload to a file, then send the file.
+Leave `comments` out when you have none.
 
 ```json
 {
