@@ -1,5 +1,6 @@
 import { OperatorConfig } from "../operator-config/main.ts";
 import { type AttemptFailure, readContext, type Shared } from "./dispatch-context.ts";
+import { readOperation } from "./dispatch.ts";
 import { mutate } from "./operations.ts";
 import { type QuestionInput, questionInputSchema } from "./question-input.ts";
 import { blockingQuestionOf, insertQuestion, readQuestion, updateQuestion } from "./questions.ts";
@@ -199,7 +200,10 @@ export async function reviseQuestion(request: {
         };
       }
       // An answer already on its way is not revised behind the Operative that will read it.
-      if (row.deliveryOperationId !== null) {
+      // A delivery that is proven not to have happened leaves the question free to change.
+      const delivery =
+        row.deliveryOperationId === null ? null : readOperation(tx, row.deliveryOperationId);
+      if (delivery !== null && delivery.state !== "failed") {
         return {
           commit: false,
           outcome: { status: "delivery-started" as const, questionId: row.id, state: row.state },

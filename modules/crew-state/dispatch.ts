@@ -62,6 +62,13 @@ export function liveOperations(db: CrewReader, attemptId: string): OperationRow[
     .all();
 }
 
+export function readOperation(db: CrewReader, operationId: string): OperationRow | null {
+  return (
+    db.select().from(externalOperations).where(eq(externalOperations.id, operationId)).all()[0] ??
+    null
+  );
+}
+
 export function operationFor(operations: OperationRow[], kind: DispatchStage): OperationRow | null {
   return operations.find((one) => one.kind === kind) ?? null;
 }

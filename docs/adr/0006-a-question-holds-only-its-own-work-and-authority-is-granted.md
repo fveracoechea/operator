@@ -56,8 +56,9 @@ An approval that does not name its targets cannot be compared against the action
 
 ## Consequences
 
-`operator question revise` refuses to change a question after a delivery has started.
+`operator question revise` refuses to change a question while a delivery could still arrive.
 The Operative acknowledges the answer on its way and raises a new question, rather than changing the question the answer is already in flight for.
+A delivery proven to have failed leaves the question free to change, because nothing reached the Operative.
 
 Ending an attempt withdraws the questions it raised.
 A replacement is a new attempt, so it asks for itself rather than inheriting a question the former writer was waiting on.

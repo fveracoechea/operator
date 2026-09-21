@@ -208,6 +208,7 @@ export function updateQuestion(
       targetIdentity: targetIdentityOf(request.input),
       escalationTriggers: JSON.stringify(request.input.escalationTriggers),
       answerId: null,
+      deliveryOperationId: null,
       updatedAt: request.now,
     })
     .where(eq(questions.id, request.row.id))

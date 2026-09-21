@@ -219,6 +219,34 @@ async function raise(
   );
 }
 
+async function revise(
+  workspace: Workspace,
+  crew: { attemptId: string; worktree: string },
+  questionId: string,
+  revision: number,
+  overrides: QuestionOverrides = {},
+) {
+  const inputPath = await writeInput(workspace, questionBody(overrides));
+  return runJson(
+    workspace,
+    [
+      "question",
+      "revise",
+      "--request",
+      request(),
+      "--attempt",
+      crew.attemptId,
+      "--question",
+      questionId,
+      "--revision",
+      String(revision),
+      "--input",
+      inputPath,
+    ],
+    crew.worktree,
+  );
+}
+
 type AnswerOverrides = {
   authority?: "requirement" | "human-answer" | "operator-decision";
   exactText?: string;
@@ -652,28 +680,9 @@ describe("operator question deliver", () => {
     const questionId = raised.json.data.questionId;
     await answer(workspace, crew, { questionId, revision: 1 });
 
-    const revisedPath = await writeInput(
-      workspace,
-      questionBody({ question: "Does the export keep the legacy column order and the header?" }),
-    );
-    const revised = await runJson(
-      workspace,
-      [
-        "question",
-        "revise",
-        "--request",
-        request(),
-        "--attempt",
-        crew.attemptId,
-        "--question",
-        questionId,
-        "--revision",
-        "1",
-        "--input",
-        revisedPath,
-      ],
-      crew.worktree,
-    );
+    const revised = await revise(workspace, crew, questionId, 1, {
+      question: "Does the export keep the legacy column order and the header?",
+    });
     expect(revised.exitCode).toBe(6);
     expect(revised.json.data.revision).toBe(2);
     expect(revised.json.data.droppedAnswerId).not.toBeNull();
@@ -681,6 +690,41 @@ describe("operator question deliver", () => {
     const refused = await deliver(workspace, crew, questionId);
     expect(refused.exitCode).toBe(3);
     expect(refused.json.reason).toBe("answer_missing");
+  });
+});
+
+describe("operator question revise", () => {
+  test("refuses to change a question while a delivered answer could still arrive", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+    const questionId = raised.json.data.questionId;
+    await answer(workspace, crew, { questionId, revision: 1 });
+    await deliver(workspace, crew, questionId);
+
+    const refused = await revise(workspace, crew, questionId, 1);
+
+    expect(refused.exitCode).toBe(4);
+    expect(refused.json.reason).toBe("delivery_started");
+  });
+
+  test("a delivery proven to have failed leaves the question free to change", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+    const questionId = raised.json.data.questionId;
+    await answer(workspace, crew, { questionId, revision: 1 });
+
+    await Bun.write(`${workspace.herdr}/agent-prompt.error`, "agent_not_found");
+    const failed = await deliver(workspace, crew, questionId);
+    expect(failed.exitCode).toBe(1);
+    expect(failed.json.reason).toBe("delivery_failed");
+
+    await rm(`${workspace.herdr}/agent-prompt.error`);
+    const revised = await revise(workspace, crew, questionId, 1);
+
+    expect(revised.exitCode).toBe(6);
+    expect(revised.json.data.revision).toBe(2);
   });
 });
 
@@ -744,28 +788,9 @@ describe("operator question reapply", () => {
     );
     const answerId = recorded.json.data.answerId;
 
-    const revisedPath = await writeInput(
-      workspace,
-      questionBody({ affectedScope: ["modules/export", "modules/report"] }),
-    );
-    await runJson(
-      workspace,
-      [
-        "question",
-        "revise",
-        "--request",
-        request(),
-        "--attempt",
-        crew.attemptId,
-        "--question",
-        questionId,
-        "--revision",
-        "1",
-        "--input",
-        revisedPath,
-      ],
-      crew.worktree,
-    );
+    await revise(workspace, crew, questionId, 1, {
+      affectedScope: ["modules/export", "modules/report"],
+    });
 
     const withoutApproval = await runJson(workspace, [
       "question",
@@ -855,28 +880,7 @@ describe("operator question reapply", () => {
     const recorded = await answer(workspace, crew, { questionId, revision: 1 });
     const answerId = recorded.json.data.answerId;
 
-    const revisedPath = await writeInput(
-      workspace,
-      questionBody({ escalationTriggers: ["visible-behavior"] }),
-    );
-    await runJson(
-      workspace,
-      [
-        "question",
-        "revise",
-        "--request",
-        request(),
-        "--attempt",
-        crew.attemptId,
-        "--question",
-        questionId,
-        "--revision",
-        "1",
-        "--input",
-        revisedPath,
-      ],
-      crew.worktree,
-    );
+    await revise(workspace, crew, questionId, 1, { escalationTriggers: ["visible-behavior"] });
 
     const approved = await grant(workspace, crew, {
       action: "answer-reuse",
