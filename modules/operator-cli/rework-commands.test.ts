@@ -5,6 +5,7 @@ import {
   commitArtifact,
   delegateRework,
   disposeFindings,
+  grantDirection,
   makeReviewWorkspace,
   type Producer,
   reportBody,
@@ -16,7 +17,13 @@ import {
   submit,
   type Workspace,
 } from "./review-cycle-fixture.ts";
-import { headCommit, herdrCalls, workspaces } from "./workspace-fixture.ts";
+import {
+  headCommit,
+  herdrCalls,
+  requestId as request,
+  runJson,
+  workspaces,
+} from "./workspace-fixture.ts";
 
 const fixtures = workspaces();
 
@@ -225,4 +232,225 @@ describe("operator work rework", () => {
     expect(accepted.exitCode).toBe(0);
     expect(accepted.json.reason).toBe("assignment_accepted");
   });
+});
+
+describe("rework limits", () => {
+  test("a fourth correction cycle waits on the user and keeps its evidence", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    let current = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    let artifact = await commitArtifact(workspace, current, "# Result 0\n");
+    let submitted = await submit(workspace, current, submissionBody(current, artifact, base));
+
+    /** One full round: review it, accept the correction, delegate it, and rework it. */
+    async function correctionRound(round: number) {
+      const reviewer = await startReviewer(workspace, current, submitted.json, artifact.commit);
+      const reported = await reportReview(
+        workspace,
+        reviewer,
+        submitted.json.data.reviewId,
+        reportBody({
+          submissionIdentity: submitted.json.data.identity,
+          host: workspace.host,
+          standardsFindings: [BLOCKER],
+        }),
+      );
+      await disposeFindings(workspace, current, submitted.json.data.reviewId, [
+        {
+          findingId: findingId(reported, "missing-gate"),
+          disposition: "corrected",
+          reason: "The requirement names the gate.",
+        },
+      ]);
+      await acceptReview(workspace, current, {
+        reviewAssignmentId: submitted.json.data.reviewAssignmentId,
+        attemptId: reviewer.attemptId,
+        revision: reviewer.revision,
+      });
+
+      return delegateRework(workspace, current, {
+        revision: submitted.json.data.revision,
+        body: {
+          reason: "findings",
+          reviewId: submitted.json.data.reviewId,
+          instruction: `State the gate, round ${round}.`,
+          conflicts: [],
+        },
+      });
+    }
+
+    /** The combined revision of one delegated cycle, from its own fresh worktree. */
+    async function revise(delegated: { json: { data: { revision: number } } }, round: number) {
+      current = await startRework(workspace, current, {
+        revision: delegated.json.data.revision,
+        commit: artifact.commit,
+        worktreePath: `${workspace.root}/rework-${round}`,
+      });
+      artifact = await commitArtifact(workspace, current, `# Result ${round}\n`);
+      submitted = await submit(
+        workspace,
+        current,
+        submissionBody(current, artifact, base, {
+          assignmentRevision: current.assignmentRevision,
+        }),
+      );
+    }
+
+    for (const round of [1, 2, 3]) {
+      const delegated = await correctionRound(round);
+      expect(delegated.json.data.cycleIndex).toBe(round);
+      await revise(delegated, round);
+    }
+
+    const refused = await correctionRound(4);
+    expect(refused.exitCode).toBe(3);
+    expect(refused.json.reason).toBe("limit_reached");
+    expect(refused.json.blockers[0]).toMatchObject({ limitKind: "rework_cycles", limit: 3, used: 3 });
+
+    const direction = refused.json.data.direction;
+    expect(direction.revision).toBe(1);
+    // The failure evidence is kept, not erased by the limit that stopped the work.
+    expect(direction.evidence.attempted).toHaveLength(3);
+
+    const blocked = await acceptProduction(workspace, current, {
+      submissionId: submitted.json.data.submissionId,
+      revision: submitted.json.data.revision,
+      prHead: artifact.commit,
+    });
+    expect(blocked.exitCode).toBe(3);
+    expect(blocked.json.reason).toBe("direction_required");
+
+    // A later Operator session reads the same limit, because it lives in the crew state.
+    const taken = await runJson(workspace, [
+      "crew",
+      "own",
+      "--request",
+      request(),
+      "--owner-label",
+      "second-session",
+      "--takeover",
+      "--ownership-revision",
+      "1",
+    ]);
+    current = { ...current, ownerToken: taken.json.data.ownerToken };
+
+    const again = await delegateRework(workspace, current, {
+      revision: submitted.json.data.revision,
+      body: {
+        reason: "findings",
+        reviewId: submitted.json.data.reviewId,
+        instruction: "State the gate, round 4.",
+        conflicts: [],
+      },
+    });
+    expect(again.json.reason).toBe("limit_reached");
+    expect(again.json.data.direction.directionRequestId).toBe(direction.directionRequestId);
+    expect(again.json.data.direction.revision).toBe(1);
+
+    // An approval that answers another revision of the request covers nothing.
+    await grantDirection(
+      workspace,
+      current,
+      { approval: { ...direction.approval, requestRevision: "2" } },
+      "Keep going.",
+    );
+    const stale = await delegateRework(workspace, current, {
+      revision: submitted.json.data.revision,
+      body: {
+        reason: "findings",
+        reviewId: submitted.json.data.reviewId,
+        instruction: "State the gate, round 4.",
+        conflicts: [],
+      },
+    });
+    expect(stale.json.reason).toBe("limit_reached");
+
+    await grantDirection(
+      workspace,
+      current,
+      direction,
+      "Run one more correction cycle, then bring it back to me.",
+    );
+
+    const directed = await delegateRework(workspace, current, {
+      revision: submitted.json.data.revision,
+      body: {
+        reason: "findings",
+        reviewId: submitted.json.data.reviewId,
+        instruction: "State the gate, round 4.",
+        conflicts: [],
+      },
+    });
+    expect(directed.exitCode).toBe(0);
+    expect(directed.json.data.cycleIndex).toBe(4);
+    expect(directed.json.data.approvalId).not.toBeNull();
+  }, 60_000);
+
+  test("a third diagnostic rerun waits on the user", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    let current = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    let artifact = await commitArtifact(workspace, current, "# Result 0\n");
+    const flaky = [
+      { name: "quality", command: "bun run quality", outcome: "flaky", detail: "One test failed once." },
+    ];
+    let submitted = await submit(
+      workspace,
+      current,
+      submissionBody(current, artifact, base, { checks: flaky }),
+    );
+
+    async function rerun(round: number) {
+      const delegated = await delegateRework(workspace, current, {
+        revision: submitted.json.data.revision,
+        body: {
+          reason: "diagnostic",
+          checks: ["quality"],
+          instruction: `Run the quality gate again, round ${round}.`,
+          conflicts: [],
+        },
+      });
+      if (delegated.exitCode !== 0) {
+        return delegated;
+      }
+
+      current = await startRework(workspace, current, {
+        revision: delegated.json.data.revision,
+        commit: artifact.commit,
+        worktreePath: `${workspace.root}/diagnostic-${round}`,
+      });
+      artifact = await commitArtifact(workspace, current, `# Result ${round}\n`);
+      submitted = await submit(
+        workspace,
+        current,
+        submissionBody(current, artifact, base, {
+          assignmentRevision: current.assignmentRevision,
+          checks: flaky,
+        }),
+      );
+      return delegated;
+    }
+
+    expect((await rerun(1)).json.data.cycleIndex).toBe(1);
+    const second = await rerun(2);
+    expect(second.json.data.cycleIndex).toBe(2);
+    expect(second.json.data.limit).toBe(2);
+
+    const refused = await rerun(3);
+    expect(refused.exitCode).toBe(3);
+    expect(refused.json.reason).toBe("limit_reached");
+    expect(refused.json.blockers[0]).toMatchObject({ limitKind: "diagnostic_reruns", limit: 2 });
+
+    // A passing check has nothing to diagnose, so a rerun is refused before any limit.
+    const passing = await delegateRework(workspace, current, {
+      revision: submitted.json.data.revision,
+      body: {
+        reason: "diagnostic",
+        checks: ["unknown-gate"],
+        instruction: "Run a check that was never recorded.",
+        conflicts: [],
+      },
+    });
+    expect(passing.json.reason).toBe("unknown_check");
+  }, 60_000);
 });

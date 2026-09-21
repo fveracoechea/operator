@@ -560,3 +560,24 @@ export async function acceptReview(
     String(options.revision),
   ]);
 }
+
+/** Records the user's exact direction past one reached limit, as the approval it must be. */
+export async function grantDirection(
+  workspace: Workspace,
+  producer: Producer,
+  direction: {
+    approval: { action: string; targets: string[]; scope: string; requestRevision: string };
+  },
+  exactText: string,
+) {
+  return runJson(workspace, [
+    "approval",
+    "grant",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--input",
+    await writeInput(workspace, { ...direction.approval, exactText, grantedBy: "human" }),
+  ]);
+}
