@@ -38,6 +38,11 @@ export const usage = [
   "  operator review report --request <id> --review <id> --input <path|-> [--json]",
   "  operator review dispose --request <id> --owner-token <token> --review <id> --input <path|-> [--json]",
   "  operator review show --review <id> [--json]",
+  "  operator cleanup close --request <id> --owner-token <token> --attempt <id> [--json]",
+  "  operator cleanup remove --request <id> --owner-token <token> --attempt <id> [--json]",
+  "  operator cleanup hold --request <id> --owner-token <token> --attempt <id> --input <path|-> [--json]",
+  "  operator cleanup release --request <id> --owner-token <token> --attempt <id> --revision <n> [--json]",
+  "  operator cleanup show [--attempt <id>] [--json]",
   "",
   "A host is `opencode` or `claude-code`.",
 ].join("\n");

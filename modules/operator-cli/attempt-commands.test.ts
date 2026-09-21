@@ -5,9 +5,11 @@ import { ContentIdentity } from "../content-identity/main.ts";
 import {
   headCommit,
   herdrCalls,
+  markFakeAgent,
   requestId as request,
   runJson,
   runOperator,
+  stopFakeAgents,
   type Workspace,
   workspaces,
 } from "./workspace-fixture.ts";
@@ -357,10 +359,10 @@ describe("interrupted dispatch", () => {
     const workspace = await makeWorkspace();
     const crew = await claimedAttempt(workspace);
     await Bun.write(`${workspace.herdr}/agent-start.garbage`, "");
-    await dispatch(workspace, crew);
+    const uncertain = await dispatch(workspace, crew);
     await rm(`${workspace.herdr}/agent-start.garbage`);
     // The fake records a live agent, so the unanswered start did reach Herdr.
-    await Bun.write(`${workspace.herdr}/agent-live`, "operative");
+    await markFakeAgent(workspace, uncertain.json.data.agentName);
 
     const reconciled = await runJson(workspace, [
       "attempt",
@@ -437,7 +439,7 @@ describe("uncertain prompt delivery", () => {
     const crew = await claimedAttempt(workspace);
     await Bun.write(`${workspace.herdr}/agent-prompt.garbage`, "");
     await dispatch(workspace, crew);
-    await rm(`${workspace.herdr}/agent-live`);
+    await stopFakeAgents(workspace);
 
     const reconciled = await runJson(workspace, [
       "attempt",
@@ -586,7 +588,7 @@ describe("replacement", () => {
     const workspace = await makeWorkspace();
     const crew = await claimedAttempt(workspace);
     await dispatch(workspace, crew);
-    await rm(`${workspace.herdr}/agent-live`);
+    await stopFakeAgents(workspace);
     await Bun.write(`${workspace.root}/operative/partial.txt`, "half-done work\n");
 
     const inspection = await runJson(workspace, [
@@ -651,7 +653,7 @@ describe("replacement", () => {
     const workspace = await makeWorkspace();
     const crew = await claimedAttempt(workspace);
     await dispatch(workspace, crew);
-    await rm(`${workspace.herdr}/agent-live`);
+    await stopFakeAgents(workspace);
 
     const inspection = await runJson(workspace, [
       "attempt",
@@ -692,7 +694,7 @@ describe("replacement", () => {
     const crew = await claimedAttempt(workspace);
     await Bun.write(`${workspace.herdr}/agent-prompt.garbage`, "");
     await dispatch(workspace, crew);
-    await rm(`${workspace.herdr}/agent-live`);
+    await stopFakeAgents(workspace);
 
     const refused = await runJson(workspace, [
       "attempt",

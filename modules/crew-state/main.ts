@@ -1,4 +1,8 @@
 import { grantApproval, matchApproval, revokeApproval } from "./approvals.ts";
+import { closeProcess } from "./cleanup-close.ts";
+import { holdInputSchema, placeHold, releaseHold } from "./cleanup-hold.ts";
+import { removeWorktree } from "./cleanup-remove.ts";
+import { showCleanups } from "./cleanup-report.ts";
 import { acknowledgeAttempt } from "./dispatch-acknowledge.ts";
 import type { Overrides } from "./dispatch-context.ts";
 import { dispatchAttempt } from "./dispatch-launch.ts";
@@ -421,6 +425,85 @@ export const CrewState = {
 
     const check = parsed.value;
     return reported(await readState(request.projectRoot, (db) => matchApproval(db, check)));
+  },
+
+  /**
+   * Closes one Operative process after a durable handoff.
+   * It proves the handoff, the revisions, the evidence, the answered questions, the stopped
+   * writing, the accounted child tools, and the termination itself. The checkout is untouched,
+   * because disposal is a separate outcome with its own approval.
+   */
+  async close(request: Mutation & { attemptId: string }) {
+    const result = await closeProcess(request);
+    return { repeated: "repeated" in result && result.repeated === true, result };
+  },
+
+  /**
+   * Removes one approved Herdr worktree.
+   * Accepted work is not disposal authority, so this runs only behind a closed process, an
+   * accepted result, preserved evidence, remote copies of every commit, and a live approval.
+   */
+  async remove(request: Mutation & { attemptId: string }) {
+    const result = await removeWorktree(request);
+    return { repeated: "repeated" in result && result.repeated === true, result };
+  },
+
+  /** Records an explicit decision to keep one Operative's resources. It outlives the session. */
+  async holdResources(request: Mutation & { attemptId: string; input: unknown }) {
+    const parsed = parseInput(holdInputSchema, request.input);
+    if (parsed.status !== "parsed") {
+      return reported(parsed);
+    }
+
+    const input = parsed.value;
+    return mutate(
+      {
+        projectRoot: request.projectRoot,
+        requestId: request.requestId,
+        ownerToken: request.ownerToken,
+        now: new Date().toISOString(),
+        operation: "cleanup_hold",
+        input: { attemptId: request.attemptId, ...input },
+      },
+      ({ tx, now }) =>
+        commitOn(
+          placeHold(tx, {
+            holdId: crypto.randomUUID(),
+            attemptId: request.attemptId,
+            input,
+            now,
+          }),
+          "held",
+        ),
+    );
+  },
+
+  /** Ends one retention hold. Every other cleanup gate still applies afterwards. */
+  async releaseResources(request: Mutation & { attemptId: string; revision: number }) {
+    return mutate(
+      {
+        projectRoot: request.projectRoot,
+        requestId: request.requestId,
+        ownerToken: request.ownerToken,
+        now: new Date().toISOString(),
+        operation: "cleanup_release",
+        input: { attemptId: request.attemptId, revision: request.revision },
+      },
+      ({ tx, now }) =>
+        commitOn(
+          releaseHold(tx, {
+            attemptId: request.attemptId,
+            revision: request.revision,
+            now,
+          }),
+          "released",
+        ),
+    );
+  },
+
+  /** Reports every recorded cleanup and every retention hold this crew holds. Writes nothing. */
+  async cleanup(request: Located & { attemptId: string | null }) {
+    return { repeated: false, result: await showCleanups(request) };
   },
 
   /** Reports the work a crew of this size may start now, and why the rest waits. Writes nothing. */

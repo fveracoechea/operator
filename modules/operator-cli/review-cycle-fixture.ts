@@ -1,10 +1,9 @@
 import { ContentIdentity } from "../content-identity/main.ts";
-// Bun has no recursive directory removal API.
-import { rm } from "node:fs/promises";
 import {
   headCommit,
   requestId as request,
   runJson,
+  stopFakeAgents,
   type Workspace as Fixture,
   type Workspaces,
 } from "./workspace-fixture.ts";
@@ -392,7 +391,7 @@ export async function blockThenReplace(
     host: workspace.host,
     blocker: { reason: "credentials_missing", detail: "The host has no provider credential." },
   });
-  await rm(`${workspace.herdr}/agent-live`, { force: true });
+  await stopFakeAgents(workspace);
 
   const inspected = await runJson(workspace, [
     "attempt",

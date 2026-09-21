@@ -185,7 +185,40 @@ export type Reason =
   | "pr_authority_missing"
   | "pr_head_required"
   | "pr_head_changed"
-  | "review_attempt_limit";
+  | "review_attempt_limit"
+  | "cleanup_reported"
+  | "process_closed"
+  | "process_already_closed"
+  | "worktree_removed"
+  | "worktree_already_removed"
+  | "cleanup_blocked"
+  | "cleanup_uncertain"
+  | "cleanup_failed"
+  | "invalid_hold_input"
+  | "resources_held"
+  | "resources_already_held"
+  | "resources_released"
+  | "retention_hold"
+  | "no_retention_hold"
+  | "handoff_missing"
+  | "revisions_changed"
+  | "unexpected_work"
+  | "unexpected_files"
+  | "unpushed_commits"
+  | "evidence_missing"
+  | "evidence_changed"
+  | "unfamiliar_process"
+  | "occupancy_unknown"
+  | "workspace_handle_missing"
+  | "identity_mismatch"
+  | "checkout_in_use"
+  | "unrelated_resource"
+  | "checkout_unknown"
+  | "host_unsupported"
+  | "not_accepted"
+  | "process_live"
+  | "approval_revoked"
+  | "preservation_failed";
 
 export type Operation =
   | "parse_arguments"
@@ -222,7 +255,12 @@ export type Operation =
   | "attempt_submit"
   | "review_report"
   | "review_dispose"
-  | "review_show";
+  | "review_show"
+  | "cleanup_close"
+  | "cleanup_remove"
+  | "cleanup_hold"
+  | "cleanup_release"
+  | "cleanup_show";
 
 export const exitCodeByOutcome = {
   completed: 0,

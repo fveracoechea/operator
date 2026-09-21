@@ -4,7 +4,7 @@ import { type AnswerDelivery, answerDocument } from "./answer.ts";
 import { type PrepareOutcome, prepareInputs } from "./inputs.ts";
 import { inspectReviewWork, inspectWork, type WorkInspection } from "./inspect.ts";
 import { readReference } from "./reference.ts";
-import { LOCAL_ROOT } from "./plan.ts";
+import { BRIEF_PATH, LOCAL_ROOT, REFERENCE_PATH, RELEASE_PATH } from "./plan.ts";
 import { readSnapshot } from "./snapshot.ts";
 import {
   agentKindFor,
@@ -42,6 +42,31 @@ export const OperativeDispatch = {
    */
   readSnapshot(request: { recorded: string }) {
     return readSnapshot(request.recorded);
+  },
+
+  /**
+   * The files one launch writes into an Operative worktree.
+   * A cleanup preserves exactly this list, so the launch and the disposal read one rendering
+   * of what Operator put there.
+   */
+  launchInputs(): Array<{ name: string; path: string }> {
+    return [
+      { name: "brief", path: BRIEF_PATH },
+      { name: "control-reference", path: REFERENCE_PATH },
+      { name: "release", path: RELEASE_PATH },
+    ];
+  },
+
+  /**
+   * The path prefixes Operator itself writes inside an Operative worktree.
+   * Anything outside them is the occupant's own work, whichever reader is asking.
+   */
+  writtenPrefixes(request: { agentHost: string }): string[] {
+    const prefixes = [LOCAL_ROOT];
+    if (isSupportedHost(request.agentHost)) {
+      prefixes.push(`${SkillInstall.targetRoot({ target: request.agentHost })}/`);
+    }
+    return prefixes;
   },
 
   /** Names the branch, checkout, agent, brief, and prompt of one launch before any effect. */
@@ -192,15 +217,10 @@ export const OperativeDispatch = {
     baseCommit: string;
     agentHost: string;
   }) {
-    const prefixes = [LOCAL_ROOT];
-    if (isSupportedHost(request.agentHost)) {
-      prefixes.push(`${SkillInstall.targetRoot({ target: request.agentHost })}/`);
-    }
-
     return inspectReviewWork({
       worktreePath: request.worktreePath,
       baseCommit: request.baseCommit,
-      allowedPrefixes: prefixes,
+      allowedPrefixes: OperativeDispatch.writtenPrefixes({ agentHost: request.agentHost }),
     });
   },
 

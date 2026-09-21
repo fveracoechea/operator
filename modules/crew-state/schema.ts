@@ -217,6 +217,49 @@ export const reviewFindings = sqliteTable("review_findings", {
 });
 
 /**
+ * One recorded cleanup outcome. Process closure and worktree removal are separate rows, so
+ * each one is retried, blocked, and recovered without the other.
+ * The request revision it was last run under is stored beside it, so a restart can tell an
+ * approval that still covers this cleanup from one that was granted against other inputs.
+ */
+export const cleanups = sqliteTable("cleanups", {
+  id: text("id").primaryKey(),
+  attemptId: text("attempt_id")
+    .notNull()
+    .references(() => attempts.id),
+  assignmentId: text("assignment_id")
+    .notNull()
+    .references(() => assignments.id),
+  kind: text("kind").notNull(),
+  state: text("state").notNull(),
+  requestRevision: text("request_revision").notNull(),
+  inspection: text("inspection"),
+  evidence: text("evidence"),
+  detail: text("detail"),
+  revision: integer("revision").notNull(),
+  startedAt: text("started_at").notNull(),
+  settledAt: text("settled_at"),
+});
+
+/**
+ * One explicit decision to keep an Operative's resources.
+ * A hold outlives the session that placed it, so resource ownership stays stated rather than
+ * inferred from a cleanup that simply never ran.
+ */
+export const retentionHolds = sqliteTable("retention_holds", {
+  id: text("id").primaryKey(),
+  attemptId: text("attempt_id")
+    .notNull()
+    .references(() => attempts.id),
+  reason: text("reason").notNull(),
+  detail: text("detail").notNull(),
+  state: text("state").notNull(),
+  revision: integer("revision").notNull(),
+  placedAt: text("placed_at").notNull(),
+  releasedAt: text("released_at"),
+});
+
+/**
  * One row per completed mutation request. A repeated request identity returns the recorded
  * outcome instead of repeating the effect, so an interrupted caller recovers its own result.
  */
@@ -311,6 +354,8 @@ export const crewStateSchema = {
   questions,
   answers,
   approvals,
+  cleanups,
+  retentionHolds,
 };
 
 /**
@@ -516,13 +561,41 @@ export const CREATE_STATEMENTS = [
     granted_at text not null,
     revoked_at text
   ) strict`,
+  sql`create table cleanups (
+    id text primary key,
+    attempt_id text not null references attempts(id),
+    assignment_id text not null references assignments(id),
+    kind text not null,
+    state text not null,
+    request_revision text not null,
+    inspection text,
+    evidence text,
+    detail text,
+    revision integer not null,
+    started_at text not null,
+    settled_at text,
+    unique (attempt_id, kind)
+  ) strict`,
+  sql`create table retention_holds (
+    id text primary key,
+    attempt_id text not null references attempts(id),
+    reason text not null,
+    detail text not null,
+    state text not null,
+    revision integer not null,
+    placed_at text not null,
+    released_at text
+  ) strict`,
   sql`create unique index attempts_one_active
     on attempts (assignment_id) where state = 'active'`,
   sql`create unique index external_operations_live
     on external_operations (attempt_id, kind) where state <> 'failed'
-      and kind in ('worktree_create', 'input_preparation', 'agent_start', 'prompt_delivery')`,
+      and kind in ('worktree_create', 'input_preparation', 'agent_start', 'prompt_delivery',
+        'agent_stop', 'worktree_remove')`,
   sql`create unique index questions_one_open
     on questions (attempt_id) where state in ('open', 'answered', 'delivered')`,
+  sql`create unique index retention_holds_one_open
+    on retention_holds (attempt_id) where state = 'held'`,
 ];
 
 /** The declared column names and null rules of one table, used by the drift test. */

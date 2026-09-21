@@ -96,6 +96,20 @@ export async function herdrCalls(workspace: Workspace): Promise<string[]> {
     : [];
 }
 
+/** Stops every agent the fake holds, the way a host that exited or crashed would. */
+export async function stopFakeAgents(workspace: Workspace): Promise<void> {
+  await rm(`${workspace.herdr}/agents`, { force: true, recursive: true });
+}
+
+/** Marks one agent live, as a start Herdr accepted but never answered would leave it. */
+export async function markFakeAgent(
+  workspace: Workspace,
+  name: string,
+  paneId = "w1:p1",
+): Promise<void> {
+  await Bun.write(`${workspace.herdr}/agents/${name}`, paneId);
+}
+
 /** A fresh request identity. Every mutation carries one. */
 export function requestId(): string {
   return crypto.randomUUID();
