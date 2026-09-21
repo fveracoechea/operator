@@ -1,6 +1,6 @@
 import { OperativeDispatch } from "../operative-dispatch/main.ts";
-import { OperatorConfig } from "../operator-config/main.ts";
 import { readWriterContext, type WriterFailure } from "./dispatch-context.ts";
+import { type InvalidInput, parseInput } from "./input.ts";
 import { mutate, readState } from "./operations.ts";
 import { reviewReportInputSchema } from "./review-input.ts";
 import { type ReportOutcome, recordReviewReport } from "./review-report.ts";
@@ -9,7 +9,7 @@ import { readSubmission } from "./submission.ts";
 
 export type RecordReviewResult =
   | ReportOutcome
-  | { status: "invalid-input"; issues: string[] }
+  | InvalidInput
   | { status: "unknown-review"; reviewId: string }
   | { status: "review-not-assigned"; reviewId: string; assignmentId: string }
   | {
@@ -33,15 +33,9 @@ export async function recordReview(request: {
   worktreePath: string;
   input: unknown;
 }): Promise<{ repeated: boolean; result: RecordReviewResult }> {
-  const parsed = reviewReportInputSchema.safeParse(request.input);
-  if (!parsed.success) {
-    return {
-      repeated: false,
-      result: {
-        status: "invalid-input",
-        issues: parsed.error.issues.map(OperatorConfig.describeIssue),
-      },
-    };
+  const parsed = parseInput(reviewReportInputSchema, request.input);
+  if (parsed.status !== "parsed") {
+    return { repeated: false, result: parsed };
   }
 
   const read = await readWriterContext(request.projectRoot, request);
@@ -87,7 +81,7 @@ export async function recordReview(request: {
     return { repeated: false, result: bound };
   }
 
-  const input = parsed.data;
+  const input = parsed.value;
   return mutate<ReportOutcome>(
     {
       projectRoot: request.projectRoot,

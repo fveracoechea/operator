@@ -1,6 +1,8 @@
 import { eq } from "drizzle-orm";
 import type { CrewReader } from "./database.ts";
 import type { Capacity } from "./capacity.ts";
+import type { EscalationTrigger } from "./question-input.ts";
+import { blockingQuestions, questionReportOf, triggersOf } from "./questions.ts";
 import { reviewOfSubmission } from "./review.ts";
 import { assignmentDependencies, assignments, attempts, workSources } from "./schema.ts";
 import { latestSubmission } from "./submission.ts";
@@ -25,6 +27,19 @@ export type FrontierBlocker =
   | { reason: "review_capacity_reserved"; productionLimit: number }
   | { reason: "crew_at_capacity"; limit: number };
 
+/** One open question and the work it holds. Every other assignment keeps moving. */
+export type WaitingQuestion = {
+  questionId: string;
+  assignmentId: string;
+  attemptId: string;
+  revision: number;
+  state: string;
+  question: string;
+  escalationTriggers: EscalationTrigger[];
+  affectedScope: string[];
+  independentWork: string[];
+};
+
 export type Frontier = {
   capacity: Capacity & {
     active: { total: number; production: number; review: number };
@@ -35,6 +50,7 @@ export type Frontier = {
   active: Array<FrontierEntry & { attemptId: string }>;
   planning: FrontierEntry[];
   accepted: FrontierEntry[];
+  questions: WaitingQuestion[];
 };
 
 /** Review outranks production; inside one kind the recorded source order decides. */
@@ -192,6 +208,23 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
     }
   }
 
+  const waiting = blockingQuestions(db)
+    .map((row) => {
+      const report = questionReportOf(row);
+      return {
+        questionId: row.id,
+        assignmentId: row.assignmentId,
+        attemptId: row.attemptId,
+        revision: row.revision,
+        state: row.state,
+        question: report.question,
+        escalationTriggers: triggersOf(row),
+        affectedScope: report.affectedScope,
+        independentWork: report.independentWork,
+      };
+    })
+    .toSorted((left, right) => left.questionId.localeCompare(right.questionId));
+
   return {
     capacity: {
       ...capacity,
@@ -207,5 +240,6 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
     active: activeEntries,
     planning,
     accepted,
+    questions: waiting,
   };
 }

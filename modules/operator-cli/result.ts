@@ -1,3 +1,6 @@
+/** What one command did with its request: it reported a result, or it cannot read the request. */
+export type Handled = "reported" | "invalid-arguments";
+
 export type Outcome =
   | "completed"
   | "failed"
@@ -108,6 +111,39 @@ export type Reason =
   | "inspection_stale"
   | "writer_live"
   | "writer_unknown"
+  | "question_raised"
+  | "question_revised"
+  | "question_escalated"
+  | "question_open"
+  | "question_closed"
+  | "invalid_question_input"
+  | "unknown_question"
+  | "question_mismatch"
+  | "stale_question_revision"
+  | "delivery_started"
+  | "answer_recorded"
+  | "invalid_answer_input"
+  | "already_answered"
+  | "escalation_required"
+  | "unknown_answer"
+  | "answer_not_earlier"
+  | "answer_missing"
+  | "answer_delivered"
+  | "delivery_uncertain"
+  | "delivery_failed"
+  | "question_acknowledged"
+  | "question_already_acknowledged"
+  | "question_not_delivered"
+  | "question_reference_mismatch"
+  | "question_reported"
+  | "invalid_approval_input"
+  | "unknown_approval"
+  | "approval_granted"
+  | "approval_revoked"
+  | "approval_already_revoked"
+  | "approval_mismatch"
+  | "approval_matched"
+  | "approval_missing"
   | "invalid_submission_input"
   | "result_submitted"
   | "result_already_submitted"
@@ -172,6 +208,17 @@ export type Operation =
   | "attempt_reconcile"
   | "attempt_replace"
   | "attempt_show"
+  | "question_raise"
+  | "question_revise"
+  | "question_escalate"
+  | "question_answer"
+  | "question_reapply"
+  | "question_deliver"
+  | "question_acknowledge"
+  | "question_show"
+  | "approval_grant"
+  | "approval_revoke"
+  | "approval_check"
   | "attempt_submit"
   | "review_report"
   | "review_dispose"
@@ -197,6 +244,32 @@ type JsonResult = {
 
 export function writeJsonResult(result: JsonResult): void {
   console.log(JSON.stringify({ schemaVersion: 1, ...result }));
+}
+
+/**
+ * Reports one refusal: the outcome, the single blocker that names it, and the readable lines.
+ * Every refusal carries exactly one blocker under its own reason, so that rule lives here
+ * rather than being rebuilt at each call site.
+ */
+export function refuse(request: {
+  json: boolean;
+  operation: Operation;
+  outcome: Exclude<Outcome, "completed">;
+  reason: Reason;
+  detail?: Record<string, unknown>;
+  lines: string[];
+}): Handled {
+  report({
+    json: request.json,
+    result: {
+      outcome: request.outcome,
+      reason: request.reason,
+      blockers: [{ reason: request.reason, ...request.detail }],
+      operation: request.operation,
+    },
+    lines: request.lines,
+  });
+  return "reported";
 }
 
 /** Reports one command result: JSON for agents on stdout, readable lines for a person. */

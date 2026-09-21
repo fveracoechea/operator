@@ -24,7 +24,10 @@ Read [DISPATCH.md](DISPATCH.md) before you launch or recover an Operative.
 Result submission, separate two-axis review, finding dispositions, and accepted completion are implemented.
 Read [REVIEW.md](REVIEW.md) before you review a result or accept an assignment.
 
-Question routing, rework, and cleanup are not available yet.
+Question routing, answers, and approvals are implemented.
+`operator question` and `operator approval` carry them, and the brief tells each Operative how to raise one.
+
+Rework and cleanup are not available yet.
 Do not tell the user that those operations exist.
 
 ## Rules

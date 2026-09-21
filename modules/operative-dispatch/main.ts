@@ -1,5 +1,6 @@
 import { HerdrControl } from "../herdr-control/main.ts";
 import { SkillInstall } from "../skill-install/main.ts";
+import { type AnswerDelivery, answerDocument } from "./answer.ts";
 import { type PrepareOutcome, prepareInputs } from "./inputs.ts";
 import { inspectReviewWork, inspectWork, type WorkInspection } from "./inspect.ts";
 import { readReference } from "./reference.ts";
@@ -201,6 +202,28 @@ export const OperativeDispatch = {
       baseCommit: request.baseCommit,
       allowedPrefixes: prefixes,
     });
+  },
+
+  /**
+   * Carries one recorded answer to the Operative that asked for it.
+   * Success means Herdr accepted the submission, so the Operative's own acknowledgement stays
+   * the only proof that the answer arrived.
+   */
+  async deliverAnswer(request: {
+    agentName: string;
+    answer: AnswerDelivery;
+  }): Promise<LaunchOutcome<{ status: string }>> {
+    const submitted = await HerdrControl.submitPrompt({
+      target: request.agentName,
+      text: answerDocument(request.answer),
+    });
+    if (submitted.status !== "succeeded") {
+      return submitted.status === "failed"
+        ? { status: "failed", code: submitted.code, detail: submitted.detail }
+        : submitted;
+    }
+
+    return { status: "succeeded", value: { status: submitted.value.status } };
   },
 
   /**

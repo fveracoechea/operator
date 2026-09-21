@@ -1,13 +1,33 @@
 import packageJson from "../../package.json" with { type: "json" };
-import { hasCrewArguments, hasSelectionOrProbeArguments, parseArguments } from "./arguments.ts";
+import {
+  hasCrewArguments,
+  hasSelectionOrProbeArguments,
+  type ParsedArguments,
+  parseArguments,
+} from "./arguments.ts";
+import { runApproval } from "./approval-command.ts";
 import { runAttempt } from "./attempt-command.ts";
 import { runCrewOwn } from "./crew-command.ts";
 import { runInstall } from "./install-command.ts";
+import { runQuestion } from "./question-command.ts";
 import { runReview } from "./review-command.ts";
 import { runSetup } from "./setup-command.ts";
-import { exitCodeByOutcome, writeJsonResult } from "./result.ts";
+import { exitCodeByOutcome, type Handled, writeJsonResult } from "./result.ts";
 import { usage } from "./usage.ts";
 import { runWork } from "./work-command.ts";
+
+type CrewCommand = (words: string[], parsed: ParsedArguments) => Promise<Handled>;
+
+// The commands that read crew state. Each one names its own operations in its own module.
+const crewCommands: Record<string, CrewCommand | undefined> = {
+  crew: async (words, parsed) =>
+    words.length === 1 && words[0] === "own" ? runCrewOwn(parsed) : "invalid-arguments",
+  work: runWork,
+  attempt: runAttempt,
+  question: runQuestion,
+  approval: runApproval,
+  review: runReview,
+};
 
 const OPERATOR_VERSION = packageJson.version;
 const SUPPORTED_BUN_RANGE = packageJson.engines.bun;
@@ -83,7 +103,8 @@ export async function run(args: string[]): Promise<void> {
     return;
   }
 
-  if (command === "crew" || command === "work" || command === "attempt" || command === "review") {
+  const crewCommand = command === undefined ? undefined : crewCommands[command];
+  if (crewCommand !== undefined) {
     // A crew request names its operation in leading words, then carries only flags.
     const firstFlag = rest.findIndex((word) => word.startsWith("--"));
     const words = firstFlag === -1 ? rest : rest.slice(0, firstFlag);
@@ -102,17 +123,7 @@ export async function run(args: string[]): Promise<void> {
       return;
     }
 
-    const handled =
-      command === "crew"
-        ? words.length === 1 && words[0] === "own"
-          ? await runCrewOwn(parsed)
-          : "invalid-arguments"
-        : command === "attempt"
-          ? await runAttempt(words, parsed)
-          : command === "review"
-            ? await runReview(words, parsed)
-            : await runWork(words, parsed);
-    if (handled !== "reported") {
+    if ((await crewCommand(words, parsed)) !== "reported") {
       rejectArguments(parsed.json);
     }
     return;

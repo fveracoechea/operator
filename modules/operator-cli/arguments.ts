@@ -19,6 +19,9 @@ const crewFieldByFlag = {
   "--branch": "branch",
   "--worktree": "worktreePath",
   "--inspection": "inspectionIdentity",
+  "--question": "questionId",
+  "--answer": "answerId",
+  "--approval": "approvalId",
   "--submission": "submissionId",
   "--review": "reviewId",
   "--pr-head": "prHead",
@@ -140,6 +143,12 @@ export function parseArguments(args: string[]): ParsedArguments {
   }
 
   return parsed;
+}
+
+/** Reads a record revision the caller states. A revision is a whole number or it is not one. */
+export function readRevision(parsed: ParsedArguments): number | null {
+  const raw = parsed.crew.revision;
+  return raw === undefined || !/^\d+$/.test(raw) ? null : Number(raw);
 }
 
 /** True when the request carries a selection override or a probe approval it has no use for. */

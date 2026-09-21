@@ -91,6 +91,34 @@ function slug(value: string): string {
   );
 }
 
+/**
+ * How any launched agent raises a question.
+ * Work it cannot do inside its authority limits is a question, never its own decision, so this
+ * reaches a producer and a reviewer alike.
+ */
+function questionSection(brief: Brief): string[] {
+  return [
+    "## Questions",
+    "",
+    "Work you cannot do inside these limits is a question, never your own decision:",
+    "",
+    "```",
+    `operator question raise --request <a new identity you generate> --attempt ${brief.attemptId} --input <path> --json`,
+    "```",
+    "",
+    "The report states the question, its evidence, its options, your recommendation, the scope that waits, and the work you continue meanwhile.",
+    "Only that scope waits, so keep the independent work moving.",
+    "Acknowledge the answer you receive before you act on it:",
+    "",
+    "```",
+    "operator question acknowledge --request <a new identity you generate> --question <id> --json",
+    "```",
+    "",
+    "An answer never widens the authority limits above.",
+    "",
+  ];
+}
+
 /** The reporting protocol of an Operative that produces a result. */
 function productionProtocolSection(brief: Brief): string[] {
   return [
@@ -114,6 +142,7 @@ function productionProtocolSection(brief: Brief): string[] {
     "",
     "A submission is a handoff to a separate review, never accepted completion.",
     "",
+    ...questionSection(brief),
   ];
 }
 
@@ -123,7 +152,7 @@ function roleSections(brief: Brief): { result: string[]; protocol: string[] } {
     ? { result: [], protocol: productionProtocolSection(brief) }
     : {
         result: submittedResultSection(brief.review),
-        protocol: reviewProtocolSection(brief.review),
+        protocol: [...reviewProtocolSection(brief.review), ...questionSection(brief)],
       };
 }
 

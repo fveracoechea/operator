@@ -9,9 +9,9 @@ The name comes from *The Matrix*: the crew member who loads programs, guides mis
 
 ## Status
 
-**Project installation, setup, readiness, the crew frontier, Operative dispatch, and reviewed acceptance work.**
-The repository contains the Bun CLI, its local and CI quality gate, `operator install`, `operator setup`, `operator setup readiness`, `operator crew own`, `operator work`, `operator attempt`, and `operator review`.
-Question routing, rework, cleanup, the live readiness probe, and release automation are not implemented yet.
+**Project installation, setup, readiness, the crew frontier, Operative dispatch, question routing, and reviewed acceptance work.**
+The repository contains the Bun CLI, its local and CI quality gate, `operator install`, `operator setup`, `operator setup readiness`, `operator crew own`, `operator work`, `operator attempt`, `operator question`, `operator approval`, and `operator review`.
+Rework, cleanup, the live readiness probe, and release automation are not implemented yet.
 
 ## CLI Foundation
 
@@ -209,6 +209,68 @@ The launch snapshot fixes the crew host, model, release, lock data, and skills.
 A recovery restores that record, so a changed project setting or a session override blocks the attempt with a named drift instead of reaching a launch already in progress.
 See [ADR 0005](docs/adr/0005-dispatch-is-staged-and-an-unproven-effect-blocks.md).
 
+## Questions, Answers, and Approvals
+
+An Operative that cannot continue inside its authority limits raises one question from its own worktree.
+
+```sh
+operator question raise --request <id> --attempt <id> --input question.json --json
+operator question revise --request <id> --attempt <id> --question <id> --revision <n> --input question.json --json
+```
+
+The report states the question, its evidence, its options, the Operative's recommendation, the scope that waits, and the work that continues without the answer.
+It carries no authority of its own, so a report that states an approval is refused.
+One Operative waits on one question at a time.
+Every other assignment stays dispatchable, and `operator work frontier` lists the open questions beside the work they hold.
+
+```sh
+operator question answer --request <id> --owner-token <token> --question <id> --revision <n> --input answer.json --json
+```
+
+An answer is a requirement, a human answer, or an Operator decision.
+The exact words are recorded apart from the structured reading of them, and a requirement also names its source and revision.
+A question that names visible behavior, scope, security permissions, unresolved ambiguity, or conflicting explicit requirements refuses an Operator decision, so it goes to the user.
+Conflicting requirements and unresolved ambiguity refuse a recorded requirement too, because no single source closes either one.
+One question revision carries one decision, and a question nobody waits on any more takes no further change.
+
+The Operative names those subjects when it raises the question, and the Operator records the ones it finds itself.
+
+```sh
+operator question escalate --request <id> --owner-token <token> --question <id> --revision <n> --input escalation.json --json
+```
+
+An escalation drops an Operator decision recorded before it and leaves a person's answer standing.
+
+```sh
+operator question deliver --request <id> --owner-token <token> --question <id> --json
+operator question acknowledge --request <id> --question <id> --json
+operator question show --question <id> --json
+```
+
+Recording an answer, delivering it, and receiving it are three states.
+A repeated delivery reports what it already sent instead of submitting the answer again.
+The Operative's own acknowledgement is the only proof the answer arrived, and it releases the work that waited.
+A delivery that never answered is uncertain, so it blocks another delivery until `operator attempt reconcile` settles it.
+
+A revised question makes its recorded answer inapplicable.
+Using that answer again takes an approval that names it, this question, and the revision it is reused for.
+
+```sh
+operator question reapply --request <id> --owner-token <token> --question <id> --revision <n> --answer <id> --approval <id> --json
+```
+
+```sh
+operator approval grant --request <id> --owner-token <token> --input approval.json --json
+operator approval revoke --request <id> --owner-token <token> --approval <id> --revision <n> --json
+operator approval check --input check.json --json
+```
+
+An approval binds one action, its targets, its scope, and the revision of the request it was granted against.
+It covers an action when those words match and the approval names every target of the action, so a broader grant covers a narrower action and never the other way round.
+A grant records the person's exact words and is the only producer of an approval.
+Silence, a timeout, a general direction to finish, and an Operative report grant nothing.
+See [ADR 0006](docs/adr/0006-a-question-holds-only-its-own-work-and-authority-is-granted.md).
+
 ## Reviewed Results and Acceptance
 
 An Operative hands over its finished result from its own worktree.
@@ -258,7 +320,8 @@ Acceptance verifies the current ownership, the assignment revision, the exact su
 A check outcome a review observed for itself outranks the producer's own word, so a contradiction blocks.
 Operator does not read the pull request itself; the tracker boundary arrives with #24.
 A stopped reviewer, a missing input, an unavailable review capability, a missing pull-request authority, a failed check, and a flaky check each block instead of passing.
-See [ADR 0006](docs/adr/0006-review-is-crew-work-and-acceptance-reads-only-recorded-evidence.md).
+See [ADR 0007](docs/adr/0007-review-is-crew-work-and-acceptance-reads-only-recorded-evidence.md).
+
 
 ## The Workflow We Want
 

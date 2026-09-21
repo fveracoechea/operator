@@ -89,6 +89,7 @@ Tracker reads arrive with the GitHub integration in #24.
 
 Acceptance refuses on:
 
+- `question_open`: the attempt still waits on an answer, so it has not finished the work.
 - `submission_mismatch`: the assignment holds a different submission.
 - `review_incomplete`: the review reported nothing, or it is blocked.
 - `findings_undisposed`: a finding carries no disposition.

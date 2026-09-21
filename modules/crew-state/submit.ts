@@ -1,6 +1,6 @@
-import { OperatorConfig } from "../operator-config/main.ts";
 import { readWriterContext, type WriterFailure } from "./dispatch-context.ts";
 import { identityOf } from "./identity.ts";
+import { type InvalidInput, parseInput } from "./input.ts";
 import { mutate, readState } from "./operations.ts";
 import { submissionInputSchema } from "./submission-input.ts";
 import { submissionOfAttempt, type SubmitOutcome, submitResult } from "./submission.ts";
@@ -8,11 +8,7 @@ import { storeArtifacts, type StoreOutcome } from "./submission-store.ts";
 
 type StoreFailure = Exclude<StoreOutcome, { status: "stored" }>;
 
-export type SubmitResult =
-  | SubmitOutcome
-  | { status: "invalid-input"; issues: string[] }
-  | StoreFailure
-  | WriterFailure;
+export type SubmitResult = SubmitOutcome | InvalidInput | StoreFailure | WriterFailure;
 
 type Reported = { repeated: boolean; result: SubmitResult };
 
@@ -28,15 +24,9 @@ export async function submitAttemptResult(request: {
   worktreePath: string;
   input: unknown;
 }): Promise<Reported> {
-  const parsed = submissionInputSchema.safeParse(request.input);
-  if (!parsed.success) {
-    return {
-      repeated: false,
-      result: {
-        status: "invalid-input",
-        issues: parsed.error.issues.map(OperatorConfig.describeIssue),
-      },
-    };
+  const parsed = parseInput(submissionInputSchema, request.input);
+  if (parsed.status !== "parsed") {
+    return { repeated: false, result: parsed };
   }
 
   // A submission ends its attempt, so a repeat reports the recorded submission of that attempt
@@ -60,7 +50,7 @@ export async function submitAttemptResult(request: {
   }
   const dispatch = read.dispatch;
 
-  const input = parsed.data;
+  const input = parsed.value;
   const submissionId = identityOf({ attemptId: request.attemptId, input }).slice(0, 32);
   const stored = await storeArtifacts({
     projectRoot: request.projectRoot,

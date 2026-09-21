@@ -1,9 +1,8 @@
 import { CrewState } from "../crew-state/main.ts";
 import type { ParsedArguments } from "./arguments.ts";
-import { readStructuredInput, readWorktreeReference, reportSharedFailure } from "./crew-result.ts";
-import { report } from "./result.ts";
-
-type Handled = "reported" | "invalid-arguments";
+import { readStructuredInput, reportInvalidInput, reportSharedFailure } from "./crew-result.ts";
+import { requireReference } from "./reference.ts";
+import { type Handled, refuse, report } from "./result.ts";
 
 // The report belongs to the crew state, so this command reads its shape from that interface.
 type DispatchReport = Extract<
@@ -78,27 +77,21 @@ async function runDispatch(parsed: ParsedArguments): Promise<Handled> {
   }
 
   if (result.status === "review-base-changed") {
-    report({
+    return refuse({
       json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "review_base_changed",
-        blockers: [
-          {
-            reason: "review_base_changed",
-            attemptId: result.attemptId,
-            recorded: result.recorded,
-            requested: result.requested,
-          },
-        ],
-        operation: "attempt_dispatch",
+      operation: "attempt_dispatch",
+      outcome: "conflict",
+      reason: "review_base_changed",
+      detail: {
+        attemptId: result.attemptId,
+        recorded: result.recorded,
+        requested: result.requested,
       },
       lines: [
         `This review reads submitted commit ${result.recorded}, not ${result.requested}.`,
         "Review inputs stay fixed, so the reviewer starts from the commit the result lives on.",
       ],
     });
-    return "reported";
   }
 
   if (result.status === "commit-required") {
@@ -158,51 +151,38 @@ async function runDispatch(parsed: ParsedArguments): Promise<Handled> {
   }
 
   if (result.status === "plan-changed") {
-    report({
+    return refuse({
       json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "dispatch_plan_changed",
-        blockers: [
-          {
-            reason: "dispatch_plan_changed",
-            attemptId: result.attemptId,
-            recorded: result.recorded,
-            computed: result.computed,
-          },
-        ],
-        operation: "attempt_dispatch",
+      operation: "attempt_dispatch",
+      outcome: "conflict",
+      reason: "dispatch_plan_changed",
+      detail: {
+        attemptId: result.attemptId,
+        recorded: result.recorded,
+        computed: result.computed,
       },
       lines: [
         `Attempt ${result.attemptId} holds a different fixed brief than this request builds.`,
         "Assignment inputs stay fixed at dispatch, so this needs your decision.",
       ],
     });
-    return "reported";
   }
 
   if (result.status === "reconciliation-required") {
-    report({
+    return refuse({
       json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: "reconciliation_required",
-        blockers: [
-          {
-            reason: "reconciliation_required",
-            stage: result.stage,
-            operationState: result.operationState,
-          },
-        ],
-        operation: "attempt_dispatch",
-        data: result.report,
+      operation: "attempt_dispatch",
+      outcome: "missing-condition",
+      reason: "reconciliation_required",
+      detail: {
+        stage: result.stage,
+        operationState: result.operationState,
       },
       lines: [
         `The ${result.stage} effect of this attempt is ${result.operationState}.`,
         "Run `operator attempt reconcile` before another launch step.",
       ],
     });
-    return "reported";
   }
 
   if (result.status === "stage-failed" || result.status === "stage-uncertain") {
@@ -259,15 +239,16 @@ async function runAcknowledge(parsed: ParsedArguments): Promise<Handled> {
     return "invalid-arguments";
   }
 
-  const reference = await readWorktreeReference({
+  const read = await requireReference({
     parsed,
     operation: "attempt_acknowledge",
     expectedAttemptId: attemptId,
   });
-  if (reference === null) {
+  if (read.status !== "read") {
     return "reported";
   }
 
+  const reference = read.reference;
   const result = await CrewState.acknowledge({
     projectRoot: reference.controllingCheckout,
     requestId,
@@ -399,27 +380,21 @@ async function runReplace(parsed: ParsedArguments): Promise<Handled> {
   }
 
   if (result.status === "writer-live") {
-    report({
+    return refuse({
       json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "writer_live",
-        blockers: [
-          {
-            reason: "writer_live",
-            attemptId: result.attemptId,
-            agentName: result.agentName,
-            paneId: result.paneId,
-          },
-        ],
-        operation: "attempt_replace",
+      operation: "attempt_replace",
+      outcome: "conflict",
+      reason: "writer_live",
+      detail: {
+        attemptId: result.attemptId,
+        agentName: result.agentName,
+        paneId: result.paneId,
       },
       lines: [
         `Operative ${result.agentName} is still live in pane ${result.paneId}.`,
         "Stop it and confirm its termination before a replacement writes.",
       ],
     });
-    return "reported";
   }
 
   if (result.status === "writer-unknown") {
@@ -472,27 +447,20 @@ async function runReplace(parsed: ParsedArguments): Promise<Handled> {
   }
 
   if (result.status === "review-attempt-limit") {
-    report({
+    return refuse({
       json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: "review_attempt_limit",
-        blockers: [
-          {
-            reason: "review_attempt_limit",
-            reviewId: result.reviewId,
-            limit: result.limit,
-          },
-        ],
-        operation: "attempt_replace",
-        data: { attemptId: result.attemptId },
+      operation: "attempt_replace",
+      outcome: "missing-condition",
+      reason: "review_attempt_limit",
+      detail: {
+        reviewId: result.reviewId,
+        limit: result.limit,
       },
       lines: [
         `Review ${result.reviewId} already used its ${result.limit} attempts.`,
         "Another launch is not a remedy. Bring the blocker to the user.",
       ],
     });
-    return "reported";
   }
 
   report({
@@ -548,27 +516,23 @@ async function runSubmit(parsed: ParsedArguments): Promise<Handled> {
     return "invalid-arguments";
   }
 
-  const reference = await readWorktreeReference({
+  const located = await requireReference({
     parsed,
     operation: "attempt_submit",
     expectedAttemptId: attemptId,
   });
-  if (reference === null) {
+  if (located.status !== "read") {
     return "reported";
   }
 
-  const read = await readStructuredInput(inputPath);
-  if (!read.ok) {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "invalid",
-        reason: "invalid_submission_input",
-        blockers: [{ reason: "invalid_submission_input", detail: read.detail }],
-        operation: "attempt_submit",
-      },
-      lines: [`The submission cannot be read: ${read.detail}`],
-    });
+  const reference = located.reference;
+  const read = await readStructuredInput({
+    parsed,
+    operation: "attempt_submit",
+    reason: "invalid_submission_input",
+    path: inputPath,
+  });
+  if (read.status !== "read") {
     return "reported";
   }
 
@@ -585,20 +549,12 @@ async function runSubmit(parsed: ParsedArguments): Promise<Handled> {
   }
 
   if (result.status === "invalid-input") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "invalid",
-        reason: "invalid_submission_input",
-        blockers: result.issues.map((issue) => ({
-          reason: "invalid_submission_input" as const,
-          issue,
-        })),
-        operation: "attempt_submit",
-      },
-      lines: ["The submission is not valid:", ...result.issues.map((one) => `  ${one}`)],
+    return reportInvalidInput({
+      parsed,
+      operation: "attempt_submit",
+      reason: "invalid_submission_input",
+      issues: result.issues,
     });
-    return "reported";
   }
 
   if (result.status === "reference-mismatch") {
@@ -678,62 +634,43 @@ async function runSubmit(parsed: ParsedArguments): Promise<Handled> {
   }
 
   if (result.status === "not-claimed") {
-    report({
+    return refuse({
       json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "assignment_not_claimed",
-        blockers: [
-          {
-            reason: "assignment_not_claimed",
-            assignmentId: result.assignmentId,
-            state: result.state,
-          },
-        ],
-        operation: "attempt_submit",
+      operation: "attempt_submit",
+      outcome: "conflict",
+      reason: "assignment_not_claimed",
+      detail: {
+        assignmentId: result.assignmentId,
+        state: result.state,
       },
       lines: [`Assignment ${result.assignmentId} is ${result.state}, so it hands over nothing.`],
     });
-    return "reported";
   }
 
   if (result.status === "stale-revision") {
-    report({
+    return refuse({
       json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "stale_revision",
-        blockers: [
-          {
-            reason: "stale_revision",
-            assignmentId: result.assignmentId,
-            recordedRevision: result.recordedRevision,
-          },
-        ],
-        operation: "attempt_submit",
+      operation: "attempt_submit",
+      outcome: "conflict",
+      reason: "stale_revision",
+      detail: {
+        assignmentId: result.assignmentId,
+        recordedRevision: result.recordedRevision,
       },
       lines: [`Assignment ${result.assignmentId} is at revision ${result.recordedRevision}.`],
     });
-    return "reported";
   }
 
   if (result.status === "source-revision-changed" || result.status === "requirements-changed") {
     const source = result.status === "source-revision-changed";
-    report({
+    return refuse({
       json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: source ? "source_revision_changed" : "requirements_changed",
-        blockers: [
-          {
-            reason: source
-              ? ("source_revision_changed" as const)
-              : ("requirements_changed" as const),
-            assignmentId: result.assignmentId,
-            recorded: source ? result.recordedRevision : result.recordedIdentity,
-          },
-        ],
-        operation: "attempt_submit",
+      operation: "attempt_submit",
+      outcome: "conflict",
+      reason: source ? "source_revision_changed" : "requirements_changed",
+      detail: {
+        assignmentId: result.assignmentId,
+        recorded: source ? result.recordedRevision : result.recordedIdentity,
       },
       lines: [
         source
@@ -742,7 +679,6 @@ async function runSubmit(parsed: ParsedArguments): Promise<Handled> {
         "A submission fixes the revisions it was produced against, so this needs your decision.",
       ],
     });
-    return "reported";
   }
 
   if (result.status === "already-submitted") {

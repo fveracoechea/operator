@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import type { CrewReader, CrewWriter } from "./database.ts";
+import { withdrawQuestions } from "./questions.ts";
 import { attempts } from "./schema.ts";
 
 export type AttemptRow = typeof attempts.$inferSelect;
@@ -34,6 +35,7 @@ export function startAttempt(
  * Records the final state of one attempt without ending its assignment.
  * An attempt that already ended, such as one that submitted its result, keeps the time it
  * ended, so a later acceptance does not rewrite when the writing stopped.
+ * The questions it raised are withdrawn, because a stopped writer holds none.
  */
 export function endAttempt(
   db: CrewWriter,
@@ -47,4 +49,7 @@ export function endAttempt(
     })
     .where(eq(attempts.id, request.attempt.id))
     .run();
+
+  // An attempt that stopped writing holds no question. A replacement raises its own.
+  withdrawQuestions(db, { attemptId: request.attempt.id, now: request.now });
 }

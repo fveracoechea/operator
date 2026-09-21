@@ -13,6 +13,7 @@ import {
   reviewOfSubmission,
   undisposed,
 } from "./review.ts";
+import { blockingQuestionOf } from "./questions.ts";
 import { submissions } from "./schema.ts";
 import { type ReviewBlocker, storedBlocker, storedObservedChecks } from "./review-input.ts";
 import { storedChecks, storedCode } from "./submission-input.ts";
@@ -27,6 +28,7 @@ export type AcceptResult =
   | { status: "attempt-required"; assignmentId: string }
   | { status: "attempt-not-expected"; assignmentId: string }
   | { status: "attempt-mismatch"; assignmentId: string; attemptId: string | null }
+  | { status: "question-open"; assignmentId: string; questionId: string; state: string }
   | { status: "submission-required"; assignmentId: string }
   | { status: "submission-mismatch"; assignmentId: string; recordedSubmissionId: string }
   | {
@@ -62,6 +64,11 @@ type AcceptRequest = {
   prHead: string | null;
   now: string;
 };
+
+/** One assignment that still waits on an answer. Only that work waits, and it is not accepted. */
+function openQuestion(assignmentId: string, waiting: { id: string; state: string }): AcceptResult {
+  return { status: "question-open", assignmentId, questionId: waiting.id, state: waiting.state };
+}
 
 /** The recorded blocker of one review, or null while it has none. */
 function blockerOf(stored: string | null): ReviewBlocker | null {
@@ -245,6 +252,14 @@ export function acceptAssignment(db: CrewWriter, request: AcceptRequest): Accept
 
   if (request.attemptId === null) {
     return { status: "attempt-required", assignmentId: row.id };
+  }
+
+  // Work that still waits on an answer is not finished work, so it is never accepted.
+  // This reads ahead of every later gate, because an unanswered question is what the caller
+  // must settle first and it holds the attempt before it can even hand over a result.
+  const open = blockingQuestionOf(db, request.attemptId);
+  if (open !== null) {
+    return openQuestion(row.id, open);
   }
 
   if (isReview(row.kind)) {

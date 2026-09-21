@@ -1,9 +1,8 @@
 import { CrewState } from "../crew-state/main.ts";
 import type { ParsedArguments } from "./arguments.ts";
-import { readStructuredInput, readWorktreeReference, reportSharedFailure } from "./crew-result.ts";
-import { report } from "./result.ts";
-
-type Handled = "reported" | "invalid-arguments";
+import { readStructuredInput, reportInvalidInput, reportSharedFailure } from "./crew-result.ts";
+import { requireReference } from "./reference.ts";
+import { type Handled, refuse, report } from "./result.ts";
 
 async function runReport(parsed: ParsedArguments): Promise<Handled> {
   const { requestId, reviewId, inputPath } = parsed.crew;
@@ -11,27 +10,23 @@ async function runReport(parsed: ParsedArguments): Promise<Handled> {
     return "invalid-arguments";
   }
 
-  const reference = await readWorktreeReference({
+  const located = await requireReference({
     parsed,
     operation: "review_report",
     expectedAttemptId: parsed.crew.attemptId ?? null,
   });
-  if (reference === null) {
+  if (located.status !== "read") {
     return "reported";
   }
 
-  const read = await readStructuredInput(inputPath);
-  if (!read.ok) {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "invalid",
-        reason: "invalid_review_report",
-        blockers: [{ reason: "invalid_review_report", detail: read.detail }],
-        operation: "review_report",
-      },
-      lines: [`The review report cannot be read: ${read.detail}`],
-    });
+  const reference = located.reference;
+  const read = await readStructuredInput({
+    parsed,
+    operation: "review_report",
+    reason: "invalid_review_report",
+    path: inputPath,
+  });
+  if (read.status !== "read") {
     return "reported";
   }
 
@@ -49,20 +44,12 @@ async function runReport(parsed: ParsedArguments): Promise<Handled> {
   }
 
   if (result.status === "invalid-input") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "invalid",
-        reason: "invalid_review_report",
-        blockers: result.issues.map((issue) => ({
-          reason: "invalid_review_report" as const,
-          issue,
-        })),
-        operation: "review_report",
-      },
-      lines: ["The review report is not valid:", ...result.issues.map((one) => `  ${one}`)],
+    return reportInvalidInput({
+      parsed,
+      operation: "review_report",
+      reason: "invalid_review_report",
+      issues: result.issues,
     });
-    return "reported";
   }
 
   if (result.status === "reference-mismatch") {
@@ -106,23 +93,17 @@ async function runReport(parsed: ParsedArguments): Promise<Handled> {
   }
 
   if (result.status === "review-not-assigned") {
-    report({
+    return refuse({
       json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "review_not_assigned",
-        blockers: [
-          {
-            reason: "review_not_assigned",
-            reviewId: result.reviewId,
-            assignmentId: result.assignmentId,
-          },
-        ],
-        operation: "review_report",
+      operation: "review_report",
+      outcome: "conflict",
+      reason: "review_not_assigned",
+      detail: {
+        reviewId: result.reviewId,
+        assignmentId: result.assignmentId,
       },
       lines: [`Review ${result.reviewId} belongs to assignment ${result.assignmentId}.`],
     });
-    return "reported";
   }
 
   if (result.status === "review-settled") {
@@ -140,27 +121,21 @@ async function runReport(parsed: ParsedArguments): Promise<Handled> {
   }
 
   if (result.status === "submission-drift") {
-    report({
+    return refuse({
       json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "submission_drift",
-        blockers: [
-          {
-            reason: "submission_drift",
-            reviewId: result.reviewId,
-            recorded: result.recorded,
-            stated: result.stated,
-          },
-        ],
-        operation: "review_report",
+      operation: "review_report",
+      outcome: "conflict",
+      reason: "submission_drift",
+      detail: {
+        reviewId: result.reviewId,
+        recorded: result.recorded,
+        stated: result.stated,
       },
       lines: [
         "This report names a different submission than the one under review.",
         `The review reads submission identity ${result.recorded}.`,
       ],
     });
-    return "reported";
   }
 
   if (result.status === "axes-incomplete") {
@@ -349,18 +324,13 @@ async function runDispose(parsed: ParsedArguments): Promise<Handled> {
     return "invalid-arguments";
   }
 
-  const read = await readStructuredInput(inputPath);
-  if (!read.ok) {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "invalid",
-        reason: "invalid_disposition_input",
-        blockers: [{ reason: "invalid_disposition_input", detail: read.detail }],
-        operation: "review_dispose",
-      },
-      lines: [`The dispositions cannot be read: ${read.detail}`],
-    });
+  const read = await readStructuredInput({
+    parsed,
+    operation: "review_dispose",
+    reason: "invalid_disposition_input",
+    path: inputPath,
+  });
+  if (read.status !== "read") {
     return "reported";
   }
 
@@ -377,20 +347,12 @@ async function runDispose(parsed: ParsedArguments): Promise<Handled> {
   }
 
   if (result.status === "invalid-input") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "invalid",
-        reason: "invalid_disposition_input",
-        blockers: result.issues.map((issue) => ({
-          reason: "invalid_disposition_input" as const,
-          issue,
-        })),
-        operation: "review_dispose",
-      },
-      lines: ["The dispositions are not valid:", ...result.issues.map((one) => `  ${one}`)],
+    return reportInvalidInput({
+      parsed,
+      operation: "review_dispose",
+      reason: "invalid_disposition_input",
+      issues: result.issues,
     });
-    return "reported";
   }
 
   if (result.status === "review-not-reported") {
@@ -497,25 +459,19 @@ async function runShow(parsed: ParsedArguments): Promise<Handled> {
   }
 
   if (result.status === "submission-missing") {
-    report({
+    return refuse({
       json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "review_submission_missing",
-        blockers: [
-          {
-            reason: "review_submission_missing",
-            reviewId: result.reviewId,
-            submissionId: result.submissionId,
-          },
-        ],
-        operation: "review_show",
+      operation: "review_show",
+      outcome: "conflict",
+      reason: "review_submission_missing",
+      detail: {
+        reviewId: result.reviewId,
+        submissionId: result.submissionId,
       },
       lines: [
         `Review ${result.reviewId} names submission ${result.submissionId}, which the crew state does not hold.`,
       ],
     });
-    return "reported";
   }
 
   report({
