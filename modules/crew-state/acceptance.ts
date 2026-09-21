@@ -13,6 +13,7 @@ import {
   reviewOfSubmission,
   undisposed,
 } from "./review.ts";
+import { type DirectionRecord, directionRecordOf, openDirectionsOf } from "./direction.ts";
 import { blockingQuestionOf } from "./questions.ts";
 import { submissions } from "./schema.ts";
 import { type ReviewBlocker, storedBlocker, storedObservedChecks } from "./review-input.ts";
@@ -25,6 +26,7 @@ export type AcceptResult =
   | { status: "unknown-assignment"; assignmentId: string }
   | { status: "stale-revision"; assignmentId: string; recordedRevision: number }
   | { status: "not-claimed"; assignmentId: string; state: string }
+  | { status: "direction-required"; assignmentId: string; directions: DirectionRecord[] }
   | { status: "attempt-required"; assignmentId: string }
   | { status: "attempt-not-expected"; assignmentId: string }
   | { status: "attempt-mismatch"; assignmentId: string; attemptId: string | null }
@@ -232,6 +234,17 @@ export function acceptAssignment(db: CrewWriter, request: AcceptRequest): Accept
   }
   if (row.revision !== request.revision) {
     return { status: "stale-revision", assignmentId: row.id, recordedRevision: row.revision };
+  }
+
+  // A reached limit is work that waits on the user. Accepting it here would settle by silence
+  // what the crew already proved it could not settle by itself.
+  const waiting = openDirectionsOf(db, row.id);
+  if (waiting.length > 0) {
+    return {
+      status: "direction-required",
+      assignmentId: row.id,
+      directions: waiting.map(directionRecordOf),
+    };
   }
 
   if (!isExecutable(row.kind)) {

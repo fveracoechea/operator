@@ -15,6 +15,33 @@ export type ReviewPullRequest =
   | { status: "open"; number: number; headCommit: string }
   | { status: "authority-missing"; detail: string };
 
+/**
+ * One earlier round on the same assignment.
+ * A revised result is reviewed against what those rounds found, their dispositions, and the
+ * corrections that were delegated, so a regression is visible as one.
+ */
+export type PriorRound = {
+  reviewId: string;
+  submissionId: string;
+  submissionIdentity: string;
+  findings: Array<{
+    findingId: string;
+    axis: string;
+    key: string;
+    severity: string;
+    summary: string;
+    disposition: string | null;
+    reason: string | null;
+  }>;
+  cycles: Array<{
+    cycleId: string;
+    reason: string;
+    cycleIndex: number;
+    instruction: string;
+    conflicts: Array<{ summary: string; between: string[] }>;
+  }>;
+};
+
 export type ReviewBrief = {
   reviewId: string;
   attemptId: string;
@@ -49,6 +76,7 @@ export type ReviewBrief = {
     reason: string;
   }>;
   artifacts: ReviewArtifact[];
+  priorRounds: PriorRound[];
 };
 
 /** The directory a review worktree receives its fixed copies of the submitted artifacts in. */
@@ -115,6 +143,40 @@ export function submittedResultSection(review: ReviewBrief): string[] {
     ...(review.decisions.length === 0
       ? ["None recorded."]
       : review.decisions.map((one) => `- ${one.statement} (${one.authority}): ${one.reason}`)),
+    "",
+    ...priorRoundsSection(review),
+  ];
+}
+
+/** What earlier rounds found on this assignment, and what was delegated about it. */
+function priorRoundsSection(review: ReviewBrief): string[] {
+  if (review.priorRounds.length === 0) {
+    return [];
+  }
+
+  return [
+    "### Earlier rounds on this assignment",
+    "",
+    "This result is a revision. Check it against every line below, and report a finding that",
+    "returned as a regression.",
+    "",
+    ...review.priorRounds.flatMap((round) => [
+      `- Review ${round.reviewId} of submission ${round.submissionId}`,
+      ...round.findings.map(
+        (one) =>
+          `  - ${one.findingId} (${one.axis}, ${one.severity}) ${one.disposition ?? "undisposed"}: ${one.summary}` +
+          (one.reason === null ? "" : ` [${one.reason}]`),
+      ),
+      ...round.cycles.flatMap((cycle) => [
+        `  - Rework cycle ${cycle.cycleId} (${cycle.reason} ${cycle.cycleIndex}): ${cycle.instruction}`,
+        ...cycle.conflicts.map(
+          (one) => `    - Conflict settled by the Operative: ${one.summary} (${one.between.join(" and ")})`,
+        ),
+      ]),
+    ]),
+    "",
+    "A rejected or deferred finding was answered by the Operator. Do not reopen it as new work,",
+    "and do report it if the revised result made it worse.",
     "",
   ];
 }
@@ -202,6 +264,12 @@ export function reviewProtocolSection(review: ReviewBrief): string[] {
     "```",
     "",
     `Each axis states in \`checked\` what it read. This result kind requires ${review.requiredCoverage.join(", ")}.`,
+    ...(review.priorRounds.length === 0
+      ? []
+      : [
+          "Read the earlier rounds above as well. Both axes check the revised result against the",
+          "prior dispositions, the corrections that were delegated, and any regression.",
+        ]),
     "The two sub-agent windows must overlap, because the two axes run at the same time.",
     "",
     "Record in `observedChecks` every recorded check you ran for yourself, with what you saw.",

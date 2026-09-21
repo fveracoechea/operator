@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import type { CrewReader } from "./database.ts";
 import type { Capacity } from "./capacity.ts";
+import { openDirectionsOf } from "./direction.ts";
 import type { EscalationTrigger } from "./question-input.ts";
 import { blockingQuestions, questionReportOf, triggersOf } from "./questions.ts";
 import { reviewOfSubmission } from "./review.ts";
@@ -24,6 +25,7 @@ export type FrontierEntry = {
 export type FrontierBlocker =
   | { reason: "dependency_pending"; dependencies: Array<{ assignmentId: string; state: string }> }
   | { reason: "review_pending"; reviewAssignmentId: string | null }
+  | { reason: "direction_required"; directionRequestId: string; limitKind: string }
   | { reason: "review_capacity_reserved"; productionLimit: number }
   | { reason: "crew_at_capacity"; limit: number };
 
@@ -166,6 +168,20 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
       continue;
     }
     if (attemptByAssignment.has(one.assignmentId)) {
+      continue;
+    }
+
+    // A reached limit waits on the user, whatever state the assignment stopped in.
+    const waiting = openDirectionsOf(db, one.assignmentId);
+    if (waiting.length > 0) {
+      blocked.push({
+        ...one,
+        blockers: waiting.map((request) => ({
+          reason: "direction_required" as const,
+          directionRequestId: request.id,
+          limitKind: request.limitKind,
+        })),
+      });
       continue;
     }
 

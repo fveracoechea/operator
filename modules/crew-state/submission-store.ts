@@ -8,7 +8,7 @@ import type { SubmittedArtifact } from "./submission-input.ts";
 export const SUBMISSION_STORE = ".operator/local/submissions";
 
 /** One artifact as the review reads it: a value, or a durable copy outside the worktree. */
-const storedArtifact = z.strictObject({
+export const storedArtifactSchema = z.strictObject({
   name: z.string(),
   kind: z.enum(["value", "path"]),
   value: z.string(),
@@ -16,10 +16,10 @@ const storedArtifact = z.strictObject({
   storedPath: z.string().nullable(),
 });
 
-export type StoredArtifact = z.infer<typeof storedArtifact>;
+export type StoredArtifact = z.infer<typeof storedArtifactSchema>;
 
 export function storedArtifacts(stored: string): StoredArtifact[] {
-  return readStored("artifact list", z.array(storedArtifact), stored);
+  return readStored("artifact list", z.array(storedArtifactSchema), stored);
 }
 
 export type StoreOutcome =

@@ -18,6 +18,8 @@ import { approvalCheckSchema, approvalInputSchema } from "./approval-input.ts";
 import { raiseQuestion, reviseQuestion } from "./question-raise.ts";
 import { showQuestion } from "./question-report.ts";
 import { registerWork } from "./registration.ts";
+import { openReworkCycle, type ReworkOutcome } from "./rework-open.ts";
+import { reworkInputSchema } from "./rework-input.ts";
 import { dispositionInputSchema } from "./review-input.ts";
 import { disposeFindings, type DisposeOutcome } from "./review-dispose.ts";
 import { recordReview } from "./review-record.ts";
@@ -244,6 +246,45 @@ export const CrewState = {
         }
 
         return commitOn(disposeFindings(tx, { review, input, now }), "disposed");
+      },
+    );
+  },
+
+  /**
+   * Delegates one rework cycle on one submitted result.
+   * The cycle returns the assignment to the frontier, so the accepted corrections reach a fresh
+   * Operative through the ordinary claim and dispatch path rather than the reviewer or this
+   * Operator. A reached limit records the direction it needs from the user instead.
+   */
+  async rework(request: Mutation & { assignmentId: string; revision: number; input: unknown }) {
+    const parsed = parseInput(reworkInputSchema, request.input);
+    if (parsed.status !== "parsed") {
+      return reported(parsed);
+    }
+
+    const input = parsed.value;
+    return mutate<ReworkOutcome>(
+      {
+        projectRoot: request.projectRoot,
+        requestId: request.requestId,
+        ownerToken: request.ownerToken,
+        now: new Date().toISOString(),
+        operation: "work_rework",
+        input: { assignmentId: request.assignmentId, revision: request.revision, rework: input },
+      },
+      ({ tx, now }) => {
+        const outcome = openReworkCycle(tx, {
+          cycleId: crypto.randomUUID(),
+          assignmentId: request.assignmentId,
+          revision: request.revision,
+          input,
+          now,
+        });
+        // A reached limit records the direction request it raised, so the refusal is durable.
+        return {
+          commit: outcome.status === "delegated" || outcome.status === "limit-reached",
+          outcome,
+        };
       },
     );
   },

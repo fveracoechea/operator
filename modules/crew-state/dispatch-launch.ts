@@ -199,7 +199,7 @@ export async function dispatchAttempt(request: {
 
   const launch = OperativeDispatch.plan({
     projectRoot: request.projectRoot,
-    brief: briefOf(read.context.assignment, attemptId, read.context.review),
+    brief: briefOf(read.context, attemptId),
     snapshot,
     baseCommit,
     branch: recorded?.branch ?? request.branch,

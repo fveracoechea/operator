@@ -235,7 +235,7 @@ export async function startReviewer(
   producer: Producer,
   submitted: { data: { reviewAssignmentId: string; reviewId: string } },
   commit: string,
-  revision = 1,
+  options: { revision?: number; worktreePath?: string } = {},
 ) {
   const claimed = await runJson(workspace, [
     "work",
@@ -247,10 +247,12 @@ export async function startReviewer(
     "--assignment",
     submitted.data.reviewAssignmentId,
     "--revision",
-    String(revision),
+    String(options.revision ?? 1),
   ]);
   const attemptId = claimed.json.data.attemptId;
-  const worktreePath = `${workspace.root}/reviewer`;
+  // Each round has its own reviewer, so each one reads and writes in its own checkout.
+  const worktreePath =
+    options.worktreePath ?? `${workspace.root}/reviewer-${submitted.data.reviewAssignmentId.slice(0, 8)}`;
 
   const dispatched = await runJson(workspace, [
     "attempt",
@@ -463,5 +465,98 @@ export async function disposeFindings(
     reviewId,
     "--input",
     await writeInput(workspace, { dispositions }),
+  ]);
+}
+
+/** Delegates one rework cycle on the submitted result of one assignment. */
+export async function delegateRework(
+  workspace: Workspace,
+  producer: Producer,
+  options: { revision: number; body: unknown },
+) {
+  return runJson(workspace, [
+    "work",
+    "rework",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--assignment",
+    producer.assignmentId,
+    "--revision",
+    String(options.revision),
+    "--input",
+    await writeInput(workspace, options.body),
+  ]);
+}
+
+/** Claims and launches one assignment again, as the fresh Operative a rework cycle needs. */
+export async function startRework(
+  workspace: Workspace,
+  producer: Producer,
+  options: { revision: number; commit: string; worktreePath: string },
+) {
+  const claimed = await runJson(workspace, [
+    "work",
+    "claim",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--assignment",
+    producer.assignmentId,
+    "--revision",
+    String(options.revision),
+  ]);
+  const attemptId = claimed.json.data.attemptId;
+
+  const dispatched = await runJson(workspace, [
+    "attempt",
+    "dispatch",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--attempt",
+    attemptId,
+    "--commit",
+    options.commit,
+    "--worktree",
+    options.worktreePath,
+  ]);
+  await runJson(
+    workspace,
+    ["attempt", "acknowledge", "--request", request(), "--attempt", attemptId],
+    options.worktreePath,
+  );
+
+  return {
+    ...producer,
+    attemptId,
+    worktreePath: options.worktreePath,
+    assignmentRevision: claimed.json.data.revision as number,
+    dispatched,
+  };
+}
+
+/** Accepts one review assignment, which frees the crew slot its reviewer held. */
+export async function acceptReview(
+  workspace: Workspace,
+  producer: Producer,
+  options: { reviewAssignmentId: string; attemptId: string; revision: number },
+) {
+  return runJson(workspace, [
+    "work",
+    "accept",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--assignment",
+    options.reviewAssignmentId,
+    "--attempt",
+    options.attemptId,
+    "--revision",
+    String(options.revision),
   ]);
 }

@@ -22,7 +22,7 @@ const artifact = z
 export const checkOutcome = z.enum(["passed", "failed", "flaky", "not-run"]);
 
 /** A check states its command and what that command actually did, including a flaky run. */
-const check = z.strictObject({
+export const submittedCheckSchema = z.strictObject({
   name: z.string().min(1),
   command: z.string().min(1),
   outcome: checkOutcome,
@@ -51,7 +51,7 @@ const pullRequest = z.discriminatedUnion("status", [
   }),
 ]);
 
-const codeRevisions = z.strictObject({
+export const codeRevisionsSchema = z.strictObject({
   baseCommit: z.string().min(1),
   resultCommit: z.string().min(1),
   mergeBase: z.string().min(1),
@@ -73,22 +73,22 @@ export const submissionInputSchema = z.discriminatedUnion("resultKind", [
     ...fixedFields,
     resultKind: z.literal("code"),
     // A code result names the commands it ran, because acceptance reads every one of them.
-    checks: z.array(check).min(1),
-    code: codeRevisions,
+    checks: z.array(submittedCheckSchema).min(1),
+    code: codeRevisionsSchema,
   }),
   z.strictObject({
     ...fixedFields,
     resultKind: z.literal("non-code"),
-    checks: z.array(check),
+    checks: z.array(submittedCheckSchema),
     // A non-code result may still carry code revisions, and is not required to.
-    code: codeRevisions.nullable(),
+    code: codeRevisionsSchema.nullable(),
   }),
 ]);
 
 export type SubmissionInput = z.infer<typeof submissionInputSchema>;
 export type SubmittedArtifact = SubmissionInput["artifacts"][number];
-export type SubmittedCheck = z.infer<typeof check>;
-export type SubmittedCode = z.infer<typeof codeRevisions>;
+export type SubmittedCheck = z.infer<typeof submittedCheckSchema>;
+export type SubmittedCode = z.infer<typeof codeRevisionsSchema>;
 export type SubmittedDecision = z.infer<typeof decision>;
 
 export const resultKindSchema = z.enum(["code", "non-code"]);
@@ -109,11 +109,11 @@ export function storedResultKind(stored: string): ResultKind {
 }
 
 export function storedChecks(stored: string): SubmittedCheck[] {
-  return readStored("check list", z.array(check), stored);
+  return readStored("check list", z.array(submittedCheckSchema), stored);
 }
 
 export function storedCode(stored: string): SubmittedCode {
-  return readStored("code revision record", codeRevisions, stored);
+  return readStored("code revision record", codeRevisionsSchema, stored);
 }
 
 export function storedConcerns(stored: string): string[] {

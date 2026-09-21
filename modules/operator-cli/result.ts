@@ -185,7 +185,22 @@ export type Reason =
   | "pr_authority_missing"
   | "pr_head_required"
   | "pr_head_changed"
-  | "review_attempt_limit";
+  | "review_attempt_limit"
+  | "invalid_rework_input"
+  | "rework_delegated"
+  | "rework_cycle_open"
+  | "assignment_not_awaiting_review"
+  | "review_not_of_submission"
+  | "no_corrections"
+  | "conflict_not_corrected"
+  | "unknown_check"
+  | "checks_passed"
+  | "limit_reached"
+  | "direction_required"
+  | "invalid_defect_input"
+  | "assignment_not_accepted"
+  | "result_invalidated"
+  | "input_invalidated";
 
 export type Operation =
   | "parse_arguments"
@@ -222,7 +237,9 @@ export type Operation =
   | "attempt_submit"
   | "review_report"
   | "review_dispose"
-  | "review_show";
+  | "review_show"
+  | "work_rework"
+  | "work_invalidate";
 
 export const exitCodeByOutcome = {
   completed: 0,

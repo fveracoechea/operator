@@ -712,12 +712,16 @@ async function runSubmit(parsed: ParsedArguments): Promise<Handled> {
         reviewId: result.reviewId,
         reviewAssignmentId: result.reviewAssignmentId,
         reviewSourceKey: result.reviewSourceKey,
+        reworkCycleId: result.reworkCycleId,
         repeated,
       },
     },
     lines: [
       `Submitted result ${result.submissionId} for assignment ${result.assignmentId}.`,
       `Review ${result.reviewId} waits on assignment ${result.reviewAssignmentId}.`,
+      ...(result.reworkCycleId === null
+        ? []
+        : [`This combined revision closes rework cycle ${result.reworkCycleId}.`]),
       "A submission is a handoff to a separate review, never accepted completion.",
     ],
   });
