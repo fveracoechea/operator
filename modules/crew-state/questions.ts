@@ -1,7 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { ContentIdentity } from "../content-identity/main.ts";
 import type { CrewReader, CrewWriter } from "./database.ts";
-import type { AnswerInput, QuestionInput } from "./question-input.ts";
+import type { AnswerInput, AnswerInterpretation, QuestionInput } from "./question-input.ts";
 import { answers, questions } from "./schema.ts";
 
 export type QuestionRow = typeof questions.$inferSelect;
@@ -12,7 +12,7 @@ export type AnswerRecord = {
   questionRevision: number;
   authority: string;
   exactText: string | null;
-  interpretation: unknown;
+  interpretation: AnswerInterpretation;
   source: { id: string; revision: string } | null;
   reusedFromId: string | null;
   approvalId: string | null;
@@ -48,7 +48,7 @@ export function targetIdentityOf(input: QuestionInput): string {
   });
 }
 
-export function reportOf(row: QuestionRow): QuestionInput {
+export function questionReportOf(row: QuestionRow): QuestionInput {
   return JSON.parse(row.report) as QuestionInput;
 }
 
@@ -152,7 +152,7 @@ export function questionRecordOf(db: CrewReader, row: QuestionRow): QuestionReco
     state: row.state,
     targetIdentity: row.targetIdentity,
     escalationTriggers: triggersOf(row),
-    report: reportOf(row),
+    report: questionReportOf(row),
     answer: recorded.find((one) => one.answerId === row.answerId) ?? null,
     answers: recorded,
     deliveredAt: row.deliveredAt,

@@ -37,6 +37,8 @@ const interpretation = z.strictObject({
   appliesTo: z.array(text).min(1),
 });
 
+export type AnswerInterpretation = z.infer<typeof interpretation>;
+
 const source = z.strictObject({ id: text, revision: text });
 
 /**

@@ -14,9 +14,9 @@ import {
 type Shared = StateFailure | RequestFailure;
 
 /** The action one approval must name before an earlier answer is used for a changed question. */
-export const REUSE_ACTION = "answer-reuse";
+const REUSE_ACTION = "answer-reuse";
 
-export function reuseScope(questionId: string): string {
+function reuseScope(questionId: string): string {
   return `question:${questionId}`;
 }
 

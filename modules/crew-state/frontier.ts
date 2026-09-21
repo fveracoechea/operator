@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import type { CrewReader } from "./database.ts";
 import type { Capacity } from "./capacity.ts";
-import { blockingQuestions, reportOf, triggersOf } from "./questions.ts";
+import { blockingQuestions, questionReportOf, triggersOf } from "./questions.ts";
 import { assignmentDependencies, assignments, attempts, workSources } from "./schema.ts";
 import { isExecutable, isReview } from "./work-input.ts";
 
@@ -189,7 +189,7 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
 
   const waiting = blockingQuestions(db)
     .map((row) => {
-      const report = reportOf(row);
+      const report = questionReportOf(row);
       return {
         questionId: row.id,
         assignmentId: row.assignmentId,

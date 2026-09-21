@@ -117,11 +117,7 @@ export async function deliverAnswer(request: {
       attemptId: question.attemptId,
       authority: recordedAnswer.authority,
       exactText: recordedAnswer.exactText,
-      interpretation: recordedAnswer.interpretation as {
-        summary: string;
-        directives: string[];
-        appliesTo: string[];
-      },
+      interpretation: recordedAnswer.interpretation,
       source: recordedAnswer.source,
     },
   });
