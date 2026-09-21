@@ -103,8 +103,32 @@ One recorded effect outside the crew state, with its own identity.
 It is intended, succeeded, failed, or uncertain, and an uncertain one blocks its attempt until it is reconciled.
 
 **Acknowledgement**:
-The Operative's own report that it received its brief.
-Herdr acknowledges a submission, not a turn, so this is the only proof that the brief arrived.
+The Operative's own report that it received its brief or an answer.
+Herdr acknowledges a submission, not a turn, so this is the only proof that the submission arrived.
+
+**Blocked report**:
+The Operative's statement that it cannot continue, with the question, its evidence, its options, the recommendation, the scope that waits, and the work that continues without the answer.
+It carries no authority of its own.
+
+**Question revision**:
+The recorded number of one question as asked.
+It moves when the question or its target changes, which makes an answer recorded for the earlier revision inapplicable.
+
+**Answer authority**:
+Which of a requirement, a human answer, or an Operator decision stands behind one answer.
+The exact words are recorded apart from the structured interpretation of them.
+
+**Escalation trigger**:
+A subject a question names that is outside delegated authority: visible behavior, scope, security permissions, unresolved ambiguity, or conflicting explicit requirements.
+A question that names one refuses an Operator decision.
+
+**Approval**:
+A person's permission for one action, its targets, its scope, and the revision of the request it was granted against.
+Silence, a timeout, a general direction to finish, and an Operative report are not approvals.
+
+**Applicability check**:
+The test of whether an answer recorded for an earlier question revision still answers the question now asked.
+It precedes the approval that permits that answer to be used again.
 
 **Control reference**:
 The file in an Operative worktree that names the controlling checkout, assignment, and attempt.
