@@ -363,7 +363,7 @@ export const CREATE_STATEMENTS = [
     on external_operations (attempt_id, kind) where state <> 'failed'
       and kind in ('worktree_create', 'input_preparation', 'agent_start', 'prompt_delivery')`,
   sql`create unique index questions_one_open
-    on questions (attempt_id) where state <> 'resolved'`,
+    on questions (attempt_id) where state in ('open', 'answered', 'delivered')`,
 ];
 
 /** The declared column names and null rules of one table, used by the drift test. */

@@ -1,4 +1,4 @@
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { ContentIdentity } from "../content-identity/main.ts";
 import type { CrewReader, CrewWriter } from "./database.ts";
 import type { AnswerInput, QuestionInput } from "./question-input.ts";
@@ -88,9 +88,19 @@ export function answersOf(db: CrewReader, questionId: string): AnswerRow[] {
   return db.select().from(answers).where(eq(answers.questionId, questionId)).all();
 }
 
-/** Every question that still holds its Operative. A resolved one blocks nothing. */
+/**
+ * The states in which a question still holds its Operative.
+ * An acknowledged answer resolves it, and the end of an attempt withdraws it.
+ */
+export const BLOCKING_STATES = ["open", "answered", "delivered"] as const;
+
+/** Every question that still holds its Operative. */
 export function blockingQuestions(db: CrewReader): QuestionRow[] {
-  return db.select().from(questions).where(ne(questions.state, "resolved")).all();
+  return db
+    .select()
+    .from(questions)
+    .where(inArray(questions.state, [...BLOCKING_STATES]))
+    .all();
 }
 
 export function blockingQuestionOf(db: CrewReader, attemptId: string): QuestionRow | null {
@@ -98,9 +108,30 @@ export function blockingQuestionOf(db: CrewReader, attemptId: string): QuestionR
     db
       .select()
       .from(questions)
-      .where(and(eq(questions.attemptId, attemptId), ne(questions.state, "resolved")))
+      .where(
+        and(eq(questions.attemptId, attemptId), inArray(questions.state, [...BLOCKING_STATES])),
+      )
       .all()[0] ?? null
   );
+}
+
+/**
+ * Withdraws the questions of an attempt that has ended.
+ * A replacement starts its own attempt, so a question the former writer raised holds nothing.
+ */
+export function withdrawQuestions(
+  db: CrewWriter,
+  request: { attemptId: string; now: string },
+): void {
+  db.update(questions)
+    .set({ state: "withdrawn", updatedAt: request.now })
+    .where(
+      and(
+        eq(questions.attemptId, request.attemptId),
+        inArray(questions.state, [...BLOCKING_STATES]),
+      ),
+    )
+    .run();
 }
 
 /** The question one recorded delivery carries the answer of. */

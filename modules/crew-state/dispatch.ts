@@ -1,6 +1,7 @@
 import { and, eq, ne } from "drizzle-orm";
 import type { CrewReader, CrewWriter } from "./database.ts";
 import { currentOwnership } from "./ownership.ts";
+import { withdrawQuestions } from "./questions.ts";
 import { assignments, attemptDispatch, attempts, externalOperations } from "./schema.ts";
 
 /** The external effects one launch performs, in the order a dispatch performs them. */
@@ -230,6 +231,8 @@ export function endAttempt(
     .set({ state: request.state, endedAt: request.now, revision: request.attempt.revision + 1 })
     .where(eq(attempts.id, request.attempt.id))
     .run();
+
+  withdrawQuestions(db, { attemptId: request.attempt.id, now: request.now });
 }
 
 export function startAttempt(

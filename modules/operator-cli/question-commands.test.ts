@@ -162,6 +162,7 @@ async function dispatchedCrew(workspace: Workspace, keys: string[] = ["21.1"]) {
     ownerToken,
     worktree,
     assignmentId: first.assignmentId,
+    assignmentRevision: claimed.json.data.revision as number,
     attemptId: claimed.json.data.attemptId,
     registered: registered.json.data.registered as Array<{
       sourceKey: string;
@@ -507,8 +508,27 @@ describe("operator question answer", () => {
   test("refuses an Operator decision on conflicting explicit requirements", async () => {
     const workspace = await makeWorkspace();
     const crew = await dispatchedCrew(workspace);
+
+    // A second ticket states the opposite requirement, so no source settles the question.
+    const secondPath = await writeInput(workspace, {
+      sourceKind: "ticket",
+      source: { id: "github:operator#22", revision: "rev-1", tracker: "github" },
+      items: [{ ...item({ key: "22.1", title: "Use the new column order" }) }],
+    });
+    const second = await runJson(workspace, [
+      "work",
+      "register",
+      "--request",
+      request(),
+      "--owner-token",
+      crew.ownerToken,
+      "--input",
+      secondPath,
+    ]);
+
     const raised = await raise(workspace, crew, {
-      question: "Ticket 21 and ticket 22 state different column orders.",
+      question: "Ticket 21 keeps the legacy column order and ticket 22 replaces it.",
+      affectedScope: [crew.assignmentId, second.json.data.registered[0].assignmentId],
       escalationTriggers: ["conflicting-requirements", "visible-behavior"],
     });
 
@@ -661,6 +681,52 @@ describe("operator question deliver", () => {
     const refused = await deliver(workspace, crew, questionId);
     expect(refused.exitCode).toBe(3);
     expect(refused.json.reason).toBe("answer_missing");
+  });
+});
+
+describe("accepted completion", () => {
+  test("waits for the answer to be acknowledged before the result is accepted", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+    const questionId = raised.json.data.questionId;
+
+    async function accept() {
+      return runJson(workspace, [
+        "work",
+        "accept",
+        "--request",
+        request(),
+        "--owner-token",
+        crew.ownerToken,
+        "--assignment",
+        crew.assignmentId,
+        "--attempt",
+        crew.attemptId,
+        "--revision",
+        String(crew.assignmentRevision),
+      ]);
+    }
+
+    const blocked = await accept();
+    expect(blocked.exitCode).toBe(3);
+    expect(blocked.json.reason).toBe("question_open");
+
+    await answer(workspace, crew, { questionId, revision: 1 });
+    await deliver(workspace, crew, questionId);
+
+    // Delivery is not receipt, so the work still waits.
+    expect((await accept()).exitCode).toBe(3);
+
+    await runJson(
+      workspace,
+      ["question", "acknowledge", "--request", request(), "--question", questionId],
+      crew.worktree,
+    );
+
+    const accepted = await accept();
+    expect(accepted.exitCode).toBe(0);
+    expect(accepted.json.reason).toBe("assignment_accepted");
   });
 });
 

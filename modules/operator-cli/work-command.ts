@@ -460,6 +460,30 @@ async function runAccept(parsed: ParsedArguments): Promise<"reported" | "invalid
     return "reported";
   }
 
+  if (result.status === "question-open") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "missing-condition",
+        reason: "question_open",
+        blockers: [
+          {
+            reason: "question_open",
+            assignmentId: result.assignmentId,
+            questionId: result.questionId,
+            state: result.state,
+          },
+        ],
+        operation: "work_accept",
+      },
+      lines: [
+        `Assignment ${result.assignmentId} still waits on question ${result.questionId}.`,
+        "Deliver the answer and let the Operative acknowledge it before you accept the result.",
+      ],
+    });
+    return "reported";
+  }
+
   report({
     json: parsed.json,
     result: {

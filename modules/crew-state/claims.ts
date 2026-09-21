@@ -7,6 +7,7 @@ import {
   type FrontierBlocker,
   readAssignment,
 } from "./frontier.ts";
+import { blockingQuestionOf } from "./questions.ts";
 import { assignments, attempts } from "./schema.ts";
 import { isExecutable } from "./work-input.ts";
 
@@ -115,12 +116,14 @@ export type AcceptResult =
   | { status: "not-claimed"; assignmentId: string; state: string }
   | { status: "attempt-required"; assignmentId: string }
   | { status: "attempt-not-expected"; assignmentId: string }
-  | { status: "attempt-mismatch"; assignmentId: string; attemptId: string | null };
+  | { status: "attempt-mismatch"; assignmentId: string; attemptId: string | null }
+  | { status: "question-open"; assignmentId: string; questionId: string; state: string };
 
 /**
  * Records accepted completion, the only state that unblocks a dependent assignment.
  * Executable work is accepted from the attempt that holds it. The Operator resolves planning
  * work itself, so planning work is accepted straight from registered with no attempt.
+ * An attempt that still waits on a question is not accepted, because only that work waits.
  * Review gates on top of this transition arrive with the review workflow.
  */
 export function acceptAssignment(
@@ -162,6 +165,17 @@ export function acceptAssignment(
   const live = activeAttempt(db, row.id);
   if (live === null || live.id !== request.attemptId) {
     return { status: "attempt-mismatch", assignmentId: row.id, attemptId: live?.id ?? null };
+  }
+
+  // Work that still waits on an answer is not finished work, so it is never accepted.
+  const waiting = blockingQuestionOf(db, live.id);
+  if (waiting !== null) {
+    return {
+      status: "question-open",
+      assignmentId: row.id,
+      questionId: waiting.id,
+      state: waiting.state,
+    };
   }
 
   db.update(attempts)
