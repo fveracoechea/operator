@@ -24,6 +24,8 @@ import { recordReview } from "./review-record.ts";
 import { showReview } from "./review-show.ts";
 import { readReview } from "./review.ts";
 import { submitAttemptResult } from "./submit.ts";
+import { recordTrackerStep, recoverTrackerStep } from "./tracker-apply.ts";
+import { readTrackerMap, showTrackerSteps } from "./tracker-show.ts";
 import { STATE_VERSION } from "./schema.ts";
 import { workInputSchema } from "./work-input.ts";
 
@@ -421,6 +423,45 @@ export const CrewState = {
 
     const check = parsed.value;
     return reported(await readState(request.projectRoot, (db) => matchApproval(db, check)));
+  },
+
+  /**
+   * Records one step of this assignment's tracker update: the resolution, the ticket
+   * completion, or the map amendment. Each step holds its own intent, write attempts, evidence,
+   * and outcome, so one verified step is never written again to repair another.
+   * A step left uncertain by a lost answer accepts another write only under a person's approval.
+   */
+  async recordTracker(
+    request: Mutation & {
+      assignmentId: string;
+      revision: number;
+      approvalId: string | null;
+      input: unknown;
+    },
+  ) {
+    return reported(await recordTrackerStep(request));
+  },
+
+  /**
+   * Settles one recorded tracker step from what the tracker shows now. It sends nothing.
+   * An unsuccessful read leaves the step where it was, because it does not prove that a write
+   * did not apply.
+   */
+  async recoverTracker(request: Mutation & { operationId: string }) {
+    return reported(await recoverTrackerStep(request));
+  },
+
+  /** Reports every tracker step of one assignment and what may follow it. Writes nothing. */
+  async trackerSteps(request: Located & { assignmentId: string }) {
+    return reported(await showTrackerSteps(request));
+  },
+
+  /**
+   * Reads the canonical map of one assignment's source: its baseline plus every amendment.
+   * A session reads this before it selects map-dependent work. Writes nothing.
+   */
+  async trackerMap(request: Located & { assignmentId: string }) {
+    return reported(await readTrackerMap(request));
   },
 
   /** Reports the work a crew of this size may start now, and why the rest waits. Writes nothing. */
