@@ -1,7 +1,7 @@
 import { CrewState } from "../crew-state/main.ts";
-import { OperativeDispatch } from "../operative-dispatch/main.ts";
 import type { ParsedArguments } from "./arguments.ts";
 import { reportSharedFailure } from "./crew-result.ts";
+import { requireReference } from "./reference.ts";
 import { report } from "./result.ts";
 
 type Handled = "reported" | "invalid-arguments";
@@ -236,44 +236,16 @@ async function runAcknowledge(parsed: ParsedArguments): Promise<Handled> {
     return "invalid-arguments";
   }
 
-  const reference = await OperativeDispatch.readReference({ worktreePath: process.cwd() });
-  if (reference === null) {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: "attempt_reference_missing",
-        blockers: [{ reason: "attempt_reference_missing", attemptId }],
-        operation: "attempt_acknowledge",
-      },
-      lines: [
-        "This directory carries no Operator attempt reference.",
-        "Acknowledge from the worktree the Operator prepared for this attempt.",
-      ],
-    });
+  const read = await requireReference({
+    parsed,
+    operation: "attempt_acknowledge",
+    expectedAttemptId: attemptId,
+  });
+  if (read.status !== "read") {
     return "reported";
   }
 
-  if (reference.attemptId !== attemptId) {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "attempt_reference_mismatch",
-        blockers: [
-          {
-            reason: "attempt_reference_mismatch",
-            attemptId,
-            recordedAttemptId: reference.attemptId,
-          },
-        ],
-        operation: "attempt_acknowledge",
-      },
-      lines: [`This worktree belongs to attempt ${reference.attemptId}.`],
-    });
-    return "reported";
-  }
-
+  const reference = read.reference;
   const result = await CrewState.acknowledge({
     projectRoot: reference.controllingCheckout,
     requestId,

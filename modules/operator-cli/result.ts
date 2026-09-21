@@ -107,9 +107,41 @@ export type Reason =
   | "inspection_required"
   | "inspection_stale"
   | "writer_live"
-  | "writer_unknown";
+  | "writer_unknown"
+  | "question_raised"
+  | "question_revised"
+  | "question_open"
+  | "invalid_question_input"
+  | "unknown_question"
+  | "question_mismatch"
+  | "stale_question_revision"
+  | "delivery_started"
+  | "answer_recorded"
+  | "invalid_answer_input"
+  | "already_answered"
+  | "escalation_required"
+  | "unknown_answer"
+  | "answer_not_earlier"
+  | "answer_stale"
+  | "answer_missing"
+  | "answer_delivered"
+  | "delivery_uncertain"
+  | "delivery_failed"
+  | "question_acknowledged"
+  | "question_already_acknowledged"
+  | "question_not_delivered"
+  | "question_reference_mismatch"
+  | "question_reported"
+  | "invalid_approval_input"
+  | "unknown_approval"
+  | "approval_granted"
+  | "approval_revoked"
+  | "approval_already_revoked"
+  | "approval_mismatch"
+  | "approval_matched"
+  | "approval_missing";
 
-type Operation =
+export type Operation =
   | "parse_arguments"
   | "startup"
   | "version"
@@ -129,7 +161,17 @@ type Operation =
   | "attempt_acknowledge"
   | "attempt_reconcile"
   | "attempt_replace"
-  | "attempt_show";
+  | "attempt_show"
+  | "question_raise"
+  | "question_revise"
+  | "question_answer"
+  | "question_reapply"
+  | "question_deliver"
+  | "question_acknowledge"
+  | "question_show"
+  | "approval_grant"
+  | "approval_revoke"
+  | "approval_check";
 
 export const exitCodeByOutcome = {
   completed: 0,

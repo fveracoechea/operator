@@ -1,17 +1,6 @@
 import type { ParsedArguments } from "./arguments.ts";
+import type { Operation } from "./result.ts";
 import { type Reason, report } from "./result.ts";
-
-type Operation =
-  | "crew_own"
-  | "work_register"
-  | "work_claim"
-  | "work_accept"
-  | "work_frontier"
-  | "attempt_dispatch"
-  | "attempt_acknowledge"
-  | "attempt_reconcile"
-  | "attempt_replace"
-  | "attempt_show";
 
 type SharedReport = {
   reason: Reason;
