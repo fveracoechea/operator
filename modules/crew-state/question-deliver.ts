@@ -1,7 +1,13 @@
 import { OperativeDispatch } from "../operative-dispatch/main.ts";
 import { type AttemptFailure, readContext, record, type Shared } from "./dispatch-context.ts";
-import { ANSWER_DELIVERY, openOperation, type OperationRow, settleOperation } from "./dispatch.ts";
-import { readState } from "./operations.ts";
+import {
+  ANSWER_DELIVERY,
+  openOperation,
+  type OperationRow,
+  readOperation,
+  settleOperation,
+} from "./dispatch.ts";
+import { mutate, readState } from "./operations.ts";
 import {
   type AnswerRow,
   answerRecordOf,
@@ -25,7 +31,6 @@ export type DeliverResult =
   | (Delivery & { status: "delivered"; repeated: boolean })
   | { status: "unknown-question"; questionId: string }
   | { status: "not-answered"; questionId: string; state: string }
-  | { status: "answer-stale"; questionId: string; answerId: string; recordedRevision: number }
   | { status: "already-acknowledged"; questionId: string; acknowledgedAt: string }
   | { status: "not-dispatched"; attemptId: string }
   | { status: "reconciliation-required"; questionId: string; operationState: string }
@@ -33,6 +38,8 @@ export type DeliverResult =
   | { status: "delivery-uncertain"; questionId: string; detail: string }
   | AttemptFailure
   | Shared;
+
+type OpenOutcome = { status: "opened" } | { status: "delivery-held"; operationState: string };
 
 type Prepared = {
   question: QuestionRow;
@@ -57,41 +64,54 @@ export async function deliverAnswer(request: {
     return prepared;
   }
 
-  const { question, answer, agentName, operation } = prepared;
+  const { question, answer, agentName } = prepared;
 
-  // An authorized external action is never repeated: a finished delivery reports what it did.
-  if (operation !== null && operation.state === "succeeded") {
-    return {
-      status: "delivered",
-      questionId: question.id,
-      answerId: answer.id,
-      attemptId: question.attemptId,
-      agentName,
-      deliveredAt: question.deliveredAt,
-      repeated: true,
-    };
+  /** Reports a delivery this call must not repeat, from the state it is recorded in. */
+  function held(operationState: string): DeliverResult {
+    // An authorized external action is never repeated: a finished delivery reports what it did.
+    return operationState === "succeeded"
+      ? {
+          status: "delivered",
+          questionId: question.id,
+          answerId: answer.id,
+          attemptId: question.attemptId,
+          agentName,
+          deliveredAt: question.deliveredAt,
+          repeated: true,
+        }
+      : { status: "reconciliation-required", questionId: question.id, operationState };
   }
-  if (operation !== null && operation.state !== "failed") {
-    return {
-      status: "reconciliation-required",
-      questionId: question.id,
-      operationState: operation.state,
-    };
+
+  if (prepared.operation !== null && prepared.operation.state !== "failed") {
+    return held(prepared.operation.state);
   }
 
   // Each pass carries its own identity, so a repeat is never mistaken for a replay of the call
   // this pass is about to make.
-  const pass = crypto.randomUUID();
-  const operationId = pass;
-  const opened = await record(
+  const operationId = crypto.randomUUID();
+  const { result: opened } = await mutate<OpenOutcome>(
     {
       projectRoot: request.projectRoot,
-      requestId: `${request.requestId}#deliver.${pass}.open`,
+      requestId: `${request.requestId}#deliver.${operationId}.open`,
       ownerToken: request.ownerToken,
+      now: new Date().toISOString(),
       operation: "question_deliver_open",
       input: { questionId: question.id, answerId: answer.id, operationId },
     },
     ({ tx, now }) => {
+      // The intent is claimed inside the write, so two concurrent deliveries cannot both act.
+      const row = readQuestion(tx, question.id);
+      const live =
+        row === null || row.deliveryOperationId === null
+          ? null
+          : readOperation(tx, row.deliveryOperationId);
+      if (live !== null && live.state !== "failed") {
+        return {
+          commit: false,
+          outcome: { status: "delivery-held" as const, operationState: live.state },
+        };
+      }
+
       openOperation(tx, {
         operationId,
         attemptId: question.attemptId,
@@ -101,10 +121,13 @@ export async function deliverAnswer(request: {
         now,
       });
       recordDeliveryIntent(tx, { questionId: question.id, operationId, now });
-      return { commit: true, outcome: { status: "recorded" as const } };
+      return { commit: true, outcome: { status: "opened" as const } };
     },
   );
-  if (opened.status !== "recorded") {
+  if (opened.status === "delivery-held") {
+    return held(opened.operationState);
+  }
+  if (opened.status !== "opened") {
     return opened;
   }
 
@@ -138,7 +161,7 @@ export async function deliverAnswer(request: {
   const settled = await record(
     {
       projectRoot: request.projectRoot,
-      requestId: `${request.requestId}#deliver.${pass}.settle`,
+      requestId: `${request.requestId}#deliver.${operationId}.settle`,
       ownerToken: request.ownerToken,
       operation: "question_deliver_result",
       input: { operationId, state, detail },
@@ -219,18 +242,10 @@ async function prepare(request: {
     return { status: "not-dispatched", attemptId: question.attemptId };
   }
 
+  // A revision drops the answer it was given, so the recorded one always answers what is asked.
   const answer = await readState(request.projectRoot, (db) => readAnswer(db, answerId));
   if (answer === null || "status" in answer) {
     return { status: "not-answered", questionId: question.id, state: question.state };
-  }
-  // The recorded answer must still answer the question that is being asked right now.
-  if (!answerRecordOf(answer, question).applicable) {
-    return {
-      status: "answer-stale",
-      questionId: question.id,
-      answerId: answer.id,
-      recordedRevision: answer.questionRevision,
-    };
   }
 
   const operation =

@@ -31,6 +31,18 @@ export const questionInputSchema = z.strictObject({
 
 export type QuestionInput = z.infer<typeof questionInputSchema>;
 
+/**
+ * The Operator's own finding that one question names a subject only a person may settle.
+ * The Operative declares what it sees; this records what the Operator sees, so the refusal of
+ * an Operator decision survives the session that found the reason for it.
+ */
+export const escalationInputSchema = z.strictObject({
+  escalationTriggers: z.array(z.enum(ESCALATION_TRIGGERS)).min(1),
+  reason: text,
+});
+
+export type EscalationInput = z.infer<typeof escalationInputSchema>;
+
 const interpretation = z.strictObject({
   summary: text,
   directives: z.array(text).min(1),

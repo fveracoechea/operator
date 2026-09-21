@@ -285,6 +285,25 @@ async function runRevise(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
+  if (result.status === "question-closed") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "conflict",
+        reason: "question_closed",
+        blockers: [
+          { reason: "question_closed", questionId: result.questionId, state: result.state },
+        ],
+        operation: "question_revise",
+      },
+      lines: [
+        `Question ${result.questionId} is ${result.state}, so nothing waits on it any more.`,
+        "Raise a new question instead.",
+      ],
+    });
+    return "reported";
+  }
+
   if (result.status === "delivery-started") {
     report({
       json: parsed.json,
@@ -327,6 +346,98 @@ async function runRevise(parsed: ParsedArguments): Promise<Handled> {
             `Answer ${result.droppedAnswerId} was given to the earlier question.`,
             "It needs an applicability check and an approval before it is used again.",
           ]),
+    ],
+  });
+  return "reported";
+}
+
+async function runEscalate(parsed: ParsedArguments): Promise<Handled> {
+  const { requestId, ownerToken, questionId, inputPath } = parsed.crew;
+  const revision = readRevision(parsed);
+  if (
+    requestId === undefined ||
+    ownerToken === undefined ||
+    questionId === undefined ||
+    inputPath === undefined ||
+    revision === null
+  ) {
+    return "invalid-arguments";
+  }
+
+  const input = await readStructuredInput(inputPath);
+  if (!input.ok) {
+    return reportUnreadable(parsed, "question_escalate", "invalid_question_input", input.detail);
+  }
+
+  const { result } = await CrewState.escalateQuestion({
+    projectRoot: process.cwd(),
+    requestId,
+    ownerToken,
+    questionId,
+    revision,
+    input: input.value,
+  });
+
+  if (reportSharedFailure(parsed, "question_escalate", result)) {
+    return "reported";
+  }
+  if (result.status === "invalid-input") {
+    return reportIssues(parsed, "question_escalate", "invalid_question_input", result.issues);
+  }
+  if (reportQuestionOutcome(parsed, "question_escalate", result)) {
+    return "reported";
+  }
+
+  if (result.status === "question-closed" || result.status === "delivery-started") {
+    const closed = result.status === "question-closed";
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "conflict",
+        reason: closed ? "question_closed" : "delivery_started",
+        blockers: [
+          {
+            reason: closed ? "question_closed" : "delivery_started",
+            questionId: result.questionId,
+            state: result.state,
+          },
+        ],
+        operation: "question_escalate",
+      },
+      lines: closed
+        ? [`Question ${result.questionId} is ${result.state}, so nothing waits on it any more.`]
+        : [
+            "An answer to this question is already on its way, so it is too late to escalate.",
+            "Let the Operative acknowledge it, then raise the concern as a new question.",
+          ],
+    });
+    return "reported";
+  }
+
+  report({
+    json: parsed.json,
+    result: {
+      outcome: "missing-condition",
+      reason: "question_escalated",
+      blockers: result.escalationTriggers.map((trigger) => ({
+        reason: "escalation_required" as const,
+        trigger,
+        questionId: result.questionId,
+      })),
+      operation: "question_escalate",
+      data: {
+        questionId: result.questionId,
+        escalationTriggers: result.escalationTriggers,
+        droppedAnswerId: result.droppedAnswerId,
+        repeated: result.repeated,
+      },
+    },
+    lines: [
+      `Question ${result.questionId} now needs the user: ${result.escalationTriggers.join(", ")}.`,
+      ...(result.droppedAnswerId === null
+        ? []
+        : [`Operator decision ${result.droppedAnswerId} no longer applies to it.`]),
+      "Bring it to the user and record their answer as a human answer.",
     ],
   });
   return "reported";
@@ -570,30 +681,6 @@ async function runDeliver(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
-  if (result.status === "answer-stale") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "answer_stale",
-        blockers: [
-          {
-            reason: "answer_stale",
-            questionId: result.questionId,
-            answerId: result.answerId,
-            recordedRevision: result.recordedRevision,
-          },
-        ],
-        operation: "question_deliver",
-      },
-      lines: [
-        `Answer ${result.answerId} was given to revision ${result.recordedRevision} of this question.`,
-        "The question changed, so it needs a new answer or an approved reuse of that one.",
-      ],
-    });
-    return "reported";
-  }
-
   if (result.status === "reconciliation-required") {
     report({
       json: parsed.json,
@@ -814,6 +901,9 @@ export async function runQuestion(words: string[], parsed: ParsedArguments): Pro
   }
   if (subcommand === "revise") {
     return runRevise(parsed);
+  }
+  if (subcommand === "escalate") {
+    return runEscalate(parsed);
   }
   if (subcommand === "answer") {
     return runAnswer(parsed);

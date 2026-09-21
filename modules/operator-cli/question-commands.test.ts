@@ -733,6 +733,165 @@ describe("operator question revise", () => {
   });
 });
 
+describe("concurrent delivery", () => {
+  test("two deliveries of one answer submit it once", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+    const questionId = raised.json.data.questionId;
+    await answer(workspace, crew, { questionId, revision: 1 });
+
+    const [first, second] = await Promise.all([
+      deliver(workspace, crew, questionId),
+      deliver(workspace, crew, questionId),
+    ]);
+
+    // One of the two claimed the delivery; the other reports what it found, and sends nothing.
+    expect([first.json.reason, second.json.reason]).toContain("answer_delivered");
+
+    const calls = (await Bun.file(`${workspace.herdr}/calls.log`).text())
+      .split("\n")
+      .filter((line) => line.startsWith("agent prompt"));
+    // One prompt carried the assignment brief, and exactly one carried the answer.
+    expect(calls).toHaveLength(2);
+  });
+});
+
+describe("operator question escalate", () => {
+  test("an Operator escalation refuses a decision the Operative did not flag", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+    const questionId = raised.json.data.questionId;
+
+    // The Operative declared nothing, so the Operator could settle this alone.
+    const decided = await answer(workspace, crew, { questionId, revision: 1 });
+    expect(decided.exitCode).toBe(0);
+
+    const escalationPath = await writeInput(workspace, {
+      escalationTriggers: ["scope", "security-permissions"],
+      reason: "The change adds a write path the approved scope does not carry.",
+    });
+    const escalated = await runJson(workspace, [
+      "question",
+      "escalate",
+      "--request",
+      request(),
+      "--owner-token",
+      crew.ownerToken,
+      "--question",
+      questionId,
+      "--revision",
+      "1",
+      "--input",
+      escalationPath,
+    ]);
+
+    expect(escalated.exitCode).toBe(3);
+    expect(escalated.json.reason).toBe("question_escalated");
+    expect(escalated.json.data.escalationTriggers).toEqual(["scope", "security-permissions"]);
+    expect(escalated.json.data.droppedAnswerId).toBe(decided.json.data.answerId);
+
+    // The decision it dropped cannot be recorded again.
+    const refused = await answer(workspace, crew, { questionId, revision: 1 });
+    expect(refused.exitCode).toBe(3);
+    expect(refused.json.reason).toBe("escalation_required");
+
+    const escalatedAnswer = await answer(
+      workspace,
+      crew,
+      { questionId, revision: 1 },
+      { authority: "human-answer" },
+    );
+    expect(escalatedAnswer.exitCode).toBe(0);
+
+    const shown = await runJson(workspace, ["question", "show", "--question", questionId]);
+    expect(shown.json.data.operatorEscalation.reason).toBe(
+      "The change adds a write path the approved scope does not carry.",
+    );
+    expect(shown.json.data.report.escalationTriggers).toEqual([]);
+  });
+
+  test("an escalation leaves a person's answer standing", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+    const questionId = raised.json.data.questionId;
+    const human = await answer(
+      workspace,
+      crew,
+      { questionId, revision: 1 },
+      { authority: "human-answer" },
+    );
+
+    const escalationPath = await writeInput(workspace, {
+      escalationTriggers: ["visible-behavior"],
+      reason: "The choice changes what an operator sees.",
+    });
+    const escalated = await runJson(workspace, [
+      "question",
+      "escalate",
+      "--request",
+      request(),
+      "--owner-token",
+      crew.ownerToken,
+      "--question",
+      questionId,
+      "--revision",
+      "1",
+      "--input",
+      escalationPath,
+    ]);
+
+    expect(escalated.json.data.droppedAnswerId).toBeNull();
+
+    const delivered = await deliver(workspace, crew, questionId);
+    expect(delivered.exitCode).toBe(6);
+    expect(delivered.json.data.answerId).toBe(human.json.data.answerId);
+  });
+});
+
+describe("a resolved question", () => {
+  test("cannot be revised or escalated once the Operative has its answer", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+    const questionId = raised.json.data.questionId;
+    await answer(workspace, crew, { questionId, revision: 1 });
+    await deliver(workspace, crew, questionId);
+    await runJson(
+      workspace,
+      ["question", "acknowledge", "--request", request(), "--question", questionId],
+      crew.worktree,
+    );
+
+    const revised = await revise(workspace, crew, questionId, 1);
+    expect(revised.exitCode).toBe(4);
+    expect(revised.json.reason).toBe("question_closed");
+
+    const escalationPath = await writeInput(workspace, {
+      escalationTriggers: ["scope"],
+      reason: "A second look says this was a scope question.",
+    });
+    const escalated = await runJson(workspace, [
+      "question",
+      "escalate",
+      "--request",
+      request(),
+      "--owner-token",
+      crew.ownerToken,
+      "--question",
+      questionId,
+      "--revision",
+      "1",
+      "--input",
+      escalationPath,
+    ]);
+    expect(escalated.exitCode).toBe(4);
+    expect(escalated.json.reason).toBe("question_closed");
+  });
+});
+
 describe("accepted completion", () => {
   test("waits for the answer to be acknowledged before the result is accepted", async () => {
     const workspace = await makeWorkspace();

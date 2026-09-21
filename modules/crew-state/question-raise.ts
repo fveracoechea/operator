@@ -3,7 +3,13 @@ import { readOperation } from "./dispatch.ts";
 import { type InvalidInput, parseInput } from "./input.ts";
 import { mutate } from "./operations.ts";
 import { questionInputSchema } from "./question-input.ts";
-import { blockingQuestionOf, insertQuestion, readQuestion, updateQuestion } from "./questions.ts";
+import {
+  BLOCKING_STATES,
+  blockingQuestionOf,
+  insertQuestion,
+  readQuestion,
+  updateQuestion,
+} from "./questions.ts";
 
 type Raised = {
   status: "raised";
@@ -117,6 +123,7 @@ type ReviseOutcome =
   | { status: "unknown-question"; questionId: string }
   | { status: "question-mismatch"; questionId: string; attemptId: string }
   | { status: "stale-question-revision"; questionId: string; recordedRevision: number }
+  | { status: "question-closed"; questionId: string; state: string }
   | { status: "delivery-started"; questionId: string; state: string };
 
 export type ReviseResult =
@@ -188,6 +195,13 @@ export async function reviseQuestion(request: {
             questionId: row.id,
             recordedRevision: row.revision,
           },
+        };
+      }
+      // A question nobody waits on any more is history, so it is never asked again in place.
+      if (!BLOCKING_STATES.some((state) => state === row.state)) {
+        return {
+          commit: false,
+          outcome: { status: "question-closed" as const, questionId: row.id, state: row.state },
         };
       }
       // An answer already on its way is not revised behind the Operative that will read it.

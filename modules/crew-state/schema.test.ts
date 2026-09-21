@@ -119,7 +119,7 @@ test("the database refuses a second open question on one attempt", async () => {
   opened.db.run(
     sql.raw(`insert into attempts values ('t1', 'a1', 'owner', 'active', 1, 'now', null)`),
   );
-  const values = `'a1', 't1', 1, 'open', '{}', 'ti', null, null, null, null, 'now', 'now'`;
+  const values = `'a1', 't1', 1, 'open', '{}', 'ti', null, null, null, null, null, 'now', 'now'`;
   opened.db.run(sql.raw(`insert into questions values ('q1', ${values})`));
 
   const refusal = refuses(opened, `insert into questions values ('q2', ${values})`);

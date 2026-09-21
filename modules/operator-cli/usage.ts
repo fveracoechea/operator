@@ -25,6 +25,7 @@ export const usage = [
   "  operator attempt show --attempt <id> [--json]",
   "  operator question raise --request <id> --attempt <id> --input <path|-> [--json]",
   "  operator question revise --request <id> --attempt <id> --question <id> --revision <n> --input <path|-> [--json]",
+  "  operator question escalate --request <id> --owner-token <token> --question <id> --revision <n> --input <path|-> [--json]",
   "  operator question answer --request <id> --owner-token <token> --question <id> --revision <n> --input <path|-> [--json]",
   "  operator question reapply --request <id> --owner-token <token> --question <id> --revision <n> --answer <id> --approval <id> [--json]",
   "  operator question deliver --request <id> --owner-token <token> --question <id> [--json]",

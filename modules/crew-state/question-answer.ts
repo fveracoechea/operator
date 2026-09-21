@@ -1,12 +1,14 @@
 import { approvalCovers, type Coverage, readApproval } from "./approvals.ts";
 import { type InvalidInput, parseInput } from "./input.ts";
 import { mutate, type RequestFailure, type StateFailure } from "./operations.ts";
-import { answerInputSchema } from "./question-input.ts";
+import { answerInputSchema, escalationInputSchema } from "./question-input.ts";
 import {
+  BLOCKING_STATES,
   insertAnswer,
   insertReusedAnswer,
   readAnswer,
   readQuestion,
+  recordEscalation,
   triggersOf,
 } from "./questions.ts";
 
@@ -280,4 +282,106 @@ function checkQuestion(
   }
 
   return { status: "ok", row };
+}
+
+type Escalated = {
+  status: "escalated";
+  questionId: string;
+  escalationTriggers: string[];
+  droppedAnswerId: string | null;
+};
+
+export type EscalateResult =
+  | (Escalated & { repeated: boolean })
+  | { status: "unknown-question"; questionId: string }
+  | { status: "stale-question-revision"; questionId: string; recordedRevision: number }
+  | { status: "question-closed"; questionId: string; state: string }
+  | { status: "delivery-started"; questionId: string; state: string }
+  | InvalidInput
+  | Shared;
+
+type EscalateOutcome = Escalated | Exclude<EscalateResult, Escalated | InvalidInput | Shared>;
+
+/**
+ * Records the Operator's own finding that one question is outside delegated authority.
+ * The Operative declares what it sees when it raises the question; this records what the
+ * Operator sees, so the refusal of an Operator decision outlives the session that found it.
+ */
+export async function escalateQuestion(request: {
+  projectRoot: string;
+  requestId: string;
+  ownerToken: string;
+  questionId: string;
+  revision: number;
+  input: unknown;
+}): Promise<EscalateResult> {
+  const parsed = parseInput(escalationInputSchema, request.input);
+  if (parsed.status !== "parsed") {
+    return parsed;
+  }
+
+  const input = parsed.value;
+  const { repeated, result } = await mutate<EscalateOutcome>(
+    {
+      projectRoot: request.projectRoot,
+      requestId: request.requestId,
+      ownerToken: request.ownerToken,
+      now: new Date().toISOString(),
+      operation: "question_escalate",
+      input: { questionId: request.questionId, revision: request.revision, escalation: input },
+    },
+    ({ tx, now }) => {
+      const row = readQuestion(tx, request.questionId);
+      if (row === null) {
+        return {
+          commit: false,
+          outcome: { status: "unknown-question" as const, questionId: request.questionId },
+        };
+      }
+      if (row.revision !== request.revision) {
+        return {
+          commit: false,
+          outcome: {
+            status: "stale-question-revision" as const,
+            questionId: row.id,
+            recordedRevision: row.revision,
+          },
+        };
+      }
+      if (!BLOCKING_STATES.some((state) => state === row.state)) {
+        return {
+          commit: false,
+          outcome: { status: "question-closed" as const, questionId: row.id, state: row.state },
+        };
+      }
+      // An answer already on its way cannot be withdrawn, so the escalation comes too late.
+      if (row.deliveryOperationId !== null) {
+        return {
+          commit: false,
+          outcome: { status: "delivery-started" as const, questionId: row.id, state: row.state },
+        };
+      }
+
+      // Only an Operator decision falls to an escalation. A person's answer already stands.
+      const recorded = row.answerId === null ? null : readAnswer(tx, row.answerId);
+      const droppedAnswerId =
+        recorded !== null && recorded.authority === "operator-decision" ? recorded.id : null;
+
+      recordEscalation(tx, { row, input, droppedAnswerId, now });
+      return {
+        commit: true,
+        outcome: {
+          status: "escalated" as const,
+          questionId: row.id,
+          escalationTriggers: triggersOf({
+            ...row,
+            operatorEscalation: JSON.stringify(input),
+          }),
+          droppedAnswerId,
+        },
+      };
+    },
+  );
+
+  return result.status === "escalated" ? { ...result, repeated } : result;
 }

@@ -232,6 +232,14 @@ The exact words are recorded apart from the structured reading of them, and a re
 A question that names visible behavior, scope, security permissions, unresolved ambiguity, or conflicting explicit requirements refuses an Operator decision, so it goes to the user.
 One question revision carries one decision.
 
+The Operative names those subjects when it raises the question, and the Operator records the ones it finds itself.
+
+```sh
+operator question escalate --request <id> --owner-token <token> --question <id> --revision <n> --input escalation.json --json
+```
+
+An escalation drops an Operator decision recorded before it and leaves a person's answer standing.
+
 ```sh
 operator question deliver --request <id> --owner-token <token> --question <id> --json
 operator question acknowledge --request <id> --question <id> --json

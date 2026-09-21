@@ -18,6 +18,11 @@ Five subjects are outside delegated authority: visible behavior, scope, security
 A question that names one of them refuses an Operator decision, however often that decision is retried.
 The Operator escalates by bringing the question to the user and recording their words as a human answer.
 
+Either party may name one of those subjects.
+The Operative names what it sees when it raises the question, and `operator question escalate` records what the Operator sees, in the Operator's own words beside the report rather than inside it.
+The gate reads both, so the refusal outlives the session that found the reason for it.
+An escalation drops an Operator decision recorded before it, because that authority no longer reaches this question, and leaves a human answer or a requirement standing, because a person already spoke.
+
 Recording an answer, delivering it, and receiving it are three states.
 Recording is the decision, and one question revision carries exactly one decision.
 Delivery is an external operation with its own identity, so a repeat reports what it already sent instead of submitting the answer again.
@@ -39,8 +44,11 @@ Silence, a timeout, a general direction to finish, and an Operative report produ
 
 ## Considered options
 
-Letting the Operator add an escalation trigger to a question was rejected.
-The Operator escalates by choosing the authority of its answer, so a second path to the same judgement would only drift from the first.
+Leaving the escalation subjects to the Operative's report alone was rejected.
+The Operator is the party that reads the sources and talks to the user, so it finds subjects the Operative could not see, and a finding that lives only in one session is not a rule.
+
+Letting the Operator rewrite the Operative's report to add a subject was rejected.
+The report is the Operative's own words, and a record that either party may rewrite is evidence of nothing.
 
 Treating a delivered answer as received was rejected.
 Herdr acknowledges a submission, never a turn, which is the same reason the assignment brief needs its own acknowledgement.
@@ -59,6 +67,9 @@ An approval that does not name its targets cannot be compared against the action
 `operator question revise` refuses to change a question while a delivery could still arrive.
 The Operative acknowledges the answer on its way and raises a new question, rather than changing the question the answer is already in flight for.
 A delivery proven to have failed leaves the question free to change, because nothing reached the Operative.
+
+A question nobody waits on any more is never revised or escalated in place.
+An acknowledged answer resolves it, so a further concern is a new question rather than a change to a question the Operative has already acted on.
 
 Ending an attempt withdraws the questions it raised.
 A replacement is a new attempt, so it asks for itself rather than inheriting a question the former writer was waiting on.

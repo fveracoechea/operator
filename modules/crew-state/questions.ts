@@ -1,7 +1,12 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { ContentIdentity } from "../content-identity/main.ts";
 import type { CrewReader, CrewWriter } from "./database.ts";
-import type { AnswerInput, AnswerInterpretation, QuestionInput } from "./question-input.ts";
+import type {
+  AnswerInput,
+  AnswerInterpretation,
+  EscalationInput,
+  QuestionInput,
+} from "./question-input.ts";
 import { answers, questions } from "./schema.ts";
 
 export type QuestionRow = typeof questions.$inferSelect;
@@ -28,6 +33,7 @@ export type QuestionRecord = {
   state: string;
   targetIdentity: string;
   escalationTriggers: string[];
+  operatorEscalation: EscalationInput | null;
   report: QuestionInput;
   answer: AnswerRecord | null;
   answers: AnswerRecord[];
@@ -52,9 +58,19 @@ export function questionReportOf(row: QuestionRow): QuestionInput {
   return JSON.parse(row.report);
 }
 
-/** The subjects this question names that only a person may settle. */
+export function operatorEscalationOf(row: QuestionRow): EscalationInput | null {
+  return row.operatorEscalation === null ? null : JSON.parse(row.operatorEscalation);
+}
+
+/**
+ * The subjects this question names that only a person may settle.
+ * The Operative declares what it sees and the Operator records what it sees, so the answer is
+ * everything either of them found, with neither record rewriting the other.
+ */
 export function triggersOf(row: QuestionRow): string[] {
-  return questionReportOf(row).escalationTriggers;
+  const declared = questionReportOf(row).escalationTriggers;
+  const found = operatorEscalationOf(row)?.escalationTriggers ?? [];
+  return [...new Set([...declared, ...found])].toSorted();
 }
 
 export function answerRecordOf(row: AnswerRow, question: QuestionRow): AnswerRecord {
@@ -153,6 +169,7 @@ export function questionRecordOf(db: CrewReader, row: QuestionRow): QuestionReco
     state: row.state,
     targetIdentity: row.targetIdentity,
     escalationTriggers: triggersOf(row),
+    operatorEscalation: operatorEscalationOf(row),
     report: questionReportOf(row),
     answer: recorded.find((one) => one.answerId === row.answerId) ?? null,
     answers: recorded,
@@ -181,6 +198,7 @@ export function insertQuestion(
       state: "open",
       report: JSON.stringify(request.input),
       targetIdentity: targetIdentityOf(request.input),
+      operatorEscalation: null,
       answerId: null,
       deliveryOperationId: null,
       deliveredAt: null,
@@ -214,6 +232,30 @@ export function updateQuestion(
     .run();
 
   return revision;
+}
+
+/**
+ * Records the Operator's own escalation of one question.
+ * An Operator decision recorded before it is dropped, because that authority no longer reaches
+ * this question. A human answer or a requirement stands, because a person already spoke.
+ */
+export function recordEscalation(
+  db: CrewWriter,
+  request: {
+    row: QuestionRow;
+    input: EscalationInput;
+    droppedAnswerId: string | null;
+    now: string;
+  },
+): void {
+  db.update(questions)
+    .set({
+      operatorEscalation: JSON.stringify(request.input),
+      ...(request.droppedAnswerId === null ? {} : { answerId: null, state: "open" }),
+      updatedAt: request.now,
+    })
+    .where(eq(questions.id, request.row.id))
+    .run();
 }
 
 export function insertAnswer(

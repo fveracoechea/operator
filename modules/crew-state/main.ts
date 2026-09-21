@@ -11,7 +11,7 @@ import { calculateFrontier } from "./frontier.ts";
 import { parseInput } from "./input.ts";
 import { mutate, readState } from "./operations.ts";
 import { claimOwnership, currentOwnership } from "./ownership.ts";
-import { answerQuestion, reapplyAnswer } from "./question-answer.ts";
+import { answerQuestion, escalateQuestion, reapplyAnswer } from "./question-answer.ts";
 import { acknowledgeAnswer, deliverAnswer } from "./question-deliver.ts";
 import { approvalCheckSchema, approvalInputSchema } from "./question-input.ts";
 import { raiseQuestion, reviseQuestion } from "./question-raise.ts";
@@ -233,6 +233,16 @@ export const CrewState = {
     request: Mutation & { questionId: string; revision: number; input: unknown },
   ) {
     return reported(await answerQuestion({ ...request, answerId: crypto.randomUUID() }));
+  },
+
+  /**
+   * Records the Operator's own finding that one question is outside delegated authority.
+   * It drops an Operator decision recorded before it, and leaves a person's answer standing.
+   */
+  async escalateQuestion(
+    request: Mutation & { questionId: string; revision: number; input: unknown },
+  ) {
+    return reported(await escalateQuestion(request));
   },
 
   /** Uses an earlier answer for a changed question, under an approval that names both. */

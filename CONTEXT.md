@@ -120,6 +120,7 @@ The exact words are recorded apart from the structured interpretation of them.
 
 **Escalation trigger**:
 A subject a question names that is outside delegated authority: visible behavior, scope, security permissions, unresolved ambiguity, or conflicting explicit requirements.
+The Operative declares what it sees in its blocked report, and the Operator records what it sees separately.
 A question that names one refuses an Operator decision.
 
 **Approval**:
