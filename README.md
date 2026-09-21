@@ -9,9 +9,9 @@ The name comes from *The Matrix*: the crew member who loads programs, guides mis
 
 ## Status
 
-**Project installation, setup, and readiness work.**
-The repository contains the Bun CLI, its local and CI quality gate, `operator install`, `operator setup`, and `operator setup readiness`.
-Crew orchestration, the live readiness probe, and release automation are not implemented yet.
+**Project installation, setup, readiness, and the crew frontier work.**
+The repository contains the Bun CLI, its local and CI quality gate, `operator install`, `operator setup`, `operator setup readiness`, `operator crew own`, and `operator work`.
+Operative dispatch, question routing, review, the live readiness probe, and release automation are not implemented yet.
 
 ## CLI Foundation
 
@@ -109,6 +109,55 @@ This release runs no live check yet, so an approved probe reports that the confi
 Recorded live results live in `.operator/local/readiness.json` with the approved probe that produced them and the fingerprints of the inputs they were proven against.
 A changed input makes its own record stale and leaves unrelated records valid.
 See [ADR 0002](docs/adr/0002-readiness-is-derived-and-only-live-evidence-is-recorded.md).
+
+## Crew State and the Frontier
+
+One Operator owns a crew at a time.
+Ownership creates the crew state, which is one SQLite database in `.operator/local/`.
+
+```sh
+operator crew own --request <id> --owner-label <label> --json
+operator crew own --request <id> --owner-label <label> --takeover --json
+```
+
+The result carries the owner token that every later mutation must present.
+A takeover invalidates the former token, so a stale Operator session cannot change crew state.
+
+Work is registered from an approved specification, a ready ticket, or a wayfinder map.
+The request is a JSON file, or `-` to read standard input.
+
+```sh
+operator work register --request <id> --owner-token <token> --input work.json --json
+```
+
+Registration records each item with its source revision, approved scope, acceptance requirements, permissions, fixed inputs, dependencies, and planning boundary.
+Registering the same item twice names the existing assignment instead of creating a second one.
+A dependency cycle is refused before anything is dispatched.
+
+```sh
+operator work frontier --json
+operator work claim --request <id> --owner-token <token> --assignment <id> --revision <n> --json
+```
+
+The frontier reports what the crew may start now and why the rest waits.
+It writes nothing.
+A claim recomputes the same frontier, so it can never take work the frontier withheld.
+Two concurrent claims give the assignment to one caller, and the other names the attempt that already holds it.
+
+The crew limit defaults to three active agents and is set by `crew.maxActiveAgents` in `.operator/config.json`.
+A limit of two or more holds one slot for review, so production work never fills the crew.
+A limit of one runs one assignment at a time.
+Queued review is offered before new production work.
+
+A dependent starts only after its dependencies reach accepted completion.
+
+```sh
+operator work accept --request <id> --owner-token <token> --assignment <id> --attempt <id> --revision <n> --json
+```
+
+Every mutation carries a request identity.
+A repeat under the same identity returns the recorded result with no new effect, and the same identity carrying different input is refused.
+See [ADR 0003](docs/adr/0003-crew-state-is-one-sqlite-file-created-once.md) and [ADR 0004](docs/adr/0004-the-frontier-is-the-only-dispatch-rule.md).
 
 ## The Workflow We Want
 

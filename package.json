@@ -21,6 +21,7 @@
     "quality": "bun run format:check && bun run lint && bun run typecheck && bun run lint:modules && bun run test:module-boundaries && bun run test"
   },
   "dependencies": {
+    "drizzle-orm": "0.44.6",
     "zod": "4.6.5"
   },
   "devDependencies": {

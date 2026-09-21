@@ -50,7 +50,36 @@ export type Reason =
   | "unreadable_evidence"
   | "probe_plan_ready"
   | "probe_blocked"
-  | "live_probe_unavailable";
+  | "live_probe_unavailable"
+  | "state_missing"
+  | "unreadable_state"
+  | "state_version_unsupported"
+  | "request_input_changed"
+  | "crew_unowned"
+  | "ownership_stale"
+  | "ownership_acquired"
+  | "ownership_held"
+  | "work_registered"
+  | "invalid_work_input"
+  | "source_revision_changed"
+  | "unknown_dependency"
+  | "dependency_cycle"
+  | "assignment_claimed"
+  | "assignment_already_claimed"
+  | "assignment_already_accepted"
+  | "assignment_not_dispatchable"
+  | "assignment_not_claimed"
+  | "attempt_mismatch"
+  | "unknown_assignment"
+  | "stale_revision"
+  | "planning_only"
+  | "assignment_accepted"
+  | "frontier_ready"
+  | "frontier_blocked"
+  | "frontier_empty"
+  | "dependency_pending"
+  | "review_capacity_reserved"
+  | "crew_at_capacity";
 
 type Operation =
   | "parse_arguments"
@@ -62,7 +91,12 @@ type Operation =
   | "setup_rollback"
   | "setup_readiness"
   | "setup_probe_plan"
-  | "setup_probe_apply";
+  | "setup_probe_apply"
+  | "crew_own"
+  | "work_register"
+  | "work_claim"
+  | "work_accept"
+  | "work_frontier";
 
 export const exitCodeByOutcome = {
   completed: 0,

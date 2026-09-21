@@ -6,10 +6,17 @@ const agentSelection = z.strictObject({
   model: z.string().min(1).optional(),
 });
 
+// The crew also carries its own concurrency, because the Operator agent is not one of the crew.
+const crewSelection = z.strictObject({
+  host: z.enum(["opencode", "claude-code"]).optional(),
+  model: z.string().min(1).optional(),
+  maxActiveAgents: z.number().int().min(1).optional(),
+});
+
 export const operatorConfigSchema = z.strictObject({
   $schema: z.string().optional(),
   operator: agentSelection.optional(),
-  crew: agentSelection.optional(),
+  crew: crewSelection.optional(),
 });
 
 export function operatorConfigJsonSchema(): unknown {

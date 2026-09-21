@@ -1,9 +1,11 @@
 import packageJson from "../../package.json" with { type: "json" };
-import { hasSelectionOrProbeArguments, parseArguments } from "./arguments.ts";
+import { hasCrewArguments, hasSelectionOrProbeArguments, parseArguments } from "./arguments.ts";
+import { runCrewOwn } from "./crew-command.ts";
 import { runInstall } from "./install-command.ts";
 import { runSetup } from "./setup-command.ts";
 import { exitCodeByOutcome, writeJsonResult } from "./result.ts";
 import { usage } from "./usage.ts";
+import { runWork } from "./work-command.ts";
 
 const OPERATOR_VERSION = packageJson.version;
 const SUPPORTED_BUN_RANGE = packageJson.engines.bun;
@@ -54,6 +56,7 @@ export async function run(args: string[]): Promise<void> {
     if (
       parsed.unsupported.length > 0 ||
       parsed.approvedPlan !== undefined ||
+      hasCrewArguments(parsed) ||
       hasSelectionOrProbeArguments(parsed)
     ) {
       rejectArguments(parsed.json);
@@ -68,7 +71,38 @@ export async function run(args: string[]): Promise<void> {
     const firstFlag = rest.findIndex((word) => word.startsWith("--"));
     const words = firstFlag === -1 ? rest : rest.slice(0, firstFlag);
     const parsed = parseArguments(firstFlag === -1 ? [] : rest.slice(firstFlag));
-    if (parsed.unsupported.length > 0 || (await runSetup(words, parsed)) !== "reported") {
+    if (
+      parsed.unsupported.length > 0 ||
+      hasCrewArguments(parsed) ||
+      (await runSetup(words, parsed)) !== "reported"
+    ) {
+      rejectArguments(parsed.json);
+    }
+    return;
+  }
+
+  if (command === "crew" || command === "work") {
+    // A crew request names its operation in leading words, then carries only flags.
+    const firstFlag = rest.findIndex((word) => word.startsWith("--"));
+    const words = firstFlag === -1 ? rest : rest.slice(0, firstFlag);
+    const parsed = parseArguments(firstFlag === -1 ? [] : rest.slice(firstFlag));
+    if (
+      parsed.unsupported.length > 0 ||
+      parsed.targets.length > 0 ||
+      parsed.approvedPlan !== undefined ||
+      hasSelectionOrProbeArguments(parsed)
+    ) {
+      rejectArguments(parsed.json);
+      return;
+    }
+
+    const handled =
+      command === "crew"
+        ? words.length === 1 && words[0] === "own"
+          ? await runCrewOwn(parsed)
+          : "invalid-arguments"
+        : await runWork(words, parsed);
+    if (handled !== "reported") {
       rejectArguments(parsed.json);
     }
     return;

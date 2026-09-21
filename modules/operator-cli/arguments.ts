@@ -5,12 +5,31 @@ export type SelectionOverrides = {
   crew?: { host?: AgentTarget; model?: string };
 };
 
+// Crew and work commands share these value flags; the keys are the only list of them.
+const crewFlagNames = {
+  "--request": true,
+  "--owner-token": true,
+  "--owner-label": true,
+  "--assignment": true,
+  "--attempt": true,
+  "--revision": true,
+  "--input": true,
+} as const;
+
+export type CrewFlag = keyof typeof crewFlagNames;
+
+function isCrewFlag(value: string): value is CrewFlag {
+  return Object.hasOwn(crewFlagNames, value);
+}
+
 export type ParsedArguments = {
   json: boolean;
   targets: AgentTarget[];
   approvedPlan: string | undefined;
   approvedProbe: string | undefined;
   overrides: SelectionOverrides;
+  takeover: boolean;
+  crew: Partial<Record<CrewFlag, string>>;
   unsupported: string[];
 };
 
@@ -48,6 +67,8 @@ export function parseArguments(args: string[]): ParsedArguments {
     approvedPlan: undefined,
     approvedProbe: undefined,
     overrides: {},
+    takeover: false,
+    crew: {},
     unsupported: [],
   };
 
@@ -57,6 +78,17 @@ export function parseArguments(args: string[]): ParsedArguments {
 
     if (argument === "--json") {
       parsed.json = true;
+    } else if (argument === "--takeover") {
+      parsed.takeover = true;
+    } else if (argument !== undefined && isCrewFlag(argument)) {
+      const value = valueOf(args, index + 1);
+      if (value === undefined) {
+        parsed.unsupported.push(argument);
+        continue;
+      }
+
+      index += 1;
+      parsed.crew[argument] = value;
     } else if (argument === "--opencode" || argument === "--claude") {
       const target = targetByFlag[argument];
       if (!parsed.targets.includes(target)) {
@@ -107,4 +139,9 @@ export function hasSelectionOrProbeArguments(parsed: ParsedArguments): boolean {
     parsed.overrides.operator !== undefined ||
     parsed.overrides.crew !== undefined
   );
+}
+
+/** True when the request carries a crew-state flag the addressed command has no use for. */
+export function hasCrewArguments(parsed: ParsedArguments): boolean {
+  return parsed.takeover || Object.keys(parsed.crew).length > 0;
 }

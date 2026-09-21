@@ -58,3 +58,27 @@ It proves what a static check cannot, such as host termination, the native revie
 **Readiness evidence**:
 The recorded result of a live probe check, together with the fingerprints of the inputs it was proven against.
 A changed input makes that record stale and leaves unrelated records valid.
+
+**Crew state**:
+The one local SQLite database that holds assignments, attempts, ownership, source revisions, fixed inputs, dependencies, permissions, and request records for a project.
+It is created when an Operator first takes ownership, and it is never replaced by a command that cannot read it.
+
+**Work source**:
+The approved origin of registered work.
+An approved specification, a ready ticket, and a wayfinder map are the three supported sources, each with its own revision.
+
+**Planning boundary**:
+The recorded statement of whether an assignment is executable or planning only.
+Planning-only work is registered so dependencies resolve, and it is never dispatched to an Operative.
+
+**Crew frontier**:
+The assignments a crew may start now, with the reason every other assignment waits.
+It is a read that changes nothing.
+
+**Ownership token**:
+The value that proves a mutation comes from the Operator that currently owns the crew.
+A takeover replaces it, and the replaced token can no longer change crew state.
+
+**Request identity**:
+The caller's name for one mutation.
+A repeat under the same identity returns the recorded outcome with no new effect, and the same identity carrying different input is refused.

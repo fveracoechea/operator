@@ -12,6 +12,11 @@ export const usage = [
   `  operator setup readiness ${targetChoice} ${selection} ${crewSelection} [--json]`,
   `  operator setup probe plan ${targetChoice} ${selection} ${crewSelection} [--json]`,
   `  operator setup probe apply ${targetChoice} ${selection} ${crewSelection} --approved-probe <probeId> [--json]`,
+  "  operator crew own --request <id> --owner-label <label> [--takeover] [--json]",
+  "  operator work register --request <id> --owner-token <token> --input <path|-> [--json]",
+  "  operator work claim --request <id> --owner-token <token> --assignment <id> --revision <n> [--json]",
+  "  operator work accept --request <id> --owner-token <token> --assignment <id> --attempt <id> --revision <n> [--json]",
+  "  operator work frontier [--json]",
   "",
   "A host is `opencode` or `claude-code`.",
 ].join("\n");
