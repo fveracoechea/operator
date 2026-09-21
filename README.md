@@ -309,7 +309,7 @@ A review report ends the review chain, so a reviewer never submits a result and 
 operator review dispose --request <id> --owner-token <token> --review <id> --input dispositions.json --json
 ```
 
-Each finding is corrected, rejected with a reason, or deferred with a reason and a follow-up.
+Each finding is corrected, rejected with a reason and the evidence that refutes it, or deferred with a reason and a follow-up.
 A blocker is never deferred.
 
 ```sh

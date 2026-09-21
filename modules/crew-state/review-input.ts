@@ -102,6 +102,8 @@ const disposition = z.discriminatedUnion("disposition", [
     findingId: z.string().min(1),
     disposition: z.literal("rejected"),
     reason: z.string().min(1),
+    // A rejection contradicts a reviewer, so it states what the Operator read to decide that.
+    evidence: z.string().min(1),
   }),
   z.strictObject({
     findingId: z.string().min(1),

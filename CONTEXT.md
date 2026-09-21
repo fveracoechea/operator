@@ -141,7 +141,7 @@ The Standards axis and the Spec axis stay separate and are never merged or reran
 
 **Finding disposition**:
 The Operator's answer to one review finding.
-It is corrected, rejected with a reason, or deferred with a reason and a follow-up reference, so no finding leaves a review unanswered.
+It is corrected, rejected with a reason and the evidence that refutes the finding, or deferred with a reason and a follow-up reference, so no finding leaves a review unanswered.
 
 **Review capability**:
 The reviewer host's ability to run the required review sub-agents.

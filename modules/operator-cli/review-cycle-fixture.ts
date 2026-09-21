@@ -444,3 +444,24 @@ export async function relaunchReviewer(
     worktreePath,
   );
 }
+
+/** Records what the Operator decided about each finding of one review. */
+export async function disposeFindings(
+  workspace: Workspace,
+  producer: Producer,
+  reviewId: string,
+  dispositions: unknown[],
+) {
+  return runJson(workspace, [
+    "review",
+    "dispose",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--review",
+    reviewId,
+    "--input",
+    await writeInput(workspace, { dispositions }),
+  ]);
+}

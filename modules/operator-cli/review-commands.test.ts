@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   acceptProduction,
   commitArtifact,
+  disposeFindings,
   makeReviewWorkspace,
   reportBody,
   reportReview,
@@ -423,5 +424,69 @@ describe("operator review report", () => {
 
     expect(attempted.exitCode).toBe(2);
     expect(attempted.json.reason).toBe("review_result_not_submitted");
+  });
+});
+
+describe("operator review dispose", () => {
+  test("a rejected finding records the evidence that refutes it", async () => {
+    const workspace = await makeWorkspace();
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const artifact = await commitArtifact(workspace, producer, "# Result\n");
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const reviewId = submitted.json.data.reviewId;
+    const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
+
+    const reported = await reportReview(
+      workspace,
+      reviewer,
+      reviewId,
+      reportBody({
+        submissionIdentity: submitted.json.data.identity,
+        host: workspace.host,
+        standardsFindings: [
+          {
+            key: "unsupported",
+            severity: "blocker",
+            summary: "The module exports a second interface.",
+            evidence: "modules/crew-state/main.ts",
+          },
+        ],
+      }),
+    );
+    const findingId = reported.json.data.findings[0].findingId;
+
+    // A rejection is the Operator contradicting a reviewer, so it states what it read.
+    const bare = await disposeFindings(workspace, producer, reviewId, [
+      { findingId, disposition: "rejected", reason: "The module exports one object." },
+    ]);
+    expect(bare.exitCode).toBe(2);
+    expect(bare.json.reason).toBe("invalid_disposition_input");
+
+    const rejected = await disposeFindings(workspace, producer, reviewId, [
+      {
+        findingId,
+        disposition: "rejected",
+        reason: "The module exports one object.",
+        evidence: "bun run lint:modules passes on modules/crew-state/main.ts.",
+      },
+    ]);
+    expect(rejected.exitCode).toBe(0);
+    expect(rejected.json.data.corrections).toEqual([]);
+
+    const shown = await runJson(workspace, ["review", "show", "--review", reviewId]);
+    const finding = shown.json.data.findings[0];
+    // The reviewer's evidence and the Operator's answer to it stay apart.
+    expect(finding.evidence).toBe("modules/crew-state/main.ts");
+    expect(finding.dispositionEvidence).toBe(
+      "bun run lint:modules passes on modules/crew-state/main.ts.",
+    );
+
+    const accepted = await acceptProduction(workspace, producer, {
+      submissionId: submitted.json.data.submissionId,
+      revision: submitted.json.data.revision,
+      prHead: artifact.commit,
+    });
+    expect(accepted.json.reason).toBe("assignment_accepted");
   });
 });

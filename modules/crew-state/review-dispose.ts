@@ -18,7 +18,8 @@ export type DisposeOutcome =
 
 /**
  * Records what the Operator decided about each finding.
- * A finding is corrected, rejected with a reason, or deferred with a reason and a follow-up,
+ * A finding is corrected, rejected with a reason and evidence, or deferred with a reason and a
+ * follow-up,
  * so no finding leaves the review without an answer.
  */
 export function disposeFindings(
@@ -54,6 +55,7 @@ export function disposeFindings(
       .set({
         disposition: one.disposition,
         reason: one.reason,
+        dispositionEvidence: one.disposition === "rejected" ? one.evidence : null,
         followUp: one.disposition === "deferred" ? one.followUp : null,
         disposedAt: request.now,
       })
