@@ -446,6 +446,11 @@ describe("operator question raise", () => {
         independentWork: ["The reader tests continue."],
       }),
     ]);
+
+    // A person reading the frontier sees the same waiting question as an agent does.
+    const readable = await runOperator(workspace, ["work", "frontier"]);
+    expect(readable.stdout).toContain("Waiting on an answer:");
+    expect(readable.stdout).toContain(raised.json.data.questionId);
   });
 });
 

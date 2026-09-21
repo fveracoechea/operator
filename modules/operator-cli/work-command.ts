@@ -546,6 +546,19 @@ async function runFrontier(parsed: ParsedArguments): Promise<"reported" | "inval
               (one) => `  ${one.assignmentId} ${one.blockers.map((b) => b.reason).join(", ")}`,
             ),
           ]),
+      ...(result.questions.length === 0
+        ? []
+        : [
+            "Waiting on an answer:",
+            ...result.questions.map(
+              (one) =>
+                `  ${one.questionId} ${one.state} on ${one.assignmentId}${
+                  one.escalationTriggers.length === 0
+                    ? ""
+                    : ` (needs the user: ${one.escalationTriggers.join(", ")})`
+                }`,
+            ),
+          ]),
       ...(result.planning.length === 0
         ? []
         : [`${result.planning.length} planning item(s) are registered and never dispatched.`]),
