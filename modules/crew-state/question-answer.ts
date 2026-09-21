@@ -1,13 +1,16 @@
 import { approvalCovers, type Coverage, readApproval } from "./approvals.ts";
+import type { CrewReader } from "./database.ts";
+import { readOperation } from "./dispatch.ts";
 import { type InvalidInput, parseInput } from "./input.ts";
 import { mutate, type RequestFailure, type StateFailure } from "./operations.ts";
-import { answerInputSchema, escalationInputSchema } from "./question-input.ts";
+import { answerInputSchema, escalationInputSchema, HUMAN_ONLY_TRIGGERS } from "./question-input.ts";
 import {
   BLOCKING_STATES,
   insertAnswer,
   insertReusedAnswer,
   readAnswer,
   readQuestion,
+  type QuestionRow,
   recordEscalation,
   triggersOf,
 } from "./questions.ts";
@@ -34,8 +37,30 @@ type Recorded = {
 type Refusal =
   | { status: "unknown-question"; questionId: string }
   | { status: "stale-question-revision"; questionId: string; recordedRevision: number }
+  | { status: "question-closed"; questionId: string; state: string }
   | { status: "already-answered"; questionId: string; answerId: string }
-  | { status: "escalation-required"; questionId: string; escalationTriggers: string[] };
+  | {
+      status: "escalation-required";
+      questionId: string;
+      escalationTriggers: string[];
+      authority: string;
+    };
+
+/**
+ * The subjects one authority cannot close, of those this question names.
+ * A person's own answer closes anything. An Operator decision closes none of them. A recorded
+ * requirement closes the three an approved source can state, and neither of the other two.
+ */
+function unclosedBy(authority: string, triggers: string[]): string[] {
+  if (authority === "human-answer") {
+    return [];
+  }
+  if (authority === "operator-decision") {
+    return triggers;
+  }
+
+  return triggers.filter((one) => HUMAN_ONLY_TRIGGERS.some((human) => human === one));
+}
 
 export type AnswerResult = (Recorded & { repeated: boolean }) | Refusal | InvalidInput | Shared;
 
@@ -75,14 +100,20 @@ export async function answerQuestion(request: {
       }
 
       const row = checked.row;
-      const triggers = triggersOf(row);
-      if (input.authority === "operator-decision" && triggers.length > 0) {
+      const held = unanswered(row);
+      if (held !== null) {
+        return { commit: false, outcome: held };
+      }
+
+      const unclosed = unclosedBy(input.authority, triggersOf(row));
+      if (unclosed.length > 0) {
         return {
           commit: false,
           outcome: {
             status: "escalation-required" as const,
             questionId: row.id,
-            escalationTriggers: triggers,
+            escalationTriggers: unclosed,
+            authority: input.authority,
           },
         };
       }
@@ -159,6 +190,11 @@ export async function reapplyAnswer(request: {
       }
 
       const row = checked.row;
+      const held = unanswered(row);
+      if (held !== null) {
+        return { commit: false, outcome: held };
+      }
+
       const reused = readAnswer(tx, request.reuseAnswerId);
       if (reused === null || reused.questionId !== row.id) {
         return {
@@ -177,16 +213,17 @@ export async function reapplyAnswer(request: {
         };
       }
 
-      // The applicability check: what the Operator could decide alone before may now be a
-      // subject only a person may settle, and an older decision does not survive that change.
-      const triggers = triggersOf(row);
-      if (reused.authority === "operator-decision" && triggers.length > 0) {
+      // The applicability check: what one authority could close before may now be a subject it
+      // cannot, and an answer given under the old reading does not survive that change.
+      const unclosed = unclosedBy(reused.authority, triggersOf(row));
+      if (unclosed.length > 0) {
         return {
           commit: false,
           outcome: {
             status: "escalation-required" as const,
             questionId: row.id,
-            escalationTriggers: triggers,
+            escalationTriggers: unclosed,
+            authority: reused.authority,
           },
         };
       }
@@ -247,13 +284,21 @@ export async function reapplyAnswer(request: {
   return result.status === "answered" ? { ...result, repeated } : result;
 }
 
-type QuestionCheck =
-  | { status: "ok"; row: NonNullable<ReturnType<typeof readQuestion>> }
-  | { status: "refused"; refusal: Refusal };
+type OpenRefusal = Exclude<
+  Refusal,
+  { status: "already-answered" } | { status: "escalation-required" }
+>;
 
-/** The three preconditions both recording paths share: the question, its revision, and one answer. */
+type QuestionCheck =
+  | { status: "ok"; row: QuestionRow }
+  | { status: "refused"; refusal: OpenRefusal };
+
+/**
+ * The preconditions every change to one question shares: the question exists, the caller states
+ * the revision it inspected, and something still waits on it.
+ */
 function checkQuestion(
-  tx: Parameters<typeof readQuestion>[0],
+  tx: CrewReader,
   request: { questionId: string; revision: number },
 ): QuestionCheck {
   const row = readQuestion(tx, request.questionId);
@@ -273,15 +318,24 @@ function checkQuestion(
       },
     };
   }
-  // One question revision carries one decision, so a second answer to it is refused.
-  if (row.answerId !== null) {
+  // A question nobody waits on any more is history. An answer would revive it onto an attempt
+  // that ended, where no Operative can ever acknowledge it.
+  if (!BLOCKING_STATES.some((state) => state === row.state)) {
     return {
       status: "refused",
-      refusal: { status: "already-answered", questionId: row.id, answerId: row.answerId },
+      refusal: { status: "question-closed", questionId: row.id, state: row.state },
     };
   }
-
   return { status: "ok", row };
+}
+
+/** One question revision carries one decision, so a second answer to it is refused. */
+function unanswered(
+  row: QuestionRow,
+): { status: "already-answered"; questionId: string; answerId: string } | null {
+  return row.answerId === null
+    ? null
+    : { status: "already-answered", questionId: row.id, answerId: row.answerId };
 }
 
 type Escalated = {
@@ -291,16 +345,17 @@ type Escalated = {
   droppedAnswerId: string | null;
 };
 
+type EscalateRefusal =
+  | OpenRefusal
+  | { status: "delivery-started"; questionId: string; state: string };
+
 export type EscalateResult =
   | (Escalated & { repeated: boolean })
-  | { status: "unknown-question"; questionId: string }
-  | { status: "stale-question-revision"; questionId: string; recordedRevision: number }
-  | { status: "question-closed"; questionId: string; state: string }
-  | { status: "delivery-started"; questionId: string; state: string }
+  | EscalateRefusal
   | InvalidInput
   | Shared;
 
-type EscalateOutcome = Escalated | Exclude<EscalateResult, Escalated | InvalidInput | Shared>;
+type EscalateOutcome = Escalated | EscalateRefusal;
 
 /**
  * Records the Operator's own finding that one question is outside delegated authority.
@@ -331,31 +386,17 @@ export async function escalateQuestion(request: {
       input: { questionId: request.questionId, revision: request.revision, escalation: input },
     },
     ({ tx, now }) => {
-      const row = readQuestion(tx, request.questionId);
-      if (row === null) {
-        return {
-          commit: false,
-          outcome: { status: "unknown-question" as const, questionId: request.questionId },
-        };
+      const checked = checkQuestion(tx, request);
+      if (checked.status !== "ok") {
+        return { commit: false, outcome: checked.refusal };
       }
-      if (row.revision !== request.revision) {
-        return {
-          commit: false,
-          outcome: {
-            status: "stale-question-revision" as const,
-            questionId: row.id,
-            recordedRevision: row.revision,
-          },
-        };
-      }
-      if (!BLOCKING_STATES.some((state) => state === row.state)) {
-        return {
-          commit: false,
-          outcome: { status: "question-closed" as const, questionId: row.id, state: row.state },
-        };
-      }
+
+      const row = checked.row;
       // An answer already on its way cannot be withdrawn, so the escalation comes too late.
-      if (row.deliveryOperationId !== null) {
+      // A delivery proven to have failed reached nobody, so the question is still open to it.
+      const delivery =
+        row.deliveryOperationId === null ? null : readOperation(tx, row.deliveryOperationId);
+      if (delivery !== null && delivery.state !== "failed") {
         return {
           commit: false,
           outcome: { status: "delivery-started" as const, questionId: row.id, state: row.state },

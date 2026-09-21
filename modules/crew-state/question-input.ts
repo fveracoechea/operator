@@ -13,6 +13,19 @@ export const ESCALATION_TRIGGERS = [
   "conflicting-requirements",
 ] as const;
 
+export type EscalationTrigger = (typeof ESCALATION_TRIGGERS)[number];
+
+/**
+ * The two subjects no recorded source can close.
+ * A conflict means no single source settles the question, so quoting one of them decides it by
+ * choosing a side. An ambiguity means clarity could not be established at all.
+ * The other three are answered by an approved source that states them, or by the user.
+ */
+export const HUMAN_ONLY_TRIGGERS = [
+  "ambiguity",
+  "conflicting-requirements",
+] as const satisfies EscalationTrigger[];
+
 const text = z.string().min(1);
 
 /**

@@ -316,6 +316,53 @@ async function deliver(workspace: Workspace, crew: { ownerToken: string }, quest
   ]);
 }
 
+async function escalate(
+  workspace: Workspace,
+  crew: { ownerToken: string },
+  questionId: string,
+  revision: number,
+  escalation: { escalationTriggers: string[]; reason: string },
+) {
+  const inputPath = await writeInput(workspace, escalation);
+  return runJson(workspace, [
+    "question",
+    "escalate",
+    "--request",
+    request(),
+    "--owner-token",
+    crew.ownerToken,
+    "--question",
+    questionId,
+    "--revision",
+    String(revision),
+    "--input",
+    inputPath,
+  ]);
+}
+
+async function reapply(
+  workspace: Workspace,
+  crew: { ownerToken: string },
+  request_: { questionId: string; revision: number; answerId: string; approvalId: string },
+) {
+  return runJson(workspace, [
+    "question",
+    "reapply",
+    "--request",
+    request(),
+    "--owner-token",
+    crew.ownerToken,
+    "--question",
+    request_.questionId,
+    "--revision",
+    String(request_.revision),
+    "--answer",
+    request_.answerId,
+    "--approval",
+    request_.approvalId,
+  ]);
+}
+
 type ApprovalOverrides = {
   action?: string;
   targets?: string[];
@@ -733,6 +780,107 @@ describe("operator question revise", () => {
   });
 });
 
+describe("what one authority may close", () => {
+  test("a recorded requirement cannot settle conflicting requirements", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew, {
+      escalationTriggers: ["conflicting-requirements"],
+    });
+    const questionId = raised.json.data.questionId;
+
+    // Quoting one of the conflicting sources would decide the conflict by choosing a side.
+    const quoted = await answer(
+      workspace,
+      crew,
+      { questionId, revision: 1 },
+      { authority: "requirement" },
+    );
+
+    expect(quoted.exitCode).toBe(3);
+    expect(quoted.json.reason).toBe("escalation_required");
+    expect(quoted.json.blockers[0].escalationTriggers).toEqual(["conflicting-requirements"]);
+    expect(quoted.json.blockers[0].authority).toBe("requirement");
+
+    const asked = await answer(
+      workspace,
+      crew,
+      { questionId, revision: 1 },
+      { authority: "human-answer" },
+    );
+    expect(asked.exitCode).toBe(0);
+  });
+
+  test("a recorded requirement cannot settle an unresolved ambiguity", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew, { escalationTriggers: ["ambiguity"] });
+
+    const quoted = await answer(
+      workspace,
+      crew,
+      { questionId: raised.json.data.questionId, revision: 1 },
+      { authority: "requirement" },
+    );
+
+    expect(quoted.exitCode).toBe(3);
+    expect(quoted.json.reason).toBe("escalation_required");
+  });
+
+  test("a recorded requirement settles a subject an approved source states", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew, {
+      escalationTriggers: ["visible-behavior", "scope"],
+    });
+
+    const quoted = await answer(
+      workspace,
+      crew,
+      { questionId: raised.json.data.questionId, revision: 1 },
+      { authority: "requirement" },
+    );
+
+    expect(quoted.exitCode).toBe(0);
+    expect(quoted.json.data.authority).toBe("requirement");
+  });
+
+  test("an earlier requirement cannot be reused into a question that names a conflict", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+    const questionId = raised.json.data.questionId;
+    const quoted = await answer(
+      workspace,
+      crew,
+      { questionId, revision: 1 },
+      { authority: "requirement" },
+    );
+    const answerId = quoted.json.data.answerId;
+
+    await revise(workspace, crew, questionId, 1, {
+      escalationTriggers: ["conflicting-requirements"],
+    });
+    const approved = await grant(workspace, crew, {
+      action: "answer-reuse",
+      targets: [answerId],
+      scope: `question:${questionId}`,
+      requestRevision: "2",
+      exactText: "reuse it",
+    });
+
+    const refused = await reapply(workspace, crew, {
+      questionId,
+      revision: 2,
+      answerId,
+      approvalId: approved.json.data.approvalId,
+    });
+
+    expect(refused.exitCode).toBe(3);
+    expect(refused.json.reason).toBe("escalation_required");
+  });
+});
+
 describe("concurrent delivery", () => {
   test("two deliveries of one answer submit it once", async () => {
     const workspace = await makeWorkspace();
@@ -768,24 +916,10 @@ describe("operator question escalate", () => {
     const decided = await answer(workspace, crew, { questionId, revision: 1 });
     expect(decided.exitCode).toBe(0);
 
-    const escalationPath = await writeInput(workspace, {
+    const escalated = await escalate(workspace, crew, questionId, 1, {
       escalationTriggers: ["scope", "security-permissions"],
       reason: "The change adds a write path the approved scope does not carry.",
     });
-    const escalated = await runJson(workspace, [
-      "question",
-      "escalate",
-      "--request",
-      request(),
-      "--owner-token",
-      crew.ownerToken,
-      "--question",
-      questionId,
-      "--revision",
-      "1",
-      "--input",
-      escalationPath,
-    ]);
 
     expect(escalated.exitCode).toBe(3);
     expect(escalated.json.reason).toBe("question_escalated");
@@ -824,30 +958,40 @@ describe("operator question escalate", () => {
       { authority: "human-answer" },
     );
 
-    const escalationPath = await writeInput(workspace, {
+    const escalated = await escalate(workspace, crew, questionId, 1, {
       escalationTriggers: ["visible-behavior"],
       reason: "The choice changes what an operator sees.",
     });
-    const escalated = await runJson(workspace, [
-      "question",
-      "escalate",
-      "--request",
-      request(),
-      "--owner-token",
-      crew.ownerToken,
-      "--question",
-      questionId,
-      "--revision",
-      "1",
-      "--input",
-      escalationPath,
-    ]);
 
     expect(escalated.json.data.droppedAnswerId).toBeNull();
 
     const delivered = await deliver(workspace, crew, questionId);
     expect(delivered.exitCode).toBe(6);
     expect(delivered.json.data.answerId).toBe(human.json.data.answerId);
+  });
+});
+
+describe("a question after a proven-failed delivery", () => {
+  test("can still be escalated, because nothing reached the Operative", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+    const questionId = raised.json.data.questionId;
+    await answer(workspace, crew, { questionId, revision: 1 });
+
+    await Bun.write(`${workspace.herdr}/agent-prompt.error`, "agent_not_found");
+    const failed = await deliver(workspace, crew, questionId);
+    expect(failed.json.reason).toBe("delivery_failed");
+    await rm(`${workspace.herdr}/agent-prompt.error`);
+
+    const escalated = await escalate(workspace, crew, questionId, 1, {
+      escalationTriggers: ["security-permissions"],
+      reason: "The change needs a permission the approved scope does not carry.",
+    });
+
+    expect(escalated.exitCode).toBe(3);
+    expect(escalated.json.reason).toBe("question_escalated");
+    expect(escalated.json.data.droppedAnswerId).not.toBeNull();
   });
 });
 
@@ -869,26 +1013,61 @@ describe("a resolved question", () => {
     expect(revised.exitCode).toBe(4);
     expect(revised.json.reason).toBe("question_closed");
 
-    const escalationPath = await writeInput(workspace, {
+    const escalated = await escalate(workspace, crew, questionId, 1, {
       escalationTriggers: ["scope"],
       reason: "A second look says this was a scope question.",
     });
-    const escalated = await runJson(workspace, [
-      "question",
-      "escalate",
+    expect(escalated.exitCode).toBe(4);
+    expect(escalated.json.reason).toBe("question_closed");
+  });
+});
+
+describe("a withdrawn question", () => {
+  test("cannot be answered back onto an attempt that ended", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+    const questionId = raised.json.data.questionId;
+
+    // A replacement ends the former attempt, so the question it raised holds nothing.
+    await rm(`${workspace.herdr}/agent-live`);
+    const inspected = await runJson(workspace, [
+      "attempt",
+      "replace",
       "--request",
       request(),
       "--owner-token",
       crew.ownerToken,
-      "--question",
-      questionId,
-      "--revision",
-      "1",
-      "--input",
-      escalationPath,
+      "--attempt",
+      crew.attemptId,
     ]);
-    expect(escalated.exitCode).toBe(4);
-    expect(escalated.json.reason).toBe("question_closed");
+    expect(inspected.json.reason).toBe("inspection_required");
+
+    const replaced = await runJson(workspace, [
+      "attempt",
+      "replace",
+      "--request",
+      request(),
+      "--owner-token",
+      crew.ownerToken,
+      "--attempt",
+      crew.attemptId,
+      "--inspection",
+      inspected.json.blockers[0].identity,
+    ]);
+    expect(replaced.json.reason).toBe("attempt_replaced");
+
+    const frontier = await runJson(workspace, ["work", "frontier"]);
+    expect(frontier.json.data.questions).toEqual([]);
+
+    const refused = await answer(workspace, crew, { questionId, revision: 1 });
+
+    expect(refused.exitCode).toBe(4);
+    expect(refused.json.reason).toBe("question_closed");
+
+    // It stays out of the frontier, so no dead attempt is reported as waiting on an answer.
+    const after = await runJson(workspace, ["work", "frontier"]);
+    expect(after.json.data.questions).toEqual([]);
   });
 });
 
@@ -1072,6 +1251,104 @@ describe("operator question reapply", () => {
 
     expect(refused.exitCode).toBe(3);
     expect(refused.json.reason).toBe("escalation_required");
+  });
+});
+
+describe("a revoked reuse approval", () => {
+  test("stops the reuse it was granted for", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+    const questionId = raised.json.data.questionId;
+    const recorded = await answer(
+      workspace,
+      crew,
+      { questionId, revision: 1 },
+      { authority: "human-answer" },
+    );
+    const answerId = recorded.json.data.answerId;
+    await revise(workspace, crew, questionId, 1, { affectedScope: ["modules/report"] });
+
+    const approved = await grant(workspace, crew, {
+      action: "answer-reuse",
+      targets: [answerId],
+      scope: `question:${questionId}`,
+      requestRevision: "2",
+      exactText: "yes, that answer still holds",
+    });
+    const revoked = await runJson(workspace, [
+      "approval",
+      "revoke",
+      "--request",
+      request(),
+      "--owner-token",
+      crew.ownerToken,
+      "--approval",
+      approved.json.data.approvalId,
+      "--revision",
+      "1",
+    ]);
+    expect(revoked.json.reason).toBe("approval_revoked");
+
+    const refused = await reapply(workspace, crew, {
+      questionId,
+      revision: 2,
+      answerId,
+      approvalId: approved.json.data.approvalId,
+    });
+
+    expect(refused.exitCode).toBe(3);
+    expect(refused.json.reason).toBe("approval_revoked");
+
+    // The question still holds no answer, so nothing reaches the Operative on a dead approval.
+    const shown = await runJson(workspace, ["question", "show", "--question", questionId]);
+    expect(shown.json.data.answer).toBeNull();
+  });
+});
+
+describe("reuse across a rewritten question", () => {
+  test("rests on the approval a person gave for that exact revision", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+    const questionId = raised.json.data.questionId;
+    const recorded = await answer(
+      workspace,
+      crew,
+      { questionId, revision: 1 },
+      { authority: "human-answer" },
+    );
+    const answerId = recorded.json.data.answerId;
+
+    // Nothing of the first question survives except its identity.
+    await revise(workspace, crew, questionId, 1, {
+      question: "Which timezone does the export stamp its rows in?",
+      affectedScope: ["modules/report"],
+      recommendation: "Stamp them in UTC.",
+    });
+
+    // The CLI does not judge whether the old words still fit; a person does, and says so here.
+    const approved = await grant(workspace, crew, {
+      action: "answer-reuse",
+      targets: [answerId],
+      scope: `question:${questionId}`,
+      requestRevision: "2",
+      exactText: "I read the new question. That answer still covers it.",
+    });
+    const reused = await reapply(workspace, crew, {
+      questionId,
+      revision: 2,
+      answerId,
+      approvalId: approved.json.data.approvalId,
+    });
+
+    expect(reused.exitCode).toBe(0);
+    expect(reused.json.data.approvalId).toBe(approved.json.data.approvalId);
+
+    // The reuse names the approval that stands behind it, so a later session can check it.
+    const shown = await runJson(workspace, ["question", "show", "--question", questionId]);
+    expect(shown.json.data.answer.reusedFromId).toBe(answerId);
+    expect(shown.json.data.answer.approvalId).toBe(approved.json.data.approvalId);
   });
 });
 

@@ -54,7 +54,7 @@ type QuestionOutcome = {
   lines: (detail: Record<string, unknown>) => string[];
 };
 
-function words(detail: Record<string, unknown>, key: string): string[] {
+function textList(detail: Record<string, unknown>, key: string): string[] {
   const value = detail[key];
   return Array.isArray(value) ? value.map(String) : [];
 }
@@ -86,9 +86,17 @@ const questionOutcomes = {
     reason: "escalation_required",
     outcome: "missing-condition",
     lines: (detail) => [
-      "This question is outside delegated authority, so an Operator decision cannot settle it:",
-      ...words(detail, "escalationTriggers").map((one) => `  ${one}`),
+      `This question names subjects a ${String(detail.authority)} cannot settle:`,
+      ...textList(detail, "escalationTriggers").map((one) => `  ${one}`),
       "Bring it to the user and record their answer as a human answer.",
+    ],
+  },
+  "question-closed": {
+    reason: "question_closed",
+    outcome: "conflict",
+    lines: (detail) => [
+      `Question ${String(detail.questionId)} is ${String(detail.state)}, so nothing waits on it.`,
+      "Raise a new question instead of changing one the Operative has already acted on.",
     ],
   },
   "already-acknowledged": {
@@ -285,25 +293,6 @@ async function runRevise(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
-  if (result.status === "question-closed") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "question_closed",
-        blockers: [
-          { reason: "question_closed", questionId: result.questionId, state: result.state },
-        ],
-        operation: "question_revise",
-      },
-      lines: [
-        `Question ${result.questionId} is ${result.state}, so nothing waits on it any more.`,
-        "Raise a new question instead.",
-      ],
-    });
-    return "reported";
-  }
-
   if (result.status === "delivery-started") {
     report({
       json: parsed.json,
@@ -388,28 +377,21 @@ async function runEscalate(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
-  if (result.status === "question-closed" || result.status === "delivery-started") {
-    const closed = result.status === "question-closed";
+  if (result.status === "delivery-started") {
     report({
       json: parsed.json,
       result: {
         outcome: "conflict",
-        reason: closed ? "question_closed" : "delivery_started",
+        reason: "delivery_started",
         blockers: [
-          {
-            reason: closed ? "question_closed" : "delivery_started",
-            questionId: result.questionId,
-            state: result.state,
-          },
+          { reason: "delivery_started", questionId: result.questionId, state: result.state },
         ],
         operation: "question_escalate",
       },
-      lines: closed
-        ? [`Question ${result.questionId} is ${result.state}, so nothing waits on it any more.`]
-        : [
-            "An answer to this question is already on its way, so it is too late to escalate.",
-            "Let the Operative acknowledge it, then raise the concern as a new question.",
-          ],
+      lines: [
+        "An answer to this question is already on its way, so it is too late to escalate.",
+        "Let the Operative acknowledge it, then raise the concern as a new question.",
+      ],
     });
     return "reported";
   }
