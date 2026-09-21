@@ -45,6 +45,10 @@ Do not copy it by hand into the worktree.
   A code result needs the diff, the requirements, and the checks.
   A non-code result needs the artifacts, the requirements, the citations, and the provenance.
 - `review_blocked`: the host could not run the axes, or a credential or input is missing.
+- `review_host_mismatch`: the report names a host the launch did not use.
+- `review_worktree_changed`: the reviewer edited or committed in its own checkout.
+  A review reads and runs checks.
+  Repairing a finding is rework, and rework is a separate assignment for a fresh Operative.
 
 A blocked or partial review accepts nothing.
 
@@ -90,6 +94,8 @@ Acceptance refuses on:
 - `findings_undisposed`: a finding carries no disposition.
 - `rework_pending`: an accepted correction is still waiting.
 - `checks_unproven`: a recorded check failed, was flaky, or did not run.
+- `checks_contradicted`: a review ran a recorded check itself and saw a different outcome.
+  What a reviewer ran outranks what the producer wrote about its own work.
 - `pr_authority_missing`: the implementation has no pull request.
 - `pr_head_required` or `pr_head_changed`: the pull request head is not the one the review saw.
 

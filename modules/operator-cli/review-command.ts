@@ -210,13 +210,9 @@ async function runReport(parsed: ParsedArguments): Promise<Handled> {
       json: parsed.json,
       result: {
         outcome: "conflict",
-        reason: "review_sub_agent_host_mismatch",
+        reason: "review_host_mismatch",
         blockers: [
-          {
-            reason: "review_sub_agent_host_mismatch",
-            host: result.stated,
-            recorded: result.recorded,
-          },
+          { reason: "review_host_mismatch", host: result.stated, recorded: result.recorded },
         ],
         operation: "review_report",
         data: { reviewId: result.reviewId },

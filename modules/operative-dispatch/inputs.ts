@@ -199,19 +199,20 @@ export async function prepareInputs(request: {
     };
   }
 
-  // Operator installs its own skills. A skill it does not own, such as the review skill, must
-  // already be in the checkout, so a missing one blocks the launch instead of a silent fallback.
-  for (const skill of request.plan.requiredSkills) {
+  // Operator installs its own skills. The review skill is not one of them, so a checkout that
+  // does not already hold it blocks the launch instead of receiving a copy Operator maintains.
+  const required = request.plan.requiredSkill;
+  if (required !== null) {
     const found = await SkillInstall.locate({
       projectRoot: request.plan.worktreePath,
       target,
-      skill,
+      skill: required,
     });
     if (found.status !== "found") {
       return {
         status: "failed",
         reason: "review_skill_missing",
-        detail: `This checkout holds no ${skill} skill at ${found.path}.`,
+        detail: `This checkout holds no ${required} skill at ${found.path}.`,
       };
     }
   }

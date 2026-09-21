@@ -127,6 +127,7 @@ export type Reason =
   | "submission_drift"
   | "review_axes_incomplete"
   | "review_axes_not_parallel"
+  | "review_host_mismatch"
   | "review_sub_agent_host_mismatch"
   | "review_sub_agent_failed"
   | "review_coverage_incomplete"

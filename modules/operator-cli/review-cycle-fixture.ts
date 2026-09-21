@@ -300,6 +300,7 @@ export function reportBody(options: {
   specFindings?: Finding[];
   sequential?: boolean;
   subAgentHost?: string;
+  statedHost?: string;
   failedAxis?: string;
   observedChecks?: Array<{ name: string; outcome: string }>;
 }) {
@@ -309,7 +310,7 @@ export function reportBody(options: {
   return {
     kind: "reported",
     submissionIdentity: options.submissionIdentity,
-    host: options.host,
+    host: options.statedHost ?? options.host,
     subAgents: axes.map((axis, index) => ({
       axis,
       name: `${axis}-axis`,

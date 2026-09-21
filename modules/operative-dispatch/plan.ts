@@ -55,8 +55,8 @@ export type DispatchPlan = {
   snapshotIdentity: string;
   // The fixed copies this launch carries into the worktree, beyond the common release inputs.
   extraInputs: Array<{ path: string; sourcePath: string; identity: string }>;
-  // The skills this launch requires the worktree to already hold, such as the review skill.
-  requiredSkills: string[];
+  // A skill this launch needs the checkout to already hold, which Operator does not install.
+  requiredSkill: string | null;
 };
 
 // The recorded host names stay full; Herdr names the executable it starts.
@@ -64,6 +64,9 @@ const agentKindByHost = { "claude-code": "claude", opencode: "opencode" } as con
 
 /** Everything a launch writes into a worktree lives under this root. */
 export const LOCAL_ROOT = ".operator/";
+
+/** The upstream skill a reviewer loads. Operator does not own it, so it is located, not copied. */
+export const REVIEW_SKILL = "code-review";
 
 export const BRIEF_PATH = ".operator/local/brief.md";
 export const REFERENCE_PATH = ".operator/local/attempt.json";
@@ -282,7 +285,7 @@ export function planDispatch(request: {
     snapshotIdentity: ContentIdentity.of(request.snapshot),
     extraInputs,
     // A reviewer that cannot load the review skill is blocked before any agent starts.
-    requiredSkills: review === null ? [] : ["code-review"],
+    requiredSkill: review === null ? null : REVIEW_SKILL,
   };
 }
 

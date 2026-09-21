@@ -1,6 +1,15 @@
 import { readState, type StateFailure } from "./operations.ts";
 import { findingsOf, missingAxes, readReview, reportsOf, undisposed } from "./review.ts";
+import {
+  storedAxes,
+  storedBlocker,
+  storedChecked,
+  storedObservedChecks,
+  storedSubAgents,
+} from "./review-input.ts";
+import { storedChecks, storedCode, storedConcerns, storedDecisions } from "./submission-input.ts";
 import { readSubmission } from "./submission.ts";
+import { storedArtifacts } from "./submission-store.ts";
 
 export type ReviewReport = {
   review: {
@@ -93,9 +102,9 @@ export async function showReview(request: {
         assignmentId: review.assignmentId,
         state: review.state,
         host: review.host,
-        axes: JSON.parse(review.axes),
-        subAgents: review.subAgents === null ? null : JSON.parse(review.subAgents),
-        blocker: review.blocker === null ? null : JSON.parse(review.blocker),
+        axes: storedAxes(review.axes),
+        subAgents: review.subAgents === null ? null : storedSubAgents(review.subAgents),
+        blocker: review.blocker === null ? null : storedBlocker(review.blocker),
         reportedAt: review.reportedAt,
         revision: review.revision,
       },
@@ -110,17 +119,17 @@ export async function showReview(request: {
         identity: submission.identity,
         state: submission.state,
         reviewBase: submission.reviewBase,
-        artifacts: JSON.parse(submission.artifacts),
-        checks: JSON.parse(submission.checks),
-        concerns: JSON.parse(submission.concerns),
-        decisions: JSON.parse(submission.decisions),
-        code: submission.code === null ? null : JSON.parse(submission.code),
+        artifacts: storedArtifacts(submission.artifacts),
+        checks: storedChecks(submission.checks),
+        concerns: storedConcerns(submission.concerns),
+        decisions: storedDecisions(submission.decisions),
+        code: submission.code === null ? null : storedCode(submission.code),
       },
       reports: reports.map((one) => ({
         axis: one.axis,
         summary: one.summary,
-        checked: JSON.parse(one.checked),
-        observedChecks: JSON.parse(one.observedChecks),
+        checked: storedChecked(one.checked),
+        observedChecks: storedObservedChecks(one.observedChecks),
         findingCount: one.findingCount,
         identity: one.identity,
       })),

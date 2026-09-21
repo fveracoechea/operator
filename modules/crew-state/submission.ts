@@ -5,6 +5,7 @@ import { type AssignmentRow, insertAssignment, nextOrderIndex } from "./assignme
 import { identityOf } from "./identity.ts";
 import { assignments, reviews, submissions } from "./schema.ts";
 import { REVIEW_AXES } from "./review.ts";
+import { storedRequirements } from "./work-input.ts";
 import type { SubmissionInput } from "./submission-input.ts";
 import type { StoredArtifact } from "./submission-store.ts";
 
@@ -55,7 +56,7 @@ export function latestSubmission(db: CrewReader, assignmentId: string): Submissi
 
 /** The identity of the acceptance requirements one assignment holds. */
 function requirementsIdentityOf(assignment: AssignmentRow): string {
-  return identityOf(JSON.parse(assignment.acceptanceRequirements));
+  return identityOf(storedRequirements(assignment.acceptanceRequirements));
 }
 
 /**

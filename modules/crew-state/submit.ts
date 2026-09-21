@@ -1,5 +1,5 @@
 import { OperatorConfig } from "../operator-config/main.ts";
-import { type AttemptFailure, readContext, type Shared } from "./dispatch-context.ts";
+import { readWriterContext, type WriterFailure } from "./dispatch-context.ts";
 import { identityOf } from "./identity.ts";
 import { mutate, readState } from "./operations.ts";
 import { submissionInputSchema } from "./submission-input.ts";
@@ -11,12 +11,8 @@ type StoreFailure = Exclude<StoreOutcome, { status: "stored" }>;
 export type SubmitResult =
   | SubmitOutcome
   | { status: "invalid-input"; issues: string[] }
-  | { status: "not-dispatched"; attemptId: string }
-  | { status: "not-acknowledged"; attemptId: string }
-  | { status: "reference-mismatch"; attemptId: string; detail: string }
   | StoreFailure
-  | AttemptFailure
-  | Shared;
+  | WriterFailure;
 
 type Reported = { repeated: boolean; result: SubmitResult };
 
@@ -58,35 +54,11 @@ export async function submitAttemptResult(request: {
     };
   }
 
-  const read = await readContext(request.projectRoot, {
-    attemptId: request.attemptId,
-    ownerToken: null,
-  });
+  const read = await readWriterContext(request.projectRoot, request);
   if (read.status !== "ok") {
     return { repeated: false, result: read };
   }
-
-  const dispatch = read.context.dispatch;
-  if (dispatch === null) {
-    return { repeated: false, result: { status: "not-dispatched", attemptId: request.attemptId } };
-  }
-  if (dispatch.worktreePath !== request.worktreePath) {
-    return {
-      repeated: false,
-      result: {
-        status: "reference-mismatch",
-        attemptId: request.attemptId,
-        detail: `This attempt is recorded against ${dispatch.worktreePath}.`,
-      },
-    };
-  }
-  // An unacknowledged attempt never proved the brief arrived, so it has no fixed result to hand over.
-  if (dispatch.acknowledgedAt === null) {
-    return {
-      repeated: false,
-      result: { status: "not-acknowledged", attemptId: request.attemptId },
-    };
-  }
+  const dispatch = read.dispatch;
 
   const input = parsed.data;
   const submissionId = identityOf({ attemptId: request.attemptId, input }).slice(0, 32);

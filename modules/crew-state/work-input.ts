@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { readStored } from "./stored.ts";
 
 export type AssignmentKind = "production" | "review" | "planning";
 
@@ -97,4 +98,18 @@ export function isExecutable(kind: string): boolean {
 
 export function isReview(kind: string): boolean {
   return kind === "review";
+}
+
+// An assignment row stores these columns, and every reader takes them back through the schema
+// that wrote them rather than asserting the shape it expected.
+export function storedRequirements(stored: string): string[] {
+  return readStored("acceptance requirement list", z.array(z.string()), stored);
+}
+
+export function storedPermissions(stored: string): z.infer<typeof permissions> {
+  return readStored("permission record", permissions, stored);
+}
+
+export function storedFixedInputs(stored: string): Array<z.infer<typeof fixedInput>> {
+  return readStored("fixed input list", z.array(fixedInput), stored);
 }

@@ -1,6 +1,6 @@
 import { OperativeDispatch } from "../operative-dispatch/main.ts";
 import { OperatorConfig } from "../operator-config/main.ts";
-import { type AttemptFailure, readContext, type Shared } from "./dispatch-context.ts";
+import { readWriterContext, type WriterFailure } from "./dispatch-context.ts";
 import { mutate, readState } from "./operations.ts";
 import { reviewReportInputSchema } from "./review-input.ts";
 import { type ReportOutcome, recordReviewReport } from "./review-report.ts";
@@ -12,17 +12,13 @@ export type RecordReviewResult =
   | { status: "invalid-input"; issues: string[] }
   | { status: "unknown-review"; reviewId: string }
   | { status: "review-not-assigned"; reviewId: string; assignmentId: string }
-  | { status: "not-dispatched"; attemptId: string }
-  | { status: "not-acknowledged"; attemptId: string }
-  | { status: "reference-mismatch"; attemptId: string; detail: string }
   | {
       status: "worktree-changed";
       attemptId: string;
       changes: string[];
       commits: string[];
     }
-  | AttemptFailure
-  | Shared;
+  | WriterFailure;
 
 /**
  * Records the result of one review from the reviewer's own worktree.
@@ -48,34 +44,11 @@ export async function recordReview(request: {
     };
   }
 
-  const read = await readContext(request.projectRoot, {
-    attemptId: request.attemptId,
-    ownerToken: null,
-  });
+  const read = await readWriterContext(request.projectRoot, request);
   if (read.status !== "ok") {
     return { repeated: false, result: read };
   }
-
-  const dispatch = read.context.dispatch;
-  if (dispatch === null) {
-    return { repeated: false, result: { status: "not-dispatched", attemptId: request.attemptId } };
-  }
-  if (dispatch.worktreePath !== request.worktreePath) {
-    return {
-      repeated: false,
-      result: {
-        status: "reference-mismatch",
-        attemptId: request.attemptId,
-        detail: `This attempt is recorded against ${dispatch.worktreePath}.`,
-      },
-    };
-  }
-  if (dispatch.acknowledgedAt === null) {
-    return {
-      repeated: false,
-      result: { status: "not-acknowledged", attemptId: request.attemptId },
-    };
-  }
+  const dispatch = read.dispatch;
 
   // A review reads and runs checks. An edit or a commit in its own checkout is rework, which
   // belongs to a fresh Operative, so the report is refused instead of recorded beside it.

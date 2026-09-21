@@ -37,7 +37,7 @@ export type AttemptContext = {
   operations: OperationRow[];
   review: ReviewContext | null;
   // How many attempts this assignment has held, which bounds a replacement.
-  attempts: number;
+  attemptsHeld: number;
   // True while the Operator that claimed this attempt still owns the crew.
   current: boolean;
 };
@@ -110,7 +110,7 @@ export function lookupAttempt(db: CrewReader, attemptId: string): AttemptLookup 
       dispatch: readDispatchRow(db, attempt.id),
       operations: liveOperations(db, attempt.id),
       review: readReviewContext(db, assignment.id),
-      attempts: attemptCount(db, assignment.id),
+      attemptsHeld: attemptCount(db, assignment.id),
       current: currentOwnership(db)?.token === attempt.ownerToken,
     },
   };

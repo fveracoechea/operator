@@ -276,10 +276,15 @@ describe("operator review report", () => {
       workspace,
       reviewer,
       submitted.json.data.reviewId,
-      reportBody({ submissionIdentity: submitted.json.data.identity, host: "opencode" }),
+      // The sub-agents name the launched host, so only the stated host can be refused here.
+      reportBody({
+        submissionIdentity: submitted.json.data.identity,
+        host: workspace.host,
+        statedHost: "opencode",
+      }),
     );
 
-    expect(reported.json.reason).toBe("review_sub_agent_host_mismatch");
+    expect(reported.json.reason).toBe("review_host_mismatch");
     expect(reported.exitCode).toBe(4);
     expect(reported.json.blockers[0]).toMatchObject({ host: "opencode", recorded: "claude-code" });
   });

@@ -15,7 +15,10 @@ Those sub-agents read files and run the recorded check commands.
 They never edit, commit, push, or rework, and they never take a Herdr slot or worktree of their own.
 
 `operator review report` records the two axis reports, or the blocker that stopped the review.
-The report names the submission identity it read, both axes appear exactly once, each sub-agent names the reviewer's own host, the two sub-agent windows overlap, and each axis states what it read.
+The report names the submission identity it read, names the host the launch recorded, carries both axes exactly once, records a window for each sub-agent that overlaps the other, and states what each axis read.
+Each axis also records the outcome of every recorded check it ran for itself.
+That reading outranks the producer's own word about its own work, so acceptance refuses when the two differ.
+A reviewer that edited or committed in its own checkout is refused before any of that, because repairing a finding is rework and rework belongs to a fresh Operative.
 A code result requires the diff, the requirements, and the checks.
 A non-code result requires the artifacts, the requirements, the citations, and the provenance of each recorded answer.
 
@@ -31,7 +34,7 @@ A finding is corrected, rejected with a reason, or deferred with a reason and a 
 A blocker is never deferred, because deferring one would waive an approved requirement through technical judgment alone.
 
 `operator work accept` is the only path to accepted completion, and it now reads the recorded evidence of production work.
-It verifies the current ownership, the assignment revision, the exact submission, both axis reports, a disposition on every finding, no correction still waiting for rework, a passing outcome on every recorded check, and the pull request head the caller read against the head the review saw.
+It verifies the current ownership, the assignment revision, the exact submission, both axis reports, a disposition on every finding, no correction still waiting for rework, a passing outcome on every recorded check, no check outcome the review observed differently, and the pull request head the caller read against the head the submission recorded.
 A stopped reviewer, a missing input, an unavailable review capability, a missing credential, a missing pull-request authority, a failed check, and a flaky check are each a recorded fact that blocks, never an absence that passes.
 
 ## Considered options
@@ -44,6 +47,12 @@ The user chose one Herdr review agent with native sub-agents, and three Herdr ag
 
 Trusting the reviewer's word that the axes ran in parallel was rejected.
 Each sub-agent records its own window, so a sequential pair is visible and is refused.
+
+Trusting the producer's own check outcomes was rejected.
+A producer that writes `passed` over a failing run would otherwise reach acceptance, so the reviewer records what it ran for itself and a difference blocks.
+
+Enforcing the reviewer's write limits only through the brief was rejected.
+Operator cannot stop another host from writing, but it can read the checkout afterwards, and a review that changed its own checkout is refused.
 
 Letting the reviewer read the producer worktree was rejected.
 That checkout keeps changing, and evidence that can change is not fixed evidence.

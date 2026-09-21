@@ -65,7 +65,7 @@ export async function replaceAttempt(request: {
   if (
     context !== null &&
     context.review.state !== "reported" &&
-    read.context.attempts >= REVIEW_ATTEMPT_LIMIT
+    read.context.attemptsHeld >= REVIEW_ATTEMPT_LIMIT
   ) {
     return {
       status: "review-attempt-limit",

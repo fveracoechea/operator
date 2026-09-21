@@ -9,6 +9,7 @@ import {
   storedResultKind,
 } from "./submission-input.ts";
 import { storedArtifacts } from "./submission-store.ts";
+import { storedFixedInputs, storedPermissions, storedRequirements } from "./work-input.ts";
 import { REVIEW_AXES } from "./review.ts";
 import type { AssignmentRow } from "./assignment.ts";
 import {
@@ -108,10 +109,10 @@ export function briefOf(
     sourceRevision: assignment.sourceRevision,
     title: assignment.title,
     kind: assignment.kind,
-    acceptanceRequirements: JSON.parse(assignment.acceptanceRequirements),
+    acceptanceRequirements: storedRequirements(assignment.acceptanceRequirements),
     approvedScope: assignment.approvedScope,
-    permissions: JSON.parse(assignment.permissions),
-    fixedInputs: JSON.parse(assignment.fixedInputs),
+    permissions: storedPermissions(assignment.permissions),
+    fixedInputs: storedFixedInputs(assignment.fixedInputs),
     review:
       review === null
         ? null
@@ -205,4 +206,51 @@ export async function record(
     body,
   );
   return result.status === "recorded" ? { status: "recorded", repeated } : result;
+}
+
+export type WriterFailure =
+  | { status: "not-dispatched"; attemptId: string }
+  | { status: "not-acknowledged"; attemptId: string }
+  | { status: "reference-mismatch"; attemptId: string; detail: string }
+  | AttemptFailure
+  | Shared;
+
+export type WriterRead =
+  | { status: "ok"; context: AttemptContext; dispatch: DispatchRow }
+  | WriterFailure;
+
+/**
+ * Reads one attempt as the Operative or reviewer that runs in its worktree.
+ * Both carry no ownership token, so the attempt must still be the current writer, must have
+ * been launched, must run in the checkout it names, and must have acknowledged its brief.
+ */
+export async function readWriterContext(
+  projectRoot: string,
+  request: { attemptId: string; worktreePath: string },
+): Promise<WriterRead> {
+  const read = await readContext(projectRoot, {
+    attemptId: request.attemptId,
+    ownerToken: null,
+  });
+  if (read.status !== "ok") {
+    return read;
+  }
+
+  const dispatch = read.context.dispatch;
+  if (dispatch === null) {
+    return { status: "not-dispatched", attemptId: request.attemptId };
+  }
+  if (dispatch.worktreePath !== request.worktreePath) {
+    return {
+      status: "reference-mismatch",
+      attemptId: request.attemptId,
+      detail: `This attempt is recorded against ${dispatch.worktreePath}.`,
+    };
+  }
+  // An unacknowledged attempt never proved the brief arrived, so it reports nothing fixed.
+  if (dispatch.acknowledgedAt === null) {
+    return { status: "not-acknowledged", attemptId: request.attemptId };
+  }
+
+  return { status: "ok", context: read.context, dispatch };
 }
