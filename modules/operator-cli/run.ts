@@ -94,8 +94,8 @@ export async function run(args: string[]): Promise<void> {
       // Only crew ownership can be taken over, so any other command refuses the flag.
       (command !== "crew" && parsed.takeover) ||
       // A dispatch fixes the selection it launches with, so only it reads a selection override.
-      (command !== "attempt" && hasSelectionOrProbeArguments(parsed)) ||
-      (command === "attempt" && parsed.approvedProbe !== undefined)
+      parsed.approvedProbe !== undefined ||
+      (!(command === "attempt" && words[0] === "dispatch") && hasSelectionOrProbeArguments(parsed))
     ) {
       rejectArguments(parsed.json);
       return;

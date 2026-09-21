@@ -6,17 +6,11 @@ import { report } from "./result.ts";
 
 type Handled = "reported" | "invalid-arguments";
 
-type DispatchReport = {
-  attemptId: string;
-  assignmentId: string;
-  stage: string;
-  branch: string;
-  baseCommit: string;
-  worktreePath: string;
-  agentName: string;
-  agentHost: string;
-  operations: Array<{ kind: string; state: string; detail: string | null }>;
-};
+// The report belongs to the crew state, so this command reads its shape from that interface.
+type DispatchReport = Extract<
+  Awaited<ReturnType<typeof CrewState.dispatch>>,
+  { report: unknown }
+>["report"];
 
 function mutationArguments(parsed: ParsedArguments) {
   const { requestId, ownerToken, attemptId } = parsed.crew;
@@ -36,13 +30,42 @@ function launchLines(report: DispatchReport): string[] {
   ];
 }
 
+/**
+ * Reports a recorded launch snapshot this release cannot read.
+ * A recovery and a replacement both restore the recorded inputs, so neither one runs on a guess.
+ */
+function reportUnreadableSnapshot(
+  parsed: ParsedArguments,
+  operation: "attempt_dispatch" | "attempt_replace",
+  result: { attemptId: string; detail: string },
+): Handled {
+  report({
+    json: parsed.json,
+    result: {
+      outcome: "conflict",
+      reason: "snapshot_unreadable",
+      blockers: [
+        { reason: "snapshot_unreadable", attemptId: result.attemptId, detail: result.detail },
+      ],
+      operation,
+      data: { attemptId: result.attemptId },
+    },
+    lines: [
+      `Attempt ${result.attemptId} holds a recorded snapshot this release cannot read:`,
+      `  ${result.detail}`,
+      "The recorded inputs stay fixed, so this step needs your decision.",
+    ],
+  });
+  return "reported";
+}
+
 async function runDispatch(parsed: ParsedArguments): Promise<Handled> {
   const mutation = mutationArguments(parsed);
   if (mutation === null) {
     return "invalid-arguments";
   }
 
-  const { result } = await CrewState.dispatch({
+  const result = await CrewState.dispatch({
     projectRoot: process.cwd(),
     ...mutation,
     baseCommit: parsed.crew.baseCommit ?? null,
@@ -84,6 +107,10 @@ async function runDispatch(parsed: ParsedArguments): Promise<Handled> {
       ],
     });
     return "reported";
+  }
+
+  if (result.status === "snapshot-unreadable") {
+    return reportUnreadableSnapshot(parsed, "attempt_dispatch", result);
   }
 
   if (result.status === "snapshot-drift") {
@@ -247,7 +274,7 @@ async function runAcknowledge(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
-  const { result } = await CrewState.acknowledge({
+  const result = await CrewState.acknowledge({
     projectRoot: reference.controllingCheckout,
     requestId,
     attemptId,
@@ -311,7 +338,7 @@ async function runReconcile(parsed: ParsedArguments): Promise<Handled> {
     return "invalid-arguments";
   }
 
-  const { result } = await CrewState.reconcile({ projectRoot: process.cwd(), ...mutation });
+  const result = await CrewState.reconcile({ projectRoot: process.cwd(), ...mutation });
   if (reportSharedFailure(parsed, "attempt_reconcile", result)) {
     return "reported";
   }
@@ -347,7 +374,7 @@ async function runReplace(parsed: ParsedArguments): Promise<Handled> {
     return "invalid-arguments";
   }
 
-  const { result } = await CrewState.replace({
+  const result = await CrewState.replace({
     projectRoot: process.cwd(),
     ...mutation,
     approvedInspection: parsed.crew.inspectionIdentity ?? null,
@@ -446,6 +473,10 @@ async function runReplace(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
+  if (result.status === "snapshot-unreadable") {
+    return reportUnreadableSnapshot(parsed, "attempt_replace", result);
+  }
+
   report({
     json: parsed.json,
     result: {
@@ -474,7 +505,7 @@ async function runShow(parsed: ParsedArguments): Promise<Handled> {
     return "invalid-arguments";
   }
 
-  const { result } = await CrewState.attempt({ projectRoot: process.cwd(), attemptId });
+  const result = await CrewState.attempt({ projectRoot: process.cwd(), attemptId });
   if (reportSharedFailure(parsed, "attempt_show", result)) {
     return "reported";
   }

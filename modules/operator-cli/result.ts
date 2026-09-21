@@ -98,6 +98,7 @@ export type Reason =
   | "dispatch_stage_uncertain"
   | "reconciliation_required"
   | "snapshot_drift"
+  | "snapshot_unreadable"
   | "dispatch_plan_changed"
   | "commit_required"
   | "attempt_reconciled"

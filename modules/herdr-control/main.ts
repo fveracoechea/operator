@@ -1,10 +1,13 @@
-import {
-  DEFAULT_TIMEOUT_MS,
-  type HerdrOutcome,
-  invokeHerdr,
-  readRecords,
-  readString,
-} from "./invoke.ts";
+import { type HerdrOutcome, invokeHerdr, readRecords, readString } from "./invoke.ts";
+
+/**
+ * Every call is bounded, because an unbounded one would hold a launch open with no answer.
+ * A creation and a launch get room beyond Herdr's own startup timeout, so a slow machine
+ * reports a real outcome instead of an uncertain one.
+ */
+const CREATE_TIMEOUT_MS = 180_000;
+const LAUNCH_TIMEOUT_MS = 120_000;
+const READ_TIMEOUT_MS = 30_000;
 
 type Worktree = { path: string; branch: string | null; workspaceId: string | null };
 
@@ -71,7 +74,6 @@ export const HerdrControl = {
     branch: string;
     baseCommit: string;
     label: string;
-    timeoutMs?: number;
   }): Promise<HerdrOutcome<{ workspaceId: string; worktree: Worktree }>> {
     const outcome = await invokeHerdr({
       args: [
@@ -89,7 +91,7 @@ export const HerdrControl = {
         request.label,
         "--no-focus",
       ],
-      timeoutMs: request.timeoutMs,
+      timeoutMs: CREATE_TIMEOUT_MS,
     });
     if (outcome.status !== "succeeded") {
       return outcome;
@@ -108,6 +110,7 @@ export const HerdrControl = {
   async findRootPane(request: { workspaceId: string }): Promise<Lookup<{ paneId: string }>> {
     const outcome = await invokeHerdr({
       args: ["pane", "list", "--workspace", request.workspaceId],
+      timeoutMs: READ_TIMEOUT_MS,
     });
 
     return lookupFrom(outcome, ["workspace_not_found"], (result) => {
@@ -122,11 +125,10 @@ export const HerdrControl = {
     name: string;
     kind: string;
     paneId: string;
-    timeoutMs?: number;
   }): Promise<HerdrOutcome<Agent>> {
     const outcome = await invokeHerdr({
       args: ["agent", "start", request.name, "--kind", request.kind, "--pane", request.paneId],
-      timeoutMs: request.timeoutMs,
+      timeoutMs: LAUNCH_TIMEOUT_MS,
     });
     if (outcome.status !== "succeeded") {
       return outcome;
@@ -142,14 +144,10 @@ export const HerdrControl = {
    * Submits the brief to a launched Operative.
    * Herdr acknowledges the submission, never a turn, so acknowledgement stays the Operative's job.
    */
-  async submitPrompt(request: {
-    target: string;
-    text: string;
-    timeoutMs?: number;
-  }): Promise<HerdrOutcome<Agent>> {
+  async submitPrompt(request: { target: string; text: string }): Promise<HerdrOutcome<Agent>> {
     const outcome = await invokeHerdr({
       args: ["agent", "prompt", request.target, request.text],
-      timeoutMs: request.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      timeoutMs: LAUNCH_TIMEOUT_MS,
     });
     if (outcome.status !== "succeeded") {
       return outcome;
@@ -163,7 +161,10 @@ export const HerdrControl = {
 
   /** Read-only. Reports whether a named writer is still live. */
   async findAgent(request: { name: string }): Promise<Lookup<Agent>> {
-    const outcome = await invokeHerdr({ args: ["agent", "get", request.name] });
+    const outcome = await invokeHerdr({
+      args: ["agent", "get", request.name],
+      timeoutMs: READ_TIMEOUT_MS,
+    });
     return lookupFrom(outcome, ["agent_not_found", "pane_not_found"], (result) =>
       readAgent(record(result, "agent")),
     );
@@ -173,6 +174,7 @@ export const HerdrControl = {
   async findWorktree(request: { repoRoot: string; path: string }): Promise<Lookup<Worktree>> {
     const outcome = await invokeHerdr({
       args: ["worktree", "list", "--cwd", request.repoRoot],
+      timeoutMs: READ_TIMEOUT_MS,
     });
     if (outcome.status === "uncertain") {
       return { status: "unknown", detail: outcome.detail };

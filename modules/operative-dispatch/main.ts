@@ -2,6 +2,7 @@ import { HerdrControl } from "../herdr-control/main.ts";
 import { type PrepareOutcome, prepareInputs } from "./inputs.ts";
 import { inspectWork, type WorkInspection } from "./inspect.ts";
 import { readReference } from "./reference.ts";
+import { readSnapshot } from "./snapshot.ts";
 import {
   agentKindFor,
   type Brief,
@@ -30,6 +31,14 @@ export const OperativeDispatch = {
    */
   async readReference(request: { worktreePath: string }) {
     return readReference(request.worktreePath);
+  },
+
+  /**
+   * Reads one recorded launch snapshot.
+   * A record this release cannot read blocks its attempt instead of launching against a guess.
+   */
+  readSnapshot(request: { recorded: string }) {
+    return readSnapshot(request.recorded);
   },
 
   /** Names the branch, checkout, agent, brief, and prompt of one launch before any effect. */

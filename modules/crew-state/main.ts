@@ -1,11 +1,10 @@
 import { OperatorConfig } from "../operator-config/main.ts";
-import {
-  acknowledgeAttempt,
-  dispatchAttempt,
-  reconcileAttempt,
-  replaceAttempt,
-  showAttempt,
-} from "./dispatch-workflow.ts";
+import { acknowledgeAttempt } from "./dispatch-acknowledge.ts";
+import type { Overrides } from "./dispatch-context.ts";
+import { dispatchAttempt } from "./dispatch-launch.ts";
+import { reconcileAttempt } from "./dispatch-reconcile.ts";
+import { replaceAttempt } from "./dispatch-replace.ts";
+import { showAttempt } from "./dispatch-report.ts";
 import { readCapacity } from "./capacity.ts";
 import { acceptAssignment, claimAssignment } from "./claims.ts";
 import { calculateFrontier } from "./frontier.ts";
@@ -17,7 +16,6 @@ import { workInputSchema } from "./work-input.ts";
 
 type Located = { projectRoot: string };
 type Mutation = Located & { requestId: string; ownerToken: string };
-type Overrides = Parameters<typeof dispatchAttempt>[0]["overrides"];
 
 /** Only the named final status commits; every other status leaves the state unchanged. */
 function commitOn<Outcome extends { status: string }>(
@@ -173,29 +171,29 @@ export const CrewState = {
       overrides: Overrides;
     },
   ) {
-    return { repeated: false, result: await dispatchAttempt(request) };
+    return dispatchAttempt(request);
   },
 
   /** Records the Operative's own acknowledgement, which is the proof that the brief arrived. */
   async acknowledge(
     request: Located & { requestId: string; attemptId: string; worktreePath: string },
   ) {
-    return { repeated: false, result: await acknowledgeAttempt(request) };
+    return acknowledgeAttempt(request);
   },
 
   /** Settles every unfinished external effect of one attempt from what Herdr actually shows. */
   async reconcile(request: Mutation & { attemptId: string }) {
-    return { repeated: false, result: await reconcileAttempt(request) };
+    return reconcileAttempt(request);
   },
 
   /** Starts a new attempt on the same assignment once the former writer is proven stopped. */
   async replace(request: Mutation & { attemptId: string; approvedInspection: string | null }) {
-    return { repeated: false, result: await replaceAttempt(request) };
+    return replaceAttempt(request);
   },
 
   /** Reports the recorded launch of one attempt and the state of its effects. Writes nothing. */
   async attempt(request: Located & { attemptId: string }) {
-    return { repeated: false, result: await showAttempt(request) };
+    return showAttempt(request);
   },
 
   /** Reports the work a crew of this size may start now, and why the rest waits. Writes nothing. */

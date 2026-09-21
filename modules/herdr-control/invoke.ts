@@ -8,7 +8,8 @@ export type HerdrOutcome<Value> =
   | HerdrFailure
   | HerdrUncertain;
 
-export const DEFAULT_TIMEOUT_MS = 60_000;
+// Every caller states its own bound; this is the floor for one that does not.
+const DEFAULT_TIMEOUT_MS = 60_000;
 
 // Bun.which caches the startup path, so the current PATH is read on every lookup.
 function herdrPath(): string | null {

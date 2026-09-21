@@ -15,6 +15,11 @@ export type DispatchStage = (typeof DISPATCH_STAGES)[number];
 
 export type OperationState = "intended" | "succeeded" | "failed" | "uncertain";
 
+/** A recorded kind this release still knows how to settle. */
+export function isDispatchStage(kind: string): kind is DispatchStage {
+  return DISPATCH_STAGES.some((stage) => stage === kind);
+}
+
 export type AttemptRow = typeof attempts.$inferSelect;
 export type AssignmentRow = typeof assignments.$inferSelect;
 export type DispatchRow = typeof attemptDispatch.$inferSelect;
@@ -254,16 +259,16 @@ export function recordInspection(
 }
 
 /** The stage a dispatch reached, derived from its recorded effects rather than stored twice. */
-export function dispatchStage(context: AttemptContext): string {
-  if (context.dispatch === null) {
-    return "unplanned";
-  }
-  if (context.dispatch.acknowledgedAt !== null) {
+export function dispatchStage(request: {
+  acknowledged: boolean;
+  operations: OperationRow[];
+}): string {
+  if (request.acknowledged) {
     return "acknowledged";
   }
 
   const reached = DISPATCH_STAGES.filter(
-    (stage) => operationFor(context.operations, stage)?.state === "succeeded",
+    (stage) => operationFor(request.operations, stage)?.state === "succeeded",
   );
   return reached[reached.length - 1] ?? "planned";
 }

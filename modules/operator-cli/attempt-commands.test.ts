@@ -157,6 +157,20 @@ async function dispatch(
   ]);
 }
 
+// A snapshot a newer release wrote can hold a shape this release cannot read.
+async function damageSnapshot(workspace: Workspace, attemptId: string) {
+  const path = `${workspace.repo}/.operator/local/crew-state.sqlite`;
+  await Bun.$`bun -e ${`
+    const { Database } = require("bun:sqlite");
+    const db = new Database(${JSON.stringify(path)});
+    db.query("update attempt_dispatch set snapshot = ? where attempt_id = ?").run(
+      ${JSON.stringify('{"selection":{"crew":{"host":"claude-code"}}}')},
+      ${JSON.stringify(attemptId)},
+    );
+    db.close();
+  `}`.quiet();
+}
+
 describe("operator attempt dispatch", () => {
   test("prepares an isolated worktree and stays pending until the Operative acknowledges", async () => {
     const workspace = await makeWorkspace();
@@ -249,6 +263,19 @@ describe("operator attempt dispatch", () => {
     ]);
   });
 
+  test("refuses a request that restates a different commit, branch, or checkout", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await claimedAttempt(workspace);
+    await Bun.write(`${workspace.herdr}/agent-start.error`, "agent_not_ready");
+    await dispatch(workspace, crew);
+    await rm(`${workspace.herdr}/agent-start.error`);
+
+    const restated = await dispatch(workspace, crew, ["--branch", "operator/somewhere-else"]);
+    expect(restated.exitCode).toBe(4);
+    expect(restated.json.reason).toBe("dispatch_plan_changed");
+    expect(restated.json.blockers[0].computed).toBe("operator/somewhere-else");
+  });
+
   test("refuses a dispatch that names no commit", async () => {
     const workspace = await makeWorkspace();
     const crew = await claimedAttempt(workspace);
@@ -297,7 +324,40 @@ describe("interrupted dispatch", () => {
     ).toHaveLength(1);
   });
 
-  test("blocks a failed preparation before any agent starts", async () => {
+  test("runs a failed stage again under the request identity that recorded it", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await claimedAttempt(workspace);
+    await Bun.write(`${workspace.herdr}/agent-start.error`, "agent_not_ready");
+    const requestId = request();
+    const args = [
+      "attempt",
+      "dispatch",
+      "--request",
+      requestId,
+      "--owner-token",
+      crew.ownerToken,
+      "--attempt",
+      crew.attemptId,
+      "--commit",
+      await headCommit(workspace),
+      "--worktree",
+      `${workspace.root}/operative`,
+    ];
+
+    const failed = await runJson(workspace, args);
+    expect(failed.exitCode).toBe(1);
+
+    await rm(`${workspace.herdr}/agent-start.error`);
+    const retried = await runJson(workspace, args);
+    expect(retried.exitCode).toBe(6);
+    expect(retried.json.data.stage).toBe("prompt_delivery");
+    expect(
+      retried.json.data.operations.find((one: { kind: string }) => one.kind === "agent_start")
+        .state,
+    ).toBe("succeeded");
+  });
+
+  test("blocks a launch when the fixed inputs cannot be restored into the checkout", async () => {
     const workspace = await makeWorkspace();
     const crew = await claimedAttempt(workspace);
     await Bun.write(`${workspace.herdr}/block-brief`, "");
@@ -482,6 +542,42 @@ describe("snapshot restoration", () => {
     );
   });
 
+  test("refuses to launch an attempt whose recorded snapshot cannot be read", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await claimedAttempt(workspace);
+    await Bun.write(`${workspace.herdr}/agent-start.error`, "agent_not_ready");
+    await dispatch(workspace, crew);
+    await rm(`${workspace.herdr}/agent-start.error`);
+    await damageSnapshot(workspace, crew.attemptId);
+
+    const blocked = await dispatch(workspace, crew);
+    expect(blocked.exitCode).toBe(4);
+    expect(blocked.json.reason).toBe("snapshot_unreadable");
+    expect(blocked.json.blockers[0].attemptId).toBe(crew.attemptId);
+    expect(blocked.json.blockers[0].detail).toContain("release");
+    expect((await calls(workspace)).filter((line) => line.startsWith("agent start"))).toHaveLength(
+      1,
+    );
+
+    const readable = await runOperator(workspace, [
+      "attempt",
+      "dispatch",
+      "--request",
+      request(),
+      "--owner-token",
+      crew.ownerToken,
+      "--attempt",
+      crew.attemptId,
+      "--commit",
+      await headCommit(workspace),
+      "--worktree",
+      `${workspace.root}/operative`,
+    ]);
+    expect(readable.exitCode).toBe(4);
+    expect(readable.stdout).toContain("cannot read");
+    expect(readable.stdout).toContain("release");
+  });
+
   test("restores the recorded selection instead of a session override", async () => {
     const workspace = await makeWorkspace();
     const crew = await claimedAttempt(workspace);
@@ -583,6 +679,46 @@ describe("replacement", () => {
 
     const brief = await Bun.file(`${workspace.root}/operative/.operator/local/brief.md`).text();
     expect(brief).toContain(replaced.json.data.attemptId);
+  });
+
+  test("refuses a replacement whose recorded snapshot cannot be read", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await claimedAttempt(workspace);
+    await dispatch(workspace, crew);
+    await rm(`${workspace.herdr}/agent-live`);
+
+    const inspection = await runJson(workspace, [
+      "attempt",
+      "replace",
+      "--request",
+      request(),
+      "--owner-token",
+      crew.ownerToken,
+      "--attempt",
+      crew.attemptId,
+    ]);
+    expect(inspection.exitCode).toBe(3);
+    await damageSnapshot(workspace, crew.attemptId);
+
+    const blocked = await runJson(workspace, [
+      "attempt",
+      "replace",
+      "--request",
+      request(),
+      "--owner-token",
+      crew.ownerToken,
+      "--attempt",
+      crew.attemptId,
+      "--inspection",
+      inspection.json.data.identity,
+    ]);
+    expect(blocked.exitCode).toBe(4);
+    expect(blocked.json.reason).toBe("snapshot_unreadable");
+    expect(blocked.json.blockers[0].attemptId).toBe(crew.attemptId);
+
+    // The attempt keeps its place, so nothing started a second writer on the assignment.
+    const shown = await runJson(workspace, ["attempt", "show", "--attempt", crew.attemptId]);
+    expect(shown.json.data.current).toBe(true);
   });
 
   test("refuses a replacement while an effect stays unproven", async () => {
