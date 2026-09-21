@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { usage } from "./usage.ts";
 
 const repositoryRoot = new URL("../../", import.meta.url).pathname;
 
@@ -98,7 +99,7 @@ describe("Operator CLI", () => {
 
     expect(result).toEqual({
       exitCode: 2,
-      stderr: "Usage: operator --version [--json]\n",
+      stderr: `${usage}\n`,
       stdout: "",
     });
   });
@@ -108,7 +109,7 @@ describe("Operator CLI", () => {
 
     expect(result).toEqual({
       exitCode: 2,
-      stderr: "Usage: operator --version [--json]\n",
+      stderr: `${usage}\n`,
       stdout: `${JSON.stringify({
         schemaVersion: 1,
         outcome: "invalid",

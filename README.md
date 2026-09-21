@@ -9,11 +9,9 @@ The name comes from *The Matrix*: the crew member who loads programs, guides mis
 
 ## Status
 
-**Foundation in progress.**
-The repository now contains the first Bun CLI slice and its local and CI quality gate.
-The orchestration workflow, project setup, and release automation are not implemented yet.
-
-The first feature will be a setup skill that prepares a project for agent orchestration through Herdr.
+**Project installation and setup work.**
+The repository contains the Bun CLI, its local and CI quality gate, `operator install`, and `operator setup`.
+Readiness checks, crew orchestration, and release automation are not implemented yet.
 
 ## CLI Foundation
 
@@ -31,6 +29,44 @@ CLI exit meanings are stable across commands:
 | 4 | State or ownership conflict |
 | 5 | Uncertain external effect |
 | 6 | Recorded operation still pending |
+
+## Project Installation and Setup
+
+Install the Operator-owned skills into a project.
+At least one target is required, and the CLI never guesses a target from the agents it finds.
+
+```sh
+operator install --opencode
+operator install --claude
+operator install --opencode --claude
+```
+
+A copy that already matches this release is adopted without a write.
+A copy that was changed is a conflict, and the command then writes nothing.
+
+Configure the project in two steps.
+Setup inspects first and writes nothing until the same plan is approved.
+
+```sh
+operator setup plan --claude --json
+operator setup apply --claude --approved-plan <planId> --json
+```
+
+The plan identifier covers the selected targets and the exact content of every proposed change.
+A changed project or a changed target makes a new identifier, and the old approval is refused.
+An unchanged rerun writes nothing.
+
+Setup owns `.operator/config.json`, `.operator/config.schema.json`, one marked `/.operator/` block in `.gitignore`, one marked Operator section in `AGENTS.md`, and an `@AGENTS.md` import in `CLAUDE.md`.
+It never commits, never changes the Git index, and never installs machine-wide software.
+
+Setup records each completed write and the previous contents of the file.
+
+```sh
+operator setup rollback --json
+```
+
+Rollback restores only the files that still hold what setup wrote.
+A file changed after setup wrote it is preserved and reported as a conflict.
 
 ## The Workflow We Want
 

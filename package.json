@@ -20,6 +20,9 @@
     "typecheck": "bunx --bun --no-install tsc --noEmit -p tsconfig.json",
     "quality": "bun run format:check && bun run lint && bun run typecheck && bun run lint:modules && bun run test:module-boundaries && bun run test"
   },
+  "dependencies": {
+    "zod": "4.6.5"
+  },
   "devDependencies": {
     "@types/bun": "1.4.2",
     "dependency-cruiser": "18.4.0",
