@@ -230,7 +230,8 @@ operator question answer --request <id> --owner-token <token> --question <id> --
 An answer is a requirement, a human answer, or an Operator decision.
 The exact words are recorded apart from the structured reading of them, and a requirement also names its source and revision.
 A question that names visible behavior, scope, security permissions, unresolved ambiguity, or conflicting explicit requirements refuses an Operator decision, so it goes to the user.
-One question revision carries one decision.
+Conflicting requirements and unresolved ambiguity refuse a recorded requirement too, because no single source closes either one.
+One question revision carries one decision, and a question nobody waits on any more takes no further change.
 
 The Operative names those subjects when it raises the question, and the Operator records the ones it finds itself.
 

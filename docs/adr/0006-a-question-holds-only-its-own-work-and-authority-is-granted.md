@@ -18,6 +18,12 @@ Five subjects are outside delegated authority: visible behavior, scope, security
 A question that names one of them refuses an Operator decision, however often that decision is retried.
 The Operator escalates by bringing the question to the user and recording their words as a human answer.
 
+Two of the five refuse a recorded requirement as well.
+Conflicting explicit requirements cannot be closed by quoting one of the conflicting sources, because that decides the conflict by choosing a side.
+Unresolved ambiguity cannot be closed by a source either, because the ambiguity is that no source establishes clarity.
+The other three are closed by an approved source that states them, or by the user.
+A human answer closes any of the five, because the user is the authority all of them lead to.
+
 Either party may name one of those subjects.
 The Operative names what it sees when it raises the question, and `operator question escalate` records what the Operator sees, in the Operator's own words beside the report rather than inside it.
 The gate reads both, so the refusal outlives the session that found the reason for it.
@@ -68,14 +74,18 @@ An approval that does not name its targets cannot be compared against the action
 The Operative acknowledges the answer on its way and raises a new question, rather than changing the question the answer is already in flight for.
 A delivery proven to have failed leaves the question free to change, because nothing reached the Operative.
 
-A question nobody waits on any more is never revised or escalated in place.
-An acknowledged answer resolves it, so a further concern is a new question rather than a change to a question the Operative has already acted on.
-
 Ending an attempt withdraws the questions it raised.
 A replacement is a new attempt, so it asks for itself rather than inheriting a question the former writer was waiting on.
 
 The `answer-reuse` approval action and the `question:<id>` scope are fixed strings this release checks.
 Another action that needs an approval states its own words, and the matching rule stays the same for all of them.
+
+`operator approval check` ships before the workflow that consumes it.
+Worktree deletion requires a current scoped approval and must observe its revocation, so the cleanup workflow is its first production caller.
+Until then it is the only way to observe what an approval covers, which is what makes the binding rule checkable at all.
+
+A question nobody waits on any more refuses every change: a revision, an escalation, and an answer alike.
+An answer is the one that matters, because a question withdrawn with its attempt would otherwise return to the frontier on a writer that can never acknowledge it.
 
 The state version stays at 1.
 No release has shipped, so a new table is not yet a change an older Operator could meet.

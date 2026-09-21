@@ -2,7 +2,7 @@ import { CrewState } from "../crew-state/main.ts";
 import { type ParsedArguments, readRevision } from "./arguments.ts";
 import { readStructuredInput, reportInvalidInput, reportSharedFailure } from "./crew-result.ts";
 import { requireReference } from "./reference.ts";
-import { type Handled, type Operation, type Reason, report } from "./result.ts";
+import { type Handled, type Operation, type Reason, refuse, report } from "./result.ts";
 
 type QuestionOutcome = {
   reason: Reason;
@@ -140,27 +140,17 @@ async function runRaise(parsed: ParsedArguments): Promise<Handled> {
   }
 
   if (result.status === "question-open") {
-    report({
+    return refuse({
       json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "question_open",
-        blockers: [
-          {
-            reason: "question_open",
-            questionId: result.questionId,
-            attemptId: result.attemptId,
-            state: result.state,
-          },
-        ],
-        operation: "question_raise",
-      },
+      operation: "question_raise",
+      outcome: "conflict",
+      reason: "question_open",
+      detail: { questionId: result.questionId, attemptId: result.attemptId, state: result.state },
       lines: [
         `This attempt already waits on question ${result.questionId} (${result.state}).`,
         "Revise that question instead of raising a second one.",
       ],
     });
-    return "reported";
   }
 
   report({
@@ -250,42 +240,28 @@ async function runRevise(parsed: ParsedArguments): Promise<Handled> {
   }
 
   if (result.status === "question-mismatch") {
-    report({
+    return refuse({
       json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "question_mismatch",
-        blockers: [
-          {
-            reason: "question_mismatch",
-            questionId: result.questionId,
-            attemptId: result.attemptId,
-          },
-        ],
-        operation: "question_revise",
-      },
+      operation: "question_revise",
+      outcome: "conflict",
+      reason: "question_mismatch",
+      detail: { questionId: result.questionId, attemptId: result.attemptId },
       lines: [`Question ${result.questionId} belongs to attempt ${result.attemptId}.`],
     });
-    return "reported";
   }
 
   if (result.status === "delivery-started") {
-    report({
+    return refuse({
       json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "delivery_started",
-        blockers: [
-          { reason: "delivery_started", questionId: result.questionId, state: result.state },
-        ],
-        operation: "question_revise",
-      },
+      operation: "question_revise",
+      outcome: "conflict",
+      reason: "delivery_started",
+      detail: { questionId: result.questionId, state: result.state },
       lines: [
         "An answer to this question is already on its way, so the question cannot change now.",
         "Acknowledge the answer, then raise a new question.",
       ],
     });
-    return "reported";
   }
 
   report({
@@ -364,22 +340,17 @@ async function runEscalate(parsed: ParsedArguments): Promise<Handled> {
   }
 
   if (result.status === "delivery-started") {
-    report({
+    return refuse({
       json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "delivery_started",
-        blockers: [
-          { reason: "delivery_started", questionId: result.questionId, state: result.state },
-        ],
-        operation: "question_escalate",
-      },
+      operation: "question_escalate",
+      outcome: "conflict",
+      reason: "delivery_started",
+      detail: { questionId: result.questionId, state: result.state },
       lines: [
         "An answer to this question is already on its way, so it is too late to escalate.",
         "Let the Operative acknowledge it, then raise the concern as a new question.",
       ],
     });
-    return "reported";
   }
 
   report({
@@ -493,91 +464,64 @@ async function runReapply(parsed: ParsedArguments): Promise<Handled> {
   }
 
   if (result.status === "unknown-answer") {
-    report({
+    return refuse({
       json: parsed.json,
-      result: {
-        outcome: "invalid",
-        reason: "unknown_answer",
-        blockers: [{ reason: "unknown_answer", answerId: result.answerId }],
-        operation: "question_reapply",
-      },
+      operation: "question_reapply",
+      outcome: "invalid",
+      reason: "unknown_answer",
+      detail: { answerId: result.answerId },
       lines: [`This question holds no answer recorded as ${result.answerId}.`],
     });
-    return "reported";
   }
 
   if (result.status === "answer-not-earlier") {
-    report({
+    return refuse({
       json: parsed.json,
-      result: {
-        outcome: "invalid",
-        reason: "answer_not_earlier",
-        blockers: [
-          {
-            reason: "answer_not_earlier",
-            answerId: result.answerId,
-            questionRevision: result.questionRevision,
-          },
-        ],
-        operation: "question_reapply",
-      },
+      operation: "question_reapply",
+      outcome: "invalid",
+      reason: "answer_not_earlier",
+      detail: { answerId: result.answerId, questionRevision: result.questionRevision },
       lines: [
         `Answer ${result.answerId} was recorded for revision ${result.questionRevision}.`,
         "Only an answer from an earlier revision is reused.",
       ],
     });
-    return "reported";
   }
 
   if (result.status === "unknown-approval") {
-    report({
+    return refuse({
       json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: "unknown_approval",
-        blockers: [{ reason: "unknown_approval", approvalId: result.approvalId }],
-        operation: "question_reapply",
-      },
+      operation: "question_reapply",
+      outcome: "missing-condition",
+      reason: "unknown_approval",
+      detail: { approvalId: result.approvalId },
       lines: [`No approval is recorded as ${result.approvalId}.`],
     });
-    return "reported";
   }
 
   if (result.status === "approval-revoked") {
-    report({
+    return refuse({
       json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: "approval_revoked",
-        blockers: [{ reason: "approval_revoked", approvalId: result.approvalId }],
-        operation: "question_reapply",
-      },
+      operation: "question_reapply",
+      outcome: "missing-condition",
+      reason: "approval_revoked",
+      detail: { approvalId: result.approvalId },
       lines: [`Approval ${result.approvalId} is revoked, so it authorizes nothing.`],
     });
-    return "reported";
   }
 
   if (result.status === "approval-mismatch") {
-    report({
+    return refuse({
       json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: "approval_mismatch",
-        blockers: [
-          {
-            reason: "approval_mismatch",
-            approvalId: result.approvalId,
-            field: result.field,
-          },
-        ],
-        operation: "question_reapply",
-      },
+      operation: "question_reapply",
+      outcome: "missing-condition",
+      reason: "approval_mismatch",
+      detail: { approvalId: result.approvalId, field: result.field },
       lines: [
         `Approval ${result.approvalId} was granted for a different ${result.field}.`,
         "An approval binds one exact action, its targets, its scope, and its request revision.",
       ],
     });
-    return "reported";
   }
 
   return reportRecordedAnswer(parsed, "question_reapply", result);
@@ -644,42 +588,28 @@ async function runDeliver(parsed: ParsedArguments): Promise<Handled> {
   }
 
   if (result.status === "not-answered") {
-    report({
+    return refuse({
       json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: "answer_missing",
-        blockers: [
-          { reason: "answer_missing", questionId: result.questionId, state: result.state },
-        ],
-        operation: "question_deliver",
-      },
+      operation: "question_deliver",
+      outcome: "missing-condition",
+      reason: "answer_missing",
+      detail: { questionId: result.questionId, state: result.state },
       lines: [`Question ${result.questionId} holds no answer to deliver.`],
     });
-    return "reported";
   }
 
   if (result.status === "reconciliation-required") {
-    report({
+    return refuse({
       json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: "reconciliation_required",
-        blockers: [
-          {
-            reason: "reconciliation_required",
-            questionId: result.questionId,
-            operationState: result.operationState,
-          },
-        ],
-        operation: "question_deliver",
-      },
+      operation: "question_deliver",
+      outcome: "missing-condition",
+      reason: "reconciliation_required",
+      detail: { questionId: result.questionId, operationState: result.operationState },
       lines: [
         `The delivery of this answer is ${result.operationState}, so it may already have arrived.`,
         "Run `operator attempt reconcile` before another delivery.",
       ],
     });
-    return "reported";
   }
 
   if (result.status === "delivery-failed" || result.status === "delivery-uncertain") {
@@ -762,43 +692,25 @@ async function runAcknowledge(parsed: ParsedArguments): Promise<Handled> {
   }
 
   if (result.status === "not-delivered") {
-    report({
+    return refuse({
       json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: "question_not_delivered",
-        blockers: [
-          {
-            reason: "question_not_delivered",
-            questionId: result.questionId,
-            state: result.state,
-          },
-        ],
-        operation: "question_acknowledge",
-      },
+      operation: "question_acknowledge",
+      outcome: "missing-condition",
+      reason: "question_not_delivered",
+      detail: { questionId: result.questionId, state: result.state },
       lines: [`No answer to question ${result.questionId} has been sent yet.`],
     });
-    return "reported";
   }
 
   if (result.status === "reference-mismatch") {
-    report({
+    return refuse({
       json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "question_reference_mismatch",
-        blockers: [
-          {
-            reason: "question_reference_mismatch",
-            questionId: result.questionId,
-            detail: result.detail,
-          },
-        ],
-        operation: "question_acknowledge",
-      },
+      operation: "question_acknowledge",
+      outcome: "conflict",
+      reason: "question_reference_mismatch",
+      detail: { questionId: result.questionId, detail: result.detail },
       lines: [result.detail],
     });
-    return "reported";
   }
 
   report({

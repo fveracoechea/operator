@@ -1,7 +1,7 @@
 import { CrewState } from "../crew-state/main.ts";
 import { type ParsedArguments, readRevision } from "./arguments.ts";
 import { readStructuredInput, reportInvalidInput, reportSharedFailure } from "./crew-result.ts";
-import { type Handled, report } from "./result.ts";
+import { type Handled, refuse, report } from "./result.ts";
 
 // The record belongs to the crew state, so this command reads its shape from that interface.
 type ApprovalRecord = Extract<
@@ -96,17 +96,14 @@ async function runRevoke(parsed: ParsedArguments): Promise<Handled> {
   }
 
   if (result.status === "unknown-approval") {
-    report({
+    return refuse({
       json: parsed.json,
-      result: {
-        outcome: "invalid",
-        reason: "unknown_approval",
-        blockers: [{ reason: "unknown_approval", approvalId: result.approvalId }],
-        operation: "approval_revoke",
-      },
+      operation: "approval_revoke",
+      outcome: "invalid",
+      reason: "unknown_approval",
+      detail: { approvalId: result.approvalId },
       lines: [`No approval is recorded as ${result.approvalId}.`],
     });
-    return "reported";
   }
 
   if (result.status === "already-revoked") {

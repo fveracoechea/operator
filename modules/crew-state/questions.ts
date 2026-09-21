@@ -5,6 +5,7 @@ import type {
   AnswerInput,
   AnswerInterpretation,
   EscalationInput,
+  EscalationTrigger,
   QuestionInput,
 } from "./question-input.ts";
 import { answers, questions } from "./schema.ts";
@@ -32,7 +33,7 @@ export type QuestionRecord = {
   revision: number;
   state: string;
   targetIdentity: string;
-  escalationTriggers: string[];
+  escalationTriggers: EscalationTrigger[];
   operatorEscalation: EscalationInput | null;
   report: QuestionInput;
   answer: AnswerRecord | null;
@@ -67,7 +68,7 @@ export function operatorEscalationOf(row: QuestionRow): EscalationInput | null {
  * The Operative declares what it sees and the Operator records what it sees, so the answer is
  * everything either of them found, with neither record rewriting the other.
  */
-export function triggersOf(row: QuestionRow): string[] {
+export function triggersOf(row: QuestionRow): EscalationTrigger[] {
   const declared = questionReportOf(row).escalationTriggers;
   const found = operatorEscalationOf(row)?.escalationTriggers ?? [];
   return [...new Set([...declared, ...found])].toSorted();
@@ -97,8 +98,32 @@ export function readQuestion(db: CrewReader, questionId: string): QuestionRow | 
   return db.select().from(questions).where(eq(questions.id, questionId)).all()[0] ?? null;
 }
 
+/**
+ * Reads one question, answering in the shape a caller can discriminate against a state failure.
+ * A bare row would have to be told apart from that failure by its fields, which is a structural
+ * guess rather than a stated answer.
+ */
+export function findQuestion(
+  db: CrewReader,
+  questionId: string,
+): { status: "found"; question: QuestionRow } | { status: "unknown-question"; questionId: string } {
+  const row = readQuestion(db, questionId);
+  return row === null
+    ? { status: "unknown-question", questionId }
+    : { status: "found", question: row };
+}
+
 export function readAnswer(db: CrewReader, answerId: string): AnswerRow | null {
   return db.select().from(answers).where(eq(answers.id, answerId)).all()[0] ?? null;
+}
+
+/** Reads one answer in the shape a caller can discriminate against a state failure. */
+export function findAnswer(
+  db: CrewReader,
+  answerId: string,
+): { status: "found"; answer: AnswerRow } | { status: "unknown-answer"; answerId: string } {
+  const row = readAnswer(db, answerId);
+  return row === null ? { status: "unknown-answer", answerId } : { status: "found", answer: row };
 }
 
 export function answersOf(db: CrewReader, questionId: string): AnswerRow[] {

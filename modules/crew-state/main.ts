@@ -13,7 +13,7 @@ import { mutate, readState } from "./operations.ts";
 import { claimOwnership, currentOwnership } from "./ownership.ts";
 import { answerQuestion, escalateQuestion, reapplyAnswer } from "./question-answer.ts";
 import { acknowledgeAnswer, deliverAnswer } from "./question-deliver.ts";
-import { approvalCheckSchema, approvalInputSchema } from "./question-input.ts";
+import { approvalCheckSchema, approvalInputSchema } from "./approval-input.ts";
 import { raiseQuestion, reviseQuestion } from "./question-raise.ts";
 import { showQuestion } from "./question-report.ts";
 import { registerWork } from "./registration.ts";

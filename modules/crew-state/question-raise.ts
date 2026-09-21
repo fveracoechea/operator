@@ -2,7 +2,7 @@ import { type AttemptFailure, readContext, type Shared } from "./dispatch-contex
 import { readOperation } from "./dispatch.ts";
 import { type InvalidInput, parseInput } from "./input.ts";
 import { mutate } from "./operations.ts";
-import { questionInputSchema } from "./question-input.ts";
+import { type EscalationTrigger, questionInputSchema } from "./question-input.ts";
 import {
   BLOCKING_STATES,
   blockingQuestionOf,
@@ -17,7 +17,7 @@ type Raised = {
   assignmentId: string;
   attemptId: string;
   revision: number;
-  escalationTriggers: string[];
+  escalationTriggers: EscalationTrigger[];
   independentWork: string[];
 };
 
@@ -115,7 +115,7 @@ type Revised = {
   questionId: string;
   revision: number;
   droppedAnswerId: string | null;
-  escalationTriggers: string[];
+  escalationTriggers: EscalationTrigger[];
 };
 
 type ReviseOutcome =

@@ -3,7 +3,12 @@ import type { CrewReader } from "./database.ts";
 import { readOperation } from "./dispatch.ts";
 import { type InvalidInput, parseInput } from "./input.ts";
 import { mutate, type RequestFailure, type StateFailure } from "./operations.ts";
-import { answerInputSchema, escalationInputSchema, HUMAN_ONLY_TRIGGERS } from "./question-input.ts";
+import {
+  answerInputSchema,
+  escalationInputSchema,
+  type EscalationTrigger,
+  HUMAN_ONLY_TRIGGERS,
+} from "./question-input.ts";
 import {
   BLOCKING_STATES,
   insertAnswer,
@@ -42,7 +47,7 @@ type Refusal =
   | {
       status: "escalation-required";
       questionId: string;
-      escalationTriggers: string[];
+      escalationTriggers: EscalationTrigger[];
       authority: string;
     };
 
@@ -51,7 +56,7 @@ type Refusal =
  * A person's own answer closes anything. An Operator decision closes none of them. A recorded
  * requirement closes the three an approved source can state, and neither of the other two.
  */
-function unclosedBy(authority: string, triggers: string[]): string[] {
+function unclosedBy(authority: string, triggers: EscalationTrigger[]): EscalationTrigger[] {
   if (authority === "human-answer") {
     return [];
   }
@@ -341,7 +346,7 @@ function unanswered(
 type Escalated = {
   status: "escalated";
   questionId: string;
-  escalationTriggers: string[];
+  escalationTriggers: EscalationTrigger[];
   droppedAnswerId: string | null;
 };
 

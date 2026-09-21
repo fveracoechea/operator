@@ -11,7 +11,8 @@ import { mutate, readState } from "./operations.ts";
 import {
   type AnswerRow,
   answerRecordOf,
-  readAnswer,
+  findAnswer,
+  findQuestion,
   readQuestion,
   type QuestionRow,
   recordDelivered,
@@ -42,6 +43,7 @@ export type DeliverResult =
 type OpenOutcome = { status: "opened" } | { status: "delivery-held"; operationState: string };
 
 type Prepared = {
+  status: "prepared";
   question: QuestionRow;
   answer: AnswerRow;
   agentName: string;
@@ -60,7 +62,7 @@ export async function deliverAnswer(request: {
   questionId: string;
 }): Promise<DeliverResult> {
   const prepared = await prepare(request);
-  if ("status" in prepared) {
+  if (prepared.status !== "prepared") {
     return prepared;
   }
 
@@ -158,11 +160,12 @@ export async function deliverAnswer(request: {
         ? `${submitted.code}: ${submitted.detail}`
         : submitted.detail;
 
-  const settled = await record(
+  const { result: settled } = await mutate<{ status: "settled"; now: string }>(
     {
       projectRoot: request.projectRoot,
       requestId: `${request.requestId}#deliver.${operationId}.settle`,
       ownerToken: request.ownerToken,
+      now: new Date().toISOString(),
       operation: "question_deliver_result",
       input: { operationId, state, detail },
     },
@@ -177,10 +180,11 @@ export async function deliverAnswer(request: {
       if (state === "succeeded") {
         recordDelivered(tx, { questionId: question.id, now });
       }
-      return { commit: true, outcome: { status: "recorded" as const } };
+      // The write states when it happened, so the moment of delivery is never read back.
+      return { commit: true, outcome: { status: "settled" as const, now } };
     },
   );
-  if (settled.status !== "recorded") {
+  if (settled.status !== "settled") {
     return settled;
   }
 
@@ -191,14 +195,13 @@ export async function deliverAnswer(request: {
     return { status: "delivery-uncertain", questionId: question.id, detail };
   }
 
-  const after = await readState(request.projectRoot, (db) => readQuestion(db, question.id));
   return {
     status: "delivered",
     questionId: question.id,
     answerId: answer.id,
     attemptId: question.attemptId,
     agentName,
-    deliveredAt: after === null || "status" in after ? null : after.deliveredAt,
+    deliveredAt: settled.now,
     repeated: false,
   };
 }
@@ -209,15 +212,12 @@ async function prepare(request: {
   ownerToken: string;
   questionId: string;
 }): Promise<Prepared | Exclude<DeliverResult, { status: "delivered" }>> {
-  const found = await readState(request.projectRoot, (db) => readQuestion(db, request.questionId));
-  if (found === null) {
-    return { status: "unknown-question", questionId: request.questionId };
-  }
-  if ("status" in found) {
+  const found = await readState(request.projectRoot, (db) => findQuestion(db, request.questionId));
+  if (found.status !== "found") {
     return found;
   }
 
-  const question = found;
+  const question = found.question;
   if (question.acknowledgedAt !== null) {
     return {
       status: "already-acknowledged",
@@ -243,8 +243,8 @@ async function prepare(request: {
   }
 
   // A revision drops the answer it was given, so the recorded one always answers what is asked.
-  const answer = await readState(request.projectRoot, (db) => readAnswer(db, answerId));
-  if (answer === null || "status" in answer) {
+  const answer = await readState(request.projectRoot, (db) => findAnswer(db, answerId));
+  if (answer.status !== "found") {
     return { status: "not-answered", questionId: question.id, state: question.state };
   }
 
@@ -253,7 +253,13 @@ async function prepare(request: {
       ? null
       : (read.context.operations.find((one) => one.id === question.deliveryOperationId) ?? null);
 
-  return { question, answer, agentName: read.context.dispatch.agentName, operation };
+  return {
+    status: "prepared",
+    question,
+    answer: answer.answer,
+    agentName: read.context.dispatch.agentName,
+    operation,
+  };
 }
 
 export type QuestionAcknowledgeResult =
@@ -283,15 +289,12 @@ export async function acknowledgeAnswer(request: {
   questionId: string;
   worktreePath: string;
 }): Promise<QuestionAcknowledgeResult> {
-  const found = await readState(request.projectRoot, (db) => readQuestion(db, request.questionId));
-  if (found === null) {
-    return { status: "unknown-question", questionId: request.questionId };
-  }
-  if ("status" in found) {
+  const found = await readState(request.projectRoot, (db) => findQuestion(db, request.questionId));
+  if (found.status !== "found") {
     return found;
   }
 
-  const question = found;
+  const question = found.question;
   if (question.acknowledgedAt !== null) {
     return {
       status: "already-acknowledged",

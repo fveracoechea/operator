@@ -83,7 +83,7 @@ function settleFrom(
 function settleDelivery(
   inspection: Inspection,
   acknowledged: boolean,
-  subject: "assignment" | "answer" = "answer",
+  subject: "assignment" | "answer",
 ): Settlement {
   if (acknowledged) {
     return { state: "succeeded", detail: `The Operative acknowledged the ${subject}.` };
@@ -101,10 +101,19 @@ function settleDelivery(
   };
 }
 
-/** True when the Operative received the answer this effect was carrying. */
+/**
+ * True when the Operative received the answer this effect was carrying.
+ * Crew state that cannot be read proves nothing, so the effect simply stays unproven.
+ */
 async function answerAcknowledged(projectRoot: string, operationId: string): Promise<boolean> {
-  const question = await readState(projectRoot, (db) => questionByDelivery(db, operationId));
-  return question !== null && !("status" in question) && question.acknowledgedAt !== null;
+  const read = await readState(projectRoot, (db) => {
+    const question = questionByDelivery(db, operationId);
+    return {
+      status: "read" as const,
+      acknowledged: question !== null && question.acknowledgedAt !== null,
+    };
+  });
+  return read.status === "read" && read.acknowledged;
 }
 
 /**
@@ -155,7 +164,11 @@ export async function reconcileAttempt(request: {
     const outcome = isDispatchStage(operation.kind)
       ? settleFrom(operation.kind, inspection, dispatch.acknowledgedAt !== null)
       : // An answer delivery is settled by the receipt of that answer, not of the brief.
-        settleDelivery(inspection, await answerAcknowledged(request.projectRoot, operation.id));
+        settleDelivery(
+          inspection,
+          await answerAcknowledged(request.projectRoot, operation.id),
+          "answer",
+        );
     findings.push({ kind: operation.kind, state: outcome.state, detail: outcome.detail });
     if (outcome.state === "uncertain") {
       continue;

@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import type { CrewReader, CrewWriter } from "./database.ts";
-import type { ApprovalCheck, ApprovalInput } from "./question-input.ts";
+import type { ApprovalCheck, ApprovalInput } from "./approval-input.ts";
 import { approvals } from "./schema.ts";
 
 export type ApprovalRow = typeof approvals.$inferSelect;
@@ -22,7 +22,7 @@ function targetsOf(row: ApprovalRow): string[] {
   return JSON.parse(row.targets);
 }
 
-export function recordOf(row: ApprovalRow): ApprovalRecord {
+export function approvalRecordOf(row: ApprovalRow): ApprovalRecord {
   return {
     approvalId: row.id,
     action: row.action,
@@ -87,13 +87,13 @@ export function matchApproval(db: CrewReader, check: ApprovalCheck): ApprovalMat
 
   const granted = covering.find((one) => one.coverage.status === "covers");
   if (granted !== undefined) {
-    return { status: "matched", approval: recordOf(granted.row) };
+    return { status: "matched", approval: approvalRecordOf(granted.row) };
   }
 
   const revoked = covering[0];
   return revoked === undefined
     ? { status: "missing" }
-    : { status: "revoked", approval: recordOf(revoked.row) };
+    : { status: "revoked", approval: approvalRecordOf(revoked.row) };
 }
 
 export type GrantResult = { status: "granted"; approval: ApprovalRecord };
@@ -116,7 +116,7 @@ export function grantApproval(
   };
   db.insert(approvals).values(row).run();
 
-  return { status: "granted", approval: recordOf(row) };
+  return { status: "granted", approval: approvalRecordOf(row) };
 }
 
 export type RevokeResult =
@@ -134,7 +134,7 @@ export function revokeApproval(
     return { status: "unknown-approval", approvalId: request.approvalId };
   }
   if (row.state === "revoked") {
-    return { status: "already-revoked", approval: recordOf(row) };
+    return { status: "already-revoked", approval: approvalRecordOf(row) };
   }
   if (row.revision !== request.revision) {
     return {
@@ -152,6 +152,6 @@ export function revokeApproval(
 
   return {
     status: "revoked",
-    approval: recordOf({ ...row, state: "revoked", revision, revokedAt: request.now }),
+    approval: approvalRecordOf({ ...row, state: "revoked", revision, revokedAt: request.now }),
   };
 }

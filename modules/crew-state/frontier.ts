@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import type { CrewReader } from "./database.ts";
 import type { Capacity } from "./capacity.ts";
+import type { EscalationTrigger } from "./question-input.ts";
 import { blockingQuestions, questionReportOf, triggersOf } from "./questions.ts";
 import { assignmentDependencies, assignments, attempts, workSources } from "./schema.ts";
 import { isExecutable, isReview } from "./work-input.ts";
@@ -31,7 +32,7 @@ export type WaitingQuestion = {
   revision: number;
   state: string;
   question: string;
-  escalationTriggers: string[];
+  escalationTriggers: EscalationTrigger[];
   affectedScope: string[];
   independentWork: string[];
 };
