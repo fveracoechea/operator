@@ -9,6 +9,7 @@ Read this before you launch, recover, or replace an Operative.
 3. `operator work frontier --json` says what may start now and why the rest waits.
 4. `operator work claim --request <id> --owner-token <token> --assignment <id> --revision <n> --json` gives you one attempt.
 5. `operator attempt dispatch --request <id> --owner-token <token> --attempt <id> --commit <sha> --json` launches it.
+6. The Operative hands over its result with `operator attempt submit`. Read [REVIEW.md](REVIEW.md) from there.
 
 Generate a new request identity for each mutation.
 Repeat the same identity only to recover the result of a call you did not see finish.

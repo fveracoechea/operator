@@ -21,7 +21,10 @@ Read [READINESS.md](READINESS.md) before you answer whether a project is ready.
 Crew ownership, work registration, the frontier, and Operative dispatch are implemented.
 Read [DISPATCH.md](DISPATCH.md) before you launch or recover an Operative.
 
-Question routing, review, and cleanup are not available yet.
+Result submission, separate two-axis review, finding dispositions, and accepted completion are implemented.
+Read [REVIEW.md](REVIEW.md) before you review a result or accept an assignment.
+
+Question routing, rework, and cleanup are not available yet.
 Do not tell the user that those operations exist.
 
 ## Rules
@@ -41,3 +44,6 @@ A configured project is not a ready project.
 
 Ask the CLI which work may start.
 Never keep your own queue beside the frontier.
+
+Never accept a result you reviewed yourself.
+A submitted result goes to a separate reviewer, and a review report is never a submitted result.

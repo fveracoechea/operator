@@ -564,6 +564,9 @@ describe("operator review report", () => {
     expect(brief).toContain("standards and spec");
     expect(brief).toContain("Never start a Herdr agent");
     expect(brief).toContain("They must never edit a file, commit, push, or perform rework.");
+    // The reviewer writes its own report and nothing else, so rework cannot hide inside a review.
+    expect(brief).toContain("Write only inside these paths:\n- .operator/local/");
+    expect(brief).toContain("Run only these commands:\n- bun run quality");
 
     const copied = await Bun.file(
       `${reviewer.worktreePath}/.operator/local/review/0-result.md`,

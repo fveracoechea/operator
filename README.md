@@ -9,9 +9,9 @@ The name comes from *The Matrix*: the crew member who loads programs, guides mis
 
 ## Status
 
-**Project installation, setup, readiness, the crew frontier, and Operative dispatch work.**
-The repository contains the Bun CLI, its local and CI quality gate, `operator install`, `operator setup`, `operator setup readiness`, `operator crew own`, `operator work`, and `operator attempt`.
-Question routing, review, cleanup, the live readiness probe, and release automation are not implemented yet.
+**Project installation, setup, readiness, the crew frontier, Operative dispatch, and reviewed acceptance work.**
+The repository contains the Bun CLI, its local and CI quality gate, `operator install`, `operator setup`, `operator setup readiness`, `operator crew own`, `operator work`, `operator attempt`, and `operator review`.
+Question routing, rework, cleanup, the live readiness probe, and release automation are not implemented yet.
 
 ## CLI Foundation
 
@@ -208,6 +208,54 @@ The inspected checkout and branch are retained.
 The launch snapshot fixes the crew host, model, release, lock data, and skills.
 A recovery restores that record, so a changed project setting or a session override blocks the attempt with a named drift instead of reaching a launch already in progress.
 See [ADR 0005](docs/adr/0005-dispatch-is-staged-and-an-unproven-effect-blocks.md).
+
+## Reviewed Results and Acceptance
+
+An Operative hands over its finished result from its own worktree.
+
+```sh
+operator attempt submit --request <id> --attempt <id> --input result.json --json
+```
+
+The submission fixes the assignment revision, the requirement revision, the acceptance requirements it was produced against, every artifact with its content identity, every check with its outcome, the known concerns, the decisions the Operative made, and the code revisions where there are any.
+Each path artifact is copied into a durable store and verified, so the reviewer reads a fixed copy rather than a worktree that keeps changing.
+
+A submission moves the assignment to awaiting review and ends its attempt.
+It is never accepted completion.
+The ended attempt frees the crew slot it held, so a one-agent crew hands its only slot from the producer to the reviewer.
+
+The submission registers its own review assignment, which the frontier offers first.
+Claim and dispatch it like any other assignment.
+Its brief carries the fixed result, tells the reviewer to load the existing `code-review` skill, and requires the Standards and Spec axes to run as native sub-agents of that reviewer's own host.
+Those sub-agents take no Herdr slot and no worktree of their own, and they never edit, commit, or rework.
+
+```sh
+operator review report --request <id> --review <id> --input report.json --json
+operator review show --review <id> --json
+```
+
+A complete report names the submission identity it read, carries both axes exactly once, records a window for each sub-agent, and states what each axis checked.
+A code result requires the diff, the requirements, and the checks.
+A non-code result requires the artifacts, the requirements, the citations, and the provenance of each recorded answer.
+Two axes that ran one after the other are refused, and so is a sub-agent that ran outside the reviewer host.
+A host that cannot run the axes records a blocker instead of a partial review.
+
+A review report ends the review chain, so a reviewer never submits a result and no review triggers another review.
+
+```sh
+operator review dispose --request <id> --owner-token <token> --review <id> --input dispositions.json --json
+```
+
+Each finding is corrected, rejected with a reason, or deferred with a reason and a follow-up.
+A blocker is never deferred.
+
+```sh
+operator work accept --request <id> --owner-token <token> --assignment <id> --attempt <id> --revision <n> --submission <id> --pr-head <sha> --json
+```
+
+Acceptance verifies the current ownership, the assignment revision, the exact submission, both axis reports, a disposition on every finding, no correction still waiting for rework, a passing outcome on every recorded check, and the pull request head the review saw.
+A stopped reviewer, a missing input, an unavailable review capability, a missing pull-request authority, a failed check, and a flaky check each block instead of passing.
+See [ADR 0006](docs/adr/0006-review-is-crew-work-and-acceptance-reads-only-recorded-evidence.md).
 
 ## The Workflow We Want
 

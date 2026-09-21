@@ -110,6 +110,18 @@ Herdr acknowledges a submission, not a turn, so this is the only proof that the 
 The file in an Operative worktree that names the controlling checkout, assignment, and attempt.
 An Operative reads it instead of searching nearby directories for crew state.
 
+**Axis report**:
+One half of a review, written by one native sub-agent of the reviewer host.
+The Standards axis and the Spec axis stay separate and are never merged or reranked.
+
+**Finding disposition**:
+The Operator's answer to one review finding.
+It is corrected, rejected with a reason, or deferred with a reason and a follow-up reference, so no finding leaves a review unanswered.
+
+**Review capability**:
+The reviewer host's ability to run the required review sub-agents.
+An unavailable capability is a recorded blocker, never permission for a single-context self-review.
+
 **Attempt replacement**:
 A new attempt on the same assignment, started after the former writer is proven stopped and its partial work is inspected.
 It keeps the inspected checkout and branch.
