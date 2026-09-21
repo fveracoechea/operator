@@ -27,7 +27,7 @@ async function readTextOrNull(path: string): Promise<string | null> {
   return (await file.exists()) ? file.text() : null;
 }
 
-async function readConfiguration(projectRoot: string) {
+export async function readConfiguration(projectRoot: string) {
   const text = await readTextOrNull(`${projectRoot}/${CONFIG_PATH}`);
   if (text === null) {
     return { text: null, selection: {}, valid: false as const };

@@ -89,3 +89,27 @@ The same identity carrying different input is refused once that identity has rec
 The recorded class of one assignment, which fixes both its planning boundary and its dispatch priority.
 Production work and review work are executable, and review work is offered first.
 Planning work is not executable, so it carries no kind of its own beyond the planning boundary.
+
+**Dispatch**:
+The staged launch of one claimed assignment into an isolated Operative worktree.
+It fixes the plan first, then records the intent and outcome of each external effect.
+
+**Launch snapshot**:
+The effective crew host, model, Operator release, lock data, and skill contents that one attempt was launched with.
+Recovery restores this record, never the current default.
+
+**External operation**:
+One recorded effect outside the crew state, with its own identity.
+It is intended, succeeded, failed, or uncertain, and an uncertain one blocks its attempt until it is reconciled.
+
+**Acknowledgement**:
+The Operative's own report that it received its brief.
+Herdr acknowledges a submission, not a turn, so this is the only proof that the brief arrived.
+
+**Control reference**:
+The file in an Operative worktree that names the controlling checkout, assignment, and attempt.
+An Operative reads it instead of searching nearby directories for crew state.
+
+**Attempt replacement**:
+A new attempt on the same assignment, started after the former writer is proven stopped and its partial work is inspected.
+It keeps the inspected checkout and branch.

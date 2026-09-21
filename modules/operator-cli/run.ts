@@ -1,5 +1,6 @@
 import packageJson from "../../package.json" with { type: "json" };
 import { hasCrewArguments, hasSelectionOrProbeArguments, parseArguments } from "./arguments.ts";
+import { runAttempt } from "./attempt-command.ts";
 import { runCrewOwn } from "./crew-command.ts";
 import { runInstall } from "./install-command.ts";
 import { runSetup } from "./setup-command.ts";
@@ -81,7 +82,7 @@ export async function run(args: string[]): Promise<void> {
     return;
   }
 
-  if (command === "crew" || command === "work") {
+  if (command === "crew" || command === "work" || command === "attempt") {
     // A crew request names its operation in leading words, then carries only flags.
     const firstFlag = rest.findIndex((word) => word.startsWith("--"));
     const words = firstFlag === -1 ? rest : rest.slice(0, firstFlag);
@@ -91,8 +92,10 @@ export async function run(args: string[]): Promise<void> {
       parsed.targets.length > 0 ||
       parsed.approvedPlan !== undefined ||
       // Only crew ownership can be taken over, so any other command refuses the flag.
-      (command === "work" && parsed.takeover) ||
-      hasSelectionOrProbeArguments(parsed)
+      (command !== "crew" && parsed.takeover) ||
+      // A dispatch fixes the selection it launches with, so only it reads a selection override.
+      (command !== "attempt" && hasSelectionOrProbeArguments(parsed)) ||
+      (command === "attempt" && parsed.approvedProbe !== undefined)
     ) {
       rejectArguments(parsed.json);
       return;
@@ -103,7 +106,9 @@ export async function run(args: string[]): Promise<void> {
         ? words.length === 1 && words[0] === "own"
           ? await runCrewOwn(parsed)
           : "invalid-arguments"
-        : await runWork(words, parsed);
+        : command === "attempt"
+          ? await runAttempt(words, parsed)
+          : await runWork(words, parsed);
     if (handled !== "reported") {
       rejectArguments(parsed.json);
     }

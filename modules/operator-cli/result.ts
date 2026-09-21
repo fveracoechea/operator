@@ -83,7 +83,30 @@ export type Reason =
   | "frontier_empty"
   | "dependency_pending"
   | "review_capacity_reserved"
-  | "crew_at_capacity";
+  | "crew_at_capacity"
+  | "unknown_attempt"
+  | "attempt_ended"
+  | "attempt_not_current"
+  | "attempt_not_dispatched"
+  | "attempt_reference_missing"
+  | "attempt_reference_mismatch"
+  | "attempt_dispatched"
+  | "acknowledgement_pending"
+  | "attempt_acknowledged"
+  | "attempt_already_acknowledged"
+  | "dispatch_stage_failed"
+  | "dispatch_stage_uncertain"
+  | "reconciliation_required"
+  | "snapshot_drift"
+  | "dispatch_plan_changed"
+  | "commit_required"
+  | "attempt_reconciled"
+  | "attempt_replaced"
+  | "attempt_reported"
+  | "inspection_required"
+  | "inspection_stale"
+  | "writer_live"
+  | "writer_unknown";
 
 type Operation =
   | "parse_arguments"
@@ -100,7 +123,12 @@ type Operation =
   | "work_register"
   | "work_claim"
   | "work_accept"
-  | "work_frontier";
+  | "work_frontier"
+  | "attempt_dispatch"
+  | "attempt_acknowledge"
+  | "attempt_reconcile"
+  | "attempt_replace"
+  | "attempt_show";
 
 export const exitCodeByOutcome = {
   completed: 0,

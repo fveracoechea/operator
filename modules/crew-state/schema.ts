@@ -77,6 +77,55 @@ export const attempts = sqliteTable("attempts", {
 });
 
 /**
+ * The fixed launch plan of one attempt, written before any external effect.
+ * Its snapshot is what recovery restores, so a later default never reaches a running attempt.
+ */
+export const attemptDispatch = sqliteTable("attempt_dispatch", {
+  attemptId: text("attempt_id")
+    .primaryKey()
+    .references(() => attempts.id),
+  assignmentId: text("assignment_id")
+    .notNull()
+    .references(() => assignments.id),
+  baseCommit: text("base_commit").notNull(),
+  branch: text("branch").notNull(),
+  worktreePath: text("worktree_path").notNull(),
+  snapshot: text("snapshot").notNull(),
+  snapshotIdentity: text("snapshot_identity").notNull(),
+  briefIdentity: text("brief_identity").notNull(),
+  promptIdentity: text("prompt_identity").notNull(),
+  agentName: text("agent_name").notNull(),
+  agentKind: text("agent_kind").notNull(),
+  agentHost: text("agent_host").notNull(),
+  workspaceId: text("workspace_id"),
+  paneId: text("pane_id"),
+  acknowledgedAt: text("acknowledged_at"),
+  inspection: text("inspection"),
+  inspectionIdentity: text("inspection_identity"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+/**
+ * One row per external effect an attempt intends or performed.
+ * The intent is written before the call, so an interrupted launch is reconciled against Herdr
+ * instead of being repeated into a second writer.
+ */
+export const externalOperations = sqliteTable("external_operations", {
+  id: text("id").primaryKey(),
+  attemptId: text("attempt_id")
+    .notNull()
+    .references(() => attempts.id),
+  kind: text("kind").notNull(),
+  requestId: text("request_id").notNull(),
+  intent: text("intent").notNull(),
+  state: text("state").notNull(),
+  detail: text("detail"),
+  startedAt: text("started_at").notNull(),
+  settledAt: text("settled_at"),
+});
+
+/**
  * One row per completed mutation request. A repeated request identity returns the recorded
  * outcome instead of repeating the effect, so an interrupted caller recovers its own result.
  */
@@ -95,6 +144,8 @@ export const crewStateSchema = {
   assignments,
   assignmentDependencies,
   attempts,
+  attemptDispatch,
+  externalOperations,
   requestRecords,
 };
 
@@ -156,6 +207,38 @@ export const CREATE_STATEMENTS = [
     started_at text not null,
     ended_at text
   ) strict`,
+  sql`create table attempt_dispatch (
+    attempt_id text primary key references attempts(id),
+    assignment_id text not null references assignments(id),
+    base_commit text not null,
+    branch text not null,
+    worktree_path text not null,
+    snapshot text not null,
+    snapshot_identity text not null,
+    brief_identity text not null,
+    prompt_identity text not null,
+    agent_name text not null,
+    agent_kind text not null,
+    agent_host text not null,
+    workspace_id text,
+    pane_id text,
+    acknowledged_at text,
+    inspection text,
+    inspection_identity text,
+    created_at text not null,
+    updated_at text not null
+  ) strict`,
+  sql`create table external_operations (
+    id text primary key,
+    attempt_id text not null references attempts(id),
+    kind text not null,
+    request_id text not null,
+    intent text not null,
+    state text not null,
+    detail text,
+    started_at text not null,
+    settled_at text
+  ) strict`,
   sql`create table request_records (
     id text primary key,
     operation text not null,
@@ -165,6 +248,8 @@ export const CREATE_STATEMENTS = [
   ) strict`,
   sql`create unique index attempts_one_active
     on attempts (assignment_id) where state = 'active'`,
+  sql`create unique index external_operations_live
+    on external_operations (attempt_id, kind) where state <> 'failed'`,
 ];
 
 /** The declared column names and null rules of one table, used by the drift test. */

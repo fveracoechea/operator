@@ -1,7 +1,17 @@
 import type { ParsedArguments } from "./arguments.ts";
 import { type Reason, report } from "./result.ts";
 
-type Operation = "crew_own" | "work_register" | "work_claim" | "work_accept" | "work_frontier";
+type Operation =
+  | "crew_own"
+  | "work_register"
+  | "work_claim"
+  | "work_accept"
+  | "work_frontier"
+  | "attempt_dispatch"
+  | "attempt_acknowledge"
+  | "attempt_reconcile"
+  | "attempt_replace"
+  | "attempt_show";
 
 type SharedReport = {
   reason: Reason;
@@ -39,6 +49,26 @@ const sharedFailures = {
     reason: "ownership_stale",
     outcome: "conflict",
     line: "Another Operator took ownership of this crew. This token can no longer change state.",
+  },
+  "unknown-attempt": {
+    reason: "unknown_attempt",
+    outcome: "invalid",
+    line: "No attempt is recorded under that identity.",
+  },
+  "attempt-ended": {
+    reason: "attempt_ended",
+    outcome: "conflict",
+    line: "That attempt has ended, so it can no longer write. Claim the assignment again.",
+  },
+  "attempt-not-current": {
+    reason: "attempt_not_current",
+    outcome: "conflict",
+    line: "Another Operator owns this crew, so this attempt is not the current writer.",
+  },
+  "not-dispatched": {
+    reason: "attempt_not_dispatched",
+    outcome: "missing-condition",
+    line: "That attempt has no recorded launch. Dispatch it first.",
   },
   "invalid-configuration": {
     reason: "invalid_configuration",

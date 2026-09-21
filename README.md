@@ -9,9 +9,9 @@ The name comes from *The Matrix*: the crew member who loads programs, guides mis
 
 ## Status
 
-**Project installation, setup, readiness, and the crew frontier work.**
-The repository contains the Bun CLI, its local and CI quality gate, `operator install`, `operator setup`, `operator setup readiness`, `operator crew own`, and `operator work`.
-Operative dispatch, question routing, review, the live readiness probe, and release automation are not implemented yet.
+**Project installation, setup, readiness, the crew frontier, and Operative dispatch work.**
+The repository contains the Bun CLI, its local and CI quality gate, `operator install`, `operator setup`, `operator setup readiness`, `operator crew own`, `operator work`, and `operator attempt`.
+Question routing, review, cleanup, the live readiness probe, and release automation are not implemented yet.
 
 ## CLI Foundation
 
@@ -164,6 +164,50 @@ A repeat under the same identity returns the recorded result of a mutation that 
 A refused mutation records nothing, so a repeat of it is checked again against the current state.
 Once an identity has recorded an outcome, the same identity carrying different input is refused.
 See [ADR 0003](docs/adr/0003-crew-state-is-one-sqlite-file-created-once.md) and [ADR 0004](docs/adr/0004-the-frontier-is-the-only-dispatch-rule.md).
+
+## Operative Dispatch and Recovery
+
+A claimed assignment is dispatched into its own Herdr-managed worktree.
+The dispatch names the commit it starts from, because a worktree never picks up uncommitted work from another checkout.
+
+```sh
+operator attempt dispatch --request <id> --owner-token <token> --attempt <id> --commit <sha> --json
+```
+
+The command fixes the whole launch before it acts: the branch, the checkout, the launch snapshot, the brief, and the prompt.
+It then creates the worktree, copies and verifies the fixed inputs, starts the selected agent host, and submits the brief.
+Each effect records its intent before the call and its outcome after it.
+
+The worktree receives the project configuration, its schema, a release record, the frozen lock data, a control reference, the brief, and the skills of this release.
+No other file is copied out of the controlling checkout, so credentials stay in the host credential store.
+
+Herdr acknowledges a submission, not a turn.
+A dispatch therefore reports `pending` until the Operative acknowledges its assignment from its own worktree.
+
+```sh
+operator attempt acknowledge --request <id> --attempt <id> --json
+```
+
+A Herdr call that never answered is uncertain, because a timeout does not prove that the effect did not happen.
+The attempt then blocks until it is reconciled against what Herdr and the checkout actually show.
+
+```sh
+operator attempt reconcile --request <id> --owner-token <token> --attempt <id> --json
+operator attempt show --attempt <id> --json
+```
+
+A replacement is a new attempt on the same assignment, not a second writer.
+
+```sh
+operator attempt replace --request <id> --owner-token <token> --attempt <id> --inspection <identity> --json
+```
+
+It runs only when every effect is settled, the former writer is proven stopped, and the caller states the identity of the partial-work inspection it read.
+The inspected checkout and branch are retained.
+
+The launch snapshot fixes the crew host, model, release, lock data, and skills.
+A recovery restores that record, so a changed project setting or a session override blocks the attempt with a named drift instead of reaching a launch already in progress.
+See [ADR 0005](docs/adr/0005-dispatch-is-staged-and-an-unproven-effect-blocks.md).
 
 ## The Workflow We Want
 

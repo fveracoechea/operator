@@ -15,6 +15,10 @@ const crewFieldByFlag = {
   "--attempt": "attemptId",
   "--revision": "revision",
   "--input": "inputPath",
+  "--commit": "baseCommit",
+  "--branch": "branch",
+  "--worktree": "worktreePath",
+  "--inspection": "inspectionIdentity",
 } as const;
 
 type CrewFlag = keyof typeof crewFieldByFlag;

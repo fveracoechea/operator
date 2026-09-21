@@ -1,4 +1,5 @@
 import { Database } from "bun:sqlite";
+import { getTableName } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 // Bun has no filesystem link, directory creation, or recursive removal API.
 import { link, mkdir, rm } from "node:fs/promises";
@@ -66,6 +67,34 @@ export async function openState(projectRoot: string): Promise<OpenResult> {
   if (typeof stateVersion !== "number") {
     opened.sqlite.close();
     return { status: "unreadable", path, detail: "The state file records no state version." };
+  }
+
+  // A file that predates a table this release reads is reported, never repaired in silence.
+  let tables: unknown[];
+  try {
+    tables = opened.sqlite.query("select name from sqlite_master where type = 'table'").all();
+  } catch (error) {
+    opened.sqlite.close();
+    return { status: "unreadable", path, detail: String(error) };
+  }
+
+  const present = new Set(
+    tables.flatMap((row) =>
+      row !== null && typeof row === "object" && "name" in row && typeof row.name === "string"
+        ? [row.name]
+        : [],
+    ),
+  );
+  const missing = Object.values(crewStateSchema)
+    .map((table) => getTableName(table))
+    .filter((name) => !present.has(name));
+  if (missing.length > 0) {
+    opened.sqlite.close();
+    return {
+      status: "unreadable",
+      path,
+      detail: `The state file is missing the ${missing.toSorted().join(", ")} table(s).`,
+    };
   }
 
   if (stateVersion > STATE_VERSION) {

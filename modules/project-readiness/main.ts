@@ -3,6 +3,7 @@ import { readEvidence } from "./evidence.ts";
 import { fingerprints } from "./fingerprints.ts";
 import { liveChecks, probeCleanup, probeProviderUse, probeTemporaryResources } from "./live.ts";
 import { type Observation, type Overrides, observeProject, type Target } from "./observe.ts";
+import { readLaunchSnapshot } from "./snapshot.ts";
 
 type Request = { projectRoot: string; targets: Target[]; overrides: Overrides };
 
@@ -183,6 +184,14 @@ function probeDetails(report: Awaited<ReturnType<typeof buildReport>>) {
 }
 
 export const ProjectReadiness = {
+  /**
+   * Reads the launch inputs one attempt fixes: effective selection, release, lock data, and
+   * skills. A launch records this, and recovery compares its record against a later reading.
+   */
+  async snapshot(request: { projectRoot: string; overrides: Overrides }) {
+    return readLaunchSnapshot(request);
+  },
+
   /**
    * Answers whether this exact configuration is ready. Static checks observe the machine and the
    * project on every run. Live capabilities are read from recorded evidence. Writes nothing.

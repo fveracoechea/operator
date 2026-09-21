@@ -10,7 +10,13 @@ const LOCK_NAMES = ["bun.lock", "bun.lockb"];
 export type Release = {
   version: string;
   identity: string;
-  lock: { name: string | null; state: "present" | "missing"; identity: string | null };
+  // The lock path lets a launch copy the frozen lock data it recorded, never a fresh resolution.
+  lock: {
+    name: string | null;
+    state: "present" | "missing";
+    identity: string | null;
+    path: string | null;
+  };
 };
 
 async function readLock(): Promise<Release["lock"]> {
@@ -19,11 +25,16 @@ async function readLock(): Promise<Release["lock"]> {
     if (await file.exists()) {
       const hasher = new Bun.CryptoHasher("sha256");
       hasher.update(new Uint8Array(await file.arrayBuffer()));
-      return { name, state: "present", identity: hasher.digest("hex") };
+      return {
+        name,
+        state: "present",
+        identity: hasher.digest("hex"),
+        path: `${installationRoot}${name}`,
+      };
     }
   }
 
-  return { name: null, state: "missing", identity: null };
+  return { name: null, state: "missing", identity: null, path: null };
 }
 
 /** Identifies the running release by its version and the exact skills it installs. */
