@@ -128,6 +128,8 @@ export function registerWork(
         kind: input.sourceKind,
         revision: input.source.revision,
         tracker: input.source.tracker,
+        trackerTarget:
+          input.source.target === undefined ? null : JSON.stringify(input.source.target),
         orderIndex: db.select().from(workSources).all().length,
         registeredAt: now,
       })
@@ -158,6 +160,8 @@ export function registerWork(
         sourceId: source.id,
         sourceKey: item.key,
         sourceRevision: source.revision,
+        trackerRef:
+          item.trackerIssue === undefined ? null : JSON.stringify({ issue: item.trackerIssue }),
         title: item.title,
         kind: kindOf(item),
         orderIndex: nextOrder,

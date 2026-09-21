@@ -8,11 +8,11 @@ import {
   everyStageSucceeded,
   type Overrides,
   readContext,
-  record,
   reportOf,
   type Shared,
   type Snapshot,
 } from "./dispatch-context.ts";
+import { record } from "./operations.ts";
 import {
   DISPATCH_STAGES,
   type DispatchStage,

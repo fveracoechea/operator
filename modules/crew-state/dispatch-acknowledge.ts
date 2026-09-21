@@ -1,4 +1,5 @@
-import { type AttemptFailure, readContext, record, type Shared } from "./dispatch-context.ts";
+import { type AttemptFailure, readContext, type Shared } from "./dispatch-context.ts";
+import { record } from "./operations.ts";
 import { recordAcknowledgement } from "./dispatch.ts";
 
 export type AcknowledgeResult =

@@ -26,6 +26,9 @@ export const workSources = sqliteTable("work_sources", {
   kind: text("kind").notNull(),
   revision: text("revision").notNull(),
   tracker: text("tracker").notNull(),
+  // Where this source lives in its tracker. A source registered without one records no target,
+  // and its assignments refuse tracker updates rather than borrowing another source's.
+  trackerTarget: text("tracker_target"),
   orderIndex: integer("order_index").notNull(),
   registeredAt: text("registered_at").notNull(),
 });
@@ -37,6 +40,9 @@ export const assignments = sqliteTable("assignments", {
     .references(() => workSources.id),
   sourceKey: text("source_key").notNull(),
   sourceRevision: text("source_revision").notNull(),
+  // The ticket this assignment came from, fixed at registration so later configuration cannot
+  // redirect work that is already registered.
+  trackerRef: text("tracker_ref"),
   title: text("title").notNull(),
   kind: text("kind").notNull(),
   orderIndex: integer("order_index").notNull(),
@@ -294,6 +300,68 @@ export const approvals = sqliteTable("approvals", {
   revokedAt: text("revoked_at"),
 });
 
+/**
+ * One logical tracker operation: one step of one assignment's tracker update.
+ * Its identity is fixed before the first write and kept across every recovery attempt, so a
+ * comment marker written under it stays findable however many times recovery runs.
+ */
+export const trackerOperations = sqliteTable("tracker_operations", {
+  id: text("id").primaryKey(),
+  assignmentId: text("assignment_id")
+    .notNull()
+    .references(() => assignments.id),
+  step: text("step").notNull(),
+  provider: text("provider").notNull(),
+  target: text("target").notNull(),
+  expectedActor: text("expected_actor").notNull(),
+  intent: text("intent").notNull(),
+  intentIdentity: text("intent_identity").notNull(),
+  content: text("content"),
+  contentIdentity: text("content_identity"),
+  closeReason: text("close_reason"),
+  state: text("state").notNull(),
+  reason: text("reason").notNull(),
+  problems: text("problems").notNull(),
+  resourceId: text("resource_id"),
+  resourceUrl: text("resource_url"),
+  revision: integer("revision").notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+/**
+ * One attempt to send the write of one logical operation.
+ * A human-approved additional write after an uncertain answer adds a row here and leaves the
+ * logical operation unchanged, so the earlier unresolved attempt is never erased.
+ */
+export const trackerWriteAttempts = sqliteTable("tracker_write_attempts", {
+  id: text("id").primaryKey(),
+  operationId: text("operation_id")
+    .notNull()
+    .references(() => trackerOperations.id),
+  requestId: text("request_id").notNull(),
+  approvalId: text("approval_id"),
+  state: text("state").notNull(),
+  response: text("response"),
+  startedAt: text("started_at").notNull(),
+  settledAt: text("settled_at"),
+});
+
+/**
+ * One reading of what the tracker actually showed, with the coverage that reading had.
+ * An unsuccessful read is kept as evidence of a gap, never discarded, because it does not prove
+ * that a write failed.
+ */
+export const trackerObservations = sqliteTable("tracker_observations", {
+  id: text("id").primaryKey(),
+  operationId: text("operation_id")
+    .notNull()
+    .references(() => trackerOperations.id),
+  kind: text("kind").notNull(),
+  observation: text("observation").notNull(),
+  observedAt: text("observed_at").notNull(),
+});
+
 export const crewStateSchema = {
   stateMeta,
   operatorOwnership,
@@ -311,6 +379,9 @@ export const crewStateSchema = {
   questions,
   answers,
   approvals,
+  trackerOperations,
+  trackerWriteAttempts,
+  trackerObservations,
 };
 
 /**
@@ -335,6 +406,7 @@ export const CREATE_STATEMENTS = [
     kind text not null,
     revision text not null,
     tracker text not null,
+    tracker_target text,
     order_index integer not null,
     registered_at text not null
   ) strict`,
@@ -343,6 +415,7 @@ export const CREATE_STATEMENTS = [
     source_id text not null references work_sources(id),
     source_key text not null,
     source_revision text not null,
+    tracker_ref text,
     title text not null,
     kind text not null,
     order_index integer not null,
@@ -515,6 +588,45 @@ export const CREATE_STATEMENTS = [
     revision integer not null,
     granted_at text not null,
     revoked_at text
+  ) strict`,
+  sql`create table tracker_operations (
+    id text primary key,
+    assignment_id text not null references assignments(id),
+    step text not null,
+    provider text not null,
+    target text not null,
+    expected_actor text not null,
+    intent text not null,
+    intent_identity text not null,
+    content text,
+    content_identity text,
+    close_reason text,
+    state text not null,
+    reason text not null,
+    problems text not null,
+    resource_id text,
+    resource_url text,
+    revision integer not null,
+    created_at text not null,
+    updated_at text not null,
+    unique (assignment_id, step)
+  ) strict`,
+  sql`create table tracker_write_attempts (
+    id text primary key,
+    operation_id text not null references tracker_operations(id),
+    request_id text not null,
+    approval_id text,
+    state text not null,
+    response text,
+    started_at text not null,
+    settled_at text
+  ) strict`,
+  sql`create table tracker_observations (
+    id text primary key,
+    operation_id text not null references tracker_operations(id),
+    kind text not null,
+    observation text not null,
+    observed_at text not null
   ) strict`,
   sql`create unique index attempts_one_active
     on attempts (assignment_id) where state = 'active'`,

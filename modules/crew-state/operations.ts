@@ -162,3 +162,25 @@ export async function readState<Outcome>(
     opened.close();
   }
 }
+
+/**
+ * Runs one mutation whose whole purpose is to write a record.
+ * The staged operations use it between external calls, so each stage carries its own request
+ * identity and a replay returns the recorded outcome instead of acting again.
+ */
+export async function record(
+  request: {
+    projectRoot: string;
+    requestId: string;
+    ownerToken: string | null;
+    operation: string;
+    input: unknown;
+  },
+  body: Parameters<typeof mutate<{ status: "recorded" }>>[1],
+): Promise<{ status: "recorded"; repeated: boolean } | StateFailure | RequestFailure> {
+  const { repeated, result } = await mutate<{ status: "recorded" }>(
+    { ...request, now: new Date().toISOString() },
+    body,
+  );
+  return result.status === "recorded" ? { status: "recorded", repeated } : result;
+}

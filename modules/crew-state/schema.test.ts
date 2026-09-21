@@ -69,11 +69,11 @@ test("the created tables match the declared Drizzle schema", async () => {
 test("the database refuses a second active attempt on one assignment", async () => {
   const opened = await openNewState();
   opened.db.run(
-    sql.raw(`insert into work_sources values ('s1', 'ticket', 'r1', 'github', 0, 'now')`),
+    sql.raw(`insert into work_sources values ('s1', 'ticket', 'r1', 'github', null, 0, 'now')`),
   );
   opened.db.run(
     sql.raw(
-      `insert into assignments values ('a1', 's1', 'k1', 'r1', 'One', 'production', 0,
+      `insert into assignments values ('a1', 's1', 'k1', 'r1', null, 'One', 'production', 0,
        'scope', '[]', '{}', '[]', 'fi', 'claimed', 1, 'now', 'now')`,
     ),
   );
@@ -93,9 +93,9 @@ test("the database refuses a second active attempt on one assignment", async () 
 test("the database refuses two assignments for one source key", async () => {
   const opened = await openNewState();
   opened.db.run(
-    sql.raw(`insert into work_sources values ('s1', 'ticket', 'r1', 'github', 0, 'now')`),
+    sql.raw(`insert into work_sources values ('s1', 'ticket', 'r1', 'github', null, 0, 'now')`),
   );
-  const values = `'s1', 'k1', 'r1', 'One', 'production', 0, 'scope', '[]', '{}', '[]', 'fi',
+  const values = `'s1', 'k1', 'r1', null, 'One', 'production', 0, 'scope', '[]', '{}', '[]', 'fi',
     'registered', 1, 'now', 'now'`;
   opened.db.run(sql.raw(`insert into assignments values ('a1', ${values})`));
 
@@ -108,11 +108,11 @@ test("the database refuses two assignments for one source key", async () => {
 test("the database refuses a second open question on one attempt", async () => {
   const opened = await openNewState();
   opened.db.run(
-    sql.raw(`insert into work_sources values ('s1', 'ticket', 'r1', 'github', 0, 'now')`),
+    sql.raw(`insert into work_sources values ('s1', 'ticket', 'r1', 'github', null, 0, 'now')`),
   );
   opened.db.run(
     sql.raw(
-      `insert into assignments values ('a1', 's1', 'k1', 'r1', 'One', 'production', 0,
+      `insert into assignments values ('a1', 's1', 'k1', 'r1', null, 'One', 'production', 0,
        'scope', '[]', '{}', '[]', 'fi', 'claimed', 1, 'now', 'now')`,
     ),
   );
@@ -123,6 +123,27 @@ test("the database refuses a second open question on one attempt", async () => {
   opened.db.run(sql.raw(`insert into questions values ('q1', ${values})`));
 
   const refusal = refuses(opened, `insert into questions values ('q2', ${values})`);
+
+  expect(refusal).toContain("UNIQUE");
+  opened.close();
+});
+
+test("the database refuses two tracker operations for one step of one assignment", async () => {
+  const opened = await openNewState();
+  opened.db.run(
+    sql.raw(`insert into work_sources values ('s1', 'ticket', 'r1', 'github', null, 0, 'now')`),
+  );
+  opened.db.run(
+    sql.raw(
+      `insert into assignments values ('a1', 's1', 'k1', 'r1', null, 'One', 'production', 0,
+       'scope', '[]', '{}', '[]', 'fi', 'accepted', 1, 'now', 'now')`,
+    ),
+  );
+  const values = `'a1', 'resolution', 'github', '{}', 'me', '{}', 'ii', null, null, null,
+    'intended', 'tracker.pending', '[]', null, null, 1, 'now', 'now'`;
+  opened.db.run(sql.raw(`insert into tracker_operations values ('o1', ${values})`));
+
+  const refusal = refuses(opened, `insert into tracker_operations values ('o2', ${values})`);
 
   expect(refusal).toContain("UNIQUE");
   opened.close();
@@ -145,7 +166,7 @@ test("the database refuses text where the schema declares a whole number", async
 
   const refusal = refuses(
     opened,
-    `insert into work_sources values ('s1', 'ticket', 'r1', 'github', 'first', 'now')`,
+    `insert into work_sources values ('s1', 'ticket', 'r1', 'github', null, 'first', 'now')`,
   );
 
   expect(refusal).toContain("cannot store TEXT value in INTEGER column");

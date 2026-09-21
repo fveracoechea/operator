@@ -24,7 +24,7 @@ import {
   type OperationRow,
   operationFor,
 } from "./dispatch.ts";
-import { mutate, readState, type RequestFailure, type StateFailure } from "./operations.ts";
+import { readState, type RequestFailure, type StateFailure } from "./operations.ts";
 import { requireOwnership } from "./ownership.ts";
 
 export type Overrides = Parameters<typeof ProjectReadiness.snapshot>[0]["overrides"];
@@ -188,24 +188,6 @@ export async function readContext(
       ? { status: "attempt-not-current" as const, attemptId: request.attemptId }
       : found;
   });
-}
-
-/** A sub-mutation of one dispatch. Only its own success continues the sequence. */
-export async function record(
-  request: {
-    projectRoot: string;
-    requestId: string;
-    ownerToken: string | null;
-    operation: string;
-    input: unknown;
-  },
-  body: Parameters<typeof mutate<{ status: "recorded" }>>[1],
-): Promise<{ status: "recorded"; repeated: boolean } | Shared> {
-  const { repeated, result } = await mutate<{ status: "recorded" }>(
-    { ...request, now: new Date().toISOString() },
-    body,
-  );
-  return result.status === "recorded" ? { status: "recorded", repeated } : result;
 }
 
 export type WriterFailure =

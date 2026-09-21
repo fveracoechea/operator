@@ -4,10 +4,10 @@ import {
   type DispatchReport,
   type Inspection,
   readContext,
-  record,
   reportOfContext,
   type Shared,
 } from "./dispatch-context.ts";
+import { record } from "./operations.ts";
 import {
   ANSWER_DELIVERY,
   type DispatchStage,

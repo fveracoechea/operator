@@ -3,11 +3,11 @@ import {
   type AttemptFailure,
   briefOf,
   readContext,
-  record,
   type Shared,
   type Snapshot,
   type WorkInspection,
 } from "./dispatch-context.ts";
+import { record } from "./operations.ts";
 import { endAttempt, startAttempt } from "./attempt.ts";
 import { reopenReview } from "./review.ts";
 import { openOperation, recordInspection, recordPlan, settleOperation } from "./dispatch.ts";

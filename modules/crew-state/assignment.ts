@@ -10,6 +10,7 @@ export type NewAssignment = {
   sourceId: string;
   sourceKey: string;
   sourceRevision: string;
+  trackerRef: string | null;
   title: string;
   kind: string;
   orderIndex: number;
@@ -44,6 +45,7 @@ export function insertAssignment(
     sourceId: request.sourceId,
     sourceKey: request.sourceKey,
     sourceRevision: request.sourceRevision,
+    trackerRef: request.trackerRef,
     title: request.title,
     kind: request.kind,
     orderIndex: request.orderIndex,

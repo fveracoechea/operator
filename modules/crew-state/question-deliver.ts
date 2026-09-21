@@ -1,5 +1,6 @@
 import { OperativeDispatch } from "../operative-dispatch/main.ts";
-import { type AttemptFailure, readContext, record, type Shared } from "./dispatch-context.ts";
+import { type AttemptFailure, readContext, type Shared } from "./dispatch-context.ts";
+import { record } from "./operations.ts";
 import {
   ANSWER_DELIVERY,
   openOperation,
