@@ -2,9 +2,7 @@ import { CrewState } from "../crew-state/main.ts";
 import type { ParsedArguments } from "./arguments.ts";
 import { readStructuredInput, reportSharedFailure } from "./crew-result.ts";
 import { requireReference } from "./reference.ts";
-import { type Operation, type Reason, report } from "./result.ts";
-
-type Handled = "reported" | "invalid-arguments";
+import { type Handled, type Operation, type Reason, report } from "./result.ts";
 
 function readRevision(parsed: ParsedArguments): number | null {
   const raw = parsed.crew.revision;
@@ -50,9 +48,9 @@ function reportIssues(
   return "reported";
 }
 
-type QuestionFailure = {
+type QuestionOutcome = {
   reason: Reason;
-  outcome: "invalid" | "missing-condition" | "conflict";
+  outcome: "completed" | "invalid" | "missing-condition" | "conflict";
   lines: (detail: Record<string, unknown>) => string[];
 };
 
@@ -61,8 +59,8 @@ function words(detail: Record<string, unknown>, key: string): string[] {
   return Array.isArray(value) ? value.map(String) : [];
 }
 
-/** The refusals the question commands share. Each one reports the same way from every command. */
-const questionFailures = {
+/** The outcomes the question commands share. Each one reports the same way from every command. */
+const questionOutcomes = {
   "unknown-question": {
     reason: "unknown_question",
     outcome: "invalid",
@@ -93,20 +91,27 @@ const questionFailures = {
       "Bring it to the user and record their answer as a human answer.",
     ],
   },
-} satisfies Record<string, QuestionFailure>;
+  "already-acknowledged": {
+    reason: "question_already_acknowledged",
+    outcome: "completed",
+    lines: (detail) => [
+      `This answer was already acknowledged at ${String(detail.acknowledgedAt)}.`,
+    ],
+  },
+} satisfies Record<string, QuestionOutcome>;
 
-type QuestionFailureStatus = keyof typeof questionFailures;
+type SharedQuestionStatus = keyof typeof questionOutcomes;
 
-const failureByStatus: Record<string, QuestionFailure | undefined> = questionFailures;
+const outcomeByStatus: Record<string, QuestionOutcome | undefined> = questionOutcomes;
 
 /** Returns true when it reported, so each command handles only its own outcomes. */
-function reportQuestionFailure<Result extends { status: string }>(
+function reportQuestionOutcome<Result extends { status: string }>(
   parsed: ParsedArguments,
   operation: Operation,
   result: Result,
-): result is Extract<Result, { status: QuestionFailureStatus }> {
-  const failure = failureByStatus[result.status];
-  if (failure === undefined) {
+): result is Extract<Result, { status: SharedQuestionStatus }> {
+  const shared = outcomeByStatus[result.status];
+  if (shared === undefined) {
     return false;
   }
 
@@ -114,12 +119,14 @@ function reportQuestionFailure<Result extends { status: string }>(
   report({
     json: parsed.json,
     result: {
-      outcome: failure.outcome,
-      reason: failure.reason,
-      blockers: [{ reason: failure.reason, ...detail }],
+      outcome: shared.outcome,
+      reason: shared.reason,
+      // A completed outcome names no blocker, so only a refusal carries one.
+      blockers: shared.outcome === "completed" ? [] : [{ reason: shared.reason, ...detail }],
       operation,
+      data: detail,
     },
-    lines: failure.lines(detail),
+    lines: shared.lines(detail),
   });
   return true;
 }
@@ -254,7 +261,7 @@ async function runRevise(parsed: ParsedArguments): Promise<Handled> {
   if (result.status === "invalid-input") {
     return reportIssues(parsed, "question_revise", "invalid_question_input", result.issues);
   }
-  if (reportQuestionFailure(parsed, "question_revise", result)) {
+  if (reportQuestionOutcome(parsed, "question_revise", result)) {
     return "reported";
   }
 
@@ -358,7 +365,7 @@ async function runAnswer(parsed: ParsedArguments): Promise<Handled> {
   if (result.status === "invalid-input") {
     return reportIssues(parsed, "question_answer", "invalid_answer_input", result.issues);
   }
-  if (reportQuestionFailure(parsed, "question_answer", result)) {
+  if (reportQuestionOutcome(parsed, "question_answer", result)) {
     return "reported";
   }
 
@@ -392,7 +399,7 @@ async function runReapply(parsed: ParsedArguments): Promise<Handled> {
   if (reportSharedFailure(parsed, "question_reapply", result)) {
     return "reported";
   }
-  if (reportQuestionFailure(parsed, "question_reapply", result)) {
+  if (reportQuestionOutcome(parsed, "question_reapply", result)) {
     return "reported";
   }
 
@@ -487,15 +494,11 @@ async function runReapply(parsed: ParsedArguments): Promise<Handled> {
   return reportRecordedAnswer(parsed, "question_reapply", result);
 }
 
-type Recorded = {
-  questionId: string;
-  answerId: string;
-  authority: string;
-  questionRevision: number;
-  reusedFromId: string | null;
-  approvalId: string | null;
-  repeated: boolean;
-};
+// The answer belongs to the crew state, so this command reads its shape from that interface.
+type Recorded = Extract<
+  Awaited<ReturnType<typeof CrewState.answerQuestion>>["result"],
+  { status: "answered" }
+>;
 
 /** Reports a recorded answer. Recording it is not delivery, so the work still waits. */
 function reportRecordedAnswer(
@@ -547,7 +550,7 @@ async function runDeliver(parsed: ParsedArguments): Promise<Handled> {
   if (reportSharedFailure(parsed, "question_deliver", result)) {
     return "reported";
   }
-  if (reportQuestionFailure(parsed, "question_deliver", result)) {
+  if (reportQuestionOutcome(parsed, "question_deliver", result)) {
     return "reported";
   }
 
@@ -587,21 +590,6 @@ async function runDeliver(parsed: ParsedArguments): Promise<Handled> {
         `Answer ${result.answerId} was given to revision ${result.recordedRevision} of this question.`,
         "The question changed, so it needs a new answer or an approved reuse of that one.",
       ],
-    });
-    return "reported";
-  }
-
-  if (result.status === "already-acknowledged") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "completed",
-        reason: "question_already_acknowledged",
-        blockers: [],
-        operation: "question_deliver",
-        data: { questionId: result.questionId, acknowledgedAt: result.acknowledgedAt },
-      },
-      lines: [`This answer was already acknowledged at ${result.acknowledgedAt}.`],
     });
     return "reported";
   }
@@ -704,7 +692,7 @@ async function runAcknowledge(parsed: ParsedArguments): Promise<Handled> {
   if (reportSharedFailure(parsed, "question_acknowledge", result)) {
     return "reported";
   }
-  if (reportQuestionFailure(parsed, "question_acknowledge", result)) {
+  if (reportQuestionOutcome(parsed, "question_acknowledge", result)) {
     return "reported";
   }
 
@@ -748,21 +736,6 @@ async function runAcknowledge(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
-  if (result.status === "already-acknowledged") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "completed",
-        reason: "question_already_acknowledged",
-        blockers: [],
-        operation: "question_acknowledge",
-        data: { questionId: result.questionId, acknowledgedAt: result.acknowledgedAt },
-      },
-      lines: [`This answer was already acknowledged at ${result.acknowledgedAt}.`],
-    });
-    return "reported";
-  }
-
   report({
     json: parsed.json,
     result: {
@@ -795,7 +768,7 @@ async function runShow(parsed: ParsedArguments): Promise<Handled> {
   if (reportSharedFailure(parsed, "question_show", result)) {
     return "reported";
   }
-  if (reportQuestionFailure(parsed, "question_show", result)) {
+  if (reportQuestionOutcome(parsed, "question_show", result)) {
     return "reported";
   }
 

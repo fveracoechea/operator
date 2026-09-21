@@ -1,7 +1,7 @@
 import { CrewState } from "../crew-state/main.ts";
 import type { ParsedArguments } from "./arguments.ts";
 import { readStructuredInput, reportSharedFailure } from "./crew-result.ts";
-import { report } from "./result.ts";
+import { type Handled, report } from "./result.ts";
 
 type Mutation = { requestId: string; ownerToken: string };
 
@@ -19,7 +19,7 @@ function readRevision(parsed: ParsedArguments): number | null {
   return Number(raw);
 }
 
-async function runRegister(parsed: ParsedArguments): Promise<"reported" | "invalid-arguments"> {
+async function runRegister(parsed: ParsedArguments): Promise<Handled> {
   const mutation = mutationArguments(parsed);
   const inputPath = parsed.crew.inputPath;
   if (mutation === null || inputPath === undefined) {
@@ -185,7 +185,7 @@ async function runRegister(parsed: ParsedArguments): Promise<"reported" | "inval
   return "reported";
 }
 
-async function runClaim(parsed: ParsedArguments): Promise<"reported" | "invalid-arguments"> {
+async function runClaim(parsed: ParsedArguments): Promise<Handled> {
   const mutation = mutationArguments(parsed);
   const assignmentId = parsed.crew.assignmentId;
   const revision = readRevision(parsed);
@@ -336,7 +336,7 @@ async function runClaim(parsed: ParsedArguments): Promise<"reported" | "invalid-
   return "reported";
 }
 
-async function runAccept(parsed: ParsedArguments): Promise<"reported" | "invalid-arguments"> {
+async function runAccept(parsed: ParsedArguments): Promise<Handled> {
   const mutation = mutationArguments(parsed);
   const assignmentId = parsed.crew.assignmentId;
   // Planning work carries no attempt, so the attempt is optional here and checked by kind.
@@ -503,7 +503,7 @@ async function runAccept(parsed: ParsedArguments): Promise<"reported" | "invalid
   return "reported";
 }
 
-async function runFrontier(parsed: ParsedArguments): Promise<"reported" | "invalid-arguments"> {
+async function runFrontier(parsed: ParsedArguments): Promise<Handled> {
   const { result } = await CrewState.frontier({ projectRoot: process.cwd() });
   if (reportSharedFailure(parsed, "work_frontier", result)) {
     return "reported";
@@ -567,10 +567,7 @@ async function runFrontier(parsed: ParsedArguments): Promise<"reported" | "inval
   return "reported";
 }
 
-export async function runWork(
-  words: string[],
-  parsed: ParsedArguments,
-): Promise<"reported" | "invalid-arguments"> {
+export async function runWork(words: string[], parsed: ParsedArguments): Promise<Handled> {
   if (words.length !== 1) {
     return "invalid-arguments";
   }

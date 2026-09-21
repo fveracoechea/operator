@@ -19,7 +19,7 @@ export type ApprovalRecord = {
 
 /** The targets of one approval, in the order the grant fixed them. */
 function targetsOf(row: ApprovalRow): string[] {
-  return JSON.parse(row.targets) as string[];
+  return JSON.parse(row.targets);
 }
 
 export function recordOf(row: ApprovalRow): ApprovalRecord {

@@ -83,7 +83,7 @@ function settleFrom(
 function settleDelivery(
   inspection: Inspection,
   acknowledged: boolean,
-  subject: "assignment" | "answer",
+  subject: "assignment" | "answer" = "answer",
 ): Settlement {
   if (acknowledged) {
     return { state: "succeeded", detail: `The Operative acknowledged the ${subject}.` };
@@ -99,6 +99,12 @@ function settleDelivery(
     state: "uncertain",
     detail: `The ${subject} may have reached a live Operative that has not acknowledged it. A timeout does not prove non-delivery.`,
   };
+}
+
+/** True when the Operative received the answer this effect was carrying. */
+async function answerAcknowledged(projectRoot: string, operationId: string): Promise<boolean> {
+  const question = await readState(projectRoot, (db) => questionByDelivery(db, operationId));
+  return question !== null && !("status" in question) && question.acknowledgedAt !== null;
 }
 
 /**
@@ -146,17 +152,10 @@ export async function reconcileAttempt(request: {
       continue;
     }
 
-    // An answer delivery is settled by the receipt of that answer, not of the assignment brief.
-    const answered = await readState(request.projectRoot, (db) =>
-      questionByDelivery(db, operation.id),
-    );
     const outcome = isDispatchStage(operation.kind)
       ? settleFrom(operation.kind, inspection, dispatch.acknowledgedAt !== null)
-      : settleDelivery(
-          inspection,
-          answered !== null && !("status" in answered) && answered.acknowledgedAt !== null,
-          "answer",
-        );
+      : // An answer delivery is settled by the receipt of that answer, not of the brief.
+        settleDelivery(inspection, await answerAcknowledged(request.projectRoot, operation.id));
     findings.push({ kind: operation.kind, state: outcome.state, detail: outcome.detail });
     if (outcome.state === "uncertain") {
       continue;

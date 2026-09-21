@@ -2,9 +2,7 @@ import { CrewState } from "../crew-state/main.ts";
 import type { ParsedArguments } from "./arguments.ts";
 import { reportSharedFailure } from "./crew-result.ts";
 import { requireReference } from "./reference.ts";
-import { report } from "./result.ts";
-
-type Handled = "reported" | "invalid-arguments";
+import { type Handled, report } from "./result.ts";
 
 // The report belongs to the crew state, so this command reads its shape from that interface.
 type DispatchReport = Extract<

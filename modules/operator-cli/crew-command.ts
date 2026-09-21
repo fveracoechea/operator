@@ -1,11 +1,9 @@
 import { CrewState } from "../crew-state/main.ts";
 import type { ParsedArguments } from "./arguments.ts";
 import { reportSharedFailure } from "./crew-result.ts";
-import { report } from "./result.ts";
+import { type Handled, report } from "./result.ts";
 
-export async function runCrewOwn(
-  parsed: ParsedArguments,
-): Promise<"reported" | "invalid-arguments"> {
+export async function runCrewOwn(parsed: ParsedArguments): Promise<Handled> {
   const { requestId, ownerLabel, ownershipRevision } = parsed.crew;
   if (requestId === undefined || ownerLabel === undefined) {
     return "invalid-arguments";

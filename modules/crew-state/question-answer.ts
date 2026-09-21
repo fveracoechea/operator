@@ -1,8 +1,7 @@
-import { OperatorConfig } from "../operator-config/main.ts";
 import { approvalCovers, type Coverage, readApproval } from "./approvals.ts";
+import { type InvalidInput, parseInput } from "./input.ts";
 import { mutate, type RequestFailure, type StateFailure } from "./operations.ts";
-import { type AnswerInput, answerInputSchema } from "./question-input.ts";
-import type { InvalidInput } from "./question-raise.ts";
+import { answerInputSchema } from "./question-input.ts";
 import {
   insertAnswer,
   insertReusedAnswer,
@@ -52,15 +51,12 @@ export async function answerQuestion(request: {
   answerId: string;
   input: unknown;
 }): Promise<AnswerResult> {
-  const parsed = answerInputSchema.safeParse(request.input);
-  if (!parsed.success) {
-    return {
-      status: "invalid-input",
-      issues: parsed.error.issues.map(OperatorConfig.describeIssue),
-    };
+  const parsed = parseInput(answerInputSchema, request.input);
+  if (parsed.status !== "parsed") {
+    return parsed;
   }
 
-  const input: AnswerInput = parsed.data;
+  const input = parsed.value;
   const { repeated, result } = await mutate<Recorded | Refusal>(
     {
       projectRoot: request.projectRoot,

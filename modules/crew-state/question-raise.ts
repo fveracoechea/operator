@@ -1,11 +1,9 @@
-import { OperatorConfig } from "../operator-config/main.ts";
 import { type AttemptFailure, readContext, type Shared } from "./dispatch-context.ts";
 import { readOperation } from "./dispatch.ts";
+import { type InvalidInput, parseInput } from "./input.ts";
 import { mutate } from "./operations.ts";
-import { type QuestionInput, questionInputSchema } from "./question-input.ts";
+import { questionInputSchema } from "./question-input.ts";
 import { blockingQuestionOf, insertQuestion, readQuestion, updateQuestion } from "./questions.ts";
-
-export type InvalidInput = { status: "invalid-input"; issues: string[] };
 
 type Raised = {
   status: "raised";
@@ -25,13 +23,6 @@ export type RaiseResult =
   | AttemptFailure
   | Shared;
 
-function parse(input: unknown): { status: "parsed"; value: QuestionInput } | InvalidInput {
-  const parsed = questionInputSchema.safeParse(input);
-  return parsed.success
-    ? { status: "parsed", value: parsed.data }
-    : { status: "invalid-input", issues: parsed.error.issues.map(OperatorConfig.describeIssue) };
-}
-
 /**
  * Records one blocked report from the Operative that holds the assignment.
  * The report carries no ownership token and no authority of its own, so it states what waits
@@ -44,7 +35,7 @@ export async function raiseQuestion(request: {
   questionId: string;
   input: unknown;
 }): Promise<RaiseResult> {
-  const parsed = parse(request.input);
+  const parsed = parseInput(questionInputSchema, request.input);
   if (parsed.status !== "parsed") {
     return parsed;
   }
@@ -148,7 +139,7 @@ export async function reviseQuestion(request: {
   revision: number;
   input: unknown;
 }): Promise<ReviseResult> {
-  const parsed = parse(request.input);
+  const parsed = parseInput(questionInputSchema, request.input);
   if (parsed.status !== "parsed") {
     return parsed;
   }

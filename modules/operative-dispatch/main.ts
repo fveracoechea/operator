@@ -1,5 +1,5 @@
 import { HerdrControl } from "../herdr-control/main.ts";
-import { type AnswerDelivery, answerDocument, answerIdentity } from "./answer.ts";
+import { type AnswerDelivery, answerDocument } from "./answer.ts";
 import { type PrepareOutcome, prepareInputs } from "./inputs.ts";
 import { inspectWork, type WorkInspection } from "./inspect.ts";
 import { readReference } from "./reference.ts";
@@ -188,7 +188,7 @@ export const OperativeDispatch = {
   async deliverAnswer(request: {
     agentName: string;
     answer: AnswerDelivery;
-  }): Promise<LaunchOutcome<{ status: string; deliveryIdentity: string }>> {
+  }): Promise<LaunchOutcome<{ status: string }>> {
     const submitted = await HerdrControl.submitPrompt({
       target: request.agentName,
       text: answerDocument(request.answer),
@@ -199,13 +199,7 @@ export const OperativeDispatch = {
         : submitted;
     }
 
-    return {
-      status: "succeeded",
-      value: {
-        status: submitted.value.status,
-        deliveryIdentity: answerIdentity(request.answer),
-      },
-    };
+    return { status: "succeeded", value: { status: submitted.value.status } };
   },
 
   /**

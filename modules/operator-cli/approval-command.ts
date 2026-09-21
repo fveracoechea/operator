@@ -1,19 +1,13 @@
 import { CrewState } from "../crew-state/main.ts";
 import type { ParsedArguments } from "./arguments.ts";
 import { readStructuredInput, reportSharedFailure } from "./crew-result.ts";
-import { type Operation, report } from "./result.ts";
+import { type Handled, type Operation, report } from "./result.ts";
 
-type Handled = "reported" | "invalid-arguments";
-
-type ApprovalRecord = {
-  approvalId: string;
-  action: string;
-  targets: string[];
-  scope: string;
-  requestRevision: string;
-  state: string;
-  revision: number;
-};
+// The record belongs to the crew state, so this command reads its shape from that interface.
+type ApprovalRecord = Extract<
+  Awaited<ReturnType<typeof CrewState.grantApproval>>["result"],
+  { approval: unknown }
+>["approval"];
 
 function approvalLines(approval: ApprovalRecord): string[] {
   return [

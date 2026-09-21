@@ -1,5 +1,3 @@
-import { ContentIdentity } from "../content-identity/main.ts";
-
 export type AnswerDelivery = {
   questionId: string;
   questionRevision: number;
@@ -11,16 +9,15 @@ export type AnswerDelivery = {
 };
 
 // The three authorities read differently to an Operative, so each one is named in plain words.
-const authorityLine = {
+// The recorded value is text, so an authority this release does not know still reads honestly.
+const authorityLine: Record<string, string | undefined> = {
   requirement: "This is a recorded requirement of the approved source.",
   "human-answer": "These are the user's own words. Treat them as the authority.",
   "operator-decision": "This is an Operator decision inside delegated authority.",
-} as const;
+};
 
 function describeAuthority(authority: string): string {
-  return Object.hasOwn(authorityLine, authority)
-    ? authorityLine[authority as keyof typeof authorityLine]
-    : `Authority: ${authority}.`;
+  return authorityLine[authority] ?? `Authority: ${authority}.`;
 }
 
 /**
@@ -55,8 +52,4 @@ export function answerDocument(answer: AnswerDelivery): string {
     "",
     "Run it from this worktree. Nothing in this answer widens your recorded authority limits.",
   ].join("\n");
-}
-
-export function answerIdentity(answer: AnswerDelivery): string {
-  return ContentIdentity.ofText(answerDocument(answer));
 }

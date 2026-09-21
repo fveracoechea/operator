@@ -1,4 +1,3 @@
-import { OperatorConfig } from "../operator-config/main.ts";
 import { grantApproval, matchApproval, revokeApproval } from "./approvals.ts";
 import { acknowledgeAttempt } from "./dispatch-acknowledge.ts";
 import type { Overrides } from "./dispatch-context.ts";
@@ -9,6 +8,7 @@ import { showAttempt } from "./dispatch-report.ts";
 import { readCapacity } from "./capacity.ts";
 import { acceptAssignment, claimAssignment } from "./claims.ts";
 import { calculateFrontier } from "./frontier.ts";
+import { parseInput } from "./input.ts";
 import { mutate, readState } from "./operations.ts";
 import { claimOwnership, currentOwnership } from "./ownership.ts";
 import { answerQuestion, reapplyAnswer } from "./question-answer.ts";
@@ -22,6 +22,13 @@ import { workInputSchema } from "./work-input.ts";
 
 type Located = { projectRoot: string };
 type Mutation = Located & { requestId: string; ownerToken: string };
+
+/** Every action answers in one shape, so a caller handles them alike. */
+function reported<Result extends { status: string }>(
+  result: Result,
+): { repeated: boolean; result: Result } {
+  return { repeated: "repeated" in result && result.repeated === true, result };
+}
 
 /** Only the named final status commits; every other status leaves the state unchanged. */
 function commitOn<Outcome extends { status: string }>(
@@ -77,18 +84,12 @@ export const CrewState = {
    * requirements, permissions, fixed inputs, dependencies, and planning boundary.
    */
   async register(request: Mutation & { input: unknown }) {
-    const parsed = workInputSchema.safeParse(request.input);
-    if (!parsed.success) {
-      return {
-        repeated: false,
-        result: {
-          status: "invalid-input" as const,
-          issues: parsed.error.issues.map(OperatorConfig.describeIssue),
-        },
-      };
+    const parsed = parseInput(workInputSchema, request.input);
+    if (parsed.status !== "parsed") {
+      return reported(parsed);
     }
 
-    const input = parsed.data;
+    const input = parsed.value;
     return mutate(
       {
         projectRoot: request.projectRoot,
@@ -208,8 +209,7 @@ export const CrewState = {
    * that continues without the answer. It holds only the assignment that raised it.
    */
   async raiseQuestion(request: Located & { requestId: string; attemptId: string; input: unknown }) {
-    const result = await raiseQuestion({ ...request, questionId: crypto.randomUUID() });
-    return { repeated: "repeated" in result && result.repeated, result };
+    return reported(await raiseQuestion({ ...request, questionId: crypto.randomUUID() }));
   },
 
   /** Records a changed question, which makes the answer given to the earlier one inapplicable. */
@@ -222,8 +222,7 @@ export const CrewState = {
       input: unknown;
     },
   ) {
-    const result = await reviseQuestion(request);
-    return { repeated: "repeated" in result && result.repeated, result };
+    return reported(await reviseQuestion(request));
   },
 
   /**
@@ -233,8 +232,7 @@ export const CrewState = {
   async answerQuestion(
     request: Mutation & { questionId: string; revision: number; input: unknown },
   ) {
-    const result = await answerQuestion({ ...request, answerId: crypto.randomUUID() });
-    return { repeated: "repeated" in result && result.repeated, result };
+    return reported(await answerQuestion({ ...request, answerId: crypto.randomUUID() }));
   },
 
   /** Uses an earlier answer for a changed question, under an approval that names both. */
@@ -246,27 +244,24 @@ export const CrewState = {
       approvalId: string;
     },
   ) {
-    const result = await reapplyAnswer({ ...request, answerId: crypto.randomUUID() });
-    return { repeated: "repeated" in result && result.repeated, result };
+    return reported(await reapplyAnswer({ ...request, answerId: crypto.randomUUID() }));
   },
 
   /** Carries one recorded answer to the Operative that asked. Recording it is a separate step. */
   async deliverAnswer(request: Mutation & { questionId: string }) {
-    const result = await deliverAnswer(request);
-    return { repeated: "repeated" in result && result.repeated, result };
+    return reported(await deliverAnswer(request));
   },
 
   /** Records the Operative's own receipt of one answer, which releases the work that waited. */
   async acknowledgeAnswer(
     request: Located & { requestId: string; questionId: string; worktreePath: string },
   ) {
-    const result = await acknowledgeAnswer(request);
-    return { repeated: "repeated" in result && result.repeated, result };
+    return reported(await acknowledgeAnswer(request));
   },
 
   /** Reports one question and every answer it has held. Writes nothing. */
   async question(request: Located & { questionId: string }) {
-    return { repeated: false, result: await showQuestion(request) };
+    return reported(await showQuestion(request));
   },
 
   /**
@@ -275,18 +270,12 @@ export const CrewState = {
    * to finish, and an Operative report all produce nothing.
    */
   async grantApproval(request: Mutation & { input: unknown }) {
-    const parsed = approvalInputSchema.safeParse(request.input);
-    if (!parsed.success) {
-      return {
-        repeated: false,
-        result: {
-          status: "invalid-input" as const,
-          issues: parsed.error.issues.map(OperatorConfig.describeIssue),
-        },
-      };
+    const parsed = parseInput(approvalInputSchema, request.input);
+    if (parsed.status !== "parsed") {
+      return reported(parsed);
     }
 
-    const input = parsed.data;
+    const input = parsed.value;
     return mutate(
       {
         projectRoot: request.projectRoot,
@@ -326,20 +315,13 @@ export const CrewState = {
 
   /** Reports whether a recorded approval covers one exact action right now. Writes nothing. */
   async checkApproval(request: Located & { input: unknown }) {
-    const parsed = approvalCheckSchema.safeParse(request.input);
-    if (!parsed.success) {
-      return {
-        repeated: false,
-        result: {
-          status: "invalid-input" as const,
-          issues: parsed.error.issues.map(OperatorConfig.describeIssue),
-        },
-      };
+    const parsed = parseInput(approvalCheckSchema, request.input);
+    if (parsed.status !== "parsed") {
+      return reported(parsed);
     }
 
-    const check = parsed.data;
-    const result = await readState(request.projectRoot, (db) => matchApproval(db, check));
-    return { repeated: false, result };
+    const check = parsed.value;
+    return reported(await readState(request.projectRoot, (db) => matchApproval(db, check)));
   },
 
   /** Reports the work a crew of this size may start now, and why the rest waits. Writes nothing. */

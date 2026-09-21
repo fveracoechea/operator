@@ -1,3 +1,6 @@
+/** What one command did with its request: it reported a result, or it cannot read the request. */
+export type Handled = "reported" | "invalid-arguments";
+
 export type Outcome =
   | "completed"
   | "failed"

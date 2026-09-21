@@ -49,11 +49,12 @@ export function targetIdentityOf(input: QuestionInput): string {
 }
 
 export function questionReportOf(row: QuestionRow): QuestionInput {
-  return JSON.parse(row.report) as QuestionInput;
+  return JSON.parse(row.report);
 }
 
+/** The subjects this question names that only a person may settle. */
 export function triggersOf(row: QuestionRow): string[] {
-  return JSON.parse(row.escalationTriggers) as string[];
+  return questionReportOf(row).escalationTriggers;
 }
 
 export function answerRecordOf(row: AnswerRow, question: QuestionRow): AnswerRecord {
@@ -180,7 +181,6 @@ export function insertQuestion(
       state: "open",
       report: JSON.stringify(request.input),
       targetIdentity: targetIdentityOf(request.input),
-      escalationTriggers: JSON.stringify(request.input.escalationTriggers),
       answerId: null,
       deliveryOperationId: null,
       deliveredAt: null,
@@ -206,7 +206,6 @@ export function updateQuestion(
       state: "open",
       report: JSON.stringify(request.input),
       targetIdentity: targetIdentityOf(request.input),
-      escalationTriggers: JSON.stringify(request.input.escalationTriggers),
       answerId: null,
       deliveryOperationId: null,
       updatedAt: request.now,
