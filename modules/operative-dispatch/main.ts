@@ -1,4 +1,5 @@
 import { HerdrControl } from "../herdr-control/main.ts";
+import { type AnswerDelivery, answerDocument, answerIdentity } from "./answer.ts";
 import { type PrepareOutcome, prepareInputs } from "./inputs.ts";
 import { inspectWork, type WorkInspection } from "./inspect.ts";
 import { readReference } from "./reference.ts";
@@ -177,6 +178,34 @@ export const OperativeDispatch = {
     }
 
     return { status: "succeeded", value: { status: submitted.value.status } };
+  },
+
+  /**
+   * Carries one recorded answer to the Operative that asked for it.
+   * Success means Herdr accepted the submission, so the Operative's own acknowledgement stays
+   * the only proof that the answer arrived.
+   */
+  async deliverAnswer(request: {
+    agentName: string;
+    answer: AnswerDelivery;
+  }): Promise<LaunchOutcome<{ status: string; deliveryIdentity: string }>> {
+    const submitted = await HerdrControl.submitPrompt({
+      target: request.agentName,
+      text: answerDocument(request.answer),
+    });
+    if (submitted.status !== "succeeded") {
+      return submitted.status === "failed"
+        ? { status: "failed", code: submitted.code, detail: submitted.detail }
+        : submitted;
+    }
+
+    return {
+      status: "succeeded",
+      value: {
+        status: submitted.value.status,
+        deliveryIdentity: answerIdentity(request.answer),
+      },
+    };
   },
 
   /**

@@ -137,6 +137,72 @@ export const requestRecords = sqliteTable("request_records", {
   recordedAt: text("recorded_at").notNull(),
 });
 
+/**
+ * One blocked report from an Operative. It records the question, its evidence, its options,
+ * the recommendation, the scope that waits, and the work that continues without the answer.
+ * Its revision changes whenever the question or its target changes, which makes a recorded
+ * answer stale rather than silently applicable.
+ */
+export const questions = sqliteTable("questions", {
+  id: text("id").primaryKey(),
+  assignmentId: text("assignment_id")
+    .notNull()
+    .references(() => assignments.id),
+  attemptId: text("attempt_id")
+    .notNull()
+    .references(() => attempts.id),
+  revision: integer("revision").notNull(),
+  state: text("state").notNull(),
+  report: text("report").notNull(),
+  targetIdentity: text("target_identity").notNull(),
+  escalationTriggers: text("escalation_triggers").notNull(),
+  answerId: text("answer_id"),
+  deliveryOperationId: text("delivery_operation_id"),
+  deliveredAt: text("delivered_at"),
+  acknowledgedAt: text("acknowledged_at"),
+  raisedAt: text("raised_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+/**
+ * One recorded answer to one question revision.
+ * The exact words stay in their own column, so a structured reading can never replace what a
+ * person or an approved source actually said.
+ */
+export const answers = sqliteTable("answers", {
+  id: text("id").primaryKey(),
+  questionId: text("question_id")
+    .notNull()
+    .references(() => questions.id),
+  questionRevision: integer("question_revision").notNull(),
+  targetIdentity: text("target_identity").notNull(),
+  authority: text("authority").notNull(),
+  exactText: text("exact_text"),
+  interpretation: text("interpretation").notNull(),
+  sourceId: text("source_id"),
+  sourceRevision: text("source_revision"),
+  reusedFromId: text("reused_from_id"),
+  approvalId: text("approval_id"),
+  recordedAt: text("recorded_at").notNull(),
+});
+
+/**
+ * One approval of one exact action. It binds the action, its targets, its scope, and the
+ * revision of the request it was granted against, and a revocation ends it.
+ */
+export const approvals = sqliteTable("approvals", {
+  id: text("id").primaryKey(),
+  action: text("action").notNull(),
+  targets: text("targets").notNull(),
+  scope: text("scope").notNull(),
+  requestRevision: text("request_revision").notNull(),
+  exactText: text("exact_text").notNull(),
+  state: text("state").notNull(),
+  revision: integer("revision").notNull(),
+  grantedAt: text("granted_at").notNull(),
+  revokedAt: text("revoked_at"),
+});
+
 export const crewStateSchema = {
   stateMeta,
   operatorOwnership,
@@ -147,6 +213,9 @@ export const crewStateSchema = {
   attemptDispatch,
   externalOperations,
   requestRecords,
+  questions,
+  answers,
+  approvals,
 };
 
 /**
@@ -246,10 +315,55 @@ export const CREATE_STATEMENTS = [
     outcome text not null,
     recorded_at text not null
   ) strict`,
+  sql`create table questions (
+    id text primary key,
+    assignment_id text not null references assignments(id),
+    attempt_id text not null references attempts(id),
+    revision integer not null,
+    state text not null,
+    report text not null,
+    target_identity text not null,
+    escalation_triggers text not null,
+    answer_id text,
+    delivery_operation_id text,
+    delivered_at text,
+    acknowledged_at text,
+    raised_at text not null,
+    updated_at text not null
+  ) strict`,
+  sql`create table answers (
+    id text primary key,
+    question_id text not null references questions(id),
+    question_revision integer not null,
+    target_identity text not null,
+    authority text not null,
+    exact_text text,
+    interpretation text not null,
+    source_id text,
+    source_revision text,
+    reused_from_id text,
+    approval_id text,
+    recorded_at text not null
+  ) strict`,
+  sql`create table approvals (
+    id text primary key,
+    action text not null,
+    targets text not null,
+    scope text not null,
+    request_revision text not null,
+    exact_text text not null,
+    state text not null,
+    revision integer not null,
+    granted_at text not null,
+    revoked_at text
+  ) strict`,
   sql`create unique index attempts_one_active
     on attempts (assignment_id) where state = 'active'`,
   sql`create unique index external_operations_live
-    on external_operations (attempt_id, kind) where state <> 'failed'`,
+    on external_operations (attempt_id, kind) where state <> 'failed'
+      and kind in ('worktree_create', 'input_preparation', 'agent_start', 'prompt_delivery')`,
+  sql`create unique index questions_one_open
+    on questions (attempt_id) where state <> 'resolved'`,
 ];
 
 /** The declared column names and null rules of one table, used by the drift test. */

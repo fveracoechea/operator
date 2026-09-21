@@ -9,11 +9,14 @@ import {
   type Shared,
 } from "./dispatch-context.ts";
 import {
+  ANSWER_DELIVERY,
   type DispatchStage,
   isDispatchStage,
   type OperationState,
   settleOperation,
 } from "./dispatch.ts";
+import { readState } from "./operations.ts";
+import { questionByDelivery } from "./questions.ts";
 
 type Finding = { kind: string; state: string; detail: string };
 
@@ -70,17 +73,31 @@ function settleFrom(
     };
   }
 
+  return settleDelivery(inspection, acknowledged, "assignment");
+}
+
+/**
+ * Decides one unproven submission from what the writer shows.
+ * The Operative's own receipt is the only proof of arrival, and a timeout proves nothing.
+ */
+function settleDelivery(
+  inspection: Inspection,
+  acknowledged: boolean,
+  subject: "assignment" | "answer",
+): Settlement {
   if (acknowledged) {
-    return { state: "succeeded", detail: "The Operative acknowledged the assignment." };
+    return { state: "succeeded", detail: `The Operative acknowledged the ${subject}.` };
   }
   if (inspection.writer.state === "stopped") {
-    return { state: "failed", detail: "The agent that would have received the brief is gone." };
+    return {
+      state: "failed",
+      detail: `The agent that would have received the ${subject} is gone.`,
+    };
   }
 
   return {
     state: "uncertain",
-    detail:
-      "The brief may have reached a live Operative that has not acknowledged it. A timeout does not prove non-delivery.",
+    detail: `The ${subject} may have reached a live Operative that has not acknowledged it. A timeout does not prove non-delivery.`,
   };
 }
 
@@ -120,7 +137,7 @@ export async function reconcileAttempt(request: {
   const findings: Finding[] = [];
 
   for (const operation of unsettled) {
-    if (!isDispatchStage(operation.kind)) {
+    if (!isDispatchStage(operation.kind) && operation.kind !== ANSWER_DELIVERY) {
       findings.push({
         kind: operation.kind,
         state: "uncertain",
@@ -129,7 +146,17 @@ export async function reconcileAttempt(request: {
       continue;
     }
 
-    const outcome = settleFrom(operation.kind, inspection, dispatch.acknowledgedAt !== null);
+    // An answer delivery is settled by the receipt of that answer, not of the assignment brief.
+    const answered = await readState(request.projectRoot, (db) =>
+      questionByDelivery(db, operation.id),
+    );
+    const outcome = isDispatchStage(operation.kind)
+      ? settleFrom(operation.kind, inspection, dispatch.acknowledgedAt !== null)
+      : settleDelivery(
+          inspection,
+          answered !== null && !("status" in answered) && answered.acknowledgedAt !== null,
+          "answer",
+        );
     findings.push({ kind: operation.kind, state: outcome.state, detail: outcome.detail });
     if (outcome.state === "uncertain") {
       continue;

@@ -13,6 +13,11 @@ export const DISPATCH_STAGES = [
 
 export type DispatchStage = (typeof DISPATCH_STAGES)[number];
 
+/** The external effect that carries one recorded answer to the Operative that asked for it. */
+export const ANSWER_DELIVERY = "answer_delivery";
+
+export type OperationKind = DispatchStage | typeof ANSWER_DELIVERY;
+
 export type OperationState = "intended" | "succeeded" | "failed" | "uncertain";
 
 /** A recorded kind this release still knows how to settle. */
@@ -144,7 +149,7 @@ export function openOperation(
   request: {
     operationId: string;
     attemptId: string;
-    kind: DispatchStage;
+    kind: OperationKind;
     requestId: string;
     intent: unknown;
     now: string;
