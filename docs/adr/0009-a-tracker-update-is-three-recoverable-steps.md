@@ -18,9 +18,10 @@ A write that never returned a definite answer stays uncertain, because it may st
 Another write under that operation requires a person's approval bound to the operation and to the number of attempts already recorded, so one approval covers exactly one more write and the earlier unresolved attempt stays in the history.
 Elapsed time, an empty scan, and an agent inference authorize nothing.
 
-Completion reads the ticket before it closes it.
+Completion reads the ticket before it closes it, and so does any step that already sent a write.
 An observed closed state with the intended reason satisfies the step without claiming that Operator's request caused it, and the observed state, reason, actor, times, and closure events are recorded as what they are.
 A different close reason is a conflict, and a reopen after the close stops automatic closure.
+A state the reading could not establish stops the write as well, because a reopen nobody could see would otherwise be overridden with no approval.
 
 The canonical map is its baseline body plus explicit amendment comments.
 Operator never replaces a shared issue body, because GitHub offers no conditional write on that endpoint that another writer would lose.
