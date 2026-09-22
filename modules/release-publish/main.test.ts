@@ -415,3 +415,24 @@ describe("a path the record already names as delivered", () => {
     expect(delivered.state === "read" && delivered.journal.paths.jsr?.state).toBe("published");
   });
 });
+
+describe("the tarball order", () => {
+  test("follows the byte order the artifact identity uses, not the locale", async () => {
+    await Bun.write(`${artifactRoot}/skills/operator/Z-upper.md`, "upper\n");
+    await Bun.write(`${artifactRoot}/skills/operator/a-lower.md`, "lower\n");
+    const packed = await ReleasePublish.pack({ artifactRoot });
+
+    const listed = `${artifactRoot}-listing`;
+    roots.push(listed);
+    await Bun.$`mkdir -p ${listed}`.quiet();
+    await Bun.write(`${listed}/artifact.tgz`, packed.bytes);
+    const names = (await Bun.$`tar -tzf ${listed}/artifact.tgz`.text())
+      .split("\n")
+      .filter((name) => name.startsWith("skills/operator/"));
+
+    // `toSorted()` compares code points, so the upper-case name precedes the lower-case one.
+    expect(names.indexOf("skills/operator/Z-upper.md")).toBeLessThan(
+      names.indexOf("skills/operator/a-lower.md"),
+    );
+  });
+});

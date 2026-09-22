@@ -67,7 +67,9 @@ export function packTarball(entries: TarEntry[], options: { mtime?: number } = {
   const mtime = options.mtime ?? 0;
   const blocks: Uint8Array[] = [];
 
-  for (const entry of entries.toSorted((left, right) => left.path.localeCompare(right.path))) {
+  // The order is by code point, the same order the artifact identity is taken in, so the bytes
+  // do not depend on the locale the release job happens to run under.
+  for (const entry of entries.toSorted((left, right) => (left.path < right.path ? -1 : 1))) {
     blocks.push(
       header({
         path: entry.path,
