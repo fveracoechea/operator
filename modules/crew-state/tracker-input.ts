@@ -1,12 +1,12 @@
 import { z } from "zod";
 import { TrackerUpdate } from "../tracker-update/main.ts";
 import { readStored, readStoredValue } from "./stored.ts";
-import type { TrackerStep } from "./tracker.ts";
+import type { TrackerStep, TrackerTarget } from "./tracker.ts";
 
 /** A write the contract judges. `intended` is this release's own record of one not yet sent. */
 type SentState = Parameters<typeof TrackerUpdate.read>[0]["writes"][number];
 
-const target = z.strictObject({
+const target: z.ZodType<TrackerTarget> = z.strictObject({
   repository: z.string().min(1),
   issue: z.int().positive(),
 });
@@ -48,7 +48,7 @@ export type TrackerStepInput = z.infer<typeof trackerStepInputSchema>;
 /** The reasons the contract knows, read at runtime so a stored one cannot drift from them. */
 const known: readonly string[] = TrackerUpdate.reasons();
 
-type TrackerReason = Awaited<ReturnType<typeof TrackerUpdate.read>>["verdict"]["reason"];
+export type TrackerReason = Awaited<ReturnType<typeof TrackerUpdate.read>>["verdict"]["reason"];
 
 const reason = z.custom<TrackerReason>(
   (value) => typeof value === "string" && known.includes(value),
@@ -62,6 +62,8 @@ const problem = z.strictObject({ reason, detail: z.string() });
 export type TrackerProblem = z.infer<typeof problem>;
 
 type VerdictState = Awaited<ReturnType<typeof TrackerUpdate.read>>["verdict"]["state"];
+
+type Observation = Awaited<ReturnType<typeof TrackerUpdate.read>>["observation"];
 
 const verdictState: z.ZodType<VerdictState> = z.enum([
   "verified",
@@ -94,6 +96,64 @@ export function storedReason(stored: string): TrackerReason {
 
 export function storedVerdictState(stored: string): VerdictState {
   return readStoredValue("tracker step state", verdictState, stored);
+}
+
+const coverage = z.strictObject({
+  complete: z.boolean(),
+  pages: z.int(),
+  count: z.int(),
+  detail: z.string().nullable(),
+});
+
+const commentMark = z.strictObject({
+  commentId: z.string(),
+  url: z.string(),
+  actor: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  contentIdentity: z.string(),
+});
+
+/**
+ * One recorded reading of the tracker.
+ * The annotation binds it to the shape the contract produces, so a reading this release cannot
+ * read is a damaged record that fails loudly rather than a shape a reader works around.
+ */
+const observation: z.ZodType<Observation> = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("comment"),
+    lookup: z.enum(["known-id", "scan"]),
+    coverage,
+    exactMatches: z.array(commentMark),
+    editedMatches: z.array(commentMark),
+    actorMismatches: z.array(commentMark),
+    observedAt: z.string(),
+  }),
+  z.strictObject({
+    kind: z.literal("closure"),
+    read: z.enum(["found", "absent", "unknown"]),
+    detail: z.string().nullable(),
+    state: z.string().nullable(),
+    stateReason: z.string().nullable(),
+    closedBy: z.string().nullable(),
+    closedAt: z.string().nullable(),
+    updatedAt: z.string().nullable(),
+    events: z.array(
+      z.strictObject({
+        event: z.string(),
+        actor: z.string().nullable(),
+        stateReason: z.string().nullable(),
+        createdAt: z.string(),
+      }),
+    ),
+    eventCoverage: coverage,
+    reopened: z.enum(["yes", "no", "unknown"]),
+    observedAt: z.string(),
+  }),
+]);
+
+export function storedObservation(stored: string): Observation {
+  return readStored("tracker observation", observation, stored);
 }
 
 export function storedTarget(stored: string): z.infer<typeof target> {

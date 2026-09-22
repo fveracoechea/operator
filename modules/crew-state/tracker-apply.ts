@@ -25,6 +25,7 @@ import {
   writeAttemptsOf,
 } from "./tracker.ts";
 import {
+  storedObservation,
   storedProblems,
   storedReason,
   storedStep,
@@ -32,6 +33,7 @@ import {
   storedVerdictState,
   storedWriteState,
   type TrackerProblem,
+  type TrackerReason,
   type TrackerStepInput,
   trackerStepInputSchema,
 } from "./tracker-input.ts";
@@ -60,7 +62,6 @@ type Observation = Reading["observation"];
 type Verdict = Reading["verdict"];
 
 // The report speaks the contract's own vocabulary rather than widening it back to text.
-type TrackerReason = Verdict["reason"];
 type VerdictState = Verdict["state"];
 
 /** The action a person approves before another write is sent under one uncertain operation. */
@@ -91,7 +92,7 @@ export type TrackerStepReport = {
     startedAt: string;
     settledAt: string | null;
   }>;
-  observations: Array<{ kind: string; observedAt: string; observation: unknown }>;
+  observations: Array<{ kind: string; observedAt: string; observation: Observation }>;
 };
 
 export type TrackerResult =
@@ -143,7 +144,7 @@ function reportOf(request: {
     observations: request.observations.map((one) => ({
       kind: one.kind,
       observedAt: one.observedAt,
-      observation: JSON.parse(one.observation) as unknown,
+      observation: storedObservation(one.observation),
     })),
   };
 }

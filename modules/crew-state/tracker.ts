@@ -20,7 +20,8 @@ export type TrackerOperationRow = typeof trackerOperations.$inferSelect;
 export type TrackerWriteRow = typeof trackerWriteAttempts.$inferSelect;
 export type TrackerObservationRow = typeof trackerObservations.$inferSelect;
 
-export type TrackerTarget = { repository: string; issue: number };
+/** The ticket one step writes to, taken from the contract that receives it. */
+export type TrackerTarget = Parameters<typeof TrackerUpdate.read>[0]["target"];
 
 /** Where one assignment's tracker updates go. It is fixed at registration, never at use. */
 export type TrackerBinding = {

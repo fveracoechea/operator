@@ -1,4 +1,11 @@
+import type { GithubTracker } from "../github-tracker/main.ts";
 import type { TrackerStep } from "./provider.ts";
+
+/** What one reading of a provider list covered, taken from the boundary that reports it. */
+export type ScanCoverage = Awaited<ReturnType<typeof GithubTracker.scanComments>>["coverage"];
+
+/** One closure event, taken from the boundary that reads it. */
+export type ClosureEvent = Awaited<ReturnType<typeof GithubTracker.readEvents>>["events"][number];
 
 /**
  * The provider-neutral reasons one tracker step reports.
@@ -34,13 +41,6 @@ export type CommentMark = {
   contentIdentity: string;
 };
 
-export type ScanCoverage = {
-  complete: boolean;
-  pages: number;
-  count: number;
-  detail: string | null;
-};
-
 export type CommentObservation = {
   kind: "comment";
   /** A known server identifier is read directly; otherwise every accessible page is scanned. */
@@ -50,13 +50,6 @@ export type CommentObservation = {
   editedMatches: CommentMark[];
   actorMismatches: CommentMark[];
   observedAt: string;
-};
-
-export type ClosureEvent = {
-  event: string;
-  actor: string | null;
-  stateReason: string | null;
-  createdAt: string;
 };
 
 export type ClosureObservation = {

@@ -1,3 +1,4 @@
+import type { GithubTracker } from "../github-tracker/main.ts";
 import type { TrackerTarget } from "./provider.ts";
 
 /**
@@ -49,15 +50,10 @@ export type CompletionIntent = {
 
 export type TrackerIntent = ResolutionIntent | AmendmentIntent | CompletionIntent;
 
-/** One comment as a provider reports it. Every reader of a comment in this module reads this. */
-export type TrackerComment = {
-  commentId: string;
-  url: string;
-  actor: string;
-  body: string;
-  createdAt: string;
-  updatedAt: string;
-};
+/** One comment, taken from the boundary that reads it, so both cannot drift apart. */
+export type TrackerComment = Awaited<
+  ReturnType<typeof GithubTracker.scanComments>
+>["comments"][number];
 
 /**
  * Renders the exact comment one operation intends to write.

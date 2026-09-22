@@ -11,7 +11,12 @@ import {
   trackerOperationsOf,
   writeAttemptsOf,
 } from "./tracker.ts";
-import { storedProblems } from "./tracker-input.ts";
+import {
+  storedProblems,
+  storedReason,
+  type TrackerProblem,
+  type TrackerReason,
+} from "./tracker-input.ts";
 
 type Shared = StateFailure | RequestFailure;
 
@@ -23,8 +28,8 @@ type StepState = {
   applicable: boolean;
   operationId: string | null;
   state: string;
-  reason: string;
-  problems: Array<{ reason: string; detail: string }>;
+  reason: TrackerReason;
+  problems: TrackerProblem[];
   resourceId: string | null;
   resourceUrl: string | null;
   revision: number | null;
@@ -113,7 +118,7 @@ export async function showTrackerSteps(request: {
         applicable,
         operationId: operation?.id ?? null,
         state: operation?.state ?? "unrecorded",
-        reason: operation?.reason ?? "tracker.pending",
+        reason: operation === null ? "tracker.pending" : storedReason(operation.reason),
         problems: operation === null ? [] : storedProblems(operation.problems),
         resourceId: operation?.resourceId ?? null,
         resourceUrl: operation?.resourceUrl ?? null,
