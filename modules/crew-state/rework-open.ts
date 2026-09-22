@@ -25,7 +25,7 @@ import {
   openCycleOf,
 } from "./rework.ts";
 import { storedChecks, storedCode, storedResultKind } from "./submission-input.ts";
-import { latestSubmission, type SubmissionRow } from "./submission.ts";
+import { latestSubmission, type SubmissionRow, submissionsOf } from "./submission.ts";
 import { storedArtifacts } from "./submission-store.ts";
 
 export type ReworkOutcome =
@@ -164,22 +164,47 @@ function reviewGate(
     return { status: "no-corrections", reviewId: review.id };
   }
 
-  // A conflict names what the Operative must settle. A finding inside one is delegated work,
-  // so it must be a correction this cycle actually carries.
-  const held = new Set(findings.map((one) => one.id));
-  const corrected = new Set(accepted.map((one) => one.findingId));
-  const stray = request.input.conflicts
-    .flatMap((one) => one.between)
-    .filter((name) => held.has(name) && !corrected.has(name));
-  if (stray.length > 0) {
-    return {
-      status: "conflict-not-corrected",
-      reviewId: review.id,
-      findingIds: [...new Set(stray)],
-    };
-  }
-
   return { status: "ok", corrections: accepted };
+}
+
+/**
+ * Refuses a conflict that names a finding this cycle does not carry.
+ * A conflict is work the Operative settles, so every finding inside one is a correction the
+ * cycle delegates. This reads every round of the assignment, not only the review the cycle
+ * answers, so a finding from an earlier round cannot be named into a cycle that ignores it.
+ */
+function conflictGate(
+  db: CrewReader,
+  request: {
+    assignmentId: string;
+    input: ReworkInput;
+    corrections: ReworkCorrection[];
+  },
+): Extract<ReworkOutcome, { status: "conflict-not-corrected" }> | null {
+  const rounds = submissionsOf(db, request.assignmentId).flatMap((submission) => {
+    const review = reviewOfSubmission(db, submission.id);
+    return review === null ? [] : [review];
+  });
+  const held = new Map(
+    rounds.flatMap((review) => findingsOf(db, review.id).map((one) => [one.id, review.id])),
+  );
+  const carried = new Set(request.corrections.map((one) => one.findingId));
+
+  const stray = [
+    ...new Set(
+      request.input.conflicts
+        .flatMap((one) => one.between)
+        .filter((name) => held.has(name) && !carried.has(name)),
+    ),
+  ];
+  const first = stray[0];
+  return first === undefined
+    ? null
+    : {
+        status: "conflict-not-corrected",
+        reviewId: held.get(first) ?? "",
+        findingIds: stray,
+      };
 }
 
 /** The recorded checks a diagnostic rerun names, and the reason a rerun is warranted at all. */
@@ -278,6 +303,15 @@ export function openReworkCycle(db: CrewWriter, request: ReworkRequest): ReworkO
       return gate;
     }
     accepted = gate.corrections;
+  }
+
+  const strayConflict = conflictGate(db, {
+    assignmentId: row.id,
+    input,
+    corrections: accepted,
+  });
+  if (strayConflict !== null) {
+    return strayConflict;
   }
 
   const { kind: limitKind, limit } = budgetOf(input.reason);

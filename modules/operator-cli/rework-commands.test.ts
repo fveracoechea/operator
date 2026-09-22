@@ -510,6 +510,65 @@ describe("conflicts and combined revisions", () => {
     expect(brief).toContain("- accepted helper: rev-helper-1");
   });
 
+  test("a conflict may not name a finding the cycle does not carry", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const first = await reviewedResult(workspace, { spec: [] });
+    const { producer, submitted, reviewer } = first;
+    const gate = findingId(first.reported, "missing-gate");
+
+    await disposeFindings(workspace, producer, submitted.json.data.reviewId, [
+      { findingId: gate, disposition: "corrected", reason: "The requirement names the gate." },
+    ]);
+    await acceptReview(workspace, producer, {
+      reviewAssignmentId: submitted.json.data.reviewAssignmentId,
+      attemptId: reviewer.attemptId,
+      revision: reviewer.revision,
+    });
+    const delegated = await delegateRework(workspace, producer, {
+      revision: submitted.json.data.revision,
+      body: {
+        reason: "findings",
+        reviewId: submitted.json.data.reviewId,
+        instruction: "State the gate.",
+        conflicts: [],
+      },
+    });
+    const reworked = await startRework(workspace, producer, {
+      revision: delegated.json.data.revision,
+      commit: first.artifact.commit,
+      worktreePath: `${workspace.root}/round-2`,
+    });
+    const second = await submitRevision(workspace, reworked, first.base, "# Result\n\nGated.\n");
+
+    // The second round is not reviewed yet, so this cycle carries no correction at all.
+    // A finding of the earlier round is still a finding, and naming it delegates nothing.
+    const refused = await delegateRework(workspace, reworked, {
+      revision: second.submitted.json.data.revision,
+      body: {
+        reason: "integration",
+        instruction: "Combine it with the accepted helper.",
+        conflicts: [{ summary: "The gate and the helper disagree.", between: [gate, "helper"] }],
+        combines: [{ name: "accepted helper", revision: "rev-helper-1" }],
+      },
+    });
+    expect(refused.exitCode).toBe(2);
+    expect(refused.json.reason).toBe("conflict_not_corrected");
+    expect(refused.json.blockers[0]).toMatchObject({ findingId: gate });
+
+    // The same cycle without that conflict is ordinary combining work.
+    const delegatedAgain = await delegateRework(workspace, reworked, {
+      revision: second.submitted.json.data.revision,
+      body: {
+        reason: "integration",
+        instruction: "Combine it with the accepted helper.",
+        conflicts: [{ summary: "The helper and the base disagree.", between: ["helper", "base"] }],
+        combines: [{ name: "accepted helper", revision: "rev-helper-1" }],
+      },
+    });
+    expect(delegatedAgain.exitCode).toBe(0);
+    expect(delegatedAgain.json.data.conflicts).toBe(1);
+  }, 60_000);
+
   test("a reported review is answered even when the combining cycle names no review", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const first = await reviewedResult(workspace);
