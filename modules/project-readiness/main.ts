@@ -1,13 +1,26 @@
 import { type Check, passedCheck, staticChecks, unmetCheck } from "./checks.ts";
-import { readEvidence } from "./evidence.ts";
+import { appendAttempt, type Attempt, readEvidence, standingObservations } from "./evidence.ts";
 import { fingerprints } from "./fingerprints.ts";
-import { liveChecks, probeCleanup, probeProviderUse, probeTemporaryResources } from "./live.ts";
+import {
+  type LiveClaim,
+  liveChecks,
+  LIVE_PLAN_REVISION,
+  probeCleanup,
+  probeCredentials,
+  PROBE_FIXTURE_CREDENTIAL,
+  PROBE_FIXTURE_MISSING,
+  probeFixtureRequirements,
+  probeProviderUse,
+  probeTemporaryResources,
+} from "./live.ts";
 import { type Observation, type Overrides, observeProject, type Target } from "./observe.ts";
 import { readLaunchSnapshot } from "./snapshot.ts";
 
 type Request = { projectRoot: string; targets: Target[]; overrides: Overrides };
 
 const PROBE_NEXT_ACTION = "Run `operator setup probe plan`, then apply the approved probe.";
+
+const EVERY_CLAIM: LiveClaim[] = ["readiness", "release"];
 
 async function liveCheckResults(
   projectRoot: string,
@@ -32,12 +45,13 @@ async function liveCheckResults(
     };
   }
 
-  const recorded = read.state === "read" ? read.evidence.checks : [];
+  const standing =
+    read.state === "read" ? standingObservations(read.evidence) : new Map<string, never>();
 
   return {
     unreadable: null,
     checks: liveChecks.map((declared) => {
-      const record = recorded.find((one) => one.name === declared.name);
+      const record = standing.get(declared.name);
       if (record === undefined) {
         return unmetCheck(
           declared.name,
@@ -52,21 +66,26 @@ async function liveCheckResults(
         );
       }
 
-      if (record.state === "failed") {
+      const { observation, attempt } = record;
+      if (observation.state === "failed" || observation.state === "skipped") {
+        const skipped = observation.state === "skipped";
         return unmetCheck(
           declared.name,
           null,
-          "failed",
+          // A skipped check proves nothing, so it holds its claims back exactly like a failure.
+          skipped ? "unverified" : "failed",
           {
-            reason: "live_check_failed",
-            detail: `${declared.summary} The last live probe failed: ${record.detail}`,
+            reason: skipped ? "live_check_skipped" : "live_check_failed",
+            detail: `${declared.summary} Probe ${attempt.probeId} ${skipped ? "skipped" : "failed"} it: ${observation.detail}`,
             nextAction: PROBE_NEXT_ACTION,
           },
           "live",
         );
       }
 
-      const changed = declared.inputs.filter((input) => record.inputs[input] !== inputs[input]);
+      const changed = declared.inputs.filter(
+        (input) => observation.inputs[input] !== inputs[input],
+      );
       if (changed.length > 0) {
         return unmetCheck(
           declared.name,
@@ -84,7 +103,7 @@ async function liveCheckResults(
       return passedCheck(
         declared.name,
         null,
-        `${declared.summary} Proven by probe ${record.probeId} on ${record.observedAt}.`,
+        `${declared.summary} Proven by probe ${attempt.probeId} on ${observation.finishedAt}.`,
         "live",
       );
     }),
@@ -102,6 +121,37 @@ function reportState(checks: Check[]): "ready" | "blocked" | "unverified" {
   return "ready";
 }
 
+type ClaimState = "proven" | "blocked" | "unverified";
+
+/** The worse of two claim answers. A claim is only as good as the weakest evidence under it. */
+function worse(left: ClaimState, right: ClaimState): ClaimState {
+  const order: ClaimState[] = ["proven", "unverified", "blocked"];
+  return order.indexOf(left) >= order.indexOf(right) ? left : right;
+}
+
+/**
+ * What each claim may say right now.
+ * A static check feeds both claims, because a missing tool holds back a release as surely as a
+ * readiness answer. A live check feeds only the claims it declares.
+ * A release is proven on a project that is ready, so a check that holds readiness back holds the
+ * release back with it, even when no check that names the release reads that capability.
+ */
+function claimStates(checks: Check[]): Record<LiveClaim, ClaimState> {
+  const declared = new Map(liveChecks.map((one) => [one.name, one.claims]));
+
+  function stateOf(claim: LiveClaim): ClaimState {
+    const feeding = checks.filter((one) => (declared.get(one.name) ?? EVERY_CLAIM).includes(claim));
+    return reportState(feeding) === "ready"
+      ? "proven"
+      : feeding.some((one) => one.state === "failed")
+        ? "blocked"
+        : "unverified";
+  }
+
+  const readiness = stateOf("readiness");
+  return { readiness, release: worse(stateOf("release"), readiness) };
+}
+
 function selectionSummary(observation: Observation) {
   function role(name: "operator" | "crew") {
     return {
@@ -113,6 +163,10 @@ function selectionSummary(observation: Observation) {
   }
 
   return { operator: role("operator"), crew: role("crew") };
+}
+
+function fixtureOf(observation: Observation) {
+  return observation.configuration.probe?.githubFixture ?? null;
 }
 
 async function buildReport(request: Request) {
@@ -137,12 +191,17 @@ async function buildReport(request: Request) {
     architecture: observation.environment.architecture,
     targets: observation.targets,
     selection: selectionSummary(observation),
+    fixture: fixtureOf(observation),
     release: {
       version: observation.release.version,
       identity: observation.release.identity,
       lock: { name: observation.release.lock.name, state: observation.release.lock.state },
     },
+    versions: Object.fromEntries(
+      observation.environment.tools.map((tool) => [tool.tool, tool.version ?? "missing"]),
+    ),
     checks,
+    claims: claimStates(checks),
     blockers: checks.filter((one) => one.state === "failed"),
     unproven: checks.filter((one) => one.state === "unverified" || one.state === "stale"),
     nextActions: [
@@ -158,29 +217,81 @@ async function buildReport(request: Request) {
   };
 }
 
-function probeIdentity(report: Awaited<ReturnType<typeof buildReport>>): string {
-  return new Bun.CryptoHasher("sha256")
+type Report = Awaited<ReturnType<typeof buildReport>>;
+
+/**
+ * True when a check the probe cannot fix has failed.
+ * A failed live check is the reason to run a probe again, so only a failing static check, or
+ * evidence that cannot be read, holds a probe back.
+ */
+function staticallyBlocked(report: Report): boolean {
+  return report.blockers.some((one) => one.kind === "static" || one.name === "readiness-evidence");
+}
+
+function expectedCosts(report: Report): string[] {
+  const prompts = liveChecks.reduce(
+    (total, one) => ({
+      operator: total.operator + one.prompts.operator,
+      crew: total.crew + one.prompts.crew,
+    }),
+    { operator: 0, crew: 0 },
+  );
+
+  function hostLine(role: "operator" | "crew"): string {
+    const agent = report.selection[role];
+    const name = role === "operator" ? "Operator" : "Crew";
+    return `${name} host ${agent.host ?? "none named"} with model ${agent.model ?? "the host default"}: ${prompts[role]} synthetic prompts.`;
+  }
+
+  return [
+    hostLine("operator"),
+    hostLine("crew"),
+    report.fixture === null
+      ? "No probe fixture is configured, so the probe makes no GitHub call."
+      : `GitHub fixture ${report.fixture.repository}#${report.fixture.issue}: three comments written, one issue closed and reopened, and the reads the tracker checks need.`,
+    "Operator charges nothing of its own. Each provider bills the tokens its own host spends.",
+  ];
+}
+
+function probeCredentialList(report: Report): string[] {
+  return [
+    ...probeCredentials,
+    report.fixture === null ? PROBE_FIXTURE_MISSING : PROBE_FIXTURE_CREDENTIAL,
+  ];
+}
+
+function probeDetails(report: Report) {
+  const details = {
+    planRevision: LIVE_PLAN_REVISION,
+    agents: report.selection,
+    fixture: report.fixture,
+    fixtureRequirements:
+      report.fixture === null ? [PROBE_FIXTURE_MISSING] : probeFixtureRequirements,
+    providerUse: probeProviderUse,
+    credentials: probeCredentialList(report),
+    temporaryResources: probeTemporaryResources,
+    expectedCosts: expectedCosts(report),
+    checks: liveChecks.map((one) => ({
+      name: one.name,
+      summary: one.summary,
+      group: one.group,
+      claims: one.claims,
+    })),
+    cleanup: probeCleanup,
+  };
+
+  // The identity covers everything the plan shows, so an approval never survives a changed plan.
+  const probeId = new Bun.CryptoHasher("sha256")
     .update(
       JSON.stringify({
         targets: report.targets.toSorted(),
-        selection: report.selection,
         release: report.release.identity,
-        checks: liveChecks.map((one) => one.name),
-        temporaryResources: probeTemporaryResources,
+        ...details,
       }),
     )
     .digest("hex");
-}
 
-function probeDetails(report: Awaited<ReturnType<typeof buildReport>>) {
-  return {
-    probeId: probeIdentity(report),
-    agents: report.selection,
-    providerUse: probeProviderUse,
-    temporaryResources: probeTemporaryResources,
-    checks: liveChecks.map((one) => ({ name: one.name, summary: one.summary })),
-    cleanup: probeCleanup,
-  };
+  return { probeId, ...details };
 }
 
 export const ProjectReadiness = {
@@ -200,32 +311,49 @@ export const ProjectReadiness = {
     return buildReport(request);
   },
 
-  /** Shows the hosts, models, provider use, and temporary resources a live probe would use. */
+  /** The live checks this release declares, with what each one proves and what it feeds. */
+  liveChecks() {
+    return liveChecks;
+  },
+
+  /**
+   * Shows the hosts, models, provider use, credentials, temporary resources, expected costs, and
+   * cleanup a live probe would need, before anything launches.
+   */
   async probePlan(request: Request) {
     const report = await buildReport(request);
-    if (report.state === "blocked") {
-      return { status: "blocked" as const, report: report };
+    if (staticallyBlocked(report)) {
+      return { status: "blocked" as const, report };
     }
 
-    return { status: "ready" as const, report: report, plan: probeDetails(report) };
+    return { status: "ready" as const, report, plan: probeDetails(report) };
   },
 
   /** Refuses to launch a live probe without an approval that matches the shown plan. */
   async probe(request: Request & { approvedProbeId: string | undefined }) {
     const report = await buildReport(request);
-    if (report.state === "blocked") {
-      return { status: "blocked" as const, report: report };
+    if (staticallyBlocked(report)) {
+      return { status: "blocked" as const, report };
     }
 
     const plan = probeDetails(report);
     if (request.approvedProbeId === undefined) {
-      return { status: "approval-required" as const, report: report, plan };
+      return { status: "approval-required" as const, report, plan };
     }
     if (request.approvedProbeId !== plan.probeId) {
-      return { status: "approval-stale" as const, report: report, plan };
+      return { status: "approval-stale" as const, report, plan };
     }
 
-    // The approved live matrix is not part of this release, so the configuration stays unverified.
-    return { status: "unavailable" as const, report: report, plan };
+    return { status: "approved" as const, report, plan };
+  },
+
+  /**
+   * Records one probe attempt and answers with the readiness that follows it.
+   * Attempts are appended, so a failed attempt stays readable after a later one replaces what
+   * it proved. This is the only write to the recorded evidence.
+   */
+  async record(request: Request & { attempt: Attempt }) {
+    await appendAttempt(request.projectRoot, request.attempt);
+    return buildReport(request);
   },
 };

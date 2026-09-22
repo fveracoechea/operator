@@ -20,7 +20,15 @@ async function readState(): Promise<GithubFakeState> {
     return held;
   }
 
-  return { viewer: "operator-bot", nextCommentId: 1, issues: {}, comments: {}, events: {} };
+  return {
+    viewer: "operator-bot",
+    nextCommentId: 1,
+    issues: {},
+    comments: {},
+    events: {},
+    subIssues: {},
+    blockedBy: {},
+  };
 }
 
 async function writeState(state: GithubFakeState): Promise<void> {
@@ -113,6 +121,8 @@ const commentMatch = /^repos\/[^/]+\/[^/]+\/issues\/comments\/(\d+)$/.exec(path)
 const issueMatch = /^repos\/[^/]+\/[^/]+\/issues\/(\d+)$/.exec(path);
 const commentsMatch = /^repos\/[^/]+\/[^/]+\/issues\/(\d+)\/comments$/.exec(path);
 const eventsMatch = /^repos\/[^/]+\/[^/]+\/issues\/(\d+)\/events$/.exec(path);
+const subIssuesMatch = /^repos\/[^/]+\/[^/]+\/issues\/(\d+)\/sub_issues$/.exec(path);
+const blockedByMatch = /^repos\/[^/]+\/[^/]+\/issues\/(\d+)\/dependencies\/blocked_by$/.exec(path);
 
 /** Answers with the fault this call was given, or null when it should run normally. */
 /**
@@ -189,6 +199,14 @@ if (path === "user") {
   if ((await faulted("readEvents")) === "none") {
     answer(200, state.events[eventsMatch[1]] ?? []);
   }
+} else if (subIssuesMatch?.[1] !== undefined) {
+  if ((await faulted("readSubIssues")) === "none") {
+    answer(200, state.subIssues?.[subIssuesMatch[1]] ?? []);
+  }
+} else if (blockedByMatch?.[1] !== undefined) {
+  if ((await faulted("readBlockedBy")) === "none") {
+    answer(200, state.blockedBy?.[blockedByMatch[1]] ?? []);
+  }
 } else if (issueMatch?.[1] !== undefined && method === "PATCH") {
   const number = issueMatch[1];
   const fault = await faulted("closeIssue");
@@ -197,19 +215,29 @@ if (path === "user") {
     if (held === undefined) {
       answer(404, { message: "Not Found" });
     } else {
-      const closed: FakeIssue = {
-        ...held,
-        state: body?.state ?? "closed",
-        state_reason: body?.state_reason ?? "completed",
-        closed_by: { login: state.viewer },
-        closed_at: now,
-        updated_at: now,
-      };
+      const reopening = body?.state === "open";
+      const closed: FakeIssue = reopening
+        ? {
+            ...held,
+            state: "open",
+            state_reason: null,
+            closed_by: null,
+            closed_at: null,
+            updated_at: now,
+          }
+        : {
+            ...held,
+            state: body?.state ?? "closed",
+            state_reason: body?.state_reason ?? "completed",
+            closed_by: { login: state.viewer },
+            closed_at: now,
+            updated_at: now,
+          };
       state.issues[number] = closed;
       state.events[number] = [
         ...(state.events[number] ?? []),
         {
-          event: "closed",
+          event: reopening ? "reopened" : "closed",
           actor: { login: state.viewer },
           state_reason: closed.state_reason,
           created_at: now,

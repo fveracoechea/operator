@@ -24,6 +24,7 @@ const reasons: Record<string, Reason> = {
   host_unavailable: "host_unavailable",
   live_check_missing: "live_check_missing",
   live_check_failed: "live_check_failed",
+  live_check_skipped: "live_check_skipped",
   evidence_stale: "evidence_stale",
   unreadable_evidence: "unreadable_evidence",
 };

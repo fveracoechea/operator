@@ -45,24 +45,56 @@ Host termination, the native review sub-agents, and provider compatibility are p
 
 ## Live probe
 
-A live probe launches agents and spends provider tokens, so it needs its own approval.
+A live probe launches agents, spends provider tokens, and writes to a tracker, so it needs its own approval.
 
 ```sh
-operator setup probe plan --claude --operator-host claude-code --json
-operator setup probe apply --claude --operator-host claude-code --approved-probe <probeId> --json
+operator setup probe plan --claude --operator-host claude-code --crew-host opencode --json
+operator setup probe apply --claude --operator-host claude-code --crew-host opencode --approved-probe <probeId> --json
 ```
 
-The plan shows the hosts, the models, the provider use, the temporary resources, and the checks before anything launches.
-Show it to the user and get their approval before you apply it.
+The plan shows what the run would use, before anything launches.
 
-A changed project or a changed selection makes a new `probeId`, and the old approval is refused.
-Test-worktree deletion still needs its own separate approval.
+- The exact hosts and models.
+- The provider use, and the credentials each host and the fixture need.
+- What the fixture must already hold.
+- The temporary resources and the expected costs.
+- Each check, and the claims it feeds.
+- The cleanup.
+
+Show the whole plan to the user and get their approval before you apply it.
+The approval is bound to the plan revision, so a change to the project, the selection, or what the plan declares makes a new `probeId` and refuses the old approval.
+
+The probe acts only on resources it makes for itself and on the fixture named by `probe.githubFixture` in `.operator/config.json`.
+A project with no fixture keeps every GitHub check skipped, so it stays unverified until the user names one.
+
+The probe's approval covers the run and the removal of the Herdr test worktree, because removing that worktree is one of the checks.
+It grants no authority to commit, push, merge, publish, or remove anything else.
+
+## Probe cleanup
+
+```sh
+operator setup probe cleanup --json
+operator setup probe cleanup --approved-cleanup <cleanupId> --json
+```
+
+Removing the scratch repositories earlier probes left behind needs its own approval, bound to the directories it would remove.
+Show the listed directories to the user first.
+The recorded observations stay, so every failed attempt survives its resources.
 
 ## Recorded evidence
 
-A live probe records each proven check in `.operator/local/readiness.json`, together with the approved probe that produced it and the fingerprints of the inputs it was proven against.
+A live probe records each attempt in `.operator/local/readiness.json`.
+Attempts are appended and never rewritten, and each observation holds its state, the versions and inputs it ran against, its outputs, its evidence, and the state of what it left behind.
 A record that names no approved probe has no provenance, and the whole file is then refused.
 
-A later readiness check recomputes those fingerprints.
+The result that stands for one check is the most recent attempt that ran it.
+An attempt that never ran a check leaves the earlier result of it standing.
+
+A later readiness check recomputes the fingerprints.
 A record whose own inputs changed becomes `stale`, and unrelated records stay valid.
 One proven host pairing does not prove another pairing, because the selection is one of the inputs.
+
+A check that failed, and a check the probe attempted and could not run, both leave the claims they feed unproven.
+Read `data.claims` for the readiness claim and the release claim separately.
+A release is never provable while readiness is not proven.
+Never report a project as ready, or a release as provable, while a check that feeds it is not proven.

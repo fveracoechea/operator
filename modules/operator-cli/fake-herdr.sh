@@ -6,6 +6,12 @@ set -u
 dir="$HERDR_FAKE_DIR"
 printf '%s\n' "$(printf '%s ' "$@" | tr '\n' ' ')" >> "$dir/calls.log"
 
+# The environment probe reads a version before it trusts the tool, so the fake answers one.
+if [ "${1:-}" = "--version" ]; then
+  echo "herdr 0.9.0"
+  exit 0
+fi
+
 group="${1:-}"
 sub="${2:-}"
 key="$group-$sub"
@@ -127,7 +133,23 @@ answer() {
     ;;
   agent-prompt)
     name="${1:-}"
-    printf '%s\n' "${2:-}" > "$dir/last-prompt"
+    text="${2:-}"
+    printf '%s\n' "$text" > "$dir/last-prompt"
+    # A live probe brief names the step it asks and the file the agent must write. The fake
+    # answers the way a launched agent would, with the canned report the test placed for that
+    # step. A step with no canned report is an agent that never answered.
+    step=$(printf '%s' "$text" | sed -n 's/^Operator live probe .*, step \([a-z]*\)\.$/\1/p' | head -1)
+    target=$(printf '%s' "$text" | sed -n 's|^Write your report as JSON to ||p' | head -1)
+    if [ -n "$step" ] && [ -n "$target" ]; then
+      worktree="${target%/.operator/probe/*}"
+      if [ -f "$dir/probe/$step.partial" ]; then
+        cp "$dir/probe/$step.partial" "$worktree/partial.txt"
+      fi
+      if [ -f "$dir/probe/$step.json" ]; then
+        mkdir -p "$(dirname "$target")"
+        cp "$dir/probe/$step.json" "$target"
+      fi
+    fi
     printf '{"id":"cli:agent:prompt","result":{"type":"agent_prompted","agent":{"name":"%s","pane_id":"w1:p1","agent_status":"working"}}}\n' "$name"
     ;;
   agent-get)

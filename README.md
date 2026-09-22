@@ -9,9 +9,9 @@ The name comes from *The Matrix*: the crew member who loads programs, guides mis
 
 ## Status
 
-**Project installation, setup, readiness, the crew frontier, Operative dispatch, question routing, reviewed acceptance, delegated rework, tracker completion, approved cleanup, and the coordination and recovery loop work.**
-The repository contains the Bun CLI, its local and CI quality gate, `operator install`, `operator setup`, `operator setup readiness`, `operator crew own`, `operator crew next`, `operator work`, `operator attempt`, `operator question`, `operator approval`, `operator review`, `operator tracker`, and `operator cleanup`, together with the Operator-owned skill that drives them.
-The live readiness probe and release automation are not implemented yet.
+**Project installation, setup, readiness, the approved live probe, the crew frontier, Operative dispatch, question routing, reviewed acceptance, delegated rework, tracker completion, approved cleanup, and the coordination and recovery loop work.**
+The repository contains the Bun CLI, its local and CI quality gate, `operator install`, `operator setup`, `operator setup readiness`, `operator setup probe`, `operator crew own`, `operator crew next`, `operator work`, `operator attempt`, `operator question`, `operator approval`, `operator review`, `operator tracker`, and `operator cleanup`, together with the Operator-owned skill that drives them.
+Release automation is not implemented yet.
 
 ## CLI Foundation
 
@@ -95,20 +95,49 @@ Each selection field is resolved on its own, from a session override, then `.ope
 A missing Crew host follows the Operator host, and a missing model stays with the selected host default.
 Operator never substitutes an unavailable host or model, and it never guesses a host that nothing names.
 
-A live probe launches agents and spends provider tokens, so it carries its own approval.
+## The Live Probe
+
+A live probe launches agents, spends provider tokens, and writes to a tracker, so it carries its own approval.
 
 ```sh
-operator setup probe plan --claude --operator-host claude-code --json
-operator setup probe apply --claude --operator-host claude-code --approved-probe <probeId> --json
+operator setup probe plan --claude --operator-host claude-code --crew-host opencode --json
+operator setup probe apply --claude --operator-host claude-code --crew-host opencode --approved-probe <probeId> --json
+operator setup probe cleanup --json
 ```
 
-The plan shows the hosts, models, provider use, temporary resources, and checks before anything launches.
-A changed project or selection makes a new `probeId` and refuses the old approval.
-This release runs no live check yet, so an approved probe reports that the configuration stays unverified.
+The plan shows what the run would use, before anything launches.
 
-Recorded live results live in `.operator/local/readiness.json` with the approved probe that produced them and the fingerprints of the inputs they were proven against.
+- The exact hosts and models.
+- What each provider is asked to do, and what it bills.
+- The credentials each host and the fixture need.
+- What the fixture must already hold.
+- The temporary resources the probe makes.
+- The expected cost, as the number of synthetic prompts each host sends.
+- Each check, and the claims it feeds.
+- What cleanup removes, and what it leaves.
+
+A change to the project, the selection, or what the plan declares makes a new `probeId` and refuses the old approval.
+
+The probe runs on resources it creates for itself.
+It builds a synthetic repository under `.operator/local/probe/`, asks Herdr for one managed worktree of it, launches one agent on each selected host, and writes to the tracker fixture you name in configuration.
+The synthetic repository holds a copy of your instruction files and the skills this release installs, so the loading check reads your own contents back.
+It reaches no project issue, no Operative worktree, no branch, no remote, and no release.
+
+```json
+{ "probe": { "githubFixture": { "repository": "you/probe-fixture", "issue": 7, "mapIssue": 7 } } }
+```
+
+A project with no fixture keeps every tracker check skipped, so it is never ready and never releasable, and the plan says so before anything runs.
+
+`operator setup probe cleanup` removes the scratch repositories earlier runs left behind, under its own approval bound to the directories it would remove.
+It removes nothing else, and the recorded observations stay, so every failed attempt survives its resources.
+
+Recorded live results live in `.operator/local/readiness.json` as a list of attempts, appended and never rewritten.
+Each observation holds its state, the versions and inputs it ran against, its outputs, its evidence, and the state of what it left behind.
+The result that stands for one check is the most recent attempt that ran it, and a check no attempt ran keeps the earlier result standing.
 A changed input makes its own record stale and leaves unrelated records valid.
-See [ADR 0002](docs/adr/0002-readiness-is-derived-and-only-live-evidence-is-recorded.md).
+A check that failed, and a check the probe attempted and could not run, both hold back the claims they feed.
+See [ADR 0002](docs/adr/0002-readiness-is-derived-and-only-live-evidence-is-recorded.md) and [ADR 0012](docs/adr/0012-a-live-probe-proves-itself-on-its-own-resources.md).
 
 ## Crew State and the Frontier
 

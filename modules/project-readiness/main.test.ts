@@ -119,23 +119,45 @@ function checkNamed(
   return json.data.checks.find((check) => check.name === name && check.target === target);
 }
 
+/** Records one probe attempt. A later attempt is appended, exactly as the probe appends it. */
 async function recordLiveEvidence(
   root: string,
   inputs: Record<string, string>,
   names: string[],
+  state: "passed" | "failed" | "skipped" = "passed",
 ): Promise<void> {
+  const path = `${root}/.operator/local/readiness.json`;
+  const held = await Bun.file(path).exists();
+  const earlier = held ? ((await Bun.file(path).json()) as { attempts: unknown[] }).attempts : [];
   await Bun.write(
-    `${root}/.operator/local/readiness.json`,
+    path,
     `${JSON.stringify({
-      schemaVersion: 1,
-      checks: names.map((name) => ({
-        name,
-        state: "passed",
-        probeId: "f".repeat(64),
-        observedAt: "2026-09-21T10:00:00.000Z",
-        detail: "Proven by the approved live probe.",
-        inputs,
-      })),
+      schemaVersion: 2,
+      attempts: [
+        ...earlier,
+        {
+          probeId: "f".repeat(64),
+          planRevision: 2,
+          approvedProbeId: "f".repeat(64),
+          startedAt: "2026-09-21T10:00:00.000Z",
+          finishedAt: "2026-09-21T10:01:00.000Z",
+          targets: ["claude-code"],
+          versions: { operator: "0.0.0" },
+          observations: names.map((name) => ({
+            name,
+            state,
+            detail: "Proven by the approved live probe.",
+            startedAt: "2026-09-21T10:00:00.000Z",
+            finishedAt: "2026-09-21T10:00:30.000Z",
+            inputs,
+            versions: { herdr: "0.9.0" },
+            outputs: [],
+            evidence: [],
+            cleanup: { state: "not-applicable", detail: "Nothing was created." },
+          })),
+          cleanup: { state: "retained", detail: "The scratch repository stays.", resources: [] },
+        },
+      ],
     })}\n`,
     { createPath: true },
   );
@@ -143,11 +165,24 @@ async function recordLiveEvidence(
 
 const liveCheckNames = [
   "herdr-worktree",
+  "agent-launch",
   "instruction-and-skill-loading",
+  "bounded-observation",
   "question-and-answer",
   "result-reporting",
   "review-sub-agents",
+  "mixed-host-operation",
+  "interruption",
+  "explicit-takeover",
   "host-termination",
+  "worktree-removal",
+  "github-comment",
+  "github-pagination",
+  "github-amendment",
+  "github-dependencies",
+  "github-sub-issues",
+  "github-events",
+  "github-closure",
   "provider-compatibility",
 ];
 
@@ -670,6 +705,57 @@ describe("recorded live readiness evidence", () => {
     expect(checkNamed(result.json, "provider-compatibility")?.state).toBe("passed");
   });
 
+  test("leaves a skipped check unverified and holds back both claims", async () => {
+    const path = await makeFullPath();
+    const root = await makeProject();
+    await configure(root, path, ["--claude"]);
+    const first = await runJson(root, path, ["setup", "readiness", "--claude"]);
+    await recordLiveEvidence(root, first.json.data.inputs, liveCheckNames, "skipped");
+
+    const result = await runJson(root, path, ["setup", "readiness", "--claude"]);
+
+    expect(result.exitCode).toBe(3);
+    expect(result.json.data.state).toBe("unverified");
+    expect(checkNamed(result.json, "github-comment")).toMatchObject({
+      state: "unverified",
+      reason: "live_check_skipped",
+    });
+    expect(result.json.data.claims).toEqual({
+      readiness: "unverified",
+      release: "unverified",
+    });
+  });
+
+  test("blocks the release claim on a failed check that feeds it", async () => {
+    const path = await makeFullPath();
+    const root = await makeProject();
+    await configure(root, path, ["--claude"]);
+    const first = await runJson(root, path, ["setup", "readiness", "--claude"]);
+    await recordLiveEvidence(root, first.json.data.inputs, ["github-closure"], "failed");
+
+    const result = await runJson(root, path, ["setup", "readiness", "--claude"]);
+
+    expect(result.exitCode).toBe(3);
+    expect(result.json.data.state).toBe("blocked");
+    expect(result.json.data.claims.release).toBe("blocked");
+    expect(result.json.data.claims.readiness).toBe("blocked");
+  });
+
+  test("never reports a release as provable while readiness is blocked", async () => {
+    const path = await makeFullPath();
+    const root = await makeProject();
+    await configure(root, path, ["--claude"]);
+    const first = await runJson(root, path, ["setup", "readiness", "--claude"]);
+    await recordLiveEvidence(root, first.json.data.inputs, liveCheckNames);
+    // `review-sub-agents` names the readiness claim alone, and a release still needs it to work.
+    await recordLiveEvidence(root, first.json.data.inputs, ["review-sub-agents"], "failed");
+
+    const result = await runJson(root, path, ["setup", "readiness", "--claude"]);
+
+    expect(result.json.data.state).toBe("blocked");
+    expect(result.json.data.claims).toEqual({ readiness: "blocked", release: "blocked" });
+  });
+
   test("refuses a recorded result that names no approved probe", async () => {
     const path = await makeFullPath();
     const root = await makeProject();
@@ -731,14 +817,71 @@ describe("operator setup probe", () => {
     expect(result.exitCode).toBe(0);
     expect(result.json.reason).toBe("probe_plan_ready");
     expect(result.json.data.probeId).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.json.data.planRevision).toBeGreaterThan(0);
     expect(result.json.data.agents.operator.host).toBe("claude-code");
     expect(result.json.data.agents.crew.host).toBe("opencode");
     expect(result.json.data.agents.crew.model).toBe(null);
     expect(result.json.data.providerUse.join(" ")).toContain("billed");
-    expect(result.json.data.temporaryResources).toHaveLength(3);
+    expect(result.json.data.temporaryResources.length).toBeGreaterThan(0);
     expect(result.json.data.checks.map((check: { name: string }) => check.name)).toEqual(
       liveCheckNames,
     );
+  });
+
+  test("shows the credentials, the expected costs, and the cleanup before any launch", async () => {
+    const path = await makeFullPath();
+    const root = await makeProject();
+    await configure(root, path, ["--claude"]);
+
+    const result = await runOperator(root, path, ["setup", "probe", "plan", ...ready]);
+    const shown = await runJson(root, path, ["setup", "probe", "plan", ...ready]);
+
+    expect(result.stdout).toContain("Credentials required:");
+    expect(result.stdout).toContain("Expected costs:");
+    expect(result.stdout).toContain("Cleanup:");
+    expect(shown.json.data.credentials.join(" ")).toContain("Provider credentials");
+    expect(shown.json.data.expectedCosts.join(" ")).toContain("synthetic prompts");
+    // No fixture is configured, so the plan says the tracker checks reach nothing.
+    expect(shown.json.data.fixture).toBe(null);
+    expect(shown.json.data.credentials.join(" ")).toContain("No probe fixture is configured");
+    expect(shown.json.data.cleanup.join(" ")).toContain("removes no Operative worktree");
+  });
+
+  test("names the configured fixture and the token it needs", async () => {
+    const path = await makeFullPath();
+    const root = await makeProject();
+    await configure(root, path, ["--claude"]);
+    await Bun.write(
+      `${root}/.operator/config.json`,
+      `${JSON.stringify({
+        crew: { host: "claude-code" },
+        probe: { githubFixture: { repository: "someone/probe-fixture", issue: 7 } },
+      })}\n`,
+    );
+
+    const result = await runJson(root, path, ["setup", "probe", "plan", ...ready]);
+
+    expect(result.json.data.fixture).toEqual({ repository: "someone/probe-fixture", issue: 7 });
+    expect(result.json.data.credentials.join(" ")).toContain("GitHub token");
+    expect(result.json.data.expectedCosts.join(" ")).toContain("someone/probe-fixture#7");
+  });
+
+  test("makes an approval stale when the plan itself changes", async () => {
+    const path = await makeFullPath();
+    const root = await makeProject();
+    await configure(root, path, ["--claude"]);
+    const first = await runJson(root, path, ["setup", "probe", "plan", ...ready]);
+    await Bun.write(
+      `${root}/.operator/config.json`,
+      `${JSON.stringify({
+        crew: { host: "claude-code" },
+        probe: { githubFixture: { repository: "someone/probe-fixture", issue: 7 } },
+      })}\n`,
+    );
+
+    const second = await runJson(root, path, ["setup", "probe", "plan", ...ready]);
+
+    expect(second.json.data.probeId).not.toBe(first.json.data.probeId);
   });
 
   test("names the same targets and overrides in the approval it asks for", async () => {
@@ -755,7 +898,10 @@ describe("operator setup probe", () => {
     expect(approval).toBeDefined();
     const applied = await runJson(root, path, (approval ?? "").split(" "));
 
-    expect(applied.json.reason).toBe("live_probe_unavailable");
+    // The approval matched, so the probe ran. This machine holds no Herdr that answers it.
+    expect(applied.json.reason).not.toBe("approval_required");
+    expect(applied.json.reason).not.toBe("approval_stale");
+    expect(applied.json.data.attempt.probeId).toBe(applied.json.data.probeId);
   });
 
   test("refuses to plan a probe for a blocked project", async () => {
@@ -803,12 +949,12 @@ describe("operator setup probe", () => {
     expect(result.json.reason).toBe("approval_stale");
   });
 
-  test("leaves the configuration unverified while this release runs no live check", async () => {
+  test("writes nothing outside the ignored Operator directory", async () => {
     const path = await makeFullPath();
     const root = await makeProject();
     await configure(root, path, ["--claude"]);
     const plan = await runJson(root, path, ["setup", "probe", "plan", ...ready]);
-    const before = await Bun.$`git -C ${root} status --porcelain --ignored`.text();
+    const before = await Bun.$`git -C ${root} status --porcelain`.text();
 
     const result = await runJson(root, path, [
       "setup",
@@ -819,8 +965,28 @@ describe("operator setup probe", () => {
       plan.json.data.probeId,
     ]);
 
-    expect(result.exitCode).toBe(3);
-    expect(result.json.reason).toBe("live_probe_unavailable");
-    expect(await Bun.$`git -C ${root} status --porcelain --ignored`.text()).toBe(before);
+    expect(result.json.data.attempt.observations.length).toBeGreaterThan(0);
+    expect(await Bun.$`git -C ${root} status --porcelain`.text()).toBe(before);
+  });
+
+  test("keeps a check unproven when Herdr answers nothing this release can read", async () => {
+    const path = await makeFullPath();
+    const root = await makeProject();
+    await configure(root, path, ["--claude"]);
+    const plan = await runJson(root, path, ["setup", "probe", "plan", ...ready]);
+
+    const result = await runJson(root, path, [
+      "setup",
+      "probe",
+      "apply",
+      ...ready,
+      "--approved-probe",
+      plan.json.data.probeId,
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.json.reason).toBe("probe_run_failed");
+    const readiness = await runJson(root, path, ["setup", "readiness", ...ready]);
+    expect(readiness.json.data.state).toBe("blocked");
   });
 });

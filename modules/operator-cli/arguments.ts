@@ -41,6 +41,7 @@ export type ParsedArguments = {
   targets: AgentTarget[];
   approvedPlan: string | undefined;
   approvedProbe: string | undefined;
+  approvedCleanup: string | undefined;
   overrides: SelectionOverrides;
   takeover: boolean;
   crew: CrewArguments;
@@ -80,6 +81,7 @@ export function parseArguments(args: string[]): ParsedArguments {
     targets: [],
     approvedPlan: undefined,
     approvedProbe: undefined,
+    approvedCleanup: undefined,
     overrides: {},
     takeover: false,
     crew: {},
@@ -108,7 +110,11 @@ export function parseArguments(args: string[]): ParsedArguments {
       if (!parsed.targets.includes(target)) {
         parsed.targets.push(target);
       }
-    } else if (argument === "--approved-plan" || argument === "--approved-probe") {
+    } else if (
+      argument === "--approved-plan" ||
+      argument === "--approved-probe" ||
+      argument === "--approved-cleanup"
+    ) {
       // A flag with no value of its own never swallows the flag that follows it.
       const value = valueOf(args, index + 1);
       if (value === undefined) {
@@ -119,8 +125,10 @@ export function parseArguments(args: string[]): ParsedArguments {
       index += 1;
       if (argument === "--approved-plan") {
         parsed.approvedPlan = value;
-      } else {
+      } else if (argument === "--approved-probe") {
         parsed.approvedProbe = value;
+      } else {
+        parsed.approvedCleanup = value;
       }
     } else if (argument !== undefined && selection !== undefined) {
       const value = valueOf(args, index + 1);
@@ -187,6 +195,7 @@ export function readRevision(parsed: ParsedArguments): number | null {
 export function hasSelectionOrProbeArguments(parsed: ParsedArguments): boolean {
   return (
     parsed.approvedProbe !== undefined ||
+    parsed.approvedCleanup !== undefined ||
     parsed.overrides.operator !== undefined ||
     parsed.overrides.crew !== undefined
   );

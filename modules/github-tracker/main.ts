@@ -273,6 +273,61 @@ export const GithubTracker = {
     }).then((page) => ({ coverage: page.coverage, events: page.items }));
   },
 
+  /**
+   * Read-only. Reads the issues published under one issue as its sub-issues.
+   * A partial read is reported as incomplete coverage, because it proves nothing about what is
+   * not in the list.
+   */
+  async readSubIssues(request: {
+    repository: string;
+    issue: number;
+  }): Promise<{ coverage: ScanCoverage; issues: Issue[] }> {
+    return readPages({
+      path: `repos/${request.repository}/issues/${request.issue}/sub_issues`,
+      read: readIssue,
+      name: "sub-issue",
+    }).then((page) => ({ coverage: page.coverage, issues: page.items }));
+  },
+
+  /** Read-only. Reads the issues one issue is blocked by. */
+  async readBlockedBy(request: {
+    repository: string;
+    issue: number;
+  }): Promise<{ coverage: ScanCoverage; issues: Issue[] }> {
+    return readPages({
+      path: `repos/${request.repository}/issues/${request.issue}/dependencies/blocked_by`,
+      read: readIssue,
+      name: "dependency",
+    }).then((page) => ({ coverage: page.coverage, issues: page.items }));
+  },
+
+  /**
+   * Reopens one issue.
+   * Only the live probe uses it, to put the fixture issue it closed back as it found it. The
+   * workflow itself never reopens a ticket.
+   */
+  async reopenIssue(request: { repository: string; issue: number }): Promise<GithubOutcome<Issue>> {
+    const outcome = await callGithub({
+      args: [
+        "--method",
+        "PATCH",
+        `repos/${request.repository}/issues/${request.issue}`,
+        "--input",
+        "-",
+      ],
+      input: JSON.stringify({ state: "open" }),
+      timeoutMs: WRITE_TIMEOUT_MS,
+    });
+    if (outcome.status !== "succeeded") {
+      return outcome;
+    }
+
+    const issue = readIssue(outcome.value.body);
+    return issue === null
+      ? { status: "uncertain", detail: "GitHub reopened an issue it did not describe." }
+      : { status: "succeeded", value: issue };
+  },
+
   /** Closes one issue with an explicit reason. The reason is part of the intended effect. */
   async closeIssue(request: {
     repository: string;

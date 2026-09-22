@@ -55,9 +55,32 @@ It is recomputed on every run and never claims that a live capability was proven
 A separately approved run of synthetic work through the selected hosts.
 It proves what a static check cannot, such as host termination, the native review sub-agents, and provider compatibility.
 
+**Probe plan**:
+The declaration of what one live probe would use, made before anything launches.
+It names the hosts and models, the provider use, the credentials, the fixture requirements, the temporary resources, the expected costs, and the cleanup.
+It carries a revision, and an approval is bound to that revision.
+
+**Probe fixture**:
+The tracker repository and issue a live probe writes to instead of a project issue.
+It is named in configuration, so a probe with none skips every tracker check.
+
+**Probe attempt**:
+One recorded run of the approved live checks.
+Attempts are appended and never rewritten, so a failed attempt stays readable after a later one replaces what it proved.
+
+**Probe observation**:
+The durable record of one live check inside one attempt: its state, the versions and inputs it ran against, its outputs, its evidence, and the state of what it left behind.
+A check that was attempted and could not run is skipped, which proves nothing, exactly like a failure.
+
 **Readiness evidence**:
 The recorded result of a live probe check, together with the fingerprints of the inputs it was proven against.
+The result that stands for one check is the most recent attempt that ran it, and an attempt that never ran a check leaves the earlier result of it standing.
 A changed input makes that record stale and leaves unrelated records valid.
+
+**Claim**:
+What recorded evidence is asked to support: readiness for this project, or a release.
+Each live check names the claims it feeds, and a static check feeds every claim, so a check that is not proven holds back exactly the claims that read it.
+A release also reads the readiness answer, so it is never provable on a project that is not ready.
 
 **Crew state**:
 The one local SQLite database that holds assignments, attempts, ownership, source revisions, fixed inputs, dependencies, permissions, and request records for a project.
