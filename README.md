@@ -422,9 +422,10 @@ Each action names the command to run, the record it acts on, and the revision to
 `data.waits` says what is running and what has not answered yet, with the Herdr agent a bounded wait watches.
 `data.frontier` carries the order, the gates, and the capacity the actions come from.
 
+Each action carries the blocker a person must settle, or nothing when the session can act alone.
 The exit meaning says what the session may do on its own.
-`0` offers at least one action that needs nobody else, `6` says nothing can advance and a bounded wait is next, and `3` says every open action waits on a person.
-A project that is not ready is reported as the first action rather than as a refusal, because continuing without proven readiness is the user's decision.
+`0` offers at least one action that needs nobody else, `6` says nothing can advance and a bounded wait is next, and `3` says every open crew action waits on a person and names each blocker.
+A project that is not ready is reported as a standing precondition rather than as a refusal, because continuing without proven readiness is the user's decision and settling it starts no work.
 
 A fresh Operator takes the crew, settles the unproven effects, and then adopts each attempt it inherited.
 

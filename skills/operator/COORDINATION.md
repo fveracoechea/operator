@@ -19,11 +19,18 @@ It answers with:
 - `data.frontier`, the order, the dependency gates, the review priority, and the capacity the actions come from.
 - `blockers`, which is what you bring to the user.
 
+Each action carries a `blocker` or carries `null`.
+An action with `null` is one this session can take alone.
+An action that names a blocker waits on a person, and that blocker is also in the result's `blockers`.
+
 The exit code says what this session may do on its own.
 
 - `0`: at least one action needs nobody else. Take the first one.
 - `6`: nothing can advance now. Wait.
-- `3`: every open action waits on a person. Bring the blockers to the user.
+- `3`: every open crew action waits on a person. Bring the blockers to the user.
+
+Readiness is the one exception, because settling it starts no work.
+It is reported first and it reaches the blockers, and it never makes the exit code say the crew is stuck.
 
 ## Refresh, act, refresh
 
@@ -81,27 +88,13 @@ None of them is repaired by hand.
 
 ## Capacity and priority are not yours to set
 
-The crew limit comes from `crew.maxActiveAgents` and defaults to three.
-A limit of two or more holds one slot for review.
-Queued review is offered before new production work.
-
 You do not choose what starts.
-`data.actions` offers `claim_assignment` for exactly the work the frontier allows, in the order it allows it.
+`data.actions` offers `claim_assignment` for exactly the work the frontier allows, in the order it allows it, and `data.capacity` prints the limit and the review reserve that decided it.
 
 ## Mixed hosts
 
-The Operator host and the crew host are resolved field by field.
-Read [READINESS.md](READINESS.md) for that order.
-
-One dispatch may name its own crew host and model.
-
-```sh
-operator attempt dispatch --request <id> --owner-token <token> --attempt <id> --commit <sha> --crew-host opencode
-```
-
-The launch records that selection, so the two Operatives of one crew can run on different hosts.
-A recovery restores the recorded host, never the current default.
-A session override reaches new launches only.
+A crew may mix OpenCode and Claude Code.
+Read [DISPATCH.md](DISPATCH.md) before you launch one on a host the project did not select.
 
 ## Reporting to the user
 

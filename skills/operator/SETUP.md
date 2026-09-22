@@ -31,6 +31,9 @@ A changed project or a changed target produces a new identifier, and the old app
 
 An unchanged rerun proposes no changes and writes nothing.
 
+Never repair a conflict by overwriting a file the user changed.
+Report the conflict and ask.
+
 A plan reports a conflict, and writes nothing, when Operator files are already tracked by Git, when the existing configuration is invalid, when the marked Operator instruction section was changed, or when an installed skill copy differs from this release.
 
 Setup owns these files:

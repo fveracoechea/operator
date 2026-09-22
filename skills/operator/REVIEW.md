@@ -80,6 +80,10 @@ Read [REWORK.md](REWORK.md) before you delegate a correction, a combined revisio
 
 ## Acceptance reads recorded evidence
 
+Never accept a result you reviewed yourself.
+A submitted result goes to a separate reviewer, and a review report is never a submitted result.
+
+
 Name the exact submission you read, and the pull request head you read.
 
 Operator does not read the pull request itself.

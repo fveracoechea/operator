@@ -86,6 +86,9 @@ After the adoptions, `operator crew next` reports the rest of the recovery in it
 A retention hold appears in `data.waits`, not in the actions.
 It outlives the session that placed it, and only a person releases it.
 
+Work that a defect paused appears in `data.waits` as well.
+It moves again when the corrected result is accepted.
+
 ## What recovery never does
 
 Never resend a brief to a live Operative.

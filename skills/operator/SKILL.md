@@ -55,21 +55,11 @@ separate outcomes, and it reports what it could not establish rather than writin
 
 ## Rules
 
+These two hold everywhere. Every other rule lives in the topic file that owns it.
+
 Ask the user before you write to a project.
 Show the exact proposed changes first, then apply the approved plan.
 
 Read the `--json` result of every command.
 The `outcome` and `reason` fields say what happened.
 The `blockers` field says what stops the work and what the user must decide.
-
-Never repair a conflict by overwriting a file the user changed.
-Report the conflict and ask.
-
-Never report a project as ready because its tools are installed.
-A configured project is not a ready project.
-
-Ask the CLI which work may start.
-Never keep your own queue beside the next actions.
-
-Never accept a result you reviewed yourself.
-A submitted result goes to a separate reviewer, and a review report is never a submitted result.
