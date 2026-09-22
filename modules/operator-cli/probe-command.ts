@@ -33,25 +33,31 @@ function reportBlocked(
   });
 }
 
+function section(title: string, lines: string[]): string[] {
+  return ["", `${title}:`, ...lines.map((line) => `  ${line}`)];
+}
+
 function planLines(result: Planned): string[] {
   return [
     `Operator live probe plan ${result.plan.probeId}`,
+    `Plan revision: ${result.plan.planRevision}`,
     `Targets: ${result.report.targets.join(", ")}`,
-    "",
-    "Agents:",
-    `  Operator: ${result.plan.agents.operator.host} (${result.plan.agents.operator.hostSource}), model ${result.plan.agents.operator.model ?? "the host default"}`,
-    `  Crew: ${result.plan.agents.crew.host} (${result.plan.agents.crew.hostSource}), model ${result.plan.agents.crew.model ?? "the host default"}`,
-    "",
-    "Provider use:",
-    ...result.plan.providerUse.map((line) => `  ${line}`),
-    "",
-    "Temporary resources:",
-    ...result.plan.temporaryResources.map((line) => `  ${line}`),
-    "",
-    "Checks:",
-    ...result.plan.checks.flatMap((check) => [`  ${check.name}`, `    ${check.summary}`]),
-    "",
-    result.plan.cleanup,
+    ...section("Agents", [
+      `Operator: ${result.plan.agents.operator.host} (${result.plan.agents.operator.hostSource}), model ${result.plan.agents.operator.model ?? "the host default"}`,
+      `Crew: ${result.plan.agents.crew.host} (${result.plan.agents.crew.hostSource}), model ${result.plan.agents.crew.model ?? "the host default"}`,
+    ]),
+    ...section("Provider use", result.plan.providerUse),
+    ...section("Credentials required", result.plan.credentials),
+    ...section("Temporary resources", result.plan.temporaryResources),
+    ...section("Expected costs", result.plan.expectedCosts),
+    ...section(
+      "Checks",
+      result.plan.checks.flatMap((check) => [
+        `${check.name} (${check.group}, feeds ${check.claims.join(" and ")})`,
+        `  ${check.summary}`,
+      ]),
+    ),
+    ...section("Cleanup", result.plan.cleanup),
   ];
 }
 

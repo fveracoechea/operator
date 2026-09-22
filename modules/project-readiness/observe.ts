@@ -30,24 +30,25 @@ async function readTextOrNull(path: string): Promise<string | null> {
 export async function readConfiguration(projectRoot: string) {
   const text = await readTextOrNull(`${projectRoot}/${CONFIG_PATH}`);
   if (text === null) {
-    return { text: null, selection: {}, valid: false as const };
+    return { text: null, selection: {}, probe: undefined, valid: false as const };
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return { text, selection: {}, valid: false as const };
+    return { text, selection: {}, probe: undefined, valid: false as const };
   }
 
   const result = OperatorConfig.parse(parsed);
   if (!result.ok) {
-    return { text, selection: {}, valid: false as const };
+    return { text, selection: {}, probe: undefined, valid: false as const };
   }
 
   return {
     text,
     selection: { operator: result.config.operator, crew: result.config.crew },
+    probe: result.config.probe,
     valid: true as const,
   };
 }
