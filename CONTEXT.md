@@ -150,3 +150,28 @@ An unavailable capability is a recorded blocker, never permission for a single-c
 **Attempt replacement**:
 A new attempt on the same assignment, started after the former writer is proven stopped and its partial work is inspected.
 It keeps the inspected checkout and branch.
+
+**Cleanup outcome**:
+One recorded disposal step for one attempt: process closure or worktree removal.
+The two are separate records, so each one blocks, fails, and recovers without the other.
+
+**Process closure**:
+The end of one Operative process after its work is durably handed over.
+It proves the handoff, the revisions, the evidence, the answered questions, the checkout contents, the identity of every resource, the accounted child tools, and the termination itself.
+It never touches the checkout.
+
+**Worktree removal**:
+The disposal of one approved Herdr-managed checkout.
+Accepted completion is not disposal authority, so it also needs a closed process, preserved evidence, a remote copy of every commit, and an approval granted against these exact inputs.
+
+**Cleanup request revision**:
+The recorded name of the inputs one cleanup would act on.
+It covers the registered work, the Operator that owns the crew, the resources named, and the checkout as it was inspected, so an approval survives a restart and nothing else.
+
+**Preserved evidence**:
+The inventory one cleanup copies out of an Operative worktree and verifies by content.
+The list is explicit and holds no credential, and the copies stay readable after the checkout is gone.
+
+**Retention hold**:
+An explicit decision to keep one Operative's resources.
+It blocks every cleanup of its attempt until a person releases it, and it outlives the session that placed it.
