@@ -357,7 +357,7 @@ An observed closed state with the intended reason satisfies the step without cla
 
 `operator tracker map` reads the map as its baseline body plus every explicit amendment.
 Independent additions combine; an incomplete scan, an edited amendment, and two amendments of one section each stop the session.
-Operator never replaces a shared issue body.
+Operator never replaces a shared issue body: an amendment is an appended comment, and no request can ask for anything else.
 
 `operator tracker show` reports the three steps, what each one is blocked by, and what may follow it.
 It answers 0 even when the tracker operation is incomplete, because the query itself succeeded.

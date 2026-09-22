@@ -35,8 +35,7 @@ describe("TrackerUpdate.capabilities", () => {
 
     expect(github?.comments).toBe(true);
     expect(github?.completion).toBe(true);
-    // Both of these are why a lost answer is never repeated and a body is never replaced.
-    expect(github?.bodyReplacementGuard).toBe(false);
+    // This is why a lost answer is settled by reading and never by writing again.
     expect(github?.exactlyOnceWrites).toBe(false);
   });
 
@@ -240,25 +239,6 @@ describe("TrackerUpdate.judge", () => {
 });
 
 describe("TrackerUpdate.plan", () => {
-  test("refuses to replace a shared body with no verified conflict guard", async () => {
-    const planned = await TrackerUpdate.plan({
-      provider: "github",
-      operationId: OPERATION,
-      intent: {
-        step: "map_amendment",
-        target: { repository: "owner/repo", issue: 1 },
-        mode: "replace-body",
-        decisionLink: "https://github.com/owner/repo/issues/1",
-        baselineIdentity: "b".repeat(64),
-        sections: ["Decisions so far"],
-        supersedes: [],
-        body: "- one entry",
-      },
-    });
-
-    expect(planned.status).toBe("capability-unavailable");
-  });
-
   test("refuses a tracker this release does not implement", async () => {
     const planned = await TrackerUpdate.plan({
       provider: "jira",

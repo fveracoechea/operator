@@ -25,6 +25,7 @@ A state the reading could not establish stops the write as well, because a reope
 
 The canonical map is its baseline body plus explicit amendment comments.
 Operator never replaces a shared issue body, because GitHub offers no conditional write on that endpoint that another writer would lose.
+There is no code path that writes one and no request that can ask for one, so the guarantee is structural rather than a flag a later change could flip.
 An amendment states the sections it changes, what it supersedes, and the baseline identity it was written against, so independent additions combine and two amendments of one section stop the session instead of letting comment order pick a winner.
 
 Every step reports one provider-neutral reason from the approved tracker vocabulary.
@@ -41,6 +42,10 @@ It is the fastest way to write a duplicate comment, and a failed read proves eve
 
 Replacing the map body under a fresh read, a local lock, or a post-write comparison was rejected.
 None of those is a guard another writer loses, so each one silently discards a concurrent edit.
+
+Recording the absent body-replacement guard as a provider capability was rejected.
+A flag that only ever reads false is a switch with no second position, and enabling it would have turned on a half-built path that still wrote a comment.
+Supporting a shared-body write means adding the write itself, which is a deliberate change and not a configuration value.
 
 Repeating a compound "comment and close" command on recovery was rejected.
 It repeats whichever half already succeeded.

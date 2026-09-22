@@ -15,23 +15,22 @@ export type Capabilities = {
   comments: boolean;
   /** The provider can complete a ticket with an explicit reason. */
   completion: boolean;
-  /** The provider can replace a shared body under a conditional write that another writer loses. */
-  bodyReplacementGuard: boolean;
   /** The provider accepts a caller key that makes one creation apply at most once. */
   exactlyOnceWrites: boolean;
 };
 
 /**
  * GitHub is the only provider this release implements.
- * Body replacement has no conditional write on the issues endpoint, and comment creation has no
- * server retry key, so both are recorded as absent rather than assumed.
+ * Comment creation has no server retry key, so a repeat can duplicate and that is recorded as
+ * an absent capability rather than assumed away.
+ * No provider declares a shared-body write, because this release never replaces one: a map is
+ * amended by an appended comment, and adding a body write means adding a write path for it.
  */
 const providers: Record<string, Capabilities | undefined> = {
   github: {
     provider: "github",
     comments: true,
     completion: true,
-    bodyReplacementGuard: false,
     exactlyOnceWrites: false,
   },
 };

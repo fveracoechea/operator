@@ -650,15 +650,29 @@ describe("operator tracker map", () => {
     expect(map.json.data.coverage.complete).toBe(false);
   });
 
-  test("refuses to replace a shared body with no verified conflict guard", async () => {
+  test("never writes the shared body it amends", async () => {
     const workspace = await makeWorkspace();
+    const before = (await githubState(workspace)).issues[String(MAP_ISSUE)]?.body;
 
-    const refused = await recordStep(workspace, { input: amendmentBody({ mode: "replace-body" }) });
+    const amended = await recordStep(workspace, { input: amendmentBody() });
+    expect(amended.exitCode).toBe(0);
 
-    expect(refused.exitCode).toBe(3);
-    expect(refused.json.reason).toBe("tracker.capability_unavailable");
-    expect(refused.json.blockers[0].capability).toBe("body_replacement_guard");
-    expect(await commentsOn(workspace, MAP_ISSUE)).toHaveLength(0);
+    // The amendment is an appended comment. Nothing writes the baseline another writer shares,
+    // because no conditional write exists that such a writer would lose.
+    expect((await githubState(workspace)).issues[String(MAP_ISSUE)]?.body).toBe(before);
+    expect(
+      (await githubCalls(workspace)).filter((line) =>
+        line.startsWith(`PATCH repos/${REPOSITORY}/issues/${MAP_ISSUE}`),
+      ),
+    ).toEqual([]);
+    expect(await commentsOn(workspace, MAP_ISSUE)).toHaveLength(1);
+
+    // A request cannot even ask for a body replacement: the input has no such mode.
+    const refused = await recordStep(workspace, {
+      input: { ...(amendmentBody() as object), mode: "replace-body" },
+    });
+    expect(refused.exitCode).toBe(2);
+    expect(refused.json.reason).toBe("tracker.invalid_request");
   });
 
   test("refuses a map amendment for a source that records no map", async () => {

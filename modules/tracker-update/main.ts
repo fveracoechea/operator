@@ -112,18 +112,6 @@ export const TrackerUpdate = {
     }
 
     const intent = request.intent;
-    if (intent.step === "map_amendment" && intent.mode === "replace-body") {
-      // A shared body is never replaced automatically without a conditional write that another
-      // writer loses. A fresh read, a local lock, and a post-write comparison are not that guard.
-      if (!capabilities.bodyReplacementGuard) {
-        return {
-          status: "capability-unavailable",
-          capability: "body_replacement_guard",
-          detail: `${request.provider} offers no verified conflict guard for replacing a shared issue body, so the map is amended by an appended comment instead.`,
-        };
-      }
-    }
-
     if (intent.step !== "completion" && !capabilities.comments) {
       return {
         status: "capability-unavailable",

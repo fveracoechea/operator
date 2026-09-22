@@ -34,7 +34,6 @@ export type ResolutionIntent = {
 export type AmendmentIntent = {
   step: "map_amendment";
   target: TrackerTarget;
-  mode: "amendment" | "replace-body";
   decisionLink: string;
   baselineIdentity: string;
   sections: string[];

@@ -35,8 +35,6 @@ export const trackerStepInputSchema = z.discriminatedUnion("step", [
   z.strictObject({
     step: z.literal("map_amendment"),
     target: target.optional(),
-    // A shared body is only replaced under a verified provider conflict guard.
-    mode: z.enum(["amendment", "replace-body"]),
     decisionLink: z.string().min(1),
     baselineIdentity: contentIdentity,
     sections: z.array(z.string().min(1)).min(1),

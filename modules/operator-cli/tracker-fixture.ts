@@ -171,12 +171,10 @@ export function amendmentBody(
     supersedes?: string[];
     baselineIdentity?: string;
     body?: string;
-    mode?: "amendment" | "replace-body";
   } = {},
 ): unknown {
   return {
     step: "map_amendment",
-    mode: options.mode ?? "amendment",
     decisionLink: `https://github.com/${REPOSITORY}/issues/${TICKET}#issuecomment-1`,
     baselineIdentity: options.baselineIdentity ?? MAP_BASELINE_IDENTITY,
     sections: options.sections ?? ["Decisions so far"],
