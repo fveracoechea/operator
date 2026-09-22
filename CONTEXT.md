@@ -56,7 +56,8 @@ A separately approved run of synthetic work through the selected hosts.
 It proves what a static check cannot, such as host termination, the native review sub-agents, and provider compatibility.
 
 **Probe plan**:
-The declaration of what one live probe would use before anything launches: the exact hosts and models, the provider use, the credentials each host and the fixture need, the temporary resources, the expected costs, and the cleanup.
+The declaration of what one live probe would use, made before anything launches.
+It names the hosts and models, the provider use, the credentials, the fixture requirements, the temporary resources, the expected costs, and the cleanup.
 It carries a revision, and an approval is bound to that revision.
 
 **Probe fixture**:

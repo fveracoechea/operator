@@ -105,7 +105,17 @@ operator setup probe apply --claude --operator-host claude-code --crew-host open
 operator setup probe cleanup --json
 ```
 
-The plan shows the exact hosts and models, the provider use, the credentials each host and the fixture need, the temporary resources, the expected costs as the number of synthetic prompts each host sends, the checks and the claims they feed, and the cleanup.
+The plan shows what the run would use, before anything launches.
+
+- The exact hosts and models.
+- What each provider is asked to do, and what it bills.
+- The credentials each host and the fixture need.
+- What the fixture must already hold.
+- The temporary resources the probe makes.
+- The expected cost, as the number of synthetic prompts each host sends.
+- Each check, and the claims it feeds.
+- What cleanup removes, and what it leaves.
+
 A change to the project, the selection, or what the plan declares makes a new `probeId` and refuses the old approval.
 
 The probe runs on resources it creates for itself.

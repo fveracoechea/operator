@@ -52,7 +52,15 @@ operator setup probe plan --claude --operator-host claude-code --crew-host openc
 operator setup probe apply --claude --operator-host claude-code --crew-host opencode --approved-probe <probeId> --json
 ```
 
-The plan shows the exact hosts and models, the provider use, the credentials each host and the fixture need, the temporary resources, the expected costs, the checks with the claims they feed, and the cleanup.
+The plan shows what the run would use, before anything launches.
+
+- The exact hosts and models.
+- The provider use, and the credentials each host and the fixture need.
+- What the fixture must already hold.
+- The temporary resources and the expected costs.
+- Each check, and the claims it feeds.
+- The cleanup.
+
 Show the whole plan to the user and get their approval before you apply it.
 The approval is bound to the plan revision, so a change to the project, the selection, or what the plan declares makes a new `probeId` and refuses the old approval.
 

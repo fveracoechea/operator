@@ -8,7 +8,8 @@ The synthetic repository holds a copy of this project's instruction files and th
 It never launches in the project checkout, never writes to a project issue, and never touches an Operative worktree, a branch, a remote, or a release.
 So a probe that goes wrong costs a scratch directory and a fixture comment, and the approval a person gives covers exactly what the plan showed.
 
-The probe plan states the hosts, the models, the provider use, the credentials each host and the fixture need, the temporary resources, the expected cost as the number of synthetic prompts each host sends, and what cleanup leaves behind.
+The probe plan states the hosts, the models, the provider use, and the credentials each host and the fixture need.
+It also states what the fixture must hold, the temporary resources, the expected cost as the number of synthetic prompts each host sends, and what cleanup leaves behind.
 The plan revision is part of the plan identity, so a change to what the plan declares makes every earlier approval stale rather than covering more than the person read.
 
 Recorded evidence is a list of attempts, appended and never rewritten.
