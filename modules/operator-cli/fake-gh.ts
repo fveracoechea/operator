@@ -7,58 +7,23 @@
  * Its state lives in `$GH_FAKE_DIR/state.json` and the faults it injects in `faults.json`.
  */
 
-type FakeComment = {
-  id: number;
-  html_url: string;
-  user: { login: string };
-  body: string;
-  created_at: string;
-  updated_at: string;
-};
-
-type Issue = {
-  number: number;
-  state: string;
-  state_reason: string | null;
-  closed_by: { login: string } | null;
-  closed_at: string | null;
-  updated_at: string;
-  title: string;
-  body: string;
-};
-
-type FakeEvent = {
-  event: string;
-  actor: { login: string } | null;
-  state_reason: string | null;
-  created_at: string;
-};
-
-type State = {
-  viewer: string;
-  nextCommentId: number;
-  issues: Record<string, Issue>;
-  comments: Record<string, FakeComment[]>;
-  events: Record<string, FakeEvent[]>;
-};
-
-type Fault = { kind: string; remaining: number };
+import type { FakeComment, FakeFault, FakeIssue, GithubFakeState } from "./github-fake-state.ts";
 
 const directory = process.env.GH_FAKE_DIR ?? "";
 const statePath = `${directory}/state.json`;
 const faultsPath = `${directory}/faults.json`;
 
-async function readState(): Promise<State> {
+async function readState(): Promise<GithubFakeState> {
   const file = Bun.file(statePath);
   if (await file.exists()) {
-    const held: State = await file.json();
+    const held: GithubFakeState = await file.json();
     return held;
   }
 
   return { viewer: "operator-bot", nextCommentId: 1, issues: {}, comments: {}, events: {} };
 }
 
-async function writeState(state: State): Promise<void> {
+async function writeState(state: GithubFakeState): Promise<void> {
   await Bun.write(statePath, `${JSON.stringify(state, null, 2)}\n`);
 }
 
@@ -68,7 +33,7 @@ async function takeFault(name: string): Promise<string | null> {
     return null;
   }
 
-  const faults: Record<string, Fault | undefined> = await file.json();
+  const faults: Record<string, FakeFault | undefined> = await file.json();
   const fault = faults[name];
   if (fault === undefined || fault.remaining <= 0) {
     return null;
@@ -236,7 +201,7 @@ if (path === "user") {
     if (held === undefined) {
       answer(404, { message: "Not Found" });
     } else {
-      const closed: Issue = {
+      const closed: FakeIssue = {
         ...held,
         state: body?.state ?? "closed",
         state_reason: body?.state_reason ?? "completed",
@@ -274,6 +239,3 @@ if (path === "user") {
 } else {
   answer(404, { message: `the fake does not answer ${method} ${path}` });
 }
-
-// This file is a script, and the empty export makes its top-level await legal.
-export {};

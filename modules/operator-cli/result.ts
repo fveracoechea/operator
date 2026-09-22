@@ -1,3 +1,5 @@
+import type { TrackerUpdate } from "../tracker-update/main.ts";
+
 /** What one command did with its request: it reported a result, or it cannot read the request. */
 export type Handled = "reported" | "invalid-arguments";
 
@@ -11,24 +13,10 @@ export type Outcome =
   | "pending";
 
 /**
- * The tracker contract fixes these identifiers, so they keep their own spelling.
+ * The tracker contract fixes these identifiers, so they are read from it rather than copied.
  * They are provider-neutral; provider detail travels in the blocker beside the reason.
  */
-export type TrackerReason =
-  | "tracker.completed"
-  | "tracker.read_failed"
-  | "tracker.write_rejected"
-  | "tracker.invalid_request"
-  | "tracker.capability_unavailable"
-  | "tracker.approval_required"
-  | "tracker.evidence_incomplete"
-  | "tracker.resolution_conflict"
-  | "tracker.completion_conflict"
-  | "tracker.map_conflict"
-  | "tracker.resolution_outcome_unknown"
-  | "tracker.completion_outcome_unknown"
-  | "tracker.map_outcome_unknown"
-  | "tracker.pending";
+export type TrackerReason = ReturnType<typeof TrackerUpdate.judge>["reason"];
 
 export type Reason =
   | TrackerReason
@@ -207,8 +195,7 @@ export type Reason =
   | "pr_head_required"
   | "pr_head_changed"
   | "review_attempt_limit"
-  | "tracker_steps_reported"
-  | "tracker_map_read";
+  | "tracker_steps_reported";
 
 export type Operation =
   | "parse_arguments"

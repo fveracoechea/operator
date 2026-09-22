@@ -1,6 +1,10 @@
 import { z } from "zod";
+import { TrackerUpdate } from "../tracker-update/main.ts";
 import { readStored, readStoredValue } from "./stored.ts";
 import type { TrackerStep } from "./tracker.ts";
+
+/** A write the contract judges. `intended` is this release's own record of one not yet sent. */
+type SentState = Parameters<typeof TrackerUpdate.judge>[0]["writes"][number];
 
 const target = z.strictObject({
   repository: z.string().min(1),
@@ -47,9 +51,14 @@ const problem = z.strictObject({ reason: z.string(), detail: z.string() });
 
 const step: z.ZodType<TrackerStep> = z.enum(["resolution", "completion", "map_amendment"]);
 
-const writeState = z.enum(["intended", "succeeded", "failed", "uncertain"]);
+export type TrackerWriteState = SentState | "intended";
 
-export type TrackerWriteState = z.infer<typeof writeState>;
+const writeState: z.ZodType<TrackerWriteState> = z.enum([
+  "intended",
+  "succeeded",
+  "failed",
+  "uncertain",
+]);
 
 // A tracker operation row stores these columns, and every reader takes them back through the
 // schema that wrote them rather than asserting the shape it expected.

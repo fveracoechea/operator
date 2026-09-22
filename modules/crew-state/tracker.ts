@@ -11,15 +11,10 @@ import {
 } from "./schema.ts";
 import { storedTrackerRef, storedTrackerTarget } from "./work-input.ts";
 
-/** The steps the tracker contract names. A drift from that interface is a type error here. */
+/** The steps the tracker contract names, and the order it records them in. */
 export type TrackerStep = Parameters<typeof TrackerUpdate.observe>[0]["step"];
 
-/** The three steps of one tracker update, in the order the contract records them. */
-export const TRACKER_STEPS = [
-  "resolution",
-  "completion",
-  "map_amendment",
-] as const satisfies readonly TrackerStep[];
+export const TRACKER_STEPS = TrackerUpdate.steps();
 
 export type TrackerOperationRow = typeof trackerOperations.$inferSelect;
 export type TrackerWriteRow = typeof trackerWriteAttempts.$inferSelect;

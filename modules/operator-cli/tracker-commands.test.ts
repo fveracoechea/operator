@@ -13,6 +13,7 @@ import {
   recoverStep,
   REPOSITORY,
   resolutionBody,
+  fillComments,
   setFault,
   showSteps,
   TICKET,
@@ -290,6 +291,29 @@ describe("operator tracker record", () => {
     expect(recovered.json.blockers[0].detail).toContain("removed or changed outside Operator");
     // The intended content stays recorded, so a person can compare it against what exists.
     expect(recovered.json.data.content).toContain("The work is complete and reviewed.");
+  });
+
+  test("reads past the first page and reports a page it could not read", async () => {
+    const workspace = await makeWorkspace();
+    // A full first page means the scan asks for a second one.
+    await fillComments(workspace, { issue: TICKET, count: 100 });
+    await setFault(workspace, "createComment", "lost");
+    const recorded = await recordStep(workspace, { input: resolutionBody() });
+
+    // The first scan read both pages and covered every comment.
+    const complete = recorded.json.data.observations.at(-1).observation.coverage;
+    expect(complete.pages).toBe(2);
+    expect(complete.complete).toBe(true);
+    expect(complete.count).toBe(100);
+
+    await setFault(workspace, "scanComments.page2", "status:502");
+    const recovered = await recoverStep(workspace, recorded.json.data.operationId);
+
+    // A page that failed leaves the reading incomplete, and the first page is not absence.
+    const partial = recovered.json.data.observations.at(-1).observation.coverage;
+    expect(partial.complete).toBe(false);
+    expect(partial.pages).toBe(1);
+    expect(recovered.json.reason).toBe("tracker.resolution_outcome_unknown");
   });
 
   test("reports a refused write as a definite failure", async () => {

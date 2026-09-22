@@ -1,4 +1,5 @@
 import { ContentIdentity } from "../content-identity/main.ts";
+import type { FakeFault, FakeIssue, GithubFakeState } from "./github-fake-state.ts";
 import {
   requestId as request,
   runJson,
@@ -13,41 +14,6 @@ export const ACTOR = "operator-bot";
 
 export const MAP_BASELINE = ["# Map", "", "## Decisions so far", "", "- nothing yet"].join("\n");
 export const MAP_BASELINE_IDENTITY = ContentIdentity.ofText(MAP_BASELINE);
-
-type FakeComment = {
-  id: number;
-  html_url: string;
-  user: { login: string };
-  body: string;
-  created_at: string;
-  updated_at: string;
-};
-
-type FakeIssue = {
-  number: number;
-  state: string;
-  state_reason: string | null;
-  closed_by: { login: string } | null;
-  closed_at: string | null;
-  updated_at: string;
-  title: string;
-  body: string;
-};
-
-type FakeEvent = {
-  event: string;
-  actor: { login: string } | null;
-  state_reason: string | null;
-  created_at: string;
-};
-
-export type GithubState = {
-  viewer: string;
-  nextCommentId: number;
-  issues: Record<string, FakeIssue>;
-  comments: Record<string, FakeComment[]>;
-  events: Record<string, FakeEvent[]>;
-};
 
 export type TrackerWorkspace = Workspace & {
   ownerToken: string;
@@ -67,12 +33,15 @@ function issue(number: number, body: string): FakeIssue {
   };
 }
 
-export async function githubState(workspace: Workspace): Promise<GithubState> {
-  const state: GithubState = await Bun.file(`${workspace.github}/state.json`).json();
+export async function githubState(workspace: Workspace): Promise<GithubFakeState> {
+  const state: GithubFakeState = await Bun.file(`${workspace.github}/state.json`).json();
   return state;
 }
 
-export async function writeGithubState(workspace: Workspace, state: GithubState): Promise<void> {
+export async function writeGithubState(
+  workspace: Workspace,
+  state: GithubFakeState,
+): Promise<void> {
   await Bun.write(`${workspace.github}/state.json`, `${JSON.stringify(state, null, 2)}\n`);
 }
 
@@ -85,9 +54,7 @@ export async function setFault(
 ): Promise<void> {
   const path = `${workspace.github}/faults.json`;
   const file = Bun.file(path);
-  const held: Record<string, { kind: string; remaining: number }> = (await file.exists())
-    ? await file.json()
-    : {};
+  const held: Record<string, FakeFault> = (await file.exists()) ? await file.json() : {};
   held[name] = { kind, remaining: times };
   await Bun.write(path, `${JSON.stringify(held, null, 2)}\n`);
 }
@@ -170,6 +137,24 @@ export async function makeTrackerWorkspace(
     ownerToken,
     assignmentId: registered.json.data.registered[0].assignmentId,
   };
+}
+
+/** Fills one issue with ordinary comments, so a scan of it needs more than one page. */
+export async function fillComments(
+  workspace: Workspace,
+  options: { issue: number; count: number },
+): Promise<void> {
+  const state = await githubState(workspace);
+  state.comments[String(options.issue)] = Array.from({ length: options.count }, (_, index) => ({
+    id: 1000 + index,
+    html_url: `https://github.com/${REPOSITORY}/issues/${options.issue}#issuecomment-${1000 + index}`,
+    user: { login: "someone-else" },
+    body: `Ordinary comment ${index}.`,
+    created_at: "2026-09-01T00:00:00Z",
+    updated_at: "2026-09-01T00:00:00Z",
+  }));
+  state.nextCommentId = 2000;
+  await writeGithubState(workspace, state);
 }
 
 export function resolutionBody(text = "The work is complete and reviewed."): unknown {

@@ -1,4 +1,5 @@
 import { CrewState } from "../crew-state/main.ts";
+import { TrackerUpdate } from "../tracker-update/main.ts";
 import { type ParsedArguments, readRevision } from "./arguments.ts";
 import { readStructuredInput, reportInvalidInput, reportSharedFailure } from "./crew-result.ts";
 import {
@@ -440,12 +441,8 @@ async function runMap(parsed: ParsedArguments): Promise<Handled> {
   }
 
   const { reading } = result;
-  const worst = reading.problems.find((one) => one.reason !== "tracker.evidence_incomplete");
-  const reason = trackerReason(
-    reading.problems.length === 0
-      ? "tracker.completed"
-      : (worst?.reason ?? "tracker.evidence_incomplete"),
-  );
+  // The map read produces problems of its own, so the contract's own ranking decides the result.
+  const reason = TrackerUpdate.rank({ problems: reading.problems }).reason;
 
   report({
     json: parsed.json,

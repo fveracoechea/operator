@@ -39,7 +39,3 @@ const providers: Record<string, Capabilities | undefined> = {
 export function capabilitiesOf(provider: string): Capabilities | null {
   return providers[provider] ?? null;
 }
-
-export function isTrackerStep(value: string): value is TrackerStep {
-  return TRACKER_STEPS.some((step) => step === value);
-}

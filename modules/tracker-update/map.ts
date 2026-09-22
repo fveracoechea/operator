@@ -1,5 +1,6 @@
 import type { Problem, ScanCoverage } from "./classify.ts";
-import { AMENDMENT_HEADING, identityOfText, markerOf, readAmendmentClaim } from "./content.ts";
+import { ContentIdentity } from "../content-identity/main.ts";
+import { AMENDMENT_HEADING, markerOf, readAmendmentClaim, type TrackerComment } from "./content.ts";
 
 /** One explicit map amendment. An ordinary discussion comment never becomes one of these. */
 export type MapAmendment = {
@@ -26,16 +27,7 @@ export type MapReading = {
   problems: Problem[];
 };
 
-type Comment = {
-  commentId: string;
-  url: string;
-  actor: string;
-  body: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-function amendmentOf(comment: Comment): MapAmendment | null {
+function amendmentOf(comment: TrackerComment): MapAmendment | null {
   const operationId = markerOf(comment.body);
   if (operationId === null || !comment.body.includes(AMENDMENT_HEADING)) {
     return null;
@@ -65,9 +57,9 @@ function amendmentOf(comment: Comment): MapAmendment | null {
 export function readMap(request: {
   baselineBody: string;
   coverage: ScanCoverage;
-  comments: Comment[];
+  comments: TrackerComment[];
 }): MapReading {
-  const baselineIdentity = identityOfText(request.baselineBody);
+  const baselineIdentity = ContentIdentity.ofText(request.baselineBody);
   const amendments = request.comments.flatMap((comment) => amendmentOf(comment) ?? []);
   const superseded = new Set(amendments.flatMap((one) => one.supersedes));
   const effective = amendments.filter((one) => !superseded.has(one.operationId));

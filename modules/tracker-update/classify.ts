@@ -137,8 +137,8 @@ const stateByReason: Record<TrackerReason, VerdictState> = {
   "tracker.pending": "pending",
 };
 
-/** Chooses the overall result of one step. Every problem is kept; only the ranking picks one. */
-function decide(problems: Problem[]): Verdict {
+/** Chooses the overall result. Every problem is kept; only the ranking picks the reason. */
+export function decide(problems: Problem[]): Verdict {
   const ranked = PRECEDENCE.find((reason) => problems.some((one) => one.reason === reason));
   const reason = ranked ?? "tracker.completed";
   return { state: stateByReason[reason], reason, problems };

@@ -1,35 +1,28 @@
 import { GithubTracker } from "../github-tracker/main.ts";
+import { ContentIdentity } from "../content-identity/main.ts";
 import {
   type ClosureEvent,
   type ClosureObservation,
   type CommentMark,
   type CommentObservation,
+  decide,
   judge,
   type Observation,
   type Problem,
   type WriteAttemptState,
 } from "./classify.ts";
-import { identityOfText, markerOf, renderComment, type TrackerIntent } from "./content.ts";
+import { markerOf, renderComment, type TrackerComment, type TrackerIntent } from "./content.ts";
 import { readMap } from "./map.ts";
-import { capabilitiesOf, type TrackerStep, type TrackerTarget } from "./provider.ts";
+import { capabilitiesOf, TRACKER_STEPS, type TrackerStep, type TrackerTarget } from "./provider.ts";
 
-type Comment = {
-  commentId: string;
-  url: string;
-  actor: string;
-  body: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-function markOf(comment: Comment): CommentMark {
+function markOf(comment: TrackerComment): CommentMark {
   return {
     commentId: comment.commentId,
     url: comment.url,
     actor: comment.actor,
     createdAt: comment.createdAt,
     updatedAt: comment.updatedAt,
-    contentIdentity: identityOfText(comment.body),
+    contentIdentity: ContentIdentity.ofText(comment.body),
   };
 }
 
@@ -38,7 +31,7 @@ function classifyComments(request: {
   operationId: string;
   expectedActor: string;
   contentIdentity: string;
-  comments: Comment[];
+  comments: TrackerComment[];
 }): Pick<CommentObservation, "exactMatches" | "editedMatches" | "actorMismatches"> {
   const exactMatches: CommentMark[] = [];
   const editedMatches: CommentMark[] = [];
@@ -69,6 +62,11 @@ function reopenedAfterClose(events: ClosureEvent[]): boolean {
 }
 
 export const TrackerUpdate = {
+  /** The steps of one tracker update, in the order the contract records them. */
+  steps(): readonly TrackerStep[] {
+    return TRACKER_STEPS;
+  },
+
   /** What one provider can guarantee. An unknown provider has no capabilities at all. */
   capabilities(request: { provider: string }) {
     return capabilitiesOf(request.provider);
@@ -100,29 +98,33 @@ export const TrackerUpdate = {
     if (intent.step === "map_amendment" && intent.mode === "replace-body") {
       // A shared body is never replaced automatically without a conditional write that another
       // writer loses. A fresh read, a local lock, and a post-write comparison are not that guard.
+      if (!capabilities.bodyReplacementGuard) {
+        return {
+          status: "capability-unavailable",
+          capability: "body_replacement_guard",
+          detail: `${request.provider} offers no verified conflict guard for replacing a shared issue body, so the map is amended by an appended comment instead.`,
+        };
+      }
+    }
+
+    if (intent.step !== "completion" && !capabilities.comments) {
       return {
         status: "capability-unavailable",
-        capability: "body_replacement_guard",
-        detail: `${request.provider} offers no verified conflict guard for replacing a shared issue body, so the map is amended by an appended comment instead.`,
+        capability: "comments",
+        detail: `${request.provider} cannot add a comment that carries an operation marker.`,
       };
     }
 
-    if (intent.step === "completion") {
-      return capabilities.completion
-        ? {
-            status: "planned",
-            expectedActor: "",
-            content: null,
-            contentIdentity: null,
-            closeReason: intent.reason,
-          }
-        : {
-            status: "capability-unavailable",
-            capability: "completion",
-            detail: `${request.provider} cannot complete a ticket with an explicit reason.`,
-          };
+    if (intent.step === "completion" && !capabilities.completion) {
+      return {
+        status: "capability-unavailable",
+        capability: "completion",
+        detail: `${request.provider} cannot complete a ticket with an explicit reason.`,
+      };
     }
 
+    // The account this machine writes as is recorded for every step, so a later reading compares
+    // the observed author or closer against it rather than against a name the caller supplied.
     const viewer = await GithubTracker.viewer();
     if (viewer.status !== "succeeded") {
       return {
@@ -131,12 +133,22 @@ export const TrackerUpdate = {
       };
     }
 
+    if (intent.step === "completion") {
+      return {
+        status: "planned",
+        expectedActor: viewer.value.login,
+        content: null,
+        contentIdentity: null,
+        closeReason: intent.reason,
+      };
+    }
+
     const content = renderComment({ operationId: request.operationId, intent });
     return {
       status: "planned",
       expectedActor: viewer.value.login,
       content,
-      contentIdentity: identityOfText(content),
+      contentIdentity: ContentIdentity.ofText(content),
       closeReason: null,
     };
   },
@@ -227,11 +239,13 @@ export const TrackerUpdate = {
       return closure;
     }
 
+    // An identity this release cannot read matches nothing, which keeps the step unverified.
     const contentIdentity = request.contentIdentity ?? "";
     const known = request.resourceId;
-    const mustScan = known === null || request.sentWrites > 1;
-
-    if (!mustScan && known !== null) {
+    // A provider with no exactly-once write can hold a second comment under one operation, so a
+    // step that sent more than one write is always scanned rather than read by identifier.
+    const repeatable = capabilitiesOf(request.provider)?.exactlyOnceWrites !== true;
+    if (known !== null && !(repeatable && request.sentWrites > 1)) {
       const comment = await GithubTracker.readComment({
         repository: request.target.repository,
         commentId: known,
@@ -269,6 +283,14 @@ export const TrackerUpdate = {
       }),
       observedAt: request.now,
     };
+  },
+
+  /**
+   * Chooses the overall result of a set of problems that did not come from one step verdict.
+   * The ranking lives in one place, so a caller cannot invent a second order.
+   */
+  rank(request: { problems: Problem[] }) {
+    return decide(request.problems);
   },
 
   /** Turns the recorded intent, the write history, and one observation into a step verdict. */

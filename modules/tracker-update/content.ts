@@ -1,4 +1,3 @@
-import { ContentIdentity } from "../content-identity/main.ts";
 import type { TrackerTarget } from "./provider.ts";
 
 /**
@@ -50,6 +49,16 @@ export type CompletionIntent = {
 };
 
 export type TrackerIntent = ResolutionIntent | AmendmentIntent | CompletionIntent;
+
+/** One comment as a provider reports it. Every reader of a comment in this module reads this. */
+export type TrackerComment = {
+  commentId: string;
+  url: string;
+  actor: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+};
 
 /**
  * Renders the exact comment one operation intends to write.
@@ -131,8 +140,4 @@ export function readAmendmentClaim(body: string): AmendmentClaim {
     supersedes,
     baselineIdentity: BASELINE_PATTERN.exec(body)?.[1] ?? null,
   };
-}
-
-export function identityOfText(text: string): string {
-  return ContentIdentity.ofText(text);
 }
