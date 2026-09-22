@@ -1016,6 +1016,12 @@ describe("operator attempt replace for a review", () => {
     expect(refused.json.reason).toBe("review_attempt_limit");
     expect(refused.exitCode).toBe(3);
     expect(refused.json.blockers[0]).toMatchObject({ reviewId, limit: 3 });
+    // The reached limit is recorded as the direction it needs from the user.
+    expect(refused.json.data.direction).toMatchObject({
+      limitKind: "review_attempts",
+      limitValue: 3,
+      state: "open",
+    });
 
     // The limit is not a pass, so the result is still unaccepted.
     const accepted = await acceptProduction(workspace, producer, {
@@ -1023,6 +1029,7 @@ describe("operator attempt replace for a review", () => {
       revision: submitted.json.data.revision,
       prHead: artifact.commit,
     });
-    expect(accepted.json.reason).toBe("review_incomplete");
+    expect(accepted.json.reason).toBe("direction_required");
+    expect(accepted.exitCode).toBe(3);
   });
 });

@@ -9,6 +9,13 @@ import {
   type WorkInspection,
 } from "./dispatch-context.ts";
 import { endAttempt, startAttempt } from "./attempt.ts";
+import {
+  type DirectionRecord,
+  raiseDirection,
+  readDirection,
+  settleDirection,
+} from "./direction.ts";
+import { mutate, readState } from "./operations.ts";
 import { reopenReview } from "./review.ts";
 import { openOperation, recordInspection, recordPlan, settleOperation } from "./dispatch.ts";
 
@@ -31,9 +38,66 @@ export type ReplaceResult =
   | { status: "snapshot-unreadable"; attemptId: string; detail: string }
   | { status: "reconciliation-required"; attemptId: string; pending: string[] }
   | { status: "not-dispatched"; attemptId: string }
-  | { status: "review-attempt-limit"; attemptId: string; reviewId: string; limit: number }
+  | {
+      status: "review-attempt-limit";
+      attemptId: string;
+      reviewId: string;
+      limit: number;
+      direction: DirectionRecord;
+      approval: "missing" | "revoked";
+    }
   | AttemptFailure
   | Shared;
+
+/**
+ * Records that one review used every attempt it has, and that the work waits on the user.
+ * The request identity is spent here, so a retry reports the same refusal rather than raising
+ * the same limit twice.
+ */
+async function reachedReviewLimit(
+  request: { projectRoot: string; requestId: string; ownerToken: string; attemptId: string },
+  context: {
+    producerId: string;
+    reviewId: string;
+    attemptsHeld: number;
+    approval: "missing" | "revoked";
+  },
+): Promise<ReplaceResult> {
+  const { result } = await mutate<Extract<ReplaceResult, { status: "review-attempt-limit" }>>(
+    {
+      projectRoot: request.projectRoot,
+      requestId: request.requestId,
+      ownerToken: request.ownerToken,
+      now: new Date().toISOString(),
+      operation: "attempt_replace",
+      input: { attemptId: request.attemptId, limit: "review_attempts" },
+    },
+    ({ tx, now }) => ({
+      commit: true,
+      outcome: {
+        status: "review-attempt-limit" as const,
+        attemptId: request.attemptId,
+        reviewId: context.reviewId,
+        limit: REVIEW_ATTEMPT_LIMIT,
+        direction: raiseDirection(tx, {
+          directionRequestId: crypto.randomUUID(),
+          assignmentId: context.producerId,
+          limitKind: "review_attempts",
+          limitValue: REVIEW_ATTEMPT_LIMIT,
+          evidence: {
+            used: context.attemptsHeld,
+            detail: `Review ${context.reviewId} used ${context.attemptsHeld} attempts without reporting.`,
+            attempted: [`review ${context.reviewId}`],
+          },
+          now,
+        }),
+        approval: context.approval,
+      },
+    }),
+  );
+
+  return result;
+}
 
 /**
  * Starts a new attempt on the same assignment, keeping the inspected checkout and branch.
@@ -62,17 +126,30 @@ export async function replaceAttempt(request: {
   // A stopped or blocked review may be tried again, and a bounded number of times, so a failing
   // review host escalates to the user instead of consuming the crew.
   const context = read.context.review;
-  if (
+  const atLimit =
     context !== null &&
     context.review.state !== "reported" &&
-    read.context.attemptsHeld >= REVIEW_ATTEMPT_LIMIT
-  ) {
-    return {
-      status: "review-attempt-limit",
-      attemptId: request.attemptId,
-      reviewId: context.review.id,
-      limit: REVIEW_ATTEMPT_LIMIT,
-    };
+    read.context.attemptsHeld >= REVIEW_ATTEMPT_LIMIT;
+  let directedBy: string | null = null;
+
+  if (atLimit && context !== null) {
+    const producerId = context.submission.assignmentId;
+    const direction = await readState(request.projectRoot, (db) =>
+      readDirection(db, { assignmentId: producerId, limitKind: "review_attempts" }),
+    );
+    if (direction.status === "directed") {
+      directedBy = direction.approvalId;
+    } else if (direction.status === "blocked" || direction.status === "unblocked") {
+      return reachedReviewLimit(request, {
+        producerId,
+        reviewId: context.review.id,
+        attemptsHeld: read.context.attemptsHeld,
+        approval: direction.status === "blocked" ? direction.approval : "missing",
+      });
+    } else {
+      // The state could not be read, so nothing is replaced and nothing is recorded.
+      return direction;
+    }
   }
 
   const pending = read.context.operations.filter(
@@ -168,6 +245,20 @@ export async function replaceAttempt(request: {
       if (context !== null && context.review.state !== "reported") {
         // The replacement reviewer reads the same fixed submission and reports it itself.
         reopenReview(tx, { review: context.review, now });
+      }
+      if (directedBy !== null && context !== null) {
+        // The user directed this replacement past the limit, so the request it answered closes.
+        const directed = readDirection(tx, {
+          assignmentId: context.submission.assignmentId,
+          limitKind: "review_attempts",
+        });
+        if (directed.status === "directed") {
+          settleDirection(tx, {
+            directionRequestId: directed.request.directionRequestId,
+            approvalId: directedBy,
+            now,
+          });
+        }
       }
       startAttempt(tx, {
         attemptId,
