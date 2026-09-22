@@ -72,6 +72,20 @@ Leave `comments` out when you have none.
 
 Run `gh api repos/<owner>/<repo>/pulls/<number>/reviews --method POST --input review.json --jq .html_url`, and report the URL that it returns.
 
+## Comment shape
+
+State the defect in one sentence after the opening word, then give the evidence.
+A simple finding stays as short prose.
+Add structure only when it helps the author act.
+
+Add a short fenced code example with a language tag when it shows the defect, the correction, or the interface more clearly than prose.
+Ground every snippet in code you read at `headRefOid`.
+Mark a proposed correction or interface as illustrative, so the author does not read it as the implementation you verified.
+Keep a proposal to the shape of the change, never a full replacement implementation.
+
+Flat bullets hold independent evidence, constraints, or requested changes.
+A numbered list holds steps whose order matters.
+
 ## Voice
 
 Write the way one colleague writes a note to another colleague, give the defect with its file and line, and stop on the last finding.
