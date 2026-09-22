@@ -366,3 +366,30 @@ describe("the release toolchain", () => {
     ]);
   });
 });
+
+describe("a source path that is half delivered", () => {
+  test("creates the missing release beside the tag a first attempt already landed", async () => {
+    await seedFault("create_release", "server_error");
+    const fake = jsrFake();
+    const plan = await ReleasePublish.plan(request(fake));
+
+    const first = await ReleasePublish.publish(
+      request(fake, { approvedReleaseId: plan.releaseId }),
+    );
+    expect(first.status).toBe("partial");
+    const afterFirst: ReleaseFakeState = await Bun.file(`${ghDirectory}/state.json`).json();
+    expect(afterFirst.tags[`v${version}`]).toBe(COMMIT);
+    expect(afterFirst.releases[`v${version}`]).toBeUndefined();
+
+    const retry = await ReleasePublish.publish(
+      request(jsrFake(), { approvedReleaseId: plan.releaseId }),
+    );
+
+    expect(retry.status).toBe("published");
+    const afterRetry: ReleaseFakeState = await Bun.file(`${ghDirectory}/state.json`).json();
+    expect(afterRetry.releases[`v${version}`]).toContain(`v${version}`);
+    // The tag the first attempt created is never written a second time.
+    const calls = await Bun.file(`${ghDirectory}/calls.log`).text();
+    expect(calls.split("\n").filter((line) => line.includes("git/refs")).length).toBe(1);
+  });
+});

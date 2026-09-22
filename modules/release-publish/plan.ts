@@ -215,6 +215,8 @@ export async function computeReleasePlan(request: PlanRequest) {
     artifact: { root: inspection.artifactRoot, missing: inspection.missing },
     merged,
     checked,
+    // What the source path already holds, so a retry creates only the half that is still missing.
+    source: { tag: tagState, release: releaseState },
     paths,
     recorded,
     blockers,

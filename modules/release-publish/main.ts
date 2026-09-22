@@ -86,8 +86,13 @@ export const ReleasePublish = {
     const journal = merged(plan, held.state === "read" ? held.journal : null);
 
     for (const path of plan.paths) {
+      // A delivery this release already recorded is never sent again and never written over,
+      // whatever the registry or the repository answers now.
+      if (journal.paths[path.path]?.state === "published") {
+        continue;
+      }
       if (path.state === "published") {
-        journal.paths[path.path] ??= record("published", path.detail, null, now);
+        journal.paths[path.path] = record("published", path.detail, null, now);
         continue;
       }
 
@@ -123,11 +128,16 @@ export const ReleasePublish = {
 
 async function publishSource(plan: ReleasePlan): Promise<PathRecord> {
   const now = new Date().toISOString();
-  const tagged = await createTag({
-    repository: plan.repository,
-    tag: plan.tag,
-    commit: plan.commit,
-  });
+  // A tag an earlier attempt already landed on this commit is left exactly as it is, so the
+  // retry creates only the release that is still missing instead of writing the tag again.
+  const alreadyTagged = plan.source.tag.status === "present" && plan.source.tag.sha === plan.commit;
+  const tagged = alreadyTagged
+    ? ({ status: "succeeded" } as const)
+    : await createTag({
+        repository: plan.repository,
+        tag: plan.tag,
+        commit: plan.commit,
+      });
   if (tagged.status !== "succeeded") {
     return record(tagged.status === "uncertain" ? "uncertain" : "failed", tagged.detail, null, now);
   }
@@ -142,7 +152,9 @@ async function publishSource(plan: ReleasePlan): Promise<PathRecord> {
   return released.status === "succeeded"
     ? record(
         "published",
-        `The tag ${plan.tag} and its release were created.`,
+        alreadyTagged
+          ? `The release of the existing tag ${plan.tag} was created.`
+          : `The tag ${plan.tag} and its release were created.`,
         released.value.url,
         now,
       )
