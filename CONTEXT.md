@@ -79,6 +79,7 @@ A changed input makes that record stale and leaves unrelated records valid.
 **Claim**:
 What recorded evidence is asked to support: readiness for this project, or a release.
 Each live check names the claims it feeds, and a static check feeds every claim, so a check that is not proven holds back exactly the claims that read it.
+A release also reads the readiness answer, so it is never provable on a project that is not ready.
 
 **Crew state**:
 The one local SQLite database that holds assignments, attempts, ownership, source revisions, fixed inputs, dependencies, permissions, and request records for a project.

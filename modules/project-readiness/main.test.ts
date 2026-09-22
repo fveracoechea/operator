@@ -119,17 +119,22 @@ function checkNamed(
   return json.data.checks.find((check) => check.name === name && check.target === target);
 }
 
+/** Records one probe attempt. A later attempt is appended, exactly as the probe appends it. */
 async function recordLiveEvidence(
   root: string,
   inputs: Record<string, string>,
   names: string[],
   state: "passed" | "failed" | "skipped" = "passed",
 ): Promise<void> {
+  const path = `${root}/.operator/local/readiness.json`;
+  const held = await Bun.file(path).exists();
+  const earlier = held ? ((await Bun.file(path).json()) as { runs: unknown[] }).runs : [];
   await Bun.write(
-    `${root}/.operator/local/readiness.json`,
+    path,
     `${JSON.stringify({
       schemaVersion: 2,
       runs: [
+        ...earlier,
         {
           probeId: "f".repeat(64),
           planRevision: 2,
@@ -734,6 +739,21 @@ describe("recorded live readiness evidence", () => {
     expect(result.json.data.state).toBe("blocked");
     expect(result.json.data.claims.release).toBe("blocked");
     expect(result.json.data.claims.readiness).toBe("blocked");
+  });
+
+  test("never reports a release as provable while readiness is blocked", async () => {
+    const path = await makeFullPath();
+    const root = await makeProject();
+    await configure(root, path, ["--claude"]);
+    const first = await runJson(root, path, ["setup", "readiness", "--claude"]);
+    await recordLiveEvidence(root, first.json.data.inputs, liveCheckNames);
+    // `review-sub-agents` names the readiness claim alone, and a release still needs it to work.
+    await recordLiveEvidence(root, first.json.data.inputs, ["review-sub-agents"], "failed");
+
+    const result = await runJson(root, path, ["setup", "readiness", "--claude"]);
+
+    expect(result.json.data.state).toBe("blocked");
+    expect(result.json.data.claims).toEqual({ readiness: "blocked", release: "blocked" });
   });
 
   test("refuses a recorded result that names no approved probe", async () => {

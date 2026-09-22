@@ -88,4 +88,5 @@ One proven host pairing does not prove another pairing, because the selection is
 
 A check that failed, and a check the probe attempted and could not run, both leave the claims they feed unproven.
 Read `data.claims` for the readiness claim and the release claim separately.
+A release is never provable while readiness is not proven.
 Never report a project as ready, or a release as provable, while a check that feeds it is not proven.

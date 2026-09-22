@@ -121,24 +121,35 @@ function reportState(checks: Check[]): "ready" | "blocked" | "unverified" {
   return "ready";
 }
 
+type ClaimState = "proven" | "blocked" | "unverified";
+
+/** The worse of two claim answers. A claim is only as good as the weakest evidence under it. */
+function worse(left: ClaimState, right: ClaimState): ClaimState {
+  const order: ClaimState[] = ["proven", "unverified", "blocked"];
+  return order.indexOf(left) >= order.indexOf(right) ? left : right;
+}
+
 /**
  * What each claim may say right now.
  * A static check feeds both claims, because a missing tool holds back a release as surely as a
  * readiness answer. A live check feeds only the claims it declares.
+ * A release is proven on a project that is ready, so a check that holds readiness back holds the
+ * release back with it, even when no check that names the release reads that capability.
  */
-function claimStates(checks: Check[]): Record<LiveClaim, "proven" | "blocked" | "unverified"> {
+function claimStates(checks: Check[]): Record<LiveClaim, ClaimState> {
   const declared = new Map(liveChecks.map((one) => [one.name, one.claims]));
 
-  function stateOf(claim: LiveClaim) {
+  function stateOf(claim: LiveClaim): ClaimState {
     const feeding = checks.filter((one) => (declared.get(one.name) ?? EVERY_CLAIM).includes(claim));
     return reportState(feeding) === "ready"
-      ? ("proven" as const)
+      ? "proven"
       : feeding.some((one) => one.state === "failed")
-        ? ("blocked" as const)
-        : ("unverified" as const);
+        ? "blocked"
+        : "unverified";
   }
 
-  return { readiness: stateOf("readiness"), release: stateOf("release") };
+  const readiness = stateOf("readiness");
+  return { readiness, release: worse(stateOf("release"), readiness) };
 }
 
 function selectionSummary(observation: Observation) {

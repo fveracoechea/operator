@@ -18,7 +18,8 @@ A check the probe attempted and could not run is recorded as skipped.
 Skipped reads as unverified, exactly like a check no probe ever ran, so a missing fixture or a host that never answered holds back the claims that check feeds instead of disappearing from the report.
 
 Each live check names the claims it feeds, and a static check feeds every claim.
-The readiness claim and the release claim are reported apart, so a tracker check that fails holds back a release without pretending the machine is unusable.
+The readiness claim and the release claim are reported apart, so a check that only a release reads holds a release back and leaves the readiness answer alone.
+A release is never provable on a project that is not ready, so a capability that holds readiness back holds the release back with it.
 
 ## Considered options
 
