@@ -57,17 +57,30 @@ export type TrackerStepsResult =
   | { status: "unsupported-provider"; provider: string }
   | Shared;
 
-/** What a caller may do next about one step. No exit code alone authorizes any of these. */
-function nextActionsFor(request: {
-  step: TrackerStep;
+/** What settles one recorded step. No exit code alone authorizes any of these. */
+export type TrackerStepAction = "record" | "recover" | "approved-write" | "user";
+
+const trackerStepCommands: Record<TrackerStepAction, string> = {
+  record: "operator tracker record",
+  recover: "operator tracker recover",
+  "approved-write":
+    "operator approval grant for tracker.additional_write, then operator tracker record --approval",
+  user: "bring the recorded links and differences to the user",
+};
+
+/**
+ * What a caller may do next about one step, as the one rule both the step report and the crew
+ * next actions read.
+ */
+export function trackerStepActions(request: {
   applicable: boolean;
   operation: TrackerOperationRow | null;
-}): string[] {
+}): TrackerStepAction[] {
   if (!request.applicable) {
     return [];
   }
   if (request.operation === null) {
-    return ["operator tracker record"];
+    return ["record"];
   }
 
   const { state } = request.operation;
@@ -75,19 +88,16 @@ function nextActionsFor(request: {
     return [];
   }
   if (state === "conflict") {
-    return ["bring the recorded links and differences to the user"];
+    return ["user"];
   }
   if (state === "uncertain") {
-    return [
-      "operator tracker recover",
-      "operator approval grant for tracker.additional_write, then operator tracker record --approval",
-    ];
+    return ["recover", "approved-write"];
   }
   if (state === "failed") {
-    return ["operator tracker record"];
+    return ["record"];
   }
 
-  return ["operator tracker recover", "operator tracker record"];
+  return ["recover", "record"];
 }
 
 /**
@@ -125,7 +135,9 @@ export async function showTrackerSteps(request: {
         revision: operation?.revision ?? null,
         writeAttempts: operation === null ? 0 : writeAttemptsOf(db, operation.id).length,
         observations: operation === null ? 0 : observationsOf(db, operation.id).length,
-        nextActions: nextActionsFor({ step, applicable, operation }),
+        nextActions: trackerStepActions({ applicable, operation }).map(
+          (action) => trackerStepCommands[action],
+        ),
       } satisfies StepState;
     });
 

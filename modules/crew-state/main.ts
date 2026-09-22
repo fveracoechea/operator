@@ -4,6 +4,7 @@ import { holdInputSchema, placeHold, releaseHold } from "./cleanup-hold.ts";
 import { removeWorktree } from "./cleanup-remove.ts";
 import { showCleanups } from "./cleanup-report.ts";
 import { acknowledgeAttempt } from "./dispatch-acknowledge.ts";
+import { adoptAttempt } from "./dispatch-adopt.ts";
 import type { Overrides } from "./dispatch-context.ts";
 import { dispatchAttempt } from "./dispatch-launch.ts";
 import { reconcileAttempt } from "./dispatch-reconcile.ts";
@@ -13,6 +14,7 @@ import { readCapacity } from "./capacity.ts";
 import { acceptAssignment } from "./acceptance.ts";
 import { claimAssignment } from "./claims.ts";
 import { calculateFrontier } from "./frontier.ts";
+import { calculateNext } from "./next.ts";
 import { parseInput } from "./input.ts";
 import { mutate, readState } from "./operations.ts";
 import { claimOwnership, currentOwnership } from "./ownership.ts";
@@ -365,6 +367,15 @@ export const CrewState = {
     return reconcileAttempt(request);
   },
 
+  /**
+   * Moves one live attempt to the Operator that owns the crew now.
+   * A takeover blocks every attempt the replaced Operator claimed, and this is the step that
+   * states the new owner read what each of them still holds.
+   */
+  async adopt(request: Mutation & { attemptId: string }) {
+    return adoptAttempt(request);
+  },
+
   /** Starts a new attempt on the same assignment once the former writer is proven stopped. */
   async replace(request: Mutation & { attemptId: string; approvedInspection: string | null }) {
     return replaceAttempt(request);
@@ -622,6 +633,26 @@ export const CrewState = {
   /** Reports every recorded cleanup and every retention hold this crew holds. Writes nothing. */
   async cleanup(request: Located & { attemptId: string | null }) {
     return { repeated: false, result: await showCleanups(request) };
+  },
+
+  /**
+   * Reports everything this crew may do next, in one order, and writes nothing.
+   * Readiness, the frontier order, dependency gates, review priority, capacity, pending
+   * acknowledgements, and every recovery a restart owes are answered here, so a session never
+   * keeps a second schedule of its own beside this one.
+   */
+  async next(request: Located & { readiness: { ready: boolean; detail: string } }) {
+    const capacity = await readCapacity(request.projectRoot);
+    if (capacity.status !== "ok") {
+      return { repeated: false, result: capacity };
+    }
+
+    const result = await readState(request.projectRoot, (db) => ({
+      stateVersion: STATE_VERSION,
+      ...calculateNext(db, { capacity: capacity.capacity, readiness: request.readiness }),
+    }));
+
+    return { repeated: false, result };
   },
 
   /** Reports the work a crew of this size may start now, and why the rest waits. Writes nothing. */

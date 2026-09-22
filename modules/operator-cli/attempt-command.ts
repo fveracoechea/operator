@@ -343,6 +343,106 @@ async function runReconcile(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
+async function runAdopt(parsed: ParsedArguments): Promise<Handled> {
+  const mutation = mutationArguments(parsed);
+  if (mutation === null) {
+    return "invalid-arguments";
+  }
+
+  const result = await CrewState.adopt({ projectRoot: process.cwd(), ...mutation });
+  if (reportSharedFailure(parsed, "attempt_adopt", result)) {
+    return "reported";
+  }
+
+  if (result.status === "reconciliation-required") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "missing-condition",
+        reason: "reconciliation_required",
+        blockers: result.pending.map((kind) => ({
+          reason: "reconciliation_required" as const,
+          kind,
+        })),
+        operation: "attempt_adopt",
+      },
+      lines: [
+        "This attempt holds unsettled effects, so what it is doing is not established yet.",
+        "Run `operator attempt reconcile` first.",
+      ],
+    });
+    return "reported";
+  }
+
+  if (result.status === "writer-stopped") {
+    return refuse({
+      json: parsed.json,
+      operation: "attempt_adopt",
+      outcome: "missing-condition",
+      reason: "adoption_writer_stopped",
+      detail: { attemptId: result.attemptId, agentName: result.agentName },
+      lines: [
+        `Herdr holds no agent under ${result.agentName}, so this attempt has no writer to adopt.`,
+        "Inspect its partial work and replace it with `operator attempt replace`.",
+      ],
+    });
+  }
+
+  if (result.status === "writer-unknown") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "uncertain",
+        reason: "writer_unknown",
+        blockers: [
+          { reason: "writer_unknown", attemptId: result.attemptId, detail: result.detail },
+        ],
+        operation: "attempt_adopt",
+      },
+      lines: [`Whether this Operative is still running cannot be read: ${result.detail}`],
+    });
+    return "reported";
+  }
+
+  if (result.status === "already-adopted") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "completed",
+        reason: "attempt_already_adopted",
+        blockers: [],
+        operation: "attempt_adopt",
+        data: { attemptId: result.attemptId, assignmentId: result.assignmentId },
+      },
+      lines: [`This session already owns attempt ${result.attemptId}.`],
+    });
+    return "reported";
+  }
+
+  report({
+    json: parsed.json,
+    result: {
+      outcome: "completed",
+      reason: "attempt_adopted",
+      blockers: [],
+      operation: "attempt_adopt",
+      data: {
+        attemptId: result.attemptId,
+        assignmentId: result.assignmentId,
+        report: result.report,
+        repeated: result.repeated,
+      },
+    },
+    lines: [
+      `Adopted attempt ${result.attemptId} on assignment ${result.assignmentId}.`,
+      ...(result.report === null
+        ? ["This attempt holds a claim and no launch, so dispatch it when you are ready."]
+        : launchLines(result.report)),
+    ],
+  });
+  return "reported";
+}
+
 async function runReplace(parsed: ParsedArguments): Promise<Handled> {
   const mutation = mutationArguments(parsed);
   if (mutation === null) {
@@ -753,6 +853,9 @@ export async function runAttempt(words: string[], parsed: ParsedArguments): Prom
   }
   if (subcommand === "reconcile") {
     return runReconcile(parsed);
+  }
+  if (subcommand === "adopt") {
+    return runAdopt(parsed);
   }
   if (subcommand === "replace") {
     return runReplace(parsed);
