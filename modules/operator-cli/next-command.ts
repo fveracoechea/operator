@@ -131,12 +131,29 @@ export async function runCrewNext(parsed: ParsedArguments): Promise<Handled> {
     readiness: readinessInput(readiness),
   });
 
-  // A project with no crew state has exactly one next action, so this is an answer, not a failure.
+  // A project with no crew state has one crew action, so this is an answer, not a failure.
   if (result.status === "state-missing") {
+    const readinessDetail = readinessInput(readiness);
     const actions: NextAction[] = [
+      ...(readinessDetail.ready
+        ? []
+        : [
+            {
+              action: "prove_readiness" as const,
+              rank: 10,
+              assignmentId: null,
+              attemptId: null,
+              questionId: null,
+              reviewId: null,
+              revision: null,
+              needsUser: true,
+              detail: readinessDetail.detail,
+              command: "operator setup readiness",
+            },
+          ]),
       {
-        action: "own_crew",
-        rank: 0,
+        action: "own_crew" as const,
+        rank: 20,
         assignmentId: null,
         attemptId: null,
         questionId: null,

@@ -6,6 +6,7 @@ Read this before you launch, recover, or replace an Operative.
 
 1. `operator crew own --request <id> --owner-label <label> --json` gives you the owner token every mutation needs.
 2. `operator work register --request <id> --owner-token <token> --input <path> --json` records the approved work.
+   Read [REGISTRATION.md](REGISTRATION.md) for what that request carries.
 3. `operator crew next --claude --json` says what to do now and why the rest waits.
    Read [COORDINATION.md](COORDINATION.md) for that loop.
    `operator work frontier --json` prints the order, the gates, and the capacity on their own.

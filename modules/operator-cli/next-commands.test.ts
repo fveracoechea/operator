@@ -160,7 +160,7 @@ describe("the next actions", () => {
 
     expect(reported.exitCode).toBe(0);
     expect(reported.json.reason).toBe("next_actions_reported");
-    expect(reported.names).toEqual(["own_crew"]);
+    expect(reported.names).toEqual(["prove_readiness", "own_crew"]);
     expect(reported.of("own_crew").command).toBe("operator crew own");
   });
 

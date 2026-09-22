@@ -34,6 +34,7 @@ Read [SETUP.md](SETUP.md) before you install or configure a project.
 Read [READINESS.md](READINESS.md) before you answer whether a project is ready.
 
 Crew ownership, work registration, the frontier, and Operative dispatch.
+Read [REGISTRATION.md](REGISTRATION.md) before you register approved work.
 Read [DISPATCH.md](DISPATCH.md) before you launch or recover an Operative.
 
 Result submission, separate two-axis review, finding dispositions, and accepted completion.
