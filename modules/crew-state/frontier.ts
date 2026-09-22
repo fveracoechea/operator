@@ -1,7 +1,9 @@
 import { eq } from "drizzle-orm";
 import type { CrewReader } from "./database.ts";
 import type { Capacity } from "./capacity.ts";
+import { readAssignment } from "./assignment.ts";
 import { openDirectionsOf } from "./direction.ts";
+import { invalidationsAffecting } from "./invalidate.ts";
 import type { EscalationTrigger } from "./question-input.ts";
 import { blockingQuestions, questionReportOf, triggersOf } from "./questions.ts";
 import { reviewOfSubmission } from "./review.ts";
@@ -26,6 +28,7 @@ export type FrontierBlocker =
   | { reason: "dependency_pending"; dependencies: Array<{ assignmentId: string; state: string }> }
   | { reason: "review_pending"; reviewAssignmentId: string | null }
   | { reason: "direction_required"; directionRequestId: string; limitKind: string }
+  | { reason: "input_invalidated"; invalidated: string[] }
   | { reason: "review_capacity_reserved"; productionLimit: number }
   | { reason: "crew_at_capacity"; limit: number };
 
@@ -64,10 +67,6 @@ function byPriority(left: FrontierEntry, right: FrontierEntry): number {
     left.orderIndex - right.orderIndex ||
     left.assignmentId.localeCompare(right.assignmentId)
   );
-}
-
-export function readAssignment(db: CrewReader, id: string) {
-  return db.select().from(assignments).where(eq(assignments.id, id)).all()[0] ?? null;
 }
 
 export function unmetDependencies(
@@ -163,6 +162,19 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
       accepted.push(one);
       continue;
     }
+    // Work that read an invalidated result waits for the corrected one, whatever kind it is
+    // and whatever its former writer is still doing.
+    const invalid = invalidationsAffecting(db, one.assignmentId);
+    if (invalid.length > 0) {
+      blocked.push({
+        ...one,
+        blockers: [
+          { reason: "input_invalidated", invalidated: invalid.map((row) => row.assignmentId) },
+        ],
+      });
+      continue;
+    }
+
     if (!isExecutable(one.kind)) {
       planning.push(one);
       continue;

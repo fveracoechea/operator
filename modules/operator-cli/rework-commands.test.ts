@@ -48,7 +48,7 @@ const IMPROVEMENT = {
 /** One reviewed result with one blocker and one improvement, ready for a disposition. */
 async function reviewedResult(
   workspace: Workspace,
-  options: { standards?: typeof BLOCKER[]; spec?: typeof BLOCKER[] } = {},
+  options: { standards?: (typeof BLOCKER)[]; spec?: (typeof BLOCKER)[] } = {},
 ) {
   const producer = await startProducer(workspace);
   const base = await headCommit(workspace);
@@ -305,7 +305,11 @@ describe("rework limits", () => {
     const refused = await correctionRound(4);
     expect(refused.exitCode).toBe(3);
     expect(refused.json.reason).toBe("limit_reached");
-    expect(refused.json.blockers[0]).toMatchObject({ limitKind: "rework_cycles", limit: 3, used: 3 });
+    expect(refused.json.blockers[0]).toMatchObject({
+      limitKind: "rework_cycles",
+      limit: 3,
+      used: 3,
+    });
 
     const direction = refused.json.data.direction;
     expect(direction.revision).toBe(1);
@@ -392,7 +396,12 @@ describe("rework limits", () => {
     const base = await headCommit(workspace);
     let artifact = await commitArtifact(workspace, current, "# Result 0\n");
     const flaky = [
-      { name: "quality", command: "bun run quality", outcome: "flaky", detail: "One test failed once." },
+      {
+        name: "quality",
+        command: "bun run quality",
+        outcome: "flaky",
+        detail: "One test failed once.",
+      },
     ];
     let submitted = await submit(
       workspace,

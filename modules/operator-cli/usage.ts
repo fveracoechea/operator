@@ -18,6 +18,7 @@ export const usage = [
   "  operator work claim --request <id> --owner-token <token> --assignment <id> --revision <n> [--json]",
   "  operator work accept --request <id> --owner-token <token> --assignment <id> --revision <n> [--attempt <id>] [--submission <id>] [--pr-head <sha>] [--json]",
   "  operator work rework --request <id> --owner-token <token> --assignment <id> --revision <n> --input <path|-> [--json]",
+  "  operator work invalidate --request <id> --owner-token <token> --assignment <id> --revision <n> --input <path|-> [--json]",
   "  operator work frontier [--json]",
   `  operator attempt dispatch --request <id> --owner-token <token> --attempt <id> --commit <sha> [--branch <name>] [--worktree <path>] ${crewSelection} [--json]`,
   "  operator attempt acknowledge --request <id> --attempt <id> [--json]",

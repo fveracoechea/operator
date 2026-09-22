@@ -17,6 +17,7 @@ import { acknowledgeAnswer, deliverAnswer } from "./question-deliver.ts";
 import { approvalCheckSchema, approvalInputSchema } from "./approval-input.ts";
 import { raiseQuestion, reviseQuestion } from "./question-raise.ts";
 import { showQuestion } from "./question-report.ts";
+import { defectInputSchema, type InvalidateOutcome, invalidateResult } from "./invalidate.ts";
 import { registerWork } from "./registration.ts";
 import { openReworkCycle, type ReworkOutcome } from "./rework-open.ts";
 import { reworkInputSchema } from "./rework-input.ts";
@@ -247,6 +248,41 @@ export const CrewState = {
 
         return commitOn(disposeFindings(tx, { review, input, now }), "disposed");
       },
+    );
+  },
+
+  /**
+   * Records a defect found in an accepted result.
+   * The acceptance and its evidence stay recorded, because that history is what names the
+   * dependents that read the invalid result. Only the work that consumed it is paused.
+   */
+  async invalidate(request: Mutation & { assignmentId: string; revision: number; input: unknown }) {
+    const parsed = parseInput(defectInputSchema, request.input);
+    if (parsed.status !== "parsed") {
+      return reported(parsed);
+    }
+
+    const input = parsed.value;
+    return mutate<InvalidateOutcome>(
+      {
+        projectRoot: request.projectRoot,
+        requestId: request.requestId,
+        ownerToken: request.ownerToken,
+        now: new Date().toISOString(),
+        operation: "work_invalidate",
+        input: { assignmentId: request.assignmentId, revision: request.revision, defect: input },
+      },
+      ({ tx, now }) =>
+        commitOn(
+          invalidateResult(tx, {
+            invalidationId: crypto.randomUUID(),
+            assignmentId: request.assignmentId,
+            revision: request.revision,
+            input,
+            now,
+          }),
+          "invalidated",
+        ),
     );
   },
 

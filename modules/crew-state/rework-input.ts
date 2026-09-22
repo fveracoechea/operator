@@ -1,9 +1,5 @@
 import { z } from "zod";
-import {
-  codeRevisionsSchema,
-  resultKindSchema,
-  submittedCheckSchema,
-} from "./submission-input.ts";
+import { codeRevisionsSchema, resultKindSchema, submittedCheckSchema } from "./submission-input.ts";
 import { storedArtifactSchema } from "./submission-store.ts";
 import { readStored } from "./stored.ts";
 

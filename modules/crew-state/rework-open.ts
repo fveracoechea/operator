@@ -6,7 +6,7 @@ import {
   readDirection,
   settleDirection,
 } from "./direction.ts";
-import { readAssignment } from "./frontier.ts";
+import { readAssignment } from "./assignment.ts";
 import { identityOf } from "./identity.ts";
 import {
   corrections,
@@ -15,11 +15,7 @@ import {
   type ReviewFindingRow,
   undisposed,
 } from "./review.ts";
-import {
-  type ReworkBriefRecord,
-  type ReworkCorrection,
-  type ReworkInput,
-} from "./rework-input.ts";
+import { type ReworkBriefRecord, type ReworkCorrection, type ReworkInput } from "./rework-input.ts";
 import { cyclesOf, cyclesUsed, insertCycle, limitKindOf, limitOf, openCycleOf } from "./rework.ts";
 import { assignments } from "./schema.ts";
 import { storedChecks, storedCode, storedResultKind } from "./submission-input.ts";
@@ -137,7 +133,11 @@ function reviewGate(
     .flatMap((one) => one.between)
     .filter((name) => held.has(name) && !corrected.has(name));
   if (stray.length > 0) {
-    return { status: "conflict-not-corrected", reviewId: review.id, findingIds: [...new Set(stray)] };
+    return {
+      status: "conflict-not-corrected",
+      reviewId: review.id,
+      findingIds: [...new Set(stray)],
+    };
   }
 
   return { status: "ok", corrections: accepted };

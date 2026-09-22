@@ -170,7 +170,8 @@ function priorRoundsSection(review: ReviewBrief): string[] {
       ...round.cycles.flatMap((cycle) => [
         `  - Rework cycle ${cycle.cycleId} (${cycle.reason} ${cycle.cycleIndex}): ${cycle.instruction}`,
         ...cycle.conflicts.map(
-          (one) => `    - Conflict settled by the Operative: ${one.summary} (${one.between.join(" and ")})`,
+          (one) =>
+            `    - Conflict settled by the Operative: ${one.summary} (${one.between.join(" and ")})`,
         ),
       ]),
     ]),

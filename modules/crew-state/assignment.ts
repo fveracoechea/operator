@@ -1,9 +1,13 @@
 import { eq } from "drizzle-orm";
-import type { CrewWriter } from "./database.ts";
+import type { CrewReader, CrewWriter } from "./database.ts";
 import { assignmentId, identityOf } from "./identity.ts";
 import { assignments } from "./schema.ts";
 
 export type AssignmentRow = typeof assignments.$inferSelect;
+
+export function readAssignment(db: CrewReader, id: string): AssignmentRow | null {
+  return db.select().from(assignments).where(eq(assignments.id, id)).all()[0] ?? null;
+}
 
 /** What the caller decides about one new assignment. Everything else follows from registration. */
 export type NewAssignment = {

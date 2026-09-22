@@ -271,12 +271,12 @@ export const invalidations = sqliteTable("invalidations", {
   assignmentId: text("assignment_id")
     .notNull()
     .references(() => assignments.id),
-  submissionId: text("submission_id")
-    .notNull()
-    .references(() => submissions.id),
+  submissionId: text("submission_id").references(() => submissions.id),
   defect: text("defect").notNull(),
   dependents: text("dependents").notNull(),
+  state: text("state").notNull(),
   recordedAt: text("recorded_at").notNull(),
+  resolvedAt: text("resolved_at"),
 });
 
 /**
@@ -565,10 +565,12 @@ export const CREATE_STATEMENTS = [
   sql`create table invalidations (
     id text primary key,
     assignment_id text not null references assignments(id),
-    submission_id text not null references submissions(id),
+    submission_id text references submissions(id),
     defect text not null,
     dependents text not null,
-    recorded_at text not null
+    state text not null,
+    recorded_at text not null,
+    resolved_at text
   ) strict`,
   sql`create table request_records (
     id text primary key,

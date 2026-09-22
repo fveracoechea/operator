@@ -582,6 +582,28 @@ async function runAccept(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
+  if (result.status === "input-invalidated") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "missing-condition",
+        reason: "input_invalidated",
+        blockers: result.invalidated.map((assignmentId) => ({
+          reason: "input_invalidated" as const,
+          assignmentId,
+        })),
+        operation: "work_accept",
+        data: { assignmentId: result.assignmentId },
+      },
+      lines: [
+        `Assignment ${result.assignmentId} read a result that was found defective:`,
+        ...result.invalidated.map((one) => `  ${one}`),
+        "It moves again when the corrected result is accepted.",
+      ],
+    });
+    return "reported";
+  }
+
   if (result.status === "pr-head-required" || result.status === "pr-head-changed") {
     const required = result.status === "pr-head-required";
     report({
@@ -634,7 +656,12 @@ async function runRework(parsed: ParsedArguments): Promise<Handled> {
   const assignmentId = parsed.crew.assignmentId;
   const inputPath = parsed.crew.inputPath;
   const revision = readRevision(parsed);
-  if (mutation === null || assignmentId === undefined || inputPath === undefined || revision === null) {
+  if (
+    mutation === null ||
+    assignmentId === undefined ||
+    inputPath === undefined ||
+    revision === null
+  ) {
     return "invalid-arguments";
   }
 
@@ -901,6 +928,118 @@ async function runRework(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
+async function runInvalidate(parsed: ParsedArguments): Promise<Handled> {
+  const mutation = mutationArguments(parsed);
+  const assignmentId = parsed.crew.assignmentId;
+  const inputPath = parsed.crew.inputPath;
+  const revision = readRevision(parsed);
+  if (
+    mutation === null ||
+    assignmentId === undefined ||
+    inputPath === undefined ||
+    revision === null
+  ) {
+    return "invalid-arguments";
+  }
+
+  const read = await readStructuredInput({
+    parsed,
+    operation: "work_invalidate",
+    reason: "invalid_defect_input",
+    path: inputPath,
+  });
+  if (read.status !== "read") {
+    return "reported";
+  }
+
+  const { repeated, result } = await CrewState.invalidate({
+    projectRoot: process.cwd(),
+    ...mutation,
+    assignmentId,
+    revision,
+    input: read.value,
+  });
+
+  if (reportSharedFailure(parsed, "work_invalidate", result)) {
+    return "reported";
+  }
+
+  if (result.status === "invalid-input") {
+    return reportInvalidInput({
+      parsed,
+      operation: "work_invalidate",
+      reason: "invalid_defect_input",
+      issues: result.issues,
+    });
+  }
+
+  if (result.status === "unknown-assignment") {
+    return refuse({
+      json: parsed.json,
+      operation: "work_invalidate",
+      outcome: "invalid",
+      reason: "unknown_assignment",
+      detail: { assignmentId: result.assignmentId },
+      lines: [`No assignment is registered as ${result.assignmentId}.`],
+    });
+  }
+
+  if (result.status === "stale-revision") {
+    return refuse({
+      json: parsed.json,
+      operation: "work_invalidate",
+      outcome: "conflict",
+      reason: "stale_revision",
+      detail: { assignmentId: result.assignmentId, recordedRevision: result.recordedRevision },
+      lines: [`Assignment ${result.assignmentId} is at revision ${result.recordedRevision}.`],
+    });
+  }
+
+  if (result.status === "not-accepted") {
+    return refuse({
+      json: parsed.json,
+      operation: "work_invalidate",
+      outcome: "conflict",
+      reason: "assignment_not_accepted",
+      detail: { assignmentId: result.assignmentId, state: result.state },
+      lines: [
+        `Assignment ${result.assignmentId} is ${result.state}, so it holds no accepted result.`,
+        "Unaccepted work is corrected through a rework cycle instead.",
+      ],
+    });
+  }
+
+  report({
+    json: parsed.json,
+    result: {
+      outcome: "completed",
+      reason: "result_invalidated",
+      blockers: [],
+      operation: "work_invalidate",
+      data: {
+        assignmentId: result.assignmentId,
+        revision: result.revision,
+        invalidationId: result.invalidationId,
+        submissionId: result.submissionId,
+        dependents: result.dependents,
+        repeated,
+      },
+    },
+    lines: [
+      `Recorded defect ${result.invalidationId} against ${result.assignmentId}.`,
+      "Its acceptance, submission, review, and findings stay recorded.",
+      ...(result.dependents.length === 0
+        ? ["No dependent consumed the result, so nothing was paused."]
+        : [
+            `${result.dependents.length} dependent(s) read it and are paused:`,
+            ...result.dependents.map((one) => `  ${one.assignmentId} was ${one.consumedState}`),
+          ]),
+      "A dependent that never started is held by the dependency gate, not paused.",
+    ],
+  });
+  return "reported";
+}
+
 async function runFrontier(parsed: ParsedArguments): Promise<Handled> {
   const { result } = await CrewState.frontier({ projectRoot: process.cwd() });
   if (reportSharedFailure(parsed, "work_frontier", result)) {
@@ -982,6 +1121,9 @@ export async function runWork(words: string[], parsed: ParsedArguments): Promise
   }
   if (subcommand === "rework") {
     return runRework(parsed);
+  }
+  if (subcommand === "invalidate") {
+    return runInvalidate(parsed);
   }
   if (subcommand === "frontier") {
     return runFrontier(parsed);

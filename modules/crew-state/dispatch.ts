@@ -3,12 +3,7 @@ import type { CrewReader, CrewWriter } from "./database.ts";
 import type { AssignmentRow } from "./assignment.ts";
 import { attemptCount, type AttemptRow } from "./attempt.ts";
 import { currentOwnership } from "./ownership.ts";
-import {
-  findingsOf,
-  reviewOfAssignment,
-  reviewOfSubmission,
-  type ReviewRow,
-} from "./review.ts";
+import { findingsOf, reviewOfAssignment, reviewOfSubmission, type ReviewRow } from "./review.ts";
 import { assignments, attemptDispatch, attempts, externalOperations } from "./schema.ts";
 import { cyclesOf, openCycleOf, type ReworkCycleRow } from "./rework.ts";
 import { type ReworkBriefRecord, storedReworkBrief } from "./rework-input.ts";

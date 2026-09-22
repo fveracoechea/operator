@@ -1,12 +1,8 @@
 import { eq } from "drizzle-orm";
 import type { Capacity } from "./capacity.ts";
 import type { CrewWriter } from "./database.ts";
-import {
-  activeAttempt,
-  calculateFrontier,
-  type FrontierBlocker,
-  readAssignment,
-} from "./frontier.ts";
+import { readAssignment } from "./assignment.ts";
+import { activeAttempt, calculateFrontier, type FrontierBlocker } from "./frontier.ts";
 import { assignments, attempts } from "./schema.ts";
 
 export type ClaimResult =

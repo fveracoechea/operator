@@ -252,7 +252,8 @@ export async function startReviewer(
   const attemptId = claimed.json.data.attemptId;
   // Each round has its own reviewer, so each one reads and writes in its own checkout.
   const worktreePath =
-    options.worktreePath ?? `${workspace.root}/reviewer-${submitted.data.reviewAssignmentId.slice(0, 8)}`;
+    options.worktreePath ??
+    `${workspace.root}/reviewer-${submitted.data.reviewAssignmentId.slice(0, 8)}`;
 
   const dispatched = await runJson(workspace, [
     "attempt",
@@ -580,4 +581,101 @@ export async function grantDirection(
     "--input",
     await writeInput(workspace, { ...direction.approval, exactText, grantedBy: "human" }),
   ]);
+}
+
+/** Registers more items in the same source, each one depending on the producer assignment. */
+export async function registerDependents(
+  workspace: Workspace,
+  producer: Producer,
+  items: Array<{ key: string; kind: "production" | "planning"; title: string }>,
+) {
+  const registered = await runJson(workspace, [
+    "work",
+    "register",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--input",
+    await writeInput(workspace, {
+      sourceKind: "specification",
+      source: { id: "github:operator#15", revision: "rev-1", tracker: "github" },
+      items: items.map((item) => ({
+        key: item.key,
+        title: item.title,
+        kind: item.kind,
+        approvedScope: item.title,
+        acceptanceRequirements: REQUIREMENTS,
+        permissions: { writePaths: ["modules/"], allowedCommands: ["bun test"], network: false },
+        fixedInputs: [],
+        dependsOn: [{ key: "22.1" }],
+      })),
+    }),
+  ]);
+
+  return new Map<string, string>(
+    registered.json.data.registered.map((one: { sourceKey: string; assignmentId: string }) => [
+      one.sourceKey,
+      one.assignmentId,
+    ]),
+  );
+}
+
+/** Records a defect found in one accepted result. */
+export async function invalidateResult(
+  workspace: Workspace,
+  producer: Producer,
+  options: { assignmentId: string; revision: number; defect: unknown },
+) {
+  return runJson(workspace, [
+    "work",
+    "invalidate",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--assignment",
+    options.assignmentId,
+    "--revision",
+    String(options.revision),
+    "--input",
+    await writeInput(workspace, options.defect),
+  ]);
+}
+
+/** Accepts one assignment by identity, which is how planning work is resolved. */
+export async function acceptAssignment(
+  workspace: Workspace,
+  producer: Producer,
+  options: { assignmentId: string; revision: number },
+) {
+  return runJson(workspace, [
+    "work",
+    "accept",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--assignment",
+    options.assignmentId,
+    "--revision",
+    String(options.revision),
+  ]);
+}
+
+/** The frontier entry of one assignment, wherever the frontier put it. */
+export async function frontierEntry(workspace: Workspace, assignmentId: string) {
+  const frontier = await runJson(workspace, ["work", "frontier"]);
+  const groups = ["dispatchable", "blocked", "active", "planning", "accepted"] as const;
+
+  for (const group of groups) {
+    const found = frontier.json.data[group].find(
+      (one: { assignmentId: string }) => one.assignmentId === assignmentId,
+    );
+    if (found !== undefined) {
+      return { group, entry: found };
+    }
+  }
+
+  throw new Error(`the frontier does not carry ${assignmentId}`);
 }
