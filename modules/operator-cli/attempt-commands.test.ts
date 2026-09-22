@@ -15,6 +15,7 @@ import {
   acceptProduction,
   blockThenReplace,
   commitArtifact,
+  grantDirection,
   makeReviewWorkspace,
   relaunchReviewer,
   reportBody,
@@ -1031,5 +1032,26 @@ describe("operator attempt replace for a review", () => {
     });
     expect(accepted.json.reason).toBe("direction_required");
     expect(accepted.exitCode).toBe(3);
+
+    // The user directs one more reviewer, and the replacement runs only then.
+    await grantDirection(
+      workspace,
+      producer,
+      refused.json.data.direction,
+      "Try the other host once, then bring it back to me.",
+    );
+    const directed = await blockThenReplace(workspace, producer, {
+      ...shared,
+      attemptId: third.json.data.attemptId,
+    });
+    expect(directed.json.reason).toBe("attempt_replaced");
+
+    // The direction is spent, so acceptance reports the review again instead of the limit.
+    const waiting = await acceptProduction(workspace, producer, {
+      submissionId: submitted.json.data.submissionId,
+      revision: submitted.json.data.revision,
+      prHead: artifact.commit,
+    });
+    expect(waiting.json.reason).toBe("review_incomplete");
   });
 });
