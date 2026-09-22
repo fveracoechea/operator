@@ -33,6 +33,9 @@ Project installation, configuration, and readiness.
 Read [SETUP.md](SETUP.md) before you install or configure a project.
 Read [READINESS.md](READINESS.md) before you answer whether a project is ready.
 
+Release selection, updates, and publication.
+Read [RELEASE.md](RELEASE.md) before you select a release, update a project, or report what a publication would do.
+
 Crew ownership, work registration, the frontier, and Operative dispatch.
 Read [REGISTRATION.md](REGISTRATION.md) before you register approved work.
 Read [DISPATCH.md](DISPATCH.md) before you launch or recover an Operative.
