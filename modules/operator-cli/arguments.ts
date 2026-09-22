@@ -145,6 +145,37 @@ export function parseArguments(args: string[]): ParsedArguments {
   return parsed;
 }
 
+/** What every mutation carries: the caller's name for it, and the ownership it acts under. */
+export type Mutation = { requestId: string; ownerToken: string };
+
+export function readMutation(parsed: ParsedArguments): Mutation | null {
+  const { requestId, ownerToken } = parsed.crew;
+  return requestId === undefined || ownerToken === undefined ? null : { requestId, ownerToken };
+}
+
+/**
+ * What a mutation of one inspected assignment carries.
+ * The revision is the one the caller read, so a state that moved under it is refused rather
+ * than written over.
+ */
+export type AssignmentRequest = Mutation & {
+  assignmentId: string;
+  revision: number;
+  inputPath: string;
+};
+
+export function readAssignmentRequest(parsed: ParsedArguments): AssignmentRequest | null {
+  const mutation = readMutation(parsed);
+  const { assignmentId, inputPath } = parsed.crew;
+  const revision = readRevision(parsed);
+  return mutation === null ||
+    assignmentId === undefined ||
+    inputPath === undefined ||
+    revision === null
+    ? null
+    : { ...mutation, assignmentId, revision, inputPath };
+}
+
 /** Reads a record revision the caller states. A revision is a whole number or it is not one. */
 export function readRevision(parsed: ParsedArguments): number | null {
   const raw = parsed.crew.revision;
