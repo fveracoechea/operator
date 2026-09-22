@@ -18,9 +18,8 @@ export type DisposeOutcome =
 
 /**
  * Records what the Operator decided about each finding.
- * A finding is corrected, rejected with a reason and evidence, or deferred with a reason and a
- * follow-up,
- * so no finding leaves the review without an answer.
+ * Every finding is answered: corrected, rejected with a reason and the evidence that refutes it,
+ * or deferred with a reason and a follow-up reference.
  */
 export function disposeFindings(
   db: CrewWriter,

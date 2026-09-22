@@ -62,7 +62,7 @@ Correct what it names, then replace the stopped reviewer:
 The replacement reads the same fixed submission and reports it itself.
 One review holds at most three attempts.
 `review_attempt_limit` means another launch is not a remedy on its own.
-Bring the blocker to the user, and read "Limits stop a loop and ask the user" below.
+Read [LIMITS.md](LIMITS.md), which says what the user has to settle before a fourth one runs.
 
 ## Findings are yours to judge
 
@@ -74,75 +74,8 @@ It is never deferred.
 You may reject a finding you do not support, and the rejection states the evidence that refutes it.
 You may not waive an approved requirement through technical judgment.
 
-## A correction is delegated, never repaired here
-
 Never edit the result yourself, and never ask the reviewer to repair what it found.
-`rework_pending` at acceptance means the correction has not landed yet.
-
-```
-operator work rework --request <id> --owner-token <token> --assignment <id> --revision <n> --input <path> --json
-```
-
-The request names one reason:
-
-- `findings`: it answers the accepted corrections of the review you name.
-  Every finding of that review carries a disposition first.
-- `integration`: it names the revisions it combines with the submitted result.
-  Name a review only when this cycle answers that review as well.
-  A review that already reported is answered either way, so its findings are never lost.
-- `diagnostic`: it names the recorded checks a test infrastructure failure is suspected behind.
-  At least one of them must not have passed.
-
-State the instruction in your own words, and state each conflict the Operative must settle.
-You record no resolution of your own, because that decision is the work you are delegating.
-
-The cycle returns the assignment to the frontier.
-Claim it again and dispatch it from the commit the submission recorded.
-A fresh attempt is a fresh Operative, so the reviewer that found the problem never repairs it.
-
-One cycle produces one combined revision, which registers its own review assignment.
-That reviewer reads every earlier round and its dispositions, and reports a finding that came back.
-Nothing between the two revisions is acceptable, so do not accept the earlier submission.
-
-## Limits stop a loop and ask the user
-
-Three limits hold across sessions:
-
-- three correction cycles on one assignment, counting `findings` and `integration` together,
-- two diagnostic reruns,
-- three attempts on one review, which is one reviewer and two replacements per revision.
-
-`limit_reached` and `review_attempt_limit` both record a direction request and keep the evidence.
-Acceptance then refuses with `direction_required` until the user directs the work.
-
-Bring the recorded evidence to the user and record their exact words as the approval it must be:
-
-```
-operator approval grant --request <id> --owner-token <token> --input <path> --json
-```
-
-The approval names action `limit-direction`, the assignment as its target, the scope the refusal
-reported, and the revision of the direction request it answers.
-The refusal prints all four.
-Silence, a timeout, and a general direction to finish are not a direction.
-Once a direction is spent, reaching that limit again opens the request at the next revision,
-so the earlier approval covers nothing.
-
-## A defect found after acceptance
-
-```
-operator work invalidate --request <id> --owner-token <token> --assignment <id> --revision <n> --input <path> --json
-```
-
-The defect states its summary, its evidence, and who found it.
-Review work is refused, because a review holds no result of its own.
-The acceptance, the submission, the review, and every finding stay recorded.
-The assignment returns to the frontier as `invalidated`, and you fix it as work on that assignment.
-
-Only the dependents that read the result are paused.
-`input_invalidated` at acceptance or in the frontier names the invalid result a paused assignment read.
-Accepting the corrected result releases them, and one that was accepted returns to the step that
-decided it, so you take that decision again.
+Read [REWORK.md](REWORK.md) before you delegate a correction, a combined revision, or a diagnostic rerun.
 
 ## Acceptance reads recorded evidence
 
@@ -161,7 +94,9 @@ Acceptance refuses on:
 - `findings_undisposed`: a finding carries no disposition.
 - `rework_pending`: an accepted correction is still waiting for its delegated cycle.
 - `direction_required`: this assignment reached a limit and waits on the user.
+  Read [LIMITS.md](LIMITS.md).
 - `input_invalidated`: this work read a result a defect was later found in.
+  Read [INVALIDATION.md](INVALIDATION.md).
 - `checks_unproven`: a recorded check failed, was flaky, or did not run.
 - `checks_contradicted`: a review ran a recorded check itself and saw a different outcome.
   What a reviewer ran outranks what the producer wrote about its own work.
@@ -171,3 +106,5 @@ Acceptance refuses on:
 A stopped reviewer process is not a review.
 A passing rerun does not erase a failure.
 Acceptance does not authorize merge, publication, process closure, or worktree deletion.
+
+Read [INVALIDATION.md](INVALIDATION.md) when accepted work later turns out to be wrong.
