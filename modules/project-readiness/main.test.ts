@@ -626,6 +626,32 @@ describe("the selected installation", () => {
     });
   });
 
+  test("blocks when the isolated installation holds another version of the package", async () => {
+    const path = await makeFullPath();
+    const root = await makeProject();
+    await configure(root, path, ["--claude"]);
+    const selectionPath = `${root}/.operator/install/selection.json`;
+    const recorded = await Bun.file(selectionPath).json();
+    await Bun.write(
+      selectionPath,
+      `${JSON.stringify({ ...recorded, delivery: "jsr", packageVersion: "9.9.9" }, null, 2)}\n`,
+    );
+    // A package is present, and it is not the exact version the selection names.
+    await Bun.write(
+      `${root}/.operator/install/node_modules/@fveracoechea/operator/package.json`,
+      `${JSON.stringify({ name: "@jsr/fveracoechea__operator", version: "1.0.0" })}\n`,
+    );
+    await Bun.write(`${root}/.operator/install/bun.lock`, "{}\n");
+
+    const result = await runJson(root, path, ["setup", "readiness", "--claude"]);
+
+    expect(result.json.data.state).toBe("blocked");
+    expect(checkNamed(result.json, "operator-installation")).toMatchObject({
+      state: "failed",
+      reason: "release_mismatch",
+    });
+  });
+
   test("blocks when the isolated installation kept no lock data", async () => {
     const path = await makeFullPath();
     const root = await makeProject();

@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { INSTALL_ROOT, PACKAGE_NAME, type ReleaseSelection, readSelection } from "./selection.ts";
 
 export type InstallationReason =
@@ -38,6 +39,21 @@ function unmet(
   paths: string[] = [],
 ): Installation {
   return { status: "unmet", reason, selection, detail, nextAction, paths };
+}
+
+/** The version the isolated installation actually holds, read from the manifest it installed. */
+async function readInstalledVersion(
+  path: string,
+): Promise<{ state: "absent" } | { state: "present"; version: string | null }> {
+  const file = Bun.file(path);
+  if (!(await file.exists())) {
+    return { state: "absent" };
+  }
+
+  const parsed = z
+    .object({ version: z.string().min(1).optional() })
+    .safeParse(await file.json().catch(() => null));
+  return { state: "present", version: parsed.success ? (parsed.data.version ?? null) : null };
 }
 
 async function hasLockData(projectRoot: string): Promise<boolean> {
@@ -81,16 +97,26 @@ export async function inspectInstallation(request: {
   const selection = read.selection;
 
   if (selection.delivery === "jsr") {
-    const installed = await Bun.file(
-      `${request.projectRoot}/${INSTALL_ROOT}/node_modules/${PACKAGE_NAME}/package.json`,
-    ).exists();
-    if (!installed) {
+    const wanted = selection.packageVersion ?? selection.version;
+    const manifest = `${INSTALL_ROOT}/node_modules/${PACKAGE_NAME}/package.json`;
+    const installed = await readInstalledVersion(`${request.projectRoot}/${manifest}`);
+    if (installed.state === "absent") {
       return unmet(
         "install_missing",
         selection,
         `The isolated installation holds no ${PACKAGE_NAME}, so the selected release is not present.`,
-        `Install ${PACKAGE_NAME}@${selection.packageVersion ?? selection.version} in ${INSTALL_ROOT} yourself, then check again.`,
+        `Install ${PACKAGE_NAME}@${wanted} in ${INSTALL_ROOT} yourself, then check again.`,
         [INSTALL_ROOT],
+      );
+    }
+    // The selection names one exact published version, so any other one is a different release.
+    if (installed.version !== wanted) {
+      return unmet(
+        "release_mismatch",
+        selection,
+        `This project selected ${PACKAGE_NAME}@${wanted}, and the isolated installation holds ${installed.version ?? "a package that names no version"}.`,
+        `Install ${PACKAGE_NAME}@${wanted} in ${INSTALL_ROOT} yourself, then check again.`,
+        [manifest],
       );
     }
 
