@@ -52,6 +52,10 @@ jobs:
     environment: release
     permissions:
       contents: write
+      # The plan proves the commit passed its required checks, which needs the check runs.
+      checks: read
+      # The record of what an earlier attempt delivered is recovered from the run artifacts.
+      actions: read
       # The registry credential is short lived and issued to this job. No token is stored.
       id-token: write
     steps:

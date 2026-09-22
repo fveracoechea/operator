@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { z } from "zod";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
 import { OperatorRelease } from "../operator-release/main.ts";
@@ -353,6 +354,27 @@ describe("the release toolchain", () => {
         expect(used, `${path} uses ${used}`).toMatch(/@[0-9a-f]{40}$/);
       }
     }
+  });
+
+  test("gives the publish job every scope the reads it makes need", async () => {
+    // The job token carries exactly what the job declares. A read it cannot make answers 403,
+    // and the plan then refuses the release for evidence it was never allowed to gather.
+    const workflow = z
+      .object({
+        jobs: z.object({ publish: z.object({ permissions: z.record(z.string(), z.string()) }) }),
+      })
+      .parse(Bun.YAML.parse(await Bun.file(`${sourceRoot}/.github/workflows/release.yml`).text()));
+
+    expect(workflow.jobs.publish.permissions).toMatchObject({
+      // `repos/.../compare`, the tag refs, and the releases.
+      contents: "write",
+      // The short-lived registry credential.
+      "id-token": "write",
+      // `repos/.../commits/<sha>/check-runs`, which proves the commit passed its checks.
+      checks: "read",
+      // `gh run download`, which recovers what an earlier attempt already delivered.
+      actions: "read",
+    });
   });
 
   test("reads no publishing token of its own from the environment", async () => {
