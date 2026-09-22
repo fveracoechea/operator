@@ -1,11 +1,17 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   commitArtifact,
+  delegateRework,
+  disposeFindings,
   makeReviewWorkspace,
+  reportBody,
+  reportReview,
   startProducer,
+  startReviewer,
   submissionBody,
   submit,
   type Workspace,
+  writeInput,
 } from "./review-cycle-fixture.ts";
 import {
   headCommit,
@@ -22,12 +28,6 @@ const fixtures = workspaces();
 afterEach(async () => {
   await fixtures.removeAll();
 });
-
-async function writeInput(workspace: Workspace, value: unknown): Promise<string> {
-  const path = `${workspace.root}/input-${crypto.randomUUID()}.json`;
-  await Bun.write(path, JSON.stringify(value));
-  return path;
-}
 
 type ItemOverrides = {
   key: string;
@@ -363,6 +363,183 @@ describe("a fresh Operator after session loss", () => {
     expect(reported.forAction("close_process")[0]?.attemptId).toBe(producer.attemptId);
   });
 
+  test("resumes a review that already reported", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const artifact = await commitArtifact(workspace, producer, "the result\n");
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
+    await reportReview(
+      workspace,
+      reviewer,
+      submitted.json.data.reviewId,
+      reportBody({
+        submissionIdentity: submitted.json.data.identity,
+        host: workspace.host,
+        standardsFindings: [
+          {
+            key: "naming",
+            severity: "improvement",
+            summary: "One helper reads badly.",
+            evidence: "modules/x.ts",
+          },
+        ],
+      }),
+    );
+    const second = await ownCrew(workspace, { label: "second-session", takeoverFrom: 1 });
+
+    const inherited = await nextActions(workspace);
+    expect(inherited.forAction("adopt_attempt")[0]?.attemptId).toBe(reviewer.attemptId);
+    expect(inherited.forAction("dispose_findings")[0]?.assignmentId).toBe(producer.assignmentId);
+
+    await adopt(workspace, second, reviewer.attemptId);
+    const shown = await runJson(workspace, [
+      "review",
+      "show",
+      "--review",
+      submitted.json.data.reviewId,
+    ]);
+    await disposeFindings(
+      workspace,
+      { ...producer, ownerToken: second },
+      submitted.json.data.reviewId,
+      [
+        {
+          findingId: shown.json.data.findings[0].findingId,
+          disposition: "rejected",
+          reason: "The name matches the rest of the module.",
+          evidence: "modules/x.ts",
+        },
+      ],
+    );
+
+    const disposed = await nextActions(workspace);
+    expect(disposed.forAction("accept_assignment").map((one) => one.assignmentId)).toContain(
+      producer.assignmentId,
+    );
+  });
+
+  test("resumes an assignment whose rework cycle is still open", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const artifact = await commitArtifact(workspace, producer, "the result\n");
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
+    await reportReview(
+      workspace,
+      reviewer,
+      submitted.json.data.reviewId,
+      reportBody({
+        submissionIdentity: submitted.json.data.identity,
+        host: workspace.host,
+        standardsFindings: [
+          {
+            key: "coverage",
+            severity: "blocker",
+            summary: "The reader path has no test.",
+            evidence: "modules/x.ts",
+          },
+        ],
+      }),
+    );
+    const shown = await runJson(workspace, [
+      "review",
+      "show",
+      "--review",
+      submitted.json.data.reviewId,
+    ]);
+    const findingId = shown.json.data.findings[0].findingId;
+    await disposeFindings(workspace, producer, submitted.json.data.reviewId, [
+      { findingId, disposition: "corrected", reason: "The reader path needs its test." },
+    ]);
+    const delegated = await delegateRework(workspace, producer, {
+      revision: submitted.json.data.revision,
+      body: {
+        reason: "findings",
+        reviewId: submitted.json.data.reviewId,
+        instruction: "Add the reader test the review asked for.",
+        conflicts: [],
+      },
+    });
+    expect(delegated.json.reason).toBe("rework_delegated");
+    await ownCrew(workspace, { label: "second-session", takeoverFrom: 1 });
+
+    const inherited = await nextActions(workspace);
+
+    // The cycle is delegated, so the fresh session takes the work again and never re-delegates.
+    expect(inherited.names).not.toContain("delegate_rework");
+    expect(inherited.forAction("claim_assignment").map((one) => one.assignmentId)).toContain(
+      producer.assignmentId,
+    );
+    expect(inherited.forAction("adopt_attempt")[0]?.attemptId).toBe(reviewer.attemptId);
+  });
+
+  test("resumes the tracker steps of work another session accepted", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const ownerToken = await ownCrew(workspace);
+    const registered = await register(workspace, ownerToken, {
+      sourceKind: "wayfinder",
+      id: "github:fveracoechea/operator#1",
+      location: { repository: "fveracoechea/operator", mapIssue: 1 },
+      items: [item({ key: "24", wayfinderType: "research", trackerIssue: 24 })],
+    });
+    const assignmentId = String(registered.get("24"));
+    await runJson(workspace, [
+      "work",
+      "accept",
+      "--request",
+      request(),
+      "--owner-token",
+      ownerToken,
+      "--assignment",
+      assignmentId,
+      "--revision",
+      "1",
+    ]);
+    await ownCrew(workspace, { label: "second-session", takeoverFrom: 1 });
+
+    const inherited = await nextActions(workspace);
+
+    expect(inherited.forAction("record_tracker")).toHaveLength(3);
+    expect(
+      inherited.forAction("record_tracker").every((one) => one.assignmentId === assignmentId),
+    ).toBe(true);
+  });
+
+  test("keeps a retention hold visible to the session that inherits it", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const artifact = await commitArtifact(workspace, producer, "the result\n");
+    await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const held = await runJson(workspace, [
+      "cleanup",
+      "hold",
+      "--request",
+      request(),
+      "--owner-token",
+      producer.ownerToken,
+      "--attempt",
+      producer.attemptId,
+      "--input",
+      await writeInput(workspace, {
+        reason: "open-investigation",
+        detail: "The flaky test is still being diagnosed in this checkout.",
+      }),
+    ]);
+    expect(held.json.reason).toBe("resources_held");
+    await ownCrew(workspace, { label: "second-session", takeoverFrom: 1 });
+
+    const inherited = await nextActions(workspace);
+
+    const wait = inherited.waits.find((one) => one.attemptId === producer.attemptId);
+    expect(wait?.wait).toBe("cleanup_held");
+    expect(wait?.detail).toContain("open-investigation");
+    expect(inherited.names).not.toContain("close_process");
+  });
+
   test("sends a stopped Operative to replacement instead of adoption", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const producer = await startProducer(workspace);
@@ -452,6 +629,47 @@ describe("crew capacity", () => {
       (one: { assignmentId: string }) => one.assignmentId === registered.get("15.2"),
     );
     expect(held.blockers[0].reason).toBe("crew_at_capacity");
+  });
+});
+
+describe("either supported host as Operator", () => {
+  test("runs the same loop against an OpenCode installation target", async () => {
+    const workspace = await makeReviewWorkspace(fixtures, { host: "opencode" });
+    const targets = ["--opencode", "--operator-host", "opencode"];
+
+    const empty = await nextActions(workspace, targets);
+    expect(empty.json.data.readiness.targets).toEqual(["opencode"]);
+    expect(empty.json.data.readiness.selection.operator.host).toBe("opencode");
+    expect(empty.names).toEqual(["prove_readiness", "own_crew"]);
+
+    const ownerToken = await ownCrew(workspace);
+    const registered = await register(workspace, ownerToken, {
+      sourceKind: "specification",
+      id: "github:operator#15",
+      items: [item({ key: "15.1" })],
+    });
+    const assignmentId = String(registered.get("15.1"));
+
+    const offered = await nextActions(workspace, targets);
+    expect(offered.forAction("claim_assignment")[0]?.assignmentId).toBe(assignmentId);
+
+    const claimed = await claim(workspace, ownerToken, assignmentId);
+    const worktreePath = `${workspace.root}/operative`;
+    expect(offered.exitCode).toBe(0);
+
+    const launch = await nextActions(workspace, targets);
+    expect(launch.forAction("dispatch_attempt")[0]?.attemptId).toBe(claimed.json.data.attemptId);
+
+    const dispatched = await dispatch(workspace, ownerToken, {
+      attemptId: claimed.json.data.attemptId,
+      worktreePath,
+    });
+    expect(dispatched.json.data.agentHost).toBe("opencode");
+    await acknowledge(workspace, claimed.json.data.attemptId, worktreePath);
+
+    const working = await nextActions(workspace, targets);
+    expect(working.exitCode).toBe(6);
+    expect(working.waiting).toEqual(["operative_working"]);
   });
 });
 
