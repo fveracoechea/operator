@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ContentIdentity } from "../content-identity/main.ts";
 
 /**
  * The words one synthetic brief is written with and read back by.
@@ -21,12 +22,6 @@ export function briefFor(request: {
     ...request.instructions,
     `${REPORT_SENTENCE}${request.reportPath}`,
   ].join("\n");
-}
-
-/** The report path one brief names, read back the way a launched agent reads it. */
-export function reportPathOf(brief: string): string | null {
-  const line = brief.split("\n").find((one) => one.startsWith(REPORT_SENTENCE));
-  return line === undefined ? null : line.slice(REPORT_SENTENCE.length).trim();
 }
 
 const iso = z.iso.datetime();
@@ -86,6 +81,34 @@ export type ReadReport<Step extends ProbeStep> =
   | { status: "read"; report: ReportOf<Step>; identity: string; text: string }
   | { status: "unreadable"; detail: string };
 
+function why(error: z.ZodError): string {
+  return error.issues
+    .map((issue) => [issue.path.join("."), issue.message].filter(Boolean).join(": "))
+    .join("; ");
+}
+
+function readWith<Value>(
+  schema: z.ZodType<Value>,
+  value: unknown,
+  text: string,
+):
+  | { status: "read"; report: Value; identity: string; text: string }
+  | { status: "unreadable"; detail: string } {
+  const result = schema.safeParse(value);
+  return result.success
+    ? { status: "read", report: result.data, identity: ContentIdentity.ofText(text), text }
+    : { status: "unreadable", detail: why(result.error) };
+}
+
+/** One reader per step, so a step carries its own report type instead of every step's. */
+const readers: { [Step in ProbeStep]: (value: unknown, text: string) => ReadReport<Step> } = {
+  loading: (value, text) => readWith(loadingReport, value, text),
+  question: (value, text) => readWith(questionReport, value, text),
+  result: (value, text) => readWith(resultReport, value, text),
+  review: (value, text) => readWith(reviewReport, value, text),
+  interruption: (value, text) => readWith(interruptionReport, value, text),
+};
+
 /** Reads one agent report, refusing anything this release cannot trust as that step's answer. */
 export function readReport<Step extends ProbeStep>(step: Step, text: string): ReadReport<Step> {
   let parsed: unknown;
@@ -95,22 +118,7 @@ export function readReport<Step extends ProbeStep>(step: Step, text: string): Re
     return { status: "unreadable", detail: `the report is not JSON: ${String(error)}` };
   }
 
-  const result = reportSchemas[step].safeParse(parsed);
-  if (!result.success) {
-    return {
-      status: "unreadable",
-      detail: result.error.issues
-        .map((issue) => [issue.path.join("."), issue.message].filter(Boolean).join(": "))
-        .join("; "),
-    };
-  }
-
-  return {
-    status: "read",
-    report: result.data as ReportOf<Step>,
-    identity: new Bun.CryptoHasher("sha256").update(text).digest("hex"),
-    text,
-  };
+  return readers[step](parsed, text);
 }
 
 /** True when the two axis reports overlapped in time, which is what parallel means here. */
