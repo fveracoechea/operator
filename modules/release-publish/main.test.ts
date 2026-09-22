@@ -83,7 +83,9 @@ function jsrFake(options: Parameters<typeof startJsrFake>[0] = {}): JsrFake {
   return fake;
 }
 
-function request(fake: JsrFake, extra: Record<string, unknown> = {}) {
+type PublishRequest = Parameters<typeof ReleasePublish.publish>[0];
+
+function request(fake: JsrFake, extra: Partial<PublishRequest> = {}): PublishRequest {
   return {
     artifactRoot,
     commit: COMMIT,
@@ -93,6 +95,7 @@ function request(fake: JsrFake, extra: Record<string, unknown> = {}) {
     jsr: { api: fake.api, scope: "fveracoechea", package: "operator", fetch: fake.fetch },
     environment: fake.environment,
     waitMs: 1,
+    approvedReleaseId: undefined,
     ...extra,
   };
 }
