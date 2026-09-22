@@ -14,6 +14,11 @@ type Worktree = { path: string; branch: string | null; workspaceId: string | nul
 
 type Agent = { name: string | null; paneId: string; cwd: string | null; status: string };
 
+/** One process a pane still runs. The shell itself is named apart from what it started. */
+type PaneProcess = { pid: number; name: string; command: string };
+
+type PaneProcesses = { shellPid: number | null; foreground: PaneProcess[] };
+
 /** A read that answers definitely, so `absent` is evidence and `unknown` is not. */
 type Lookup<Value> =
   | { status: "found"; value: Value }
@@ -40,6 +45,17 @@ function readAgent(source: unknown): Agent | null {
         paneId,
         cwd: ToolInvocation.text(source, "cwd"),
         status: ToolInvocation.text(source, "agent_status") ?? "unknown",
+      };
+}
+
+function readPaneProcess(source: unknown): PaneProcess | null {
+  const pid = ToolInvocation.number(source, "pid");
+  return pid === null
+    ? null
+    : {
+        pid,
+        name: ToolInvocation.text(source, "name") ?? "unknown",
+        command: ToolInvocation.text(source, "cmdline") ?? "",
       };
 }
 
@@ -168,6 +184,73 @@ export const HerdrControl = {
     return lookupFrom(outcome, ["agent_not_found", "pane_not_found"], (result) =>
       readAgent(ToolInvocation.record(result, "agent")),
     );
+  },
+
+  /** Read-only. Names every agent Herdr holds, so the occupants of a workspace can be counted. */
+  async listAgents(): Promise<Lookup<Agent[]>> {
+    const outcome = await invokeHerdr({ args: ["agent", "list"], timeoutMs: READ_TIMEOUT_MS });
+    return lookupFrom(outcome, [], (result) => {
+      const records = ToolInvocation.list(result, "agents");
+      const agents = records.flatMap((one) => {
+        const agent = readAgent(one);
+        return agent === null ? [] : [agent];
+      });
+      return agents.length === records.length ? agents : null;
+    });
+  },
+
+  /**
+   * Read-only. Reports what one pane still runs.
+   * The shell is named apart from what it started, so a tool left behind by a stopped host is
+   * visible instead of being counted as the pane itself.
+   */
+  async readPaneProcesses(request: { paneId: string }): Promise<Lookup<PaneProcesses>> {
+    const outcome = await invokeHerdr({
+      args: ["pane", "process-info", "--pane", request.paneId],
+      timeoutMs: READ_TIMEOUT_MS,
+    });
+
+    return lookupFrom(outcome, ["pane_not_found"], (result) => {
+      const info = ToolInvocation.record(result, "process_info");
+      if (info === undefined || info === null) {
+        return null;
+      }
+
+      const records = ToolInvocation.list(info, "foreground_processes");
+      const foreground = records.flatMap((one) => {
+        const process = readPaneProcess(one);
+        return process === null ? [] : [process];
+      });
+      return foreground.length === records.length
+        ? { shellPid: ToolInvocation.number(info, "shell_pid"), foreground }
+        : null;
+    });
+  },
+
+  /**
+   * Sends one host its own stop keys.
+   * Herdr validates every key before it writes any byte, and an agent that is already gone is
+   * reported as a failure the caller reads as a stop that has nothing left to do.
+   */
+  async stopAgent(request: { target: string; keys: string[] }): Promise<HerdrOutcome<null>> {
+    const outcome = await invokeHerdr({
+      args: ["agent", "send-keys", request.target, ...request.keys],
+      timeoutMs: READ_TIMEOUT_MS,
+    });
+    return outcome.status === "succeeded" ? { status: "succeeded", value: null } : outcome;
+  },
+
+  /**
+   * Removes one Herdr-managed checkout.
+   * It is never forced and never closes a workspace group, so an occupied or dirty checkout is
+   * refused by Herdr rather than taken apart by Operator.
+   */
+  async removeWorktree(request: { workspaceId: string }): Promise<HerdrOutcome<null>> {
+    const outcome = await invokeHerdr({
+      args: ["worktree", "remove", "--workspace", request.workspaceId],
+      timeoutMs: CREATE_TIMEOUT_MS,
+    });
+    return outcome.status === "succeeded" ? { status: "succeeded", value: null } : outcome;
   },
 
   /** Read-only. Reports whether the recorded checkout exists in this repository. */

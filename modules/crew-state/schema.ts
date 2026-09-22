@@ -217,9 +217,115 @@ export const reviewFindings = sqliteTable("review_findings", {
   evidence: text("evidence").notNull(),
   disposition: text("disposition"),
   reason: text("reason"),
+  dispositionEvidence: text("disposition_evidence"),
   followUp: text("follow_up"),
   disposedAt: text("disposed_at"),
   recordedAt: text("recorded_at").notNull(),
+});
+
+/**
+ * One delegated correction round on one assignment.
+ * It fixes the accepted findings, the conflicts it must settle, and the revisions it combines,
+ * so the fresh Operative that takes it receives evidence the Operator cannot change afterwards.
+ */
+export const reworkCycles = sqliteTable("rework_cycles", {
+  id: text("id").primaryKey(),
+  assignmentId: text("assignment_id")
+    .notNull()
+    .references(() => assignments.id),
+  submissionId: text("submission_id")
+    .notNull()
+    .references(() => submissions.id),
+  reviewId: text("review_id").references(() => reviews.id),
+  reason: text("reason").notNull(),
+  cycleIndex: integer("cycle_index").notNull(),
+  brief: text("brief").notNull(),
+  briefIdentity: text("brief_identity").notNull(),
+  attemptId: text("attempt_id").references(() => attempts.id),
+  approvalId: text("approval_id"),
+  state: text("state").notNull(),
+  openedAt: text("opened_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+/**
+ * One reached limit, recorded as the direction it asks the user for.
+ * It blocks acceptance while it is open, and its revision moves every time the limit is reached
+ * again, so an approval granted against an earlier request no longer covers the new one.
+ */
+export const directionRequests = sqliteTable("direction_requests", {
+  id: text("id").primaryKey(),
+  assignmentId: text("assignment_id")
+    .notNull()
+    .references(() => assignments.id),
+  limitKind: text("limit_kind").notNull(),
+  limitValue: integer("limit_value").notNull(),
+  evidence: text("evidence").notNull(),
+  state: text("state").notNull(),
+  approvalId: text("approval_id"),
+  revision: integer("revision").notNull(),
+  raisedAt: text("raised_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+/**
+ * One defect found in an accepted result. The accepted record stays, because history is what
+ * says which dependents read the invalid result and why they were paused.
+ */
+export const invalidations = sqliteTable("invalidations", {
+  id: text("id").primaryKey(),
+  assignmentId: text("assignment_id")
+    .notNull()
+    .references(() => assignments.id),
+  submissionId: text("submission_id").references(() => submissions.id),
+  defect: text("defect").notNull(),
+  dependents: text("dependents").notNull(),
+  state: text("state").notNull(),
+  recordedAt: text("recorded_at").notNull(),
+  resolvedAt: text("resolved_at"),
+});
+
+/**
+ * One recorded cleanup outcome. Process closure and worktree removal are separate rows, so
+ * each one is retried, blocked, and recovered without the other.
+ * The request revision it was last run under is stored beside it, so a restart can tell an
+ * approval that still covers this cleanup from one that was granted against other inputs.
+ */
+export const cleanups = sqliteTable("cleanups", {
+  id: text("id").primaryKey(),
+  attemptId: text("attempt_id")
+    .notNull()
+    .references(() => attempts.id),
+  assignmentId: text("assignment_id")
+    .notNull()
+    .references(() => assignments.id),
+  kind: text("kind").notNull(),
+  state: text("state").notNull(),
+  requestRevision: text("request_revision").notNull(),
+  inspection: text("inspection"),
+  evidence: text("evidence"),
+  detail: text("detail"),
+  revision: integer("revision").notNull(),
+  startedAt: text("started_at").notNull(),
+  settledAt: text("settled_at"),
+});
+
+/**
+ * One explicit decision to keep an Operative's resources.
+ * A hold outlives the session that placed it, so resource ownership stays stated rather than
+ * inferred from a cleanup that simply never ran.
+ */
+export const retentionHolds = sqliteTable("retention_holds", {
+  id: text("id").primaryKey(),
+  attemptId: text("attempt_id")
+    .notNull()
+    .references(() => attempts.id),
+  reason: text("reason").notNull(),
+  detail: text("detail").notNull(),
+  state: text("state").notNull(),
+  revision: integer("revision").notNull(),
+  placedAt: text("placed_at").notNull(),
+  releasedAt: text("released_at"),
 });
 
 /**
@@ -380,6 +486,9 @@ export const crewStateSchema = {
   reviews,
   reviewReports,
   reviewFindings,
+  reworkCycles,
+  directionRequests,
+  invalidations,
   requestRecords,
   questions,
   answers,
@@ -387,6 +496,8 @@ export const crewStateSchema = {
   trackerOperations,
   trackerWriteAttempts,
   trackerObservations,
+  cleanups,
+  retentionHolds,
 };
 
 /**
@@ -540,10 +651,49 @@ export const CREATE_STATEMENTS = [
     evidence text not null,
     disposition text,
     reason text,
+    disposition_evidence text,
     follow_up text,
     disposed_at text,
     recorded_at text not null,
     unique (review_id, axis, finding_key)
+  ) strict`,
+  sql`create table rework_cycles (
+    id text primary key,
+    assignment_id text not null references assignments(id),
+    submission_id text not null references submissions(id),
+    review_id text references reviews(id),
+    reason text not null,
+    cycle_index integer not null,
+    brief text not null,
+    brief_identity text not null,
+    attempt_id text references attempts(id),
+    approval_id text,
+    state text not null,
+    opened_at text not null,
+    updated_at text not null
+  ) strict`,
+  sql`create table direction_requests (
+    id text primary key,
+    assignment_id text not null references assignments(id),
+    limit_kind text not null,
+    limit_value integer not null,
+    evidence text not null,
+    state text not null,
+    approval_id text,
+    revision integer not null,
+    raised_at text not null,
+    updated_at text not null,
+    unique (assignment_id, limit_kind)
+  ) strict`,
+  sql`create table invalidations (
+    id text primary key,
+    assignment_id text not null references assignments(id),
+    submission_id text references submissions(id),
+    defect text not null,
+    dependents text not null,
+    state text not null,
+    recorded_at text not null,
+    resolved_at text
   ) strict`,
   sql`create table request_records (
     id text primary key,
@@ -633,13 +783,43 @@ export const CREATE_STATEMENTS = [
     observation text not null,
     observed_at text not null
   ) strict`,
+  sql`create table cleanups (
+    id text primary key,
+    attempt_id text not null references attempts(id),
+    assignment_id text not null references assignments(id),
+    kind text not null,
+    state text not null,
+    request_revision text not null,
+    inspection text,
+    evidence text,
+    detail text,
+    revision integer not null,
+    started_at text not null,
+    settled_at text,
+    unique (attempt_id, kind)
+  ) strict`,
+  sql`create table retention_holds (
+    id text primary key,
+    attempt_id text not null references attempts(id),
+    reason text not null,
+    detail text not null,
+    state text not null,
+    revision integer not null,
+    placed_at text not null,
+    released_at text
+  ) strict`,
   sql`create unique index attempts_one_active
     on attempts (assignment_id) where state = 'active'`,
   sql`create unique index external_operations_live
     on external_operations (attempt_id, kind) where state <> 'failed'
-      and kind in ('worktree_create', 'input_preparation', 'agent_start', 'prompt_delivery')`,
+      and kind in ('worktree_create', 'input_preparation', 'agent_start', 'prompt_delivery',
+        'agent_stop', 'worktree_remove')`,
+  sql`create unique index rework_cycles_one_open
+    on rework_cycles (assignment_id) where state = 'open'`,
   sql`create unique index questions_one_open
     on questions (attempt_id) where state in ('open', 'answered', 'delivered')`,
+  sql`create unique index retention_holds_one_open
+    on retention_holds (attempt_id) where state = 'held'`,
 ];
 
 /** The declared column names and null rules of one table, used by the drift test. */

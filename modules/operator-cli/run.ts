@@ -7,6 +7,7 @@ import {
 } from "./arguments.ts";
 import { runApproval } from "./approval-command.ts";
 import { runAttempt } from "./attempt-command.ts";
+import { runCleanup } from "./cleanup-command.ts";
 import { runCrewOwn } from "./crew-command.ts";
 import { runInstall } from "./install-command.ts";
 import { runQuestion } from "./question-command.ts";
@@ -29,6 +30,7 @@ const crewCommands: Record<string, CrewCommand | undefined> = {
   approval: runApproval,
   review: runReview,
   tracker: runTracker,
+  cleanup: runCleanup,
 };
 
 const OPERATOR_VERSION = packageJson.version;

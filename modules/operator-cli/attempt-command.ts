@@ -447,20 +447,31 @@ async function runReplace(parsed: ParsedArguments): Promise<Handled> {
   }
 
   if (result.status === "review-attempt-limit") {
-    return refuse({
+    const { direction } = result;
+    report({
       json: parsed.json,
-      operation: "attempt_replace",
-      outcome: "missing-condition",
-      reason: "review_attempt_limit",
-      detail: {
-        reviewId: result.reviewId,
-        limit: result.limit,
+      result: {
+        outcome: "missing-condition",
+        reason: "review_attempt_limit",
+        blockers: [
+          {
+            reason: "review_attempt_limit",
+            reviewId: result.reviewId,
+            limit: result.limit,
+            approval: result.approval,
+          },
+        ],
+        operation: "attempt_replace",
+        data: { direction },
       },
       lines: [
         `Review ${result.reviewId} already used its ${result.limit} attempts.`,
         "Another launch is not a remedy. Bring the blocker to the user.",
+        `Direction request ${direction.directionRequestId} is open at revision ${direction.revision}.`,
+        `It is passed by an approval with action "${direction.approval.action}", scope "${direction.approval.scope}", and requestRevision "${direction.approval.requestRevision}".`,
       ],
     });
+    return "reported";
   }
 
   report({
@@ -712,12 +723,16 @@ async function runSubmit(parsed: ParsedArguments): Promise<Handled> {
         reviewId: result.reviewId,
         reviewAssignmentId: result.reviewAssignmentId,
         reviewSourceKey: result.reviewSourceKey,
+        reworkCycleId: result.reworkCycleId,
         repeated,
       },
     },
     lines: [
       `Submitted result ${result.submissionId} for assignment ${result.assignmentId}.`,
       `Review ${result.reviewId} waits on assignment ${result.reviewAssignmentId}.`,
+      ...(result.reworkCycleId === null
+        ? []
+        : [`This combined revision closes rework cycle ${result.reworkCycleId}.`]),
       "A submission is a handoff to a separate review, never accepted completion.",
     ],
   });

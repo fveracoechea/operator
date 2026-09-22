@@ -1,6 +1,10 @@
 import { eq } from "drizzle-orm";
 import type { CrewReader } from "./database.ts";
 import type { Capacity } from "./capacity.ts";
+import { readAssignment } from "./assignment.ts";
+import { openDirectionsOf } from "./direction.ts";
+import { type LimitKind, storedLimitKind } from "./rework.ts";
+import { openPauses } from "./invalidate.ts";
 import type { EscalationTrigger } from "./question-input.ts";
 import { blockingQuestions, questionReportOf, triggersOf } from "./questions.ts";
 import { reviewOfSubmission } from "./review.ts";
@@ -24,6 +28,8 @@ export type FrontierEntry = {
 export type FrontierBlocker =
   | { reason: "dependency_pending"; dependencies: Array<{ assignmentId: string; state: string }> }
   | { reason: "review_pending"; reviewAssignmentId: string | null }
+  | { reason: "direction_required"; directionRequestId: string; limitKind: LimitKind }
+  | { reason: "input_invalidated"; invalidated: string[] }
   | { reason: "review_capacity_reserved"; productionLimit: number }
   | { reason: "crew_at_capacity"; limit: number };
 
@@ -62,10 +68,6 @@ function byPriority(left: FrontierEntry, right: FrontierEntry): number {
     left.orderIndex - right.orderIndex ||
     left.assignmentId.localeCompare(right.assignmentId)
   );
-}
-
-export function readAssignment(db: CrewReader, id: string) {
-  return db.select().from(assignments).where(eq(assignments.id, id)).all()[0] ?? null;
 }
 
 export function unmetDependencies(
@@ -138,6 +140,7 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
     };
   }
 
+  const paused = openPauses(db);
   const entries = rows.map(entry).toSorted(byPriority);
   const activeEntries = entries.flatMap((one) => {
     const attempt = attemptByAssignment.get(one.assignmentId);
@@ -161,11 +164,33 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
       accepted.push(one);
       continue;
     }
+    // Work that read an invalidated result waits for the corrected one, whatever kind it is
+    // and whatever its former writer is still doing.
+    const invalid = paused.get(one.assignmentId);
+    if (invalid !== undefined) {
+      blocked.push({ ...one, blockers: [{ reason: "input_invalidated", invalidated: invalid }] });
+      continue;
+    }
+
     if (!isExecutable(one.kind)) {
       planning.push(one);
       continue;
     }
     if (attemptByAssignment.has(one.assignmentId)) {
+      continue;
+    }
+
+    // A reached limit waits on the user, whatever state the assignment stopped in.
+    const waiting = openDirectionsOf(db, one.assignmentId);
+    if (waiting.length > 0) {
+      blocked.push({
+        ...one,
+        blockers: waiting.map((request) => ({
+          reason: "direction_required" as const,
+          directionRequestId: request.id,
+          limitKind: storedLimitKind(request.limitKind),
+        })),
+      });
       continue;
     }
 

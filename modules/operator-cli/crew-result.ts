@@ -1,6 +1,6 @@
 import type { ParsedArguments } from "./arguments.ts";
 import type { Operation } from "./result.ts";
-import { type Handled, type Reason, report } from "./result.ts";
+import { type Handled, type Reason, refuse, report } from "./result.ts";
 
 type SharedReport = {
   reason: Reason;
@@ -123,6 +123,50 @@ export function reportSharedFailure<Result extends { status: string }>(
     lines: [failure.line],
   });
   return true;
+}
+
+type AssignmentFailure =
+  | { status: "unknown-assignment"; assignmentId: string }
+  | { status: "stale-revision"; assignmentId: string; recordedRevision: number };
+
+/**
+ * Reports the two refusals every command that names one inspected assignment shares.
+ * Returns true when it reported, so each command handles only its own outcomes.
+ */
+export function reportAssignmentFailure<Result extends { status: string }>(
+  parsed: ParsedArguments,
+  operation: Operation,
+  result: Result,
+): result is Extract<Result, AssignmentFailure> {
+  if (result.status === "unknown-assignment" && "assignmentId" in result) {
+    refuse({
+      json: parsed.json,
+      operation,
+      outcome: "invalid",
+      reason: "unknown_assignment",
+      detail: { assignmentId: result.assignmentId },
+      lines: [`No assignment is registered as ${String(result.assignmentId)}.`],
+    });
+    return true;
+  }
+
+  if (result.status === "stale-revision" && "assignmentId" in result) {
+    const recorded = "recordedRevision" in result ? result.recordedRevision : null;
+    refuse({
+      json: parsed.json,
+      operation,
+      outcome: "conflict",
+      reason: "stale_revision",
+      detail: { assignmentId: result.assignmentId, recordedRevision: recorded },
+      lines: [
+        `Assignment ${String(result.assignmentId)} is at revision ${String(recorded)}.`,
+        "Read it again, then state the revision you inspected.",
+      ],
+    });
+    return true;
+  }
+
+  return false;
 }
 
 /**

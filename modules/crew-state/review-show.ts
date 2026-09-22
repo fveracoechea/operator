@@ -58,6 +58,7 @@ export type ReviewReport = {
     evidence: string;
     disposition: string | null;
     reason: string | null;
+    dispositionEvidence: string | null;
     followUp: string | null;
   }>;
   missingAxes: string[];
@@ -142,6 +143,7 @@ export async function showReview(request: {
         evidence: one.evidence,
         disposition: one.disposition,
         reason: one.reason,
+        dispositionEvidence: one.dispositionEvidence,
         followUp: one.followUp,
       })),
       missingAxes: missingAxes(reports),

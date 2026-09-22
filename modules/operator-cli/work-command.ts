@@ -1,17 +1,17 @@
 import { CrewState } from "../crew-state/main.ts";
-import { type ParsedArguments, readRevision } from "./arguments.ts";
-import { readStructuredInput, reportInvalidInput, reportSharedFailure } from "./crew-result.ts";
+import { runInvalidate } from "./invalidate-command.ts";
+import { runRework } from "./rework-command.ts";
+import { type ParsedArguments, readMutation, readRevision } from "./arguments.ts";
+import {
+  readStructuredInput,
+  reportAssignmentFailure,
+  reportInvalidInput,
+  reportSharedFailure,
+} from "./crew-result.ts";
 import { type Handled, refuse, report } from "./result.ts";
 
-type Mutation = { requestId: string; ownerToken: string };
-
-function mutationArguments(parsed: ParsedArguments): Mutation | null {
-  const { requestId, ownerToken } = parsed.crew;
-  return requestId === undefined || ownerToken === undefined ? null : { requestId, ownerToken };
-}
-
 async function runRegister(parsed: ParsedArguments): Promise<Handled> {
-  const mutation = mutationArguments(parsed);
+  const mutation = readMutation(parsed);
   const inputPath = parsed.crew.inputPath;
   if (mutation === null || inputPath === undefined) {
     return "invalid-arguments";
@@ -146,7 +146,7 @@ async function runRegister(parsed: ParsedArguments): Promise<Handled> {
 }
 
 async function runClaim(parsed: ParsedArguments): Promise<Handled> {
-  const mutation = mutationArguments(parsed);
+  const mutation = readMutation(parsed);
   const assignmentId = parsed.crew.assignmentId;
   const revision = readRevision(parsed);
   if (mutation === null || assignmentId === undefined || revision === null) {
@@ -160,39 +160,11 @@ async function runClaim(parsed: ParsedArguments): Promise<Handled> {
     revision,
   });
 
-  if (reportSharedFailure(parsed, "work_claim", result)) {
+  if (
+    reportSharedFailure(parsed, "work_claim", result) ||
+    reportAssignmentFailure(parsed, "work_claim", result)
+  ) {
     return "reported";
-  }
-
-  if (result.status === "unknown-assignment") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "invalid",
-        reason: "unknown_assignment",
-        blockers: [{ reason: "unknown_assignment", assignmentId: result.assignmentId }],
-        operation: "work_claim",
-      },
-      lines: [`No assignment is registered as ${result.assignmentId}.`],
-    });
-    return "reported";
-  }
-
-  if (result.status === "stale-revision") {
-    return refuse({
-      json: parsed.json,
-      operation: "work_claim",
-      outcome: "conflict",
-      reason: "stale_revision",
-      detail: {
-        assignmentId: result.assignmentId,
-        recordedRevision: result.recordedRevision,
-      },
-      lines: [
-        `Assignment ${result.assignmentId} is at revision ${result.recordedRevision}.`,
-        "Read the frontier again, then claim the revision you inspected.",
-      ],
-    });
   }
 
   if (result.status === "planning-only") {
@@ -285,7 +257,7 @@ async function runClaim(parsed: ParsedArguments): Promise<Handled> {
 }
 
 async function runAccept(parsed: ParsedArguments): Promise<Handled> {
-  const mutation = mutationArguments(parsed);
+  const mutation = readMutation(parsed);
   const assignmentId = parsed.crew.assignmentId;
   // Planning work carries no attempt, so the attempt is optional here and checked by kind.
   const attemptId = parsed.crew.attemptId ?? null;
@@ -304,36 +276,11 @@ async function runAccept(parsed: ParsedArguments): Promise<Handled> {
     prHead: parsed.crew.prHead ?? null,
   });
 
-  if (reportSharedFailure(parsed, "work_accept", result)) {
+  if (
+    reportSharedFailure(parsed, "work_accept", result) ||
+    reportAssignmentFailure(parsed, "work_accept", result)
+  ) {
     return "reported";
-  }
-
-  if (result.status === "unknown-assignment") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "invalid",
-        reason: "unknown_assignment",
-        blockers: [{ reason: "unknown_assignment", assignmentId: result.assignmentId }],
-        operation: "work_accept",
-      },
-      lines: [`No assignment is registered as ${result.assignmentId}.`],
-    });
-    return "reported";
-  }
-
-  if (result.status === "stale-revision") {
-    return refuse({
-      json: parsed.json,
-      operation: "work_accept",
-      outcome: "conflict",
-      reason: "stale_revision",
-      detail: {
-        assignmentId: result.assignmentId,
-        recordedRevision: result.recordedRevision,
-      },
-      lines: [`Assignment ${result.assignmentId} is at revision ${result.recordedRevision}.`],
-    });
   }
 
   if (result.status === "not-claimed") {
@@ -554,6 +501,56 @@ async function runAccept(parsed: ParsedArguments): Promise<Handled> {
     });
   }
 
+  if (result.status === "direction-required") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "missing-condition",
+        reason: "direction_required",
+        blockers: result.directions.map((one) => ({
+          reason: "direction_required" as const,
+          directionRequestId: one.directionRequestId,
+          limitKind: one.limitKind,
+          limit: one.limitValue,
+          revision: one.revision,
+        })),
+        operation: "work_accept",
+        data: { assignmentId: result.assignmentId, directions: result.directions },
+      },
+      lines: [
+        `Assignment ${result.assignmentId} reached a limit and waits on the user:`,
+        ...result.directions.map(
+          (one) =>
+            `  ${one.directionRequestId} ${one.limitKind} at ${one.limitValue} (revision ${one.revision})`,
+        ),
+        "The recorded evidence is preserved. Acceptance stays blocked until the user directs it.",
+      ],
+    });
+    return "reported";
+  }
+
+  if (result.status === "input-invalidated") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "missing-condition",
+        reason: "input_invalidated",
+        blockers: result.invalidated.map((assignmentId) => ({
+          reason: "input_invalidated" as const,
+          assignmentId,
+        })),
+        operation: "work_accept",
+        data: { assignmentId: result.assignmentId },
+      },
+      lines: [
+        `Assignment ${result.assignmentId} read a result that was found defective:`,
+        ...result.invalidated.map((one) => `  ${one}`),
+        "It moves again when the corrected result is accepted.",
+      ],
+    });
+    return "reported";
+  }
+
   if (result.status === "pr-head-required" || result.status === "pr-head-changed") {
     const required = result.status === "pr-head-required";
     report({
@@ -679,6 +676,12 @@ export async function runWork(words: string[], parsed: ParsedArguments): Promise
   }
   if (subcommand === "accept") {
     return runAccept(parsed);
+  }
+  if (subcommand === "rework") {
+    return runRework(parsed);
+  }
+  if (subcommand === "invalidate") {
+    return runInvalidate(parsed);
   }
   if (subcommand === "frontier") {
     return runFrontier(parsed);

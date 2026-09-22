@@ -401,7 +401,7 @@ async function runDispose(parsed: ParsedArguments): Promise<Handled> {
         operation: "review_dispose",
       },
       lines: [
-        "A blocker is corrected or rejected with a reason. It is never deferred.",
+        "A blocker is corrected, or rejected with a reason and the evidence. It is never deferred.",
         "Technical judgment does not waive an approved requirement.",
       ],
     });

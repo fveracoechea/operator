@@ -1,10 +1,9 @@
 import { ContentIdentity } from "../content-identity/main.ts";
-// Bun has no recursive directory removal API.
-import { rm } from "node:fs/promises";
 import {
   headCommit,
   requestId as request,
   runJson,
+  stopFakeAgents,
   type Workspace as Fixture,
   type Workspaces,
 } from "./workspace-fixture.ts";
@@ -235,7 +234,7 @@ export async function startReviewer(
   producer: Producer,
   submitted: { data: { reviewAssignmentId: string; reviewId: string } },
   commit: string,
-  revision = 1,
+  options: { revision?: number; worktreePath?: string } = {},
 ) {
   const claimed = await runJson(workspace, [
     "work",
@@ -247,10 +246,13 @@ export async function startReviewer(
     "--assignment",
     submitted.data.reviewAssignmentId,
     "--revision",
-    String(revision),
+    String(options.revision ?? 1),
   ]);
   const attemptId = claimed.json.data.attemptId;
-  const worktreePath = `${workspace.root}/reviewer`;
+  // Each round has its own reviewer, so each one reads and writes in its own checkout.
+  const worktreePath =
+    options.worktreePath ??
+    `${workspace.root}/reviewer-${submitted.data.reviewAssignmentId.slice(0, 8)}`;
 
   const dispatched = await runJson(workspace, [
     "attempt",
@@ -392,7 +394,7 @@ export async function blockThenReplace(
     host: workspace.host,
     blocker: { reason: "credentials_missing", detail: "The host has no provider credential." },
   });
-  await rm(`${workspace.herdr}/agent-live`, { force: true });
+  await stopFakeAgents(workspace);
 
   const inspected = await runJson(workspace, [
     "attempt",
@@ -443,4 +445,243 @@ export async function relaunchReviewer(
     ["attempt", "acknowledge", "--request", request(), "--attempt", attemptId],
     worktreePath,
   );
+}
+
+/** Records what the Operator decided about each finding of one review. */
+export async function disposeFindings(
+  workspace: Workspace,
+  producer: Producer,
+  reviewId: string,
+  dispositions: unknown[],
+) {
+  return runJson(workspace, [
+    "review",
+    "dispose",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--review",
+    reviewId,
+    "--input",
+    await writeInput(workspace, { dispositions }),
+  ]);
+}
+
+/** Delegates one rework cycle on the submitted result of one assignment. */
+export async function delegateRework(
+  workspace: Workspace,
+  producer: Producer,
+  options: { revision: number; body: unknown },
+) {
+  return runJson(workspace, [
+    "work",
+    "rework",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--assignment",
+    producer.assignmentId,
+    "--revision",
+    String(options.revision),
+    "--input",
+    await writeInput(workspace, options.body),
+  ]);
+}
+
+/** Claims and launches one assignment again, as the fresh Operative a rework cycle needs. */
+export async function startRework(
+  workspace: Workspace,
+  producer: Producer,
+  options: { revision: number; commit: string; worktreePath: string; assignmentId?: string },
+) {
+  const assignmentId = options.assignmentId ?? producer.assignmentId;
+  const claimed = await runJson(workspace, [
+    "work",
+    "claim",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--assignment",
+    assignmentId,
+    "--revision",
+    String(options.revision),
+  ]);
+  const attemptId = claimed.json.data.attemptId;
+
+  const dispatched = await runJson(workspace, [
+    "attempt",
+    "dispatch",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--attempt",
+    attemptId,
+    "--commit",
+    options.commit,
+    "--worktree",
+    options.worktreePath,
+  ]);
+  await runJson(
+    workspace,
+    ["attempt", "acknowledge", "--request", request(), "--attempt", attemptId],
+    options.worktreePath,
+  );
+
+  return {
+    ...producer,
+    assignmentId,
+    attemptId,
+    worktreePath: options.worktreePath,
+    assignmentRevision: claimed.json.data.revision as number,
+    dispatched,
+  };
+}
+
+/** Accepts one review assignment, which frees the crew slot its reviewer held. */
+export async function acceptReview(
+  workspace: Workspace,
+  producer: Producer,
+  options: { reviewAssignmentId: string; attemptId: string; revision: number },
+) {
+  return runJson(workspace, [
+    "work",
+    "accept",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--assignment",
+    options.reviewAssignmentId,
+    "--attempt",
+    options.attemptId,
+    "--revision",
+    String(options.revision),
+  ]);
+}
+
+/** Records the user's exact direction past one reached limit, as the approval it must be. */
+export async function grantDirection(
+  workspace: Workspace,
+  producer: Producer,
+  direction: {
+    approval: { action: string; targets: string[]; scope: string; requestRevision: string };
+  },
+  exactText: string,
+) {
+  return runJson(workspace, [
+    "approval",
+    "grant",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--input",
+    await writeInput(workspace, { ...direction.approval, exactText, grantedBy: "human" }),
+  ]);
+}
+
+/** Registers more items in the same source, each one naming the items it depends on. */
+export async function registerDependents(
+  workspace: Workspace,
+  producer: Producer,
+  items: Array<{
+    key: string;
+    kind: "production" | "planning";
+    title: string;
+    dependsOn?: string[];
+  }>,
+) {
+  const registered = await runJson(workspace, [
+    "work",
+    "register",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--input",
+    await writeInput(workspace, {
+      sourceKind: "specification",
+      source: { id: "github:operator#15", revision: "rev-1", tracker: "github" },
+      items: items.map((item) => ({
+        key: item.key,
+        title: item.title,
+        kind: item.kind,
+        approvedScope: item.title,
+        acceptanceRequirements: REQUIREMENTS,
+        permissions: { writePaths: ["modules/"], allowedCommands: ["bun test"], network: false },
+        fixedInputs: [],
+        dependsOn: (item.dependsOn ?? ["22.1"]).map((key) => ({ key })),
+      })),
+    }),
+  ]);
+
+  return new Map<string, string>(
+    registered.json.data.registered.map((one: { sourceKey: string; assignmentId: string }) => [
+      one.sourceKey,
+      one.assignmentId,
+    ]),
+  );
+}
+
+/** Records a defect found in one accepted result. */
+export async function invalidateResult(
+  workspace: Workspace,
+  producer: Producer,
+  options: { assignmentId: string; revision: number; defect: unknown },
+) {
+  return runJson(workspace, [
+    "work",
+    "invalidate",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--assignment",
+    options.assignmentId,
+    "--revision",
+    String(options.revision),
+    "--input",
+    await writeInput(workspace, options.defect),
+  ]);
+}
+
+/** Accepts one assignment by identity, which is how planning work is resolved. */
+export async function acceptAssignment(
+  workspace: Workspace,
+  producer: Producer,
+  options: { assignmentId: string; revision: number },
+) {
+  return runJson(workspace, [
+    "work",
+    "accept",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--assignment",
+    options.assignmentId,
+    "--revision",
+    String(options.revision),
+  ]);
+}
+
+/** The frontier entry of one assignment, wherever the frontier put it. */
+export async function frontierEntry(workspace: Workspace, assignmentId: string) {
+  const frontier = await runJson(workspace, ["work", "frontier"]);
+  const groups = ["dispatchable", "blocked", "active", "planning", "accepted"] as const;
+
+  for (const group of groups) {
+    const found = frontier.json.data[group].find(
+      (one: { assignmentId: string }) => one.assignmentId === assignmentId,
+    );
+    if (found !== undefined) {
+      return { group, entry: found };
+    }
+  }
+
+  throw new Error(`the frontier does not carry ${assignmentId}`);
 }

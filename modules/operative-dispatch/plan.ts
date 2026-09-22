@@ -7,6 +7,12 @@ import {
   reviewProtocolSection,
   submittedResultSection,
 } from "./review-brief.ts";
+import {
+  type ReworkBrief,
+  reworkInputPath,
+  reworkProtocolSection,
+  reworkResultSection,
+} from "./rework-brief.ts";
 
 export type Brief = {
   assignmentId: string;
@@ -27,6 +33,8 @@ export type Brief = {
   }>;
   // Present only on a review assignment, which reads a fixed result instead of producing one.
   review: ReviewBrief | null;
+  // Present only while a delegated rework cycle is open on this assignment.
+  rework: ReworkBrief | null;
 };
 
 export type Snapshot = {
@@ -72,7 +80,8 @@ export const BRIEF_PATH = ".operator/local/brief.md";
 export const REFERENCE_PATH = ".operator/local/attempt.json";
 export const RELEASE_PATH = ".operator/local/release.json";
 
-export function isSupportedHost(host: string | null): host is keyof typeof agentKindByHost {
+/** True when this release knows which executable Herdr starts for that host. */
+export function hasAgentKind(host: string | null): host is keyof typeof agentKindByHost {
   return host !== null && Object.hasOwn(agentKindByHost, host);
 }
 
@@ -146,13 +155,22 @@ function productionProtocolSection(brief: Brief): string[] {
   ];
 }
 
-/** The sections that differ between producing a result and reviewing one. */
+/** The sections that differ between producing a result, reworking one, and reviewing one. */
 function roleSections(brief: Brief): { result: string[]; protocol: string[] } {
-  return brief.review === null
+  if (brief.review !== null) {
+    return {
+      result: submittedResultSection(brief.review),
+      protocol: [...reviewProtocolSection(brief.review), ...questionSection(brief)],
+    };
+  }
+
+  // Rework is production work under the same scope and authority, so it keeps the production
+  // protocol and adds the result it corrects and the rules that hold the cycle together.
+  return brief.rework === null
     ? { result: [], protocol: productionProtocolSection(brief) }
     : {
-        result: submittedResultSection(brief.review),
-        protocol: [...reviewProtocolSection(brief.review), ...questionSection(brief)],
+        result: reworkResultSection(brief.rework),
+        protocol: [...reworkProtocolSection(brief.rework), ...productionProtocolSection(brief)],
       };
 }
 
@@ -235,7 +253,9 @@ function promptDocument(brief: Brief): string {
   return (
     brief.review === null
       ? [
-          `You are the Operative on Operator attempt ${brief.attemptId} for assignment ${brief.assignmentId}.`,
+          brief.rework === null
+            ? `You are the Operative on Operator attempt ${brief.attemptId} for assignment ${brief.assignmentId}.`
+            : `You are the Operative on Operator attempt ${brief.attemptId}, reworking the reviewed result of assignment ${brief.assignmentId}.`,
           read,
           acknowledge,
           "Do not change any file before that acknowledgement succeeds.",
@@ -283,9 +303,15 @@ export function planDispatch(request: {
   const promptText = promptDocument(request.brief);
 
   const review = request.brief.review;
-  const extraInputs = (review?.artifacts ?? []).flatMap((artifact) => {
-    const path = reviewInputPath(artifact);
-    return artifact.storedPath === null || path === null
+  const rework = request.brief.rework;
+  // A reviewer and a rework Operative both read the fixed copies, never the worktree that
+  // produced them, so each one receives them under its own directory.
+  const copied =
+    review === null
+      ? (rework?.artifacts ?? []).map((artifact) => ({ artifact, path: reworkInputPath(artifact) }))
+      : review.artifacts.map((artifact) => ({ artifact, path: reviewInputPath(artifact) }));
+  const extraInputs = copied.flatMap(({ artifact, path }) =>
+    artifact.storedPath === null || path === null
       ? []
       : [
           {
@@ -293,8 +319,8 @@ export function planDispatch(request: {
             sourcePath: `${request.projectRoot}/${artifact.storedPath}`,
             identity: artifact.contentIdentity,
           },
-        ];
-  });
+        ],
+  );
 
   return {
     assignmentId: request.brief.assignmentId,
@@ -319,5 +345,5 @@ export function planDispatch(request: {
 }
 
 export function agentKindFor(host: string): string {
-  return isSupportedHost(host) ? agentKindByHost[host] : host;
+  return hasAgentKind(host) ? agentKindByHost[host] : host;
 }

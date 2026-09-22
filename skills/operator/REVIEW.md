@@ -61,8 +61,8 @@ Correct what it names, then replace the stopped reviewer:
 
 The replacement reads the same fixed submission and reports it itself.
 One review holds at most three attempts.
-`review_attempt_limit` means another launch is not a remedy.
-Bring the blocker to the user.
+`review_attempt_limit` means another launch is not a remedy on its own.
+Read [LIMITS.md](LIMITS.md), which says what the user has to settle before a fourth one runs.
 
 ## Findings are yours to judge
 
@@ -71,12 +71,11 @@ Record each one as corrected, rejected with a reason, or deferred with a reason 
 
 A blocker is corrected or rejected.
 It is never deferred.
-You may reject a finding you do not support.
+You may reject a finding you do not support, and the rejection states the evidence that refutes it.
 You may not waive an approved requirement through technical judgment.
 
-A correction is delegated to a fresh Operative.
 Never edit the result yourself, and never ask the reviewer to repair what it found.
-`rework_pending` at acceptance means that work has not landed yet.
+Read [REWORK.md](REWORK.md) before you delegate a correction, a combined revision, or a diagnostic rerun.
 
 ## Acceptance reads recorded evidence
 
@@ -93,7 +92,11 @@ Acceptance refuses on:
 - `submission_mismatch`: the assignment holds a different submission.
 - `review_incomplete`: the review reported nothing, or it is blocked.
 - `findings_undisposed`: a finding carries no disposition.
-- `rework_pending`: an accepted correction is still waiting.
+- `rework_pending`: an accepted correction is still waiting for its delegated cycle.
+- `direction_required`: this assignment reached a limit and waits on the user.
+  Read [LIMITS.md](LIMITS.md).
+- `input_invalidated`: this work read a result a defect was later found in.
+  Read [INVALIDATION.md](INVALIDATION.md).
 - `checks_unproven`: a recorded check failed, was flaky, or did not run.
 - `checks_contradicted`: a review ran a recorded check itself and saw a different outcome.
   What a reviewer ran outranks what the producer wrote about its own work.
@@ -103,3 +106,5 @@ Acceptance refuses on:
 A stopped reviewer process is not a review.
 A passing rerun does not erase a failure.
 Acceptance does not authorize merge, publication, process closure, or worktree deletion.
+
+Read [INVALIDATION.md](INVALIDATION.md) when accepted work later turns out to be wrong.

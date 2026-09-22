@@ -1,4 +1,8 @@
 import { grantApproval, matchApproval, revokeApproval } from "./approvals.ts";
+import { closeProcess } from "./cleanup-close.ts";
+import { holdInputSchema, placeHold, releaseHold } from "./cleanup-hold.ts";
+import { removeWorktree } from "./cleanup-remove.ts";
+import { showCleanups } from "./cleanup-report.ts";
 import { acknowledgeAttempt } from "./dispatch-acknowledge.ts";
 import type { Overrides } from "./dispatch-context.ts";
 import { dispatchAttempt } from "./dispatch-launch.ts";
@@ -17,7 +21,10 @@ import { acknowledgeAnswer, deliverAnswer } from "./question-deliver.ts";
 import { approvalCheckSchema, approvalInputSchema } from "./approval-input.ts";
 import { raiseQuestion, reviseQuestion } from "./question-raise.ts";
 import { showQuestion } from "./question-report.ts";
+import { defectInputSchema, type InvalidateOutcome, invalidateResult } from "./invalidate.ts";
 import { registerWork } from "./registration.ts";
+import { openReworkCycle, type ReworkOutcome } from "./rework-open.ts";
+import { reworkInputSchema } from "./rework-input.ts";
 import { dispositionInputSchema } from "./review-input.ts";
 import { disposeFindings, type DisposeOutcome } from "./review-dispose.ts";
 import { recordReview } from "./review-record.ts";
@@ -250,6 +257,80 @@ export const CrewState = {
     );
   },
 
+  /**
+   * Records a defect found in an accepted result.
+   * The acceptance and its evidence stay recorded, because that history is what names the
+   * dependents that read the invalid result. Only the work that consumed it is paused.
+   */
+  async invalidate(request: Mutation & { assignmentId: string; revision: number; input: unknown }) {
+    const parsed = parseInput(defectInputSchema, request.input);
+    if (parsed.status !== "parsed") {
+      return reported(parsed);
+    }
+
+    const input = parsed.value;
+    return mutate<InvalidateOutcome>(
+      {
+        projectRoot: request.projectRoot,
+        requestId: request.requestId,
+        ownerToken: request.ownerToken,
+        now: new Date().toISOString(),
+        operation: "work_invalidate",
+        input: { assignmentId: request.assignmentId, revision: request.revision, defect: input },
+      },
+      ({ tx, now }) =>
+        commitOn(
+          invalidateResult(tx, {
+            invalidationId: crypto.randomUUID(),
+            assignmentId: request.assignmentId,
+            revision: request.revision,
+            input,
+            now,
+          }),
+          "invalidated",
+        ),
+    );
+  },
+
+  /**
+   * Delegates one rework cycle on one submitted result.
+   * The cycle returns the assignment to the frontier, so the accepted corrections reach a fresh
+   * Operative through the ordinary claim and dispatch path rather than the reviewer or this
+   * Operator. A reached limit records the direction it needs from the user instead.
+   */
+  async rework(request: Mutation & { assignmentId: string; revision: number; input: unknown }) {
+    const parsed = parseInput(reworkInputSchema, request.input);
+    if (parsed.status !== "parsed") {
+      return reported(parsed);
+    }
+
+    const input = parsed.value;
+    return mutate<ReworkOutcome>(
+      {
+        projectRoot: request.projectRoot,
+        requestId: request.requestId,
+        ownerToken: request.ownerToken,
+        now: new Date().toISOString(),
+        operation: "work_rework",
+        input: { assignmentId: request.assignmentId, revision: request.revision, rework: input },
+      },
+      ({ tx, now }) => {
+        const outcome = openReworkCycle(tx, {
+          cycleId: crypto.randomUUID(),
+          assignmentId: request.assignmentId,
+          revision: request.revision,
+          input,
+          now,
+        });
+        // A reached limit records the direction request it raised, so the refusal is durable.
+        return {
+          commit: outcome.status === "delegated" || outcome.status === "limit-reached",
+          outcome,
+        };
+      },
+    );
+  },
+
   /** Reports one review, its two axis reports, and every finding disposition. Writes nothing. */
   async review(request: Located & { reviewId: string }) {
     return { repeated: false, result: await showReview(request) };
@@ -462,6 +543,85 @@ export const CrewState = {
    */
   async trackerMap(request: Located & { assignmentId: string }) {
     return reported(await readTrackerMap(request));
+  },
+
+  /**
+   * Closes one Operative process after a durable handoff.
+   * It proves the handoff, the revisions, the evidence, the answered questions, the stopped
+   * writing, the accounted child tools, and the termination itself. The checkout is untouched,
+   * because disposal is a separate outcome with its own approval.
+   */
+  async close(request: Mutation & { attemptId: string }) {
+    const result = await closeProcess(request);
+    return { repeated: "repeated" in result && result.repeated === true, result };
+  },
+
+  /**
+   * Removes one approved Herdr worktree.
+   * Accepted work is not disposal authority, so this runs only behind a closed process, an
+   * accepted result, preserved evidence, remote copies of every commit, and a live approval.
+   */
+  async remove(request: Mutation & { attemptId: string }) {
+    const result = await removeWorktree(request);
+    return { repeated: "repeated" in result && result.repeated === true, result };
+  },
+
+  /** Records an explicit decision to keep one Operative's resources. It outlives the session. */
+  async holdResources(request: Mutation & { attemptId: string; input: unknown }) {
+    const parsed = parseInput(holdInputSchema, request.input);
+    if (parsed.status !== "parsed") {
+      return reported(parsed);
+    }
+
+    const input = parsed.value;
+    return mutate(
+      {
+        projectRoot: request.projectRoot,
+        requestId: request.requestId,
+        ownerToken: request.ownerToken,
+        now: new Date().toISOString(),
+        operation: "cleanup_hold",
+        input: { attemptId: request.attemptId, ...input },
+      },
+      ({ tx, now }) =>
+        commitOn(
+          placeHold(tx, {
+            holdId: crypto.randomUUID(),
+            attemptId: request.attemptId,
+            input,
+            now,
+          }),
+          "held",
+        ),
+    );
+  },
+
+  /** Ends one retention hold. Every other cleanup gate still applies afterwards. */
+  async releaseResources(request: Mutation & { attemptId: string; revision: number }) {
+    return mutate(
+      {
+        projectRoot: request.projectRoot,
+        requestId: request.requestId,
+        ownerToken: request.ownerToken,
+        now: new Date().toISOString(),
+        operation: "cleanup_release",
+        input: { attemptId: request.attemptId, revision: request.revision },
+      },
+      ({ tx, now }) =>
+        commitOn(
+          releaseHold(tx, {
+            attemptId: request.attemptId,
+            revision: request.revision,
+            now,
+          }),
+          "released",
+        ),
+    );
+  },
+
+  /** Reports every recorded cleanup and every retention hold this crew holds. Writes nothing. */
+  async cleanup(request: Located & { attemptId: string | null }) {
+    return { repeated: false, result: await showCleanups(request) };
   },
 
   /** Reports the work a crew of this size may start now, and why the rest waits. Writes nothing. */

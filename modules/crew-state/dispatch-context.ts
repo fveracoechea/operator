@@ -11,10 +11,10 @@ import {
 import { storedArtifacts } from "./submission-store.ts";
 import { storedFixedInputs, storedPermissions, storedRequirements } from "./work-input.ts";
 import { REVIEW_AXES } from "./review.ts";
-import type { AssignmentRow } from "./assignment.ts";
 import {
   type AttemptContext,
   type ReviewContext,
+  type ReworkContext,
   type AttemptLookup,
   DISPATCH_STAGES,
   type DispatchRow,
@@ -65,6 +65,7 @@ export type ContextRead =
   | RequestFailure;
 
 type ReviewBrief = NonNullable<Brief["review"]>;
+type ReworkBrief = NonNullable<Brief["rework"]>;
 
 /** The fixed result one review reads, taken from the submission that started it. */
 function reviewBriefOf(
@@ -92,15 +93,19 @@ function reviewBriefOf(
     concerns: storedConcerns(submission.concerns),
     decisions: storedDecisions(submission.decisions),
     artifacts: storedArtifacts(submission.artifacts),
+    priorRounds: context.priorRounds,
   };
 }
 
+/** The fixed cycle one rework attempt answers, as it was recorded when it was delegated. */
+function reworkBriefOf(context: ReworkContext): ReworkBrief {
+  return { cycleId: context.cycle.id, ...context.brief };
+}
+
 /** The fixed brief of one assignment, as the attempt that holds it receives it. */
-export function briefOf(
-  assignment: AssignmentRow,
-  attemptId: string,
-  review: ReviewContext | null,
-): Brief {
+export function briefOf(context: AttemptContext, attemptId: string): Brief {
+  const assignment = context.assignment;
+  const review = context.review;
   return {
     assignmentId: assignment.id,
     attemptId,
@@ -117,6 +122,7 @@ export function briefOf(
       review === null
         ? null
         : reviewBriefOf(review, { attemptId, producerTitle: assignment.title }),
+    rework: context.rework === null ? null : reworkBriefOf(context.rework),
   };
 }
 

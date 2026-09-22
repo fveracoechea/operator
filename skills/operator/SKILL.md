@@ -24,11 +24,18 @@ Read [DISPATCH.md](DISPATCH.md) before you launch or recover an Operative.
 Result submission, separate two-axis review, finding dispositions, and accepted completion are implemented.
 Read [REVIEW.md](REVIEW.md) before you review a result or accept an assignment.
 
+Delegated rework, the limits that bound it, and a defect found after acceptance are implemented.
+Read [REWORK.md](REWORK.md), [LIMITS.md](LIMITS.md), and [INVALIDATION.md](INVALIDATION.md) before you act on any of them.
+
 Question routing, answers, and approvals are implemented.
 `operator question` and `operator approval` carry them, and the brief tells each Operative how to raise one.
 
-Rework and cleanup are not available yet.
-Do not tell the user that those operations exist.
+Process closure and worktree removal are implemented.
+`operator cleanup` carries them, and each one needs its own proof and its own approval.
+
+Tracker completion and recovery are implemented.
+`operator tracker` carries the resolution, the ticket completion, and the map amendment as three
+separate outcomes, and it reports what it could not establish rather than writing again.
 
 ## Rules
 

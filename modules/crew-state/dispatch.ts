@@ -3,9 +3,11 @@ import type { CrewReader, CrewWriter } from "./database.ts";
 import type { AssignmentRow } from "./assignment.ts";
 import { attemptCount, type AttemptRow } from "./attempt.ts";
 import { currentOwnership } from "./ownership.ts";
-import { reviewOfAssignment, type ReviewRow } from "./review.ts";
+import { findingsOf, reviewOfAssignment, reviewOfSubmission, type ReviewRow } from "./review.ts";
 import { assignments, attemptDispatch, attempts, externalOperations } from "./schema.ts";
-import { readSubmission, type SubmissionRow } from "./submission.ts";
+import { cyclesOf, openCycleOf, type ReworkCycleRow } from "./rework.ts";
+import { type ReworkBriefRecord, storedReworkBrief } from "./rework-input.ts";
+import { readSubmission, submissionsOf, type SubmissionRow } from "./submission.ts";
 
 /** The external effects one launch performs, in the order a dispatch performs them. */
 export const DISPATCH_STAGES = [
@@ -20,7 +22,12 @@ export type DispatchStage = (typeof DISPATCH_STAGES)[number];
 /** The external effect that carries one recorded answer to the Operative that asked for it. */
 export const ANSWER_DELIVERY = "answer_delivery";
 
-export type OperationKind = DispatchStage | typeof ANSWER_DELIVERY;
+/** The external effects one cleanup performs, each recorded before it acts. */
+export const CLEANUP_EFFECTS = ["agent_stop", "worktree_remove"] as const;
+
+export type CleanupEffect = (typeof CLEANUP_EFFECTS)[number];
+
+export type OperationKind = DispatchStage | typeof ANSWER_DELIVERY | CleanupEffect;
 
 export type OperationState = "intended" | "succeeded" | "failed" | "uncertain";
 
@@ -33,7 +40,15 @@ export type DispatchRow = typeof attemptDispatch.$inferSelect;
 export type OperationRow = typeof externalOperations.$inferSelect;
 
 /** The fixed result a review attempt reads. Present only on a review assignment. */
-export type ReviewContext = { review: ReviewRow; submission: SubmissionRow };
+export type ReviewContext = {
+  review: ReviewRow;
+  submission: SubmissionRow;
+  // The earlier rounds a reviewer of a revision reads. The launch contract owns their shape.
+  priorRounds: ReturnType<typeof priorRoundsOf>;
+};
+
+/** The delegated cycle a rework attempt answers. Present only while one is open. */
+export type ReworkContext = { cycle: ReworkCycleRow; brief: ReworkBriefRecord };
 
 export type AttemptContext = {
   attempt: AttemptRow;
@@ -41,6 +56,7 @@ export type AttemptContext = {
   dispatch: DispatchRow | null;
   operations: OperationRow[];
   review: ReviewContext | null;
+  rework: ReworkContext | null;
   // How many attempts this assignment has held, which bounds a replacement.
   attemptsHeld: number;
   // True while the Operator that claimed this attempt still owns the crew.
@@ -80,6 +96,51 @@ export function operationFor(operations: OperationRow[], kind: DispatchStage): O
   return operations.find((one) => one.kind === kind) ?? null;
 }
 
+/**
+ * Every round that ran on one producer assignment before the submission under review.
+ * The reviewer of a revision reads them, so a prior disposition is visible and a finding that
+ * came back is reported as a regression rather than as new work.
+ */
+function priorRoundsOf(db: CrewReader, submission: SubmissionRow) {
+  const cycles = cyclesOf(db, submission.assignmentId);
+
+  return submissionsOf(db, submission.assignmentId)
+    .filter((one) => one.assignmentRevision < submission.assignmentRevision)
+    .flatMap((earlier) => {
+      const review = reviewOfSubmission(db, earlier.id);
+      return review === null
+        ? []
+        : [
+            {
+              reviewId: review.id,
+              submissionId: earlier.id,
+              submissionIdentity: earlier.identity,
+              findings: findingsOf(db, review.id).map((one) => ({
+                findingId: one.id,
+                axis: one.axis,
+                key: one.findingKey,
+                severity: one.severity,
+                summary: one.summary,
+                disposition: one.disposition,
+                reason: one.reason,
+              })),
+              cycles: cycles
+                .filter((cycle) => cycle.submissionId === earlier.id)
+                .map((cycle) => {
+                  const brief = storedReworkBrief(cycle.brief);
+                  return {
+                    cycleId: cycle.id,
+                    reason: cycle.reason,
+                    cycleIndex: cycle.cycleIndex,
+                    instruction: brief.instruction,
+                    conflicts: brief.conflicts,
+                  };
+                }),
+            },
+          ];
+    });
+}
+
 /** The review and submission one review assignment carries, if it is one. */
 function readReviewContext(db: CrewReader, assignmentId: string): ReviewContext | null {
   const review = reviewOfAssignment(db, assignmentId);
@@ -88,7 +149,15 @@ function readReviewContext(db: CrewReader, assignmentId: string): ReviewContext 
   }
 
   const submission = readSubmission(db, review.submissionId);
-  return submission === null ? null : { review, submission };
+  return submission === null
+    ? null
+    : { review, submission, priorRounds: priorRoundsOf(db, submission) };
+}
+
+/** The open rework cycle one assignment carries, with the brief fixed when it was delegated. */
+function readReworkContext(db: CrewReader, assignmentId: string): ReworkContext | null {
+  const cycle = openCycleOf(db, assignmentId);
+  return cycle === null ? null : { cycle, brief: storedReworkBrief(cycle.brief) };
 }
 
 /**
@@ -122,6 +191,7 @@ export function lookupAttempt(db: CrewReader, attemptId: string): AttemptLookup 
       dispatch: readDispatchRow(db, attempt.id),
       operations: liveOperations(db, attempt.id),
       review: readReviewContext(db, assignment.id),
+      rework: readReworkContext(db, assignment.id),
       attemptsHeld: attemptCount(db, assignment.id),
       current: currentOwnership(db)?.token === attempt.ownerToken,
     },

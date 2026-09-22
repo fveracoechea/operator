@@ -21,9 +21,9 @@ export type WorkspaceOptions = {
 };
 
 /**
- * A fixture repository with the Herdr fake on its own PATH.
- * Every command runs through the real CLI against real Git and real SQLite, and Herdr is
- * controlled at its own external interface rather than mocked by path.
+ * A fixture repository with the Herdr and GitHub fakes on a PATH that holds no real one.
+ * Every command runs through the real CLI against real Git and real SQLite, and each external
+ * tool is controlled at its own interface rather than mocked by path.
  */
 export type Workspaces = ReturnType<typeof workspaces>;
 
@@ -131,6 +131,20 @@ export async function githubCalls(workspace: Workspace): Promise<string[]> {
   return (await file.exists())
     ? (await file.text()).split("\n").filter((line) => line.length > 0)
     : [];
+}
+
+/** Stops every agent the fake holds, the way a host that exited or crashed would. */
+export async function stopFakeAgents(workspace: Workspace): Promise<void> {
+  await rm(`${workspace.herdr}/agents`, { force: true, recursive: true });
+}
+
+/** Marks one agent live, as a start Herdr accepted but never answered would leave it. */
+export async function markFakeAgent(
+  workspace: Workspace,
+  name: string,
+  paneId = "w1:p1",
+): Promise<void> {
+  await Bun.write(`${workspace.herdr}/agents/${name}`, paneId);
 }
 
 /** A fresh request identity. Every mutation carries one. */

@@ -141,7 +141,20 @@ The Standards axis and the Spec axis stay separate and are never merged or reran
 
 **Finding disposition**:
 The Operator's answer to one review finding.
-It is corrected, rejected with a reason, or deferred with a reason and a follow-up reference, so no finding leaves a review unanswered.
+It is corrected, rejected with a reason and the evidence that refutes the finding, or deferred with a reason and a follow-up reference, so no finding leaves a review unanswered.
+
+**Rework cycle**:
+One delegated correction round on one submitted result.
+It carries the accepted findings, the conflicts it must settle, and the revisions it combines, and a fresh Operative answers all of them in one combined revision.
+The reviewer that found the problem and the Operator that disposed of it are never its writer.
+
+**Direction request**:
+The recorded statement that one assignment reached a limit and now waits on the user.
+It keeps the evidence of what was tried, blocks acceptance while it is open, and is passed only by an approval that names the assignment and the revision of the request it answers.
+
+**Invalidated result**:
+An accepted result a defect was found in afterwards.
+Its acceptance and evidence stay recorded, and only the dependents that consumed it are paused.
 
 **Review capability**:
 The reviewer host's ability to run the required review sub-agents.
@@ -178,3 +191,28 @@ An incomplete scan is a gap in the evidence, never evidence that something is ab
 **Canonical map**:
 A wayfinder map read as its baseline body plus every explicit amendment comment.
 An ordinary discussion comment is not an amendment, and the baseline body is never replaced automatically.
+
+**Cleanup outcome**:
+One recorded disposal step for one attempt: process closure or worktree removal.
+The two are separate records, so each one blocks, fails, and recovers without the other.
+
+**Process closure**:
+The end of one Operative process after its work is durably handed over.
+It proves the handoff, the revisions, the evidence, the answered questions, the checkout contents, the identity of every resource, the accounted child tools, and the termination itself.
+It never touches the checkout.
+
+**Worktree removal**:
+The disposal of one approved Herdr-managed checkout.
+Accepted completion is not disposal authority, so it also needs a closed process, preserved evidence, a remote copy of every commit, and an approval granted against these exact inputs.
+
+**Cleanup request revision**:
+The recorded name of the inputs one cleanup would act on.
+It covers the registered work, the Operator that owns the crew, the resources named, and the checkout as it was inspected, so an approval survives a restart and nothing else.
+
+**Preserved evidence**:
+The inventory one cleanup copies out of an Operative worktree and verifies by content.
+The list is explicit and holds no credential, and the copies stay readable after the checkout is gone.
+
+**Retention hold**:
+An explicit decision to keep one Operative's resources.
+It blocks every cleanup of its attempt until a person releases it, and it outlives the session that placed it.

@@ -1,8 +1,8 @@
 import { eq } from "drizzle-orm";
-import { markAccepted } from "./assignment.ts";
+import { type AssignmentRow, moveAssignment, readAssignment } from "./assignment.ts";
 import { endAttempt, readAttempt } from "./attempt.ts";
 import type { CrewWriter } from "./database.ts";
-import { activeAttempt, readAssignment } from "./frontier.ts";
+import { activeAttempt } from "./frontier.ts";
 import {
   corrections,
   findingsOf,
@@ -13,6 +13,8 @@ import {
   reviewOfSubmission,
   undisposed,
 } from "./review.ts";
+import { type DirectionRecord, directionRecordOf, openDirectionsOf } from "./direction.ts";
+import { openPauses, resolveInvalidations } from "./invalidate.ts";
 import { blockingQuestionOf } from "./questions.ts";
 import { submissions } from "./schema.ts";
 import { type ReviewBlocker, storedBlocker, storedObservedChecks } from "./review-input.ts";
@@ -25,6 +27,8 @@ export type AcceptResult =
   | { status: "unknown-assignment"; assignmentId: string }
   | { status: "stale-revision"; assignmentId: string; recordedRevision: number }
   | { status: "not-claimed"; assignmentId: string; state: string }
+  | { status: "direction-required"; assignmentId: string; directions: DirectionRecord[] }
+  | { status: "input-invalidated"; assignmentId: string; invalidated: string[] }
   | { status: "attempt-required"; assignmentId: string }
   | { status: "attempt-not-expected"; assignmentId: string }
   | { status: "attempt-mismatch"; assignmentId: string; attemptId: string | null }
@@ -64,6 +68,17 @@ type AcceptRequest = {
   prHead: string | null;
   now: string;
 };
+
+/**
+ * Records accepted completion and releases what an earlier defect on this work paused.
+ * A corrected result is the condition those dependents waited on, so nothing waits for a
+ * second decision that says the same thing twice.
+ */
+function acceptRow(db: CrewWriter, request: { row: AssignmentRow; now: string }): number {
+  const revision = moveAssignment(db, { row: request.row, state: "accepted", now: request.now });
+  resolveInvalidations(db, { assignmentId: request.row.id, now: request.now });
+  return revision;
+}
 
 /** One assignment that still waits on an answer. Only that work waits, and it is not accepted. */
 function openQuestion(assignmentId: string, waiting: { id: string; state: string }): AcceptResult {
@@ -234,6 +249,23 @@ export function acceptAssignment(db: CrewWriter, request: AcceptRequest): Accept
     return { status: "stale-revision", assignmentId: row.id, recordedRevision: row.revision };
   }
 
+  // A reached limit is work that waits on the user. Accepting it here would settle by silence
+  // what the crew already proved it could not settle by itself.
+  const waiting = openDirectionsOf(db, row.id);
+  if (waiting.length > 0) {
+    return {
+      status: "direction-required",
+      assignmentId: row.id,
+      directions: waiting.map(directionRecordOf),
+    };
+  }
+
+  // Work that read an invalidated result is paused, so accepting it would carry the defect on.
+  const invalid = openPauses(db).get(row.id) ?? [];
+  if (invalid.length > 0) {
+    return { status: "input-invalidated", assignmentId: row.id, invalidated: invalid };
+  }
+
   if (!isExecutable(row.kind)) {
     if (request.attemptId !== null) {
       return { status: "attempt-not-expected", assignmentId: row.id };
@@ -246,7 +278,7 @@ export function acceptAssignment(db: CrewWriter, request: AcceptRequest): Accept
       status: "accepted",
       assignmentId: row.id,
       attemptId: null,
-      revision: markAccepted(db, { row, now: request.now }),
+      revision: acceptRow(db, { row, now: request.now }),
     };
   }
 
@@ -292,7 +324,7 @@ export function acceptAssignment(db: CrewWriter, request: AcceptRequest): Accept
       status: "accepted",
       assignmentId: row.id,
       attemptId: live.id,
-      revision: markAccepted(db, { row, now: request.now }),
+      revision: acceptRow(db, { row, now: request.now }),
     };
   }
 
@@ -335,6 +367,6 @@ export function acceptAssignment(db: CrewWriter, request: AcceptRequest): Accept
     status: "accepted",
     assignmentId: row.id,
     attemptId: submission.attemptId,
-    revision: markAccepted(db, { row, now: request.now }),
+    revision: acceptRow(db, { row, now: request.now }),
   };
 }

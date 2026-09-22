@@ -9,9 +9,9 @@ The name comes from *The Matrix*: the crew member who loads programs, guides mis
 
 ## Status
 
-**Project installation, setup, readiness, the crew frontier, Operative dispatch, question routing, and reviewed acceptance work.**
-The repository contains the Bun CLI, its local and CI quality gate, `operator install`, `operator setup`, `operator setup readiness`, `operator crew own`, `operator work`, `operator attempt`, `operator question`, `operator approval`, and `operator review`.
-Rework, cleanup, the live readiness probe, and release automation are not implemented yet.
+**Project installation, setup, readiness, the crew frontier, Operative dispatch, question routing, reviewed acceptance, delegated rework, tracker completion, and approved cleanup work.**
+The repository contains the Bun CLI, its local and CI quality gate, `operator install`, `operator setup`, `operator setup readiness`, `operator crew own`, `operator work`, `operator attempt`, `operator question`, `operator approval`, `operator review`, `operator tracker`, and `operator cleanup`.
+The live readiness probe and release automation are not implemented yet.
 
 ## CLI Foundation
 
@@ -309,7 +309,7 @@ A review report ends the review chain, so a reviewer never submits a result and 
 operator review dispose --request <id> --owner-token <token> --review <id> --input dispositions.json --json
 ```
 
-Each finding is corrected, rejected with a reason, or deferred with a reason and a follow-up.
+Each finding is corrected, rejected with a reason and the evidence that refutes it, or deferred with a reason and a follow-up.
 A blocker is never deferred.
 
 ```sh
@@ -321,6 +321,51 @@ A check outcome a review observed for itself outranks the producer's own word, s
 Operator does not read the pull request itself; acceptance compares the head you state against the head the submission recorded, and reading a live head remains separate work.
 A stopped reviewer, a missing input, an unavailable review capability, a missing pull-request authority, a failed check, and a flaky check each block instead of passing.
 See [ADR 0007](docs/adr/0007-review-is-crew-work-and-acceptance-reads-only-recorded-evidence.md).
+
+
+## Rework, Limits, and Invalidated Results
+
+A finding the Operator accepted for correction goes to a fresh Operative, never to the reviewer that found it.
+
+```sh
+operator work rework --request <id> --owner-token <token> --assignment <id> --revision <n> --input cycle.json --json
+```
+
+The request names one reason.
+A `findings` cycle answers the accepted corrections of a reported review whose findings all carry a disposition.
+An `integration` cycle names the revisions it combines, and names a review only when it answers one.
+A review that already reported is answered either way.
+A `diagnostic` cycle names the recorded checks a test infrastructure failure is suspected behind, and at least one of them must not have passed.
+Each cycle states the Operator instruction and the conflicts the Operative must settle, and it records no resolution of its own.
+A conflict names only work the cycle carries, so a finding of any round that no correction in this cycle answers is refused.
+
+The cycle returns the assignment to the frontier.
+Claim it again, dispatch it from the submitted commit, and the brief carries the fixed submission, every accepted correction with its evidence, the conflicts, the revisions to combine, fixed copies of the artifacts, and the original acceptance requirements.
+One cycle produces one combined revision, which registers its own review assignment.
+That reviewer receives every earlier round, its dispositions, and the cycles they delegated, and it checks the revision for regressions.
+Nothing between the two revisions can be accepted.
+
+Three limits hold across sessions: three correction cycles for one assignment, two diagnostic reruns, and three attempts on one review, which is one reviewer and two replacements per submitted revision.
+A reached limit records a direction request, keeps the failure evidence, and blocks acceptance with `direction_required` until the user directs it.
+
+```sh
+operator approval grant --request <id> --owner-token <token> --input direction.json --json
+```
+
+The direction is an approval with action `limit-direction`, the assignment as its target, scope `limit:<kind>`, and the revision of the direction request as its request revision.
+The request keeps the evidence of every further attempt that reached the same limit.
+Once a direction is spent, reaching that limit again opens the request at the next revision, so the earlier approval covers nothing.
+
+```sh
+operator work invalidate --request <id> --owner-token <token> --assignment <id> --revision <n> --input defect.json --json
+```
+
+A defect found after acceptance keeps the acceptance, the submission, the review, and every finding.
+Review work is refused, because a review holds no result of its own.
+The assignment returns to the frontier as `invalidated`, and only the dependents that consumed the result are paused.
+A dependent that never started stays held by the dependency gate.
+Accepting the corrected result releases the dependents no other defect still holds, and one that was accepted returns to the step that decided it.
+See [ADR 0008](docs/adr/0008-rework-is-a-delegated-cycle-and-a-limit-blocks-acceptance.md).
 
 
 ## Tracker Completion and Recovery
