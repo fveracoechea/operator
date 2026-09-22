@@ -115,38 +115,38 @@ const commentsMatch = /^repos\/[^/]+\/[^/]+\/issues\/(\d+)\/comments$/.exec(path
 const eventsMatch = /^repos\/[^/]+\/[^/]+\/issues\/(\d+)\/events$/.exec(path);
 
 /** Answers with the fault this call was given, or null when it should run normally. */
-async function faulted(name: string): Promise<boolean> {
+/**
+ * Answers with the fault this call was given, if it stops the call before its effect.
+ * Returns `applied-lost` when the effect still runs and only its answer is lost, so recovery
+ * has to read to find out what happened.
+ */
+async function faulted(name: string): Promise<"answered" | "applied-lost" | "none"> {
   const fault = await takeFault(name);
   if (fault === null) {
-    return false;
+    return "none";
   }
   if (fault === "lost") {
     lose();
-    return true;
+    return "answered";
   }
 
   const status = /^status:(\d+)$/.exec(fault);
   if (status?.[1] !== undefined) {
     answer(Number(status[1]), { message: "the fake refused" });
-    return true;
+    return "answered";
   }
 
-  // "applied-lost" performs the effect and then loses its answer, so recovery must read.
-  return false;
+  return "applied-lost";
 }
 
 if (path === "user") {
-  if (!(await faulted("viewer"))) {
+  if ((await faulted("viewer")) === "none") {
     answer(200, { login: state.viewer });
   }
 } else if (commentsMatch?.[1] !== undefined && method === "POST") {
   const issue = commentsMatch[1];
-  const fault = await takeFault("createComment");
-  if (fault === "lost") {
-    lose();
-  } else if (fault !== null && /^status:(\d+)$/.test(fault)) {
-    answer(Number(/^status:(\d+)$/.exec(fault)?.[1] ?? "500"), { message: "the fake refused" });
-  } else {
+  const fault = await faulted("createComment");
+  if (fault !== "answered") {
     const id = state.nextCommentId;
     state.nextCommentId += 1;
     const comment: FakeComment = {
@@ -168,13 +168,13 @@ if (path === "user") {
 } else if (commentsMatch?.[1] !== undefined) {
   const issue = commentsMatch[1];
   const page = Number(query.get("page") ?? "1");
-  if (!(await faulted(page === 1 ? "scanComments" : `scanComments.page${page}`))) {
+  if ((await faulted(page === 1 ? "scanComments" : `scanComments.page${page}`)) === "none") {
     const perPage = Number(query.get("per_page") ?? "100");
     const held = state.comments[issue] ?? [];
     answer(200, held.slice((page - 1) * perPage, page * perPage));
   }
 } else if (commentMatch?.[1] !== undefined) {
-  if (!(await faulted("readComment"))) {
+  if ((await faulted("readComment")) === "none") {
     const id = Number(commentMatch[1]);
     const found = Object.values(state.comments)
       .flat()
@@ -186,17 +186,13 @@ if (path === "user") {
     }
   }
 } else if (eventsMatch?.[1] !== undefined) {
-  if (!(await faulted("readEvents"))) {
+  if ((await faulted("readEvents")) === "none") {
     answer(200, state.events[eventsMatch[1]] ?? []);
   }
 } else if (issueMatch?.[1] !== undefined && method === "PATCH") {
   const number = issueMatch[1];
-  const fault = await takeFault("closeIssue");
-  if (fault === "lost") {
-    lose();
-  } else if (fault !== null && /^status:(\d+)$/.test(fault)) {
-    answer(Number(/^status:(\d+)$/.exec(fault)?.[1] ?? "500"), { message: "the fake refused" });
-  } else {
+  const fault = await faulted("closeIssue");
+  if (fault !== "answered") {
     const held = state.issues[number];
     if (held === undefined) {
       answer(404, { message: "Not Found" });
@@ -228,7 +224,7 @@ if (path === "user") {
     }
   }
 } else if (issueMatch?.[1] !== undefined) {
-  if (!(await faulted("readIssue"))) {
+  if ((await faulted("readIssue")) === "none") {
     const held = state.issues[issueMatch[1]];
     if (held === undefined) {
       answer(404, { message: "Not Found" });

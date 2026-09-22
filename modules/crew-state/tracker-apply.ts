@@ -181,7 +181,6 @@ function gateBeforeWriting(request: {
   attempts: TrackerWriteRow[];
   target: TrackerTarget;
   approval: ApprovalRow | null;
-  approvalMissing: boolean;
   approvalId: string | null;
 }): { status: "proceed" } | { status: "stop" } | TrackerResult {
   const { operation } = request;
@@ -211,11 +210,12 @@ function gateBeforeWriting(request: {
     target: request.target,
     attempts: request.attempts,
   });
-  if (request.approvalMissing) {
-    return { status: "unknown-approval", approvalId: request.approvalId ?? "" };
-  }
 
+  // A named approval this crew does not hold is a different refusal from naming none.
   const approval = request.approval;
+  if (request.approvalId !== null && approval === null) {
+    return { status: "unknown-approval", approvalId: request.approvalId };
+  }
   if (approval === null) {
     return {
       status: "approval-required",
@@ -454,13 +454,10 @@ export async function recordTrackerStep(request: {
       };
     }
 
-    // A named approval that this crew does not hold is a different refusal from naming none.
-    const approval = request.approvalId === null ? null : readApproval(db, request.approvalId);
     return {
       status: "ok" as const,
       context: context.context,
-      approval,
-      approvalMissing: request.approvalId !== null && approval === null,
+      approval: request.approvalId === null ? null : readApproval(db, request.approvalId),
     };
   });
 
@@ -596,7 +593,6 @@ export async function recordTrackerStep(request: {
       attempts,
       target,
       approval: read.approval,
-      approvalMissing: read.approvalMissing,
       approvalId: request.approvalId,
     });
     if (gate.status === "stop") {
