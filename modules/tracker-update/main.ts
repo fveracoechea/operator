@@ -57,10 +57,20 @@ function classifyComments(request: {
   return { exactMatches, editedMatches, actorMismatches };
 }
 
-/** True when the issue was reopened after its most recent close. */
-function reopenedAfterClose(events: ClosureEvent[]): boolean {
-  const relevant = events.filter((one) => one.event === "closed" || one.event === "reopened");
-  return relevant[relevant.length - 1]?.event === "reopened";
+/** Whether a reopen followed the most recent close, as far as the read actually saw. */
+function reopenedAfterClose(request: {
+  events: ClosureEvent[];
+  complete: boolean;
+}): "yes" | "no" | "unknown" {
+  const relevant = request.events.filter(
+    (one) => one.event === "closed" || one.event === "reopened",
+  );
+  if (relevant[relevant.length - 1]?.event === "reopened") {
+    return "yes";
+  }
+
+  // What was not read cannot be reported as absent.
+  return request.complete ? "no" : "unknown";
 }
 
 export const TrackerUpdate = {
@@ -226,9 +236,7 @@ export const TrackerUpdate = {
   }): Promise<Observation> {
     if (request.step === "completion") {
       const issue = await GithubTracker.readIssue(request.target);
-      const events =
-        issue.status === "found" ? await GithubTracker.readEvents(request.target) : null;
-      const history = events !== null && events.status === "found" ? events.value : [];
+      const history = await GithubTracker.readEvents(request.target);
 
       const closure: ClosureObservation = {
         kind: "closure",
@@ -239,8 +247,12 @@ export const TrackerUpdate = {
         closedBy: issue.status === "found" ? issue.value.closedBy : null,
         closedAt: issue.status === "found" ? issue.value.closedAt : null,
         updatedAt: issue.status === "found" ? issue.value.updatedAt : null,
-        events: history,
-        reopenedAfterClose: reopenedAfterClose(history),
+        events: history.events,
+        eventCoverage: history.coverage,
+        reopened: reopenedAfterClose({
+          events: history.events,
+          complete: history.coverage.complete,
+        }),
         observedAt: request.now,
       };
       return closure;

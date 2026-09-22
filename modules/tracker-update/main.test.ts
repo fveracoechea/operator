@@ -137,7 +137,8 @@ describe("TrackerUpdate.judge", () => {
         closedAt: null,
         updatedAt: null,
         events: [],
-        reopenedAfterClose: false,
+        eventCoverage: { complete: true, pages: 1, count: 0, detail: null },
+        reopened: "no",
         observedAt: "2026-09-21T00:00:00Z",
       },
       intendedReason: "completed",
@@ -162,7 +163,8 @@ describe("TrackerUpdate.judge", () => {
       closedAt: "2026-09-21T00:00:00Z",
       updatedAt: "2026-09-21T00:00:00Z",
       events: [],
-      reopenedAfterClose: false,
+      eventCoverage: { complete: true, pages: 1, count: 0, detail: null },
+      reopened: "no",
       observedAt: "2026-09-21T00:00:00Z",
     };
 
@@ -186,6 +188,32 @@ describe("TrackerUpdate.judge", () => {
     ).toBe("tracker.completion_conflict");
   });
 
+  test("refuses to read an unread history as no reopen", () => {
+    const verdict = TrackerUpdate.judge({
+      step: "completion",
+      observation: {
+        kind: "closure",
+        read: "found",
+        detail: null,
+        state: "closed",
+        stateReason: "completed",
+        closedBy: "operator-bot",
+        closedAt: "2026-09-21T00:00:00Z",
+        updatedAt: "2026-09-21T00:00:00Z",
+        events: [],
+        eventCoverage: { complete: false, pages: 0, count: 0, detail: "the history read failed" },
+        reopened: "unknown",
+        observedAt: "2026-09-21T00:00:00Z",
+      },
+      intendedReason: "completed",
+      writes: ["succeeded"],
+    });
+
+    // The state looks right, and the evidence that nothing reopened it is missing.
+    expect(verdict.state).not.toBe("verified");
+    expect(verdict.reason).toBe("tracker.evidence_incomplete");
+  });
+
   test("stops on a reopen that followed the close", () => {
     const verdict = TrackerUpdate.judge({
       step: "completion",
@@ -199,7 +227,8 @@ describe("TrackerUpdate.judge", () => {
         closedAt: null,
         updatedAt: "2026-09-21T00:00:00Z",
         events: [],
-        reopenedAfterClose: true,
+        eventCoverage: { complete: true, pages: 1, count: 0, detail: null },
+        reopened: "yes",
         observedAt: "2026-09-21T00:00:00Z",
       },
       intendedReason: "completed",

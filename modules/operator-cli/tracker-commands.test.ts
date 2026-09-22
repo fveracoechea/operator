@@ -423,6 +423,27 @@ describe("operator tracker record completion", () => {
     expect((await githubState(workspace)).issues[String(TICKET)]?.state).toBe("open");
   });
 
+  test("never reads an unreadable event history as no reopen", async () => {
+    const workspace = await makeWorkspace();
+    // The ticket reads as closed with the intended reason, and the history that would show a
+    // reopen cannot be read. A closed state alone is not evidence that nothing reopened it.
+    await setFault(workspace, "readEvents", "status:502", 4);
+
+    const recorded = await recordStep(workspace, { input: completionBody() });
+
+    expect(recorded.exitCode).toBe(3);
+    expect(recorded.json.reason).toBe("tracker.evidence_incomplete");
+    const observation = recorded.json.data.observations.at(-1).observation;
+    expect(observation.eventCoverage.complete).toBe(false);
+    // The gap is recorded as a gap, not as an answer.
+    expect(observation.reopened).toBe("unknown");
+    expect(
+      recorded.json.blockers.some(
+        (one: { reason: string }) => one.reason === "tracker.evidence_incomplete",
+      ),
+    ).toBe(true);
+  });
+
   test("settles a lost close from the state the ticket shows", async () => {
     const workspace = await makeWorkspace();
     await setFault(workspace, "closeIssue", "applied-lost");

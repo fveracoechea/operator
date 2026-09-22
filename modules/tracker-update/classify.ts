@@ -69,8 +69,14 @@ export type ClosureObservation = {
   closedAt: string | null;
   updatedAt: string | null;
   events: ClosureEvent[];
-  /** A reopen after the most recent close. It stops automatic closure and needs a decision. */
-  reopenedAfterClose: boolean;
+  /** What the event read covered. A history read in part cannot answer the reopen question. */
+  eventCoverage: ScanCoverage;
+  /**
+   * Whether a reopen followed the most recent close.
+   * A reopen stops automatic closure and needs a decision. A history that could not be read
+   * in full answers `unknown`, because the reopen may be on the page that never arrived.
+   */
+  reopened: "yes" | "no" | "unknown";
   observedAt: string;
 };
 
@@ -258,7 +264,7 @@ function closureProblems(request: {
     return problems;
   }
 
-  if (observation.reopenedAfterClose) {
+  if (observation.reopened === "yes") {
     problems.push({
       reason: "tracker.completion_conflict",
       detail:
@@ -266,7 +272,19 @@ function closureProblems(request: {
     });
   }
 
+  // A closed state alone is not evidence that nothing reopened it, so an unread history is a
+  // gap that stops automatic closure rather than an answer of "no reopen".
+  if (observation.reopened === "unknown") {
+    problems.push({
+      reason: "tracker.evidence_incomplete",
+      detail:
+        observation.eventCoverage.detail ??
+        "The closure history could not be read in full, so a reopen cannot be ruled out.",
+    });
+  }
+
   if (observation.state === "closed") {
+    // A gap in the history leaves the step unverified even when the state looks right.
     if (observation.stateReason === request.intendedReason) {
       return problems;
     }

@@ -124,6 +124,63 @@ function listOf(body: unknown): unknown[] {
   return Array.isArray(body) ? body : [];
 }
 
+/**
+ * Reads every accessible page of one list and states what it covered.
+ * A page that failed, and a read that reached its cap, both end as incomplete coverage, because
+ * a partial read of a list proves nothing about what is not in it.
+ */
+async function readPages<Value>(request: {
+  path: string;
+  read: (source: unknown) => Value | null;
+  name: string;
+}): Promise<{ coverage: ScanCoverage; items: Value[] }> {
+  const items: Value[] = [];
+
+  for (let page = 1; page <= MAX_PAGES; page += 1) {
+    const outcome = await callGithub({
+      args: [`${request.path}?per_page=${PAGE_SIZE}&page=${page}`],
+      timeoutMs: READ_TIMEOUT_MS,
+    });
+    if (outcome.status !== "succeeded") {
+      const detail =
+        outcome.status === "failed" ? `${outcome.code}: ${outcome.detail}` : outcome.detail;
+      return { coverage: { complete: false, pages: page - 1, count: items.length, detail }, items };
+    }
+
+    const rows = listOf(outcome.value.body);
+    const read = rows.map(request.read);
+    if (read.some((one) => one === null)) {
+      return {
+        coverage: {
+          complete: false,
+          pages: page - 1,
+          count: items.length,
+          detail: `GitHub answered with a ${request.name} this release cannot read.`,
+        },
+        items,
+      };
+    }
+
+    items.push(...read.filter((one) => one !== null));
+    if (rows.length < PAGE_SIZE) {
+      return {
+        coverage: { complete: true, pages: page, count: items.length, detail: null },
+        items,
+      };
+    }
+  }
+
+  return {
+    coverage: {
+      complete: false,
+      pages: MAX_PAGES,
+      count: items.length,
+      detail: `The read stopped at its ${MAX_PAGES} page limit.`,
+    },
+    items,
+  };
+}
+
 export const GithubTracker = {
   /** The stable identifier of the account this machine writes as. */
   async viewer(): Promise<GithubOutcome<{ login: string }>> {
@@ -187,56 +244,11 @@ export const GithubTracker = {
     repository: string;
     issue: number;
   }): Promise<{ coverage: ScanCoverage; comments: Comment[] }> {
-    const comments: Comment[] = [];
-
-    for (let page = 1; page <= MAX_PAGES; page += 1) {
-      const outcome = await callGithub({
-        args: [
-          `repos/${request.repository}/issues/${request.issue}/comments?per_page=${PAGE_SIZE}&page=${page}`,
-        ],
-        timeoutMs: READ_TIMEOUT_MS,
-      });
-      if (outcome.status !== "succeeded") {
-        const detail =
-          outcome.status === "failed" ? `${outcome.code}: ${outcome.detail}` : outcome.detail;
-        return {
-          coverage: { complete: false, pages: page - 1, count: comments.length, detail },
-          comments,
-        };
-      }
-
-      const rows = listOf(outcome.value.body);
-      const read = rows.map(readComment);
-      if (read.some((one) => one === null)) {
-        return {
-          coverage: {
-            complete: false,
-            pages: page - 1,
-            count: comments.length,
-            detail: "GitHub answered with a comment this release cannot read.",
-          },
-          comments,
-        };
-      }
-
-      comments.push(...read.filter((one) => one !== null));
-      if (rows.length < PAGE_SIZE) {
-        return {
-          coverage: { complete: true, pages: page, count: comments.length, detail: null },
-          comments,
-        };
-      }
-    }
-
-    return {
-      coverage: {
-        complete: false,
-        pages: MAX_PAGES,
-        count: comments.length,
-        detail: `The scan stopped at its ${MAX_PAGES} page limit.`,
-      },
-      comments,
-    };
+    return readPages({
+      path: `repos/${request.repository}/issues/${request.issue}/comments`,
+      read: readComment,
+      name: "comment",
+    }).then((page) => ({ coverage: page.coverage, comments: page.items }));
   },
 
   /** Read-only. Reads the state, close reason, and times one issue currently shows. */
@@ -249,15 +261,15 @@ export const GithubTracker = {
   },
 
   /** Read-only. Reads the closure and reopen history of one issue. */
-  async readEvents(request: { repository: string; issue: number }): Promise<Lookup<IssueEvent[]>> {
-    const outcome = await callGithub({
-      args: [`repos/${request.repository}/issues/${request.issue}/events?per_page=${PAGE_SIZE}`],
-      timeoutMs: READ_TIMEOUT_MS,
-    });
-    return lookupFrom(outcome, (body) => {
-      const read = listOf(body).map(readEvent);
-      return read.some((one) => one === null) ? null : read.filter((one) => one !== null);
-    });
+  async readEvents(request: {
+    repository: string;
+    issue: number;
+  }): Promise<{ coverage: ScanCoverage; events: IssueEvent[] }> {
+    return readPages({
+      path: `repos/${request.repository}/issues/${request.issue}/events`,
+      read: readEvent,
+      name: "event",
+    }).then((page) => ({ coverage: page.coverage, events: page.items }));
   },
 
   /** Closes one issue with an explicit reason. The reason is part of the intended effect. */
