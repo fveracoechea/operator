@@ -403,12 +403,13 @@ function readTracker(
     }
 
     const recovers = settles.includes("recover");
-    const needsUser = settles.includes("user") || settles.includes("approved-write");
+    // A conflict and another write after an uncertain one are both a person's call.
+    const person = settles.includes("user") || settles.includes("approved-write");
     into.add({
       action: recovers ? "recover_tracker" : "record_tracker",
       assignmentId,
       revision,
-      ...(needsUser ? { blocker: "approval_required" as const } : {}),
+      ...(person ? { blocker: "approval_required" as const } : {}),
       detail: `The ${step} step is ${operation?.state ?? "unrecorded"}.`,
       command: recovers ? "operator tracker recover" : "operator tracker record",
     });
