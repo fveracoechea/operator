@@ -34,6 +34,31 @@ A response given by the user to a question. An Operator inference or summary is 
 
 **Operator release**:
 A matched version of the Operator CLI and Operator-owned skills, released together. Required upstream skills have separate revisions.
+It carries its own record of the version, the commit, and the supported runtime, because a registry rewrites the package manifest of a published copy.
+
+**Delivery path**:
+How one project retrieves a release: the repository source at a full commit, or the registry artifact at an exact package version.
+Both carry the same release from the same commit, and neither runs a build when it is retrieved.
+
+**Release selection**:
+The exact release one project coordinates with: its delivery path, its full commit, its package version where it has one, and the identity of the code and skills it names.
+A missing or mismatched installation, and missing lock data, stop the work that reads it; they never permit another installation to stand in.
+
+**Release artifact**:
+The built contents of one release: runnable ESM, the public declarations, the complete owned-skill directories, and the generated configuration schema.
+It is identified by every byte it holds, so changed content is a different release.
+
+**Publication approval**:
+A person's permission to publish one exact version, from one merged and checked commit, of one exact artifact.
+A merge is not one, and an approval never reaches content that changed after it was granted.
+
+**Delivery record**:
+What one approved release has already delivered, path by path.
+A retry reads it and carries the same artifact to the missing path only, because a published tag is never moved and a published version is never replaced.
+
+**State version**:
+The recorded format of the crew state.
+A file an earlier release wrote is refused until an approved update migrates it behind a verified backup, and a file a newer release wrote is refused outright.
 
 **Effective selection**:
 The Operator and Crew host and model that a launch would use.

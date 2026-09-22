@@ -9,9 +9,10 @@ The name comes from *The Matrix*: the crew member who loads programs, guides mis
 
 ## Status
 
-**Project installation, setup, readiness, the approved live probe, the crew frontier, Operative dispatch, question routing, reviewed acceptance, delegated rework, tracker completion, approved cleanup, and the coordination and recovery loop work.**
-The repository contains the Bun CLI, its local and CI quality gate, `operator install`, `operator setup`, `operator setup readiness`, `operator setup probe`, `operator crew own`, `operator crew next`, `operator work`, `operator attempt`, `operator question`, `operator approval`, `operator review`, `operator tracker`, and `operator cleanup`, together with the Operator-owned skill that drives them.
-Release automation is not implemented yet.
+**Project installation, setup, release selection and updates, readiness, the approved live probe, the crew frontier, Operative dispatch, question routing, reviewed acceptance, delegated rework, tracker completion, approved cleanup, the coordination and recovery loop, and the release path all work.**
+The repository contains the Bun CLI, its local and CI quality gate, `operator install`, `operator update`, `operator setup`, `operator setup readiness`, `operator setup probe`, `operator crew own`, `operator crew next`, `operator work`, `operator attempt`, `operator question`, `operator approval`, `operator review`, `operator tracker`, and `operator cleanup`, together with the Operator-owned skill that drives them.
+It also contains the release build, the Operator-owned JSR client, the Changesets and GitHub Actions workflows, and the smoke tests of both delivery paths.
+Nothing has been published yet: publication is a maintainer action against one exact approved commit.
 
 ## CLI Foundation
 
@@ -68,6 +69,74 @@ operator setup rollback --json
 Rollback restores only the files that still hold what setup wrote.
 A file changed after setup wrote it is preserved and reported as a conflict.
 
+## Release and Updates
+
+One release is one matched version of the CLI code and the Operator-owned skills.
+It reaches a project by one of two paths, both from the same commit, and neither runs a build when it is retrieved.
+
+```sh
+# The source path, as a convenience and pinned to one exact commit.
+bunx github:fveracoechea/operator <operation>
+bunx "github:fveracoechea/operator#<full-commit>" <operation>
+```
+
+```sh
+# The registry path installs first, isolated from the application, then executes.
+cd .operator/install && bun install --frozen-lockfile
+bun --no-install -e 'const { main } = await import(Bun.pathToFileURL(Bun.resolveSync("@fveracoechea/operator/cli", `${process.cwd()}/.operator/install`)).href); await main(Bun.argv.slice(1))' -- <operation>
+```
+
+The registry path keeps its own manifest, lock data, and dependencies under `.operator/install/`, so Operator never shares a dependency with the application it serves.
+The launcher resolves the package from that installation and leaves the project as the working directory.
+
+Coordinated work runs one known release, so a project records the exact one it coordinates with.
+
+```sh
+operator update plan --claude --commit <full-commit> --json
+operator update apply --claude --commit <full-commit> --approved-update <updateId> --json
+```
+
+A registry installation also names its exact published version with `--delivery jsr --package-version <version>`.
+The update identifier covers the release it moves to, the skills it would write, the recorded formats it would migrate, and the records it would back up.
+
+An update writes nothing while the crew still has work in flight.
+It copies every durable record aside and reads each copy back before a recorded format moves, and a migration that cannot finish puts those records back exactly as they were.
+It writes the CLI selection and the owned skills together, so a project never runs one release of the code against the workflow instructions of another.
+
+Until a project selects a release, the `operator-installation` check is unverified and the project is never ready.
+A missing installation, a mismatched one, and missing lock data are blockers.
+Operator never answers them with another installation.
+
+Crew state records the release it was written under.
+A state file an earlier release wrote is refused with `state_version_outdated` until an approved update migrates it; a file a newer release wrote is refused with `state_version_unsupported`.
+
+### Publishing
+
+Publication is a maintainer action, and the CLI does not carry it.
+The release tooling is separate.
+
+```sh
+bun scripts/release.ts build   --out dist --commit <full-commit>
+bun scripts/release.ts plan    --out dist --commit <full-commit>
+bun scripts/release.ts publish --out dist --commit <full-commit> --approved-release <releaseId>
+```
+
+The artifact holds runnable ESM, the public declarations, the complete owned-skill directories, and the generated configuration schema, and it is identified by every byte it holds.
+The release identity binds one approval to that version, that merged and checked commit, and that content.
+Changed content is a new version under a new approval.
+
+The plan refuses a commit that is not merged into the release branch, a commit whose required checks did not pass, a tag that already names another commit, and a version the registry already holds.
+A published tag is never moved and a published version is never replaced.
+
+A partial publication records what was delivered.
+Running the same approved release again from the same commit sends only the path that is still missing.
+The workflow exits 6 in that case, which is the pending exit meaning, not a failure to repair by hand.
+
+Changesets prepares the version pull request on a push to `main`, and it publishes nothing.
+The publish job is a manual run on a pinned Bun, with every action pinned by commit, and it authenticates to the registry with the short-lived credential the job is issued.
+No publishing token is stored, and there is no personal-token fallback.
+See [ADR 0013](docs/adr/0013-one-release-is-one-matched-version-delivered-twice.md).
+
 ## Project Readiness
 
 Configured is not ready.
@@ -87,7 +156,7 @@ It reports one of three answers beside a separate `configured` field.
 | `unverified` | Every required static check passed, and required live evidence is missing or stale. |
 | `ready` | Every required check passed against the current inputs. |
 
-Static checks observe the selected hosts, Bun, Git, Herdr, the GitHub CLI, the instruction files, the discoverable skill contents, the Operator release, its lock data, and the project settings.
+Static checks observe the selected hosts, Bun, Git, Herdr, the GitHub CLI, the instruction files, the discoverable skill contents, the Operator release, the selected installation, its lock data, and the project settings.
 They never prove host termination, the native review sub-agents, or provider compatibility.
 Those need a live probe.
 
@@ -506,16 +575,10 @@ These are requirements for the planned implementation, not tools already configu
 | Tests | Bun tests, including end-to-end checks of CLI behavior |
 | Versioning | Changesets |
 | Releases | Automated GitHub Actions release workflow |
-| Distribution | Both GitHub-hosted source and GitHub Packages |
+| Distribution | Both GitHub-hosted source and JSR |
 
-The requested invocation is a design target, **not an installation command that works today**:
-
-```sh
-bunx github:fveracoechea/operator some-operation
-bunx @fveracoechea/operator some-operation
-```
-
-A GitHub source reference and the GitHub Packages registry are different delivery paths. The approved [CLI and skill distribution contract](https://github.com/fveracoechea/operator/issues/7#issuecomment-5653511210) defines authentication, exact release selection, skill installation, updates, runtime boundaries, and publication approval. The actual CLI and release flow still need implementation and end-to-end verification.
+The two delivery paths are described under [Release and Updates](#release-and-updates).
+The approved [CLI and skill distribution contract](https://github.com/fveracoechea/operator/issues/7#issuecomment-5729841818) settles exact release selection, skill installation, updates, runtime boundaries, and publication approval.
 
 Fast local feedback and CI checks must agree on what passes. The specification will define test boundaries, review gates, and failure handling before implementation starts.
 
@@ -535,6 +598,7 @@ Start with [AGENTS.md](AGENTS.md) for the engineering skill configuration and [C
 
 Installed skills live in `.agents/skills/`; `skills-lock.json` records their upstream sources and hashes.
 Run `bun run quality` for the same formatting, linting, typechecking, module-boundary, and test gate used in CI.
+Write a changeset for every change that reaches a consumer with `bun run changeset`.
 
 ## References
 

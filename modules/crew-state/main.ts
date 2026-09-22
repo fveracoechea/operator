@@ -1,4 +1,6 @@
+import { readActivity } from "./activity.ts";
 import { grantApproval, matchApproval, revokeApproval } from "./approvals.ts";
+import { migrateState, planMigration } from "./migrate.ts";
 import { closeProcess } from "./cleanup-close.ts";
 import { holdInputSchema, placeHold, releaseHold } from "./cleanup-hold.ts";
 import { removeWorktree } from "./cleanup-remove.ts";
@@ -670,6 +672,29 @@ export const CrewState = {
           ? { stateVersion: STATE_VERSION, ...calculateUnowned(input) }
           : result,
     };
+  },
+
+  /**
+   * Reports the work this crew still has in flight, from the file exactly as it stands.
+   * An update reads this before it touches anything, and an earlier release wrote the file it
+   * reads, so this is the one read that does not refuse an outdated state version.
+   */
+  activity(request: Located) {
+    return readActivity(request.projectRoot);
+  },
+
+  /** Reports what the recorded crew state needs before this release may read it. */
+  migration(request: Located) {
+    return planMigration(request.projectRoot);
+  },
+
+  /**
+   * Carries the recorded crew state up to the version this release reads.
+   * This is the only write that changes the recorded format, and only the approved update path
+   * calls it, after it verified a backup of the file.
+   */
+  migrate(request: Located & { releaseIdentity: string }) {
+    return migrateState(request);
   },
 
   /** Reports the work a crew of this size may start now, and why the rest waits. Writes nothing. */

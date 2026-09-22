@@ -93,6 +93,7 @@ async function intendedWrites(request: {
             {
               version: snapshot.release.version,
               identity: snapshot.release.identity,
+              installation: snapshot.installation ?? null,
               lock: { name: snapshot.lock.name, identity: snapshot.lock.identity },
               skills: snapshot.skills,
             },

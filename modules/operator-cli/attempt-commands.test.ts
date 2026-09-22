@@ -161,7 +161,21 @@ describe("operator attempt dispatch", () => {
 
     const worktree = `${workspace.root}/operative`;
     expect(await Bun.file(`${worktree}/.operator/config.json`).exists()).toBe(true);
-    expect(await Bun.file(`${worktree}/.operator/local/release.json`).exists()).toBe(true);
+    // The worktree carries the release identity, the delivery identity, and the lock data the
+    // launch fixed, so coordinated work runs what the project selected.
+    const released = await Bun.file(`${worktree}/.operator/local/release.json`).json();
+    expect(Object.keys(released).toSorted()).toEqual([
+      "identity",
+      "installation",
+      "lock",
+      "skills",
+      "version",
+    ]);
+    expect(Object.keys(released.installation).toSorted()).toEqual([
+      "commit",
+      "delivery",
+      "packageVersion",
+    ]);
     expect(await Bun.file(`${worktree}/.operator/local/bun.lock`).exists()).toBe(true);
     expect(await Bun.file(`${worktree}/.claude/skills/operator/SKILL.md`).exists()).toBe(true);
 

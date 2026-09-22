@@ -10,6 +10,15 @@ const snapshotSchema = z.looseObject({
     }),
   }),
   release: z.looseObject({ version: z.string(), identity: z.string() }),
+  // A record written before a project selected an exact release carries none, so recovery
+  // reports the difference instead of treating the current selection as what it launched with.
+  installation: z
+    .looseObject({
+      delivery: z.string().nullable(),
+      commit: z.string().nullable(),
+      packageVersion: z.string().nullable(),
+    })
+    .optional(),
   lock: z.looseObject({
     name: z.string().nullable(),
     state: z.string(),

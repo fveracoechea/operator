@@ -15,6 +15,7 @@
     "lint": "bunx --bun --no-install oxlint --deny-warnings cli.ts modules scripts dependency-cruiser.config.cjs",
     "lint:modules": "bun scripts/check-module-shape.ts && bunx --bun --no-install depcruise --config dependency-cruiser.config.cjs cli.ts modules scripts",
     "preinstall": "bun scripts/require-bun.ts",
+    "changeset": "bunx --bun @changesets/cli@3.0.3",
     "test:module-boundaries": "bun scripts/prove-module-boundaries.ts",
     "test": "bun test",
     "typecheck": "bunx --bun --no-install tsc --noEmit -p tsconfig.json",

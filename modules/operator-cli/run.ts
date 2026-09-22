@@ -1,9 +1,11 @@
-import packageJson from "../../package.json" with { type: "json" };
+import { OperatorRelease } from "../operator-release/main.ts";
 import {
   hasCrewArguments,
   hasSelectionOrProbeArguments,
+  hasUpdateArguments,
   type ParsedArguments,
   parseArguments,
+  splitRequest,
 } from "./arguments.ts";
 import { runApproval } from "./approval-command.ts";
 import { runAttempt } from "./attempt-command.ts";
@@ -11,6 +13,7 @@ import { runCleanup } from "./cleanup-command.ts";
 import { runCrewOwn } from "./crew-command.ts";
 import { runCrewNext } from "./next-command.ts";
 import { runInstall } from "./install-command.ts";
+import { runUpdate } from "./update-command.ts";
 import { runQuestion } from "./question-command.ts";
 import { runReview } from "./review-command.ts";
 import { runSetup } from "./setup-command.ts";
@@ -41,9 +44,6 @@ const crewCommands: Record<string, CrewCommand | undefined> = {
   cleanup: runCleanup,
 };
 
-const OPERATOR_VERSION = packageJson.version;
-const SUPPORTED_BUN_RANGE = packageJson.engines.bun;
-
 function rejectArguments(json: boolean): void {
   if (json) {
     writeJsonResult({
@@ -58,8 +58,12 @@ function rejectArguments(json: boolean): void {
 }
 
 export async function run(args: string[]): Promise<void> {
+  // The release reports its own version and supported runtime. A registry rewrites the package
+  // manifest, so a published copy is never read through it.
+  const { version, supportedBun } = await OperatorRelease.manifest();
+
   // The Bun check runs before any command so an unsupported runtime never writes files.
-  if (!Bun.semver.satisfies(Bun.version, SUPPORTED_BUN_RANGE)) {
+  if (!Bun.semver.satisfies(Bun.version, supportedBun)) {
     if (args.includes("--json")) {
       writeJsonResult({
         outcome: "failed",
@@ -67,23 +71,40 @@ export async function run(args: string[]): Promise<void> {
         blockers: [
           {
             reason: "unsupported_bun",
-            required: SUPPORTED_BUN_RANGE,
+            required: supportedBun,
             actual: Bun.version,
           },
         ],
         operation: "startup",
         data: {
-          operatorVersion: OPERATOR_VERSION,
+          operatorVersion: version,
           bunVersion: Bun.version,
         },
       });
     }
-    console.error(`operator: Bun ${SUPPORTED_BUN_RANGE} is required; running ${Bun.version}.`);
+    console.error(`operator: Bun ${supportedBun} is required; running ${Bun.version}.`);
     process.exitCode = exitCodeByOutcome.failed;
     return;
   }
 
   const [command, ...rest] = args;
+
+  if (command === "update") {
+    const { words, parsed } = splitRequest(rest);
+    // The update names the release it selects by a full commit, and nothing else about a crew.
+    const { baseCommit: _commit, ...otherCrewFlags } = parsed.crew;
+    if (
+      parsed.unsupported.length > 0 ||
+      parsed.approvedPlan !== undefined ||
+      parsed.takeover ||
+      Object.keys(otherCrewFlags).length > 0 ||
+      hasSelectionOrProbeArguments(parsed) ||
+      (await runUpdate(words, parsed)) !== "reported"
+    ) {
+      rejectArguments(parsed.json);
+    }
+    return;
+  }
 
   if (command === "install") {
     const parsed = parseArguments(rest);
@@ -91,6 +112,7 @@ export async function run(args: string[]): Promise<void> {
       parsed.unsupported.length > 0 ||
       parsed.approvedPlan !== undefined ||
       hasCrewArguments(parsed) ||
+      hasUpdateArguments(parsed) ||
       hasSelectionOrProbeArguments(parsed)
     ) {
       rejectArguments(parsed.json);
@@ -101,13 +123,11 @@ export async function run(args: string[]): Promise<void> {
   }
 
   if (command === "setup") {
-    // A setup request names its operation in leading words, then carries only flags.
-    const firstFlag = rest.findIndex((word) => word.startsWith("--"));
-    const words = firstFlag === -1 ? rest : rest.slice(0, firstFlag);
-    const parsed = parseArguments(firstFlag === -1 ? [] : rest.slice(firstFlag));
+    const { words, parsed } = splitRequest(rest);
     if (
       parsed.unsupported.length > 0 ||
       hasCrewArguments(parsed) ||
+      hasUpdateArguments(parsed) ||
       (await runSetup(words, parsed)) !== "reported"
     ) {
       rejectArguments(parsed.json);
@@ -117,10 +137,7 @@ export async function run(args: string[]): Promise<void> {
 
   const crewCommand = command === undefined ? undefined : crewCommands[command];
   if (crewCommand !== undefined) {
-    // A crew request names its operation in leading words, then carries only flags.
-    const firstFlag = rest.findIndex((word) => word.startsWith("--"));
-    const words = firstFlag === -1 ? rest : rest.slice(0, firstFlag);
-    const parsed = parseArguments(firstFlag === -1 ? [] : rest.slice(firstFlag));
+    const { words, parsed } = splitRequest(rest);
     // The next actions answer for one installation and one selection, so only that read
     // carries the target and selection flags every other crew command refuses.
     const selects = command === "crew" && words[0] === "next";
@@ -128,6 +145,7 @@ export async function run(args: string[]): Promise<void> {
       parsed.unsupported.length > 0 ||
       (!selects && parsed.targets.length > 0) ||
       parsed.approvedPlan !== undefined ||
+      hasUpdateArguments(parsed) ||
       // Only crew ownership can be taken over, so every other command refuses the flag.
       (parsed.takeover && !(command === "crew" && words[0] === "own")) ||
       // A dispatch fixes the selection it launches with, so only it reads a selection override.
@@ -153,7 +171,7 @@ export async function run(args: string[]): Promise<void> {
       blockers: [],
       operation: "version",
       data: {
-        operatorVersion: OPERATOR_VERSION,
+        operatorVersion: version,
         bunVersion: Bun.version,
       },
     });
@@ -162,7 +180,7 @@ export async function run(args: string[]): Promise<void> {
   }
 
   if (args.length === 1 && args[0] === "--version") {
-    console.log(`operator ${OPERATOR_VERSION}`);
+    console.log(`operator ${version}`);
     process.exitCode = exitCodeByOutcome.completed;
     return;
   }

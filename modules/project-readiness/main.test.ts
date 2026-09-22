@@ -87,6 +87,28 @@ async function runJson(root: string, path: string, args: string[]) {
   return { ...result, json: JSON.parse(result.stdout) };
 }
 
+const SELECTED_COMMIT = "f".repeat(40);
+
+/** Records the exact release this project coordinates with, the way an approved update does. */
+async function selectRelease(root: string, path: string, targets: string[]): Promise<void> {
+  const planned = await runJson(root, path, [
+    "update",
+    "plan",
+    ...targets,
+    "--commit",
+    SELECTED_COMMIT,
+  ]);
+  await runJson(root, path, [
+    "update",
+    "apply",
+    ...targets,
+    "--commit",
+    SELECTED_COMMIT,
+    "--approved-update",
+    planned.json.data.updateId,
+  ]);
+}
+
 async function configure(root: string, path: string, targets: string[]): Promise<void> {
   await runJson(root, path, ["install", ...targets]);
   const plan = await runJson(root, path, ["setup", "plan", ...targets]);
@@ -97,6 +119,7 @@ async function configure(root: string, path: string, targets: string[]): Promise
     "--approved-plan",
     plan.json.data.planId,
   ]);
+  await selectRelease(root, path, targets);
 }
 
 type ReportedCheck = {
@@ -522,6 +545,136 @@ describe("operator setup readiness", () => {
     await runJson(root, path, ["setup", "readiness", "--claude"]);
 
     expect(await Bun.$`git -C ${root} status --porcelain --ignored`.text()).toBe(before);
+  });
+});
+
+describe("the selected installation", () => {
+  test("stays unverified until the project selects an exact release", async () => {
+    const path = await makeFullPath();
+    const root = await makeProject();
+    await runJson(root, path, ["install", "--claude"]);
+    const plan = await runJson(root, path, ["setup", "plan", "--claude"]);
+    await runJson(root, path, [
+      "setup",
+      "apply",
+      "--claude",
+      "--approved-plan",
+      plan.json.data.planId,
+    ]);
+
+    const result = await runJson(root, path, ["setup", "readiness", "--claude"]);
+
+    expect(result.json.data.state).not.toBe("ready");
+    expect(checkNamed(result.json, "operator-installation")).toMatchObject({
+      state: "unverified",
+      reason: "release_unselected",
+    });
+  });
+
+  test("blocks when the running release is not the one the project selected", async () => {
+    const path = await makeFullPath();
+    const root = await makeProject();
+    await configure(root, path, ["--claude"]);
+    const selectionPath = `${root}/.operator/install/selection.json`;
+    const recorded = await Bun.file(selectionPath).json();
+    await Bun.write(
+      selectionPath,
+      `${JSON.stringify({ ...recorded, releaseIdentity: "9".repeat(64) }, null, 2)}\n`,
+    );
+
+    const result = await runJson(root, path, ["setup", "readiness", "--claude"]);
+
+    expect(result.json.data.state).toBe("blocked");
+    expect(checkNamed(result.json, "operator-installation")).toMatchObject({
+      state: "failed",
+      reason: "release_mismatch",
+    });
+  });
+
+  test("blocks when the recorded selection cannot be read", async () => {
+    const path = await makeFullPath();
+    const root = await makeProject();
+    await configure(root, path, ["--claude"]);
+    await Bun.write(`${root}/.operator/install/selection.json`, "{ not json\n");
+
+    const result = await runJson(root, path, ["setup", "readiness", "--claude"]);
+
+    expect(result.exitCode).toBe(4);
+    expect(checkNamed(result.json, "operator-installation")).toMatchObject({
+      state: "failed",
+      reason: "unreadable_selection",
+    });
+  });
+
+  test("blocks when the isolated installation holds no package", async () => {
+    const path = await makeFullPath();
+    const root = await makeProject();
+    await configure(root, path, ["--claude"]);
+    const selectionPath = `${root}/.operator/install/selection.json`;
+    const recorded = await Bun.file(selectionPath).json();
+    await Bun.write(
+      selectionPath,
+      `${JSON.stringify({ ...recorded, delivery: "jsr", packageVersion: recorded.version }, null, 2)}\n`,
+    );
+
+    const result = await runJson(root, path, ["setup", "readiness", "--claude"]);
+
+    expect(result.json.data.state).toBe("blocked");
+    expect(checkNamed(result.json, "operator-installation")).toMatchObject({
+      state: "failed",
+      reason: "install_missing",
+    });
+  });
+
+  test("blocks when the isolated installation holds another version of the package", async () => {
+    const path = await makeFullPath();
+    const root = await makeProject();
+    await configure(root, path, ["--claude"]);
+    const selectionPath = `${root}/.operator/install/selection.json`;
+    const recorded = await Bun.file(selectionPath).json();
+    await Bun.write(
+      selectionPath,
+      `${JSON.stringify({ ...recorded, delivery: "jsr", packageVersion: "9.9.9" }, null, 2)}\n`,
+    );
+    // A package is present, and it is not the exact version the selection names.
+    await Bun.write(
+      `${root}/.operator/install/node_modules/@fveracoechea/operator/package.json`,
+      `${JSON.stringify({ name: "@jsr/fveracoechea__operator", version: "1.0.0" })}\n`,
+    );
+    await Bun.write(`${root}/.operator/install/bun.lock`, "{}\n");
+
+    const result = await runJson(root, path, ["setup", "readiness", "--claude"]);
+
+    expect(result.json.data.state).toBe("blocked");
+    expect(checkNamed(result.json, "operator-installation")).toMatchObject({
+      state: "failed",
+      reason: "release_mismatch",
+    });
+  });
+
+  test("blocks when the isolated installation kept no lock data", async () => {
+    const path = await makeFullPath();
+    const root = await makeProject();
+    await configure(root, path, ["--claude"]);
+    const selectionPath = `${root}/.operator/install/selection.json`;
+    const recorded = await Bun.file(selectionPath).json();
+    await Bun.write(
+      selectionPath,
+      `${JSON.stringify({ ...recorded, delivery: "jsr", packageVersion: recorded.version }, null, 2)}\n`,
+    );
+    // The package is installed, and the lock data that would repeat that resolution is not.
+    await Bun.write(
+      `${root}/.operator/install/node_modules/@fveracoechea/operator/package.json`,
+      `${JSON.stringify({ name: "@jsr/fveracoechea__operator", version: recorded.version })}\n`,
+    );
+
+    const result = await runJson(root, path, ["setup", "readiness", "--claude"]);
+
+    expect(result.json.data.state).toBe("blocked");
+    expect(checkNamed(result.json, "operator-installation")).toMatchObject({
+      state: "failed",
+      reason: "lock_data_missing",
+    });
   });
 });
 

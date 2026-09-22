@@ -1,5 +1,12 @@
 import { ToolInvocation } from "../tool-invocation/main.ts";
-import { callGithub, type GithubOutcome } from "./invoke.ts";
+import { GithubApi } from "../github-api/main.ts";
+
+type GithubOutcome<Value> =
+  | Extract<
+      Awaited<ReturnType<typeof GithubApi.call>>,
+      { status: "failed" } | { status: "uncertain" }
+    >
+  | { status: "succeeded"; value: Value };
 
 /**
  * Every call is bounded, because an unbounded one would hold a tracker step open with no answer.
@@ -138,7 +145,7 @@ async function readPages<Value>(request: {
   const items: Value[] = [];
 
   for (let page = 1; page <= MAX_PAGES; page += 1) {
-    const outcome = await callGithub({
+    const outcome = await GithubApi.call({
       args: [`${request.path}?per_page=${PAGE_SIZE}&page=${page}`],
       timeoutMs: READ_TIMEOUT_MS,
     });
@@ -185,7 +192,7 @@ async function readPages<Value>(request: {
 export const GithubTracker = {
   /** The stable identifier of the account this machine writes as. */
   async viewer(): Promise<GithubOutcome<{ login: string }>> {
-    const outcome = await callGithub({ args: ["user"], timeoutMs: READ_TIMEOUT_MS });
+    const outcome = await GithubApi.call({ args: ["user"], timeoutMs: READ_TIMEOUT_MS });
     if (outcome.status !== "succeeded") {
       return outcome;
     }
@@ -206,7 +213,7 @@ export const GithubTracker = {
     issue: number;
     body: string;
   }): Promise<GithubOutcome<Comment>> {
-    const outcome = await callGithub({
+    const outcome = await GithubApi.call({
       args: [
         "--method",
         "POST",
@@ -229,7 +236,7 @@ export const GithubTracker = {
 
   /** Read-only. Reads one comment by the server identifier a write recorded. */
   async readComment(request: { repository: string; commentId: string }): Promise<Lookup<Comment>> {
-    const outcome = await callGithub({
+    const outcome = await GithubApi.call({
       args: [`repos/${request.repository}/issues/comments/${request.commentId}`],
       timeoutMs: READ_TIMEOUT_MS,
     });
@@ -254,7 +261,7 @@ export const GithubTracker = {
 
   /** Read-only. Reads the state, close reason, and times one issue currently shows. */
   async readIssue(request: { repository: string; issue: number }): Promise<Lookup<Issue>> {
-    const outcome = await callGithub({
+    const outcome = await GithubApi.call({
       args: [`repos/${request.repository}/issues/${request.issue}`],
       timeoutMs: READ_TIMEOUT_MS,
     });
@@ -307,7 +314,7 @@ export const GithubTracker = {
    * workflow itself never reopens a ticket.
    */
   async reopenIssue(request: { repository: string; issue: number }): Promise<GithubOutcome<Issue>> {
-    const outcome = await callGithub({
+    const outcome = await GithubApi.call({
       args: [
         "--method",
         "PATCH",
@@ -334,7 +341,7 @@ export const GithubTracker = {
     issue: number;
     reason: string;
   }): Promise<GithubOutcome<Issue>> {
-    const outcome = await callGithub({
+    const outcome = await GithubApi.call({
       args: [
         "--method",
         "PATCH",

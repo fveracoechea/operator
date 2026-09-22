@@ -46,6 +46,11 @@ Setup owns these files:
 
 Setup never commits, never changes the Git index, and never installs machine-wide software.
 
+## Select the release
+
+A configured project is not yet coordinating with a known release.
+Read [RELEASE.md](RELEASE.md) before you select one, update one, or answer a `state_version_outdated` refusal.
+
 ## Recover an interrupted setup
 
 ```sh

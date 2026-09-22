@@ -5,12 +5,15 @@ import { integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqli
  * The durable shape of the crew state. A reader that finds a higher version refuses the file,
  * so this number changes only when an older Operator release can no longer read the tables.
  */
-export const STATE_VERSION = 1;
+export const STATE_VERSION = 2;
 
 export const stateMeta = sqliteTable("state_meta", {
   id: integer("id").primaryKey(),
   stateVersion: integer("state_version").notNull(),
   createdAt: text("created_at").notNull(),
+  // The release this crew coordinates under. A crew started before a project selected one
+  // records none, which is what the update path fills in when it migrates the file.
+  releaseIdentity: text("release_identity"),
 });
 
 export const operatorOwnership = sqliteTable("operator_ownership", {
@@ -508,7 +511,8 @@ export const CREATE_STATEMENTS = [
   sql`create table state_meta (
     id integer primary key,
     state_version integer not null,
-    created_at text not null
+    created_at text not null,
+    release_identity text
   ) strict`,
   sql`create table operator_ownership (
     id integer primary key,

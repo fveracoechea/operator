@@ -7,6 +7,8 @@ export function reportMissingTarget(
   parsed: ParsedArguments,
   operation:
     | "install"
+    | "update_plan"
+    | "update_apply"
     | "setup_plan"
     | "setup_apply"
     | "setup_readiness"

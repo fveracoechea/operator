@@ -12,6 +12,7 @@ import { lookupRequest, recordRequest } from "./request-records.ts";
 export type StateFailure =
   | { status: "state-missing"; path: string }
   | { status: "state-unreadable"; path: string; detail: string }
+  | { status: "state-outdated"; path: string; found: number; supported: number }
   | { status: "state-unsupported"; path: string; found: number; supported: number };
 
 export type RequestFailure =
@@ -38,6 +39,14 @@ function stateFailure(opened: Exclude<OpenResult, { status: "open" }>): StateFai
   }
   if (opened.status === "unreadable") {
     return { status: "state-unreadable", path: opened.path, detail: opened.detail };
+  }
+  if (opened.status === "outdated") {
+    return {
+      status: "state-outdated",
+      path: opened.path,
+      found: opened.found,
+      supported: opened.supported,
+    };
   }
 
   return {

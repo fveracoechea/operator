@@ -39,6 +39,9 @@ function isCrewFlag(value: string): value is CrewFlag {
 export type ParsedArguments = {
   json: boolean;
   targets: AgentTarget[];
+  delivery: "github-source" | "jsr" | undefined;
+  packageVersion: string | undefined;
+  approvedUpdate: string | undefined;
   approvedPlan: string | undefined;
   approvedProbe: string | undefined;
   approvedCleanup: string | undefined;
@@ -79,6 +82,9 @@ export function parseArguments(args: string[]): ParsedArguments {
   const parsed: ParsedArguments = {
     json: false,
     targets: [],
+    delivery: undefined,
+    packageVersion: undefined,
+    approvedUpdate: undefined,
     approvedPlan: undefined,
     approvedProbe: undefined,
     approvedCleanup: undefined,
@@ -109,6 +115,28 @@ export function parseArguments(args: string[]): ParsedArguments {
       const target = targetByFlag[argument];
       if (!parsed.targets.includes(target)) {
         parsed.targets.push(target);
+      }
+    } else if (argument === "--delivery") {
+      const value = valueOf(args, index + 1);
+      if (value !== "github-source" && value !== "jsr") {
+        parsed.unsupported.push(argument);
+        continue;
+      }
+
+      index += 1;
+      parsed.delivery = value;
+    } else if (argument === "--package-version" || argument === "--approved-update") {
+      const value = valueOf(args, index + 1);
+      if (value === undefined) {
+        parsed.unsupported.push(argument);
+        continue;
+      }
+
+      index += 1;
+      if (argument === "--package-version") {
+        parsed.packageVersion = value;
+      } else {
+        parsed.approvedUpdate = value;
       }
     } else if (
       argument === "--approved-plan" ||
@@ -204,4 +232,24 @@ export function hasSelectionOrProbeArguments(parsed: ParsedArguments): boolean {
 /** True when the request carries a crew-state flag the addressed command has no use for. */
 export function hasCrewArguments(parsed: ParsedArguments): boolean {
   return parsed.takeover || Object.keys(parsed.crew).length > 0;
+}
+
+/** True when the request carries a release selector only the update path reads. */
+export function hasUpdateArguments(parsed: ParsedArguments): boolean {
+  return (
+    parsed.delivery !== undefined ||
+    parsed.packageVersion !== undefined ||
+    parsed.approvedUpdate !== undefined
+  );
+}
+
+/**
+ * The leading operation words of a request, and the flags that follow them.
+ * A request names its operation first, then carries only flags, so the first flag ends the words.
+ */
+export function splitRequest(rest: string[]): { words: string[]; parsed: ParsedArguments } {
+  const firstFlag = rest.findIndex((word) => word.startsWith("--"));
+  return firstFlag === -1
+    ? { words: rest, parsed: parseArguments([]) }
+    : { words: rest.slice(0, firstFlag), parsed: parseArguments(rest.slice(firstFlag)) };
 }

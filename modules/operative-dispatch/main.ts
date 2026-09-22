@@ -106,6 +106,21 @@ export const OperativeDispatch = {
       ["release.version", request.recorded.release.version, request.current.release.version],
       ["release.identity", request.recorded.release.identity, request.current.release.identity],
       ["lock.identity", request.recorded.lock.identity, request.current.lock.identity],
+      [
+        "installation.delivery",
+        request.recorded.installation?.delivery ?? null,
+        request.current.installation?.delivery ?? null,
+      ],
+      [
+        "installation.commit",
+        request.recorded.installation?.commit ?? null,
+        request.current.installation?.commit ?? null,
+      ],
+      [
+        "installation.packageVersion",
+        request.recorded.installation?.packageVersion ?? null,
+        request.current.installation?.packageVersion ?? null,
+      ],
       ["skills.identity", request.recorded.skills.identity, request.current.skills.identity],
       [
         "selection.crew.host",

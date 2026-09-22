@@ -21,6 +21,7 @@ export type OpenResult =
   | { status: "open"; db: CrewDatabase; close: () => void; stateVersion: number }
   | { status: "missing"; path: string }
   | { status: "unreadable"; path: string; detail: string }
+  | { status: "outdated"; path: string; found: number; supported: number }
   | { status: "unsupported"; path: string; found: number; supported: number };
 
 function statePath(projectRoot: string): string {
@@ -102,12 +103,27 @@ export async function openState(projectRoot: string): Promise<OpenResult> {
     return { status: "unsupported", path, found: stateVersion, supported: STATE_VERSION };
   }
 
+  // An older file is left exactly as it is. Only an approved update migrates it, so a command
+  // that happened to run first never rewrites a format the user has not backed up.
+  if (stateVersion < STATE_VERSION) {
+    opened.sqlite.close();
+    return { status: "outdated", path, found: stateVersion, supported: STATE_VERSION };
+  }
+
   return {
     status: "open",
     db: opened.db,
     close: () => opened.sqlite.close(),
     stateVersion,
   };
+}
+
+/** Opens the state file directly, for the one operation that changes its recorded format. */
+export function openForMigration(projectRoot: string) {
+  const path = statePath(projectRoot);
+  const sqlite = new Database(path, { create: false, readwrite: true });
+  sqlite.exec("pragma busy_timeout = 10000");
+  return sqlite;
 }
 
 /**
@@ -135,7 +151,7 @@ export async function createState(
           tx.run(statement);
         }
         tx.insert(crewStateSchema.stateMeta)
-          .values({ id: 1, stateVersion: STATE_VERSION, createdAt: now })
+          .values({ id: 1, stateVersion: STATE_VERSION, createdAt: now, releaseIdentity: null })
           .run();
       });
     } finally {

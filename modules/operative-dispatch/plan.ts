@@ -42,6 +42,10 @@ export type Snapshot = {
     crew: { host: string | null; model: string | null };
   };
   release: { version: string; identity: string };
+  // A record written before a project selected an exact release carries none.
+  installation?:
+    | { delivery: string | null; commit: string | null; packageVersion: string | null }
+    | undefined;
   lock: { name: string | null; state: string; identity: string | null; path: string | null };
   skills: { identity: string };
 };
