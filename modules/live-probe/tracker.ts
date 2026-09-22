@@ -93,6 +93,31 @@ async function baselineIdentityOf(
   return read.status === "read" ? read.reading.baselineIdentity : { detail: read.status };
 }
 
+type Linked = {
+  coverage: { complete: boolean; detail: string | null };
+  issues: Array<{ number: number; state: string }>;
+};
+
+/** One read of the issues linked to the fixture. An empty answer leaves the check unproven. */
+function linkCheck(name: string, noun: string, read: Linked, endpoint: string): Staged {
+  if (!read.coverage.complete) {
+    return failed(
+      name,
+      `The ${noun} read did not cover every page: ${read.coverage.detail ?? "it answered no coverage"}`,
+    );
+  }
+  if (read.issues.length === 0) {
+    return skipped(
+      name,
+      `The fixture issue reports no ${noun}, so nothing proved that \`${endpoint}\` is read correctly. Give the probe fixture at least one.`,
+    );
+  }
+
+  return passed(name, `The fixture issue reports ${read.issues.length} ${noun}.`, {
+    outputs: read.issues.map((one) => `#${one.number} ${one.state}`),
+  });
+}
+
 /**
  * Runs every GitHub fixture check against the configured fixture and nothing else.
  * The probe closes the fixture issue and puts it back as it found it, so a rerun starts from the
@@ -203,6 +228,15 @@ export async function runTrackerChecks(request: {
       failed("github-amendment", `The fixture map could not be read: ${baseline.detail}`),
     );
   } else {
+    // An ordinary comment goes on the map first, so the check proves the reader tells the two
+    // apart instead of only proving that an amendment is found.
+    const discussion = await writeComment(fixture, {
+      issue: mapIssue,
+      intent: {
+        step: "resolution",
+        body: `## Resolution\n\nOperator live probe ${request.probeId} wrote this ordinary comment, and it is not an amendment.`,
+      },
+    });
     const amendment = await writeComment(fixture, {
       issue: mapIssue,
       intent: {
@@ -214,7 +248,14 @@ export async function runTrackerChecks(request: {
         body: "- The live probe wrote this synthetic amendment.",
       },
     });
-    if (amendment.status !== "written") {
+    if (discussion.status === "written") {
+      resources.push(`github comment ${fixture.repository}#${mapIssue}/${discussion.resourceId}`);
+    }
+    if (discussion.status !== "written") {
+      staged.push(
+        failed("github-amendment", `The ordinary map comment did not land: ${discussion.detail}`),
+      );
+    } else if (amendment.status !== "written") {
       staged.push(failed("github-amendment", amendment.detail));
     } else {
       resources.push(`github comment ${fixture.repository}#${mapIssue}/${amendment.resourceId}`);
@@ -226,8 +267,9 @@ export async function runTrackerChecks(request: {
         read.status === "read"
           ? read.reading.effective.some((one) => one.operationId === amendment.operationId)
           : false;
+      const toldApart = read.status === "read" && read.reading.ordinaryComments > 0;
       staged.push(
-        read.status === "read" && effective && read.reading.problems.length === 0
+        read.status === "read" && effective && toldApart && read.reading.problems.length === 0
           ? passed(
               "github-amendment",
               `The amendment stands on the fixture map, beside ${read.reading.ordinaryComments} ordinary comments that are not amendments.`,
@@ -247,43 +289,23 @@ export async function runTrackerChecks(request: {
             )
           : failed(
               "github-amendment",
-              read.status === "read"
-                ? `The amendment did not read back as one: ${read.reading.problems.map((one) => one.detail).join(" ") || "it is not effective"}`
-                : `The fixture map could not be read: ${read.status}`,
+              read.status !== "read"
+                ? `The fixture map could not be read: ${read.status}`
+                : !toldApart
+                  ? "The map reader counted the ordinary comment as an amendment, so it does not tell the two apart."
+                  : `The amendment did not read back as one: ${read.reading.problems.map((one) => one.detail).join(" ") || "it is not effective"}`,
             ),
       );
     }
   }
 
+  // An empty list reads the same whether the API works or answers nothing, so a read that
+  // returns none proves nothing about the behaviour and the fixture has to hold one.
   const blocked = await GithubTracker.readBlockedBy(target);
-  staged.push(
-    blocked.coverage.complete
-      ? passed(
-          "github-dependencies",
-          `The fixture issue reports ${blocked.issues.length} issues that block it.`,
-          { outputs: blocked.issues.map((one) => `#${one.number} ${one.state}`) },
-        )
-      : failed(
-          "github-dependencies",
-          `The dependency read did not cover every page: ${blocked.coverage.detail ?? "it answered no coverage"}`,
-        ),
-  );
+  staged.push(linkCheck("github-dependencies", "issues that block it", blocked, "blockedBy"));
 
   const subIssues = await GithubTracker.readSubIssues(target);
-  staged.push(
-    subIssues.coverage.complete
-      ? passed(
-          "github-sub-issues",
-          `The fixture issue reports ${subIssues.issues.length} sub-issues.`,
-          {
-            outputs: subIssues.issues.map((one) => `#${one.number} ${one.state}`),
-          },
-        )
-      : failed(
-          "github-sub-issues",
-          `The sub-issue read did not cover every page: ${subIssues.coverage.detail ?? "it answered no coverage"}`,
-        ),
-  );
+  staged.push(linkCheck("github-sub-issues", "sub-issues", subIssues, "sub_issues"));
 
   const closure = await closeAndRestore(fixture, request.probeId);
   staged.push(closure.closure, closure.events);

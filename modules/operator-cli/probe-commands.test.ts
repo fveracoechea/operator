@@ -435,6 +435,37 @@ describe("operator setup probe apply", () => {
   );
 
   test(
+    "proves nothing from a fixture that holds no sub-issue and no blocking issue",
+    async () => {
+      const state: GithubFakeState = await Bun.file(`${workspace.github}/state.json`).json();
+      await writeFixtureState(workspace, { ...state, subIssues: {}, blockedBy: {} });
+
+      const result = await applyProbe(workspace);
+
+      expect(result.json.reason).toBe("probe_incomplete");
+      expect(observed(result.json, "github-sub-issues")).toMatchObject({ state: "skipped" });
+      expect(observed(result.json, "github-dependencies")).toMatchObject({ state: "skipped" });
+      const readiness = await runJson(workspace, ["setup", "readiness", ...selection]);
+      expect(readiness.json.data.claims.release).toBe("unverified");
+    },
+    PROBE_TIMEOUT_MS,
+  );
+
+  test(
+    "tells an ordinary map comment apart from an amendment",
+    async () => {
+      const result = await applyProbe(workspace);
+      const amendment = observed(result.json, "github-amendment");
+
+      expect(amendment).toMatchObject({ state: "passed" });
+      expect(amendment?.outputs).toContain("amendments 1");
+      // The probe wrote one ordinary comment on the map, and the reader did not count it.
+      expect(amendment?.outputs.some((one) => /^ordinary comments [1-9]/.test(one))).toBe(true);
+    },
+    PROBE_TIMEOUT_MS,
+  );
+
+  test(
     "reports the same mixed-host selection it launched",
     async () => {
       const result = await applyProbe(workspace);

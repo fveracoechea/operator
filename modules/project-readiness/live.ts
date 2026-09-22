@@ -170,7 +170,7 @@ export const liveChecks: LiveCheck[] = [
   },
   {
     name: "github-dependencies",
-    summary: "The fixture issue reports the issues that block it.",
+    summary: "The issues that block the fixture issue are read, and at least one is reported.",
     group: "tracker",
     inputs: TRACKER_INPUTS,
     claims: ["readiness", "release"],
@@ -178,7 +178,8 @@ export const liveChecks: LiveCheck[] = [
   },
   {
     name: "github-sub-issues",
-    summary: "The fixture issue reports the sub-issues published under it.",
+    summary:
+      "The sub-issues published under the fixture issue are read, and at least one is reported.",
     group: "tracker",
     inputs: TRACKER_INPUTS,
     claims: ["readiness", "release"],
@@ -230,6 +231,18 @@ export const probeCredentials = [
 
 export const PROBE_FIXTURE_CREDENTIAL =
   "A GitHub token that may comment on and close the probe fixture issue, read by `gh` from its own configuration.";
+
+/**
+ * What the probe fixture must already hold.
+ * A read that answers nothing looks the same whether the tracker works or not, so a check with
+ * nothing to find is skipped rather than counted as proof.
+ */
+export const probeFixtureRequirements = [
+  "The fixture issue is open, so the closure check can close it and put it back as it was.",
+  "The fixture issue has at least one sub-issue.",
+  "The fixture issue is blocked by at least one issue.",
+  "The fixture map issue holds a baseline body, which is the issue itself unless `mapIssue` names another.",
+];
 
 export const PROBE_FIXTURE_MISSING =
   "No probe fixture is configured, so every GitHub check is skipped and stays unverified. Set `probe.githubFixture` in `.operator/config.json`.";

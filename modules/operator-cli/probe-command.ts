@@ -47,6 +47,7 @@ function planLines(result: Planned): string[] {
       `Operator: ${result.plan.agents.operator.host} (${result.plan.agents.operator.hostSource}), model ${result.plan.agents.operator.model ?? "the host default"}`,
       `Crew: ${result.plan.agents.crew.host} (${result.plan.agents.crew.hostSource}), model ${result.plan.agents.crew.model ?? "the host default"}`,
     ]),
+    ...section("Fixture requirements", result.plan.fixtureRequirements),
     ...section("Provider use", result.plan.providerUse),
     ...section("Credentials required", result.plan.credentials),
     ...section("Temporary resources", result.plan.temporaryResources),

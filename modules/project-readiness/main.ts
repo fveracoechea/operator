@@ -9,6 +9,7 @@ import {
   probeCredentials,
   PROBE_FIXTURE_CREDENTIAL,
   PROBE_FIXTURE_MISSING,
+  probeFixtureRequirements,
   probeProviderUse,
   probeTemporaryResources,
 } from "./live.ts";
@@ -236,7 +237,7 @@ function expectedCosts(report: Report): string[] {
     hostLine("crew"),
     report.fixture === null
       ? "No probe fixture is configured, so the probe makes no GitHub call."
-      : `GitHub fixture ${report.fixture.repository}#${report.fixture.issue}: one comment written, one issue closed and reopened, and the reads the tracker checks need. The fixture issue must be open, or the closure checks are skipped and nothing is written to it.`,
+      : `GitHub fixture ${report.fixture.repository}#${report.fixture.issue}: three comments written, one issue closed and reopened, and the reads the tracker checks need.`,
     "Operator charges nothing of its own. Each provider bills the tokens its own host spends.",
   ];
 }
@@ -253,6 +254,8 @@ function probeDetails(report: Report) {
     planRevision: LIVE_PLAN_REVISION,
     agents: report.selection,
     fixture: report.fixture,
+    fixtureRequirements:
+      report.fixture === null ? [PROBE_FIXTURE_MISSING] : probeFixtureRequirements,
     providerUse: probeProviderUse,
     credentials: probeCredentialList(report),
     temporaryResources: probeTemporaryResources,
