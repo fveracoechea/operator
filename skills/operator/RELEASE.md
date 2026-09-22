@@ -35,7 +35,8 @@ Nothing is written while the crew still has work in flight.
 Finish, accept, or invalidate that work first, then plan again.
 
 Nothing is written when an installed skill copy differs from this release.
-Restore or remove the changed copy. Never repair it by overwriting what the user changed.
+Restore or remove the changed copy.
+Never repair it by overwriting what the user changed.
 
 Nothing is migrated until every durable record is copied aside and read back.
 A copy that did not read back as written stops the update before anything moves.

@@ -577,7 +577,8 @@ These are requirements for the planned implementation, not tools already configu
 | Releases | Automated GitHub Actions release workflow |
 | Distribution | Both GitHub-hosted source and JSR |
 
-The two delivery paths are described under [Release and Updates](#release-and-updates). The approved [CLI and skill distribution contract](https://github.com/fveracoechea/operator/issues/7#issuecomment-5729841818) settles exact release selection, skill installation, updates, runtime boundaries, and publication approval.
+The two delivery paths are described under [Release and Updates](#release-and-updates).
+The approved [CLI and skill distribution contract](https://github.com/fveracoechea/operator/issues/7#issuecomment-5729841818) settles exact release selection, skill installation, updates, runtime boundaries, and publication approval.
 
 Fast local feedback and CI checks must agree on what passes. The specification will define test boundaries, review gates, and failure handling before implementation starts.
 
