@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import type { CrewWriter } from "./database.ts";
+import type { CrewReader, CrewWriter } from "./database.ts";
 import {
   type DirectionRecord,
   raiseDirection,
@@ -84,7 +84,18 @@ function correctionsOf(findings: ReviewFindingRow[]): ReworkCorrection[] {
 
 type ReviewGate =
   | { status: "ok"; corrections: ReworkCorrection[] }
-  | Exclude<ReworkOutcome, { status: "delegated" } | { status: "ok" }>;
+  | Extract<
+      ReworkOutcome,
+      {
+        status:
+          | "unknown-review"
+          | "review-not-of-submission"
+          | "review-not-reported"
+          | "findings-undisposed"
+          | "no-corrections"
+          | "conflict-not-corrected";
+      }
+    >;
 
 /**
  * Reads the review one correction cycle answers.
@@ -92,7 +103,7 @@ type ReviewGate =
  * review would leave the unanswered findings behind with nothing to return to them.
  */
 function reviewGate(
-  db: CrewWriter,
+  db: CrewReader,
   request: { reviewId: string; submission: SubmissionRow; input: ReworkInput },
 ): ReviewGate {
   const review = readReview(db, request.reviewId);
