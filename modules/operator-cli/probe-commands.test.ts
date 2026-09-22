@@ -176,6 +176,12 @@ function observed(json: { data: { run: { observations: Observation[] } } }, name
   return json.data.run.observations.find((one) => one.name === name);
 }
 
+/** What the probe directory holds, so a test reads the resources instead of guessing at them. */
+async function probeEntries(workspace: Workspace, pattern: string): Promise<string[]> {
+  const root = `${workspace.repo}/.operator/local/probe`;
+  return Array.fromAsync(new Bun.Glob(pattern).scan({ cwd: root, dot: true, onlyFiles: false }));
+}
+
 describe("operator setup probe apply", () => {
   let workspace: Workspace & { probeId: string; selection: string[] };
 
@@ -265,7 +271,9 @@ describe("operator setup probe apply", () => {
       expect(calls.some((one) => one.startsWith("worktree create"))).toBe(true);
       expect(calls.some((one) => one.startsWith("worktree remove"))).toBe(true);
       expect(observed(result.json, "host-termination")?.state).toBe("passed");
-      expect(await Bun.file(`${workspace.repo}/.operator/local/probe`).exists()).toBe(false);
+      // The test worktree is gone, and the scratch repository stays until a cleanup is approved.
+      expect(await probeEntries(workspace, "*/worktree")).toEqual([]);
+      expect(await probeEntries(workspace, "*/repo/.git/HEAD")).toHaveLength(1);
     },
     PROBE_TIMEOUT_MS,
   );
@@ -300,9 +308,9 @@ describe("operator setup probe apply", () => {
   );
 
   test(
-    "keeps a check unverified when the agent answers nothing inside its window",
+    "fails a check when the agent answers nothing inside its window",
     async () => {
-      await Bun.write(`${workspace.herdr}/probe/question.json`, "");
+      // The seeded answer goes away, so the launched agent writes no question report at all.
       await Bun.$`rm ${workspace.herdr}/probe/question.json`.quiet();
 
       const result = await applyProbe(workspace, "600");
