@@ -1,25 +1,10 @@
+import { OperatorRelease } from "../operator-release/main.ts";
 import type { TarEntry } from "./tar.ts";
-
-/** Lists every file under a directory, treating a missing directory as empty. */
-async function scanFiles(directory: string): Promise<string[]> {
-  try {
-    return (
-      await Array.fromAsync(
-        new Bun.Glob("**/*").scan({ cwd: directory, dot: true, onlyFiles: true }),
-      )
-    ).toSorted();
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return [];
-    }
-    throw error;
-  }
-}
 
 /** Reads every published byte of one artifact, under the names it is delivered as. */
 export async function scanArtifact(artifactRoot: string, prefix: string): Promise<TarEntry[]> {
   const root = artifactRoot.replace(/\/$/, "");
-  const paths = await scanFiles(root);
+  const paths = await OperatorRelease.contents({ artifactRoot: root });
 
   return Promise.all(
     paths.map(async (path) => ({

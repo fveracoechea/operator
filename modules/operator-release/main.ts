@@ -1,6 +1,6 @@
 import { SkillInstall } from "../skill-install/main.ts";
 import { buildArtifact } from "./build.ts";
-import { identifyArtifact, REQUIRED_PARTS } from "./inventory.ts";
+import { identifyArtifact, REQUIRED_PARTS, scanFiles } from "./inventory.ts";
 import { packageRoot, installationRoot, readLockData, readReleaseManifest } from "./manifest.ts";
 
 export const OperatorRelease = {
@@ -46,6 +46,11 @@ export const OperatorRelease = {
   /** Writes one release artifact from one checkout, with no install-time build for a consumer. */
   async build(request: { sourceRoot: string; artifactRoot: string; commit: string; now?: string }) {
     return buildArtifact(request);
+  },
+
+  /** The files one artifact holds, under the exact names it is published as. */
+  async contents(request: { artifactRoot: string }) {
+    return scanFiles(request.artifactRoot.replace(/\/$/, ""));
   },
 
   /** Reports whether one artifact directory holds every part a release must carry. */

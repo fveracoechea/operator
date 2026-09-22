@@ -1,6 +1,7 @@
 import { type Installation, inspectInstallation, type RunningRelease } from "./inspect.ts";
 import {
   INSTALL_ROOT,
+  issueLines,
   JSR_PACKAGE_NAME,
   MANIFEST_PATH,
   manifestText,
@@ -30,10 +31,7 @@ export const ReleaseInstall = {
   async select(request: { projectRoot: string; selection: ReleaseSelection }) {
     const parsed = selectionSchema.safeParse(request.selection);
     if (!parsed.success) {
-      return {
-        status: "invalid" as const,
-        issues: parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`),
-      };
+      return { status: "invalid" as const, issues: issueLines(parsed.error) };
     }
 
     const written = [SELECTION_PATH];

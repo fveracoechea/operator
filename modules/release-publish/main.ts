@@ -5,10 +5,8 @@ import { awaitTask, createVersion, readOidcCredential } from "./jsr-client.ts";
 import { scanArtifact } from "./pack.ts";
 import {
   computeReleasePlan,
-  JSR_API,
   JSR_CONFIG,
-  JSR_PACKAGE,
-  JSR_SCOPE,
+  jsrSettings,
   type PlanRequest,
   type ReleasePlan,
 } from "./plan.ts";
@@ -171,12 +169,7 @@ async function publishRegistry(
   request: PublishRequest,
   now: string,
 ): Promise<PathRecord> {
-  const jsr = request.jsr ?? {
-    api: JSR_API,
-    scope: JSR_SCOPE,
-    package: JSR_PACKAGE,
-    fetch: globalThis.fetch,
-  };
+  const jsr = jsrSettings(request);
   const credential = await readOidcCredential({
     environment: request.environment ?? process.env,
     fetch: jsr.fetch,

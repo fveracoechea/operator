@@ -1,9 +1,9 @@
 import { AgentSelection } from "../agent-selection/main.ts";
 import { ContentIdentity } from "../content-identity/main.ts";
+import { OperatorRelease } from "../operator-release/main.ts";
 import { ReleaseInstall } from "../release-install/main.ts";
 import { SkillInstall } from "../skill-install/main.ts";
 import { readConfiguration } from "./observe.ts";
-import { identifyRelease } from "./release.ts";
 
 export type LaunchSnapshot = {
   selection: {
@@ -39,7 +39,7 @@ export async function readLaunchSnapshot(request: {
 }): Promise<LaunchSnapshot> {
   const configuration = await readConfiguration(request.projectRoot);
   const [release, skills, selected] = await Promise.all([
-    identifyRelease(),
+    OperatorRelease.identify(),
     SkillInstall.identity(),
     ReleaseInstall.selection({ projectRoot: request.projectRoot }),
   ]);

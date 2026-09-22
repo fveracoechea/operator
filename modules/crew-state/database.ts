@@ -118,11 +118,6 @@ export async function openState(projectRoot: string): Promise<OpenResult> {
   };
 }
 
-/**
- * Creates crew state for a crew that has none. The tables are built in a temporary file and
- * linked into place, so a failed creation leaves nothing and two Operator processes racing to
- * start the same crew cannot produce a half-built or replaced state file.
- */
 /** Opens the state file directly, for the one operation that changes its recorded format. */
 export function openForMigration(projectRoot: string) {
   const path = statePath(projectRoot);
@@ -131,6 +126,11 @@ export function openForMigration(projectRoot: string) {
   return sqlite;
 }
 
+/**
+ * Creates crew state for a crew that has none. The tables are built in a temporary file and
+ * linked into place, so a failed creation leaves nothing and two Operator processes racing to
+ * start the same crew cannot produce a half-built or replaced state file.
+ */
 export async function createState(
   projectRoot: string,
   now: string,

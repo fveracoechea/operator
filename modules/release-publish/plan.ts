@@ -1,6 +1,7 @@
 import { OperatorRelease } from "../operator-release/main.ts";
 import { readChecks, readMerged, readRelease, readTag } from "./github-release.ts";
 import { type JournalRead, type PathRecord, readJournal } from "./journal.ts";
+import { readVersion } from "./jsr-client.ts";
 
 export const REPOSITORY = "fveracoechea/operator";
 export const JSR_SCOPE = "fveracoechea";
@@ -47,16 +48,14 @@ export type PlanRequest = {
   journalPath: string;
 };
 
-function jsrSettings(request: PlanRequest) {
+export function jsrSettings(request: PlanRequest) {
   return (
     request.jsr ?? { api: JSR_API, scope: JSR_SCOPE, package: JSR_PACKAGE, fetch: globalThis.fetch }
   );
 }
 
 async function readPublishedVersion(request: PlanRequest, version: string) {
-  const jsr = jsrSettings(request);
-  const { readVersion } = await import("./jsr-client.ts");
-  return readVersion({ ...jsr, version });
+  return readVersion({ ...jsrSettings(request), version });
 }
 
 /**

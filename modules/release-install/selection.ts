@@ -35,6 +35,11 @@ export const selectionSchema = z.strictObject({
 
 export type ReleaseSelection = z.infer<typeof selectionSchema>;
 
+/** The reasons a recorded or proposed selection was refused, one readable line each. */
+export function issueLines(error: z.ZodError): string[] {
+  return error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`);
+}
+
 export type SelectionRead =
   | { state: "missing" }
   | { state: "unreadable"; detail: string }
@@ -56,12 +61,7 @@ export async function readSelection(projectRoot: string): Promise<SelectionRead>
   const result = selectionSchema.safeParse(parsed);
   return result.success
     ? { state: "read", selection: result.data }
-    : {
-        state: "unreadable",
-        detail: result.error.issues
-          .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
-          .join("; "),
-      };
+    : { state: "unreadable", detail: issueLines(result.error).join("; ") };
 }
 
 export function selectionText(selection: ReleaseSelection): string {

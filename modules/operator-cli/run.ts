@@ -5,6 +5,7 @@ import {
   hasUpdateArguments,
   type ParsedArguments,
   parseArguments,
+  splitRequest,
 } from "./arguments.ts";
 import { runApproval } from "./approval-command.ts";
 import { runAttempt } from "./attempt-command.ts";
@@ -59,11 +60,10 @@ function rejectArguments(json: boolean): void {
 export async function run(args: string[]): Promise<void> {
   // The release reports its own version and supported runtime. A registry rewrites the package
   // manifest, so a published copy is never read through it.
-  const { version: OPERATOR_VERSION, supportedBun: SUPPORTED_BUN_RANGE } =
-    await OperatorRelease.manifest();
+  const { version, supportedBun } = await OperatorRelease.manifest();
 
   // The Bun check runs before any command so an unsupported runtime never writes files.
-  if (!Bun.semver.satisfies(Bun.version, SUPPORTED_BUN_RANGE)) {
+  if (!Bun.semver.satisfies(Bun.version, supportedBun)) {
     if (args.includes("--json")) {
       writeJsonResult({
         outcome: "failed",
@@ -71,18 +71,18 @@ export async function run(args: string[]): Promise<void> {
         blockers: [
           {
             reason: "unsupported_bun",
-            required: SUPPORTED_BUN_RANGE,
+            required: supportedBun,
             actual: Bun.version,
           },
         ],
         operation: "startup",
         data: {
-          operatorVersion: OPERATOR_VERSION,
+          operatorVersion: version,
           bunVersion: Bun.version,
         },
       });
     }
-    console.error(`operator: Bun ${SUPPORTED_BUN_RANGE} is required; running ${Bun.version}.`);
+    console.error(`operator: Bun ${supportedBun} is required; running ${Bun.version}.`);
     process.exitCode = exitCodeByOutcome.failed;
     return;
   }
@@ -90,10 +90,7 @@ export async function run(args: string[]): Promise<void> {
   const [command, ...rest] = args;
 
   if (command === "update") {
-    // An update request names its operation in leading words, then carries only flags.
-    const firstFlag = rest.findIndex((word) => word.startsWith("--"));
-    const words = firstFlag === -1 ? rest : rest.slice(0, firstFlag);
-    const parsed = parseArguments(firstFlag === -1 ? [] : rest.slice(firstFlag));
+    const { words, parsed } = splitRequest(rest);
     // The update names the release it selects by a full commit, and nothing else about a crew.
     const { baseCommit: _commit, ...otherCrewFlags } = parsed.crew;
     if (
@@ -126,10 +123,7 @@ export async function run(args: string[]): Promise<void> {
   }
 
   if (command === "setup") {
-    // A setup request names its operation in leading words, then carries only flags.
-    const firstFlag = rest.findIndex((word) => word.startsWith("--"));
-    const words = firstFlag === -1 ? rest : rest.slice(0, firstFlag);
-    const parsed = parseArguments(firstFlag === -1 ? [] : rest.slice(firstFlag));
+    const { words, parsed } = splitRequest(rest);
     if (
       parsed.unsupported.length > 0 ||
       hasCrewArguments(parsed) ||
@@ -143,10 +137,7 @@ export async function run(args: string[]): Promise<void> {
 
   const crewCommand = command === undefined ? undefined : crewCommands[command];
   if (crewCommand !== undefined) {
-    // A crew request names its operation in leading words, then carries only flags.
-    const firstFlag = rest.findIndex((word) => word.startsWith("--"));
-    const words = firstFlag === -1 ? rest : rest.slice(0, firstFlag);
-    const parsed = parseArguments(firstFlag === -1 ? [] : rest.slice(firstFlag));
+    const { words, parsed } = splitRequest(rest);
     // The next actions answer for one installation and one selection, so only that read
     // carries the target and selection flags every other crew command refuses.
     const selects = command === "crew" && words[0] === "next";
@@ -180,7 +171,7 @@ export async function run(args: string[]): Promise<void> {
       blockers: [],
       operation: "version",
       data: {
-        operatorVersion: OPERATOR_VERSION,
+        operatorVersion: version,
         bunVersion: Bun.version,
       },
     });
@@ -189,7 +180,7 @@ export async function run(args: string[]): Promise<void> {
   }
 
   if (args.length === 1 && args[0] === "--version") {
-    console.log(`operator ${OPERATOR_VERSION}`);
+    console.log(`operator ${version}`);
     process.exitCode = exitCodeByOutcome.completed;
     return;
   }

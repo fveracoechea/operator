@@ -242,3 +242,14 @@ export function hasUpdateArguments(parsed: ParsedArguments): boolean {
     parsed.approvedUpdate !== undefined
   );
 }
+
+/**
+ * The leading operation words of a request, and the flags that follow them.
+ * A request names its operation first, then carries only flags, so the first flag ends the words.
+ */
+export function splitRequest(rest: string[]): { words: string[]; parsed: ParsedArguments } {
+  const firstFlag = rest.findIndex((word) => word.startsWith("--"));
+  return firstFlag === -1
+    ? { words: rest, parsed: parseArguments([]) }
+    : { words: rest.slice(0, firstFlag), parsed: parseArguments(rest.slice(firstFlag)) };
+}

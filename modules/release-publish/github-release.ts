@@ -5,11 +5,11 @@ const READ_TIMEOUT_MS = 30_000;
 const WRITE_TIMEOUT_MS = 60_000;
 
 type Outcome<Value> =
-  Awaited<ReturnType<typeof GithubApi.call>> extends infer Answer
-    ? Answer extends { status: "succeeded" }
-      ? { status: "succeeded"; value: Value }
-      : Answer
-    : never;
+  | Extract<
+      Awaited<ReturnType<typeof GithubApi.call>>,
+      { status: "failed" } | { status: "uncertain" }
+    >
+  | { status: "succeeded"; value: Value };
 
 export type Merged =
   | { status: "merged"; comparison: string }
