@@ -495,8 +495,9 @@ export async function delegateRework(
 export async function startRework(
   workspace: Workspace,
   producer: Producer,
-  options: { revision: number; commit: string; worktreePath: string },
+  options: { revision: number; commit: string; worktreePath: string; assignmentId?: string },
 ) {
+  const assignmentId = options.assignmentId ?? producer.assignmentId;
   const claimed = await runJson(workspace, [
     "work",
     "claim",
@@ -505,7 +506,7 @@ export async function startRework(
     "--owner-token",
     producer.ownerToken,
     "--assignment",
-    producer.assignmentId,
+    assignmentId,
     "--revision",
     String(options.revision),
   ]);
@@ -533,6 +534,7 @@ export async function startRework(
 
   return {
     ...producer,
+    assignmentId,
     attemptId,
     worktreePath: options.worktreePath,
     assignmentRevision: claimed.json.data.revision as number,
@@ -583,11 +585,16 @@ export async function grantDirection(
   ]);
 }
 
-/** Registers more items in the same source, each one depending on the producer assignment. */
+/** Registers more items in the same source, each one naming the items it depends on. */
 export async function registerDependents(
   workspace: Workspace,
   producer: Producer,
-  items: Array<{ key: string; kind: "production" | "planning"; title: string }>,
+  items: Array<{
+    key: string;
+    kind: "production" | "planning";
+    title: string;
+    dependsOn?: string[];
+  }>,
 ) {
   const registered = await runJson(workspace, [
     "work",
@@ -608,7 +615,7 @@ export async function registerDependents(
         acceptanceRequirements: REQUIREMENTS,
         permissions: { writePaths: ["modules/"], allowedCommands: ["bun test"], network: false },
         fixedInputs: [],
-        dependsOn: [{ key: "22.1" }],
+        dependsOn: (item.dependsOn ?? ["22.1"]).map((key) => ({ key })),
       })),
     }),
   ]);

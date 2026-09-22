@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   acceptAssignment,
   acceptProduction,
+  acceptReview,
   commitArtifact,
   frontierEntry,
   invalidateResult,
@@ -51,6 +52,12 @@ async function acceptedResult(
     submitted.json.data.reviewId,
     reportBody({ submissionIdentity: submitted.json.data.identity, host: workspace.host }),
   );
+  // The reviewer hands its crew slot back, so the next round of this fixture can launch.
+  await acceptReview(workspace, producer, {
+    reviewAssignmentId: submitted.json.data.reviewAssignmentId,
+    attemptId: reviewer.attemptId,
+    revision: reviewer.revision,
+  });
   const accepted = await acceptProduction(workspace, producer, {
     submissionId: submitted.json.data.submissionId,
     revision: submitted.json.data.revision,
@@ -152,6 +159,101 @@ describe("operator work invalidate", () => {
     });
     expect(again.json.reason).toBe("assignment_accepted");
   }, 60_000);
+
+  test("a dependent of two invalid results waits for both corrections", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const first = await acceptedResult(workspace, producer, base, "# First\n");
+
+    const registered = await registerDependents(workspace, producer, [
+      { key: "22.4", kind: "production", title: "The other input", dependsOn: [] },
+      {
+        key: "22.5",
+        kind: "planning",
+        title: "Decide from both inputs",
+        dependsOn: ["22.1", "22.4"],
+      },
+    ]);
+    const other = registered.get("22.4") ?? "";
+    const consumer = registered.get("22.5") ?? "";
+
+    // The second input is produced, reviewed, and accepted on its own assignment.
+    const second = await startRework(workspace, producer, {
+      revision: 1,
+      commit: first.artifact.commit,
+      worktreePath: `${workspace.root}/other`,
+      assignmentId: other,
+    });
+    const otherResult = await acceptedResult(workspace, second, base, "# Other\n");
+    expect(otherResult.accepted.json.reason).toBe("assignment_accepted");
+
+    const resolved = await acceptAssignment(workspace, producer, {
+      assignmentId: consumer,
+      revision: 1,
+    });
+    expect(resolved.json.reason).toBe("assignment_accepted");
+
+    const firstDefect = await invalidateResult(workspace, producer, {
+      assignmentId: producer.assignmentId,
+      revision: first.accepted.json.data.revision,
+      defect: DEFECT,
+    });
+    expect(firstDefect.json.data.dependents[0].consumedState).toBe("accepted");
+
+    const secondDefect = await invalidateResult(workspace, producer, {
+      assignmentId: other,
+      revision: otherResult.accepted.json.data.revision,
+      defect: DEFECT,
+    });
+    // The dependent is already paused, and what it must return to is where it was before that.
+    expect(secondDefect.json.data.dependents).toEqual([
+      {
+        assignmentId: consumer,
+        title: "Decide from both inputs",
+        consumedState: "accepted",
+        paused: true,
+      },
+    ]);
+
+    // Correcting the first input alone does not release work that also read the second.
+    const firstFix = await startRework(workspace, producer, {
+      revision: firstDefect.json.data.revision,
+      commit: first.artifact.commit,
+      worktreePath: `${workspace.root}/fix-first`,
+    });
+    await acceptedResult(workspace, firstFix, base, "# First, corrected\n");
+
+    const held = await frontierEntry(workspace, consumer);
+    expect(held.entry.state).toBe("paused");
+    expect(held.entry.blockers[0]).toEqual({
+      reason: "input_invalidated",
+      invalidated: [other],
+    });
+
+    const refused = await acceptAssignment(workspace, producer, {
+      assignmentId: consumer,
+      revision: held.entry.revision,
+    });
+    expect(refused.json.reason).toBe("input_invalidated");
+
+    // Only the second correction releases it, and it returns to the step that decided it.
+    const secondFix = await startRework(workspace, producer, {
+      revision: secondDefect.json.data.revision,
+      commit: otherResult.artifact.commit,
+      worktreePath: `${workspace.root}/fix-other`,
+      assignmentId: other,
+    });
+    await acceptedResult(workspace, secondFix, base, "# Other, corrected\n");
+
+    const released = await frontierEntry(workspace, consumer);
+    expect(released.entry.state).toBe("registered");
+    const again = await acceptAssignment(workspace, producer, {
+      assignmentId: consumer,
+      revision: released.entry.revision,
+    });
+    expect(again.json.reason).toBe("assignment_accepted");
+  }, 120_000);
 
   test("refuses a defect against a review, which holds no result of its own", async () => {
     const workspace = await makeReviewWorkspace(fixtures);

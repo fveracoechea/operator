@@ -35,8 +35,10 @@ export type InvalidationRow = typeof invalidations.$inferSelect;
 /**
  * The states that prove one dependent already read the result.
  * Work that is still registered has consumed nothing, so the dependency gate is all it needs.
+ * A paused assignment is not one of them: the pause is this workflow's own mark, and what the
+ * work was doing before it is what says whether it read anything.
  */
-const CONSUMED = new Set(["claimed", "awaiting-review", "rework", "accepted", "paused"]);
+const CONSUMED: ReadonlySet<string> = new Set(["claimed", "awaiting-review", "rework", "accepted"]);
 
 export type InvalidateOutcome =
   | {
@@ -52,6 +54,15 @@ export type InvalidateOutcome =
   | { status: "not-accepted"; assignmentId: string; state: string }
   | { status: "review-not-invalidated"; assignmentId: string };
 
+/** Every defect that still holds work. A resolved one is history and holds nothing. */
+function openInvalidations(db: CrewReader): InvalidationRow[] {
+  return db
+    .select()
+    .from(invalidations)
+    .all()
+    .filter((one) => one.state === "open");
+}
+
 /**
  * Which invalidated results each paused assignment read.
  * The dependents of an invalidation are stored as one record, so this is read once and asked
@@ -60,11 +71,7 @@ export type InvalidateOutcome =
 export function openPauses(db: CrewReader): Map<string, string[]> {
   const held = new Map<string, string[]>();
 
-  for (const one of db.select().from(invalidations).all()) {
-    if (one.state !== "open") {
-      continue;
-    }
-
+  for (const one of openInvalidations(db)) {
     for (const dependent of storedDependents(one.dependents)) {
       if (dependent.paused) {
         held.set(dependent.assignmentId, [
@@ -76,6 +83,28 @@ export function openPauses(db: CrewReader): Map<string, string[]> {
   }
 
   return held;
+}
+
+/**
+ * What one dependent was doing before any pause.
+ * A second defect can reach work an earlier one already paused, and that work must return to
+ * where it really was, never to the pause another invalidation put it in.
+ */
+function stateBeforePause(db: CrewReader, row: AssignmentRow): string {
+  if (row.state !== "paused") {
+    return row.state;
+  }
+
+  for (const one of openInvalidations(db)) {
+    const held = storedDependents(one.dependents).find(
+      (dependent) => dependent.paused && dependent.assignmentId === row.id,
+    );
+    if (held !== undefined) {
+      return held.consumedState;
+    }
+  }
+
+  return row.state;
 }
 
 function directDependents(db: CrewReader, assignmentId: string): AssignmentRow[] {
@@ -94,8 +123,8 @@ function directDependents(db: CrewReader, assignmentId: string): AssignmentRow[]
  * The dependents that read the invalid result, directly or through another that read it.
  * The walk follows only work that consumed something, so an unstarted dependent stops it.
  */
-function consumingDependents(db: CrewReader, assignmentId: string): AssignmentRow[] {
-  const found = new Map<string, AssignmentRow>();
+function consumingDependents(db: CrewReader, assignmentId: string): Dependent[] {
+  const found = new Map<string, Dependent>();
   const queue = [assignmentId];
 
   while (queue.length > 0) {
@@ -105,16 +134,24 @@ function consumingDependents(db: CrewReader, assignmentId: string): AssignmentRo
     }
 
     for (const row of directDependents(db, next)) {
-      if (found.has(row.id) || !CONSUMED.has(row.state)) {
+      const consumedState = stateBeforePause(db, row);
+      if (found.has(row.id) || !CONSUMED.has(consumedState)) {
         continue;
       }
 
-      found.set(row.id, row);
+      found.set(row.id, {
+        assignmentId: row.id,
+        title: row.title,
+        consumedState,
+        paused: true,
+      });
       queue.push(row.id);
     }
   }
 
-  return [...found.values()].toSorted((left, right) => left.id.localeCompare(right.id));
+  return [...found.values()].toSorted((left, right) =>
+    left.assignmentId.localeCompare(right.assignmentId),
+  );
 }
 
 /**
@@ -149,15 +186,12 @@ export function invalidateResult(
     return { status: "review-not-invalidated", assignmentId: row.id };
   }
 
-  const consuming = consumingDependents(db, row.id);
-  const affected = consuming.map((one) => ({
-    assignmentId: one.id,
-    title: one.title,
-    consumedState: one.state,
-    paused: true,
-  }));
-  for (const one of consuming) {
-    moveAssignment(db, { row: one, state: "paused", now: request.now });
+  const affected = consumingDependents(db, row.id);
+  for (const one of affected) {
+    const dependent = readAssignment(db, one.assignmentId);
+    if (dependent !== null && dependent.state !== "paused") {
+      moveAssignment(db, { row: dependent, state: "paused", now: request.now });
+    }
   }
 
   const submission = latestSubmission(db, row.id);
@@ -213,22 +247,27 @@ export function resolveInvalidations(
     .all()
     .filter((one) => one.state === "open");
 
+  // The defects this result answers close first, so what is still held is read from the rest.
+  for (const one of open) {
+    db.update(invalidations)
+      .set({ state: "resolved", resolvedAt: request.now })
+      .where(eq(invalidations.id, one.id))
+      .run();
+  }
+
+  const stillHeld = openPauses(db);
   const resumed: string[] = [];
   for (const one of open) {
     for (const held of storedDependents(one.dependents)) {
       const row = readAssignment(db, held.assignmentId);
-      if (row === null || row.state !== "paused") {
+      // Work that also read another invalid result keeps waiting for that correction.
+      if (row === null || row.state !== "paused" || stillHeld.has(held.assignmentId)) {
         continue;
       }
 
       moveAssignment(db, { row, state: resumedState(db, held), now: request.now });
       resumed.push(row.id);
     }
-
-    db.update(invalidations)
-      .set({ state: "resolved", resolvedAt: request.now })
-      .where(eq(invalidations.id, one.id))
-      .run();
   }
 
   return resumed;
