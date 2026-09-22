@@ -174,8 +174,8 @@ type Observation = {
   cleanup: { state: string; detail: string };
 };
 
-function observed(json: { data: { run: { observations: Observation[] } } }, name: string) {
-  return json.data.run.observations.find((one) => one.name === name);
+function observed(json: { data: { attempt: { observations: Observation[] } } }, name: string) {
+  return json.data.attempt.observations.find((one) => one.name === name);
 }
 
 /** What the probe directory holds, so a test reads the resources instead of guessing at them. */
@@ -230,7 +230,7 @@ describe("operator setup probe apply", () => {
       expect(result.json.reason).toBe("probe_completed");
       expect(result.exitCode).toBe(0);
       expect(
-        result.json.data.run.observations
+        result.json.data.attempt.observations
           .filter((one: Observation) => one.state !== "passed")
           .map((one: Observation) => `${one.name}: ${one.detail}`),
       ).toEqual([]);
@@ -248,7 +248,7 @@ describe("operator setup probe apply", () => {
     async () => {
       const result = await applyProbe(workspace);
 
-      for (const one of result.json.data.run.observations as Observation[]) {
+      for (const one of result.json.data.attempt.observations as Observation[]) {
         expect(Object.keys(one.versions).length).toBeGreaterThan(0);
         expect(Object.keys(one.inputs).length).toBeGreaterThan(0);
         expect(one.cleanup.state).toMatch(/^(removed|retained|failed|not-applicable)$/);
@@ -257,11 +257,11 @@ describe("operator setup probe apply", () => {
         "test worktree",
       );
       // Each check names its own window, not the window of the whole attempt.
-      const windows = (result.json.data.run.observations as Observation[]).map(
+      const windows = (result.json.data.attempt.observations as Observation[]).map(
         (one) => `${one.startedAt}/${one.finishedAt}`,
       );
       expect(new Set(windows).size).toBeGreaterThan(1);
-      for (const one of result.json.data.run.observations as Observation[]) {
+      for (const one of result.json.data.attempt.observations as Observation[]) {
         expect(Date.parse(one.startedAt)).toBeLessThanOrEqual(Date.parse(one.finishedAt));
       }
       expect(observed(result.json, "instruction-and-skill-loading")?.outputs).toContain(
@@ -380,14 +380,16 @@ describe("operator setup probe apply", () => {
       const recorded = await Bun.file(`${workspace.repo}/.operator/local/readiness.json`).json();
 
       expect(recorded.schemaVersion).toBe(2);
-      expect(recorded.runs).toHaveLength(2);
+      expect(recorded.attempts).toHaveLength(2);
       expect(
-        recorded.runs[0].observations.find((one: Observation) => one.name === "result-reporting")
-          ?.state,
+        recorded.attempts[0].observations.find(
+          (one: Observation) => one.name === "result-reporting",
+        )?.state,
       ).toBe("failed");
       expect(
-        recorded.runs[1].observations.find((one: Observation) => one.name === "result-reporting")
-          ?.state,
+        recorded.attempts[1].observations.find(
+          (one: Observation) => one.name === "result-reporting",
+        )?.state,
       ).toBe("passed");
     },
     PROBE_TIMEOUT_MS,
@@ -542,7 +544,7 @@ describe("operator setup probe cleanup", () => {
       expect(removed.json.reason).toBe("probe_resources_removed");
       // The recorded observations stay, so the failed attempt survives its resources.
       const recorded = await Bun.file(`${workspace.repo}/.operator/local/readiness.json`).json();
-      expect(recorded.runs).toHaveLength(1);
+      expect(recorded.attempts).toHaveLength(1);
     },
     PROBE_TIMEOUT_MS,
   );

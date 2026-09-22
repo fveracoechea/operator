@@ -1,5 +1,5 @@
 import { type Check, passedCheck, staticChecks, unmetCheck } from "./checks.ts";
-import { appendRun, readEvidence, type Run, standingObservations } from "./evidence.ts";
+import { appendAttempt, type Attempt, readEvidence, standingObservations } from "./evidence.ts";
 import { fingerprints } from "./fingerprints.ts";
 import {
   type LiveClaim,
@@ -66,7 +66,7 @@ async function liveCheckResults(
         );
       }
 
-      const { observation, run } = record;
+      const { observation, attempt } = record;
       if (observation.state === "failed" || observation.state === "skipped") {
         const skipped = observation.state === "skipped";
         return unmetCheck(
@@ -76,7 +76,7 @@ async function liveCheckResults(
           skipped ? "unverified" : "failed",
           {
             reason: skipped ? "live_check_skipped" : "live_check_failed",
-            detail: `${declared.summary} Probe ${run.probeId} ${skipped ? "skipped" : "failed"} it: ${observation.detail}`,
+            detail: `${declared.summary} Probe ${attempt.probeId} ${skipped ? "skipped" : "failed"} it: ${observation.detail}`,
             nextAction: PROBE_NEXT_ACTION,
           },
           "live",
@@ -103,7 +103,7 @@ async function liveCheckResults(
       return passedCheck(
         declared.name,
         null,
-        `${declared.summary} Proven by probe ${run.probeId} on ${observation.finishedAt}.`,
+        `${declared.summary} Proven by probe ${attempt.probeId} on ${observation.finishedAt}.`,
         "live",
       );
     }),
@@ -352,8 +352,8 @@ export const ProjectReadiness = {
    * Attempts are appended, so a failed attempt stays readable after a later one replaces what
    * it proved. This is the only write to the recorded evidence.
    */
-  async record(request: Request & { run: Run }) {
-    await appendRun(request.projectRoot, request.run);
+  async record(request: Request & { attempt: Attempt }) {
+    await appendAttempt(request.projectRoot, request.attempt);
     return buildReport(request);
   },
 };

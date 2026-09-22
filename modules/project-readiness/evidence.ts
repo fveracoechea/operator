@@ -4,7 +4,7 @@ export const EVIDENCE_PATH = ".operator/local/readiness.json";
 
 const probeIdentity = z.string().regex(/^[0-9a-f]{64}$/);
 
-/** Where one recorded resource stood when the run ended. A retained resource still exists. */
+/** Where one recorded resource stood when the attempt ended. A retained resource still exists. */
 const cleanupSchema = z.strictObject({
   state: z.enum(["removed", "retained", "failed", "not-applicable"]),
   detail: z.string(),
@@ -40,10 +40,10 @@ const observationSchema = z.strictObject({
 export type Observation = z.infer<typeof observationSchema>;
 
 /** One probe attempt. Attempts are appended and never rewritten, so a failed one is preserved. */
-const runSchema = z.strictObject({
+const attemptSchema = z.strictObject({
   probeId: probeIdentity,
   planRevision: z.number().int().min(1),
-  // The approval this run acted under. A record with no approval has no provenance.
+  // The approval this attempt acted under. A record with no approval has no provenance.
   approvedProbeId: probeIdentity,
   startedAt: z.iso.datetime(),
   finishedAt: z.iso.datetime(),
@@ -53,11 +53,11 @@ const runSchema = z.strictObject({
   cleanup: cleanupSchema.extend({ resources: z.array(z.string()) }),
 });
 
-export type Run = z.infer<typeof runSchema>;
+export type Attempt = z.infer<typeof attemptSchema>;
 
 const evidenceSchema = z.strictObject({
   schemaVersion: z.literal(2),
-  runs: z.array(runSchema),
+  attempts: z.array(attemptSchema),
 });
 
 export type Evidence = z.infer<typeof evidenceSchema>;
@@ -95,24 +95,24 @@ export async function readEvidence(projectRoot: string): Promise<EvidenceRead> {
 
 /**
  * The observation that stands for each check: the most recent attempt that ran it.
- * A run that never attempted a check leaves the earlier observation of it standing, so one
+ * An attempt that never ran a check leaves the earlier observation of it standing, so one
  * narrow rerun does not discard evidence it said nothing about.
  */
 export function standingObservations(
   evidence: Evidence,
-): Map<string, { observation: Observation; run: Run }> {
-  const standing = new Map<string, { observation: Observation; run: Run }>();
-  for (const run of evidence.runs) {
-    for (const observation of run.observations) {
-      standing.set(observation.name, { observation, run });
+): Map<string, { observation: Observation; attempt: Attempt }> {
+  const standing = new Map<string, { observation: Observation; attempt: Attempt }>();
+  for (const attempt of evidence.attempts) {
+    for (const observation of attempt.observations) {
+      standing.set(observation.name, { observation, attempt });
     }
   }
 
   return standing;
 }
 
-/** Appends one attempt. The file holds every attempt, so a failed one survives the next run. */
-export async function appendRun(projectRoot: string, run: Run): Promise<Evidence> {
+/** Appends one attempt. The file holds every attempt, so a failed one survives the next. */
+export async function appendAttempt(projectRoot: string, attempt: Attempt): Promise<Evidence> {
   const read = await readEvidence(projectRoot);
   if (read.state === "unreadable") {
     throw new Error(`the recorded readiness evidence cannot be read: ${read.detail}`);
@@ -120,7 +120,7 @@ export async function appendRun(projectRoot: string, run: Run): Promise<Evidence
 
   const evidence: Evidence = {
     schemaVersion: 2,
-    runs: [...(read.state === "read" ? read.evidence.runs : []), run],
+    attempts: [...(read.state === "read" ? read.evidence.attempts : []), attempt],
   };
   await Bun.write(`${projectRoot}/${EVIDENCE_PATH}`, `${JSON.stringify(evidence, null, 2)}\n`, {
     createPath: true,

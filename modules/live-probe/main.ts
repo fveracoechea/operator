@@ -147,7 +147,7 @@ export const LiveProbe = {
       .filter((one) => request.checks.includes(one.name));
 
     return {
-      run: {
+      attempt: {
         probeId: request.probeId,
         planRevision: request.planRevision,
         approvedProbeId: request.approvedProbeId,

@@ -165,7 +165,7 @@ export async function runProbeApply(parsed: ParsedArguments): Promise<void> {
   }
 
   // The approval matched the plan, so the record names both and a reader can see the binding.
-  const run = await LiveProbe.run({
+  const ran = await LiveProbe.run({
     projectRoot: process.cwd(),
     probeId: result.plan.probeId,
     approvedProbeId: parsed.approvedProbe ?? result.plan.probeId,
@@ -186,10 +186,10 @@ export async function runProbeApply(parsed: ParsedArguments): Promise<void> {
     projectRoot: process.cwd(),
     targets: parsed.targets,
     overrides: parsed.overrides,
-    run: run.run,
+    attempt: ran.attempt,
   });
 
-  const unproven = run.run.observations.filter((one) => one.state !== "passed");
+  const unproven = ran.attempt.observations.filter((one) => one.state !== "passed");
   const failures = unproven.filter((one) => one.state === "failed");
   // One decision names the outcome and the reason together, so the two cannot disagree.
   const verdict =
@@ -211,20 +211,20 @@ export async function runProbeApply(parsed: ParsedArguments): Promise<void> {
         detail: one.detail,
       })),
       operation: "setup_probe_apply",
-      data: { probeId: result.plan.probeId, run: run.run, readiness },
+      data: { probeId: result.plan.probeId, attempt: ran.attempt, readiness },
     },
     lines: [
-      `Operator live probe ${result.plan.probeId} ran ${run.run.observations.length} checks.`,
+      `Operator live probe ${result.plan.probeId} ran ${ran.attempt.observations.length} checks.`,
       "",
-      ...run.run.observations.flatMap((one) => [
+      ...ran.attempt.observations.flatMap((one) => [
         `  ${one.state.padEnd(8)} ${one.name}`,
         `    ${one.detail}`,
       ]),
       "",
       `Readiness is now ${readiness.state}. The readiness claim is ${readiness.claims.readiness} and the release claim is ${readiness.claims.release}.`,
-      run.run.cleanup.resources.length === 0
+      ran.attempt.cleanup.resources.length === 0
         ? "The probe left no temporary resource behind."
-        : `The probe left ${run.run.cleanup.resources.length} temporary resources. Remove them with \`operator setup probe cleanup\`.`,
+        : `The probe left ${ran.attempt.cleanup.resources.length} temporary resources. Remove them with \`operator setup probe cleanup\`.`,
     ],
   });
 }

@@ -128,12 +128,12 @@ async function recordLiveEvidence(
 ): Promise<void> {
   const path = `${root}/.operator/local/readiness.json`;
   const held = await Bun.file(path).exists();
-  const earlier = held ? ((await Bun.file(path).json()) as { runs: unknown[] }).runs : [];
+  const earlier = held ? ((await Bun.file(path).json()) as { attempts: unknown[] }).attempts : [];
   await Bun.write(
     path,
     `${JSON.stringify({
       schemaVersion: 2,
-      runs: [
+      attempts: [
         ...earlier,
         {
           probeId: "f".repeat(64),
@@ -901,7 +901,7 @@ describe("operator setup probe", () => {
     // The approval matched, so the probe ran. This machine holds no Herdr that answers it.
     expect(applied.json.reason).not.toBe("approval_required");
     expect(applied.json.reason).not.toBe("approval_stale");
-    expect(applied.json.data.run.probeId).toBe(applied.json.data.probeId);
+    expect(applied.json.data.attempt.probeId).toBe(applied.json.data.probeId);
   });
 
   test("refuses to plan a probe for a blocked project", async () => {
@@ -965,7 +965,7 @@ describe("operator setup probe", () => {
       plan.json.data.probeId,
     ]);
 
-    expect(result.json.data.run.observations.length).toBeGreaterThan(0);
+    expect(result.json.data.attempt.observations.length).toBeGreaterThan(0);
     expect(await Bun.$`git -C ${root} status --porcelain`.text()).toBe(before);
   });
 
