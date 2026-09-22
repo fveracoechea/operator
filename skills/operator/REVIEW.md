@@ -6,7 +6,8 @@ Read this before you review a submitted result or accept an assignment.
 
 1. The Operative runs `operator attempt submit` from its own worktree.
    You do not run it.
-2. `operator work frontier --json` now offers the review assignment the submission registered.
+2. `operator crew next --claude --json` now offers the review assignment the submission registered,
+   before any new production work.
 3. `operator work claim` and `operator attempt dispatch` launch the reviewer, exactly as for production work.
 4. The reviewer runs `operator review report` from its own worktree.
 5. `operator review show --review <id> --json` gives you both reports and every finding.

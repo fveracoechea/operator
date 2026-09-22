@@ -25,7 +25,8 @@ A conflict names only work this cycle carries.
 `conflict_not_corrected` means you named a finding that no correction in this cycle answers.
 
 The cycle returns the assignment to the frontier.
-Claim it again and dispatch it from the commit the submission recorded.
+`operator crew next` offers it again.
+Claim it and dispatch it from the commit the submission recorded.
 A fresh attempt is a fresh Operative, so the reviewer that found the problem never repairs it.
 
 One cycle produces one combined revision, which registers its own review assignment.
