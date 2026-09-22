@@ -12,7 +12,7 @@ import {
 import { storedTrackerRef, storedTrackerTarget } from "./work-input.ts";
 
 /** The steps the tracker contract names, and the order it records them in. */
-export type TrackerStep = Parameters<typeof TrackerUpdate.observe>[0]["step"];
+export type TrackerStep = Parameters<typeof TrackerUpdate.read>[0]["step"];
 
 export const TRACKER_STEPS = TrackerUpdate.steps();
 
@@ -57,7 +57,7 @@ export function readBinding(db: CrewReader, assignmentId: string): BindingLookup
     return { status: "unknown-assignment", assignmentId };
   }
 
-  if (TrackerUpdate.capabilities({ provider: source.tracker }) === null) {
+  if (!TrackerUpdate.supports({ provider: source.tracker })) {
     return { status: "unsupported-provider", assignmentId, provider: source.tracker };
   }
 

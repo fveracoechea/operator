@@ -15,6 +15,8 @@ import { storedProblems } from "./tracker-input.ts";
 
 type Shared = StateFailure | RequestFailure;
 
+type MapRead = Extract<Awaited<ReturnType<typeof TrackerUpdate.readMap>>, { status: "read" }>;
+
 type StepState = {
   step: TrackerStep;
   /** Whether this step applies at all. A source with no map issue has no amendment to write. */
@@ -149,10 +151,8 @@ export type TrackerMapResult =
       status: "read";
       repository: string;
       issue: number;
-      reading: Extract<
-        Awaited<ReturnType<typeof TrackerUpdate.readMap>>,
-        { status: "read" }
-      >["reading"];
+      reading: MapRead["reading"];
+      verdict: MapRead["verdict"];
     }
   | { status: "unknown-assignment"; assignmentId: string }
   | { status: "tracker-unbound"; assignmentId: string; detail: string }
@@ -206,5 +206,6 @@ export async function readTrackerMap(request: {
     repository: read.target.repository,
     issue: read.target.issue,
     reading: reading.reading,
+    verdict: reading.verdict,
   };
 }

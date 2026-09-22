@@ -4,7 +4,7 @@ import { readStored, readStoredValue } from "./stored.ts";
 import type { TrackerStep } from "./tracker.ts";
 
 /** A write the contract judges. `intended` is this release's own record of one not yet sent. */
-type SentState = Parameters<typeof TrackerUpdate.judge>[0]["writes"][number];
+type SentState = Parameters<typeof TrackerUpdate.read>[0]["writes"][number];
 
 const target = z.strictObject({
   repository: z.string().min(1),
@@ -48,7 +48,7 @@ export type TrackerStepInput = z.infer<typeof trackerStepInputSchema>;
 /** The reasons the contract knows, read at runtime so a stored one cannot drift from them. */
 const known: readonly string[] = TrackerUpdate.reasons();
 
-type TrackerReason = ReturnType<typeof TrackerUpdate.judge>["reason"];
+type TrackerReason = Awaited<ReturnType<typeof TrackerUpdate.read>>["verdict"]["reason"];
 
 const reason = z.custom<TrackerReason>(
   (value) => typeof value === "string" && known.includes(value),
@@ -61,7 +61,7 @@ const problem = z.strictObject({ reason, detail: z.string() });
 
 export type TrackerProblem = z.infer<typeof problem>;
 
-type VerdictState = ReturnType<typeof TrackerUpdate.judge>["state"];
+type VerdictState = Awaited<ReturnType<typeof TrackerUpdate.read>>["verdict"]["state"];
 
 const verdictState: z.ZodType<VerdictState> = z.enum([
   "verified",

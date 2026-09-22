@@ -16,7 +16,7 @@ export type Outcome =
  * The tracker contract fixes these identifiers, so they are read from it rather than copied.
  * They are provider-neutral; provider detail travels in the blocker beside the reason.
  */
-export type TrackerReason = ReturnType<typeof TrackerUpdate.judge>["reason"];
+export type TrackerReason = Awaited<ReturnType<typeof TrackerUpdate.read>>["verdict"]["reason"];
 
 export type Reason =
   | TrackerReason

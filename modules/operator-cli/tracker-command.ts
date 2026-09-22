@@ -1,5 +1,4 @@
 import { CrewState } from "../crew-state/main.ts";
-import { TrackerUpdate } from "../tracker-update/main.ts";
 import { type ParsedArguments, readRevision } from "./arguments.ts";
 import { readStructuredInput, reportInvalidInput, reportSharedFailure } from "./crew-result.ts";
 import {
@@ -98,7 +97,7 @@ function reportStep(request: {
   approval?: ApprovalBlocker;
 }): Handled {
   const { report: step } = request;
-  const reason = step.reason;
+  const { reason } = step;
   const blocked = request.approval === undefined ? null : approvalBlocker(request.approval);
   report({
     json: request.parsed.json,
@@ -437,9 +436,8 @@ async function runMap(parsed: ParsedArguments): Promise<Handled> {
     return "invalid-arguments";
   }
 
-  const { reading } = result;
-  // The map read produces problems of its own, so the contract's own ranking decides the result.
-  const reason = TrackerUpdate.rank({ problems: reading.problems }).reason;
+  const { reading, verdict } = result;
+  const reason = verdict.reason;
 
   report({
     json: parsed.json,

@@ -55,8 +55,9 @@ export type ApprovalBlocker =
   | { reason: "approval-revoked"; approvalId: string }
   | { reason: "approval-mismatch"; approvalId: string; field: string };
 
-type Observation = Awaited<ReturnType<typeof TrackerUpdate.observe>>;
-type Verdict = ReturnType<typeof TrackerUpdate.judge>;
+type Reading = Awaited<ReturnType<typeof TrackerUpdate.read>>;
+type Observation = Reading["observation"];
+type Verdict = Reading["verdict"];
 
 // The report speaks the contract's own vocabulary rather than widening it back to text.
 type TrackerReason = Verdict["reason"];
@@ -343,7 +344,8 @@ async function settleFromObservation(request: {
   extra?: TrackerProblem[];
 }): Promise<{ status: "settled"; verdict: Verdict; observation: Observation } | Shared> {
   const { operation } = request;
-  const observation = await TrackerUpdate.observe({
+  const sent = sentWrites(request.attempts);
+  const { observation, verdict } = await TrackerUpdate.read({
     provider: operation.provider,
     step: storedStep(operation.step),
     target: request.target,
@@ -351,17 +353,11 @@ async function settleFromObservation(request: {
     expectedActor: operation.expectedActor,
     contentIdentity: operation.contentIdentity,
     resourceId: operation.resourceId,
-    sentWrites: sentWrites(request.attempts).length,
-    now: new Date().toISOString(),
-  });
-
-  const verdict = TrackerUpdate.judge({
-    step: storedStep(operation.step),
-    observation,
     // Only a completion judges against a reason, and its row always holds one.
     intendedReason: operation.closeReason ?? "",
-    writes: sentWrites(request.attempts).map((one) => storedWriteState(one.state)),
+    writes: sent.map((one) => storedWriteState(one.state)),
     extra: request.extra,
+    now: new Date().toISOString(),
   });
 
   // A reading that found the intended comment names it, so a later recovery reads that resource

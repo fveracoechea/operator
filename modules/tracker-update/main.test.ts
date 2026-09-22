@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
+// The evidence rules are pure, so they are tested at their own home rather than through a read
+// that would have to reach the tracker to produce an observation.
+import { judge, type Observation } from "./classify.ts";
 import { TrackerUpdate } from "./main.ts";
-
-type Observation = Awaited<ReturnType<typeof TrackerUpdate.observe>>;
 
 const OPERATION = "8f1d0c2a-0000-4000-8000-000000000001";
 
@@ -29,25 +30,17 @@ const mark = {
   contentIdentity: "a".repeat(64),
 };
 
-describe("TrackerUpdate.capabilities", () => {
-  test("records what GitHub cannot guarantee instead of assuming it can", () => {
-    const github = TrackerUpdate.capabilities({ provider: "github" });
-
-    expect(github?.comments).toBe(true);
-    expect(github?.completion).toBe(true);
-    // This is why a lost answer is settled by reading and never by writing again.
-    expect(github?.exactlyOnceWrites).toBe(false);
-  });
-
-  test("gives an unimplemented tracker no capabilities at all", () => {
-    expect(TrackerUpdate.capabilities({ provider: "jira" })).toBeNull();
-    expect(TrackerUpdate.capabilities({ provider: "linear" })).toBeNull();
+describe("TrackerUpdate.supports", () => {
+  test("implements GitHub and nothing else in this release", () => {
+    expect(TrackerUpdate.supports({ provider: "github" })).toBe(true);
+    expect(TrackerUpdate.supports({ provider: "jira" })).toBe(false);
+    expect(TrackerUpdate.supports({ provider: "linear" })).toBe(false);
   });
 });
 
-describe("TrackerUpdate.judge", () => {
+describe("the evidence rules", () => {
   test("keeps a step pending while nothing has been written", () => {
-    const verdict = TrackerUpdate.judge({
+    const verdict = judge({
       step: "resolution",
       observation: scan(),
       intendedReason: "",
@@ -59,7 +52,7 @@ describe("TrackerUpdate.judge", () => {
   });
 
   test("verifies one exact match by the expected actor", () => {
-    const verdict = TrackerUpdate.judge({
+    const verdict = judge({
       step: "resolution",
       observation: scan({ exactMatches: [mark] }),
       intendedReason: "",
@@ -72,7 +65,7 @@ describe("TrackerUpdate.judge", () => {
   });
 
   test("ranks an unproven write above every other problem and keeps them all", () => {
-    const verdict = TrackerUpdate.judge({
+    const verdict = judge({
       step: "map_amendment",
       observation: scan({
         coverage: { complete: false, pages: 1, count: 3, detail: "page two failed" },
@@ -92,7 +85,7 @@ describe("TrackerUpdate.judge", () => {
   });
 
   test("calls a refused write a definite failure only when nothing matches it", () => {
-    const verdict = TrackerUpdate.judge({
+    const verdict = judge({
       step: "resolution",
       observation: scan(),
       intendedReason: "",
@@ -104,7 +97,7 @@ describe("TrackerUpdate.judge", () => {
   });
 
   test("never lets a failed read settle a step as a definite failure", () => {
-    const verdict = TrackerUpdate.judge({
+    const verdict = judge({
       step: "resolution",
       observation: scan({
         coverage: { complete: false, pages: 0, count: 0, detail: "the scan failed" },
@@ -124,7 +117,7 @@ describe("TrackerUpdate.judge", () => {
 
   test("keeps a step that was never sent out of the unproven-effect answer", () => {
     // An unreadable state with nothing sent has no effect that may still apply.
-    const verdict = TrackerUpdate.judge({
+    const verdict = judge({
       step: "completion",
       observation: {
         kind: "closure",
@@ -169,7 +162,7 @@ describe("TrackerUpdate.judge", () => {
 
     // The state satisfies the step even though another account caused it.
     expect(
-      TrackerUpdate.judge({
+      judge({
         step: "completion",
         observation: closed,
         intendedReason: "completed",
@@ -178,7 +171,7 @@ describe("TrackerUpdate.judge", () => {
     ).toBe("verified");
 
     expect(
-      TrackerUpdate.judge({
+      judge({
         step: "completion",
         observation: { ...closed, stateReason: "not_planned" },
         intendedReason: "completed",
@@ -188,7 +181,7 @@ describe("TrackerUpdate.judge", () => {
   });
 
   test("refuses to read an unread history as no reopen", () => {
-    const verdict = TrackerUpdate.judge({
+    const verdict = judge({
       step: "completion",
       observation: {
         kind: "closure",
@@ -214,7 +207,7 @@ describe("TrackerUpdate.judge", () => {
   });
 
   test("stops on a reopen that followed the close", () => {
-    const verdict = TrackerUpdate.judge({
+    const verdict = judge({
       step: "completion",
       observation: {
         kind: "closure",

@@ -9,6 +9,7 @@ import {
   judge,
   TRACKER_REASONS,
   type TrackerReason,
+  type Verdict,
   type Observation,
   type Problem,
   type WriteAttemptState,
@@ -73,6 +74,88 @@ function reopenedAfterClose(request: {
   return request.complete ? "no" : "unknown";
 }
 
+/** Gathers what the tracker actually shows about one step right now. */
+async function observeStep(request: {
+  provider: string;
+  step: TrackerStep;
+  target: TrackerTarget;
+  operationId: string;
+  expectedActor: string;
+  contentIdentity: string | null;
+  resourceId: string | null;
+  sentWrites: number;
+  now: string;
+}): Promise<Observation> {
+  if (request.step === "completion") {
+    const issue = await GithubTracker.readIssue(request.target);
+    const history = await GithubTracker.readEvents(request.target);
+
+    const closure: ClosureObservation = {
+      kind: "closure",
+      read: issue.status === "found" ? "found" : issue.status === "absent" ? "absent" : "unknown",
+      detail: issue.status === "unknown" ? issue.detail : null,
+      state: issue.status === "found" ? issue.value.state : null,
+      stateReason: issue.status === "found" ? issue.value.stateReason : null,
+      closedBy: issue.status === "found" ? issue.value.closedBy : null,
+      closedAt: issue.status === "found" ? issue.value.closedAt : null,
+      updatedAt: issue.status === "found" ? issue.value.updatedAt : null,
+      events: history.events,
+      eventCoverage: history.coverage,
+      reopened: reopenedAfterClose({
+        events: history.events,
+        complete: history.coverage.complete,
+      }),
+      observedAt: request.now,
+    };
+    return closure;
+  }
+
+  // An identity this release cannot read matches nothing, which keeps the step unverified.
+  const contentIdentity = request.contentIdentity ?? "";
+  const known = request.resourceId;
+  // A provider with no exactly-once write can hold a second comment under one operation, so a
+  // step that sent more than one write is always scanned rather than read by identifier.
+  const repeatable = capabilitiesOf(request.provider)?.exactlyOnceWrites !== true;
+  if (known !== null && !(repeatable && request.sentWrites > 1)) {
+    const comment = await GithubTracker.readComment({
+      repository: request.target.repository,
+      commentId: known,
+    });
+    const comments = comment.status === "found" ? [comment.value] : [];
+    return {
+      kind: "comment",
+      lookup: "known-id",
+      coverage: {
+        complete: comment.status !== "unknown",
+        pages: comment.status === "unknown" ? 0 : 1,
+        count: comments.length,
+        detail: comment.status === "unknown" ? comment.detail : null,
+      },
+      ...classifyComments({
+        operationId: request.operationId,
+        expectedActor: request.expectedActor,
+        contentIdentity,
+        comments,
+      }),
+      observedAt: request.now,
+    };
+  }
+
+  const scan = await GithubTracker.scanComments(request.target);
+  return {
+    kind: "comment",
+    lookup: "scan",
+    coverage: scan.coverage,
+    ...classifyComments({
+      operationId: request.operationId,
+      expectedActor: request.expectedActor,
+      contentIdentity,
+      comments: scan.comments,
+    }),
+    observedAt: request.now,
+  };
+}
+
 export const TrackerUpdate = {
   /** The steps of one tracker update, in the order the contract records them. */
   steps(): readonly TrackerStep[] {
@@ -84,9 +167,9 @@ export const TrackerUpdate = {
     return TRACKER_REASONS;
   },
 
-  /** What one provider can guarantee. An unknown provider has no capabilities at all. */
-  capabilities(request: { provider: string }) {
-    return capabilitiesOf(request.provider);
+  /** Whether this release implements a tracker integration for one provider. */
+  supports(request: { provider: string }): boolean {
+    return capabilitiesOf(request.provider) !== null;
   },
 
   /**
@@ -303,24 +386,41 @@ export const TrackerUpdate = {
   },
 
   /**
-   * Chooses the overall result of a set of problems that did not come from one step verdict.
-   * The ranking lives in one place, so a caller cannot invent a second order.
+   * Reads what the tracker shows about one step right now and says what that evidence means.
+   * The reading and the verdict are one answer, so no caller can record an observation and
+   * then decide about it under a different rule.
+   * A known server identifier is read directly. Every other case reads every accessible comment
+   * page and records its coverage, because a partial read is never evidence of absence.
+   * A step with more than one sent write is always scanned, since only then can it duplicate.
    */
-  rank(request: { problems: Problem[] }) {
-    return decide(request.problems);
-  },
-
-  /** Turns the recorded intent, the write history, and one observation into a step verdict. */
-  judge(request: {
+  async read(request: {
+    provider: string;
     step: TrackerStep;
-    observation: Observation;
+    target: TrackerTarget;
+    operationId: string;
+    expectedActor: string;
+    contentIdentity: string | null;
+    resourceId: string | null;
     intendedReason: string;
     writes: WriteAttemptState[];
     extra?: Problem[];
-  }) {
-    return judge(request);
+    now: string;
+  }): Promise<{ observation: Observation; verdict: Verdict }> {
+    const observation = await observeStep({
+      ...request,
+      sentWrites: request.writes.filter((state) => state !== "intended").length,
+    });
+    return {
+      observation,
+      verdict: judge({
+        step: request.step,
+        observation,
+        intendedReason: request.intendedReason,
+        writes: request.writes,
+        extra: request.extra,
+      }),
+    };
   },
-
   /**
    * Reads one map as its baseline body plus every explicit amendment.
    * A session reads this before it selects map-dependent work, so an incomplete read and a
@@ -330,7 +430,7 @@ export const TrackerUpdate = {
     provider: string;
     target: TrackerTarget;
   }): Promise<
-    | { status: "read"; reading: ReturnType<typeof readMap> }
+    | { status: "read"; reading: ReturnType<typeof readMap>; verdict: Verdict }
     | { status: "unsupported-provider"; provider: string }
     | { status: "unreadable"; detail: string }
   > {
@@ -347,13 +447,11 @@ export const TrackerUpdate = {
     }
 
     const scan = await GithubTracker.scanComments(request.target);
-    return {
-      status: "read",
-      reading: readMap({
-        baselineBody: issue.value.body,
-        coverage: scan.coverage,
-        comments: scan.comments,
-      }),
-    };
+    const reading = readMap({
+      baselineBody: issue.value.body,
+      coverage: scan.coverage,
+      comments: scan.comments,
+    });
+    return { status: "read", reading, verdict: decide(reading.problems) };
   },
 };
