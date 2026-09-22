@@ -94,9 +94,23 @@ export function openDirectionsOf(db: CrewReader, assignmentId: string): Directio
 }
 
 /**
+ * What a request has collected, plus what this attempt adds.
+ * Nothing recorded is dropped, because a reached limit is a history of failures and the user
+ * reads all of it to decide. The same attempt reported twice is one attempt.
+ */
+function mergedEvidence(held: DirectionEvidence, raised: DirectionEvidence): DirectionEvidence {
+  return {
+    used: Math.max(held.used, raised.used),
+    detail: raised.detail,
+    attempted: [...new Set([...held.attempted, ...raised.attempted])],
+  };
+}
+
+/**
  * Records that one limit is reached and that the work now waits on the user.
- * Reaching the same limit again moves the revision, so an approval granted against the earlier
- * request no longer covers the new one. Nothing that was already recorded is removed.
+ * A limit reached again after a direction was spent moves the revision, so the approval that
+ * answered the earlier request no longer covers the new one.
+ * Nothing that was already recorded is removed.
  */
 export function raiseDirection(
   db: CrewWriter,
@@ -127,23 +141,17 @@ export function raiseDirection(
     return directionRecordOf(row);
   }
 
-  if (held.state === "open") {
-    // The request keeps its revision, because an approval is bound to it, and it keeps taking
-    // the evidence of every further attempt that reached the same limit.
-    const grown = { ...held, evidence: JSON.stringify(request.evidence), updatedAt: request.now };
-    db.update(directionRequests)
-      .set({ evidence: grown.evidence, updatedAt: request.now })
-      .where(eq(directionRequests.id, held.id))
-      .run();
-    return directionRecordOf(grown);
-  }
-
+  // An open request keeps its revision, because an approval is bound to it. A request whose
+  // direction was already spent opens again at the next revision, so that approval covers
+  // nothing. Either way the evidence grows, because the earlier failures still happened.
   const raised = {
     ...held,
-    evidence: JSON.stringify(request.evidence),
+    evidence: JSON.stringify(
+      mergedEvidence(storedDirectionEvidence(held.evidence), request.evidence),
+    ),
     state: "open",
     approvalId: null,
-    revision: held.revision + 1,
+    revision: held.state === "open" ? held.revision : held.revision + 1,
     updatedAt: request.now,
   };
   db.update(directionRequests)

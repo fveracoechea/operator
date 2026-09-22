@@ -15,12 +15,14 @@ import {
   acceptProduction,
   blockThenReplace,
   commitArtifact,
+  delegateRework,
   grantDirection,
   makeReviewWorkspace,
   relaunchReviewer,
   reportBody,
   reportReview,
   startProducer,
+  startRework,
   startReviewer,
   submissionBody,
   submit,
@@ -983,6 +985,34 @@ describe("operator attempt replace for a review", () => {
     expect(reported.exitCode).toBe(0);
   });
 
+  /** Runs one review until it has used every attempt it holds, and returns that refusal. */
+  async function reviewToItsLimit(
+    workspace: Awaited<ReturnType<typeof makeReviewingWorkspace>>,
+    producer: Awaited<ReturnType<typeof startProducer>>,
+    submitted: { data: { reviewId: string; identity: string } },
+    reviewer: { attemptId: string; worktreePath: string },
+  ) {
+    const shared = {
+      reviewId: submitted.data.reviewId,
+      submissionIdentity: submitted.data.identity,
+      worktreePath: reviewer.worktreePath,
+    };
+
+    let attemptId = reviewer.attemptId;
+    for (const round of [1, 2]) {
+      const replaced = await blockThenReplace(workspace, producer, { ...shared, attemptId });
+      expect(replaced.json.reason, `round ${round}`).toBe("attempt_replaced");
+      attemptId = replaced.json.data.attemptId;
+      await relaunchReviewer(workspace, producer, attemptId, reviewer.worktreePath);
+    }
+
+    return {
+      shared,
+      attemptId,
+      refused: await blockThenReplace(workspace, producer, { ...shared, attemptId }),
+    };
+  }
+
   test("a failing review host escalates instead of taking the crew", async () => {
     const workspace = await makeReviewingWorkspace();
     const producer = await startProducer(workspace);
@@ -992,28 +1022,12 @@ describe("operator attempt replace for a review", () => {
     const reviewId = submitted.json.data.reviewId;
     const first = await startReviewer(workspace, producer, submitted.json, artifact.commit);
 
-    const shared = {
-      reviewId,
-      submissionIdentity: submitted.json.data.identity,
-      worktreePath: first.worktreePath,
-    };
-
-    const second = await blockThenReplace(workspace, producer, {
-      ...shared,
-      attemptId: first.attemptId,
-    });
-    await relaunchReviewer(workspace, producer, second.json.data.attemptId, first.worktreePath);
-
-    const third = await blockThenReplace(workspace, producer, {
-      ...shared,
-      attemptId: second.json.data.attemptId,
-    });
-    await relaunchReviewer(workspace, producer, third.json.data.attemptId, first.worktreePath);
-
-    const refused = await blockThenReplace(workspace, producer, {
-      ...shared,
-      attemptId: third.json.data.attemptId,
-    });
+    const { shared, attemptId, refused } = await reviewToItsLimit(
+      workspace,
+      producer,
+      submitted.json,
+      first,
+    );
     expect(refused.json.reason).toBe("review_attempt_limit");
     expect(refused.exitCode).toBe(3);
     expect(refused.json.blockers[0]).toMatchObject({ reviewId, limit: 3 });
@@ -1040,10 +1054,7 @@ describe("operator attempt replace for a review", () => {
       refused.json.data.direction,
       "Try the other host once, then bring it back to me.",
     );
-    const directed = await blockThenReplace(workspace, producer, {
-      ...shared,
-      attemptId: third.json.data.attemptId,
-    });
+    const directed = await blockThenReplace(workspace, producer, { ...shared, attemptId });
     expect(directed.json.reason).toBe("attempt_replaced");
 
     // The direction is spent, so acceptance reports the review again instead of the limit.
@@ -1054,4 +1065,64 @@ describe("operator attempt replace for a review", () => {
     });
     expect(waiting.json.reason).toBe("review_incomplete");
   });
+
+  test("a second review that reaches the same limit keeps the first one on the record", async () => {
+    const workspace = await makeReviewingWorkspace();
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const artifact = await commitArtifact(workspace, producer, "# Result\n");
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const first = await startReviewer(workspace, producer, submitted.json, artifact.commit);
+
+    const limited = await reviewToItsLimit(workspace, producer, submitted.json, first);
+    expect(limited.refused.json.reason).toBe("review_attempt_limit");
+    const direction = limited.refused.json.data.direction;
+    expect(direction.evidence.attempted).toEqual([`review ${submitted.json.data.reviewId}`]);
+
+    // The user directs the crew past that limit, which spends the request it answered.
+    await grantDirection(workspace, producer, direction, "Carry on, and show me the next one.");
+    await blockThenReplace(workspace, producer, {
+      ...limited.shared,
+      attemptId: limited.attemptId,
+    });
+
+    // The result is combined and handed over again, so a second review reads the revision.
+    const delegated = await delegateRework(workspace, producer, {
+      revision: submitted.json.data.revision,
+      body: {
+        reason: "integration",
+        instruction: "Combine it with the accepted helper while its review is stopped.",
+        conflicts: [],
+        combines: [{ name: "accepted helper", revision: "rev-helper-1" }],
+      },
+    });
+    expect(delegated.json.reason).toBe("rework_delegated");
+
+    const reworked = await startRework(workspace, producer, {
+      revision: delegated.json.data.revision,
+      commit: artifact.commit,
+      worktreePath: `${workspace.root}/combined`,
+    });
+    const combined = await commitArtifact(workspace, reworked, "# Result\n\nCombined.\n");
+    const again = await submit(
+      workspace,
+      reworked,
+      submissionBody(reworked, combined, base, {
+        assignmentRevision: reworked.assignmentRevision,
+      }),
+    );
+    const secondReviewer = await startReviewer(workspace, producer, again.json, combined.commit);
+
+    const stopped = await reviewToItsLimit(workspace, producer, again.json, secondReviewer);
+    expect(stopped.refused.json.reason).toBe("review_attempt_limit");
+
+    // The request opens again, so the spent approval covers nothing, and both failures stand.
+    const reopened = stopped.refused.json.data.direction;
+    expect(reopened.directionRequestId).toBe(direction.directionRequestId);
+    expect(reopened.revision).toBe(2);
+    expect(reopened.evidence.attempted).toEqual([
+      `review ${submitted.json.data.reviewId}`,
+      `review ${again.json.data.reviewId}`,
+    ]);
+  }, 120_000);
 });
