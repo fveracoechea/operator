@@ -3,8 +3,15 @@ import { realpath, rm } from "node:fs/promises";
 
 const cliPath = new URL("../../cli.ts", import.meta.url).pathname;
 const fakeHerdrPath = new URL("./fake-herdr.sh", import.meta.url).pathname;
+const fakeGithubPath = new URL("./fake-gh.ts", import.meta.url).pathname;
 
-export type Workspace = { root: string; repo: string; herdr: string; bin: string };
+export type Workspace = {
+  root: string;
+  repo: string;
+  herdr: string;
+  github: string;
+  bin: string;
+};
 
 export type WorkspaceOptions = {
   /** The contents of `.operator/config.json` in the fixture repository. */
@@ -32,11 +39,16 @@ export function workspaces() {
         root,
         repo: `${root}/repo`,
         herdr: `${root}/herdr`,
+        github: `${root}/github`,
         bin: `${root}/bin`,
       };
-      await Bun.$`mkdir -p ${workspace.repo} ${workspace.herdr} ${workspace.bin}`.quiet();
+      await Bun.$`mkdir -p ${workspace.repo} ${workspace.herdr} ${workspace.github} ${workspace.bin}`.quiet();
       await Bun.$`cp ${fakeHerdrPath} ${workspace.bin}/herdr`.quiet();
       await Bun.$`chmod +x ${workspace.bin}/herdr`.quiet();
+      // The GitHub fake answers as `gh` on the same path, so tracker commands reach it through
+      // the real external interface instead of a module replaced by path.
+      await Bun.write(`${workspace.bin}/gh`, `#!/bin/sh\nexec bun ${fakeGithubPath} "$@"\n`);
+      await Bun.$`chmod +x ${workspace.bin}/gh`.quiet();
 
       const config = options.config ?? { crew: { host: "claude-code" } };
       await Bun.write(`${workspace.repo}/.operator/config.json`, `${JSON.stringify(config)}\n`);
@@ -73,6 +85,7 @@ export async function runOperator(workspace: Workspace, args: string[], cwd = wo
       ...process.env,
       PATH: `${workspace.bin}:${process.env.PATH ?? ""}`,
       HERDR_FAKE_DIR: workspace.herdr,
+      GH_FAKE_DIR: workspace.github,
     },
   });
   const [exitCode, stderr, stdout] = await Promise.all([
@@ -91,6 +104,14 @@ export async function runJson(workspace: Workspace, args: string[], cwd = worksp
 /** Every Herdr call the fake recorded, so a test can assert what was and was not launched. */
 export async function herdrCalls(workspace: Workspace): Promise<string[]> {
   const file = Bun.file(`${workspace.herdr}/calls.log`);
+  return (await file.exists())
+    ? (await file.text()).split("\n").filter((line) => line.length > 0)
+    : [];
+}
+
+/** Every `gh` call the fake recorded, so a test can assert what was and was not requested. */
+export async function githubCalls(workspace: Workspace): Promise<string[]> {
+  const file = Bun.file(`${workspace.github}/calls.log`);
   return (await file.exists())
     ? (await file.text()).split("\n").filter((line) => line.length > 0)
     : [];

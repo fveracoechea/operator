@@ -12,6 +12,7 @@ import { runInstall } from "./install-command.ts";
 import { runQuestion } from "./question-command.ts";
 import { runReview } from "./review-command.ts";
 import { runSetup } from "./setup-command.ts";
+import { runTracker } from "./tracker-command.ts";
 import { exitCodeByOutcome, type Handled, writeJsonResult } from "./result.ts";
 import { usage } from "./usage.ts";
 import { runWork } from "./work-command.ts";
@@ -27,6 +28,7 @@ const crewCommands: Record<string, CrewCommand | undefined> = {
   question: runQuestion,
   approval: runApproval,
   review: runReview,
+  tracker: runTracker,
 };
 
 const OPERATOR_VERSION = packageJson.version;

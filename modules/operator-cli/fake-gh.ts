@@ -1,0 +1,279 @@
+/**
+ * A stand-in for the `gh` CLI.
+ * It answers in the shape `gh api --include` produces and records every call, so tests drive
+ * tracker writes, lost answers, duplicates, edits, and closure conflicts through the real
+ * external interface instead of replacing a module by path.
+ *
+ * Its state lives in `$GH_FAKE_DIR/state.json` and the faults it injects in `faults.json`.
+ */
+
+type FakeComment = {
+  id: number;
+  html_url: string;
+  user: { login: string };
+  body: string;
+  created_at: string;
+  updated_at: string;
+};
+
+type Issue = {
+  number: number;
+  state: string;
+  state_reason: string | null;
+  closed_by: { login: string } | null;
+  closed_at: string | null;
+  updated_at: string;
+  title: string;
+  body: string;
+};
+
+type FakeEvent = {
+  event: string;
+  actor: { login: string } | null;
+  state_reason: string | null;
+  created_at: string;
+};
+
+type State = {
+  viewer: string;
+  nextCommentId: number;
+  issues: Record<string, Issue>;
+  comments: Record<string, FakeComment[]>;
+  events: Record<string, FakeEvent[]>;
+};
+
+type Fault = { kind: string; remaining: number };
+
+const directory = process.env.GH_FAKE_DIR ?? "";
+const statePath = `${directory}/state.json`;
+const faultsPath = `${directory}/faults.json`;
+
+async function readState(): Promise<State> {
+  const file = Bun.file(statePath);
+  if (await file.exists()) {
+    const held: State = await file.json();
+    return held;
+  }
+
+  return { viewer: "operator-bot", nextCommentId: 1, issues: {}, comments: {}, events: {} };
+}
+
+async function writeState(state: State): Promise<void> {
+  await Bun.write(statePath, `${JSON.stringify(state, null, 2)}\n`);
+}
+
+async function takeFault(name: string): Promise<string | null> {
+  const file = Bun.file(faultsPath);
+  if (!(await file.exists())) {
+    return null;
+  }
+
+  const faults: Record<string, Fault | undefined> = await file.json();
+  const fault = faults[name];
+  if (fault === undefined || fault.remaining <= 0) {
+    return null;
+  }
+
+  fault.remaining -= 1;
+  await Bun.write(faultsPath, `${JSON.stringify(faults, null, 2)}\n`);
+  return fault.kind;
+}
+
+function answer(status: number, body: unknown): void {
+  const text = body === null ? "" : JSON.stringify(body);
+  process.stdout.write(
+    [
+      `HTTP/2.0 ${status} ${status < 300 ? "OK" : "Error"}`,
+      "content-type: application/json; charset=utf-8",
+      "",
+      text,
+    ].join("\r\n"),
+  );
+}
+
+/** A lost answer: the call ends with nothing readable, so its effect stays unknown. */
+function lose(): void {
+  process.stderr.write("gh: the answer was lost\n");
+  process.exitCode = 1;
+}
+
+function parsePath(raw: string): { path: string; query: URLSearchParams } {
+  const [path, search] = raw.split("?");
+  return { path: path ?? "", query: new URLSearchParams(search ?? "") };
+}
+
+const args = process.argv.slice(2);
+const flags = new Set(["--include", "-i"]);
+const valueFlags = new Set(["--method", "--input", "-f", "-F", "-H"]);
+
+let method = "GET";
+let usesStdin = false;
+let rawPath = "";
+for (let index = 0; index < args.length; index += 1) {
+  const argument = args[index] ?? "";
+  if (argument === "api" || flags.has(argument)) {
+    continue;
+  }
+  if (valueFlags.has(argument)) {
+    const value = args[index + 1] ?? "";
+    if (argument === "--method") {
+      method = value;
+    }
+    if (argument === "--input") {
+      usesStdin = value === "-";
+    }
+    index += 1;
+    continue;
+  }
+  if (rawPath === "") {
+    rawPath = argument;
+  }
+}
+
+await Bun.write(
+  Bun.file(`${directory}/calls.log`),
+  `${await Bun.file(`${directory}/calls.log`)
+    .text()
+    .catch(() => "")}${method} ${rawPath}\n`,
+);
+
+const { path, query } = parsePath(rawPath);
+const body: { body?: string; state?: string; state_reason?: string } | null = usesStdin
+  ? JSON.parse(await Bun.stdin.text())
+  : null;
+const state = await readState();
+const now = new Date().toISOString();
+
+const commentMatch = /^repos\/[^/]+\/[^/]+\/issues\/comments\/(\d+)$/.exec(path);
+const issueMatch = /^repos\/[^/]+\/[^/]+\/issues\/(\d+)$/.exec(path);
+const commentsMatch = /^repos\/[^/]+\/[^/]+\/issues\/(\d+)\/comments$/.exec(path);
+const eventsMatch = /^repos\/[^/]+\/[^/]+\/issues\/(\d+)\/events$/.exec(path);
+
+/** Answers with the fault this call was given, or null when it should run normally. */
+async function faulted(name: string): Promise<boolean> {
+  const fault = await takeFault(name);
+  if (fault === null) {
+    return false;
+  }
+  if (fault === "lost") {
+    lose();
+    return true;
+  }
+
+  const status = /^status:(\d+)$/.exec(fault);
+  if (status?.[1] !== undefined) {
+    answer(Number(status[1]), { message: "the fake refused" });
+    return true;
+  }
+
+  // "applied-lost" performs the effect and then loses its answer, so recovery must read.
+  return false;
+}
+
+if (path === "user") {
+  if (!(await faulted("viewer"))) {
+    answer(200, { login: state.viewer });
+  }
+} else if (commentsMatch?.[1] !== undefined && method === "POST") {
+  const issue = commentsMatch[1];
+  const fault = await takeFault("createComment");
+  if (fault === "lost") {
+    lose();
+  } else if (fault !== null && /^status:(\d+)$/.test(fault)) {
+    answer(Number(/^status:(\d+)$/.exec(fault)?.[1] ?? "500"), { message: "the fake refused" });
+  } else {
+    const id = state.nextCommentId;
+    state.nextCommentId += 1;
+    const comment: FakeComment = {
+      id,
+      html_url: `https://github.com/fake/repo/issues/${issue}#issuecomment-${id}`,
+      user: { login: state.viewer },
+      body: String(body?.body ?? ""),
+      created_at: now,
+      updated_at: now,
+    };
+    state.comments[issue] = [...(state.comments[issue] ?? []), comment];
+    await writeState(state);
+    if (fault === "applied-lost") {
+      lose();
+    } else {
+      answer(201, comment);
+    }
+  }
+} else if (commentsMatch?.[1] !== undefined) {
+  const issue = commentsMatch[1];
+  const page = Number(query.get("page") ?? "1");
+  if (!(await faulted(page === 1 ? "scanComments" : `scanComments.page${page}`))) {
+    const perPage = Number(query.get("per_page") ?? "100");
+    const held = state.comments[issue] ?? [];
+    answer(200, held.slice((page - 1) * perPage, page * perPage));
+  }
+} else if (commentMatch?.[1] !== undefined) {
+  if (!(await faulted("readComment"))) {
+    const id = Number(commentMatch[1]);
+    const found = Object.values(state.comments)
+      .flat()
+      .find((one) => one.id === id);
+    if (found === undefined) {
+      answer(404, { message: "Not Found" });
+    } else {
+      answer(200, found);
+    }
+  }
+} else if (eventsMatch?.[1] !== undefined) {
+  if (!(await faulted("readEvents"))) {
+    answer(200, state.events[eventsMatch[1]] ?? []);
+  }
+} else if (issueMatch?.[1] !== undefined && method === "PATCH") {
+  const number = issueMatch[1];
+  const fault = await takeFault("closeIssue");
+  if (fault === "lost") {
+    lose();
+  } else if (fault !== null && /^status:(\d+)$/.test(fault)) {
+    answer(Number(/^status:(\d+)$/.exec(fault)?.[1] ?? "500"), { message: "the fake refused" });
+  } else {
+    const held = state.issues[number];
+    if (held === undefined) {
+      answer(404, { message: "Not Found" });
+    } else {
+      const closed: Issue = {
+        ...held,
+        state: body?.state ?? "closed",
+        state_reason: body?.state_reason ?? "completed",
+        closed_by: { login: state.viewer },
+        closed_at: now,
+        updated_at: now,
+      };
+      state.issues[number] = closed;
+      state.events[number] = [
+        ...(state.events[number] ?? []),
+        {
+          event: "closed",
+          actor: { login: state.viewer },
+          state_reason: closed.state_reason,
+          created_at: now,
+        },
+      ];
+      await writeState(state);
+      if (fault === "applied-lost") {
+        lose();
+      } else {
+        answer(200, closed);
+      }
+    }
+  }
+} else if (issueMatch?.[1] !== undefined) {
+  if (!(await faulted("readIssue"))) {
+    const held = state.issues[issueMatch[1]];
+    if (held === undefined) {
+      answer(404, { message: "Not Found" });
+    } else {
+      answer(200, held);
+    }
+  }
+} else {
+  answer(404, { message: `the fake does not answer ${method} ${path}` });
+}
+
+// This file is a script, and the empty export makes its top-level await legal.
+export {};

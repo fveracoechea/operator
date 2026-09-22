@@ -24,6 +24,7 @@ const crewFieldByFlag = {
   "--approval": "approvalId",
   "--submission": "submissionId",
   "--review": "reviewId",
+  "--operation": "operationId",
   "--pr-head": "prHead",
 } as const;
 

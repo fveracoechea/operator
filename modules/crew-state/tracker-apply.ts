@@ -142,8 +142,16 @@ function readReport(db: CrewReader, operationId: string): TrackerStepReport | nu
       });
 }
 
-/** The approval one uncertain operation needs before another write is sent under it. */
-function approvalCheckFor(request: { operation: TrackerOperationRow; target: TrackerTarget }): {
+/**
+ * The approval one uncertain operation needs before another write is sent under it.
+ * Its request revision is the number of write attempts already recorded, so one approval covers
+ * exactly one additional write and cannot widen to a later one.
+ */
+function approvalCheckFor(request: {
+  operation: TrackerOperationRow;
+  target: TrackerTarget;
+  attempts: TrackerWriteRow[];
+}): {
   action: string;
   targets: string[];
   scope: string;
@@ -156,7 +164,7 @@ function approvalCheckFor(request: { operation: TrackerOperationRow; target: Tra
       `operation:${request.operation.id}`,
     ],
     scope: request.operation.step,
-    requestRevision: String(request.operation.revision),
+    requestRevision: String(request.attempts.length),
   };
 }
 
@@ -451,7 +459,7 @@ export async function recordTrackerStep(request: {
     }
 
     if (operation.state === "uncertain") {
-      const check = approvalCheckFor({ operation, target });
+      const check = approvalCheckFor({ operation, target, attempts });
       if (read.approvalMissing) {
         return { status: "unknown-approval", approvalId: request.approvalId ?? "" };
       }
@@ -477,9 +485,12 @@ export async function recordTrackerStep(request: {
   }
 
   if (operation === null) {
+    // The rendered comment carries this identity in its marker, so the operation is named once
+    // and the same bytes are rebuilt by every later recovery.
+    const operationId = crypto.randomUUID();
     const planned = await TrackerUpdate.plan({
       provider: read.context.binding.provider,
-      operationId: crypto.randomUUID(),
+      operationId,
       intent: { ...input, target },
     });
     if (planned.status === "unsupported-provider") {
@@ -493,7 +504,6 @@ export async function recordTrackerStep(request: {
     }
 
     // The plan is written before any effect, so an interrupted step is found and recovered.
-    const operationId = crypto.randomUUID();
     const opened = await record(
       {
         projectRoot: request.projectRoot,
@@ -536,6 +546,26 @@ export async function recordTrackerStep(request: {
 
     operation = stored;
     attempts = [];
+
+    // A ticket's completion state exists whether or not Operator wrote it, so the current state
+    // is read before the close. A comment marker cannot exist before its own write, so a new
+    // comment step has nothing to read yet.
+    if (input.step === "completion") {
+      const before = await settleFromObservation({
+        projectRoot: request.projectRoot,
+        requestId: `${request.requestId}#before`,
+        ownerToken: request.ownerToken,
+        operation,
+        target,
+        attempts,
+      });
+      if (before.status !== "settled") {
+        return before;
+      }
+      if (before.verdict.state === "verified" || before.verdict.state === "conflict") {
+        return finalReport(request.projectRoot, operationId);
+      }
+    }
   }
 
   // The comment content is rendered from the identity of the operation that carries it, and it

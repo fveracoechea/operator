@@ -10,7 +10,28 @@ export type Outcome =
   | "uncertain"
   | "pending";
 
+/**
+ * The tracker contract fixes these identifiers, so they keep their own spelling.
+ * They are provider-neutral; provider detail travels in the blocker beside the reason.
+ */
+export type TrackerReason =
+  | "tracker.completed"
+  | "tracker.read_failed"
+  | "tracker.write_rejected"
+  | "tracker.invalid_request"
+  | "tracker.capability_unavailable"
+  | "tracker.approval_required"
+  | "tracker.evidence_incomplete"
+  | "tracker.resolution_conflict"
+  | "tracker.completion_conflict"
+  | "tracker.map_conflict"
+  | "tracker.resolution_outcome_unknown"
+  | "tracker.completion_outcome_unknown"
+  | "tracker.map_outcome_unknown"
+  | "tracker.pending";
+
 export type Reason =
+  | TrackerReason
   | "invalid_arguments"
   | "unsupported_bun"
   | "version_reported"
@@ -185,7 +206,9 @@ export type Reason =
   | "pr_authority_missing"
   | "pr_head_required"
   | "pr_head_changed"
-  | "review_attempt_limit";
+  | "review_attempt_limit"
+  | "tracker_steps_reported"
+  | "tracker_map_read";
 
 export type Operation =
   | "parse_arguments"
@@ -222,7 +245,11 @@ export type Operation =
   | "attempt_submit"
   | "review_report"
   | "review_dispose"
-  | "review_show";
+  | "review_show"
+  | "tracker_record"
+  | "tracker_recover"
+  | "tracker_show"
+  | "tracker_map";
 
 export const exitCodeByOutcome = {
   completed: 0,
