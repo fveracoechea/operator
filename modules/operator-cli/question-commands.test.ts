@@ -5,6 +5,7 @@ import {
   requestId as request,
   runJson,
   runOperator,
+  stopFakeAgents,
   type Workspace,
   workspaces,
 } from "./workspace-fixture.ts";
@@ -986,7 +987,7 @@ describe("a withdrawn question", () => {
     const questionId = raised.json.data.questionId;
 
     // A replacement ends the former attempt, so the question it raised holds nothing.
-    await rm(`${workspace.herdr}/agent-live`);
+    await stopFakeAgents(workspace);
     const inspected = await runJson(workspace, [
       "attempt",
       "replace",

@@ -22,7 +22,12 @@ export type DispatchStage = (typeof DISPATCH_STAGES)[number];
 /** The external effect that carries one recorded answer to the Operative that asked for it. */
 export const ANSWER_DELIVERY = "answer_delivery";
 
-export type OperationKind = DispatchStage | typeof ANSWER_DELIVERY;
+/** The external effects one cleanup performs, each recorded before it acts. */
+export const CLEANUP_EFFECTS = ["agent_stop", "worktree_remove"] as const;
+
+export type CleanupEffect = (typeof CLEANUP_EFFECTS)[number];
+
+export type OperationKind = DispatchStage | typeof ANSWER_DELIVERY | CleanupEffect;
 
 export type OperationState = "intended" | "succeeded" | "failed" | "uncertain";
 

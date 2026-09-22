@@ -201,7 +201,40 @@ export type Reason =
   | "assignment_not_accepted"
   | "result_invalidated"
   | "input_invalidated"
-  | "review_not_invalidated";
+  | "review_not_invalidated"
+  | "cleanup_reported"
+  | "process_closed"
+  | "process_already_closed"
+  | "worktree_removed"
+  | "worktree_already_removed"
+  | "cleanup_blocked"
+  | "cleanup_uncertain"
+  | "cleanup_failed"
+  | "invalid_hold_input"
+  | "resources_held"
+  | "resources_already_held"
+  | "resources_released"
+  | "retention_hold"
+  | "no_retention_hold"
+  | "handoff_missing"
+  | "revisions_changed"
+  | "unexpected_work"
+  | "unexpected_files"
+  | "unpushed_commits"
+  | "evidence_missing"
+  | "evidence_changed"
+  | "unfamiliar_process"
+  | "occupancy_unknown"
+  | "workspace_handle_missing"
+  | "identity_mismatch"
+  | "checkout_in_use"
+  | "unrelated_resource"
+  | "checkout_unknown"
+  | "host_unsupported"
+  | "assignment_not_accepted"
+  | "process_live"
+  | "preservation_failed"
+  | "writer_active";
 
 export type Operation =
   | "parse_arguments"
@@ -240,7 +273,12 @@ export type Operation =
   | "review_dispose"
   | "review_show"
   | "work_rework"
-  | "work_invalidate";
+  | "work_invalidate"
+  | "cleanup_close"
+  | "cleanup_remove"
+  | "cleanup_hold"
+  | "cleanup_release"
+  | "cleanup_show";
 
 export const exitCodeByOutcome = {
   completed: 0,

@@ -4,13 +4,13 @@ import { type AnswerDelivery, answerDocument } from "./answer.ts";
 import { type PrepareOutcome, prepareInputs } from "./inputs.ts";
 import { inspectReviewWork, inspectWork, type WorkInspection } from "./inspect.ts";
 import { readReference } from "./reference.ts";
-import { LOCAL_ROOT } from "./plan.ts";
+import { BRIEF_PATH, LOCAL_ROOT, REFERENCE_PATH, RELEASE_PATH } from "./plan.ts";
 import { readSnapshot } from "./snapshot.ts";
 import {
   agentKindFor,
   type Brief,
   type DispatchPlan,
-  isSupportedHost,
+  hasAgentKind,
   planDispatch,
   type Snapshot,
 } from "./plan.ts";
@@ -44,6 +44,38 @@ export const OperativeDispatch = {
     return readSnapshot(request.recorded);
   },
 
+  /**
+   * The files one launch writes into an Operative worktree.
+   * A cleanup preserves exactly this list, so the launch and the disposal read one rendering
+   * of what Operator put there.
+   * The brief carries the identity the launch recorded for it, which is the only launch input
+   * whose exact expected content survives in the crew state. A cleanup can therefore notice an
+   * edit to it, even though Operator's own paths are excluded from the checkout reading.
+   */
+  launchInputs(request: { briefIdentity: string }): Array<{
+    name: string;
+    path: string;
+    expected: string | null;
+  }> {
+    return [
+      { name: "brief", path: BRIEF_PATH, expected: request.briefIdentity },
+      { name: "control-reference", path: REFERENCE_PATH, expected: null },
+      { name: "release", path: RELEASE_PATH, expected: null },
+    ];
+  },
+
+  /**
+   * The path prefixes Operator itself writes inside an Operative worktree.
+   * Anything outside them is the occupant's own work, whichever reader is asking.
+   */
+  writtenPrefixes(request: { agentHost: string }): string[] {
+    const prefixes = [LOCAL_ROOT];
+    if (hasAgentKind(request.agentHost)) {
+      prefixes.push(`${SkillInstall.targetRoot({ target: request.agentHost })}/`);
+    }
+    return prefixes;
+  },
+
   /** Names the branch, checkout, agent, brief, and prompt of one launch before any effect. */
   plan(request: {
     projectRoot: string;
@@ -54,7 +86,7 @@ export const OperativeDispatch = {
     worktreePath: string | null;
   }): { status: "planned"; plan: DispatchPlan } | { status: "host-unnamed" } {
     const host = request.snapshot.selection.crew.host;
-    if (!isSupportedHost(host)) {
+    if (!hasAgentKind(host)) {
       return { status: "host-unnamed" };
     }
 
@@ -192,15 +224,10 @@ export const OperativeDispatch = {
     baseCommit: string;
     agentHost: string;
   }) {
-    const prefixes = [LOCAL_ROOT];
-    if (isSupportedHost(request.agentHost)) {
-      prefixes.push(`${SkillInstall.targetRoot({ target: request.agentHost })}/`);
-    }
-
     return inspectReviewWork({
       worktreePath: request.worktreePath,
       baseCommit: request.baseCommit,
-      allowedPrefixes: prefixes,
+      allowedPrefixes: OperativeDispatch.writtenPrefixes({ agentHost: request.agentHost }),
     });
   },
 

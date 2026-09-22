@@ -30,8 +30,11 @@ Read [REWORK.md](REWORK.md), [LIMITS.md](LIMITS.md), and [INVALIDATION.md](INVAL
 Question routing, answers, and approvals are implemented.
 `operator question` and `operator approval` carry them, and the brief tells each Operative how to raise one.
 
-Tracker updates and cleanup are not available yet.
-Do not tell the user that those operations exist.
+Process closure and worktree removal are implemented.
+`operator cleanup` carries them, and each one needs its own proof and its own approval.
+
+Tracker updates are not available yet.
+Do not tell the user that operation exists.
 
 ## Rules
 

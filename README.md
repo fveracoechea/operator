@@ -9,9 +9,9 @@ The name comes from *The Matrix*: the crew member who loads programs, guides mis
 
 ## Status
 
-**Project installation, setup, readiness, the crew frontier, Operative dispatch, question routing, and reviewed acceptance work.**
-The repository contains the Bun CLI, its local and CI quality gate, `operator install`, `operator setup`, `operator setup readiness`, `operator crew own`, `operator work`, `operator attempt`, `operator question`, `operator approval`, and `operator review`.
-Rework, cleanup, the live readiness probe, and release automation are not implemented yet.
+**Project installation, setup, readiness, the crew frontier, Operative dispatch, question routing, reviewed acceptance, delegated rework, and approved cleanup work.**
+The repository contains the Bun CLI, its local and CI quality gate, `operator install`, `operator setup`, `operator setup readiness`, `operator crew own`, `operator work`, `operator attempt`, `operator question`, `operator approval`, `operator review`, and `operator cleanup`.
+The live readiness probe, tracker updates, and release automation are not implemented yet.
 
 ## CLI Foundation
 
