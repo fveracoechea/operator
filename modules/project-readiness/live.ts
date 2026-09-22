@@ -206,7 +206,8 @@ export const liveChecks: LiveCheck[] = [
     group: "provider",
     inputs: ["selection"],
     claims: ["readiness", "release"],
-    prompts: { operator: 1, crew: 1 },
+    // It reads what the earlier checks already proved, so it sends no prompt of its own.
+    prompts: NO_PROMPT,
   },
 ];
 

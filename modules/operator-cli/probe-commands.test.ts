@@ -384,6 +384,30 @@ describe("operator setup probe apply", () => {
   );
 
   test(
+    "sends each host exactly the number of prompts the plan charged for",
+    async () => {
+      const plan = await runJson(workspace, ["setup", "probe", "plan", ...workspace.selection]);
+      const declared = (plan.json.data.checks as Array<{ name: string }>).length;
+      expect(declared).toBeGreaterThan(0);
+      const charged = (plan.json.data.expectedCosts as string[])
+        .filter((line) => line.includes("synthetic prompts"))
+        .map((line) => Number(/(\d+) synthetic prompts/.exec(line)?.[1]));
+
+      await applyProbe(workspace);
+      const prompts = (await herdrCalls(workspace)).filter((one) =>
+        one.startsWith("agent prompt "),
+      );
+
+      // The plan charges for the Operator host first and the Crew host second.
+      expect(charged).toEqual([
+        prompts.filter((one) => one.includes("-operator ")).length,
+        prompts.filter((one) => one.includes("-crew ")).length,
+      ]);
+    },
+    PROBE_TIMEOUT_MS,
+  );
+
+  test(
     "reports the same mixed-host selection it launched",
     async () => {
       const result = await applyProbe(workspace);
