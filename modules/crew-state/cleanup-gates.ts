@@ -24,6 +24,15 @@ export function identityBlocker(
   if (match.status === "checkout-unknown") {
     return { reason: "checkout_unknown", detail: match.detail };
   }
+  // Operator acts on Herdr-managed checkouts and nothing else, so a path Herdr does not hold
+  // is refused rather than taken apart by Git or by the filesystem.
+  if (match.status === "checkout-absent") {
+    return {
+      reason: "unrelated_resource",
+      worktreePath: match.worktreePath,
+      detail: "Herdr holds no worktree at that path, and Operator touches nothing else.",
+    };
+  }
 
   return { reason: "identity_mismatch", mismatches: match.mismatches };
 }

@@ -268,8 +268,8 @@ export async function closeProcess(request: {
   // A review runs its two axes as sub-agents of one host, so a stopped Operative leaves no
   // agent and no child tool behind. Whatever is still here was never accounted for.
   const occupancy = await OperativeCleanup.occupancy({
-    workspaceId: context.dispatch.workspaceId ?? "",
-    paneId: context.dispatch.paneId ?? "",
+    workspaceId: identity.checkout.workspaceId,
+    paneId: identity.paneId,
   });
   if (occupancy.status === "unknown") {
     return refuse([{ reason: "occupancy_unknown", detail: occupancy.detail }]);

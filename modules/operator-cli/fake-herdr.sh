@@ -68,7 +68,12 @@ answer() {
     if [ -f "$dir/worktrees" ]; then
       while IFS='|' read -r workspace path repo branch; do
         [ -n "$path" ] || continue
-        entries="$entries,{\"path\":\"$path\",\"branch\":\"$branch\",\"is_linked_worktree\":true,\"open_workspace_id\":\"$workspace\"}"
+        # A real Herdr record can omit a handle, such as a worktree whose workspace is closed.
+        if [ -f "$dir/worktree-handles-missing" ]; then
+          entries="$entries,{\"path\":\"$path\",\"branch\":null,\"is_linked_worktree\":true,\"open_workspace_id\":null}"
+        else
+          entries="$entries,{\"path\":\"$path\",\"branch\":\"$branch\",\"is_linked_worktree\":true,\"open_workspace_id\":\"$workspace\"}"
+        fi
       done < "$dir/worktrees"
     fi
     printf '{"id":"cli:worktree:list","result":{"type":"worktree_list","worktrees":[%s]}}\n' "${entries#,}"

@@ -229,17 +229,6 @@ export async function removeWorktree(request: {
   if (identity.status !== "matched") {
     return refuse([identityBlocker(identity)]);
   }
-  // Operator removes Herdr-managed checkouts and nothing else, so a path Herdr does not hold
-  // is refused rather than taken apart by Git or by the filesystem.
-  if (!identity.checkoutPresent) {
-    return refuse([
-      {
-        reason: "unrelated_resource",
-        worktreePath: context.dispatch.worktreePath,
-        detail: "Herdr holds no worktree at that path, and Operator removes nothing else.",
-      },
-    ]);
-  }
 
   // The evidence the closure preserved must still be readable, because deletion is the last
   // moment at which the record could be repaired from the worktree.
@@ -297,7 +286,7 @@ export async function removeWorktree(request: {
           requestId: request.requestId,
           intent: {
             kind: KIND,
-            workspaceId: identity.workspaceId,
+            workspaceId: identity.checkout.workspaceId,
             worktreePath: context.dispatch.worktreePath,
             approvalId: approval.approval.approvalId,
           },
@@ -325,7 +314,7 @@ export async function removeWorktree(request: {
 
   const removed = await OperativeCleanup.remove({
     repoRoot: request.projectRoot,
-    workspaceId: identity.workspaceId,
+    workspaceId: identity.checkout.workspaceId,
     worktreePath: context.dispatch.worktreePath,
   });
 

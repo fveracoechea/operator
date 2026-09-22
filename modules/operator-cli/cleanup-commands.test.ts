@@ -540,6 +540,34 @@ describe("operator cleanup remove", () => {
     );
   });
 
+  test("refuses a removal when Herdr names no workspace or branch for the checkout", async () => {
+    const workspace = await makeWorkspace();
+    const { producer } = await acceptedCycle(workspace);
+    await pushWork(producer.worktreePath);
+    await close(workspace, producer.ownerToken, producer.attemptId);
+    const asked = await remove(workspace, producer.ownerToken, producer.attemptId);
+    await grantRemoval(workspace, producer.ownerToken, asked.json.blockers[0]);
+    // Herdr answers with a record that omits the handles a removal would have to act on.
+    await Bun.write(`${workspace.herdr}/worktree-handles-missing`, "");
+
+    const blocked = await remove(workspace, producer.ownerToken, producer.attemptId);
+
+    expect(blocked.exitCode).toBe(3);
+    expect(reasons(blocked)).toEqual(["identity_mismatch"]);
+    expect(blocked.json.blockers[0].mismatches).toEqual([
+      { field: "workspace", recorded: "w1", found: "none" },
+      {
+        field: "branch",
+        recorded: `operator/22-1-${producer.attemptId.slice(0, 8)}`,
+        found: "none",
+      },
+    ]);
+    // Nothing is removed against a handle Herdr never confirmed.
+    expect((await herdrCalls(workspace)).some((line) => line.startsWith("worktree remove"))).toBe(
+      false,
+    );
+  });
+
   test("refuses a checkout Herdr does not hold", async () => {
     const workspace = await makeWorkspace();
     const { producer } = await acceptedCycle(workspace);

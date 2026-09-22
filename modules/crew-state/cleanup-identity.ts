@@ -4,22 +4,39 @@ import type { CleanupContext } from "./cleanup-context.ts";
 
 export type IdentityMismatch = { field: string; recorded: string; found: string };
 
+/** The Herdr handles one removal acts on, each one read back from Herdr rather than assumed. */
+export type VerifiedCheckout = { workspaceId: string; branch: string };
+
 export type IdentityMatch =
-  | { status: "matched"; workspaceId: string; paneId: string; checkoutPresent: boolean }
+  | { status: "matched"; paneId: string; checkout: VerifiedCheckout }
+  | { status: "checkout-absent"; worktreePath: string }
   | { status: "workspace-handle-missing"; attemptId: string; missing: string[] }
   | { status: "unrelated-resource"; worktreePath: string; detail: string }
   | { status: "identity-mismatch"; mismatches: IdentityMismatch[] }
   | { status: "checkout-unknown"; detail: string }
   | { status: "checkout-in-use"; attemptIds: string[] };
 
-function differs(field: string, recorded: string, found: string | null): IdentityMismatch | null {
-  return found === null || found === recorded ? null : { field, recorded, found };
+type Confirmed = { value: string } | { mismatch: IdentityMismatch };
+
+/**
+ * Confirms one name against what the holder of the resource actually reports.
+ * A field the holder does not name is a mismatch, never a match: Operator would otherwise act
+ * on the value it recorded itself, which proves nothing about the resource in front of it.
+ */
+function confirm(field: string, recorded: string, found: string | null): Confirmed {
+  return found === recorded
+    ? { value: recorded }
+    : { mismatch: { field, recorded, found: found ?? "none" } };
+}
+
+function mismatchesOf(confirmed: Confirmed[]): IdentityMismatch[] {
+  return confirmed.flatMap((one) => ("mismatch" in one ? [one.mismatch] : []));
 }
 
 /**
  * Proves that every name this cleanup would act on belongs to this attempt.
  * The repository, the assignment, the attempt, the Herdr handles, the checkout on disk, its
- * occupants, and the attempts still writing there must all agree before any destructive step.
+ * branch, and the attempts still writing there must all agree before any destructive step.
  */
 export async function matchIdentity(request: {
   projectRoot: string;
@@ -36,12 +53,17 @@ export async function matchIdentity(request: {
     };
   }
 
-  const missing = [
-    ...(dispatch.workspaceId === null ? ["workspace"] : []),
-    ...(dispatch.paneId === null ? ["pane"] : []),
-  ];
-  if (dispatch.workspaceId === null || dispatch.paneId === null) {
-    return { status: "workspace-handle-missing", attemptId: attempt.id, missing };
+  const workspaceId = dispatch.workspaceId;
+  const paneId = dispatch.paneId;
+  if (workspaceId === null || paneId === null) {
+    return {
+      status: "workspace-handle-missing",
+      attemptId: attempt.id,
+      missing: [
+        ...(workspaceId === null ? ["workspace"] : []),
+        ...(paneId === null ? ["pane"] : []),
+      ],
+    };
   }
 
   if (request.context.otherOccupants.length > 0) {
@@ -58,13 +80,13 @@ export async function matchIdentity(request: {
     };
   }
 
-  const stated = [
-    differs("repository", request.projectRoot, reference.controllingCheckout),
-    differs("assignment", assignment.id, reference.assignmentId),
-    differs("attempt", attempt.id, reference.attemptId),
-    differs("worktree", dispatch.worktreePath, reference.worktreePath),
-    differs("branch", dispatch.branch, reference.branch),
-  ].flatMap((one) => (one === null ? [] : [one]));
+  const stated = mismatchesOf([
+    confirm("repository", request.projectRoot, reference.controllingCheckout),
+    confirm("assignment", assignment.id, reference.assignmentId),
+    confirm("attempt", attempt.id, reference.attemptId),
+    confirm("worktree", dispatch.worktreePath, reference.worktreePath),
+    confirm("branch", dispatch.branch, reference.branch),
+  ]);
   if (stated.length > 0) {
     return { status: "identity-mismatch", mismatches: stated };
   }
@@ -77,26 +99,23 @@ export async function matchIdentity(request: {
     return { status: "checkout-unknown", detail: checkout.detail };
   }
   if (checkout.status === "absent") {
+    return { status: "checkout-absent", worktreePath: dispatch.worktreePath };
+  }
+
+  const path = confirm("worktree", dispatch.worktreePath, checkout.value.path);
+  const workspace = confirm("workspace", workspaceId, checkout.value.workspaceId);
+  const branch = confirm("branch", dispatch.branch, checkout.value.branch);
+  if ("mismatch" in path || "mismatch" in workspace || "mismatch" in branch) {
     return {
-      status: "matched",
-      workspaceId: dispatch.workspaceId,
-      paneId: dispatch.paneId,
-      checkoutPresent: false,
+      status: "identity-mismatch",
+      mismatches: mismatchesOf([path, workspace, branch]),
     };
   }
 
-  const held = [
-    differs("worktree", dispatch.worktreePath, checkout.value.path),
-    differs("workspace", dispatch.workspaceId, checkout.value.workspaceId),
-    differs("branch", dispatch.branch, checkout.value.branch),
-  ].flatMap((one) => (one === null ? [] : [one]));
-
-  return held.length > 0
-    ? { status: "identity-mismatch", mismatches: held }
-    : {
-        status: "matched",
-        workspaceId: dispatch.workspaceId,
-        paneId: dispatch.paneId,
-        checkoutPresent: true,
-      };
+  // The handles a removal acts on are the ones Herdr just named, never the recorded copies.
+  return {
+    status: "matched",
+    paneId,
+    checkout: { workspaceId: workspace.value, branch: branch.value },
+  };
 }
