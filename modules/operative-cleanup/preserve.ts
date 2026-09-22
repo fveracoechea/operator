@@ -40,7 +40,7 @@ export async function preserveEvidence(request: {
   projectRoot: string;
   worktreePath: string;
   attemptId: string;
-  copies: Array<{ name: string; path: string }>;
+  copies: Array<{ name: string; path: string; expected: string | null }>;
   held: Array<{ name: string; storedPath: string; contentIdentity: string }>;
 }): Promise<PreserveOutcome> {
   const items: EvidenceItem[] = [];
@@ -52,6 +52,18 @@ export async function preserveEvidence(request: {
     }
 
     const contentIdentity = ContentIdentity.ofBytes(bytes);
+    // Operator's own paths are excluded from the checkout reading, so the one launch input
+    // whose expected content is recorded is checked here instead.
+    if (copy.expected !== null && copy.expected !== contentIdentity) {
+      return {
+        status: "evidence-changed",
+        name: copy.name,
+        path: copy.path,
+        expected: copy.expected,
+        found: contentIdentity,
+      };
+    }
+
     const storedPath = `${EVIDENCE_STORE}/${request.attemptId}/${safeName(copy.name)}`;
     await Bun.write(`${request.projectRoot}/${storedPath}`, bytes, { createPath: true });
 

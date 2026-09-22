@@ -53,7 +53,7 @@ export const OperativeCleanup = {
     projectRoot: string;
     worktreePath: string;
     attemptId: string;
-    copies: Array<{ name: string; path: string }>;
+    copies: Array<{ name: string; path: string; expected: string | null }>;
     held: Array<{ name: string; storedPath: string; contentIdentity: string }>;
   }) {
     return preserveEvidence(request);

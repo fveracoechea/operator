@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
@@ -19,6 +20,7 @@ import {
   herdrCalls,
   requestId as request,
   runJson,
+  runOperator,
   workspaces,
 } from "./workspace-fixture.ts";
 
@@ -112,6 +114,23 @@ async function remove(workspace: Workspace, ownerToken: string, attemptId: strin
 }
 
 type Blocker = { reason: string; [key: string]: unknown };
+
+/**
+ * Rewrites one column of a recorded launch.
+ * These guards answer for a crew state no supported command can produce, such as a checkout
+ * that names the controlling repository. The damaged record is built here rather than
+ * pretended into existence through a command that would refuse it.
+ */
+function damageDispatch(
+  workspace: Workspace,
+  attemptId: string,
+  column: "worktree_path" | "pane_id" | "agent_host",
+  value: string | null,
+): void {
+  const state = new Database(`${workspace.repo}/.operator/local/crew-state.sqlite`);
+  state.run(`update attempt_dispatch set ${column} = ? where attempt_id = ?`, [value, attemptId]);
+  state.close();
+}
 
 function reasons(result: { json: { blockers: Blocker[] } }): string[] {
   return result.json.blockers.map((one) => one.reason);
@@ -285,6 +304,34 @@ describe("operator cleanup close", () => {
     expect(blocked.json.blockers[1].paths).toEqual(["scratch.tmp"]);
   });
 
+  test("retains the process when the brief in the checkout is not the brief it was launched with", async () => {
+    const workspace = await makeWorkspace();
+    const { producer } = await acceptedCycle(workspace);
+    // Operator's own paths are excluded from the checkout reading, so an edit here would be
+    // invisible without the identity the launch recorded.
+    await Bun.write(`${producer.worktreePath}/.operator/local/brief.md`, "a rewritten brief\n");
+
+    const blocked = await close(workspace, producer.ownerToken, producer.attemptId);
+
+    expect(blocked.exitCode).toBe(3);
+    expect(reasons(blocked)).toEqual(["evidence_changed"]);
+    expect(blocked.json.blockers[0].name).toBe("brief");
+  });
+
+  test("retains the process when the fixed evidence a review read no longer matches", async () => {
+    const workspace = await makeWorkspace();
+    const { producer, submitted } = await acceptedCycle(workspace);
+    const stored = `${workspace.repo}/.operator/local/submissions/${submitted.json.data.submissionId}`;
+    const copies = await Array.fromAsync(new Bun.Glob("*").scan({ cwd: stored, onlyFiles: true }));
+    await Bun.write(`${stored}/${copies[0]}`, "a different result\n");
+
+    const blocked = await close(workspace, producer.ownerToken, producer.attemptId);
+
+    expect(blocked.exitCode).toBe(3);
+    expect(reasons(blocked)).toEqual(["evidence_changed"]);
+    expect(blocked.json.blockers[0].name).toBe("artifact-result");
+  });
+
   test("retains the process when the host refuses its own stop", async () => {
     const workspace = await makeWorkspace();
     const { producer } = await acceptedCycle(workspace);
@@ -345,6 +392,129 @@ describe("operator cleanup close", () => {
     expect(
       (await herdrCalls(workspace)).filter((line) => line.startsWith("agent send-keys")),
     ).toHaveLength(1);
+  });
+});
+
+describe("cleanup identity", () => {
+  test("refuses to act on the controlling checkout", async () => {
+    const workspace = await makeWorkspace();
+    const { producer } = await acceptedCycle(workspace);
+    damageDispatch(workspace, producer.attemptId, "worktree_path", workspace.repo);
+
+    const blocked = await close(workspace, producer.ownerToken, producer.attemptId);
+
+    expect(blocked.exitCode).toBe(3);
+    expect(reasons(blocked)).toEqual(["unrelated_resource"]);
+    expect(blocked.json.blockers[0].worktreePath).toBe(workspace.repo);
+    expect((await herdrCalls(workspace)).some((line) => line.startsWith("agent send-keys"))).toBe(
+      false,
+    );
+  });
+
+  test("refuses to act while another attempt still writes in the checkout", async () => {
+    const workspace = await makeWorkspace();
+    const { producer } = await acceptedCycle(workspace);
+
+    // A second assignment claims the same checkout path. Its launch fails, but the plan it
+    // recorded first makes it a live writer of that directory.
+    const registered = await runJson(workspace, [
+      "work",
+      "register",
+      "--request",
+      request(),
+      "--owner-token",
+      producer.ownerToken,
+      "--input",
+      await writeInput(workspace, {
+        sourceKind: "ticket",
+        source: { id: "github:operator#16", revision: "rev-1", tracker: "github" },
+        items: [
+          {
+            key: "16.1",
+            title: "Follow-on work",
+            kind: "production",
+            approvedScope: "Continue in the same checkout.",
+            acceptanceRequirements: ["The quality gate passes."],
+            permissions: {
+              writePaths: ["modules/"],
+              allowedCommands: ["bun test"],
+              network: false,
+            },
+            fixedInputs: [],
+            dependsOn: [],
+          },
+        ],
+      }),
+    ]);
+    const claimed = await runJson(workspace, [
+      "work",
+      "claim",
+      "--request",
+      request(),
+      "--owner-token",
+      producer.ownerToken,
+      "--assignment",
+      registered.json.data.registered[0].assignmentId,
+      "--revision",
+      "1",
+    ]);
+    await runJson(workspace, [
+      "attempt",
+      "dispatch",
+      "--request",
+      request(),
+      "--owner-token",
+      producer.ownerToken,
+      "--attempt",
+      claimed.json.data.attemptId,
+      "--commit",
+      await headCommit(workspace),
+      "--worktree",
+      producer.worktreePath,
+    ]);
+
+    const blocked = await close(workspace, producer.ownerToken, producer.attemptId);
+
+    expect(blocked.exitCode).toBe(3);
+    expect(reasons(blocked)).toEqual(["checkout_in_use"]);
+    expect(blocked.json.blockers[0].attemptIds).toEqual([claimed.json.data.attemptId]);
+  });
+
+  test("refuses to act when the launch recorded no Herdr pane", async () => {
+    const workspace = await makeWorkspace();
+    const { producer } = await acceptedCycle(workspace);
+    damageDispatch(workspace, producer.attemptId, "pane_id", null);
+
+    const blocked = await close(workspace, producer.ownerToken, producer.attemptId);
+
+    expect(blocked.exitCode).toBe(3);
+    expect(reasons(blocked)).toEqual(["workspace_handle_missing"]);
+    expect(blocked.json.blockers[0].missing).toEqual(["pane"]);
+  });
+
+  test("refuses a host this release cannot stop, before it reads anything else", async () => {
+    const workspace = await makeWorkspace();
+    const { producer } = await acceptedCycle(workspace);
+    await Bun.write(`${producer.worktreePath}/notes.md`, "a human edit\n");
+    damageDispatch(workspace, producer.attemptId, "agent_host", "gemini");
+
+    const blocked = await close(workspace, producer.ownerToken, producer.attemptId);
+
+    expect(blocked.exitCode).toBe(3);
+    // The host decides which paths Operator wrote, so nothing else is read until it is known.
+    expect(reasons(blocked)).toEqual(["host_unsupported"]);
+    expect(blocked.json.blockers[0].host).toBe("gemini");
+  });
+
+  test("retains the process when Herdr cannot say who occupies the workspace", async () => {
+    const workspace = await makeWorkspace();
+    const { producer } = await acceptedCycle(workspace);
+    await Bun.write(`${workspace.herdr}/agent-list.error`, "socket_unavailable");
+
+    const blocked = await close(workspace, producer.ownerToken, producer.attemptId);
+
+    expect(blocked.exitCode).toBe(3);
+    expect(reasons(blocked)).toEqual(["occupancy_unknown"]);
   });
 });
 
@@ -607,6 +777,69 @@ describe("operator cleanup remove", () => {
     expect(
       (await herdrCalls(workspace)).filter((line) => line.startsWith("worktree remove")),
     ).toHaveLength(1);
+  });
+});
+
+describe("interrupted cleanups", () => {
+  test("recovers a closure whose Operator died between the intent and the stop", async () => {
+    const workspace = await makeWorkspace();
+    const { producer } = await acceptedCycle(workspace);
+    await Bun.write(`${workspace.herdr}/agent-send-keys.kill`, "");
+
+    // The killed run answers nothing at all, so it is read as a process rather than as JSON.
+    const killed = await runOperator(workspace, [
+      "cleanup",
+      "close",
+      "--request",
+      request(),
+      "--owner-token",
+      producer.ownerToken,
+      "--attempt",
+      producer.attemptId,
+      "--json",
+    ]);
+    expect(killed.exitCode).not.toBe(0);
+    expect(killed.stdout).toBe("");
+
+    // The intent outlived the process that wrote it, and nothing was stopped.
+    const pending = await runJson(workspace, ["cleanup", "show", "--attempt", producer.attemptId]);
+    expect(pending.json.data.cleanups).toHaveLength(1);
+    expect(pending.json.data.cleanups[0].state).toBe("pending");
+    expect(pending.json.data.cleanups[0].settledAt).toBeNull();
+
+    await rm(`${workspace.herdr}/agent-send-keys.kill`);
+    const recovered = await close(workspace, producer.ownerToken, producer.attemptId);
+
+    expect(recovered.exitCode).toBe(0);
+    expect(recovered.json.reason).toBe("process_closed");
+    const settled = await runJson(workspace, ["cleanup", "show", "--attempt", producer.attemptId]);
+    // The recovery settles the effect the dead run opened rather than opening a second one.
+    expect(settled.json.data.cleanups).toHaveLength(1);
+    expect(settled.json.data.cleanups[0].state).toBe("done");
+  });
+
+  test("records a failed removal when Herdr reports success and the checkout stays", async () => {
+    const workspace = await makeWorkspace();
+    const { producer } = await acceptedCycle(workspace);
+    await pushWork(producer.worktreePath);
+    await close(workspace, producer.ownerToken, producer.attemptId);
+    const asked = await remove(workspace, producer.ownerToken, producer.attemptId);
+    await grantRemoval(workspace, producer.ownerToken, asked.json.blockers[0]);
+    await Bun.write(`${workspace.herdr}/pretend-removed`, "");
+
+    const failed = await remove(workspace, producer.ownerToken, producer.attemptId);
+
+    expect(failed.exitCode).toBe(1);
+    expect(failed.json.reason).toBe("cleanup_failed");
+    expect(await Bun.file(`${producer.worktreePath}/README.md`).exists()).toBe(true);
+
+    // A failed cleanup stays visible, so the resource it still owns is not forgotten.
+    const shown = await runJson(workspace, ["cleanup", "show", "--attempt", producer.attemptId]);
+    const removal = shown.json.data.cleanups.find(
+      (one: { kind: string }) => one.kind === "worktree_removal",
+    );
+    expect(removal.state).toBe("failed");
+    expect(removal.settledAt).not.toBeNull();
   });
 });
 

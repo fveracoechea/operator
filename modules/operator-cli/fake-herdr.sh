@@ -15,6 +15,12 @@ if [ -f "$dir/$key.garbage" ]; then
   echo "herdr: the answer was lost"
   exit 1
 fi
+# `<key>.kill` ends the caller before the effect happens, which is the interruption a crashed
+# Operator leaves behind: an intent recorded, and nothing done.
+if [ -f "$dir/$key.kill" ]; then
+  kill -9 "$PPID" 2>/dev/null
+  exit 1
+fi
 if [ -f "$dir/$key.error" ]; then
   code=$(cat "$dir/$key.error")
   printf '{"id":"cli:%s:%s","error":{"code":"%s","message":"the fake refused"}}\n' "$group" "$sub" "$code"
@@ -84,6 +90,12 @@ answer() {
     [ -n "$row" ] || refuse "workspace_not_found" "no workspace $workspace"
     path=$(printf '%s' "$row" | cut -d'|' -f2)
     repo=$(printf '%s' "$row" | cut -d'|' -f3)
+    # `pretend-removed` answers success while the checkout stays, which is what a caller that
+    # trusts a success answer instead of reading Herdr back would accept as done.
+    if [ -f "$dir/pretend-removed" ]; then
+      printf '{"id":"cli:worktree:remove","result":{"type":"worktree_removed","path":"%s"}}\n' "$path"
+      exit 0
+    fi
     # Herdr refuses an unsafe removal instead of forcing it, and so does the fake.
     git -C "$repo" worktree remove "$path" >/dev/null 2>&1 ||
       refuse "worktree_not_removable" "the checkout at $path is not safe to remove"

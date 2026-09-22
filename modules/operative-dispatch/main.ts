@@ -48,12 +48,19 @@ export const OperativeDispatch = {
    * The files one launch writes into an Operative worktree.
    * A cleanup preserves exactly this list, so the launch and the disposal read one rendering
    * of what Operator put there.
+   * The brief carries the identity the launch recorded for it, which is the only launch input
+   * whose exact expected content survives in the crew state. A cleanup can therefore notice an
+   * edit to it, even though Operator's own paths are excluded from the checkout reading.
    */
-  launchInputs(): Array<{ name: string; path: string }> {
+  launchInputs(request: { briefIdentity: string }): Array<{
+    name: string;
+    path: string;
+    expected: string | null;
+  }> {
     return [
-      { name: "brief", path: BRIEF_PATH },
-      { name: "control-reference", path: REFERENCE_PATH },
-      { name: "release", path: RELEASE_PATH },
+      { name: "brief", path: BRIEF_PATH, expected: request.briefIdentity },
+      { name: "control-reference", path: REFERENCE_PATH, expected: null },
+      { name: "release", path: RELEASE_PATH, expected: null },
     ];
   },
 
