@@ -251,17 +251,20 @@ async function settleFromObservation(request: {
     writes: sentWrites(request.attempts).map((one) => storedWriteState(one.state)),
   });
 
+  // Each reading carries its own identity, so a replayed command records a new observation
+  // instead of failing as the same request identity holding different input.
+  const observationId = crypto.randomUUID();
   const written = await record(
     {
       projectRoot: request.projectRoot,
-      requestId: `${request.requestId}#observe`,
+      requestId: `${request.requestId}#observe.${observationId}`,
       ownerToken: request.ownerToken,
       operation: "tracker_observe",
-      input: { operationId: operation.id, observedAt: observation.observedAt },
+      input: { operationId: operation.id, observationId },
     },
     ({ tx, now }) => {
       recordObservation(tx, {
-        observationId: crypto.randomUUID(),
+        observationId,
         operationId: operation.id,
         kind: observation.kind,
         observation,

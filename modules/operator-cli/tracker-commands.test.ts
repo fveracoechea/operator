@@ -86,6 +86,34 @@ describe("operator tracker record", () => {
     );
   });
 
+  test("repeats one request identity with no second effect", async () => {
+    const workspace = await makeWorkspace();
+    const identity = crypto.randomUUID();
+    const first = await recordStep(workspace, { input: resolutionBody(), requestId: identity });
+    expect(first.json.data.state).toBe("verified");
+
+    const replay = await recordStep(workspace, { input: resolutionBody(), requestId: identity });
+
+    expect(replay.exitCode).toBe(0);
+    expect(replay.json.data.operationId).toBe(first.json.data.operationId);
+    expect(await commentsOn(workspace, TICKET)).toHaveLength(1);
+  });
+
+  test("repeats one request identity on an uncertain step with no second effect", async () => {
+    const workspace = await makeWorkspace();
+    await setFault(workspace, "createComment", "lost");
+    const identity = crypto.randomUUID();
+    const first = await recordStep(workspace, { input: resolutionBody(), requestId: identity });
+    expect(first.exitCode).toBe(5);
+
+    const replay = await recordStep(workspace, { input: resolutionBody(), requestId: identity });
+
+    // The replay still meets the approval gate rather than sending a second write.
+    expect(replay.exitCode).toBe(3);
+    expect(replay.json.reason).toBe("tracker.approval_required");
+    expect(await commentsOn(workspace, TICKET)).toHaveLength(0);
+  });
+
   test("settles a lost write from a complete scan and keeps its lost history", async () => {
     const workspace = await makeWorkspace();
     // The comment lands and the answer never arrives, which is the case a blind retry duplicates.
