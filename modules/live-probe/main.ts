@@ -125,20 +125,26 @@ export const LiveProbe = {
     );
 
     const finishedAt = new Date().toISOString();
+    // Checks run one after another, so a check ran between the record before it and its own.
+    let opened = startedAt;
     const observations = staged
-      .filter((one) => request.checks.includes(one.name))
-      .map((one) => ({
-        name: one.name,
-        state: one.state,
-        detail: one.detail,
-        startedAt,
-        finishedAt,
-        inputs: request.inputs,
-        versions: request.versions,
-        outputs: one.outputs,
-        evidence: one.evidence,
-        cleanup: one.cleanup,
-      }));
+      .map((one) => {
+        const observation = {
+          name: one.name,
+          state: one.state,
+          detail: one.detail,
+          startedAt: opened,
+          finishedAt: one.recordedAt,
+          inputs: request.inputs,
+          versions: request.versions,
+          outputs: one.outputs,
+          evidence: one.evidence,
+          cleanup: one.cleanup,
+        };
+        opened = one.recordedAt;
+        return observation;
+      })
+      .filter((one) => request.checks.includes(one.name));
 
     return {
       run: {

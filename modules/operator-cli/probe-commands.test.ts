@@ -165,6 +165,8 @@ type Observation = {
   name: string;
   state: string;
   detail: string;
+  startedAt: string;
+  finishedAt: string;
   inputs: Record<string, string>;
   versions: Record<string, string>;
   outputs: string[];
@@ -254,6 +256,14 @@ describe("operator setup probe apply", () => {
       expect(observed(result.json, "herdr-worktree")?.evidence.map((one) => one.label)).toContain(
         "test worktree",
       );
+      // Each check names its own window, not the window of the whole attempt.
+      const windows = (result.json.data.run.observations as Observation[]).map(
+        (one) => `${one.startedAt}/${one.finishedAt}`,
+      );
+      expect(new Set(windows).size).toBeGreaterThan(1);
+      for (const one of result.json.data.run.observations as Observation[]) {
+        expect(Date.parse(one.startedAt)).toBeLessThanOrEqual(Date.parse(one.finishedAt));
+      }
       expect(observed(result.json, "instruction-and-skill-loading")?.outputs).toContain(
         "AGENTS.md",
       );

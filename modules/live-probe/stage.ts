@@ -3,6 +3,8 @@ export type Staged = {
   name: string;
   state: "passed" | "failed" | "skipped";
   detail: string;
+  /** When this result was recorded. Checks run one after another, so it closes this one's window. */
+  recordedAt: string;
   outputs: string[];
   evidence: Array<{ label: string; path: string | null; identity: string | null }>;
   cleanup: { state: "removed" | "retained" | "failed" | "not-applicable"; detail: string };
@@ -22,6 +24,7 @@ export function passed(
     name,
     state: "passed",
     detail,
+    recordedAt: new Date().toISOString(),
     outputs: extra.outputs ?? [],
     evidence: extra.evidence ?? [],
     cleanup: extra.cleanup ?? NOTHING_CREATED,
@@ -37,6 +40,7 @@ export function failed(
     name,
     state: "failed",
     detail,
+    recordedAt: new Date().toISOString(),
     outputs: extra.outputs ?? [],
     evidence: extra.evidence ?? [],
     cleanup: extra.cleanup ?? NOTHING_CREATED,
@@ -45,7 +49,15 @@ export function failed(
 
 /** A check that was attempted and could not run. It proves nothing, exactly like a failure. */
 export function skipped(name: string, detail: string): Staged {
-  return { name, state: "skipped", detail, outputs: [], evidence: [], cleanup: NOTHING_CREATED };
+  return {
+    name,
+    state: "skipped",
+    detail,
+    recordedAt: new Date().toISOString(),
+    outputs: [],
+    evidence: [],
+    cleanup: NOTHING_CREATED,
+  };
 }
 
 /** True when every named check already passed, so the work that depends on them may run. */
