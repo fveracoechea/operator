@@ -150,3 +150,27 @@ An unavailable capability is a recorded blocker, never permission for a single-c
 **Attempt replacement**:
 A new attempt on the same assignment, started after the former writer is proven stopped and its partial work is inspected.
 It keeps the inspected checkout and branch.
+
+**Tracker binding**:
+The tracker and the ticket one assignment was registered from.
+It is fixed at registration, so a later configuration change cannot redirect work that already exists.
+
+**Tracker step**:
+One of the three outcomes of completing work on a tracker: the recorded resolution, the ticket completion, and the map amendment.
+Each one has its own intent, evidence, outcome, and recovery action.
+
+**Logical operation**:
+The name of one intended tracker effect, fixed before the first write and kept through every recovery attempt.
+A comment carries it in a marker, which is a lookup convention and not proof that the comment was created exactly once.
+
+**Write attempt**:
+One record of sending the write of one logical operation.
+A human-approved additional write adds an attempt and leaves the logical operation unchanged.
+
+**Scan coverage**:
+What one reading of a tracker actually covered.
+An incomplete scan is a gap in the evidence, never evidence that something is absent.
+
+**Canonical map**:
+A wayfinder map read as its baseline body plus every explicit amendment comment.
+An ordinary discussion comment is not an amendment, and the baseline body is never replaced automatically.
