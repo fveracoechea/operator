@@ -1,4 +1,4 @@
-import packageJson from "../../package.json" with { type: "json" };
+import { OperatorRelease } from "../operator-release/main.ts";
 import {
   hasCrewArguments,
   hasSelectionOrProbeArguments,
@@ -41,9 +41,6 @@ const crewCommands: Record<string, CrewCommand | undefined> = {
   cleanup: runCleanup,
 };
 
-const OPERATOR_VERSION = packageJson.version;
-const SUPPORTED_BUN_RANGE = packageJson.engines.bun;
-
 function rejectArguments(json: boolean): void {
   if (json) {
     writeJsonResult({
@@ -58,6 +55,11 @@ function rejectArguments(json: boolean): void {
 }
 
 export async function run(args: string[]): Promise<void> {
+  // The release reports its own version and supported runtime. A registry rewrites the package
+  // manifest, so a published copy is never read through it.
+  const { version: OPERATOR_VERSION, supportedBun: SUPPORTED_BUN_RANGE } =
+    await OperatorRelease.manifest();
+
   // The Bun check runs before any command so an unsupported runtime never writes files.
   if (!Bun.semver.satisfies(Bun.version, SUPPORTED_BUN_RANGE)) {
     if (args.includes("--json")) {

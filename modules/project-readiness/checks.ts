@@ -1,4 +1,3 @@
-import { supportedBunRange } from "./release.ts";
 import {
   CLAUDE_IMPORT_PATH,
   CONFIG_PATH,
@@ -124,6 +123,7 @@ function gitCheck(observation: Observation): Check {
 function bunCheck(observation: Observation): Check {
   const observed = toolState(observation, "bun");
   const version = observed?.version ?? "";
+  const supportedBunRange = observation.release.supportedBun;
   if (observed?.state === "installed" && Bun.semver.satisfies(version, supportedBunRange)) {
     return check("bun", null, `Bun ${version} satisfies ${supportedBunRange}.`, null);
   }
