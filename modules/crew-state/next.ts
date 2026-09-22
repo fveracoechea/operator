@@ -8,6 +8,7 @@ import {
   type RetentionHoldRow,
 } from "./cleanup.ts";
 import type { CrewReader } from "./database.ts";
+import { everyStageSucceeded } from "./dispatch-context.ts";
 import { liveOperations, readDispatchRow } from "./dispatch.ts";
 import { directionRecordOf, openDirectionsOf } from "./direction.ts";
 import { calculateFrontier, type Frontier, unmetDependencies } from "./frontier.ts";
@@ -191,7 +192,9 @@ function readActiveAttempt(
     return;
   }
 
-  if (dispatch === null) {
+  // A launch that has not finished every effect resumes at the first one that is unfinished,
+  // which is the same command that started it.
+  if (dispatch === null || !everyStageSucceeded(liveOperations(db, request.attemptId))) {
     into.add({
       action: "dispatch_attempt",
       assignmentId: request.assignmentId,
@@ -200,7 +203,10 @@ function readActiveAttempt(
       reviewId: null,
       revision: null,
       needsUser: false,
-      detail: "This assignment is claimed and has no Operative yet.",
+      detail:
+        dispatch === null
+          ? "This assignment is claimed and has no Operative yet."
+          : "This launch is planned and has not finished every effect.",
       command: "operator attempt dispatch",
     });
     return;
