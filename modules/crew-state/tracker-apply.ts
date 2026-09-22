@@ -47,6 +47,8 @@ export type TrackerStepReport = {
   provider: string;
   target: TrackerTarget;
   expectedActor: string;
+  /** The exact content this operation intends, so a person can compare it against what exists. */
+  content: string | null;
   contentIdentity: string | null;
   closeReason: string | null;
   state: string;
@@ -106,6 +108,7 @@ function reportOf(request: {
     provider: operation.provider,
     target: storedTarget(operation.target),
     expectedActor: operation.expectedActor,
+    content: operation.content,
     contentIdentity: operation.contentIdentity,
     closeReason: operation.closeReason,
     state: operation.state,

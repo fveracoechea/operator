@@ -75,6 +75,10 @@ function reportStep(request: {
       `Operation ${step.operationId} on ${step.provider}:${step.target.repository}#${step.target.issue}.`,
       ...(step.resourceUrl === null ? [] : [`Recorded resource ${step.resourceUrl}.`]),
       `${step.writeAttempts.length} write attempt(s), ${step.observations.length} observation(s).`,
+      // The reading proves what the tracker shows now. It never proves who caused it.
+      ...(step.step === "completion"
+        ? ["The observed state is evidence of completion, not proof that Operator caused it."]
+        : []),
       ...step.problems.map((problem) => `  ${problem.reason}: ${problem.detail}`),
     ],
   });

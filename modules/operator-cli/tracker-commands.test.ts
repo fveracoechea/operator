@@ -245,6 +245,25 @@ describe("operator tracker record", () => {
     expect(recovered.json.data.observations.at(-1).observation.coverage.complete).toBe(false);
   });
 
+  test("reports a recorded comment that no longer exists as a conflict", async () => {
+    const workspace = await makeWorkspace();
+    const recorded = await recordStep(workspace, { input: resolutionBody() });
+    expect(recorded.json.data.resourceId).toBe("1");
+
+    // Someone deleted the comment the write recorded, so the known identifier resolves to nothing.
+    const state = await githubState(workspace);
+    state.comments[String(TICKET)] = [];
+    await writeGithubState(workspace, state);
+
+    const recovered = await recoverStep(workspace, recorded.json.data.operationId);
+
+    expect(recovered.exitCode).toBe(4);
+    expect(recovered.json.reason).toBe("tracker.resolution_conflict");
+    expect(recovered.json.blockers[0].detail).toContain("removed or changed outside Operator");
+    // The intended content stays recorded, so a person can compare it against what exists.
+    expect(recovered.json.data.content).toContain("The work is complete and reviewed.");
+  });
+
   test("reports a refused write as a definite failure", async () => {
     const workspace = await makeWorkspace();
     await setFault(workspace, "createComment", "status:403");
@@ -457,6 +476,41 @@ describe("operator tracker map", () => {
     expect(stopped.exitCode).toBe(4);
     expect(stopped.json.reason).toBe("tracker.map_conflict");
     expect(stopped.json.blockers[0].detail).toContain("Out of scope");
+  });
+
+  test("stops on an amendment that was edited after it was written", async () => {
+    const workspace = await makeWorkspace();
+    await recordStep(workspace, { input: amendmentBody() });
+
+    const state = await githubState(workspace);
+    const amendment = state.comments[String(MAP_ISSUE)]?.[0];
+    if (amendment === undefined) {
+      throw new Error("the fixture recorded no amendment");
+    }
+    amendment.body = `${amendment.body}\n- Someone added an entry.`;
+    amendment.updated_at = "2026-09-21T00:00:00Z";
+    await writeGithubState(workspace, state);
+
+    const map = await readMap(workspace);
+
+    expect(map.exitCode).toBe(4);
+    expect(map.json.reason).toBe("tracker.map_conflict");
+    expect(map.json.blockers[0].detail).toContain("edited after it was written");
+    // An edited amendment is reviewed, never restored, so the map keeps what it holds.
+    expect((await commentsOn(workspace, MAP_ISSUE))[0]?.body).toContain("Someone added an entry.");
+  });
+
+  test("stops on an amendment written against another baseline body", async () => {
+    const workspace = await makeWorkspace();
+    await recordStep(workspace, {
+      input: amendmentBody({ baselineIdentity: "c".repeat(64) }),
+    });
+
+    const map = await readMap(workspace);
+
+    expect(map.exitCode).toBe(4);
+    expect(map.json.reason).toBe("tracker.map_conflict");
+    expect(map.json.blockers[0].detail).toContain("another baseline body");
   });
 
   test("stops on an incomplete map read", async () => {
