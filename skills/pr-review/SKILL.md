@@ -6,8 +6,7 @@ description: Use when asked to review a pull request by number or URL, or to pos
 # Pull request review
 
 This skill posts one GitHub review.
-The `code-review` skill does the analysis on two axes, Standards and Spec.
-Invoke it when the agent lists it, and read the diff yourself when it is absent.
+A run reads the diff on three axes, Standards, Spec, and Design.
 
 ## Contract
 
@@ -22,12 +21,17 @@ A run that finds nothing posts the body alone.
 Run `gh pr view <number> --repo <owner>/<repo> --json headRefOid,baseRefName`.
 The value of `headRefOid` becomes the `commit_id` of the review.
 Run `gh pr checkout <number>`, because `code-review` diffs the local `HEAD`.
-Invoke `code-review` and give it `baseRefName` as its fixed point.
+
+The `code-review` skill does Standards and Spec.
+Invoke it when the agent lists it, give it `baseRefName` as its fixed point, and read the diff yourself when it is absent.
+
+The design pass asks where the functionality landed, which module owns the use case, and what a caller must now know.
+Read [`DESIGN.md`](DESIGN.md) and run that pass whether or not `code-review` is available, because `code-review` judges lines and this axis judges placement.
 
 ### 2. Verify every claim against its source
 
 Treat the pull request body and the commit message as claims, and check each one against the artefact itself.
-Check a claim about a published package against the tarball, so run `npm pack <name>@<version>` and read the extracted files.
+Check a claim about a published package against the published files, so run `bun add <name>@<version>` in an empty directory and read what it installs.
 Check a claim about a route against the route file.
 Check a claim about behaviour by running the command and reading its output.
 Drop every claim you cannot verify.
@@ -41,7 +45,9 @@ A nice to have is a follow-up, or a small fix the author may take before merge.
 Keep the two that matter most.
 
 Drop the rest.
-Both caps are ceilings, and the evidence from step 2 decides what earns a comment.
+Both caps are ceilings, the three axes compete for the same caps, and the evidence from step 2 decides what earns a comment.
+A design finding on a new interface that later callers copy is a blocker, and a design finding inside one implementation is a nice to have.
+[`DESIGN.md`](DESIGN.md) carries the rest of that ranking.
 A run can end this step with no blockers, with no nice to haves, or with nothing at all.
 
 ### 4. Anchor each comment to a line

@@ -14,12 +14,13 @@
     "format:check": "bunx --bun --no-install oxfmt --check cli.ts modules scripts dependency-cruiser.config.cjs package.json tsconfig.json .oxfmtrc.json .github",
     "lint": "bunx --bun --no-install oxlint --deny-warnings cli.ts modules scripts dependency-cruiser.config.cjs",
     "lint:modules": "bun scripts/check-module-shape.ts && bunx --bun --no-install depcruise --config dependency-cruiser.config.cjs cli.ts modules scripts",
+    "lint:skills": "bun scripts/check-skill-shape.ts",
     "preinstall": "bun scripts/require-bun.ts",
     "changeset": "bunx --bun @changesets/cli@3.0.3",
     "test:module-boundaries": "bun scripts/prove-module-boundaries.ts",
     "test": "bun test",
     "typecheck": "bunx --bun --no-install tsc --noEmit -p tsconfig.json",
-    "quality": "bun run --parallel format:check lint typecheck lint:modules test:module-boundaries test"
+    "quality": "bun run --parallel format:check lint typecheck lint:modules lint:skills test:module-boundaries test"
   },
   "dependencies": {
     "drizzle-orm": "0.44.6",
