@@ -9,7 +9,7 @@ import {
   trackerWriteAttempts,
   workSources,
 } from "./schema.ts";
-import { storedTrackerRef, storedTrackerTarget } from "./work-input.ts";
+import { storedTrackerBinding, storedTrackerLocation } from "./work-input.ts";
 
 /** The steps the tracker contract names, and the order it records them in. */
 export type TrackerStep = Parameters<typeof TrackerUpdate.read>[0]["step"];
@@ -62,27 +62,27 @@ export function readBinding(db: CrewReader, assignmentId: string): BindingLookup
     return { status: "unsupported-provider", assignmentId, provider: source.tracker };
   }
 
-  if (source.trackerTarget === null || assignment.trackerRef === null) {
+  if (source.trackerLocation === null || assignment.trackerBinding === null) {
     return {
       status: "tracker-unbound",
       assignmentId,
       detail:
-        source.trackerTarget === null
-          ? `Source ${source.id} was registered with no tracker target.`
+        source.trackerLocation === null
+          ? `Source ${source.id} was registered with no tracker location.`
           : `Assignment ${assignmentId} was registered with no ticket of its own.`,
     };
   }
 
-  const target = storedTrackerTarget(source.trackerTarget);
+  const location = storedTrackerLocation(source.trackerLocation);
   return {
     status: "bound",
     assignment,
     binding: {
       provider: source.tracker,
       sourceId: source.id,
-      repository: target.repository,
-      issue: storedTrackerRef(assignment.trackerRef).issue,
-      mapIssue: target.mapIssue,
+      repository: location.repository,
+      issue: storedTrackerBinding(assignment.trackerBinding).issue,
+      mapIssue: location.mapIssue,
     },
   };
 }

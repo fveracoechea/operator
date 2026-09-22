@@ -64,6 +64,21 @@ const sharedFailures = {
     outcome: "missing-condition",
     line: "That attempt never acknowledged its brief, so it has nothing fixed to hand over.",
   },
+  "unknown-approval": {
+    reason: "unknown_approval",
+    outcome: "missing-condition",
+    line: "No approval is recorded under that identity.",
+  },
+  "approval-revoked": {
+    reason: "approval_revoked",
+    outcome: "missing-condition",
+    line: "That approval was revoked, so it authorizes nothing.",
+  },
+  "approval-mismatch": {
+    reason: "approval_mismatch",
+    outcome: "missing-condition",
+    line: "That approval was granted for a different action, target, scope, or request revision.",
+  },
   "unknown-review": {
     reason: "unknown_review",
     outcome: "invalid",

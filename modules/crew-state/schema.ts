@@ -1,5 +1,5 @@
 import { getTableColumns, sql } from "drizzle-orm";
-import { integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
 
 /**
  * The durable shape of the crew state. A reader that finds a higher version refuses the file,
@@ -26,9 +26,9 @@ export const workSources = sqliteTable("work_sources", {
   kind: text("kind").notNull(),
   revision: text("revision").notNull(),
   tracker: text("tracker").notNull(),
-  // Where this source lives in its tracker. A source registered without one records no target,
-  // and its assignments refuse tracker updates rather than borrowing another source's.
-  trackerTarget: text("tracker_target"),
+  // Where this source lives in its tracker. A source registered without one records no
+  // location, and its assignments refuse tracker updates rather than borrowing another's.
+  trackerLocation: text("tracker_location"),
   orderIndex: integer("order_index").notNull(),
   registeredAt: text("registered_at").notNull(),
 });
@@ -40,9 +40,9 @@ export const assignments = sqliteTable("assignments", {
     .references(() => workSources.id),
   sourceKey: text("source_key").notNull(),
   sourceRevision: text("source_revision").notNull(),
-  // The ticket this assignment came from, fixed at registration so later configuration cannot
-  // redirect work that is already registered.
-  trackerRef: text("tracker_ref"),
+  // The tracker and ticket this assignment came from, fixed at registration so later
+  // configuration cannot redirect work that is already registered.
+  trackerBinding: text("tracker_binding"),
   title: text("title").notNull(),
   kind: text("kind").notNull(),
   orderIndex: integer("order_index").notNull(),
@@ -305,29 +305,34 @@ export const approvals = sqliteTable("approvals", {
  * Its identity is fixed before the first write and kept across every recovery attempt, so a
  * comment marker written under it stays findable however many times recovery runs.
  */
-export const trackerOperations = sqliteTable("tracker_operations", {
-  id: text("id").primaryKey(),
-  assignmentId: text("assignment_id")
-    .notNull()
-    .references(() => assignments.id),
-  step: text("step").notNull(),
-  provider: text("provider").notNull(),
-  target: text("target").notNull(),
-  expectedActor: text("expected_actor").notNull(),
-  intent: text("intent").notNull(),
-  intentIdentity: text("intent_identity").notNull(),
-  content: text("content"),
-  contentIdentity: text("content_identity"),
-  closeReason: text("close_reason"),
-  state: text("state").notNull(),
-  reason: text("reason").notNull(),
-  problems: text("problems").notNull(),
-  resourceId: text("resource_id"),
-  resourceUrl: text("resource_url"),
-  revision: integer("revision").notNull(),
-  createdAt: text("created_at").notNull(),
-  updatedAt: text("updated_at").notNull(),
-});
+export const trackerOperations = sqliteTable(
+  "tracker_operations",
+  {
+    id: text("id").primaryKey(),
+    assignmentId: text("assignment_id")
+      .notNull()
+      .references(() => assignments.id),
+    step: text("step").notNull(),
+    provider: text("provider").notNull(),
+    target: text("target").notNull(),
+    expectedActor: text("expected_actor").notNull(),
+    intent: text("intent").notNull(),
+    intentIdentity: text("intent_identity").notNull(),
+    content: text("content"),
+    contentIdentity: text("content_identity"),
+    closeReason: text("close_reason"),
+    state: text("state").notNull(),
+    reason: text("reason").notNull(),
+    problems: text("problems").notNull(),
+    resourceId: text("resource_id"),
+    resourceUrl: text("resource_url"),
+    revision: integer("revision").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  // One operation per step of one assignment, the same rule the create statement carries.
+  (table) => [unique().on(table.assignmentId, table.step)],
+);
 
 /**
  * One attempt to send the write of one logical operation.
@@ -406,7 +411,7 @@ export const CREATE_STATEMENTS = [
     kind text not null,
     revision text not null,
     tracker text not null,
-    tracker_target text,
+    tracker_location text,
     order_index integer not null,
     registered_at text not null
   ) strict`,
@@ -415,7 +420,7 @@ export const CREATE_STATEMENTS = [
     source_id text not null references work_sources(id),
     source_key text not null,
     source_revision text not null,
-    tracker_ref text,
+    tracker_binding text,
     title text not null,
     kind text not null,
     order_index integer not null,

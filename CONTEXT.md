@@ -155,6 +155,10 @@ It keeps the inspected checkout and branch.
 The tracker and the ticket one assignment was registered from.
 It is fixed at registration, so a later configuration change cannot redirect work that already exists.
 
+**Tracker location**:
+Where one work source lives in its tracker: its repository and its map, if it has one.
+An assignment reads its binding from the source it was registered under.
+
 **Tracker step**:
 One of the three outcomes of completing work on a tracker: the recorded resolution, the ticket completion, and the map amendment.
 Each one has its own intent, evidence, outcome, and recovery action.

@@ -119,8 +119,8 @@ function registerReview(
       sourceId: request.producer.sourceId,
       sourceKey,
       sourceRevision: request.producer.sourceRevision,
-      // A review is crew work, not a registered ticket, so it names no ticket of its own.
-      trackerRef: null,
+      // A review is crew work, not a registered ticket, so it carries no binding of its own.
+      trackerBinding: null,
       title: `Review ${request.producer.title}`,
       kind: "review",
       orderIndex: nextOrderIndex(held),

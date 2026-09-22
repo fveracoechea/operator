@@ -104,7 +104,7 @@ export async function makeTrackerWorkspace(
       id: `github:${REPOSITORY}#${MAP_ISSUE}`,
       revision: "rev-1",
       tracker: "github",
-      target: { repository: REPOSITORY, mapIssue },
+      location: { repository: REPOSITORY, mapIssue },
     },
     items: [
       {

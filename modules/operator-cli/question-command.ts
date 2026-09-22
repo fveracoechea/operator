@@ -488,42 +488,6 @@ async function runReapply(parsed: ParsedArguments): Promise<Handled> {
     });
   }
 
-  if (result.status === "unknown-approval") {
-    return refuse({
-      json: parsed.json,
-      operation: "question_reapply",
-      outcome: "missing-condition",
-      reason: "unknown_approval",
-      detail: { approvalId: result.approvalId },
-      lines: [`No approval is recorded as ${result.approvalId}.`],
-    });
-  }
-
-  if (result.status === "approval-revoked") {
-    return refuse({
-      json: parsed.json,
-      operation: "question_reapply",
-      outcome: "missing-condition",
-      reason: "approval_revoked",
-      detail: { approvalId: result.approvalId },
-      lines: [`Approval ${result.approvalId} is revoked, so it authorizes nothing.`],
-    });
-  }
-
-  if (result.status === "approval-mismatch") {
-    return refuse({
-      json: parsed.json,
-      operation: "question_reapply",
-      outcome: "missing-condition",
-      reason: "approval_mismatch",
-      detail: { approvalId: result.approvalId, field: result.field },
-      lines: [
-        `Approval ${result.approvalId} was granted for a different ${result.field}.`,
-        "An approval binds one exact action, its targets, its scope, and its request revision.",
-      ],
-    });
-  }
-
   return reportRecordedAnswer(parsed, "question_reapply", result);
 }
 

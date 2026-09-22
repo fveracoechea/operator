@@ -59,7 +59,7 @@ const wayfinderItem = z.strictObject({
 });
 
 /** Where one source lives in its tracker. The map issue is what an amendment is written to. */
-const trackerTarget = z.strictObject({
+const trackerLocation = z.strictObject({
   repository: z.string().min(1),
   mapIssue: z.int().positive().nullable(),
 });
@@ -69,19 +69,19 @@ const source = z.strictObject({
   revision: z.string().min(1),
   // GitHub is the only tracker this release supports.
   tracker: z.literal("github"),
-  target: trackerTarget.optional(),
+  location: trackerLocation.optional(),
 });
 
-export type TrackerSourceTarget = z.infer<typeof trackerTarget>;
+export type TrackerSourceLocation = z.infer<typeof trackerLocation>;
 
-/** The recorded tracker target of one source, read back through the schema that wrote it. */
-export function storedTrackerTarget(stored: string): TrackerSourceTarget {
-  return readStored("tracker target", trackerTarget, stored);
+/** The recorded tracker location of one source, read back through the schema that wrote it. */
+export function storedTrackerLocation(stored: string): TrackerSourceLocation {
+  return readStored("tracker location", trackerLocation, stored);
 }
 
-/** The recorded ticket of one assignment, read back through the schema that wrote it. */
-export function storedTrackerRef(stored: string): { issue: number } {
-  return readStored("tracker reference", z.strictObject({ issue: z.int().positive() }), stored);
+/** The recorded binding of one assignment, read back through the schema that wrote it. */
+export function storedTrackerBinding(stored: string): { issue: number } {
+  return readStored("tracker binding", z.strictObject({ issue: z.int().positive() }), stored);
 }
 
 export const workInputSchema = z.discriminatedUnion("sourceKind", [
