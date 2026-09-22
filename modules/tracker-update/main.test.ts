@@ -104,7 +104,7 @@ describe("TrackerUpdate.judge", () => {
     expect(verdict.reason).toBe("tracker.write_rejected");
   });
 
-  test("never turns a failed read into proof that a write did not apply", () => {
+  test("never lets a failed read settle a step as a definite failure", () => {
     const verdict = TrackerUpdate.judge({
       step: "resolution",
       observation: scan({
@@ -114,7 +114,41 @@ describe("TrackerUpdate.judge", () => {
       writes: ["failed"],
     });
 
-    expect(verdict.reason).toBe("tracker.resolution_outcome_unknown");
+    // The refusal is established, but the reading is not, and a missing condition outranks a
+    // definite failure. Both stay recorded.
+    expect(verdict.reason).toBe("tracker.evidence_incomplete");
+    expect(verdict.problems.map((one) => one.reason)).toEqual([
+      "tracker.evidence_incomplete",
+      "tracker.write_rejected",
+    ]);
+  });
+
+  test("keeps a step that was never sent out of the unproven-effect answer", () => {
+    // An unreadable state with nothing sent has no effect that may still apply.
+    const verdict = TrackerUpdate.judge({
+      step: "completion",
+      observation: {
+        kind: "closure",
+        read: "unknown",
+        detail: "the read failed",
+        state: null,
+        stateReason: null,
+        closedBy: null,
+        closedAt: null,
+        updatedAt: null,
+        events: [],
+        reopenedAfterClose: false,
+        observedAt: "2026-09-21T00:00:00Z",
+      },
+      intendedReason: "completed",
+      writes: [],
+    });
+
+    expect(verdict.reason).toBe("tracker.evidence_incomplete");
+    expect(verdict.problems.map((one) => one.reason)).toEqual([
+      "tracker.evidence_incomplete",
+      "tracker.pending",
+    ]);
   });
 
   test("reads an intended close reason as completion and another one as a conflict", () => {

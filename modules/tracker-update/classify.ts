@@ -144,6 +144,37 @@ export function decide(problems: Problem[]): Verdict {
   return { state: stateByReason[reason], reason, problems };
 }
 
+/**
+ * What a step with no matching evidence is, read from its write history alone.
+ * Nothing sent is pending work, a lost answer is an unproven effect, and a tracker that refused
+ * every request is a definite failure. A read that went badly never changes which of these it is.
+ */
+function unsentOrUnproven(request: { writes: WriteAttemptState[]; step: TrackerStep }): Problem[] {
+  const sent = request.writes.filter((state) => state !== "intended");
+  if (sent.length === 0) {
+    return [{ reason: "tracker.pending", detail: "This step has not been written yet." }];
+  }
+  if (sent.includes("uncertain")) {
+    return [
+      {
+        reason: unknownReason[request.step],
+        detail:
+          "A write of this step never returned a definite answer, and nothing observed satisfies it yet. It may still apply.",
+      },
+    ];
+  }
+  if (sent.every((state) => state === "failed")) {
+    return [
+      {
+        reason: "tracker.write_rejected",
+        detail: "Every write of this step was refused by the tracker, and nothing satisfies it.",
+      },
+    ];
+  }
+
+  return [];
+}
+
 function commentProblems(request: {
   step: TrackerStep;
   observation: CommentObservation;
@@ -190,22 +221,10 @@ function commentProblems(request: {
     return problems;
   }
 
+  // A comment the reading did not cover is not a comment that was removed, so only a complete
+  // reading can say that an accepted write left nothing behind.
   const sent = request.writes.filter((state) => state !== "intended");
-  if (sent.includes("uncertain") || (!observation.coverage.complete && sent.length > 0)) {
-    problems.push({
-      reason: unknownReason[step],
-      detail:
-        "A write to this operation never returned a definite answer, and no comment matches it yet. It may still apply.",
-    });
-    return problems;
-  }
-
-  if (sent.length === 0) {
-    problems.push({ reason: "tracker.pending", detail: "This step has not been written yet." });
-    return problems;
-  }
-
-  if (sent.includes("succeeded")) {
+  if (sent.includes("succeeded") && observation.coverage.complete) {
     problems.push({
       reason: conflictReason[step],
       detail:
@@ -214,14 +233,7 @@ function commentProblems(request: {
     return problems;
   }
 
-  if (sent.every((state) => state === "failed")) {
-    problems.push({
-      reason: "tracker.write_rejected",
-      detail: "Every write of this step was refused by the tracker, and no comment matches it.",
-    });
-  }
-
-  return problems;
+  return [...problems, ...unsentOrUnproven({ writes: request.writes, step })];
 }
 
 function closureProblems(request: {
@@ -266,29 +278,8 @@ function closureProblems(request: {
     return problems;
   }
 
-  const sent = request.writes.filter((state) => state !== "intended");
-  if (sent.includes("uncertain") || observation.read === "unknown") {
-    problems.push({
-      reason: "tracker.completion_outcome_unknown",
-      detail:
-        "A close request never returned a definite answer, and the ticket is not observed closed. It may still apply.",
-    });
-    return problems;
-  }
-
-  if (sent.length === 0) {
-    problems.push({ reason: "tracker.pending", detail: "This step has not been written yet." });
-    return problems;
-  }
-
-  if (sent.every((state) => state === "failed")) {
-    problems.push({
-      reason: "tracker.write_rejected",
-      detail: "Every close request was refused by the tracker, and the ticket is still open.",
-    });
-  }
-
-  return problems;
+  // A request that was never sent has no effect that may still apply, however the read went.
+  return [...problems, ...unsentOrUnproven({ writes: request.writes, step: "completion" })];
 }
 
 /**

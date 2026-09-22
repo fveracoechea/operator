@@ -47,7 +47,31 @@ export const trackerStepInputSchema = z.discriminatedUnion("step", [
 
 export type TrackerStepInput = z.infer<typeof trackerStepInputSchema>;
 
-const problem = z.strictObject({ reason: z.string(), detail: z.string() });
+/** The reasons the contract knows, read at runtime so a stored one cannot drift from them. */
+const known: readonly string[] = TrackerUpdate.reasons();
+
+type TrackerReason = ReturnType<typeof TrackerUpdate.judge>["reason"];
+
+const reason = z.custom<TrackerReason>(
+  (value) => typeof value === "string" && known.includes(value),
+  {
+    error: "a tracker reason this release does not know",
+  },
+);
+
+const problem = z.strictObject({ reason, detail: z.string() });
+
+export type TrackerProblem = z.infer<typeof problem>;
+
+type VerdictState = ReturnType<typeof TrackerUpdate.judge>["state"];
+
+const verdictState: z.ZodType<VerdictState> = z.enum([
+  "verified",
+  "conflict",
+  "uncertain",
+  "pending",
+  "failed",
+]);
 
 const step: z.ZodType<TrackerStep> = z.enum(["resolution", "completion", "map_amendment"]);
 
@@ -62,8 +86,16 @@ const writeState: z.ZodType<TrackerWriteState> = z.enum([
 
 // A tracker operation row stores these columns, and every reader takes them back through the
 // schema that wrote them rather than asserting the shape it expected.
-export function storedProblems(stored: string): Array<z.infer<typeof problem>> {
+export function storedProblems(stored: string): TrackerProblem[] {
   return readStored("tracker problem list", z.array(problem), stored);
+}
+
+export function storedReason(stored: string): TrackerReason {
+  return readStoredValue("tracker reason", reason, stored);
+}
+
+export function storedVerdictState(stored: string): VerdictState {
+  return readStoredValue("tracker step state", verdictState, stored);
 }
 
 export function storedTarget(stored: string): z.infer<typeof target> {

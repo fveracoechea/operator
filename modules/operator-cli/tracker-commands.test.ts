@@ -109,9 +109,15 @@ describe("operator tracker record", () => {
 
     const replay = await recordStep(workspace, { input: resolutionBody(), requestId: identity });
 
-    // The replay still meets the approval gate rather than sending a second write.
-    expect(replay.exitCode).toBe(3);
-    expect(replay.json.reason).toBe("tracker.approval_required");
+    // The replay returns what the operation recorded rather than a different answer, and it
+    // still meets the approval gate rather than sending a second write.
+    expect(replay.exitCode).toBe(first.exitCode);
+    expect(replay.json.reason).toBe(first.json.reason);
+    expect(
+      replay.json.blockers.some(
+        (one: { reason: string }) => one.reason === "tracker.approval_required",
+      ),
+    ).toBe(true);
     expect(await commentsOn(workspace, TICKET)).toHaveLength(0);
   });
 
@@ -157,17 +163,28 @@ describe("operator tracker record", () => {
 
     const refused = await recordStep(workspace, { input: resolutionBody() });
 
-    expect(refused.exitCode).toBe(3);
-    expect(refused.json.reason).toBe("tracker.approval_required");
-    expect(refused.json.blockers[0].action).toBe("tracker.additional_write");
-    expect(refused.json.blockers[0].targets).toContain(`operation:${operationId}`);
+    // The unproven write outranks the missing approval, so the step keeps its own reason and
+    // reports both problems rather than answering only about the approval.
+    expect(refused.exitCode).toBe(5);
+    expect(refused.json.reason).toBe("tracker.resolution_outcome_unknown");
+    expect(refused.json.data.state).toBe("uncertain");
+    const needed = refused.json.blockers.find(
+      (one: { reason: string }) => one.reason === "tracker.approval_required",
+    );
+    expect(needed.action).toBe("tracker.additional_write");
+    expect(needed.targets).toContain(`operation:${operationId}`);
+    expect(
+      refused.json.blockers.some(
+        (one: { reason: string }) => one.reason === "tracker.resolution_outcome_unknown",
+      ),
+    ).toBe(true);
     expect(await commentsOn(workspace, TICKET)).toHaveLength(0);
 
     const approvalId = await grantAdditionalWrite(workspace, {
       operationId,
       issue: TICKET,
       scope: "resolution",
-      requestRevision: refused.json.blockers[0].requestRevision,
+      requestRevision: needed.requestRevision,
     });
     const approved = await recordStep(workspace, { input: resolutionBody(), approvalId });
 
@@ -190,12 +207,14 @@ describe("operator tracker record", () => {
     expect(first.exitCode).toBe(5);
 
     const refused = await recordStep(workspace, { input: resolutionBody() });
-    expect(refused.json.reason).toBe("tracker.approval_required");
+    const needed = refused.json.blockers.find(
+      (one: { reason: string }) => one.reason === "tracker.approval_required",
+    );
     const approvalId = await grantAdditionalWrite(workspace, {
       operationId: first.json.data.operationId,
       issue: TICKET,
       scope: "resolution",
-      requestRevision: refused.json.blockers[0].requestRevision,
+      requestRevision: needed.requestRevision,
     });
 
     const second = await recordStep(workspace, { input: resolutionBody(), approvalId });
@@ -423,8 +442,10 @@ describe("operator tracker record completion", () => {
 
     const recorded = await recordStep(workspace, { input: completionBody() });
 
-    expect(recorded.exitCode).toBe(5);
-    expect(recorded.json.reason).toBe("tracker.completion_outcome_unknown");
+    // Nothing was sent, so there is no external effect that may still apply. The step is
+    // blocked on evidence it could not read, which is a missing condition and not an unknown.
+    expect(recorded.exitCode).toBe(3);
+    expect(recorded.json.reason).toBe("tracker.evidence_incomplete");
     expect(recorded.json.data.writeAttempts).toEqual([]);
     // A reopen this read could not see is never overridden by a close it did not need.
     expect((await githubState(workspace)).issues[String(TICKET)]?.state).toBe("open");

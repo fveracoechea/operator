@@ -25,17 +25,41 @@ import {
 } from "./tracker.ts";
 import {
   storedProblems,
+  storedReason,
   storedStep,
   storedTarget,
+  storedVerdictState,
   storedWriteState,
+  type TrackerProblem,
   type TrackerStepInput,
   trackerStepInputSchema,
 } from "./tracker-input.ts";
 
 type Shared = StateFailure | RequestFailure;
 
+/**
+ * Why another write under one operation is not permitted.
+ * It travels beside the step's own outcome, so an unproven effect stays the overall result and
+ * the approval problem is recorded rather than reported in its place.
+ */
+export type ApprovalBlocker =
+  | {
+      reason: "approval-required";
+      action: string;
+      targets: string[];
+      scope: string;
+      requestRevision: string;
+    }
+  | { reason: "unknown-approval"; approvalId: string }
+  | { reason: "approval-revoked"; approvalId: string }
+  | { reason: "approval-mismatch"; approvalId: string; field: string };
+
 type Observation = Awaited<ReturnType<typeof TrackerUpdate.observe>>;
 type Verdict = ReturnType<typeof TrackerUpdate.judge>;
+
+// The report speaks the contract's own vocabulary rather than widening it back to text.
+type TrackerReason = Verdict["reason"];
+type VerdictState = Verdict["state"];
 
 /** The action a person approves before another write is sent under one uncertain operation. */
 const ADDITIONAL_WRITE = "tracker.additional_write";
@@ -43,7 +67,7 @@ const ADDITIONAL_WRITE = "tracker.additional_write";
 export type TrackerStepReport = {
   operationId: string;
   assignmentId: string;
-  step: string;
+  step: TrackerStep;
   provider: string;
   target: TrackerTarget;
   expectedActor: string;
@@ -51,9 +75,9 @@ export type TrackerStepReport = {
   content: string | null;
   contentIdentity: string | null;
   closeReason: string | null;
-  state: string;
-  reason: string;
-  problems: Array<{ reason: string; detail: string }>;
+  state: VerdictState;
+  reason: TrackerReason;
+  problems: TrackerProblem[];
   resourceId: string | null;
   resourceUrl: string | null;
   revision: number;
@@ -80,18 +104,7 @@ export type TrackerResult =
   | { status: "capability-unavailable"; capability: string; detail: string }
   | { status: "actor-unknown"; detail: string }
   | { status: "content-changed"; operationId: string; recorded: string; stated: string }
-  | {
-      status: "approval-required";
-      operationId: string;
-      state: string;
-      action: string;
-      targets: string[];
-      scope: string;
-      requestRevision: string;
-    }
-  | { status: "approval-mismatch"; approvalId: string; field: string }
-  | { status: "approval-revoked"; approvalId: string }
-  | { status: "unknown-approval"; approvalId: string }
+  | { status: "write-blocked"; report: TrackerStepReport; approval: ApprovalBlocker }
   | { status: "unknown-operation"; operationId: string }
   | Shared;
 
@@ -104,15 +117,15 @@ function reportOf(request: {
   return {
     operationId: operation.id,
     assignmentId: operation.assignmentId,
-    step: operation.step,
+    step: storedStep(operation.step),
     provider: operation.provider,
     target: storedTarget(operation.target),
     expectedActor: operation.expectedActor,
     content: operation.content,
     contentIdentity: operation.contentIdentity,
     closeReason: operation.closeReason,
-    state: operation.state,
-    reason: operation.reason,
+    state: storedVerdictState(operation.state),
+    reason: storedReason(operation.reason),
     problems: storedProblems(operation.problems),
     resourceId: operation.resourceId,
     resourceUrl: operation.resourceUrl,
@@ -173,8 +186,9 @@ function approvalCheckFor(request: {
 
 /**
  * Whether this call may write, read from what the tracker was just observed to show.
- * A settled step stops here, an unproven effect stops until a person approves another write,
- * and a state that could not be read stops rather than writing over what it could not see.
+ * The contract reason decides: only a request the tracker refused is sent again.
+ * A settled step stops, an evidence gap stops rather than writing over what it could not see,
+ * and an unproven effect stops until a person approves another write.
  */
 function gateBeforeWriting(request: {
   operation: TrackerOperationRow;
@@ -182,26 +196,23 @@ function gateBeforeWriting(request: {
   target: TrackerTarget;
   approval: ApprovalRow | null;
   approvalId: string | null;
-}): { status: "proceed" } | { status: "stop" } | TrackerResult {
+}): { status: "proceed" } | { status: "stop" } | { status: "blocked"; approval: ApprovalBlocker } {
   const { operation } = request;
-  if (operation.state === "verified" || operation.state === "conflict") {
-    return { status: "stop" };
-  }
+  const reason = storedReason(operation.reason);
 
-  // A tracker that refused the write answered it. Every other failure is a read that did not.
-  if (operation.state === "failed") {
-    return operation.reason === "tracker.write_rejected"
-      ? { status: "proceed" }
-      : { status: "stop" };
-  }
-
-  if (operation.state !== "uncertain") {
+  // Nothing observed stands in the way, or the tracker answered the request by refusing it.
+  // A refused request may be sent again; it had no effect.
+  if (reason === "tracker.pending" || reason === "tracker.write_rejected") {
     return { status: "proceed" };
   }
 
-  // An uncertain reading with no write behind it is a state that could not be established.
-  // There is no earlier effect to accept the risk of, so nothing is sent.
-  if (sentWrites(request.attempts).length === 0) {
+  // An unproven effect is the only outcome a person can accept the risk of writing over, and
+  // only when there is an earlier effect to accept. Everything else stops with what it recorded.
+  const unproven =
+    reason === "tracker.resolution_outcome_unknown" ||
+    reason === "tracker.completion_outcome_unknown" ||
+    reason === "tracker.map_outcome_unknown";
+  if (!unproven || sentWrites(request.attempts).length === 0) {
     return { status: "stop" };
   }
 
@@ -214,23 +225,27 @@ function gateBeforeWriting(request: {
   // A named approval this crew does not hold is a different refusal from naming none.
   const approval = request.approval;
   if (request.approvalId !== null && approval === null) {
-    return { status: "unknown-approval", approvalId: request.approvalId };
+    return {
+      status: "blocked",
+      approval: { reason: "unknown-approval", approvalId: request.approvalId },
+    };
   }
   if (approval === null) {
-    return {
-      status: "approval-required",
-      operationId: operation.id,
-      state: operation.state,
-      ...check,
-    };
+    return { status: "blocked", approval: { reason: "approval-required", ...check } };
   }
 
   const coverage = approvalCovers(approval, check);
   if (coverage.status === "mismatch") {
-    return { status: "approval-mismatch", approvalId: approval.id, field: coverage.field };
+    return {
+      status: "blocked",
+      approval: { reason: "approval-mismatch", approvalId: approval.id, field: coverage.field },
+    };
   }
   if (coverage.status === "revoked") {
-    return { status: "approval-revoked", approvalId: approval.id };
+    return {
+      status: "blocked",
+      approval: { reason: "approval-revoked", approvalId: approval.id },
+    };
   }
 
   return { status: "proceed" };
@@ -598,8 +613,11 @@ export async function recordTrackerStep(request: {
     if (gate.status === "stop") {
       return finalReport(request.projectRoot, operationId);
     }
-    if (gate.status !== "proceed") {
-      return gate;
+    if (gate.status === "blocked") {
+      const blocked = await finalReport(request.projectRoot, operationId);
+      return blocked.status === "reported"
+        ? { status: "write-blocked", report: blocked.report, approval: gate.approval }
+        : blocked;
     }
   }
 

@@ -6,6 +6,7 @@ import {
   type Handled,
   type Operation,
   type Outcome,
+  type Reason,
   refuse,
   report,
   type TrackerReason,
@@ -15,6 +16,7 @@ type StepResult = Awaited<ReturnType<typeof CrewState.recordTracker>>["result"];
 type StepsResult = Awaited<ReturnType<typeof CrewState.trackerSteps>>["result"];
 type MapResult = Awaited<ReturnType<typeof CrewState.trackerMap>>["result"];
 type StepReport = Extract<StepResult, { status: "reported" }>["report"];
+type ApprovalBlocker = Extract<StepResult, { status: "write-blocked" }>["approval"];
 
 /** Every tracker command shares these refusals, because every one reads the same binding. */
 type AnyTrackerResult = StepResult | StepsResult | MapResult;
@@ -41,33 +43,75 @@ const outcomeByTrackerReason = {
   "tracker.pending": "pending",
 } as const satisfies Record<TrackerReason, Outcome>;
 
-function isTrackerReason(value: string): value is TrackerReason {
-  return Object.hasOwn(outcomeByTrackerReason, value);
+/** The blocker that names why another write is not permitted, and the line that explains it. */
+function approvalBlocker(approval: ApprovalBlocker): {
+  blocker: { reason: Reason; [key: string]: unknown };
+  lines: string[];
+} {
+  if (approval.reason === "approval-required") {
+    const { reason: _reason, ...detail } = approval;
+    return {
+      blocker: { reason: "tracker.approval_required", ...detail },
+      lines: [
+        `Another write needs a person's approval: grant ${approval.action} for ${approval.targets.join(", ")}`,
+        `in scope ${approval.scope} at request revision ${approval.requestRevision}.`,
+        "Elapsed time, an empty scan, and an agent inference authorize nothing.",
+      ],
+    };
+  }
+  if (approval.reason === "unknown-approval") {
+    return {
+      blocker: { reason: "unknown_approval", approvalId: approval.approvalId },
+      lines: [`No approval is recorded as ${approval.approvalId}.`],
+    };
+  }
+  if (approval.reason === "approval-revoked") {
+    return {
+      blocker: { reason: "approval_revoked", approvalId: approval.approvalId },
+      lines: [`Approval ${approval.approvalId} was revoked, so it authorizes nothing.`],
+    };
+  }
+
+  return {
+    blocker: {
+      reason: "approval_mismatch",
+      approvalId: approval.approvalId,
+      field: approval.field,
+    },
+    lines: [
+      `Approval ${approval.approvalId} was granted for a different ${approval.field}.`,
+      "An approval binds one exact action, its targets, its scope, and its request revision.",
+    ],
+  };
 }
 
-/** A recorded reason this release cannot read is never silently downgraded to a pass. */
-function trackerReason(value: string): TrackerReason {
-  return isTrackerReason(value) ? value : "tracker.evidence_incomplete";
-}
-
-/** Reports one step outcome. Every recorded problem is kept; only the ranking picks the reason. */
+/**
+ * Reports one step outcome. Every recorded problem is kept; only the ranking picks the reason.
+ * A problem that blocks another write is recorded beside them, never in place of them, so an
+ * unproven effect stays the overall result of the step it belongs to.
+ */
 function reportStep(request: {
   parsed: ParsedArguments;
   operation: Operation;
   report: StepReport;
   repeated: boolean;
+  approval?: ApprovalBlocker;
 }): Handled {
   const { report: step } = request;
-  const reason = trackerReason(step.reason);
+  const reason = step.reason;
+  const blocked = request.approval === undefined ? null : approvalBlocker(request.approval);
   report({
     json: request.parsed.json,
     result: {
       outcome: outcomeByTrackerReason[reason],
       reason,
-      blockers: step.problems.map((problem) => ({
-        reason: trackerReason(problem.reason),
-        detail: problem.detail,
-      })),
+      blockers: [
+        ...step.problems.map((problem) => ({
+          reason: problem.reason,
+          detail: problem.detail,
+        })),
+        ...(blocked === null ? [] : [blocked.blocker]),
+      ],
       operation: request.operation,
       data: { ...step, repeated: request.repeated },
     },
@@ -81,6 +125,7 @@ function reportStep(request: {
         ? ["The observed state is evidence of completion, not proof that Operator caused it."]
         : []),
       ...step.problems.map((problem) => `  ${problem.reason}: ${problem.detail}`),
+      ...(blocked === null ? [] : blocked.lines),
     ],
   });
   return "reported";
@@ -220,64 +265,6 @@ function reportStepFailure(request: {
     });
   }
 
-  if (result.status === "approval-required") {
-    return refuse({
-      json: parsed.json,
-      operation,
-      outcome: "missing-condition",
-      reason: "tracker.approval_required",
-      detail: {
-        operationId: result.operationId,
-        state: result.state,
-        action: result.action,
-        targets: result.targets,
-        scope: result.scope,
-        requestRevision: result.requestRevision,
-      },
-      lines: [
-        `Operation ${result.operationId} is ${result.state}, so another write needs a person's approval.`,
-        `Grant ${result.action} for ${result.targets.join(", ")} in scope ${result.scope} at request revision ${result.requestRevision}.`,
-        "Elapsed time, an empty scan, and an agent inference authorize nothing.",
-      ],
-    });
-  }
-
-  if (result.status === "unknown-approval") {
-    return refuse({
-      json: parsed.json,
-      operation,
-      outcome: "missing-condition",
-      reason: "unknown_approval",
-      detail: { approvalId: result.approvalId },
-      lines: [`No approval is recorded as ${result.approvalId}.`],
-    });
-  }
-
-  if (result.status === "approval-revoked") {
-    return refuse({
-      json: parsed.json,
-      operation,
-      outcome: "missing-condition",
-      reason: "approval_revoked",
-      detail: { approvalId: result.approvalId },
-      lines: [`Approval ${result.approvalId} was revoked, so it covers nothing.`],
-    });
-  }
-
-  if (result.status === "approval-mismatch") {
-    return refuse({
-      json: parsed.json,
-      operation,
-      outcome: "missing-condition",
-      reason: "approval_mismatch",
-      detail: { approvalId: result.approvalId, field: result.field },
-      lines: [
-        `Approval ${result.approvalId} was granted for a different ${result.field}.`,
-        "An approval binds one exact action, its targets, its scope, and its request revision.",
-      ],
-    });
-  }
-
   return null;
 }
 
@@ -330,6 +317,16 @@ async function runRecord(parsed: ParsedArguments): Promise<Handled> {
   const refused = reportStepFailure({ parsed, operation: "tracker_record", result });
   if (refused !== null) {
     return refused;
+  }
+
+  if (result.status === "write-blocked") {
+    return reportStep({
+      parsed,
+      operation: "tracker_record",
+      report: result.report,
+      repeated,
+      approval: result.approval,
+    });
   }
 
   return result.status === "reported"
@@ -450,7 +447,7 @@ async function runMap(parsed: ParsedArguments): Promise<Handled> {
       outcome: outcomeByTrackerReason[reason],
       reason,
       blockers: reading.problems.map((problem) => ({
-        reason: trackerReason(problem.reason),
+        reason: problem.reason,
         detail: problem.detail,
       })),
       operation: "tracker_map",

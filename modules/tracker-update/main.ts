@@ -7,6 +7,8 @@ import {
   type CommentObservation,
   decide,
   judge,
+  TRACKER_REASONS,
+  type TrackerReason,
   type Observation,
   type Problem,
   type WriteAttemptState,
@@ -65,6 +67,11 @@ export const TrackerUpdate = {
   /** The steps of one tracker update, in the order the contract records them. */
   steps(): readonly TrackerStep[] {
     return TRACKER_STEPS;
+  },
+
+  /** Every reason a tracker step reports. A stored reason is read back against this list. */
+  reasons(): readonly TrackerReason[] {
+    return TRACKER_REASONS;
   },
 
   /** What one provider can guarantee. An unknown provider has no capabilities at all. */
