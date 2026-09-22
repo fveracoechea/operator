@@ -87,6 +87,28 @@ async function runJson(root: string, path: string, args: string[]) {
   return { ...result, json: JSON.parse(result.stdout) };
 }
 
+const SELECTED_COMMIT = "f".repeat(40);
+
+/** Records the exact release this project coordinates with, the way an approved update does. */
+async function selectRelease(root: string, path: string, targets: string[]): Promise<void> {
+  const planned = await runJson(root, path, [
+    "update",
+    "plan",
+    ...targets,
+    "--commit",
+    SELECTED_COMMIT,
+  ]);
+  await runJson(root, path, [
+    "update",
+    "apply",
+    ...targets,
+    "--commit",
+    SELECTED_COMMIT,
+    "--approved-update",
+    planned.json.data.updateId,
+  ]);
+}
+
 async function configure(root: string, path: string, targets: string[]): Promise<void> {
   await runJson(root, path, ["install", ...targets]);
   const plan = await runJson(root, path, ["setup", "plan", ...targets]);
@@ -97,6 +119,7 @@ async function configure(root: string, path: string, targets: string[]): Promise
     "--approved-plan",
     plan.json.data.planId,
   ]);
+  await selectRelease(root, path, targets);
 }
 
 type ReportedCheck = {

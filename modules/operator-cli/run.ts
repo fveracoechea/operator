@@ -2,6 +2,7 @@ import { OperatorRelease } from "../operator-release/main.ts";
 import {
   hasCrewArguments,
   hasSelectionOrProbeArguments,
+  hasUpdateArguments,
   type ParsedArguments,
   parseArguments,
 } from "./arguments.ts";
@@ -11,6 +12,7 @@ import { runCleanup } from "./cleanup-command.ts";
 import { runCrewOwn } from "./crew-command.ts";
 import { runCrewNext } from "./next-command.ts";
 import { runInstall } from "./install-command.ts";
+import { runUpdate } from "./update-command.ts";
 import { runQuestion } from "./question-command.ts";
 import { runReview } from "./review-command.ts";
 import { runSetup } from "./setup-command.ts";
@@ -87,12 +89,33 @@ export async function run(args: string[]): Promise<void> {
 
   const [command, ...rest] = args;
 
+  if (command === "update") {
+    // An update request names its operation in leading words, then carries only flags.
+    const firstFlag = rest.findIndex((word) => word.startsWith("--"));
+    const words = firstFlag === -1 ? rest : rest.slice(0, firstFlag);
+    const parsed = parseArguments(firstFlag === -1 ? [] : rest.slice(firstFlag));
+    // The update names the release it selects by a full commit, and nothing else about a crew.
+    const { baseCommit: _commit, ...otherCrewFlags } = parsed.crew;
+    if (
+      parsed.unsupported.length > 0 ||
+      parsed.approvedPlan !== undefined ||
+      parsed.takeover ||
+      Object.keys(otherCrewFlags).length > 0 ||
+      hasSelectionOrProbeArguments(parsed) ||
+      (await runUpdate(words, parsed)) !== "reported"
+    ) {
+      rejectArguments(parsed.json);
+    }
+    return;
+  }
+
   if (command === "install") {
     const parsed = parseArguments(rest);
     if (
       parsed.unsupported.length > 0 ||
       parsed.approvedPlan !== undefined ||
       hasCrewArguments(parsed) ||
+      hasUpdateArguments(parsed) ||
       hasSelectionOrProbeArguments(parsed)
     ) {
       rejectArguments(parsed.json);
@@ -110,6 +133,7 @@ export async function run(args: string[]): Promise<void> {
     if (
       parsed.unsupported.length > 0 ||
       hasCrewArguments(parsed) ||
+      hasUpdateArguments(parsed) ||
       (await runSetup(words, parsed)) !== "reported"
     ) {
       rejectArguments(parsed.json);
@@ -130,6 +154,7 @@ export async function run(args: string[]): Promise<void> {
       parsed.unsupported.length > 0 ||
       (!selects && parsed.targets.length > 0) ||
       parsed.approvedPlan !== undefined ||
+      hasUpdateArguments(parsed) ||
       // Only crew ownership can be taken over, so every other command refuses the flag.
       (parsed.takeover && !(command === "crew" && words[0] === "own")) ||
       // A dispatch fixes the selection it launches with, so only it reads a selection override.

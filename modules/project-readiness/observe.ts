@@ -1,5 +1,6 @@
 import { AgentSelection } from "../agent-selection/main.ts";
 import { EnvironmentProbe } from "../environment-probe/main.ts";
+import { ReleaseInstall } from "../release-install/main.ts";
 import { OperatorConfig } from "../operator-config/main.ts";
 import { ProjectSetup } from "../project-setup/main.ts";
 import { SkillInstall } from "../skill-install/main.ts";
@@ -73,6 +74,13 @@ export async function observeProject(request: {
       readTextOrNull(`${request.projectRoot}/${CLAUDE_IMPORT_PATH}`),
     ]);
 
+  // The selected release is compared against the release actually running, so a mismatched or
+  // missing installation is reported instead of being replaced by whatever is at hand.
+  const installation = await ReleaseInstall.inspect({
+    projectRoot: request.projectRoot,
+    running: { version: release.version, identity: release.identity, lock: release.lock },
+  });
+
   return {
     targets: request.targets,
     environment,
@@ -80,6 +88,7 @@ export async function observeProject(request: {
     skills,
     everySkillCopy,
     release,
+    installation,
     configuration,
     instructions: { agents: agentsText, claude: claudeText },
     selection: AgentSelection.resolve({

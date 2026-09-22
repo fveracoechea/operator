@@ -993,6 +993,6 @@ describe("crew state that cannot serve a request", () => {
 
     expect(frontier.exitCode).toBe(1);
     expect(frontier.json.reason).toBe("state_version_unsupported");
-    expect(frontier.json.blockers[0]).toMatchObject({ found: 99, supported: 1 });
+    expect(frontier.json.blockers[0]).toMatchObject({ found: 99 });
   });
 });

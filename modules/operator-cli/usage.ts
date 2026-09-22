@@ -6,6 +6,8 @@ export const usage = [
   "Usage:",
   "  operator --version [--json]",
   `  operator install ${targetChoice} [--json]`,
+  `  operator update plan ${targetChoice} --commit <sha> [--delivery <path>] [--package-version <v>] [--json]`,
+  `  operator update apply ${targetChoice} --commit <sha> [--delivery <path>] [--package-version <v>] --approved-update <id> [--json]`,
   `  operator setup plan ${targetChoice} [--json]`,
   `  operator setup apply ${targetChoice} --approved-plan <planId> [--json]`,
   "  operator setup rollback [--json]",
@@ -54,4 +56,5 @@ export const usage = [
   "  operator cleanup show [--attempt <id>] [--json]",
   "",
   "A host is `opencode` or `claude-code`.",
+  "A delivery path is `github-source` or `jsr`; `jsr` also needs an exact package version.",
 ].join("\n");

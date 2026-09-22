@@ -176,6 +176,30 @@ function releaseCheck(observation: Observation): Check {
   });
 }
 
+/**
+ * The selected release must be the one installed and running.
+ * A project that selected none cannot prove this, so the check is unverified rather than failed;
+ * every other answer is a blocker, because Operator never substitutes another installation.
+ */
+function installationCheck(observation: Observation): Check {
+  const installation = observation.installation;
+  if (installation.status === "installed") {
+    return check("operator-installation", null, installation.detail, null);
+  }
+
+  const failure = {
+    reason: installation.reason,
+    detail: installation.detail,
+    nextAction: installation.nextAction,
+    conflict: installation.reason === "unreadable_selection",
+    paths: installation.paths,
+  };
+
+  return installation.reason === "release_unselected"
+    ? unmetCheck("operator-installation", null, "unverified", failure)
+    : unmetCheck("operator-installation", null, "failed", failure);
+}
+
 function configurationCheck(observation: Observation): Check {
   const invalid = observation.plan.conflicts.find((one) => one.reason === "invalid_configuration");
   if (invalid) {
@@ -346,6 +370,7 @@ export function staticChecks(observation: Observation): Check[] {
     ),
     lockCheck(observation),
     releaseCheck(observation),
+    installationCheck(observation),
     configurationCheck(observation),
     settingsCheck(observation),
     selectionCheck(observation, "operator"),

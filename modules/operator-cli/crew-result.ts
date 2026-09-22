@@ -19,6 +19,11 @@ const sharedFailures = {
     outcome: "conflict",
     line: "The crew state cannot be read. Nothing was dispatched and nothing was replaced.",
   },
+  "state-outdated": {
+    reason: "state_version_outdated",
+    outcome: "missing-condition",
+    line: "The crew state was written by an earlier Operator release. Run `operator update` to migrate it.",
+  },
   "state-unsupported": {
     reason: "state_version_unsupported",
     outcome: "failed",

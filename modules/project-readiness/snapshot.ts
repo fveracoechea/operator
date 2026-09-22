@@ -1,5 +1,6 @@
 import { AgentSelection } from "../agent-selection/main.ts";
 import { ContentIdentity } from "../content-identity/main.ts";
+import { ReleaseInstall } from "../release-install/main.ts";
 import { SkillInstall } from "../skill-install/main.ts";
 import { readConfiguration } from "./observe.ts";
 import { identifyRelease } from "./release.ts";
@@ -10,6 +11,13 @@ export type LaunchSnapshot = {
     crew: { host: string | null; model: string | null; hostSource: string; modelSource: string };
   };
   release: { version: string; identity: string };
+  // How this project retrieves the release, and the exact identity it retrieves it by. A crew
+  // worktree receives this, so coordinated work runs the release the project selected.
+  installation: {
+    delivery: string | null;
+    commit: string | null;
+    packageVersion: string | null;
+  };
   lock: {
     name: string | null;
     state: "present" | "missing";
@@ -30,7 +38,12 @@ export async function readLaunchSnapshot(request: {
   overrides: Parameters<typeof AgentSelection.resolve>[0]["overrides"];
 }): Promise<LaunchSnapshot> {
   const configuration = await readConfiguration(request.projectRoot);
-  const [release, skills] = await Promise.all([identifyRelease(), SkillInstall.identity()]);
+  const [release, skills, selected] = await Promise.all([
+    identifyRelease(),
+    SkillInstall.identity(),
+    ReleaseInstall.selection({ projectRoot: request.projectRoot }),
+  ]);
+  const installed = selected.state === "read" ? selected.selection : null;
   const selection = AgentSelection.resolve({
     overrides: request.overrides,
     configuration: configuration.selection,
@@ -50,6 +63,11 @@ export async function readLaunchSnapshot(request: {
       },
     },
     release: { version: release.version, identity: release.identity },
+    installation: {
+      delivery: installed?.delivery ?? null,
+      commit: installed?.commit ?? null,
+      packageVersion: installed?.packageVersion ?? null,
+    },
     lock: release.lock,
     skills: { identity: skills },
     configuration: {

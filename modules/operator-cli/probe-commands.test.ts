@@ -143,6 +143,19 @@ async function makeProbeWorkspace(
     plan.json.data.planId,
   ]);
 
+  // The probe proves a release claim, so the project first selects the exact release it runs.
+  const commit = "e".repeat(40);
+  const update = await runJson(workspace, ["update", "plan", "--claude", "--commit", commit]);
+  await runJson(workspace, [
+    "update",
+    "apply",
+    "--claude",
+    "--commit",
+    commit,
+    "--approved-update",
+    update.json.data.updateId,
+  ]);
+
   const chosen = selectionFor(operator, crew);
   const probe = await runJson(workspace, ["setup", "probe", "plan", ...chosen]);
   // The skills this release installs, read from the copy setup just made, so the canned answer
