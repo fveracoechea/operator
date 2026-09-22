@@ -14,7 +14,7 @@ import { readCapacity } from "./capacity.ts";
 import { acceptAssignment } from "./acceptance.ts";
 import { claimAssignment } from "./claims.ts";
 import { calculateFrontier } from "./frontier.ts";
-import { calculateNext } from "./next.ts";
+import { calculateNext, type NextActionName, nextActionRank } from "./next.ts";
 import { parseInput } from "./input.ts";
 import { mutate, readState } from "./operations.ts";
 import { claimOwnership, currentOwnership } from "./ownership.ts";
@@ -641,6 +641,11 @@ export const CrewState = {
    * acknowledgements, and every recovery a restart owes are answered here, so a session never
    * keeps a second schedule of its own beside this one.
    */
+  /** The place one next action holds in the declared order, for a caller that adds one. */
+  rankOfAction(request: { action: NextActionName }): number {
+    return nextActionRank(request.action);
+  },
+
   async next(request: Located & { readiness: { ready: boolean; detail: string } }) {
     const capacity = await readCapacity(request.projectRoot);
     if (capacity.status !== "ok") {

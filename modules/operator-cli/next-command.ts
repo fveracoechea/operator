@@ -140,7 +140,7 @@ export async function runCrewNext(parsed: ParsedArguments): Promise<Handled> {
         : [
             {
               action: "prove_readiness" as const,
-              rank: 10,
+              rank: CrewState.rankOfAction({ action: "prove_readiness" }),
               assignmentId: null,
               attemptId: null,
               questionId: null,
@@ -153,7 +153,7 @@ export async function runCrewNext(parsed: ParsedArguments): Promise<Handled> {
           ]),
       {
         action: "own_crew" as const,
-        rank: 20,
+        rank: CrewState.rankOfAction({ action: "own_crew" }),
         assignmentId: null,
         attemptId: null,
         questionId: null,

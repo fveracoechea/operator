@@ -106,6 +106,11 @@ const rankOf = new Map<NextActionName, number>(
   NEXT_ACTIONS.map((action, index) => [action, (index + 1) * 10]),
 );
 
+/** The place one action holds in the declared order. One rendering, so a caller never guesses. */
+export function nextActionRank(action: NextActionName): number {
+  return rankOf.get(action) ?? 0;
+}
+
 type Draft = Omit<NextAction, "rank"> & { action: NextActionName };
 
 /** Collects the actions of one reading and keeps them in the one declared order. */
