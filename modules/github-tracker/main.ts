@@ -1,4 +1,5 @@
-import { callGithub, type GithubOutcome, readNumber, readRecord, readString } from "./invoke.ts";
+import { ToolInvocation } from "../tool-invocation/main.ts";
+import { callGithub, type GithubOutcome } from "./invoke.ts";
 
 /**
  * Every call is bounded, because an unbounded one would hold a tracker step open with no answer.
@@ -53,25 +54,25 @@ type ScanCoverage = {
 };
 
 function readComment(source: unknown): Comment | null {
-  const commentId = readNumber(source, "id");
-  const body = readString(source, "body");
+  const commentId = ToolInvocation.number(source, "id");
+  const body = ToolInvocation.text(source, "body");
   if (commentId === null || body === null) {
     return null;
   }
 
   return {
     commentId: String(commentId),
-    url: readString(source, "html_url") ?? "",
-    actor: readString(readRecord(source, "user"), "login") ?? "",
+    url: ToolInvocation.text(source, "html_url") ?? "",
+    actor: ToolInvocation.text(ToolInvocation.record(source, "user"), "login") ?? "",
     body,
-    createdAt: readString(source, "created_at") ?? "",
-    updatedAt: readString(source, "updated_at") ?? "",
+    createdAt: ToolInvocation.text(source, "created_at") ?? "",
+    updatedAt: ToolInvocation.text(source, "updated_at") ?? "",
   };
 }
 
 function readIssue(source: unknown): Issue | null {
-  const number = readNumber(source, "number");
-  const state = readString(source, "state");
+  const number = ToolInvocation.number(source, "number");
+  const state = ToolInvocation.text(source, "state");
   if (number === null || state === null) {
     return null;
   }
@@ -79,24 +80,24 @@ function readIssue(source: unknown): Issue | null {
   return {
     number,
     state,
-    stateReason: readString(source, "state_reason"),
-    closedBy: readString(readRecord(source, "closed_by"), "login"),
-    closedAt: readString(source, "closed_at"),
-    updatedAt: readString(source, "updated_at") ?? "",
-    title: readString(source, "title") ?? "",
-    body: readString(source, "body") ?? "",
+    stateReason: ToolInvocation.text(source, "state_reason"),
+    closedBy: ToolInvocation.text(ToolInvocation.record(source, "closed_by"), "login"),
+    closedAt: ToolInvocation.text(source, "closed_at"),
+    updatedAt: ToolInvocation.text(source, "updated_at") ?? "",
+    title: ToolInvocation.text(source, "title") ?? "",
+    body: ToolInvocation.text(source, "body") ?? "",
   };
 }
 
 function readEvent(source: unknown): IssueEvent | null {
-  const event = readString(source, "event");
+  const event = ToolInvocation.text(source, "event");
   return event === null
     ? null
     : {
         event,
-        actor: readString(readRecord(source, "actor"), "login"),
-        stateReason: readString(source, "state_reason"),
-        createdAt: readString(source, "created_at") ?? "",
+        actor: ToolInvocation.text(ToolInvocation.record(source, "actor"), "login"),
+        stateReason: ToolInvocation.text(source, "state_reason"),
+        createdAt: ToolInvocation.text(source, "created_at") ?? "",
       };
 }
 
@@ -189,7 +190,7 @@ export const GithubTracker = {
       return outcome;
     }
 
-    const login = readString(outcome.value.body, "login");
+    const login = ToolInvocation.text(outcome.value.body, "login");
     return login === null
       ? { status: "uncertain", detail: "GitHub named no login for this token." }
       : { status: "succeeded", value: { login } };

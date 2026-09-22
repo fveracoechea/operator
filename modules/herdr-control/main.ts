@@ -1,4 +1,5 @@
-import { type HerdrOutcome, invokeHerdr, readRecords, readString } from "./invoke.ts";
+import { ToolInvocation } from "../tool-invocation/main.ts";
+import { type HerdrOutcome, invokeHerdr } from "./invoke.ts";
 
 /**
  * Every call is bounded, because an unbounded one would hold a launch open with no answer.
@@ -19,30 +20,26 @@ type Lookup<Value> =
   | { status: "absent" }
   | { status: "unknown"; detail: string };
 
-function record(source: unknown, key: string): unknown {
-  return source !== null && typeof source === "object" ? Reflect.get(source, key) : undefined;
-}
-
 function readWorktree(source: unknown): Worktree | null {
-  const path = readString(source, "path");
+  const path = ToolInvocation.text(source, "path");
   return path === null
     ? null
     : {
         path,
-        branch: readString(source, "branch"),
-        workspaceId: readString(source, "open_workspace_id"),
+        branch: ToolInvocation.text(source, "branch"),
+        workspaceId: ToolInvocation.text(source, "open_workspace_id"),
       };
 }
 
 function readAgent(source: unknown): Agent | null {
-  const paneId = readString(source, "pane_id");
+  const paneId = ToolInvocation.text(source, "pane_id");
   return paneId === null
     ? null
     : {
-        name: readString(source, "name"),
+        name: ToolInvocation.text(source, "name"),
         paneId,
-        cwd: readString(source, "cwd"),
-        status: readString(source, "agent_status") ?? "unknown",
+        cwd: ToolInvocation.text(source, "cwd"),
+        status: ToolInvocation.text(source, "agent_status") ?? "unknown",
       };
 }
 
@@ -97,8 +94,11 @@ export const HerdrControl = {
       return outcome;
     }
 
-    const workspaceId = readString(record(outcome.value, "workspace"), "workspace_id");
-    const worktree = readWorktree(record(outcome.value, "worktree"));
+    const workspaceId = ToolInvocation.text(
+      ToolInvocation.record(outcome.value, "workspace"),
+      "workspace_id",
+    );
+    const worktree = readWorktree(ToolInvocation.record(outcome.value, "worktree"));
     if (workspaceId === null || worktree === null) {
       return { status: "uncertain", detail: "herdr created a worktree it did not describe." };
     }
@@ -114,8 +114,8 @@ export const HerdrControl = {
     });
 
     return lookupFrom(outcome, ["workspace_not_found"], (result) => {
-      const panes = readRecords(result, "panes");
-      const paneId = panes.length === 0 ? null : readString(panes[0], "pane_id");
+      const panes = ToolInvocation.list(result, "panes");
+      const paneId = panes.length === 0 ? null : ToolInvocation.text(panes[0], "pane_id");
       return paneId === null ? null : { paneId };
     });
   },
@@ -134,7 +134,7 @@ export const HerdrControl = {
       return outcome;
     }
 
-    const agent = readAgent(record(outcome.value, "agent"));
+    const agent = readAgent(ToolInvocation.record(outcome.value, "agent"));
     return agent === null
       ? { status: "uncertain", detail: "herdr started an agent it did not describe." }
       : { status: "succeeded", value: agent };
@@ -153,7 +153,7 @@ export const HerdrControl = {
       return outcome;
     }
 
-    const agent = readAgent(record(outcome.value, "agent"));
+    const agent = readAgent(ToolInvocation.record(outcome.value, "agent"));
     return agent === null
       ? { status: "uncertain", detail: "herdr accepted a prompt it did not describe." }
       : { status: "succeeded", value: agent };
@@ -166,7 +166,7 @@ export const HerdrControl = {
       timeoutMs: READ_TIMEOUT_MS,
     });
     return lookupFrom(outcome, ["agent_not_found", "pane_not_found"], (result) =>
-      readAgent(record(result, "agent")),
+      readAgent(ToolInvocation.record(result, "agent")),
     );
   },
 
@@ -184,7 +184,7 @@ export const HerdrControl = {
     }
 
     // A listed repository that does not hold the path is evidence of absence, not an unknown.
-    const found = readRecords(outcome.value, "worktrees")
+    const found = ToolInvocation.list(outcome.value, "worktrees")
       .map(readWorktree)
       .find((one) => one !== null && one.path === request.path);
     return found === undefined || found === null

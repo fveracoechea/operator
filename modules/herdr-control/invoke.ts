@@ -1,3 +1,5 @@
+import { ToolInvocation } from "../tool-invocation/main.ts";
+
 export type HerdrFailure = { status: "failed"; code: string; detail: string };
 
 /** An unfinished call. The effect may have landed, so a caller reconciles instead of repeating. */
@@ -7,14 +9,6 @@ export type HerdrOutcome<Value> =
   | { status: "succeeded"; value: Value }
   | HerdrFailure
   | HerdrUncertain;
-
-// Every caller states its own bound; this is the floor for one that does not.
-const DEFAULT_TIMEOUT_MS = 60_000;
-
-// Bun.which caches the startup path, so the current PATH is read on every lookup.
-function herdrPath(): string | null {
-  return Bun.which("herdr", { PATH: process.env.PATH ?? "" });
-}
 
 function readError(body: unknown): { code: string; message: string } | null {
   if (body === null || typeof body !== "object" || !("error" in body)) {
@@ -26,8 +20,8 @@ function readError(body: unknown): { code: string; message: string } | null {
     return { code: "herdr_error", message: JSON.stringify(error) };
   }
 
-  const code = readString(error, "code") ?? "herdr_error";
-  return { code, message: readString(error, "message") ?? code };
+  const code = ToolInvocation.text(error, "code") ?? "herdr_error";
+  return { code, message: ToolInvocation.text(error, "message") ?? code };
 }
 
 function readResult(body: unknown): unknown {
@@ -42,43 +36,28 @@ function readResult(body: unknown): unknown {
  */
 export async function invokeHerdr(request: {
   args: string[];
-  timeoutMs?: number;
+  timeoutMs: number;
 }): Promise<HerdrOutcome<unknown>> {
-  const path = herdrPath();
-  if (path === null) {
-    return {
-      status: "failed",
-      code: "herdr_unavailable",
-      detail: "herdr is not on the path, so nothing was requested.",
-    };
-  }
-
-  const child = Bun.spawn([path, ...request.args], {
-    stdout: "pipe",
-    stderr: "pipe",
-    timeout: request.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+  const invoked = await ToolInvocation.run({
+    tool: "herdr",
+    args: request.args,
+    timeoutMs: request.timeoutMs,
   });
-  const [exitCode, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ]);
-
-  if (child.signalCode !== null) {
-    return {
-      status: "uncertain",
-      detail: `herdr ${request.args[0] ?? ""} ended on ${child.signalCode} with no answer.`,
-    };
+  if (invoked.status === "unavailable") {
+    return { status: "failed", code: "herdr_unavailable", detail: invoked.detail };
+  }
+  if (invoked.status === "no-answer") {
+    return { status: "uncertain", detail: invoked.detail };
   }
 
   let body: unknown;
   try {
-    body = JSON.parse(stdout);
+    body = JSON.parse(invoked.stdout);
   } catch {
     // A command that answered nothing readable leaves its effect unknown, never assumed absent.
     return {
       status: "uncertain",
-      detail: `herdr exited ${exitCode} with an unreadable answer: ${stderr.trim() || stdout.trim()}`,
+      detail: `herdr exited ${invoked.exitCode} with an unreadable answer: ${invoked.stderr.trim() || invoked.stdout.trim()}`,
     };
   }
 
@@ -93,22 +72,4 @@ export async function invokeHerdr(request: {
   }
 
   return { status: "succeeded", value: result };
-}
-
-export function readString(source: unknown, key: string): string | null {
-  if (source === null || typeof source !== "object") {
-    return null;
-  }
-
-  const value = Reflect.get(source, key);
-  return typeof value === "string" ? value : null;
-}
-
-export function readRecords(source: unknown, key: string): unknown[] {
-  if (source === null || typeof source !== "object") {
-    return [];
-  }
-
-  const value = Reflect.get(source, key);
-  return Array.isArray(value) ? value : [];
 }
