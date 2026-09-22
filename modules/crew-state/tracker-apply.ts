@@ -301,6 +301,21 @@ function readContext(
   };
 }
 
+/** Reads one operation back after a write to it, or reports why it cannot be read. */
+async function reload(
+  projectRoot: string,
+  operationId: string,
+): Promise<{ status: "read"; operation: TrackerOperationRow } | TrackerResult> {
+  const held = await readState(projectRoot, (db) => readTrackerOperation(db, operationId));
+  if (held !== null && "status" in held) {
+    return held;
+  }
+
+  return held === null
+    ? { status: "unknown-operation", operationId }
+    : { status: "read", operation: held };
+}
+
 /**
  * The write one recorded step intends, taken from the row that planned it.
  * A comment step holds its content and a completion step holds its reason. A row that holds
@@ -601,17 +616,12 @@ export async function recordTrackerStep(request: {
       return opened;
     }
 
-    const stored = await readState(request.projectRoot, (db) =>
-      readTrackerOperation(db, operationId),
-    );
-    if (stored !== null && "status" in stored) {
+    const stored = await reload(request.projectRoot, operationId);
+    if (stored.status !== "read") {
       return stored;
     }
-    if (stored === null) {
-      return { status: "unknown-operation", operationId };
-    }
 
-    operation = stored;
+    operation = stored.operation;
     attempts = [];
   }
 
@@ -635,16 +645,11 @@ export async function recordTrackerStep(request: {
       return before;
     }
 
-    const refreshed = await readState(request.projectRoot, (db) =>
-      readTrackerOperation(db, operationId),
-    );
-    if (refreshed !== null && "status" in refreshed) {
+    const refreshed = await reload(request.projectRoot, operationId);
+    if (refreshed.status !== "read") {
       return refreshed;
     }
-    if (refreshed === null) {
-      return { status: "unknown-operation", operationId };
-    }
-    operation = refreshed;
+    operation = refreshed.operation;
 
     const gate = gateBeforeWriting({
       operation,
@@ -724,15 +729,15 @@ export async function recordTrackerStep(request: {
     return settledWrite;
   }
 
-  const after = await readState(request.projectRoot, (db) => ({
-    operation: readTrackerOperation(db, planned.id),
-    attempts: writeAttemptsOf(db, planned.id),
-  }));
-  if ("status" in after) {
+  const after = await reload(request.projectRoot, planned.id);
+  if (after.status !== "read") {
     return after;
   }
-  if (after.operation === null) {
-    return { status: "unknown-operation", operationId: planned.id };
+  const settledAttempts = await readState(request.projectRoot, (db) =>
+    writeAttemptsOf(db, planned.id),
+  );
+  if ("status" in settledAttempts) {
+    return settledAttempts;
   }
 
   const settled = await settleFromObservation({
@@ -741,7 +746,7 @@ export async function recordTrackerStep(request: {
     ownerToken: request.ownerToken,
     operation: after.operation,
     target,
-    attempts: after.attempts,
+    attempts: settledAttempts,
     // A capability this machine lacks outranks the refusal its absence produced.
     extra:
       sent.status === "unavailable"

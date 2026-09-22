@@ -11,6 +11,18 @@ const MARKER_PREFIX = "<!-- operator:tracker-operation:v1 ";
 /** The heading that separates an explicit map amendment from an ordinary discussion comment. */
 export const AMENDMENT_HEADING = "## Map amendment";
 
+/**
+ * The words an amendment is written with and read back by.
+ * One rendering writes them and one reader parses them, so a change to either is a change to
+ * both rather than a silent disagreement about what an amendment says.
+ */
+const CHANGES_HEADING = "### Changes";
+const DETAIL_HEADING = "### Detail";
+const SECTION_ENTRY = "- section: ";
+const SUPERSEDES_ENTRY = "- supersedes: ";
+const BASELINE_SENTENCE = (identity: string) =>
+  `The unchanged baseline body has SHA256 \`${identity}\`.`;
+
 export function markerFor(operationId: string): string {
   return `${MARKER_PREFIX}${operationId} -->`;
 }
@@ -71,8 +83,8 @@ export function renderComment(request: {
   }
 
   const changes = [
-    ...intent.sections.map((section) => `- section: ${section}`),
-    ...intent.supersedes.map((operationId) => `- supersedes: ${operationId}`),
+    ...intent.sections.map((section) => `${SECTION_ENTRY}${section}`),
+    ...intent.supersedes.map((operationId) => `${SUPERSEDES_ENTRY}${operationId}`),
   ];
 
   return [
@@ -82,14 +94,14 @@ export function renderComment(request: {
     "",
     `Authorized by ${intent.decisionLink}.`,
     "This is an explicit amendment, not an ordinary discussion comment.",
-    `The unchanged baseline body has SHA256 \`${intent.baselineIdentity}\`.`,
+    BASELINE_SENTENCE(intent.baselineIdentity),
     "The hash identifies the baseline; it is not a server-side write guard.",
     "",
-    "### Changes",
+    CHANGES_HEADING,
     "",
     ...changes,
     "",
-    "### Detail",
+    DETAIL_HEADING,
     "",
     intent.body.trimEnd(),
     "",
@@ -103,7 +115,9 @@ export type AmendmentClaim = {
   baselineIdentity: string | null;
 };
 
-const BASELINE_PATTERN = /baseline body has SHA256 `([0-9a-f]{64})`/;
+// The reader finds exactly what the sentence above writes, so neither can move without the
+// other. Only the full stop needs escaping; the digest pattern carries no other metacharacter.
+const BASELINE_PATTERN = new RegExp(BASELINE_SENTENCE("([0-9a-f]{64})").replaceAll(".", "\\."));
 
 /** Reads the structured claim of one amendment body. Free prose outside it is left alone. */
 export function readAmendmentClaim(body: string): AmendmentClaim {
@@ -113,20 +127,18 @@ export function readAmendmentClaim(body: string): AmendmentClaim {
 
   for (const line of body.split("\n")) {
     if (line.startsWith("### ")) {
-      inChanges = line.trim() === "### Changes";
+      inChanges = line.trim() === CHANGES_HEADING;
       continue;
     }
     if (!inChanges) {
       continue;
     }
 
-    const section = /^-\s+section:\s*(.+?)\s*$/.exec(line);
-    if (section?.[1] !== undefined) {
-      sections.push(section[1]);
+    if (line.startsWith(SECTION_ENTRY)) {
+      sections.push(line.slice(SECTION_ENTRY.length).trim());
     }
-    const superseded = /^-\s+supersedes:\s*(.+?)\s*$/.exec(line);
-    if (superseded?.[1] !== undefined) {
-      supersedes.push(superseded[1]);
+    if (line.startsWith(SUPERSEDES_ENTRY)) {
+      supersedes.push(line.slice(SUPERSEDES_ENTRY.length).trim());
     }
   }
 
