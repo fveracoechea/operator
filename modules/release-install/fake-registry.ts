@@ -11,13 +11,13 @@ export type RegistryFake = {
   stop: () => void;
 };
 
-function shasum(bytes: Uint8Array): string {
+function shasum(bytes: Uint8Array<ArrayBuffer>): string {
   const hasher = new Bun.CryptoHasher("sha1");
   hasher.update(bytes);
   return hasher.digest("hex");
 }
 
-function integrity(bytes: Uint8Array): string {
+function integrity(bytes: Uint8Array<ArrayBuffer>): string {
   const hasher = new Bun.CryptoHasher("sha512");
   hasher.update(bytes);
   return `sha512-${hasher.digest("base64")}`;
@@ -28,10 +28,9 @@ function integrity(bytes: Uint8Array): string {
  * JSR reads `jsr.json`, never the package manifest beside it, so the fake reads the same file
  * the real registry does and a dependency named only in the manifest stays missing here too.
  */
-export function registryDependencies(config: { imports?: Record<string, string> }): Record<
-  string,
-  string
-> {
+export function registryDependencies(config: {
+  imports?: Record<string, string>;
+}): Record<string, string> {
   return Object.fromEntries(
     Object.entries(config.imports ?? {}).map(([name, specifier]) => [
       name,
@@ -67,7 +66,7 @@ export function registryManifest(request: {
 export function startRegistryFake(request: {
   packageName: string;
   version: string;
-  tarball: Uint8Array;
+  tarball: Uint8Array<ArrayBuffer>;
   dependencies?: Record<string, string>;
 }): RegistryFake {
   const requests: string[] = [];
@@ -102,7 +101,7 @@ export function startRegistryFake(request: {
       }
 
       if (path === `/tarball/${request.version}.tgz`) {
-        return new Response(request.tarball.slice().buffer as ArrayBuffer, {
+        return new Response(new Blob([request.tarball]), {
           headers: { "content-type": "application/octet-stream" },
         });
       }

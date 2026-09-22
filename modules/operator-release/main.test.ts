@@ -112,7 +112,12 @@ describe("the release artifact", () => {
       const body = text.startsWith("#!") ? text.slice(text.indexOf("\n") + 1) : text;
       for (const found of transpiler.scanImports(body)) {
         if (!found.path.startsWith(".") && !/^(node|bun):/.test(found.path)) {
-          reached.add(found.path.split("/").slice(0, found.path.startsWith("@") ? 2 : 1).join("/"));
+          reached.add(
+            found.path
+              .split("/")
+              .slice(0, found.path.startsWith("@") ? 2 : 1)
+              .join("/"),
+          );
         }
       }
     }

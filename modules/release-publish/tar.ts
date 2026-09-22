@@ -56,14 +56,17 @@ function header(request: { path: string; size: number; mode: number; mtime: numb
   return block;
 }
 
-export type TarEntry = { path: string; bytes: Uint8Array; executable?: boolean };
+export type TarEntry = { path: string; bytes: Uint8Array<ArrayBuffer>; executable?: boolean };
 
 /**
  * Writes one gzipped tar of the exact bytes given, with no link and no directory entry.
  * The timestamps are fixed, so the same artifact always packs to the same bytes and a retry
  * sends what the approval was granted against.
  */
-export function packTarball(entries: TarEntry[], options: { mtime?: number } = {}): Uint8Array {
+export function packTarball(
+  entries: TarEntry[],
+  options: { mtime?: number } = {},
+): Uint8Array<ArrayBuffer> {
   const mtime = options.mtime ?? 0;
   const blocks: Uint8Array[] = [];
 
@@ -96,5 +99,6 @@ export function packTarball(entries: TarEntry[], options: { mtime?: number } = {
     offset += block.length;
   }
 
-  return Bun.gzipSync(tar);
+  // The copy gives the bytes a buffer of their own, so a caller may hand them to a request body.
+  return new Uint8Array(Bun.gzipSync(tar));
 }

@@ -125,7 +125,7 @@ export async function readVersion(
 
 /** Sends one gzipped artifact to JSR and answers with the publishing task it started. */
 export async function createVersion(
-  request: JsrRequest & { credential: string; tarball: Uint8Array; config: string },
+  request: JsrRequest & { credential: string; tarball: Uint8Array<ArrayBuffer>; config: string },
 ): Promise<JsrOutcome<PublishingTask>> {
   const url = `${request.api}/scopes/${request.scope}/packages/${request.package}/versions/${request.version}?config=${encodeURIComponent(request.config)}`;
   let response: Response;
@@ -137,7 +137,8 @@ export async function createVersion(
         "content-type": "application/octet-stream",
         accept: "application/json",
       },
-      body: request.tarball.slice().buffer as ArrayBuffer,
+      // A blob carries the bytes as a body without a cast that claims a buffer shape.
+      body: new Blob([request.tarball]),
     });
   } catch (error) {
     // The request may have reached the registry, so the effect is unknown rather than absent.

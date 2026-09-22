@@ -64,7 +64,7 @@ type UpdatePlanBody = {
     conflicts: Array<{ skill: string; target: UpdateTarget; paths: string[] }>;
   };
   migration: ReturnType<typeof CrewState.migration>;
-  backup: { root: string | null; targets: string[] };
+  backup: { targets: string[] };
   blockers: UpdateBlocker[];
 };
 
@@ -206,7 +206,7 @@ export async function computeUpdatePlan(request: UpdateRequest): Promise<UpdateP
     targets: request.targets.toSorted(),
     skills: { install: skills.missing, conflicts: skills.conflicts },
     migration,
-    backup: { root: null as string | null, targets: backups },
+    backup: { targets: backups },
     blockers,
   };
 

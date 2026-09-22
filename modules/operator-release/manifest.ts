@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { RELEASE_MANIFEST_PATH } from "./inventory.ts";
 
 /** What the running Operator release says about itself, wherever it was retrieved from. */
@@ -53,6 +54,8 @@ export async function readLockData(root = packageRoot): Promise<LockData> {
   return { name: null, state: "missing", identity: null, path: null };
 }
 
+const record = z.record(z.string(), z.unknown());
+
 async function readJson(path: string): Promise<Record<string, unknown> | null> {
   const file = Bun.file(path);
   if (!(await file.exists())) {
@@ -60,10 +63,8 @@ async function readJson(path: string): Promise<Record<string, unknown> | null> {
   }
 
   try {
-    const parsed: unknown = await file.json();
-    return parsed !== null && typeof parsed === "object"
-      ? (parsed as Record<string, unknown>)
-      : null;
+    const parsed = record.safeParse(await file.json());
+    return parsed.success ? parsed.data : null;
   } catch {
     return null;
   }
@@ -71,6 +72,12 @@ async function readJson(path: string): Promise<Record<string, unknown> | null> {
 
 function text(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+/** The runtime range a package manifest declares, read without trusting its shape. */
+function packagedBunRange(packaged: Record<string, unknown> | null): string | null {
+  const engines = z.object({ bun: z.string() }).safeParse(packaged?.engines);
+  return engines.success ? text(engines.data.bun) : null;
 }
 
 /**
@@ -81,16 +88,10 @@ function text(value: unknown): string | null {
 export async function readReleaseManifest(root = packageRoot): Promise<ReleaseManifest> {
   const recorded = await readJson(`${root}/${RELEASE_MANIFEST_PATH}`);
   const packaged = await readJson(`${root}/package.json`);
-  const engines = packaged?.engines;
-  const packagedRange =
-    engines !== null && typeof engines === "object" && "bun" in engines
-      ? text((engines as Record<string, unknown>).bun)
-      : null;
-
   return {
     version: text(recorded?.version) ?? text(packaged?.version) ?? "0.0.0",
     commit: text(recorded?.commit),
-    supportedBun: text(recorded?.supportedBun) ?? packagedRange ?? "*",
+    supportedBun: text(recorded?.supportedBun) ?? packagedBunRange(packaged) ?? "*",
     builtAt: text(recorded?.builtAt),
     artifactIdentity: text(recorded?.artifactIdentity),
   };

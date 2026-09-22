@@ -6,16 +6,24 @@
  * Its state lives in `$RELEASE_GH_DIR/state.json` and the faults it injects in `faults.json`.
  */
 
+import { z } from "zod";
 import type { ReleaseFakeFault, ReleaseFakeState } from "./fake-publish-state.ts";
 
 const directory = process.env.RELEASE_GH_DIR ?? "";
 const statePath = `${directory}/state.json`;
 const faultsPath = `${directory}/faults.json`;
 
+const stateSchema = z.object({
+  compare: z.record(z.string(), z.string()),
+  checkRuns: z.record(z.string(), z.array(z.object({ name: z.string(), conclusion: z.string() }))),
+  tags: z.record(z.string(), z.string()),
+  releases: z.record(z.string(), z.string()),
+});
+
 async function readState(): Promise<ReleaseFakeState> {
   const file = Bun.file(statePath);
   return (await file.exists())
-    ? ((await file.json()) as ReleaseFakeState)
+    ? stateSchema.parse(await file.json())
     : { compare: {}, checkRuns: {}, tags: {}, releases: {} };
 }
 
@@ -105,9 +113,7 @@ if (releaseByTag?.[1] !== undefined) {
 
 if (/^repos\/[^/]+\/[^/]+\/git\/refs$/.test(endpoint)) {
   const fault = await takeFault("create_tag");
-  const body = await readInput(args);
-  const ref = String((body as { ref: string }).ref);
-  const sha = String((body as { sha: string }).sha);
+  const { ref, sha } = z.object({ ref: z.string(), sha: z.string() }).parse(await readInput(args));
   const tag = ref.replace("refs/tags/", "");
   if (fault === "server_error") {
     answer(500, { message: "the tag may or may not exist" });
@@ -126,7 +132,7 @@ if (/^repos\/[^/]+\/[^/]+\/git\/refs$/.test(endpoint)) {
 
 if (/^repos\/[^/]+\/[^/]+\/releases$/.test(endpoint)) {
   const fault = await takeFault("create_release");
-  const body = (await readInput(args)) as { tag_name: string };
+  const body = z.object({ tag_name: z.string() }).parse(await readInput(args));
   if (fault === "server_error") {
     answer(500, { message: "the release may or may not exist" });
     process.exit(0);

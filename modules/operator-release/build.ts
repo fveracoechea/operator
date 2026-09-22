@@ -1,6 +1,7 @@
 // Bun has no directory creation, removal, or path manipulation API.
 import { mkdir, rm } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
+import { z } from "zod";
 import { OperatorConfig } from "../operator-config/main.ts";
 import { identifyArtifact, RELEASE_MANIFEST_PATH, scanFiles } from "./inventory.ts";
 import { rewriteSpecifiers } from "./specifiers.ts";
@@ -14,22 +15,18 @@ function splitShebang(text: string): { shebang: string; body: string } {
 }
 const SKILLS_DIRECTORY = "skills";
 
-type SourceManifest = {
-  name: string;
-  version: string;
-  engines: { bun: string };
-  dependencies: Record<string, string>;
-};
+/** The fields of the source manifest a release carries forward into what it publishes. */
+const sourceManifestSchema = z.object({
+  name: z.string().min(1),
+  version: z.string().min(1),
+  engines: z.object({ bun: z.string().min(1) }),
+  dependencies: z.record(z.string(), z.string()),
+});
+
+type SourceManifest = z.infer<typeof sourceManifestSchema>;
 
 async function readSourceManifest(sourceRoot: string): Promise<SourceManifest> {
-  const parsed: unknown = await Bun.file(`${sourceRoot}/package.json`).json();
-  const manifest = parsed as SourceManifest;
-  return {
-    name: manifest.name,
-    version: manifest.version,
-    engines: { bun: manifest.engines.bun },
-    dependencies: manifest.dependencies,
-  };
+  return sourceManifestSchema.parse(await Bun.file(`${sourceRoot}/package.json`).json());
 }
 
 /**

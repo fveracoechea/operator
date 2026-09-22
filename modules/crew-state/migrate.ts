@@ -20,7 +20,7 @@ function described(steps: MigrationStep[]) {
 /** Reports what the recorded crew state would need before this release may read it. */
 export function planMigration(projectRoot: string): MigrationPlan {
   const activity = readActivity(projectRoot);
-  const base = { supported: STATE_VERSION, steps: [] as MigrationPlan["steps"] };
+  const base: Pick<MigrationPlan, "supported" | "steps"> = { supported: STATE_VERSION, steps: [] };
 
   if (activity.status === "missing") {
     return {
