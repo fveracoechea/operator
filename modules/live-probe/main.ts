@@ -1,5 +1,6 @@
 import { ContentIdentity } from "../content-identity/main.ts";
-import { type Host, LIFECYCLE_CHECKS, type Lifecycle, runLifecycle } from "./lifecycle.ts";
+import { type Host, LIFECYCLE_CHECKS, type Lifecycle } from "./agents.ts";
+import { runLifecycle } from "./lifecycle.ts";
 import { PROBE_DIRECTORY, removeScratch, scratchDirectories } from "./scratch.ts";
 import { failed, passed, passedAll, type Staged, skipRest } from "./stage.ts";
 import { type Fixture, TRACKER_CHECKS, runTrackerChecks } from "./tracker.ts";

@@ -13,9 +13,6 @@ import { makeScratch, type Scratch } from "./scratch.ts";
 import { failed, passed, passedAll, type Staged, skipped, skipRest } from "./stage.ts";
 import { proveTakeover } from "./takeover.ts";
 
-export type { Host, Lifecycle } from "./agents.ts";
-export { LIFECYCLE_CHECKS } from "./agents.ts";
-
 /** Commits the synthetic files one probe wrote, so its checkout is clean before removal. */
 async function commitProbeWork(scratch: Scratch): Promise<string | null> {
   try {

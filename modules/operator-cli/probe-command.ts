@@ -191,18 +191,19 @@ export async function runProbeApply(parsed: ParsedArguments): Promise<void> {
 
   const unproven = run.run.observations.filter((one) => one.state !== "passed");
   const failures = unproven.filter((one) => one.state === "failed");
+  // One decision names the outcome and the reason together, so the two cannot disagree.
+  const verdict =
+    unproven.length === 0
+      ? ({ outcome: "completed", reason: "probe_completed" } as const)
+      : failures.length > 0
+        ? ({ outcome: "failed", reason: "probe_run_failed" } as const)
+        : ({ outcome: "missing-condition", reason: "probe_incomplete" } as const);
 
   report({
     json: parsed.json,
     result: {
-      outcome:
-        unproven.length === 0 ? "completed" : failures.length > 0 ? "failed" : "missing-condition",
-      reason:
-        unproven.length === 0
-          ? "probe_completed"
-          : failures.length > 0
-            ? "probe_run_failed"
-            : "probe_incomplete",
+      outcome: verdict.outcome,
+      reason: verdict.reason,
       blockers: unproven.map((one) => ({
         reason:
           one.state === "failed" ? ("live_check_failed" as const) : ("live_check_skipped" as const),
