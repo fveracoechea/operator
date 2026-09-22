@@ -393,3 +393,25 @@ describe("a source path that is half delivered", () => {
     expect(calls.split("\n").filter((line) => line.includes("git/refs")).length).toBe(1);
   });
 });
+
+describe("a path the record already names as delivered", () => {
+  test("is left alone rather than sent again when the registry answer disagrees", async () => {
+    const fake = jsrFake();
+    const plan = await ReleasePublish.plan(request(fake));
+    const first = await ReleasePublish.publish(
+      request(fake, { approvedReleaseId: plan.releaseId }),
+    );
+    expect(first.status).toBe("published");
+
+    // A registry that answers as if it never received the version, and refuses a second send.
+    const forgetful = jsrFake({ createStatus: 400 });
+    const retry = await ReleasePublish.publish(
+      request(forgetful, { approvedReleaseId: plan.releaseId }),
+    );
+
+    expect(retry.status).toBe("published");
+    expect(forgetful.received).toEqual([]);
+    const delivered = await ReleasePublish.delivered({ journalPath });
+    expect(delivered.state === "read" && delivered.journal.paths.jsr?.state).toBe("published");
+  });
+});
