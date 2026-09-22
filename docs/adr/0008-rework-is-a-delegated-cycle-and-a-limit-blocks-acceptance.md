@@ -21,6 +21,7 @@ One cycle produces one combined revision.
 Every accepted correction, every conflict, and every revision to combine is answered in that one submission, because a review reads one fixed result and a half-corrected one would be reviewed as if it were the whole answer.
 A conflict is delegated with no recorded resolution of its own.
 The Operator names what pulls against what, and the Operative settles it and submits that decision as part of the result.
+A conflict names only work the cycle carries, read across every round of the assignment, so a finding the cycle does not correct cannot be named as work it settles.
 Nothing between the two revisions is acceptable, because acceptance names the latest submission and the review that read it.
 
 The combined revision registers its own review assignment, so a separate reviewer takes it.
@@ -43,7 +44,8 @@ A reached limit records a direction request against the assignment.
 The request blocks acceptance, states the limit and what was already tried, and keeps every attempt, submission, review, and finding that led to it.
 It is passed only by an approval that names this assignment, the scope of that limit, and the revision of the request it answers.
 The cycle that approval permits records it, and the brief of that cycle states it, so work past a limit is visible to the Operative that runs it.
-An open request keeps taking the evidence of every further attempt that reached the same limit, and its revision stays where it is, because an approval is bound to that revision.
+A request keeps taking the evidence of every further attempt that reached the same limit, whatever state it is in, because those failures all happened.
+An open request keeps its revision, because an approval is bound to that revision.
 A limit reached again after a direction was spent opens the request at the next revision, so the approval that answered the earlier one covers nothing.
 
 `operator work invalidate` records a defect found after acceptance.
@@ -52,7 +54,8 @@ The assignment moves to invalidated and returns to the frontier, because the fix
 Its acceptance, submission, review, findings, and attempts stay exactly as they were recorded, because that history is what names the dependents that read the invalid result.
 Only work that consumed the result is paused.
 A dependent that never started has read nothing, and the dependency gate already holds it.
-A paused dependent returns to the state it was paused from once the corrected result is accepted, and one that was accepted returns to the step that decided it, so that acceptance is taken again against the corrected input.
+The pause is this workflow's own mark, so what a dependent was doing before any pause is what says whether it read anything, and a dependent of two invalid results is recorded against both.
+A paused dependent returns to the state it was paused from once every defect it read is corrected, and one that was accepted returns to the step that decided it, so that acceptance is taken again against the corrected input.
 
 ## Considered options
 
@@ -68,8 +71,8 @@ Each partial result would need its own review, and a review of half an answer ca
 Reviewing every intermediate revision was rejected.
 Each review costs a Herdr slot and a full two-axis reading, and the only revision that can be accepted is the combined one.
 
-Deleting the failed attempts when a limit is reached was rejected.
-The evidence of what failed is the only thing that makes the user's direction an informed one.
+Deleting the failed attempts when a limit is reached was rejected, and so was replacing the evidence of the earlier ones.
+The record of what failed is the only thing that makes the user's direction an informed one, and a second failure does not undo the first.
 
 A flag that raises a limit was rejected.
 A limit any caller can raise is not a limit, so the user's own words are recorded as an approval bound to the revision of the request it answers.

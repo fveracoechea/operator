@@ -337,6 +337,7 @@ An `integration` cycle names the revisions it combines, and names a review only 
 A review that already reported is answered either way.
 A `diagnostic` cycle names the recorded checks a test infrastructure failure is suspected behind, and at least one of them must not have passed.
 Each cycle states the Operator instruction and the conflicts the Operative must settle, and it records no resolution of its own.
+A conflict names only work the cycle carries, so a finding of any round that no correction in this cycle answers is refused.
 
 The cycle returns the assignment to the frontier.
 Claim it again, dispatch it from the submitted commit, and the brief carries the fixed submission, every accepted correction with its evidence, the conflicts, the revisions to combine, fixed copies of the artifacts, and the original acceptance requirements.
@@ -352,7 +353,7 @@ operator approval grant --request <id> --owner-token <token> --input direction.j
 ```
 
 The direction is an approval with action `limit-direction`, the assignment as its target, scope `limit:<kind>`, and the revision of the direction request as its request revision.
-An open request keeps taking the evidence of every further attempt that reached the same limit.
+The request keeps the evidence of every further attempt that reached the same limit.
 Once a direction is spent, reaching that limit again opens the request at the next revision, so the earlier approval covers nothing.
 
 ```sh
@@ -363,7 +364,7 @@ A defect found after acceptance keeps the acceptance, the submission, the review
 Review work is refused, because a review holds no result of its own.
 The assignment returns to the frontier as `invalidated`, and only the dependents that consumed the result are paused.
 A dependent that never started stays held by the dependency gate.
-Accepting the corrected result releases the paused dependents, and one that was accepted returns to the step that decided it.
+Accepting the corrected result releases the dependents no other defect still holds, and one that was accepted returns to the step that decided it.
 See [ADR 0008](docs/adr/0008-rework-is-a-delegated-cycle-and-a-limit-blocks-acceptance.md).
 
 
