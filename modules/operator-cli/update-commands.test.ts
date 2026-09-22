@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { ProjectReadiness } from "../project-readiness/main.ts";
 import { ownCrew, requestId, runJson, type Workspace, workspaces } from "./workspace-fixture.ts";
 
 const fixtures = workspaces();
@@ -156,6 +157,23 @@ describe("operator update apply", () => {
     expect(manifest.dependencies["@fveracoechea/operator"]).toBe(
       "npm:@jsr/fveracoechea__operator@1.2.3",
     );
+  });
+
+  test("puts the exact release and dependency identities into what a launch fixes", async () => {
+    await apply(["--delivery", "jsr", "--package-version", "1.2.3"]);
+
+    const snapshot = await ProjectReadiness.snapshot({
+      projectRoot: workspace.repo,
+      overrides: {},
+    });
+
+    expect(snapshot.installation).toEqual({
+      delivery: "jsr",
+      commit,
+      packageVersion: "1.2.3",
+    });
+    expect(snapshot.lock.state).toBe("present");
+    expect(snapshot.release.identity).toMatch(/^[0-9a-f]{64}$/);
   });
 
   test("names the launcher that keeps the project working directory", async () => {
