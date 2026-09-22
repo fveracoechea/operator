@@ -3,7 +3,12 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { OperatorRelease } from "../operator-release/main.ts";
 import { ReleasePublish } from "../release-publish/main.ts";
-import { registryManifest, type RegistryFake, startRegistryFake } from "./fake-registry.ts";
+import {
+  registryDependencies,
+  registryManifest,
+  type RegistryFake,
+  startRegistryFake,
+} from "./fake-registry.ts";
 import { ReleaseInstall } from "./main.ts";
 
 /**
@@ -156,21 +161,19 @@ describe("the JSR delivery path", () => {
     // The registry generates its own manifest, which carries no command, script, or engine field.
     const registryRoot = `${root}/registry-artifact`;
     await Bun.$`cp -R ${artifactRoot} ${registryRoot}`.quiet();
-    const artifactManifest = await Bun.file(`${artifactRoot}/package.json`).json();
+    // The registry derives the dependencies from `jsr.json`, so this path proves the release
+    // declares them where a published copy is actually read from.
+    const dependencies = registryDependencies(await Bun.file(`${artifactRoot}/jsr.json`).json());
     await Bun.write(
       `${registryRoot}/package.json`,
-      registryManifest({
-        packageName: "@jsr/fveracoechea__operator",
-        version,
-        dependencies: artifactManifest.dependencies,
-      }),
+      registryManifest({ packageName: "@jsr/fveracoechea__operator", version, dependencies }),
     );
     const packed = await ReleasePublish.pack({ artifactRoot: registryRoot, prefix: "package" });
     const registry = startRegistryFake({
       packageName: "@jsr/fveracoechea__operator",
       version,
       tarball: packed.bytes,
-      dependencies: artifactManifest.dependencies,
+      dependencies,
     });
     fakes.push(registry);
 

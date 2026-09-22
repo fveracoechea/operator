@@ -100,6 +100,32 @@ describe("the release artifact", () => {
     expect(manifest.private).toBeUndefined();
   });
 
+  test("declares in the registry config every package the shipped code reaches", async () => {
+    // The registry reads `jsr.json`, never the package manifest beside it. A dependency that is
+    // named only there would be missing from a published copy, and the launcher would not resolve.
+    const { artifactRoot } = await buildArtifact();
+    const transpiler = new Bun.Transpiler({ loader: "js" });
+    const reached = new Set<string>();
+
+    for await (const path of new Bun.Glob("**/*.js").scan({ cwd: artifactRoot })) {
+      const text = await Bun.file(`${artifactRoot}/${path}`).text();
+      const body = text.startsWith("#!") ? text.slice(text.indexOf("\n") + 1) : text;
+      for (const found of transpiler.scanImports(body)) {
+        if (!found.path.startsWith(".") && !/^(node|bun):/.test(found.path)) {
+          reached.add(found.path.split("/").slice(0, found.path.startsWith("@") ? 2 : 1).join("/"));
+        }
+      }
+    }
+
+    const config = await Bun.file(`${artifactRoot}/jsr.json`).json();
+    expect(reached.size).toBeGreaterThan(0);
+    expect([...reached].toSorted()).toEqual(Object.keys(config.imports ?? {}).toSorted());
+    for (const [name, specifier] of Object.entries(config.imports ?? {})) {
+      // The version is exact, so a reinstall never resolves a replacement the registry chose.
+      expect(specifier, name).toMatch(/^npm:[^@]*@?[^@]*@\d+\.\d+\.\d+$/);
+    }
+  });
+
   test("records the exact commit and version the artifact was built from", async () => {
     const { artifactRoot, result } = await buildArtifact();
 

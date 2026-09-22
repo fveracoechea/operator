@@ -23,6 +23,23 @@ function integrity(bytes: Uint8Array): string {
   return `sha512-${hasher.digest("base64")}`;
 }
 
+/**
+ * The npm dependencies the registry derives from the release configuration.
+ * JSR reads `jsr.json`, never the package manifest beside it, so the fake reads the same file
+ * the real registry does and a dependency named only in the manifest stays missing here too.
+ */
+export function registryDependencies(config: { imports?: Record<string, string> }): Record<
+  string,
+  string
+> {
+  return Object.fromEntries(
+    Object.entries(config.imports ?? {}).map(([name, specifier]) => [
+      name,
+      specifier.replace(/^npm:.*@/, ""),
+    ]),
+  );
+}
+
 /** The manifest the registry generates, which carries no command, script, or engine field. */
 export function registryManifest(request: {
   packageName: string;

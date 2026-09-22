@@ -138,9 +138,24 @@ function packageManifest(source: SourceManifest): string {
   )}\n`;
 }
 
+/**
+ * The configuration the registry reads.
+ * The registry generates the published package manifest from this file, so every package the
+ * shipped code reaches is named here at its exact version. A dependency named only in the
+ * package manifest beside it would be absent from a published copy.
+ */
 function jsrManifest(source: SourceManifest): string {
+  const imports = Object.fromEntries(
+    Object.entries(source.dependencies).map(([name, version]) => [name, `npm:${name}@${version}`]),
+  );
+
   return `${JSON.stringify(
-    { name: source.name, version: source.version, exports: { "./cli": "./cli.js" } },
+    {
+      name: source.name,
+      version: source.version,
+      exports: { "./cli": "./cli.js" },
+      imports,
+    },
     null,
     2,
   )}\n`;
