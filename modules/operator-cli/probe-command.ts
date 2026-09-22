@@ -163,10 +163,11 @@ export async function runProbeApply(parsed: ParsedArguments): Promise<void> {
     return;
   }
 
+  // The approval matched the plan, so the record names both and a reader can see the binding.
   const run = await LiveProbe.run({
     projectRoot: process.cwd(),
     probeId: result.plan.probeId,
-    approvedProbeId: result.plan.probeId,
+    approvedProbeId: parsed.approvedProbe ?? result.plan.probeId,
     planRevision: result.plan.planRevision,
     targets: result.report.targets,
     operator: {
