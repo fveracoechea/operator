@@ -257,6 +257,21 @@ export function settleWriteAttempt(
   }
 }
 
+/** Names the server resource one operation is now known to hold. */
+export function recordResource(
+  db: CrewWriter,
+  request: { operationId: string; resourceId: string; resourceUrl: string; now: string },
+): void {
+  db.update(trackerOperations)
+    .set({
+      resourceId: request.resourceId,
+      resourceUrl: request.resourceUrl,
+      updatedAt: request.now,
+    })
+    .where(eq(trackerOperations.id, request.operationId))
+    .run();
+}
+
 export function recordObservation(
   db: CrewWriter,
   request: {

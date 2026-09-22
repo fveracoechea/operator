@@ -137,8 +137,14 @@ describe("operator tracker record", () => {
     expect(scanned.observation.exactMatches).toHaveLength(1);
     // The lost answer stays in the history even though the observed comment satisfies the step.
     expect(recorded.json.data.writeAttempts[0].state).toBe("uncertain");
-    expect(recorded.json.data.resourceId).toBeNull();
+    // The scan named the comment, so every later recovery reads that resource instead of
+    // scanning for it again.
+    expect(recorded.json.data.resourceId).toBe("1");
+    expect(recorded.json.data.resourceUrl).toContain("#issuecomment-1");
     expect(await commentsOn(workspace, TICKET)).toHaveLength(1);
+
+    const recovered = await recoverStep(workspace, recorded.json.data.operationId);
+    expect(recovered.json.data.observations.at(-1).observation.lookup).toBe("known-id");
   });
 
   test("keeps a lost write uncertain when a complete scan finds nothing", async () => {
@@ -333,6 +339,18 @@ describe("operator tracker record", () => {
     expect(partial.complete).toBe(false);
     expect(partial.pages).toBe(1);
     expect(recovered.json.reason).toBe("tracker.resolution_outcome_unknown");
+  });
+
+  test("reports a missing gh as a capability this machine lacks", async () => {
+    const workspace = await makeWorkspace();
+    // Nothing was requested, so this is not a tracker that refused the write.
+    await Bun.$`rm ${workspace.bin}/gh`.quiet();
+
+    const recorded = await recordStep(workspace, { input: resolutionBody() });
+
+    expect(recorded.exitCode).toBe(3);
+    expect(recorded.json.reason).toBe("tracker.capability_unavailable");
+    expect(await commentsOn(workspace, TICKET)).toHaveLength(0);
   });
 
   test("reports a refused write as a definite failure", async () => {

@@ -11,6 +11,7 @@ import {
   readBinding,
   readTrackerOperation,
   recordObservation,
+  recordResource,
   sentWrites,
   settleTrackerOperation,
   settleWriteAttempt,
@@ -299,6 +300,35 @@ function readContext(
 }
 
 /**
+ * The write one recorded step intends, taken from the row that planned it.
+ * A comment step holds its content and a completion step holds its reason. A row that holds
+ * neither is damaged, and it fails loudly rather than writing an empty comment.
+ */
+function writeRequestFor(request: {
+  operation: TrackerOperationRow;
+  target: TrackerTarget;
+}): Parameters<typeof TrackerUpdate.write>[0] {
+  const { operation } = request;
+  const step = storedStep(operation.step);
+  if (step === "completion") {
+    if (operation.closeReason === null) {
+      throw new Error(`tracker operation ${operation.id} completes a ticket with no reason`);
+    }
+    return {
+      provider: operation.provider,
+      target: request.target,
+      step,
+      closeReason: operation.closeReason,
+    };
+  }
+
+  if (operation.content === null) {
+    throw new Error(`tracker operation ${operation.id} writes a comment with no content`);
+  }
+  return { provider: operation.provider, target: request.target, step, content: operation.content };
+}
+
+/**
  * Reads what the tracker shows now, judges the step against it, and records both.
  * An observation is a read, so it needs no approval and is the only way an uncertain write is
  * ever settled.
@@ -310,6 +340,7 @@ async function settleFromObservation(request: {
   operation: TrackerOperationRow;
   target: TrackerTarget;
   attempts: TrackerWriteRow[];
+  extra?: TrackerProblem[];
 }): Promise<{ status: "settled"; verdict: Verdict; observation: Observation } | Shared> {
   const { operation } = request;
   const observation = await TrackerUpdate.observe({
@@ -327,9 +358,16 @@ async function settleFromObservation(request: {
   const verdict = TrackerUpdate.judge({
     step: storedStep(operation.step),
     observation,
+    // Only a completion judges against a reason, and its row always holds one.
     intendedReason: operation.closeReason ?? "",
     writes: sentWrites(request.attempts).map((one) => storedWriteState(one.state)),
+    extra: request.extra,
   });
+
+  // A reading that found the intended comment names it, so a later recovery reads that resource
+  // instead of scanning for it again. A lost answer therefore costs one scan, not every scan.
+  const matched = observation.kind === "comment" ? observation.exactMatches : [];
+  const found = operation.resourceId === null && matched.length === 1 ? (matched[0] ?? null) : null;
 
   // Each reading carries its own identity, so a replayed command records a new observation
   // instead of failing as the same request identity holding different input.
@@ -350,6 +388,14 @@ async function settleFromObservation(request: {
         observation,
         now,
       });
+      if (found !== null) {
+        recordResource(tx, {
+          operationId: operation.id,
+          resourceId: found.commentId,
+          resourceUrl: found.url,
+          now,
+        });
+      }
       settleTrackerOperation(tx, {
         operationId: operation.id,
         state: verdict.state,
@@ -653,13 +699,7 @@ export async function recordTrackerStep(request: {
     return openedWrite;
   }
 
-  const sent = await TrackerUpdate.write({
-    provider: planned.provider,
-    step: storedStep(planned.step),
-    target,
-    content: planned.content,
-    closeReason: planned.closeReason,
-  });
+  const sent = await TrackerUpdate.write(writeRequestFor({ operation: planned, target }));
 
   const settledWrite = await record(
     {
@@ -673,7 +713,8 @@ export async function recordTrackerStep(request: {
       settleWriteAttempt(tx, {
         attemptId: writeAttemptId,
         operationId: planned.id,
-        state: sent.status,
+        // A tool this machine does not have requested nothing, so nothing applied.
+        state: sent.status === "unavailable" ? "failed" : sent.status,
         response: sent,
         resourceId: sent.status === "succeeded" ? sent.resourceId : null,
         resourceUrl: sent.status === "succeeded" ? sent.resourceUrl : null,
@@ -704,6 +745,11 @@ export async function recordTrackerStep(request: {
     operation: after.operation,
     target,
     attempts: after.attempts,
+    // A capability this machine lacks outranks the refusal its absence produced.
+    extra:
+      sent.status === "unavailable"
+        ? [{ reason: "tracker.capability_unavailable" as const, detail: sent.detail }]
+        : [],
   });
   if (settled.status !== "settled") {
     return settled;

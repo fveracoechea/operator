@@ -143,6 +143,9 @@ export const TrackerUpdate = {
     // The account this machine writes as is recorded for every step, so a later reading compares
     // the observed author or closer against it rather than against a name the caller supplied.
     const viewer = await GithubTracker.viewer();
+    if (viewer.status === "failed" && viewer.code === "github_unavailable") {
+      return { status: "capability-unavailable", capability: "tracker_cli", detail: viewer.detail };
+    }
     if (viewer.status !== "succeeded") {
       return {
         status: "actor-unknown",
@@ -174,15 +177,16 @@ export const TrackerUpdate = {
    * Performs the one external effect of this step.
    * A refused request is a definite failure because the provider answered. A lost answer stays
    * uncertain: the effect may have applied, so it is settled by reading, never by writing again.
+   * A tool this machine does not have requested nothing, so it is an absent capability.
    */
-  async write(request: {
-    provider: string;
-    step: TrackerStep;
-    target: TrackerTarget;
-    content: string | null;
-    closeReason: string | null;
-  }): Promise<
+  async write(
+    request: { provider: string; target: TrackerTarget } & (
+      | { step: "completion"; closeReason: string }
+      | { step: "resolution" | "map_amendment"; content: string }
+    ),
+  ): Promise<
     | { status: "succeeded"; resourceId: string; resourceUrl: string; response: unknown }
+    | { status: "unavailable"; capability: string; detail: string }
     | { status: "failed"; code: string; detail: string }
     | { status: "uncertain"; detail: string }
   > {
@@ -190,8 +194,11 @@ export const TrackerUpdate = {
       const outcome = await GithubTracker.closeIssue({
         repository: request.target.repository,
         issue: request.target.issue,
-        reason: request.closeReason ?? "completed",
+        reason: request.closeReason,
       });
+      if (outcome.status === "failed" && outcome.code === "github_unavailable") {
+        return { status: "unavailable", capability: "tracker_cli", detail: outcome.detail };
+      }
       return outcome.status === "succeeded"
         ? {
             status: "succeeded",
@@ -205,8 +212,11 @@ export const TrackerUpdate = {
     const outcome = await GithubTracker.createComment({
       repository: request.target.repository,
       issue: request.target.issue,
-      body: request.content ?? "",
+      body: request.content,
     });
+    if (outcome.status === "failed" && outcome.code === "github_unavailable") {
+      return { status: "unavailable", capability: "tracker_cli", detail: outcome.detail };
+    }
     return outcome.status === "succeeded"
       ? {
           status: "succeeded",

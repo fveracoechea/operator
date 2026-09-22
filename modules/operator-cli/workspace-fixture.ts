@@ -76,6 +76,22 @@ export async function headCommit(workspace: Workspace, cwd = workspace.repo): Pr
   return (await Bun.$`git -C ${cwd} rev-parse HEAD`.quiet()).stdout.toString().trim();
 }
 
+/**
+ * The PATH a fixture command runs with.
+ * The fakes come first, and every directory holding a real `gh` or `herdr` is dropped, so no
+ * test can reach the real tool. A test that deletes a fake to prove the tool is absent then
+ * proves exactly that, instead of falling through to the one installed on this machine.
+ */
+function fixturePath(bin: string): string {
+  const inherited = (process.env.PATH ?? "").split(":").filter((one) => one.length > 0);
+  const kept = inherited.filter(
+    (directory) =>
+      Bun.which("gh", { PATH: directory }) === null &&
+      Bun.which("herdr", { PATH: directory }) === null,
+  );
+  return [bin, ...kept].join(":");
+}
+
 export async function runOperator(workspace: Workspace, args: string[], cwd = workspace.repo) {
   const child = Bun.spawn(["bun", cliPath, ...args], {
     cwd,
@@ -83,7 +99,7 @@ export async function runOperator(workspace: Workspace, args: string[], cwd = wo
     stdout: "pipe",
     env: {
       ...process.env,
-      PATH: `${workspace.bin}:${process.env.PATH ?? ""}`,
+      PATH: fixturePath(workspace.bin),
       HERDR_FAKE_DIR: workspace.herdr,
       GH_FAKE_DIR: workspace.github,
     },
