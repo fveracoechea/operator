@@ -183,15 +183,50 @@ describe("operator cleanup close", () => {
 
   test("closes a reviewer whose axes ran as sub-agents of its own host", async () => {
     const workspace = await makeWorkspace();
-    const { reviewer } = await acceptedCycle(workspace);
+    const { producer, reviewer } = await acceptedCycle(workspace);
 
     // A review holds one agent and one checkout; its two axes hold neither.
-    const calls = await herdrCalls(workspace);
-    expect(calls.filter((line) => line.startsWith("agent start "))).toHaveLength(2);
-    expect(calls.filter((line) => line.startsWith("worktree create"))).toHaveLength(2);
+    const launched = await herdrCalls(workspace);
+    expect(launched.filter((line) => line.startsWith("agent start "))).toHaveLength(2);
+    expect(launched.filter((line) => line.startsWith("worktree create"))).toHaveLength(2);
 
-    const owned = await runJson(workspace, ["cleanup", "show", "--attempt", reviewer.attemptId]);
-    expect(owned.json.data.cleanups).toEqual([]);
+    const closed = await close(workspace, producer.ownerToken, reviewer.attemptId);
+
+    expect(closed.exitCode).toBe(0);
+    expect(closed.json.reason).toBe("process_closed");
+    // A review submits no result of its own, so its evidence is what the launch wrote.
+    expect(closed.json.data.evidence.map((one: { name: string }) => one.name)).toEqual([
+      "brief",
+      "control-reference",
+      "release",
+    ]);
+    // One stop for one agent. The axes had nothing of their own to stop.
+    expect(
+      (await herdrCalls(workspace)).filter((line) => line.startsWith("agent send-keys")),
+    ).toHaveLength(1);
+
+    const producerCleanups = await runJson(workspace, [
+      "cleanup",
+      "show",
+      "--attempt",
+      producer.attemptId,
+    ]);
+    expect(producerCleanups.json.data.cleanups).toEqual([]);
+  });
+
+  test("retains the process when the checkout lost the evidence it must preserve", async () => {
+    const workspace = await makeWorkspace();
+    const { producer } = await acceptedCycle(workspace);
+    await rm(`${producer.worktreePath}/.operator/local/brief.md`);
+
+    const blocked = await close(workspace, producer.ownerToken, producer.attemptId);
+
+    expect(blocked.exitCode).toBe(3);
+    expect(reasons(blocked)).toEqual(["evidence_missing"]);
+    expect(blocked.json.blockers[0].name).toBe("brief");
+    expect((await herdrCalls(workspace)).some((line) => line.startsWith("agent send-keys"))).toBe(
+      false,
+    );
   });
 
   test("refuses to close an Operative that handed nothing over and still waits on an answer", async () => {
@@ -345,9 +380,24 @@ describe("operator cleanup remove", () => {
     const branches = await Bun.$`git -C ${workspace.repo} branch --list`.quiet();
     expect(branches.stdout.toString()).toContain("operator/");
 
-    const call = (await herdrCalls(workspace)).find((line) => line.startsWith("worktree remove"));
-    expect(call).toBe("worktree remove --workspace w1 ");
-    expect(call).not.toContain("--force");
+    // The two effects are the supported host stop and an unforced worktree removal.
+    const calls = await herdrCalls(workspace);
+    expect(calls.filter((line) => line.startsWith("worktree remove"))).toEqual([
+      "worktree remove --workspace w1 ",
+    ]);
+    expect(calls.some((line) => line.includes("--force"))).toBe(false);
+    expect(calls.some((line) => line.startsWith("workspace close"))).toBe(false);
+    expect(calls.some((line) => line.startsWith("pane close"))).toBe(false);
+
+    // The evidence store holds the named inventory and nothing else, so no credential and no
+    // lock data is archived beside it.
+    const stored = await Array.fromAsync(
+      new Bun.Glob("**/*").scan({
+        cwd: `${workspace.repo}/.operator/local/evidence/${producer.attemptId}`,
+        onlyFiles: true,
+      }),
+    );
+    expect(stored.toSorted()).toEqual(["brief", "control-reference", "release"]);
   });
 
   test("refuses a removal while the process closure is not recorded as done", async () => {
