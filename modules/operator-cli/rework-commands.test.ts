@@ -454,3 +454,128 @@ describe("rework limits", () => {
     expect(passing.json.reason).toBe("unknown_check");
   }, 60_000);
 });
+
+describe("conflicts and combined revisions", () => {
+  test("a conflict is delegated and only the combined revision is reviewed", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const specBlocker = {
+      key: "scope-narrower",
+      severity: "blocker",
+      summary: "The spec asks for the narrower behaviour.",
+      evidence: "github:operator#15",
+    };
+    const first = await reviewedResult(workspace, { spec: [specBlocker] });
+    const { producer, submitted, reviewer } = first;
+    const gate = findingId(first.reported, "missing-gate");
+    const scope = findingId(first.reported, "scope-narrower");
+
+    // A conflict names work this cycle carries, so a rejected finding cannot appear in one.
+    await disposeFindings(workspace, producer, submitted.json.data.reviewId, [
+      {
+        findingId: gate,
+        disposition: "rejected",
+        reason: "The gate is named in the commit message.",
+        evidence: "git log -1 shows the gate.",
+      },
+      {
+        findingId: scope,
+        disposition: "corrected",
+        reason: "The spec is the approved source.",
+      },
+    ]);
+    const strayConflict = await delegateRework(workspace, producer, {
+      revision: submitted.json.data.revision,
+      body: {
+        reason: "integration",
+        reviewId: submitted.json.data.reviewId,
+        instruction: "Combine the narrower behaviour with the accepted helper.",
+        conflicts: [{ summary: "The two axes disagree.", between: [gate, scope] }],
+        combines: [{ name: "accepted helper", revision: "rev-helper-1" }],
+      },
+    });
+    expect(strayConflict.exitCode).toBe(2);
+    expect(strayConflict.json.reason).toBe("conflict_not_corrected");
+    expect(strayConflict.json.blockers[0]).toMatchObject({ findingId: gate });
+
+    await acceptReview(workspace, producer, {
+      reviewAssignmentId: submitted.json.data.reviewAssignmentId,
+      attemptId: reviewer.attemptId,
+      revision: reviewer.revision,
+    });
+
+    const delegated = await delegateRework(workspace, producer, {
+      revision: submitted.json.data.revision,
+      body: {
+        reason: "integration",
+        reviewId: submitted.json.data.reviewId,
+        instruction: "Combine the narrower behaviour with the accepted helper.",
+        conflicts: [
+          {
+            summary: "The narrower behaviour and the accepted helper disagree on the default.",
+            between: [scope, "accepted helper"],
+          },
+        ],
+        combines: [{ name: "accepted helper", revision: "rev-helper-1" }],
+      },
+    });
+    expect(delegated.exitCode).toBe(0);
+    expect(delegated.json.data.conflicts).toBe(1);
+
+    const reworked = await startRework(workspace, producer, {
+      revision: delegated.json.data.revision,
+      commit: first.artifact.commit,
+      worktreePath: `${workspace.root}/integration`,
+    });
+    const brief = await Bun.file(`${reworked.worktreePath}/.operator/local/brief.md`).text();
+    expect(brief).toContain("### Conflicts to settle");
+    expect(brief).toContain("disagree on the default");
+    expect(brief).toContain("- accepted helper: rev-helper-1");
+    expect(brief).toContain("Settle every conflict above yourself.");
+    expect(brief).toContain("combined revision, then submit that one revision.");
+
+    // The intermediate revision is not acceptable: the review that counts reads the combined one.
+    const intermediate = await acceptProduction(workspace, reworked, {
+      submissionId: submitted.json.data.submissionId,
+      revision: reworked.assignmentRevision,
+      prHead: first.artifact.commit,
+    });
+    expect(intermediate.json.reason).toBe("assignment_not_claimed");
+
+    const second = await submitRevision(
+      workspace,
+      reworked,
+      first.base,
+      "# Result\n\nThe narrower behaviour, combined with the helper.\n",
+    );
+    const secondReviewer = await startReviewer(
+      workspace,
+      producer,
+      second.submitted.json,
+      second.artifact.commit,
+    );
+    const secondBrief = await Bun.file(
+      `${secondReviewer.worktreePath}/.operator/local/brief.md`,
+    ).text();
+    // The reviewer of the combined revision reads what the earlier round settled.
+    expect(secondBrief).toContain("Conflict settled by the Operative");
+    expect(secondBrief).toContain(`${gate} (standards, blocker) rejected`);
+
+    await reportReview(
+      workspace,
+      secondReviewer,
+      second.submitted.json.data.reviewId,
+      reportBody({
+        submissionIdentity: second.submitted.json.data.identity,
+        host: workspace.host,
+      }),
+    );
+
+    const accepted = await acceptProduction(workspace, reworked, {
+      submissionId: second.submitted.json.data.submissionId,
+      revision: second.submitted.json.data.revision,
+      prHead: second.artifact.commit,
+    });
+    expect(accepted.exitCode).toBe(0);
+    expect(accepted.json.reason).toBe("assignment_accepted");
+  }, 60_000);
+});
