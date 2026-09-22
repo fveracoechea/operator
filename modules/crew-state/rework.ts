@@ -16,12 +16,19 @@ export const DIAGNOSTIC_RERUN_LIMIT = 2;
 /** The limit one reason is counted against. Correction work shares a single budget. */
 export type LimitKind = "rework_cycles" | "diagnostic_reruns" | "review_attempts";
 
-export function limitKindOf(reason: string): LimitKind {
-  return reason === "diagnostic" ? "diagnostic_reruns" : "rework_cycles";
-}
+export type Budget = { kind: LimitKind; limit: number };
 
-export function limitOf(reason: string): number {
-  return reason === "diagnostic" ? DIAGNOSTIC_RERUN_LIMIT : REWORK_CYCLE_LIMIT;
+const CORRECTION: Budget = { kind: "rework_cycles", limit: REWORK_CYCLE_LIMIT };
+
+/**
+ * The budget one reason spends.
+ * A findings cycle and an integration cycle both change the result, so they share one budget.
+ * A diagnostic rerun changes nothing and carries its own.
+ */
+export function budgetOf(reason: string): Budget {
+  return reason === "diagnostic"
+    ? { kind: "diagnostic_reruns", limit: DIAGNOSTIC_RERUN_LIMIT }
+    : CORRECTION;
 }
 
 export function cyclesOf(db: CrewReader, assignmentId: string): ReworkCycleRow[] {
@@ -38,10 +45,10 @@ export function openCycleOf(db: CrewReader, assignmentId: string): ReworkCycleRo
   return cyclesOf(db, assignmentId).find((one) => one.state === "open") ?? null;
 }
 
-/** How many cycles already used the budget one reason is counted against. */
+/** How many cycles already spent the budget one reason is counted against. */
 export function cyclesUsed(cycles: ReworkCycleRow[], reason: string): number {
-  const kind = limitKindOf(reason);
-  return cycles.filter((one) => limitKindOf(one.reason) === kind).length;
+  const { kind } = budgetOf(reason);
+  return cycles.filter((one) => budgetOf(one.reason).kind === kind).length;
 }
 
 export function insertCycle(

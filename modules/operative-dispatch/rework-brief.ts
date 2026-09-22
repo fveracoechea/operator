@@ -1,6 +1,10 @@
-// Bun has no path manipulation API.
-import { basename } from "node:path";
-import type { ReviewArtifact, ReviewPullRequest } from "./review-brief.ts";
+import {
+  copiedInputPath,
+  type FixedArtifact,
+  type FixedCheck,
+  type FixedCode,
+  pullRequestLine,
+} from "./fixed-result.ts";
 
 // These follow the rework contract in crew-state. A launch cannot import that module, because
 // crew-state is what calls this one, so the shapes are restated rather than widened.
@@ -19,6 +23,7 @@ export type ReworkBrief = {
   reason: "findings" | "integration" | "diagnostic";
   cycleIndex: number;
   limit: number;
+  approvalId: string | null;
   instruction: string;
   reviewId: string | null;
   submissionId: string;
@@ -27,30 +32,16 @@ export type ReworkBrief = {
   corrections: ReworkCorrection[];
   conflicts: Array<{ summary: string; between: string[] }>;
   combines: Array<{ name: string; revision: string }>;
-  checks: Array<{ name: string; command: string; outcome: string; detail: string }>;
-  code: {
-    baseCommit: string;
-    resultCommit: string;
-    mergeBase: string;
-    branch: string;
-    pullRequest: ReviewPullRequest;
-  } | null;
-  artifacts: ReviewArtifact[];
+  checks: FixedCheck[];
+  code: FixedCode | null;
+  artifacts: FixedArtifact[];
 };
 
 /** The directory a rework worktree receives its fixed copies of the submitted artifacts in. */
 export const REWORK_INPUT_DIR = ".operator/local/rework";
 
-export function reworkInputPath(artifact: ReviewArtifact): string | null {
-  return artifact.storedPath === null
-    ? null
-    : `${REWORK_INPUT_DIR}/${basename(artifact.storedPath)}`;
-}
-
-function pullRequestLine(pull: ReviewPullRequest): string {
-  return pull.status === "open"
-    ? `- Pull request: #${pull.number} at head ${pull.headCommit}`
-    : `- Pull request: not created (${pull.detail})`;
+export function reworkInputPath(artifact: FixedArtifact): string | null {
+  return copiedInputPath(REWORK_INPUT_DIR, artifact);
 }
 
 /**
@@ -65,6 +56,9 @@ export function reworkResultSection(rework: ReworkBrief): string[] {
     `- Rework cycle: ${rework.cycleId} (${rework.reason} cycle ${rework.cycleIndex} of ${rework.limit})`,
     `- Submission: ${rework.submissionId} (identity ${rework.submissionIdentity})`,
     `- Review: ${rework.reviewId ?? "none"}`,
+    ...(rework.approvalId === null
+      ? []
+      : [`- This cycle runs past the recorded limit under approval ${rework.approvalId}.`]),
     `- Result kind: ${rework.resultKind}`,
     ...(rework.code === null
       ? ["- Code revisions: none recorded"]

@@ -333,7 +333,8 @@ operator work rework --request <id> --owner-token <token> --assignment <id> --re
 
 The request names one reason.
 A `findings` cycle answers the accepted corrections of a reported review whose findings all carry a disposition.
-An `integration` cycle also names the revisions it combines.
+An `integration` cycle names the revisions it combines, and names a review only when it answers one.
+A review that already reported is answered either way.
 A `diagnostic` cycle names the recorded checks a test infrastructure failure is suspected behind, and at least one of them must not have passed.
 Each cycle states the Operator instruction and the conflicts the Operative must settle, and it records no resolution of its own.
 
@@ -351,13 +352,15 @@ operator approval grant --request <id> --owner-token <token> --input direction.j
 ```
 
 The direction is an approval with action `limit-direction`, the assignment as its target, scope `limit:<kind>`, and the revision of the direction request as its request revision.
-Reaching the same limit again moves that revision, so the earlier approval covers nothing.
+An open request keeps taking the evidence of every further attempt that reached the same limit.
+Once a direction is spent, reaching that limit again opens the request at the next revision, so the earlier approval covers nothing.
 
 ```sh
 operator work invalidate --request <id> --owner-token <token> --assignment <id> --revision <n> --input defect.json --json
 ```
 
 A defect found after acceptance keeps the acceptance, the submission, the review, and every finding.
+Review work is refused, because a review holds no result of its own.
 The assignment returns to the frontier as `invalidated`, and only the dependents that consumed the result are paused.
 A dependent that never started stays held by the dependency gate.
 Accepting the corrected result releases the paused dependents, and one that was accepted returns to the step that decided it.

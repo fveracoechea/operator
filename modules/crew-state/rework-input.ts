@@ -38,7 +38,9 @@ export const reworkInputSchema = z.discriminatedUnion("reason", [
   z.strictObject({
     ...stated,
     reason: z.literal("integration"),
-    reviewId: z.string().min(1),
+    // A revision can need combining before any review reported, so this names one only when
+    // the Operator is answering that review as well.
+    reviewId: z.string().min(1).optional(),
     combines: z.array(combined).min(1),
   }),
   z.strictObject({
@@ -75,6 +77,8 @@ export const reworkBriefSchema = z.strictObject({
   reason: z.enum(["findings", "integration", "diagnostic"]),
   cycleIndex: z.int().positive(),
   limit: z.int().positive(),
+  // The approval that let this cycle run past the limit, when the user directed one.
+  approvalId: z.string().nullable(),
   instruction: z.string(),
   reviewId: z.string().nullable(),
   submissionId: z.string(),

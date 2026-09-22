@@ -1,19 +1,10 @@
-// Bun has no path manipulation API.
-import { basename } from "node:path";
-
-// These follow the submission contract in crew-state. A launch cannot import that module,
-// because crew-state is what calls this one, so the union shapes are restated rather than widened.
-export type ReviewArtifact = {
-  name: string;
-  kind: "value" | "path";
-  value: string;
-  contentIdentity: string;
-  storedPath: string | null;
-};
-
-export type ReviewPullRequest =
-  | { status: "open"; number: number; headCommit: string }
-  | { status: "authority-missing"; detail: string };
+import {
+  copiedInputPath,
+  type FixedArtifact,
+  type FixedCheck,
+  type FixedCode,
+  pullRequestLine,
+} from "./fixed-result.ts";
 
 /**
  * One earlier round on the same assignment.
@@ -56,42 +47,23 @@ export type ReviewBrief = {
   sourceRevision: string;
   requirementsIdentity: string;
   reviewBase: string | null;
-  code: {
-    baseCommit: string;
-    resultCommit: string;
-    mergeBase: string;
-    branch: string;
-    pullRequest: ReviewPullRequest;
-  } | null;
-  checks: Array<{
-    name: string;
-    command: string;
-    outcome: "passed" | "failed" | "flaky" | "not-run";
-    detail: string;
-  }>;
+  code: FixedCode | null;
+  checks: FixedCheck[];
   concerns: string[];
   decisions: Array<{
     statement: string;
     authority: "requirement" | "human-answer" | "operator-decision";
     reason: string;
   }>;
-  artifacts: ReviewArtifact[];
+  artifacts: FixedArtifact[];
   priorRounds: PriorRound[];
 };
 
 /** The directory a review worktree receives its fixed copies of the submitted artifacts in. */
 export const REVIEW_INPUT_DIR = ".operator/local/review";
 
-export function reviewInputPath(artifact: ReviewArtifact): string | null {
-  return artifact.storedPath === null
-    ? null
-    : `${REVIEW_INPUT_DIR}/${basename(artifact.storedPath)}`;
-}
-
-function pullRequestLine(pull: ReviewPullRequest): string {
-  return pull.status === "open"
-    ? `- Pull request: #${pull.number} at head ${pull.headCommit}`
-    : `- Pull request: not created (${pull.detail})`;
+export function reviewInputPath(artifact: FixedArtifact): string | null {
+  return copiedInputPath(REVIEW_INPUT_DIR, artifact);
 }
 
 /** The fixed result the two axes read. Every line here is pinned at submission. */

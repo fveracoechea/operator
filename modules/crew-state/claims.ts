@@ -1,9 +1,8 @@
-import { eq } from "drizzle-orm";
 import type { Capacity } from "./capacity.ts";
 import type { CrewWriter } from "./database.ts";
-import { readAssignment } from "./assignment.ts";
+import { moveAssignment, readAssignment } from "./assignment.ts";
 import { activeAttempt, calculateFrontier, type FrontierBlocker } from "./frontier.ts";
-import { assignments, attempts } from "./schema.ts";
+import { attempts } from "./schema.ts";
 
 export type ClaimResult =
   | {
@@ -86,11 +85,7 @@ export function claimAssignment(
     })
     .run();
 
-  const revision = row.revision + 1;
-  db.update(assignments)
-    .set({ state: "claimed", revision, updatedAt: request.now })
-    .where(eq(assignments.id, row.id))
-    .run();
+  const revision = moveAssignment(db, { row, state: "claimed", now: request.now });
 
   return {
     status: "claimed",

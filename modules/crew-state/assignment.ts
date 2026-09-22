@@ -66,12 +66,24 @@ export function insertAssignment(
   return row;
 }
 
-/** Records accepted completion on one assignment row. The only writer of that transition. */
-export function markAccepted(db: CrewWriter, request: { row: AssignmentRow; now: string }): number {
+/**
+ * Moves one assignment to its next state and returns the revision that move produced.
+ * Every state an assignment reaches is written here, so a caller can never move one without
+ * moving its revision, which is what a caller states back when it acts on what it read.
+ */
+export function moveAssignment(
+  db: CrewWriter,
+  request: { row: AssignmentRow; state: string; now: string },
+): number {
   const revision = request.row.revision + 1;
   db.update(assignments)
-    .set({ state: "accepted", revision, updatedAt: request.now })
+    .set({ state: request.state, revision, updatedAt: request.now })
     .where(eq(assignments.id, request.row.id))
     .run();
   return revision;
+}
+
+/** Records accepted completion on one assignment row. The only writer of that transition. */
+export function markAccepted(db: CrewWriter, request: { row: AssignmentRow; now: string }): number {
+  return moveAssignment(db, { row: request.row, state: "accepted", now: request.now });
 }

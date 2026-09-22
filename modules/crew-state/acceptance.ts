@@ -14,7 +14,7 @@ import {
   undisposed,
 } from "./review.ts";
 import { type DirectionRecord, directionRecordOf, openDirectionsOf } from "./direction.ts";
-import { invalidationsAffecting, resolveInvalidations } from "./invalidate.ts";
+import { openPauses, resolveInvalidations } from "./invalidate.ts";
 import { blockingQuestionOf } from "./questions.ts";
 import { submissions } from "./schema.ts";
 import { type ReviewBlocker, storedBlocker, storedObservedChecks } from "./review-input.ts";
@@ -261,13 +261,9 @@ export function acceptAssignment(db: CrewWriter, request: AcceptRequest): Accept
   }
 
   // Work that read an invalidated result is paused, so accepting it would carry the defect on.
-  const invalid = invalidationsAffecting(db, row.id);
+  const invalid = openPauses(db).get(row.id) ?? [];
   if (invalid.length > 0) {
-    return {
-      status: "input-invalidated",
-      assignmentId: row.id,
-      invalidated: invalid.map((one) => one.assignmentId),
-    };
+    return { status: "input-invalidated", assignmentId: row.id, invalidated: invalid };
   }
 
   if (!isExecutable(row.kind)) {

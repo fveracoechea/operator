@@ -126,19 +126,22 @@ export async function replaceAttempt(request: {
   // A stopped or blocked review may be tried again, and a bounded number of times, so a failing
   // review host escalates to the user instead of consuming the crew.
   const context = read.context.review;
-  const atLimit =
+  let directed: { directionRequestId: string; approvalId: string } | null = null;
+
+  if (
     context !== null &&
     context.review.state !== "reported" &&
-    read.context.attemptsHeld >= REVIEW_ATTEMPT_LIMIT;
-  let directedBy: string | null = null;
-
-  if (atLimit && context !== null) {
+    read.context.attemptsHeld >= REVIEW_ATTEMPT_LIMIT
+  ) {
     const producerId = context.submission.assignmentId;
     const direction = await readState(request.projectRoot, (db) =>
       readDirection(db, { assignmentId: producerId, limitKind: "review_attempts" }),
     );
     if (direction.status === "directed") {
-      directedBy = direction.approvalId;
+      directed = {
+        directionRequestId: direction.request.directionRequestId,
+        approvalId: direction.approvalId,
+      };
     } else if (direction.status === "blocked" || direction.status === "unblocked") {
       return reachedReviewLimit(request, {
         producerId,
@@ -246,19 +249,9 @@ export async function replaceAttempt(request: {
         // The replacement reviewer reads the same fixed submission and reports it itself.
         reopenReview(tx, { review: context.review, now });
       }
-      if (directedBy !== null && context !== null) {
+      if (directed !== null) {
         // The user directed this replacement past the limit, so the request it answered closes.
-        const directed = readDirection(tx, {
-          assignmentId: context.submission.assignmentId,
-          limitKind: "review_attempts",
-        });
-        if (directed.status === "directed") {
-          settleDirection(tx, {
-            directionRequestId: directed.request.directionRequestId,
-            approvalId: directedBy,
-            now,
-          });
-        }
+        settleDirection(tx, { ...directed, now });
       }
       startAttempt(tx, {
         attemptId,

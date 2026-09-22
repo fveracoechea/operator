@@ -388,6 +388,18 @@ describe("rework limits", () => {
     expect(directed.exitCode).toBe(0);
     expect(directed.json.data.cycleIndex).toBe(4);
     expect(directed.json.data.approvalId).not.toBeNull();
+
+    // The cycle the user raised the limit to is the limit its Operative is told about.
+    const reworked = await startRework(workspace, current, {
+      revision: directed.json.data.revision,
+      commit: artifact.commit,
+      worktreePath: `${workspace.root}/rework-4`,
+    });
+    const brief = await Bun.file(`${reworked.worktreePath}/.operator/local/brief.md`).text();
+    expect(brief).toContain("findings cycle 4 of 4");
+    expect(brief).toContain(
+      `This cycle runs past the recorded limit under approval ${directed.json.data.approvalId}`,
+    );
   }, 60_000);
 
   test("a third diagnostic rerun waits on the user", async () => {
@@ -465,6 +477,59 @@ describe("rework limits", () => {
 });
 
 describe("conflicts and combined revisions", () => {
+  test("a revision is combined before any review reported", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const artifact = await commitArtifact(workspace, producer, "# Result\n");
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+
+    // The base moved under a result that no reviewer has read yet. Combining it first is the
+    // point of an integration cycle, so it names no review.
+    const delegated = await delegateRework(workspace, producer, {
+      revision: submitted.json.data.revision,
+      body: {
+        reason: "integration",
+        instruction: "Combine this result with the accepted helper before anyone reviews it.",
+        conflicts: [],
+        combines: [{ name: "accepted helper", revision: "rev-helper-1" }],
+      },
+    });
+
+    expect(delegated.exitCode).toBe(0);
+    expect(delegated.json.data.reviewId).toBeNull();
+    expect(delegated.json.data.corrections).toEqual([]);
+
+    const reworked = await startRework(workspace, producer, {
+      revision: delegated.json.data.revision,
+      commit: artifact.commit,
+      worktreePath: `${workspace.root}/combined`,
+    });
+    const brief = await Bun.file(`${reworked.worktreePath}/.operator/local/brief.md`).text();
+    expect(brief).toContain("- Review: none");
+    expect(brief).toContain("- accepted helper: rev-helper-1");
+  });
+
+  test("a reported review is answered even when the combining cycle names no review", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const first = await reviewedResult(workspace);
+
+    // The review reported and its findings carry no disposition, so combining the result away
+    // would leave them unanswered.
+    const refused = await delegateRework(workspace, first.producer, {
+      revision: first.submitted.json.data.revision,
+      body: {
+        reason: "integration",
+        instruction: "Combine it with the accepted helper.",
+        conflicts: [],
+        combines: [{ name: "accepted helper", revision: "rev-helper-1" }],
+      },
+    });
+
+    expect(refused.exitCode).toBe(3);
+    expect(refused.json.reason).toBe("findings_undisposed");
+  });
+
   test("a conflict is delegated and only the combined revision is reviewed", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const specBlocker = {

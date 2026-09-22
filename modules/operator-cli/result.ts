@@ -200,7 +200,8 @@ export type Reason =
   | "invalid_defect_input"
   | "assignment_not_accepted"
   | "result_invalidated"
-  | "input_invalidated";
+  | "input_invalidated"
+  | "review_not_invalidated";
 
 export type Operation =
   | "parse_arguments"

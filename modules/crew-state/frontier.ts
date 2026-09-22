@@ -3,7 +3,7 @@ import type { CrewReader } from "./database.ts";
 import type { Capacity } from "./capacity.ts";
 import { readAssignment } from "./assignment.ts";
 import { openDirectionsOf } from "./direction.ts";
-import { invalidationsAffecting } from "./invalidate.ts";
+import { openPauses } from "./invalidate.ts";
 import type { EscalationTrigger } from "./question-input.ts";
 import { blockingQuestions, questionReportOf, triggersOf } from "./questions.ts";
 import { reviewOfSubmission } from "./review.ts";
@@ -139,6 +139,7 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
     };
   }
 
+  const paused = openPauses(db);
   const entries = rows.map(entry).toSorted(byPriority);
   const activeEntries = entries.flatMap((one) => {
     const attempt = attemptByAssignment.get(one.assignmentId);
@@ -164,14 +165,9 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
     }
     // Work that read an invalidated result waits for the corrected one, whatever kind it is
     // and whatever its former writer is still doing.
-    const invalid = invalidationsAffecting(db, one.assignmentId);
-    if (invalid.length > 0) {
-      blocked.push({
-        ...one,
-        blockers: [
-          { reason: "input_invalidated", invalidated: invalid.map((row) => row.assignmentId) },
-        ],
-      });
+    const invalid = paused.get(one.assignmentId);
+    if (invalid !== undefined) {
+      blocked.push({ ...one, blockers: [{ reason: "input_invalidated", invalidated: invalid }] });
       continue;
     }
 

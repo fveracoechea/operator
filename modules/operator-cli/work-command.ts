@@ -995,6 +995,20 @@ async function runInvalidate(parsed: ParsedArguments): Promise<Handled> {
     });
   }
 
+  if (result.status === "review-not-invalidated") {
+    return refuse({
+      json: parsed.json,
+      operation: "work_invalidate",
+      outcome: "invalid",
+      reason: "review_not_invalidated",
+      detail: { assignmentId: result.assignmentId },
+      lines: [
+        `Assignment ${result.assignmentId} is review work, which holds no result of its own.`,
+        "A review that read the work wrongly is answered by reviewing that work again.",
+      ],
+    });
+  }
+
   if (result.status === "not-accepted") {
     return refuse({
       json: parsed.json,

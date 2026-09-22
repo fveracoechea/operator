@@ -86,9 +86,10 @@ export function openDirectionsOf(db: CrewReader, assignmentId: string): Directio
   return db
     .select()
     .from(directionRequests)
-    .where(eq(directionRequests.assignmentId, assignmentId))
+    .where(
+      and(eq(directionRequests.assignmentId, assignmentId), eq(directionRequests.state, "open")),
+    )
     .all()
-    .filter((one) => one.state === "open")
     .toSorted((left, right) => left.limitKind.localeCompare(right.limitKind));
 }
 
@@ -127,7 +128,14 @@ export function raiseDirection(
   }
 
   if (held.state === "open") {
-    return directionRecordOf(held);
+    // The request keeps its revision, because an approval is bound to it, and it keeps taking
+    // the evidence of every further attempt that reached the same limit.
+    const grown = { ...held, evidence: JSON.stringify(request.evidence), updatedAt: request.now };
+    db.update(directionRequests)
+      .set({ evidence: grown.evidence, updatedAt: request.now })
+      .where(eq(directionRequests.id, held.id))
+      .run();
+    return directionRecordOf(grown);
   }
 
   const raised = {

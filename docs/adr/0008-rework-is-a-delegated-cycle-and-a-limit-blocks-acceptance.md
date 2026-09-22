@@ -8,7 +8,9 @@ A cycle carries one reason.
 A findings cycle answers the corrections the Operator accepted.
 An integration cycle combines the submitted result with other named revisions.
 A diagnostic rerun runs recorded checks again when a test infrastructure failure is suspected.
-A findings or integration cycle needs a reported review whose every finding already carries a disposition, because a cycle that starts on a half-read review leaves the unanswered findings with nothing to return to.
+A findings cycle needs a reported review whose every finding already carries a disposition, because a cycle that starts on a half-read review leaves the unanswered findings with nothing to return to.
+An integration cycle names a review only when it answers one, because a revision can need combining before any reviewer has read it.
+A review that already reported is answered either way, so its findings are never combined away unanswered.
 A diagnostic rerun needs a recorded check that did not pass, because a passing check has nothing to diagnose.
 
 The cycle brief is written once, when the cycle is delegated.
@@ -40,9 +42,12 @@ One review holds three attempts, which is one reviewer and two replacements, and
 A reached limit records a direction request against the assignment.
 The request blocks acceptance, states the limit and what was already tried, and keeps every attempt, submission, review, and finding that led to it.
 It is passed only by an approval that names this assignment, the scope of that limit, and the revision of the request it answers.
-Reaching the same limit again moves that revision, so the approval that answered the earlier request covers nothing.
+The cycle that approval permits records it, and the brief of that cycle states it, so work past a limit is visible to the Operative that runs it.
+An open request keeps taking the evidence of every further attempt that reached the same limit, and its revision stays where it is, because an approval is bound to that revision.
+A limit reached again after a direction was spent opens the request at the next revision, so the approval that answered the earlier one covers nothing.
 
 `operator work invalidate` records a defect found after acceptance.
+Review work is refused, because a review holds no result of its own and a review that read the work wrongly is answered by reviewing that work again.
 The assignment moves to invalidated and returns to the frontier, because the fix is work on that assignment.
 Its acceptance, submission, review, findings, and attempts stay exactly as they were recorded, because that history is what names the dependents that read the invalid result.
 Only work that consumed the result is paused.

@@ -34,37 +34,12 @@ export function isDispatchStage(kind: string): kind is DispatchStage {
 export type DispatchRow = typeof attemptDispatch.$inferSelect;
 export type OperationRow = typeof externalOperations.$inferSelect;
 
-/**
- * One earlier review of the same producer assignment, with the dispositions it carried and the
- * cycles those dispositions delegated. A revision is reviewed against these.
- */
-export type PriorRound = {
-  reviewId: string;
-  submissionId: string;
-  submissionIdentity: string;
-  findings: Array<{
-    findingId: string;
-    axis: string;
-    key: string;
-    severity: string;
-    summary: string;
-    disposition: string | null;
-    reason: string | null;
-  }>;
-  cycles: Array<{
-    cycleId: string;
-    reason: string;
-    cycleIndex: number;
-    instruction: string;
-    conflicts: Array<{ summary: string; between: string[] }>;
-  }>;
-};
-
 /** The fixed result a review attempt reads. Present only on a review assignment. */
 export type ReviewContext = {
   review: ReviewRow;
   submission: SubmissionRow;
-  priorRounds: PriorRound[];
+  // The earlier rounds a reviewer of a revision reads. The launch contract owns their shape.
+  priorRounds: ReturnType<typeof priorRoundsOf>;
 };
 
 /** The delegated cycle a rework attempt answers. Present only while one is open. */
@@ -121,7 +96,7 @@ export function operationFor(operations: OperationRow[], kind: DispatchStage): O
  * The reviewer of a revision reads them, so a prior disposition is visible and a finding that
  * came back is reported as a regression rather than as new work.
  */
-function priorRoundsOf(db: CrewReader, submission: SubmissionRow): PriorRound[] {
+function priorRoundsOf(db: CrewReader, submission: SubmissionRow) {
   const cycles = cyclesOf(db, submission.assignmentId);
 
   return submissionsOf(db, submission.assignmentId)

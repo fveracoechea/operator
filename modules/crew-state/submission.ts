@@ -1,7 +1,12 @@
 import { eq } from "drizzle-orm";
 import type { CrewReader, CrewWriter } from "./database.ts";
 import { type AttemptRow, endAttempt } from "./attempt.ts";
-import { type AssignmentRow, insertAssignment, nextOrderIndex } from "./assignment.ts";
+import {
+  type AssignmentRow,
+  insertAssignment,
+  moveAssignment,
+  nextOrderIndex,
+} from "./assignment.ts";
 import { identityOf } from "./identity.ts";
 import { assignments, reviews, submissions } from "./schema.ts";
 import { REVIEW_AXES } from "./review.ts";
@@ -271,11 +276,11 @@ export function submitResult(
 
   endAttempt(db, { attempt, state: "submitted", now: request.now });
 
-  const revision = assignment.revision + 1;
-  db.update(assignments)
-    .set({ state: "awaiting-review", revision, updatedAt: request.now })
-    .where(eq(assignments.id, assignment.id))
-    .run();
+  const revision = moveAssignment(db, {
+    row: assignment,
+    state: "awaiting-review",
+    now: request.now,
+  });
 
   const registered = registerReview(db, {
     producer: assignment,

@@ -87,7 +87,9 @@ The request names one reason:
 
 - `findings`: it answers the accepted corrections of the review you name.
   Every finding of that review carries a disposition first.
-- `integration`: it also names the revisions it combines with the submitted result.
+- `integration`: it names the revisions it combines with the submitted result.
+  Name a review only when this cycle answers that review as well.
+  A review that already reported is answered either way, so its findings are never lost.
 - `diagnostic`: it names the recorded checks a test infrastructure failure is suspected behind.
   At least one of them must not have passed.
 
@@ -123,7 +125,8 @@ The approval names action `limit-direction`, the assignment as its target, the s
 reported, and the revision of the direction request it answers.
 The refusal prints all four.
 Silence, a timeout, and a general direction to finish are not a direction.
-Reaching the same limit again moves that revision, so the earlier approval covers nothing.
+Once a direction is spent, reaching that limit again opens the request at the next revision,
+so the earlier approval covers nothing.
 
 ## A defect found after acceptance
 
@@ -132,6 +135,7 @@ operator work invalidate --request <id> --owner-token <token> --assignment <id> 
 ```
 
 The defect states its summary, its evidence, and who found it.
+Review work is refused, because a review holds no result of its own.
 The acceptance, the submission, the review, and every finding stay recorded.
 The assignment returns to the frontier as `invalidated`, and you fix it as work on that assignment.
 

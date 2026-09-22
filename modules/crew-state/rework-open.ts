@@ -1,4 +1,3 @@
-import { eq } from "drizzle-orm";
 import type { CrewReader, CrewWriter } from "./database.ts";
 import {
   type DirectionRecord,
@@ -6,18 +5,25 @@ import {
   readDirection,
   settleDirection,
 } from "./direction.ts";
-import { readAssignment } from "./assignment.ts";
+import { moveAssignment, readAssignment } from "./assignment.ts";
 import { identityOf } from "./identity.ts";
 import {
   corrections,
   findingsOf,
   readReview,
   type ReviewFindingRow,
+  reviewOfSubmission,
   undisposed,
 } from "./review.ts";
 import { type ReworkBriefRecord, type ReworkCorrection, type ReworkInput } from "./rework-input.ts";
-import { cyclesOf, cyclesUsed, insertCycle, limitKindOf, limitOf, openCycleOf } from "./rework.ts";
-import { assignments } from "./schema.ts";
+import {
+  budgetOf,
+  cyclesOf,
+  cyclesUsed,
+  insertCycle,
+  type LimitKind,
+  openCycleOf,
+} from "./rework.ts";
 import { storedChecks, storedCode, storedResultKind } from "./submission-input.ts";
 import { latestSubmission, type SubmissionRow } from "./submission.ts";
 import { storedArtifacts } from "./submission-store.ts";
@@ -54,7 +60,7 @@ export type ReworkOutcome =
   | {
       status: "limit-reached";
       assignmentId: string;
-      limitKind: string;
+      limitKind: LimitKind;
       limit: number;
       used: number;
       direction: DirectionRecord;
@@ -96,6 +102,28 @@ type ReviewGate =
           | "conflict-not-corrected";
       }
     >;
+
+/**
+ * The review one cycle answers.
+ * A findings cycle always names it. An integration cycle names it only when it answers that
+ * review as well, so a revision that must be combined before any review reported still can be.
+ * A review that already reported is answered whether or not the caller named it, because its
+ * findings would otherwise be combined away unanswered.
+ */
+function reviewOfCycle(
+  db: CrewReader,
+  request: { input: ReworkInput; submission: SubmissionRow },
+): string | null {
+  if (request.input.reason === "diagnostic") {
+    return null;
+  }
+  if (request.input.reviewId !== undefined) {
+    return request.input.reviewId;
+  }
+
+  const reported = reviewOfSubmission(db, request.submission.id);
+  return reported !== null && reported.state === "reported" ? reported.id : null;
+}
 
 /**
  * Reads the review one correction cycle answers.
@@ -175,8 +203,10 @@ function diagnosticGate(
 function briefOf(request: {
   input: ReworkInput;
   submission: SubmissionRow;
+  reviewId: string | null;
   cycleIndex: number;
   limit: number;
+  approvalId: string | null;
   corrections: ReworkCorrection[];
 }): ReworkBriefRecord {
   const { input, submission } = request;
@@ -187,7 +217,8 @@ function briefOf(request: {
     cycleIndex: request.cycleIndex,
     limit: request.limit,
     instruction: input.instruction,
-    reviewId: input.reason === "diagnostic" ? null : input.reviewId,
+    reviewId: request.reviewId,
+    approvalId: request.approvalId,
     submissionId: submission.id,
     submissionIdentity: submission.identity,
     resultKind: storedResultKind(submission.resultKind),
@@ -234,22 +265,22 @@ export function openReworkCycle(db: CrewWriter, request: ReworkRequest): ReworkO
   }
 
   const { input } = request;
+  const answers = reviewOfCycle(db, { input, submission });
   let accepted: ReworkCorrection[] = [];
   if (input.reason === "diagnostic") {
     const diagnostic = diagnosticGate(submission, input.checks);
     if (diagnostic.status !== "ok") {
       return diagnostic;
     }
-  } else {
-    const gate = reviewGate(db, { reviewId: input.reviewId, submission, input });
+  } else if (answers !== null) {
+    const gate = reviewGate(db, { reviewId: answers, submission, input });
     if (gate.status !== "ok") {
       return gate;
     }
     accepted = gate.corrections;
   }
 
-  const limit = limitOf(input.reason);
-  const limitKind = limitKindOf(input.reason);
+  const { kind: limitKind, limit } = budgetOf(input.reason);
   const used = cyclesUsed(cyclesOf(db, row.id), input.reason);
   let approvalId: string | null = null;
 
@@ -295,8 +326,11 @@ export function openReworkCycle(db: CrewWriter, request: ReworkRequest): ReworkO
   const brief = briefOf({
     input,
     submission,
+    reviewId: answers,
     cycleIndex,
-    limit,
+    // A directed cycle runs past the recorded limit, so the brief states the limit it runs to.
+    limit: Math.max(limit, cycleIndex),
+    approvalId,
     corrections: accepted,
   });
   insertCycle(db, {
@@ -312,11 +346,7 @@ export function openReworkCycle(db: CrewWriter, request: ReworkRequest): ReworkO
     now: request.now,
   });
 
-  const revision = row.revision + 1;
-  db.update(assignments)
-    .set({ state: "rework", revision, updatedAt: request.now })
-    .where(eq(assignments.id, row.id))
-    .run();
+  const revision = moveAssignment(db, { row, state: "rework", now: request.now });
 
   return {
     status: "delegated",

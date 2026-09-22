@@ -17,7 +17,7 @@ import {
   submit,
   type Workspace,
 } from "./review-cycle-fixture.ts";
-import { headCommit, runJson, workspaces } from "./workspace-fixture.ts";
+import { headCommit, requestId as request, runJson, workspaces } from "./workspace-fixture.ts";
 
 const fixtures = workspaces();
 
@@ -152,6 +152,45 @@ describe("operator work invalidate", () => {
     });
     expect(again.json.reason).toBe("assignment_accepted");
   }, 60_000);
+
+  test("refuses a defect against a review, which holds no result of its own", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const artifact = await commitArtifact(workspace, producer, "# Result\n");
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
+    await reportReview(
+      workspace,
+      reviewer,
+      submitted.json.data.reviewId,
+      reportBody({ submissionIdentity: submitted.json.data.identity, host: workspace.host }),
+    );
+    const accepted = await runJson(workspace, [
+      "work",
+      "accept",
+      "--request",
+      request(),
+      "--owner-token",
+      producer.ownerToken,
+      "--assignment",
+      submitted.json.data.reviewAssignmentId,
+      "--attempt",
+      reviewer.attemptId,
+      "--revision",
+      String(reviewer.revision),
+    ]);
+    expect(accepted.json.reason).toBe("assignment_accepted");
+
+    const refused = await invalidateResult(workspace, producer, {
+      assignmentId: submitted.json.data.reviewAssignmentId,
+      revision: accepted.json.data.revision,
+      defect: DEFECT,
+    });
+
+    expect(refused.exitCode).toBe(2);
+    expect(refused.json.reason).toBe("review_not_invalidated");
+  });
 
   test("refuses a defect against work that holds no accepted result", async () => {
     const workspace = await makeReviewWorkspace(fixtures);

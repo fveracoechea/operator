@@ -1,11 +1,11 @@
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import type { AssignmentRow } from "./assignment.ts";
+import { type AssignmentRow, moveAssignment, readAssignment } from "./assignment.ts";
 import type { CrewReader, CrewWriter } from "./database.ts";
-import { readAssignment } from "./assignment.ts";
-import { assignmentDependencies, assignments, invalidations } from "./schema.ts";
+import { assignmentDependencies, invalidations } from "./schema.ts";
 import { readStored } from "./stored.ts";
 import { latestSubmission } from "./submission.ts";
+import { isReview } from "./work-input.ts";
 
 /** The defect found in an accepted result, in the words of whoever found it. */
 export const defectInputSchema = z.strictObject({
@@ -49,21 +49,33 @@ export type InvalidateOutcome =
     }
   | { status: "unknown-assignment"; assignmentId: string }
   | { status: "stale-revision"; assignmentId: string; recordedRevision: number }
-  | { status: "not-accepted"; assignmentId: string; state: string };
+  | { status: "not-accepted"; assignmentId: string; state: string }
+  | { status: "review-not-invalidated"; assignmentId: string };
 
-/** Every open invalidation that named one assignment as a dependent that consumed the result. */
-export function invalidationsAffecting(db: CrewReader, assignmentId: string): InvalidationRow[] {
-  return db
-    .select()
-    .from(invalidations)
-    .all()
-    .filter(
-      (one) =>
-        one.state === "open" &&
-        storedDependents(one.dependents).some(
-          (dep) => dep.paused && dep.assignmentId === assignmentId,
-        ),
-    );
+/**
+ * Which invalidated results each paused assignment read.
+ * The dependents of an invalidation are stored as one record, so this is read once and asked
+ * many times rather than scanned again for every assignment.
+ */
+export function openPauses(db: CrewReader): Map<string, string[]> {
+  const held = new Map<string, string[]>();
+
+  for (const one of db.select().from(invalidations).all()) {
+    if (one.state !== "open") {
+      continue;
+    }
+
+    for (const dependent of storedDependents(one.dependents)) {
+      if (dependent.paused) {
+        held.set(dependent.assignmentId, [
+          ...(held.get(dependent.assignmentId) ?? []),
+          one.assignmentId,
+        ]);
+      }
+    }
+  }
+
+  return held;
 }
 
 function directDependents(db: CrewReader, assignmentId: string): AssignmentRow[] {
@@ -105,15 +117,6 @@ function consumingDependents(db: CrewReader, assignmentId: string): AssignmentRo
   return [...found.values()].toSorted((left, right) => left.id.localeCompare(right.id));
 }
 
-function setState(db: CrewWriter, row: AssignmentRow, state: string, now: string): number {
-  const revision = row.revision + 1;
-  db.update(assignments)
-    .set({ state, revision, updatedAt: now })
-    .where(eq(assignments.id, row.id))
-    .run();
-  return revision;
-}
-
 /**
  * Records a defect found in an accepted result.
  * The acceptance, its submission, its review, and every finding stay exactly as they were,
@@ -140,6 +143,11 @@ export function invalidateResult(
   if (row.state !== "accepted") {
     return { status: "not-accepted", assignmentId: row.id, state: row.state };
   }
+  // A review carries no result of its own. A review that read the work wrongly is answered by
+  // reviewing that work again, so returning a review assignment to the frontier settles nothing.
+  if (isReview(row.kind)) {
+    return { status: "review-not-invalidated", assignmentId: row.id };
+  }
 
   const consuming = consumingDependents(db, row.id);
   const affected = consuming.map((one) => ({
@@ -149,7 +157,7 @@ export function invalidateResult(
     paused: true,
   }));
   for (const one of consuming) {
-    setState(db, one, "paused", request.now);
+    moveAssignment(db, { row: one, state: "paused", now: request.now });
   }
 
   const submission = latestSubmission(db, row.id);
@@ -169,7 +177,7 @@ export function invalidateResult(
   return {
     status: "invalidated",
     assignmentId: row.id,
-    revision: setState(db, row, "invalidated", request.now),
+    revision: moveAssignment(db, { row, state: "invalidated", now: request.now }),
     invalidationId: request.invalidationId,
     submissionId: submission?.id ?? null,
     dependents: affected,
@@ -213,7 +221,7 @@ export function resolveInvalidations(
         continue;
       }
 
-      setState(db, row, resumedState(db, held), request.now);
+      moveAssignment(db, { row, state: resumedState(db, held), now: request.now });
       resumed.push(row.id);
     }
 
