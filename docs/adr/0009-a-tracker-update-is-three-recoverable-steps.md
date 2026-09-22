@@ -55,6 +55,14 @@ Changed content is not a retry of an exact-content operation, so a request that 
 
 ## Consequences
 
+Reading the map is a command, not a gate on choosing work.
+`operator tracker map` stops on a conflict and on an incomplete read, and nothing yet refuses to
+select map-dependent work when that read has not been run.
+The rule that an incomplete read blocks those actions therefore rests on the Operator skill's
+coordination guidance, which is where judgment lives; making the frontier itself refuse is a
+change to the registration and frontier contract of
+[Register work and calculate the crew frontier](https://github.com/fveracoechea/operator/issues/19).
+
 An approved correction is not implemented here.
 A step whose content must change is refused with the reason, and the new operation that supersedes an earlier result is follow-up work.
 
