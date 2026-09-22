@@ -4,7 +4,7 @@ import type { CrewReader, CrewWriter } from "./database.ts";
 import type { CleanupEffect } from "./dispatch.ts";
 import { identityOf } from "./identity.ts";
 import { cleanups, retentionHolds, workSources } from "./schema.ts";
-import { readStored } from "./stored.ts";
+import { readStored, readStoredValue } from "./stored.ts";
 
 /** The two cleanup outcomes. Each is recorded, retried, and recovered on its own. */
 export const CLEANUP_KINDS = ["process_closure", "worktree_removal"] as const;
@@ -17,7 +17,10 @@ export const CLEANUP_OPERATION = {
   worktree_removal: "worktree_remove",
 } as const satisfies Record<CleanupKind, CleanupEffect>;
 
-export type CleanupState = "pending" | "blocked" | "failed" | "uncertain" | "done";
+/** Every state one cleanup record can hold. A row carrying any other value is damaged. */
+export const CLEANUP_STATES = ["pending", "blocked", "failed", "uncertain", "done"] as const;
+
+export type CleanupState = (typeof CLEANUP_STATES)[number];
 
 export type CleanupRow = typeof cleanups.$inferSelect;
 export type RetentionHoldRow = typeof retentionHolds.$inferSelect;
@@ -41,7 +44,7 @@ export type CleanupRecord = {
   attemptId: string;
   assignmentId: string;
   kind: CleanupKind;
-  state: string;
+  state: CleanupState;
   requestRevision: string;
   detail: string | null;
   evidence: EvidenceItem[];
@@ -50,13 +53,18 @@ export type CleanupRecord = {
   settledAt: string | null;
 };
 
+/**
+ * Reads one stored cleanup row.
+ * A kind or a state this release cannot read is a damaged record, so it fails loudly instead
+ * of being reported to the operator as some other cleanup that this release does understand.
+ */
 export function cleanupRecordOf(row: CleanupRow): CleanupRecord {
   return {
     cleanupId: row.id,
     attemptId: row.attemptId,
     assignmentId: row.assignmentId,
-    kind: isCleanupKind(row.kind) ? row.kind : "process_closure",
-    state: row.state,
+    kind: readStoredValue("cleanup kind", z.enum(CLEANUP_KINDS), row.kind),
+    state: readStoredValue("cleanup state", z.enum(CLEANUP_STATES), row.state),
     requestRevision: row.requestRevision,
     detail: row.detail,
     evidence: row.evidence === null ? [] : storedEvidence(row.evidence),
@@ -64,10 +72,6 @@ export function cleanupRecordOf(row: CleanupRow): CleanupRecord {
     startedAt: row.startedAt,
     settledAt: row.settledAt,
   };
-}
-
-export function isCleanupKind(kind: string): kind is CleanupKind {
-  return CLEANUP_KINDS.some((one) => one === kind);
 }
 
 export function readCleanup(

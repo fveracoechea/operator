@@ -229,7 +229,7 @@ describe("operator cleanup close", () => {
     );
   });
 
-  test("refuses to close an Operative that handed nothing over and still waits on an answer", async () => {
+  test("refuses to close an Operative that is still writing and still waits on an answer", async () => {
     const workspace = await makeWorkspace();
     const producer = await startProducer(workspace);
 
@@ -264,7 +264,8 @@ describe("operator cleanup close", () => {
 
     expect(blocked.exitCode).toBe(3);
     expect(blocked.json.reason).toBe("cleanup_blocked");
-    expect(reasons(blocked)).toEqual(["handoff_missing", "question_open"]);
+    expect(reasons(blocked)).toEqual(["writer_active", "question_open"]);
+    expect(blocked.json.blockers[0].state).toBe("active");
     expect((await herdrCalls(workspace)).some((line) => line.startsWith("agent send-keys"))).toBe(
       false,
     );

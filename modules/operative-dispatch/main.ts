@@ -10,7 +10,7 @@ import {
   agentKindFor,
   type Brief,
   type DispatchPlan,
-  isSupportedHost,
+  hasAgentKind,
   planDispatch,
   type Snapshot,
 } from "./plan.ts";
@@ -63,7 +63,7 @@ export const OperativeDispatch = {
    */
   writtenPrefixes(request: { agentHost: string }): string[] {
     const prefixes = [LOCAL_ROOT];
-    if (isSupportedHost(request.agentHost)) {
+    if (hasAgentKind(request.agentHost)) {
       prefixes.push(`${SkillInstall.targetRoot({ target: request.agentHost })}/`);
     }
     return prefixes;
@@ -79,7 +79,7 @@ export const OperativeDispatch = {
     worktreePath: string | null;
   }): { status: "planned"; plan: DispatchPlan } | { status: "host-unnamed" } {
     const host = request.snapshot.selection.crew.host;
-    if (!isSupportedHost(host)) {
+    if (!hasAgentKind(host)) {
       return { status: "host-unnamed" };
     }
 

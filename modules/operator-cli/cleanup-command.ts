@@ -102,11 +102,11 @@ async function runClose(parsed: ParsedArguments): Promise<Handled> {
     return reportBlocked({ parsed, operation: "cleanup_close", result });
   }
 
-  if (result.status === "uncertain" || result.status === "failed") {
+  if (result.status === "uncertain") {
     return reportUnsettled({
       parsed,
       operation: "cleanup_close",
-      uncertain: result.status === "uncertain",
+      uncertain: true,
       result,
     });
   }

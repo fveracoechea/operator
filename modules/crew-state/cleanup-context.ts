@@ -1,9 +1,11 @@
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { OperativeCleanup } from "../operative-cleanup/main.ts";
 import { OperativeDispatch } from "../operative-dispatch/main.ts";
 import type { AssignmentRow } from "./assignment.ts";
 import type { AttemptRow } from "./attempt.ts";
 import {
+  CLEANUP_KINDS,
+  type CleanupKind,
   type CleanupRow,
   heldRetention,
   readCleanup,
@@ -40,8 +42,8 @@ export type CleanupContext = {
   hold: RetentionHoldRow | null;
   /** The question this attempt still waits on. Unfinished work is never cleaned up. */
   openQuestion: QuestionRow | null;
-  closure: CleanupRow | null;
-  removal: CleanupRow | null;
+  /** Every cleanup outcome already recorded for this attempt, by kind. */
+  cleanups: Map<CleanupKind, CleanupRow>;
   operations: OperationRow[];
   /** Live attempts other than this one whose recorded launch names the same checkout. */
   otherOccupants: string[];
@@ -60,16 +62,18 @@ function occupantsOfCheckout(
   request: { attemptId: string; worktreePath: string },
 ): string[] {
   return db
-    .select()
-    .from(attemptDispatch)
-    .all()
-    .filter(
-      (row) => row.worktreePath === request.worktreePath && row.attemptId !== request.attemptId,
+    .select({ attemptId: attempts.id })
+    .from(attempts)
+    .innerJoin(attemptDispatch, eq(attemptDispatch.attemptId, attempts.id))
+    .where(
+      and(
+        eq(attemptDispatch.worktreePath, request.worktreePath),
+        eq(attempts.state, "active"),
+        ne(attempts.id, request.attemptId),
+      ),
     )
-    .flatMap((row) => {
-      const attempt = db.select().from(attempts).where(eq(attempts.id, row.attemptId)).all()[0];
-      return attempt !== undefined && attempt.state === "active" ? [attempt.id] : [];
-    })
+    .all()
+    .map((row) => row.attemptId)
     .toSorted();
 }
 
@@ -111,8 +115,12 @@ export function readCleanupContext(db: CrewReader, attemptId: string): ContextRe
       review: reviewOfAssignment(db, assignment.id),
       hold: heldRetention(db, attempt.id),
       openQuestion: blockingQuestionOf(db, attempt.id),
-      closure: readCleanup(db, { attemptId: attempt.id, kind: "process_closure" }),
-      removal: readCleanup(db, { attemptId: attempt.id, kind: "worktree_removal" }),
+      cleanups: new Map(
+        CLEANUP_KINDS.flatMap((kind) => {
+          const row = readCleanup(db, { attemptId: attempt.id, kind });
+          return row === null ? [] : [[kind, row] as const];
+        }),
+      ),
       operations: liveOperations(db, attempt.id),
       otherOccupants: occupantsOfCheckout(db, {
         attemptId: attempt.id,
@@ -175,8 +183,8 @@ export async function inspectCheckout(context: CleanupContext): Promise<Checkout
   });
 }
 
-/** A sub-mutation of one cleanup. Only its own success continues the sequence. */
-export async function record(
+/** One recorded step of a cleanup. Only its own success continues the sequence. */
+export async function recordStep(
   request: {
     projectRoot: string;
     requestId: string;

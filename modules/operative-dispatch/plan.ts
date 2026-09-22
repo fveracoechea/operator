@@ -72,7 +72,8 @@ export const BRIEF_PATH = ".operator/local/brief.md";
 export const REFERENCE_PATH = ".operator/local/attempt.json";
 export const RELEASE_PATH = ".operator/local/release.json";
 
-export function isSupportedHost(host: string | null): host is keyof typeof agentKindByHost {
+/** True when this release knows which executable Herdr starts for that host. */
+export function hasAgentKind(host: string | null): host is keyof typeof agentKindByHost {
   return host !== null && Object.hasOwn(agentKindByHost, host);
 }
 
@@ -319,5 +320,5 @@ export function planDispatch(request: {
 }
 
 export function agentKindFor(host: string): string {
-  return isSupportedHost(host) ? agentKindByHost[host] : host;
+  return hasAgentKind(host) ? agentKindByHost[host] : host;
 }

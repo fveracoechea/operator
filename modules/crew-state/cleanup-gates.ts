@@ -1,3 +1,4 @@
+import { OperativeCleanup } from "../operative-cleanup/main.ts";
 import { identityOf } from "./identity.ts";
 import type { CheckoutInspection, CleanupContext } from "./cleanup-context.ts";
 import type { IdentityMatch } from "./cleanup-identity.ts";
@@ -37,6 +38,17 @@ export function identityBlocker(
   return { reason: "identity_mismatch", mismatches: match.mismatches };
 }
 
+/**
+ * Refuses a host this release cannot stop.
+ * The host decides which paths Operator wrote, which keys stop it, and which pane it occupies,
+ * so every later reading of the checkout and the workspace rests on knowing it.
+ */
+export function hostBlocker(context: CleanupContext): CleanupBlocker | null {
+  return OperativeCleanup.canStop({ agentHost: context.dispatch.agentHost })
+    ? null
+    : { reason: "host_unsupported", host: context.dispatch.agentHost };
+}
+
 /** An explicit retention hold stops every cleanup of its attempt until a person releases it. */
 export function holdBlocker(context: CleanupContext): CleanupBlocker | null {
   return context.hold === null
@@ -55,7 +67,11 @@ export function handoffBlockers(context: CleanupContext): CleanupBlocker[] {
 
   if (submission === null) {
     // A review submits nothing of its own; its two axis reports are its handoff.
-    if (review === null || review.assignmentId !== assignment.id) {
+    // An attempt that is still the live writer is reported by its own gate, not as a missing
+    // handoff, so the two say different things about the same attempt.
+    if (context.attempt.state === "active") {
+      // The stopped-writing gate names this one.
+    } else if (review === null || review.assignmentId !== assignment.id) {
       blockers.push({
         reason: "handoff_missing",
         detail: "This attempt handed over no submitted result.",
@@ -96,6 +112,33 @@ export function handoffBlockers(context: CleanupContext): CleanupBlocker[] {
   }
 
   return blockers;
+}
+
+/**
+ * The gate that proves the Operative stopped writing before anything is disposed of.
+ * An attempt Herdr still counts as the live writer, with nothing handed over, is working now,
+ * whatever its checkout happens to look like at this instant.
+ */
+export function stillWritingBlockers(request: {
+  context: CleanupContext;
+  inspection: CheckoutInspection;
+}): CleanupBlocker[] {
+  const { context } = request;
+  const handedOver =
+    context.submission !== null ||
+    (context.review !== null &&
+      context.review.assignmentId === context.assignment.id &&
+      context.review.state === "reported");
+
+  return context.attempt.state === "active" && !handedOver
+    ? [
+        {
+          reason: "writer_active",
+          state: context.attempt.state,
+          checkout: request.inspection.worktreePath,
+        },
+      ]
+    : [];
 }
 
 /**

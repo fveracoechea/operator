@@ -1,10 +1,11 @@
-import type { EvidenceItem } from "./cleanup.ts";
 import {
   allCleanups,
   allRetentionHolds,
   type CleanupKind,
   type CleanupRow,
   cleanupRecordOf,
+  type CleanupState,
+  type EvidenceItem,
 } from "./cleanup.ts";
 import type { CleanupContext } from "./cleanup-context.ts";
 import type { IdentityMismatch } from "./cleanup-identity.ts";
@@ -30,6 +31,7 @@ export type CleanupBlocker =
   | { reason: "unrelated_resource"; worktreePath: string; detail: string }
   | { reason: "checkout_unknown"; detail: string }
   | { reason: "writer_live"; agentName: string; agentStatus: string }
+  | { reason: "writer_active"; state: string; checkout: string }
   | { reason: "host_unsupported"; host: string }
   | { reason: "not_accepted"; assignmentId: string; state: string }
   | { reason: "process_live"; state: string }
@@ -48,7 +50,7 @@ export type CleanupReport = {
   attemptId: string;
   assignmentId: string;
   kind: CleanupKind;
-  state: string;
+  state: CleanupState;
   requestRevision: string;
   worktreePath: string;
   branch: string;
@@ -64,15 +66,15 @@ export type CleanupReport = {
 export function reportOf(request: {
   context: CleanupContext;
   kind: CleanupKind;
-  state: string;
+  state: CleanupState;
   requestRevision: string;
   row: CleanupRow | null;
 }): CleanupReport {
   const { dispatch } = request.context;
-  const record = request.row === null ? null : cleanupRecordOf(request.row);
+  const recorded = request.row === null ? null : cleanupRecordOf(request.row);
 
   return {
-    cleanupId: record?.cleanupId ?? null,
+    cleanupId: recorded?.cleanupId ?? null,
     attemptId: request.context.attempt.id,
     assignmentId: request.context.assignment.id,
     kind: request.kind,
@@ -84,9 +86,9 @@ export function reportOf(request: {
     agentHost: dispatch.agentHost,
     workspaceId: dispatch.workspaceId,
     paneId: dispatch.paneId,
-    evidence: record?.evidence ?? [],
-    detail: record?.detail ?? null,
-    settledAt: record?.settledAt ?? null,
+    evidence: recorded?.evidence ?? [],
+    detail: recorded?.detail ?? null,
+    settledAt: recorded?.settledAt ?? null,
   };
 }
 

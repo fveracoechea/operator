@@ -10,13 +10,14 @@ const stopKeysByHost = {
   opencode: ["esc", "ctrl+c", "ctrl+d"],
 } as const;
 
-export type SupportedHost = keyof typeof stopKeysByHost;
+export type StoppableHost = keyof typeof stopKeysByHost;
 
-export function isSupportedHost(host: string): host is SupportedHost {
+/** True when this release knows how to ask that host to stop. */
+export function hasStopKeys(host: string): host is StoppableHost {
   return Object.hasOwn(stopKeysByHost, host);
 }
 
-export function stopKeysFor(host: SupportedHost): string[] {
+export function stopKeysFor(host: StoppableHost): string[] {
   return [...stopKeysByHost[host]];
 }
 
@@ -36,7 +37,7 @@ export async function stopHost(request: {
   agentName: string;
   agentHost: string;
 }): Promise<TerminationProof> {
-  if (!isSupportedHost(request.agentHost)) {
+  if (!hasStopKeys(request.agentHost)) {
     return { status: "host-unsupported", host: request.agentHost };
   }
 

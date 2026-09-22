@@ -218,7 +218,8 @@ export type Reason =
   | "not_accepted"
   | "process_live"
   | "approval_revoked"
-  | "preservation_failed";
+  | "preservation_failed"
+  | "writer_active";
 
 export type Operation =
   | "parse_arguments"

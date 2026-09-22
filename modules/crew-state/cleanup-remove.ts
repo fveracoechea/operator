@@ -1,19 +1,13 @@
 import { OperativeCleanup } from "../operative-cleanup/main.ts";
-import { type ApprovalCheck } from "./approval-input.ts";
+import type { ApprovalCheck } from "./approval-input.ts";
 import { type ApprovalRecord, matchApproval } from "./approvals.ts";
-import {
-  CLEANUP_OPERATION,
-  type CleanupState,
-  cleanupRecordOf,
-  cleanupRevisionOf,
-  recordCleanup,
-} from "./cleanup.ts";
-import { type ContextFailure, inspectCheckout, readContext, record } from "./cleanup-context.ts";
-import { checkoutBlockers, holdBlocker, identityBlocker } from "./cleanup-gates.ts";
+import { cleanupRecordOf, cleanupRevisionOf } from "./cleanup.ts";
+import { type ContextFailure, inspectCheckout, readContext } from "./cleanup-context.ts";
+import { checkoutBlockers, holdBlocker, hostBlocker, identityBlocker } from "./cleanup-gates.ts";
 import { matchIdentity } from "./cleanup-identity.ts";
-import { type CleanupBlocker, type CleanupReport, reportOf } from "./cleanup-report.ts";
-import { openOperation, settleOperation } from "./dispatch.ts";
-import { readState } from "./operations.ts";
+import type { CleanupBlocker, CleanupReport } from "./cleanup-report.ts";
+import { cleanupWriter } from "./cleanup-write.ts";
+import { readState, type StateFailure } from "./operations.ts";
 
 /** The one action a person approves before any Operative checkout is removed. */
 export const WORKTREE_DELETE = "worktree_delete";
@@ -29,7 +23,7 @@ export type RemoveResult =
 const KIND = "worktree_removal";
 
 /**
- * The two approvals that permit one removal.
+ * The approvals that permit one removal. Either one is enough.
  * A per-cleanup grant names this checkout at the revision it was inspected at. A workflow grant
  * names the repository at the revision of the registered work and the Operator that owns it.
  */
@@ -60,27 +54,35 @@ type ApprovalOutcome =
   | { status: "revoked"; approval: ApprovalRecord }
   | { status: "missing"; checks: ApprovalCheck[] };
 
+/**
+ * Finds the approval that covers this removal, if this crew holds one.
+ * A state file that cannot answer is reported as the state failure it is, because the resource
+ * a person would then have to settle is the crew state and not the checkout.
+ */
 async function readApproval(
   projectRoot: string,
   checks: ApprovalCheck[],
-): Promise<ApprovalOutcome | { status: "unreadable" }> {
+): Promise<{ outcome: ApprovalOutcome } | { failure: StateFailure }> {
   const matches = await readState(projectRoot, (db) =>
     checks.map((check) => matchApproval(db, check)),
   );
   if (!Array.isArray(matches)) {
-    return { status: "unreadable" };
+    return { failure: matches };
   }
 
   const covered = matches.find((one) => one.status === "matched");
   if (covered !== undefined && covered.status === "matched") {
-    return { status: "covered", approval: covered.approval };
+    return { outcome: { status: "covered", approval: covered.approval } };
   }
 
   // A grant that was revoked covers nothing, and saying so names what the user already decided.
   const revoked = matches.find((one) => one.status === "revoked");
-  return revoked !== undefined && revoked.status === "revoked"
-    ? { status: "revoked", approval: revoked.approval }
-    : { status: "missing", checks };
+  return {
+    outcome:
+      revoked !== undefined && revoked.status === "revoked"
+        ? { status: "revoked", approval: revoked.approval }
+        : { status: "missing", checks },
+  };
 }
 
 /**
@@ -105,87 +107,54 @@ export async function removeWorktree(request: {
   }
 
   const context = read.context;
-  const held = context.removal;
+  const held = context.cleanups.get(KIND) ?? null;
+  const closure = context.cleanups.get("process_closure") ?? null;
+  if (held !== null && held.state === "done") {
+    return {
+      status: "already-removed",
+      report: cleanupWriter({
+        ...request,
+        context,
+        kind: KIND,
+        requestRevision: held.requestRevision,
+        inspection: null,
+      }).report("done"),
+    };
+  }
+
+  const unknownHost = hostBlocker(context);
   const inspection = await inspectCheckout(context);
-  const requestRevision = cleanupRevisionOf({
-    workflowRevision: context.workflowRevision,
+  const writer = cleanupWriter({
+    ...request,
+    context,
     kind: KIND,
-    attemptId: context.attempt.id,
-    assignmentId: context.assignment.id,
-    worktreePath: context.dispatch.worktreePath,
-    branch: context.dispatch.branch,
-    inspectionIdentity: inspection.identity,
+    requestRevision: cleanupRevisionOf({
+      workflowRevision: context.workflowRevision,
+      kind: KIND,
+      attemptId: context.attempt.id,
+      assignmentId: context.assignment.id,
+      worktreePath: context.dispatch.worktreePath,
+      branch: context.dispatch.branch,
+      inspectionIdentity: inspection.identity,
+    }),
+    inspection,
   });
 
-  function report(state: string, row = held): CleanupReport {
-    return reportOf({ context, kind: KIND, state, requestRevision, row });
-  }
-
-  if (held !== null && held.state === "done") {
-    return { status: "already-removed", report: report("done") };
-  }
-
-  async function settle(settlement: {
-    state: CleanupState;
-    detail: string;
-    operation: { id: string; state: "succeeded" | "failed" | "uncertain" } | null;
-  }) {
-    return record(
-      {
-        projectRoot: request.projectRoot,
-        requestId: `${request.requestId}#${KIND}.${settlement.state}`,
-        ownerToken: request.ownerToken,
-        operation: "cleanup_remove_record",
-        input: {
-          attemptId: context.attempt.id,
-          state: settlement.state,
-          detail: settlement.detail,
-          requestRevision,
-        },
-      },
-      ({ tx, now }) => {
-        if (settlement.operation !== null) {
-          settleOperation(tx, {
-            operationId: settlement.operation.id,
-            attemptId: context.attempt.id,
-            state: settlement.operation.state,
-            detail: settlement.detail,
-            now,
-          });
-        }
-
-        recordCleanup(tx, {
-          cleanupId: crypto.randomUUID(),
-          attemptId: context.attempt.id,
-          assignmentId: context.assignment.id,
-          kind: KIND,
-          state: settlement.state,
-          requestRevision,
-          inspection,
-          evidence: null,
-          detail: settlement.detail,
-          now,
-        });
-        return { commit: true, outcome: { status: "recorded" as const } };
-      },
-    );
-  }
-
   async function refuse(blockers: CleanupBlocker[]): Promise<RemoveResult> {
-    const written = await settle({
-      state: "blocked",
-      detail: blockers.map((one) => one.reason).join(", "),
-      operation: null,
-    });
+    const written = await writer.refuse(blockers);
     return written.status === "recorded"
-      ? { status: "blocked", report: report("blocked"), blockers }
+      ? { status: "blocked", report: writer.report("blocked"), blockers }
       : written;
   }
 
+  if (unknownHost !== null) {
+    return refuse([unknownHost]);
+  }
+
   const gates: CleanupBlocker[] = [
-    ...(holdBlocker(context) === null ? [] : [holdBlocker(context)]),
-    ...(context.closure === null || context.closure.state !== "done"
-      ? [{ reason: "process_live" as const, state: context.closure?.state ?? "none" }]
+    holdBlocker(context),
+    ...(closure === null || closure.state !== "done"
+      ? [{ reason: "process_live" as const, state: closure?.state ?? "none" }]
       : []),
     ...(context.assignment.state === "accepted"
       ? []
@@ -204,7 +173,7 @@ export async function removeWorktree(request: {
 
   // A removal that already landed but never answered is settled from what Herdr shows now,
   // ahead of every identity read, because the checkout it would read from is already gone.
-  const started = context.operations.find((one) => one.kind === CLEANUP_OPERATION[KIND]) ?? null;
+  const started = writer.openedOperation();
   if (started !== null) {
     const checkout = await OperativeCleanup.findCheckout({
       repoRoot: request.projectRoot,
@@ -214,13 +183,13 @@ export async function removeWorktree(request: {
       return refuse([{ reason: "checkout_unknown", detail: checkout.detail }]);
     }
     if (checkout.status === "absent") {
-      const reconciled = await settle({
+      const reconciled = await writer.settle({
         state: "done",
         detail: `Herdr no longer holds ${context.dispatch.worktreePath}.`,
         operation: { id: started.id, state: "succeeded" },
       });
       return reconciled.status === "recorded"
-        ? { status: "removed", report: report("done"), repeated: reconciled.repeated }
+        ? { status: "removed", report: writer.report("done"), repeated: reconciled.repeated }
         : reconciled;
     }
   }
@@ -232,7 +201,7 @@ export async function removeWorktree(request: {
 
   // The evidence the closure preserved must still be readable, because deletion is the last
   // moment at which the record could be repaired from the worktree.
-  const preserved = context.closure === null ? [] : cleanupRecordOf(context.closure).evidence;
+  const preserved = closure === null ? [] : cleanupRecordOf(closure).evidence;
   const verified = await OperativeCleanup.verify({
     projectRoot: request.projectRoot,
     items: preserved,
@@ -245,14 +214,16 @@ export async function removeWorktree(request: {
     projectRoot: request.projectRoot,
     worktreePath: context.dispatch.worktreePath,
     workflowRevision: context.workflowRevision,
-    cleanupRevision: requestRevision,
+    cleanupRevision: writer.requestRevision,
   });
-  const approval = await readApproval(request.projectRoot, checks);
-  if (approval.status === "unreadable") {
-    return refuse([
-      { reason: "checkout_unknown", detail: "The crew state could not be read for approvals." },
-    ]);
+  const permission = await readApproval(request.projectRoot, checks);
+  if ("failure" in permission) {
+    // The crew state holds the approvals and the cleanup record alike, so a file that cannot
+    // answer is reported as itself rather than as something about the checkout.
+    return permission.failure;
   }
+
+  const approval = permission.outcome;
   if (approval.status === "revoked") {
     return refuse([{ reason: "approval_revoked", approvalId: approval.approval.approvalId }]);
   }
@@ -270,43 +241,16 @@ export async function removeWorktree(request: {
 
   const operationId = started?.id ?? crypto.randomUUID();
   if (started === null) {
-    const opened = await record(
-      {
-        projectRoot: request.projectRoot,
-        requestId: `${request.requestId}#${KIND}.open`,
-        ownerToken: request.ownerToken,
-        operation: "cleanup_remove_intent",
-        input: { attemptId: context.attempt.id, operationId },
+    const opened = await writer.intend({
+      operationId,
+      intent: {
+        kind: KIND,
+        workspaceId: identity.checkout.workspaceId,
+        worktreePath: context.dispatch.worktreePath,
+        approvalId: approval.approval.approvalId,
       },
-      ({ tx, now }) => {
-        openOperation(tx, {
-          operationId,
-          attemptId: context.attempt.id,
-          kind: CLEANUP_OPERATION[KIND],
-          requestId: request.requestId,
-          intent: {
-            kind: KIND,
-            workspaceId: identity.checkout.workspaceId,
-            worktreePath: context.dispatch.worktreePath,
-            approvalId: approval.approval.approvalId,
-          },
-          now,
-        });
-        recordCleanup(tx, {
-          cleanupId: crypto.randomUUID(),
-          attemptId: context.attempt.id,
-          assignmentId: context.assignment.id,
-          kind: KIND,
-          state: "pending",
-          requestRevision,
-          inspection,
-          evidence: null,
-          detail: `Approved removal of ${context.dispatch.worktreePath} was requested.`,
-          now,
-        });
-        return { commit: true, outcome: { status: "recorded" as const } };
-      },
-    );
+      detail: `Approved removal of ${context.dispatch.worktreePath} was requested.`,
+    });
     if (opened.status !== "recorded") {
       return opened;
     }
@@ -319,33 +263,32 @@ export async function removeWorktree(request: {
   });
 
   if (removed.status === "uncertain") {
-    const written = await settle({
+    const written = await writer.settle({
       state: "uncertain",
       detail: removed.detail,
       operation: { id: operationId, state: "uncertain" },
     });
     return written.status === "recorded"
-      ? { status: "uncertain", report: report("uncertain"), detail: removed.detail }
+      ? { status: "uncertain", report: writer.report("uncertain"), detail: removed.detail }
       : written;
   }
 
   if (removed.status !== "removed") {
     const detail =
       removed.status === "failed" ? `${removed.code}: ${removed.detail}` : removed.detail;
-    const written = await settle({
+    const written = await writer.settle({
       state: "failed",
       detail,
       operation: { id: operationId, state: "failed" },
     });
     return written.status === "recorded"
-      ? { status: "failed", report: report("failed"), detail }
+      ? { status: "failed", report: writer.report("failed"), detail }
       : written;
   }
 
-  const detail = `Herdr removed ${context.dispatch.worktreePath}.`;
-  const written = await settle({
+  const written = await writer.settle({
     state: "done",
-    detail,
+    detail: `Herdr removed ${context.dispatch.worktreePath}.`,
     operation: { id: operationId, state: "succeeded" },
   });
   if (written.status !== "recorded") {
@@ -359,7 +302,10 @@ export async function removeWorktree(request: {
   });
   return {
     status: "removed",
-    report: report("done", final.status === "ok" ? final.context.removal : held),
+    report: writer.report(
+      "done",
+      final.status === "ok" ? (final.context.cleanups.get(KIND) ?? held) : held,
+    ),
     repeated: written.repeated,
   };
 }

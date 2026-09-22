@@ -1,105 +1,37 @@
 import { OperativeCleanup } from "../operative-cleanup/main.ts";
 import { OperativeDispatch } from "../operative-dispatch/main.ts";
+import { cleanupRevisionOf } from "./cleanup.ts";
 import {
-  CLEANUP_OPERATION,
-  type CleanupState,
-  cleanupRevisionOf,
-  type EvidenceItem,
-  recordCleanup,
-} from "./cleanup.ts";
-import {
-  type CleanupContext,
   type ContextFailure,
   heldArtifacts,
   inspectCheckout,
   readContext,
-  record,
 } from "./cleanup-context.ts";
 import {
   checkoutBlockers,
   handoffBlockers,
   holdBlocker,
+  hostBlocker,
   identityBlocker,
+  stillWritingBlockers,
 } from "./cleanup-gates.ts";
 import { matchIdentity } from "./cleanup-identity.ts";
-import { type CleanupBlocker, type CleanupReport, reportOf } from "./cleanup-report.ts";
-import { openOperation, settleOperation } from "./dispatch.ts";
+import type { CleanupBlocker, CleanupReport } from "./cleanup-report.ts";
+import { cleanupWriter } from "./cleanup-write.ts";
 
 export type CloseResult =
   | { status: "closed"; report: CleanupReport; repeated: boolean }
   | { status: "already-closed"; report: CleanupReport }
   | { status: "blocked"; report: CleanupReport; blockers: CleanupBlocker[] }
   | { status: "uncertain"; report: CleanupReport; detail: string }
-  | { status: "failed"; report: CleanupReport; detail: string }
   | ContextFailure;
 
 const KIND = "process_closure";
 
-type Settlement = { state: CleanupState; detail: string; evidence: EvidenceItem[] | null };
-
-/**
- * Writes one cleanup outcome and the external effect it settled.
- * Every path through a closure ends here, so a blocked, failed, uncertain, and finished run
- * are one record that survives the session rather than four ways of leaving no trace.
- */
-async function settle(request: {
-  projectRoot: string;
-  requestId: string;
-  ownerToken: string;
-  context: CleanupContext;
-  requestRevision: string;
-  inspection: unknown;
-  settlement: Settlement;
-  operation: { id: string; state: "intended" | "succeeded" | "failed" | "uncertain" } | null;
-}) {
-  const { context, settlement } = request;
-
-  return record(
-    {
-      projectRoot: request.projectRoot,
-      requestId: `${request.requestId}#${KIND}.${settlement.state}`,
-      ownerToken: request.ownerToken,
-      operation: "cleanup_close_record",
-      input: {
-        attemptId: context.attempt.id,
-        state: settlement.state,
-        detail: settlement.detail,
-        requestRevision: request.requestRevision,
-      },
-    },
-    ({ tx, now }) => {
-      if (request.operation !== null && request.operation.state !== "intended") {
-        settleOperation(tx, {
-          operationId: request.operation.id,
-          attemptId: context.attempt.id,
-          state: request.operation.state,
-          detail: settlement.detail,
-          now,
-        });
-      }
-
-      recordCleanup(tx, {
-        cleanupId: crypto.randomUUID(),
-        attemptId: context.attempt.id,
-        assignmentId: context.assignment.id,
-        kind: KIND,
-        state: settlement.state,
-        requestRevision: request.requestRevision,
-        inspection: request.inspection,
-        evidence: settlement.evidence,
-        detail: settlement.detail,
-        now,
-      });
-      return { commit: true, outcome: { status: "recorded" as const } };
-    },
-  );
-}
-
 /**
  * Closes one Operative process after its work is durably handed over.
- * It proves the artifacts are readable, the revisions still stand, no question waits, the
- * checkout holds nothing unregistered, the evidence lives outside the worktree, the host
- * stopped through its own stop keys, and its pane runs nothing this attempt started.
+ * It proves the handoff, the revisions, the evidence, the answered questions, the stopped
+ * writing, the identity of every resource, the accounted child tools, and the termination.
  * The checkout itself is untouched: disposal is a separate outcome with its own approval.
  */
 export async function closeProcess(request: {
@@ -118,45 +50,54 @@ export async function closeProcess(request: {
   }
 
   const context = read.context;
-  const held = context.closure;
+  const held = context.cleanups.get(KIND) ?? null;
+  if (held !== null && held.state === "done") {
+    return {
+      status: "already-closed",
+      report: cleanupWriter({
+        ...request,
+        context,
+        kind: KIND,
+        requestRevision: held.requestRevision,
+        inspection: null,
+      }).report("done"),
+    };
+  }
+
+  // The host decides which paths Operator wrote, which keys stop it, and which pane it holds,
+  // so a host this release cannot stop makes every later reading meaningless.
+  const unknownHost = hostBlocker(context);
   const inspection = await inspectCheckout(context);
-  const requestRevision = cleanupRevisionOf({
-    workflowRevision: context.workflowRevision,
+  const writer = cleanupWriter({
+    ...request,
+    context,
     kind: KIND,
-    attemptId: context.attempt.id,
-    assignmentId: context.assignment.id,
-    worktreePath: context.dispatch.worktreePath,
-    branch: context.dispatch.branch,
-    inspectionIdentity: inspection.identity,
+    requestRevision: cleanupRevisionOf({
+      workflowRevision: context.workflowRevision,
+      kind: KIND,
+      attemptId: context.attempt.id,
+      assignmentId: context.assignment.id,
+      worktreePath: context.dispatch.worktreePath,
+      branch: context.dispatch.branch,
+      inspectionIdentity: inspection.identity,
+    }),
+    inspection,
   });
 
-  function report(state: string): CleanupReport {
-    return reportOf({ context, kind: KIND, state, requestRevision, row: held });
-  }
-
-  if (held !== null && held.state === "done") {
-    return { status: "already-closed", report: report("done") };
-  }
-
   async function refuse(blockers: CleanupBlocker[]): Promise<CloseResult> {
-    const detail = blockers.map((one) => one.reason).join(", ");
-    const written = await settle({
-      projectRoot: request.projectRoot,
-      requestId: request.requestId,
-      ownerToken: request.ownerToken,
-      context,
-      requestRevision,
-      inspection,
-      settlement: { state: "blocked", detail, evidence: null },
-      operation: null,
-    });
+    const written = await writer.refuse(blockers);
     return written.status === "recorded"
-      ? { status: "blocked", report: report("blocked"), blockers }
+      ? { status: "blocked", report: writer.report("blocked"), blockers }
       : written;
+  }
+
+  if (unknownHost !== null) {
+    return refuse([unknownHost]);
   }
 
   const gates = [
     holdBlocker(context),
+    ...stillWritingBlockers({ context, inspection }),
     ...handoffBlockers(context),
     ...checkoutBlockers(inspection, { requireRemote: false }),
   ].flatMap((one) => (one === null ? [] : [one]));
@@ -190,43 +131,16 @@ export async function closeProcess(request: {
     ]);
   }
 
-  // The intent is written before the stop, so a lost answer is reconciled from what Herdr
-  // shows rather than repeated blindly into a host that already ended.
-  const existing = context.operations.find((one) => one.kind === CLEANUP_OPERATION[KIND]) ?? null;
-  const operationId = existing?.id ?? crypto.randomUUID();
-  if (existing === null) {
-    const opened = await record(
-      {
-        projectRoot: request.projectRoot,
-        requestId: `${request.requestId}#${KIND}.open`,
-        ownerToken: request.ownerToken,
-        operation: "cleanup_close_intent",
-        input: { attemptId: context.attempt.id, operationId },
-      },
-      ({ tx, now }) => {
-        openOperation(tx, {
-          operationId,
-          attemptId: context.attempt.id,
-          kind: CLEANUP_OPERATION[KIND],
-          requestId: request.requestId,
-          intent: { kind: KIND, agentName: context.dispatch.agentName },
-          now,
-        });
-        recordCleanup(tx, {
-          cleanupId: crypto.randomUUID(),
-          attemptId: context.attempt.id,
-          assignmentId: context.assignment.id,
-          kind: KIND,
-          state: "pending",
-          requestRevision,
-          inspection,
-          evidence: preserved.items,
-          detail: "The supported host stop was requested.",
-          now,
-        });
-        return { commit: true, outcome: { status: "recorded" as const } };
-      },
-    );
+  // The intent is written before the stop, so a run that dies here is recovered from what
+  // Herdr shows rather than repeated blindly into a host that already ended.
+  const started = writer.openedOperation();
+  const operationId = started?.id ?? crypto.randomUUID();
+  if (started === null) {
+    const opened = await writer.intend({
+      operationId,
+      intent: { kind: KIND, agentName: context.dispatch.agentName },
+      detail: "The supported host stop was requested.",
+    });
     if (opened.status !== "recorded") {
       return opened;
     }
@@ -250,19 +164,25 @@ export async function closeProcess(request: {
     ]);
   }
   if (stopped.status === "uncertain") {
-    const written = await settle({
-      projectRoot: request.projectRoot,
-      requestId: request.requestId,
-      ownerToken: request.ownerToken,
-      context,
-      requestRevision,
-      inspection,
-      settlement: { state: "uncertain", detail: stopped.detail, evidence: preserved.items },
+    const written = await writer.settle({
+      state: "uncertain",
+      detail: stopped.detail,
+      evidence: preserved.items,
       operation: { id: operationId, state: "uncertain" },
     });
     return written.status === "recorded"
-      ? { status: "uncertain", report: report("uncertain"), detail: stopped.detail }
+      ? { status: "uncertain", report: writer.report("uncertain"), detail: stopped.detail }
       : written;
+  }
+
+  // A stopped Operative writes nothing more, so the checkout must be exactly what it was when
+  // this run read it. A checkout that moved was still being written while it was stopped.
+  const after = await inspectCheckout(context);
+  if (after.identity !== inspection.identity) {
+    return refuse([
+      { reason: "writer_active", state: context.attempt.state, checkout: after.worktreePath },
+      ...checkoutBlockers(after, { requireRemote: false }),
+    ]);
   }
 
   // A review runs its two axes as sub-agents of one host, so a stopped Operative leaves no
@@ -286,15 +206,10 @@ export async function closeProcess(request: {
     ]);
   }
 
-  const detail = `${context.dispatch.agentName} stopped on ${context.dispatch.agentHost}.`;
-  const written = await settle({
-    projectRoot: request.projectRoot,
-    requestId: request.requestId,
-    ownerToken: request.ownerToken,
-    context,
-    requestRevision,
-    inspection,
-    settlement: { state: "done", detail, evidence: preserved.items },
+  const written = await writer.settle({
+    state: "done",
+    detail: `${context.dispatch.agentName} stopped on ${context.dispatch.agentHost}.`,
+    evidence: preserved.items,
     operation: { id: operationId, state: "succeeded" },
   });
   if (written.status !== "recorded") {
@@ -308,13 +223,10 @@ export async function closeProcess(request: {
   });
   return {
     status: "closed",
-    report: reportOf({
-      context,
-      kind: KIND,
-      state: "done",
-      requestRevision,
-      row: final.status === "ok" ? final.context.closure : held,
-    }),
+    report: writer.report(
+      "done",
+      final.status === "ok" ? (final.context.cleanups.get(KIND) ?? held) : held,
+    ),
     repeated: written.repeated,
   };
 }
