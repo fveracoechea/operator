@@ -23,7 +23,9 @@ export type UpdateBlocker = {
     | "unmigratable_state"
     | "unreadable_selection"
     | "lock_data_missing"
-    | "package_version_required";
+    | "package_version_required"
+    | "release_commit_mismatch"
+    | "package_version_mismatch";
   detail: string;
   nextAction: string;
   paths: string[];
@@ -147,6 +149,34 @@ export async function computeUpdatePlan(request: UpdateRequest): Promise<UpdateP
         "lock_data_missing",
         "The running Operator installation holds no lock data, so the release it would record is not reproducible.",
         "Reinstall Operator so the installation keeps its own lock data, then plan the update again.",
+      ),
+    );
+  }
+
+  // A release that carries its own record knows which commit and version it is. The project
+  // records the release that is running, so it never records one nobody verified. A checkout
+  // carries no such record, and nothing is checked against a record that does not exist.
+  if (running.commit !== null && running.commit !== request.commit) {
+    blockers.push(
+      blocker(
+        "release_commit_mismatch",
+        `The running Operator release was built from commit ${running.commit}, and this update names ${request.commit}.`,
+        "Name the commit the running release was built from, or run the release that commit built.",
+      ),
+    );
+  }
+
+  if (
+    request.delivery === "jsr" &&
+    request.packageVersion !== null &&
+    running.artifact === "built" &&
+    request.packageVersion !== running.version
+  ) {
+    blockers.push(
+      blocker(
+        "package_version_mismatch",
+        `The running Operator release is version ${running.version}, and this update names the published version ${request.packageVersion}.`,
+        "Name the version the running release is, or run the release that version holds.",
       ),
     );
   }

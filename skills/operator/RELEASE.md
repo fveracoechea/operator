@@ -25,6 +25,12 @@ Give that command to the user; Operator never retrieves a package itself.
 
 ## What an update refuses
 
+Nothing is written when the commit, or the published version, is not the one the running release
+carries.
+A retrieved release records the commit it was built from, so the update reads that record instead
+of trusting the flag.
+A checkout carries no such record, and nothing is checked against a record that does not exist.
+
 Nothing is written while the crew still has work in flight.
 Finish, accept, or invalidate that work first, then plan again.
 

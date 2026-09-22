@@ -184,6 +184,67 @@ describe("the release artifact", () => {
   });
 });
 
+describe("an update run from a built release", () => {
+  /** Runs one built CLI in a scratch project, the way a retrieved release is run. */
+  async function runBuilt(artifactRoot: string, args: string[]) {
+    const project = outputRoot();
+    await Bun.$`mkdir -p ${project}`.quiet();
+    const child = Bun.spawn(
+      [
+        "bun",
+        "--no-install",
+        "-e",
+        `const { main } = await import(${JSON.stringify(`${artifactRoot}/cli.js`)}); await main(Bun.argv.slice(1));`,
+        "--",
+        ...args,
+      ],
+      { cwd: project, stderr: "pipe", stdout: "pipe" },
+    );
+    const [exitCode, stdout] = await Promise.all([child.exited, new Response(child.stdout).text()]);
+    return { exitCode, json: JSON.parse(stdout) };
+  }
+
+  test("refuses to record a commit the running release was not built from", async () => {
+    const { artifactRoot } = await buildArtifact();
+    await symlink(`${sourceRoot}/node_modules`, `${artifactRoot}/node_modules`);
+    // A retrieved installation keeps its own lock data, so the fixture keeps it too.
+    await Bun.write(`${artifactRoot}/bun.lock`, "{}\n");
+
+    const result = await runBuilt(artifactRoot, [
+      "update",
+      "plan",
+      "--claude",
+      "--commit",
+      "a".repeat(40),
+      "--json",
+    ]);
+
+    expect(result.json.reason).toBe("update_blocked");
+    expect(result.json.blockers.map((one: { reason: string }) => one.reason)).toContain(
+      "release_commit_mismatch",
+    );
+  });
+
+  test("records the commit the running release was built from", async () => {
+    const { artifactRoot } = await buildArtifact();
+    await symlink(`${sourceRoot}/node_modules`, `${artifactRoot}/node_modules`);
+    // A retrieved installation keeps its own lock data, so the fixture keeps it too.
+    await Bun.write(`${artifactRoot}/bun.lock`, "{}\n");
+
+    const result = await runBuilt(artifactRoot, [
+      "update",
+      "plan",
+      "--claude",
+      "--commit",
+      commit,
+      "--json",
+    ]);
+
+    expect(result.json.reason).toBe("update_plan_ready");
+    expect(result.json.data.to.commit).toBe(commit);
+  });
+});
+
 describe("the release tooling", () => {
   test("builds a complete artifact through the command a maintainer runs", async () => {
     const artifactRoot = outputRoot();

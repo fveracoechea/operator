@@ -31,6 +31,8 @@ export type Reason =
   | "assignments_active"
   | "unmigratable_state"
   | "package_version_required"
+  | "release_commit_mismatch"
+  | "package_version_mismatch"
   | "backup_unverified"
   | "migration_failed"
   | "invalid_selection"
