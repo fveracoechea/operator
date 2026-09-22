@@ -18,7 +18,7 @@
     "test:module-boundaries": "bun scripts/prove-module-boundaries.ts",
     "test": "bun test",
     "typecheck": "bunx --bun --no-install tsc --noEmit -p tsconfig.json",
-    "quality": "bun run format:check && bun run lint && bun run typecheck && bun run lint:modules && bun run test:module-boundaries && bun run test"
+    "quality": "bun run --parallel format:check lint typecheck lint:modules test:module-boundaries test"
   },
   "dependencies": {
     "drizzle-orm": "0.44.6",
