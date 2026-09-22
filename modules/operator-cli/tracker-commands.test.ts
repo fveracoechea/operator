@@ -393,6 +393,20 @@ describe("operator tracker record completion", () => {
     expect(recorded.json.data.state).toBe("verified");
   });
 
+  test("never closes a ticket whose state it could not read", async () => {
+    const workspace = await makeWorkspace();
+    await setFault(workspace, "readIssue", "status:502");
+
+    const recorded = await recordStep(workspace, { input: completionBody() });
+
+    expect(recorded.exitCode).toBe(5);
+    expect(recorded.json.reason).toBe("tracker.completion_outcome_unknown");
+    expect(recorded.json.data.writeAttempts).toEqual([]);
+    // A reopen this read could not see is never overridden by a close it did not need.
+    expect((await githubState(workspace)).issues[String(TICKET)]?.state).toBe("open");
+    expect((await githubCalls(workspace)).filter((line) => line.startsWith("PATCH "))).toEqual([]);
+  });
+
   test("keeps a lost close uncertain while the ticket is still open", async () => {
     const workspace = await makeWorkspace();
     await setFault(workspace, "closeIssue", "lost");

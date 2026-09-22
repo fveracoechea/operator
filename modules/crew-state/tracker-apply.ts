@@ -1,5 +1,5 @@
 import { TrackerUpdate } from "../tracker-update/main.ts";
-import { approvalCovers, readApproval } from "./approvals.ts";
+import { type ApprovalRow, approvalCovers, readApproval } from "./approvals.ts";
 import type { CrewReader } from "./database.ts";
 import { identityOf } from "./identity.ts";
 import { parseInput } from "./input.ts";
@@ -169,6 +169,71 @@ function approvalCheckFor(request: {
     scope: request.operation.step,
     requestRevision: String(request.attempts.length),
   };
+}
+
+/**
+ * Whether this call may write, read from what the tracker was just observed to show.
+ * A settled step stops here, an unproven effect stops until a person approves another write,
+ * and a state that could not be read stops rather than writing over what it could not see.
+ */
+function gateBeforeWriting(request: {
+  operation: TrackerOperationRow;
+  attempts: TrackerWriteRow[];
+  target: TrackerTarget;
+  approval: ApprovalRow | null;
+  approvalMissing: boolean;
+  approvalId: string | null;
+}): { status: "proceed" } | { status: "stop" } | TrackerResult {
+  const { operation } = request;
+  if (operation.state === "verified" || operation.state === "conflict") {
+    return { status: "stop" };
+  }
+
+  // A tracker that refused the write answered it. Every other failure is a read that did not.
+  if (operation.state === "failed") {
+    return operation.reason === "tracker.write_rejected"
+      ? { status: "proceed" }
+      : { status: "stop" };
+  }
+
+  if (operation.state !== "uncertain") {
+    return { status: "proceed" };
+  }
+
+  // An uncertain reading with no write behind it is a state that could not be established.
+  // There is no earlier effect to accept the risk of, so nothing is sent.
+  if (sentWrites(request.attempts).length === 0) {
+    return { status: "stop" };
+  }
+
+  const check = approvalCheckFor({
+    operation,
+    target: request.target,
+    attempts: request.attempts,
+  });
+  if (request.approvalMissing) {
+    return { status: "unknown-approval", approvalId: request.approvalId ?? "" };
+  }
+
+  const approval = request.approval;
+  if (approval === null) {
+    return {
+      status: "approval-required",
+      operationId: operation.id,
+      state: operation.state,
+      ...check,
+    };
+  }
+
+  const coverage = approvalCovers(approval, check);
+  if (coverage.status === "mismatch") {
+    return { status: "approval-mismatch", approvalId: approval.id, field: coverage.field };
+  }
+  if (coverage.status === "revoked") {
+    return { status: "approval-revoked", approvalId: approval.id };
+  }
+
+  return { status: "proceed" };
 }
 
 type Context = {
@@ -405,8 +470,8 @@ export async function recordTrackerStep(request: {
 
   const { target } = read.context;
   const intentIdentity = identityOf({ ...input, target });
-  let operation = read.context.operation;
   let attempts = read.context.attempts;
+  let operation = read.context.operation;
 
   if (operation !== null) {
     // A verified step is finished. It is never written again to repair another step.
@@ -434,63 +499,7 @@ export async function recordTrackerStep(request: {
       return settledLost;
     }
     attempts = settledLost.attempts;
-
-    // Whatever the earlier answer was, the current state of the tracker decides what is left.
-    const settled = await settleFromObservation({
-      projectRoot: request.projectRoot,
-      requestId: `${request.requestId}#before`,
-      ownerToken: request.ownerToken,
-      operation,
-      target,
-      attempts,
-    });
-    if (settled.status !== "settled") {
-      return settled;
-    }
-
-    const refreshed = await readState(request.projectRoot, (db) =>
-      readTrackerOperation(db, operation === null ? "" : operation.id),
-    );
-    if (refreshed !== null && "status" in refreshed) {
-      return refreshed;
-    }
-    if (refreshed === null) {
-      return { status: "unknown-operation", operationId: operation.id };
-    }
-    operation = refreshed;
-
-    // The observation alone may finish the step, and a conflict never accepts another write.
-    if (operation.state === "verified" || operation.state === "conflict") {
-      return finalReport(request.projectRoot, operation.id);
-    }
-
-    if (operation.state === "uncertain") {
-      const check = approvalCheckFor({ operation, target, attempts });
-      if (read.approvalMissing) {
-        return { status: "unknown-approval", approvalId: request.approvalId ?? "" };
-      }
-
-      const approval = read.approval;
-      if (approval === null) {
-        return {
-          status: "approval-required",
-          operationId: operation.id,
-          state: operation.state,
-          ...check,
-        };
-      }
-
-      const coverage = approvalCovers(approval, check);
-      if (coverage.status === "mismatch") {
-        return { status: "approval-mismatch", approvalId: approval.id, field: coverage.field };
-      }
-      if (coverage.status === "revoked") {
-        return { status: "approval-revoked", approvalId: approval.id };
-      }
-    }
-  }
-
-  if (operation === null) {
+  } else {
     // The rendered comment carries this identity in its marker, so the operation is named once
     // and the same bytes are rebuilt by every later recovery.
     const operationId = crypto.randomUUID();
@@ -502,10 +511,7 @@ export async function recordTrackerStep(request: {
     if (planned.status === "unsupported-provider") {
       return { status: "unsupported-provider", provider: planned.provider };
     }
-    if (planned.status === "capability-unavailable") {
-      return planned;
-    }
-    if (planned.status === "actor-unknown") {
+    if (planned.status === "capability-unavailable" || planned.status === "actor-unknown") {
       return planned;
     }
 
@@ -552,26 +558,58 @@ export async function recordTrackerStep(request: {
 
     operation = stored;
     attempts = [];
+  }
 
-    // A ticket's completion state exists whether or not Operator wrote it, so the current state
-    // is read before the close. A comment marker cannot exist before its own write, so a new
-    // comment step has nothing to read yet.
-    if (input.step === "completion") {
-      const before = await settleFromObservation({
-        projectRoot: request.projectRoot,
-        requestId: `${request.requestId}#before`,
-        ownerToken: request.ownerToken,
-        operation,
-        target,
-        attempts,
-      });
-      if (before.status !== "settled") {
-        return before;
-      }
-      if (before.verdict.state === "verified" || before.verdict.state === "conflict") {
-        return finalReport(request.projectRoot, operationId);
-      }
+  /**
+   * What the tracker shows before this call writes anything.
+   * A ticket's completion state exists whether or not Operator wrote it, and a step that already
+   * sent a write may have landed. A new comment step has nothing to read: its marker cannot
+   * exist before its own write.
+   */
+  if (storedStep(operation.step) === "completion" || attempts.length > 0) {
+    const operationId = operation.id;
+    const before = await settleFromObservation({
+      projectRoot: request.projectRoot,
+      requestId: `${request.requestId}#before`,
+      ownerToken: request.ownerToken,
+      operation,
+      target,
+      attempts,
+    });
+    if (before.status !== "settled") {
+      return before;
     }
+
+    const refreshed = await readState(request.projectRoot, (db) =>
+      readTrackerOperation(db, operationId),
+    );
+    if (refreshed !== null && "status" in refreshed) {
+      return refreshed;
+    }
+    if (refreshed === null) {
+      return { status: "unknown-operation", operationId };
+    }
+    operation = refreshed;
+
+    const gate = gateBeforeWriting({
+      operation,
+      attempts,
+      target,
+      approval: read.approval,
+      approvalMissing: read.approvalMissing,
+      approvalId: request.approvalId,
+    });
+    if (gate.status === "stop") {
+      return finalReport(request.projectRoot, operationId);
+    }
+    if (gate.status !== "proceed") {
+      return gate;
+    }
+  }
+
+  // A replay of one caller request returns what that request recorded. It never sends again.
+  if (attempts.some((one) => one.requestId === request.requestId && one.state !== "intended")) {
+    return finalReport(request.projectRoot, operation.id);
   }
 
   // The comment content is rendered from the identity of the operation that carries it, and it
