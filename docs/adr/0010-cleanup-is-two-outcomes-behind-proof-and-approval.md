@@ -41,10 +41,19 @@ Herdr owns these resources; an unsafe checkout is Herdr's refusal to report, not
 Reading only `git status` was rejected.
 It hides ignored files, which is exactly where work nobody registered would sit unnoticed until it was gone.
 
+Widening remote preservation beyond the commits this attempt produced was rejected.
+`git worktree remove` deletes the checkout directory and its administrative entry.
+Branch references, their commits, and the stash stack live in the shared repository and survive it, so they are not what a removal puts at risk.
+Reading the whole history of `HEAD` instead would refuse every removal in a project that has not published its main branch, which is the controlling checkout's business and not this cleanup's.
+
 Sending the stop keys before reading Herdr was rejected.
 A stop whose answer was lost would then be sent a second time, and the recorded operation could never be settled from evidence.
 
 ## Consequences
+
+Operator's own paths inside a checkout are excluded from the reading that finds unregistered work, so an edit to them is invisible there.
+The brief is checked against the identity the dispatch recorded, because it is the one launch input whose exact expected content the crew state holds.
+An edit to an installed skill is still invisible at cleanup; the launch verifies those copies, and nothing re-verifies them afterwards.
 
 The exact-revision gate on closure cannot be reached through the current commands.
 Registration refuses a moved source revision and submission refuses a mismatched one, so no supported path moves those values under a finished result.
