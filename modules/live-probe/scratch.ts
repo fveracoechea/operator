@@ -1,7 +1,13 @@
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
+import { SkillInstall } from "../skill-install/main.ts";
 
 export const PROBE_DIRECTORY = ".operator/local/probe";
+
+export type Target = "opencode" | "claude-code";
+
+/** The instruction files a probe copies out of the project for its synthetic checkout. */
+const INSTRUCTION_FILES = ["AGENTS.md", "CLAUDE.md"];
 
 export type Scratch = {
   /** The one directory every temporary resource of this run lives under. */
@@ -10,16 +16,40 @@ export type Scratch = {
   worktreePath: string;
   branch: string;
   baseCommit: string;
+  /** The instruction files the probe placed. A loading check reads these names back. */
+  instructions: string[];
+  /** The skills the probe installed. A loading check reads these names back. */
+  skills: string[];
 };
 
 /**
+ * Copies the project's own instruction files into the synthetic checkout.
+ * The probe reads them and never writes to the project, and the launched host then loads the
+ * files this project really ships rather than a placeholder that proves nothing about it.
+ */
+async function copyInstructions(projectRoot: string, repo: string): Promise<string[]> {
+  const placed: string[] = [];
+  for (const name of INSTRUCTION_FILES) {
+    const source = Bun.file(`${projectRoot}/${name}`);
+    if (await source.exists()) {
+      await Bun.write(`${repo}/${name}`, await source.text(), { createPath: true });
+      placed.push(name);
+    }
+  }
+
+  return placed;
+}
+
+/**
  * Builds the synthetic repository one probe runs in.
- * It holds generated files only and lives under the ignored Operator directory, so no probe
- * reaches the project working tree, its history, or its remote.
+ * It holds the project's instruction files, the skills this release installs, and generated
+ * files, and it lives under the ignored Operator directory, so no probe reaches the project
+ * working tree, its history, or its remote.
  */
 export async function makeScratch(request: {
   projectRoot: string;
   runId: string;
+  targets: Target[];
 }): Promise<Scratch> {
   const root = `${request.projectRoot}/${PROBE_DIRECTORY}/${request.runId}`;
   const repo = `${root}/repo`;
@@ -27,10 +57,15 @@ export async function makeScratch(request: {
   await Bun.write(`${repo}/README.md`, `# Operator live probe ${request.runId}\n`, {
     createPath: true,
   });
-  await Bun.write(
-    `${repo}/AGENTS.md`,
-    "# Synthetic probe instructions\n\nAnswer only the probe brief.\n",
-  );
+  const instructions = await copyInstructions(request.projectRoot, repo);
+  if (instructions.length === 0) {
+    await Bun.write(
+      `${repo}/AGENTS.md`,
+      "# Synthetic probe instructions\n\nAnswer only the probe brief.\n",
+    );
+    instructions.push("AGENTS.md");
+  }
+  const installed = await SkillInstall.run({ projectRoot: repo, targets: request.targets });
   await Bun.$`git init -q -b main ${repo}`.quiet();
   await Bun.$`git -C ${repo} add -A`.quiet();
   await Bun.$`git -C ${repo} -c user.email=probe@operator.invalid -c user.name=Operator commit -q -m probe`.quiet();
@@ -42,6 +77,10 @@ export async function makeScratch(request: {
     worktreePath: `${root}/worktree`,
     branch: `operator-probe/${request.runId}`,
     baseCommit,
+    instructions,
+    skills: [
+      ...new Set([...installed.installed, ...installed.adopted].map((one) => one.skill)),
+    ].toSorted(),
   };
 }
 

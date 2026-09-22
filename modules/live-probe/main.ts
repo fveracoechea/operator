@@ -1,5 +1,6 @@
 import { ContentIdentity } from "../content-identity/main.ts";
 import { type Host, LIFECYCLE_CHECKS, type Lifecycle } from "./agents.ts";
+import type { Target } from "./scratch.ts";
 import { runLifecycle } from "./lifecycle.ts";
 import { PROBE_DIRECTORY, removeScratch, scratchDirectories } from "./scratch.ts";
 import { failed, passed, passedAll, type Staged, skipRest } from "./stage.ts";
@@ -66,6 +67,11 @@ function providerCompatibility(request: RunRequest, staged: Staged[]): Staged {
     : failed("provider-compatibility", `${detail} did not both answer through their own provider.`);
 }
 
+/** The installation targets this release knows how to give a synthetic checkout. */
+function isTarget(name: string): name is Target {
+  return name === "opencode" || name === "claude-code";
+}
+
 /** What a cleanup would remove, and the identity an approval of it must match. */
 async function inspectScratch(projectRoot: string) {
   const directories = await scratchDirectories(projectRoot);
@@ -105,6 +111,7 @@ export const LiveProbe = {
         runId,
         probeId: request.probeId,
         projectRoot: request.projectRoot,
+        targets: request.targets.filter(isTarget),
         operator: { host: request.operator.host, model: request.operator.model },
         crew: { host: request.crew.host, model: request.crew.model },
         observationMs: observationMs(),

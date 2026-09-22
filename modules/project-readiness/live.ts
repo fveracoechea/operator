@@ -60,7 +60,8 @@ export const liveChecks: LiveCheck[] = [
   },
   {
     name: "instruction-and-skill-loading",
-    summary: "The launched agent loads the project instructions and the selected skill contents.",
+    summary:
+      "The launched agent reports loading this project's instruction files and this release's skills, which the synthetic checkout holds.",
     group: "project-readiness",
     inputs: AGENT_INPUTS,
     claims: ["readiness"],
@@ -213,7 +214,7 @@ export const liveChecks: LiveCheck[] = [
 ];
 
 export const probeTemporaryResources = [
-  "One scratch Git repository under `.operator/local/probe/`, holding synthetic files only.",
+  "One scratch Git repository under `.operator/local/probe/`, holding a copy of this project's instruction files, the skills this release installs, and generated files.",
   "One Herdr-managed test worktree of that scratch repository.",
   "One Herdr crew agent on the Operator host.",
   "One Herdr crew agent on the Crew host, which runs the review sub-agents.",

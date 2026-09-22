@@ -110,6 +110,7 @@ A change to the project, the selection, or what the plan declares makes a new `p
 
 The probe runs on resources it creates for itself.
 It builds a synthetic repository under `.operator/local/probe/`, asks Herdr for one managed worktree of it, launches one agent on each selected host, and writes to the tracker fixture you name in configuration.
+The synthetic repository holds a copy of your instruction files and the skills this release installs, so the loading check reads your own contents back.
 It reaches no project issue, no Operative worktree, no branch, no remote, and no release.
 
 ```json

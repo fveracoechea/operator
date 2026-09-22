@@ -4,6 +4,7 @@ A static check reads the machine and the project.
 A live check has to launch agents, spend provider tokens, and write to a tracker, so it needs something to act on.
 
 It acts on resources it creates for itself: a synthetic repository under the ignored Operator directory, one Herdr worktree of that repository, its own crew agents, its own crew state, and one tracker fixture named in configuration.
+The synthetic repository holds a copy of this project's instruction files and the skills this release installs, so the loading check reads real contents back instead of a placeholder.
 It never launches in the project checkout, never writes to a project issue, and never touches an Operative worktree, a branch, a remote, or a release.
 So a probe that goes wrong costs a scratch directory and a fixture comment, and the approval a person gives covers exactly what the plan showed.
 

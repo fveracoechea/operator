@@ -1,6 +1,6 @@
 import { HerdrControl } from "../herdr-control/main.ts";
 import { briefFor, type ProbeStep, readReport, type ReportOf } from "./protocol.ts";
-import type { Scratch } from "./scratch.ts";
+import type { Scratch, Target } from "./scratch.ts";
 import { waitForFile } from "./scratch.ts";
 
 export type Host = "opencode" | "claude-code";
@@ -9,6 +9,8 @@ export type Lifecycle = {
   runId: string;
   probeId: string;
   projectRoot: string;
+  /** The installation targets whose skills the synthetic checkout is given. */
+  targets: Target[];
   operator: { host: Host; model: string | null };
   crew: { host: Host; model: string | null };
   /** The window one bounded read waits in. A window that runs out is a failure, never a wait. */

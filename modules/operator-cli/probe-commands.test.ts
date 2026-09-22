@@ -51,13 +51,17 @@ function issue(number: number, body: string): FakeIssue {
 }
 
 /** Answers every step with a report that satisfies the check that reads it. */
-function goodReports(options: { crewHost?: string; operatorHost?: string } = {}) {
+function goodReports(
+  options: { crewHost?: string; operatorHost?: string; skills?: string[] } = {},
+) {
   return {
     loading: {
       step: "loading",
       host: options.operatorHost ?? "claude-code",
-      instructions: ["AGENTS.md"],
-      skills: ["operator"],
+      // The probe copies the project's own instruction files and installs its own skills into
+      // the synthetic checkout, so a good answer names them. Naming more changes nothing.
+      instructions: ["AGENTS.md", "CLAUDE.md"],
+      skills: options.skills ?? ["operator"],
     },
     question: {
       step: "question",
@@ -96,7 +100,7 @@ async function writeFixtureState(workspace: Workspace, state: GithubFakeState): 
 
 async function makeProbeWorkspace(
   options: { fixture?: boolean; operator?: Host; crew?: Host } = {},
-): Promise<Workspace & { probeId: string; selection: string[] }> {
+): Promise<Workspace & { probeId: string; selection: string[]; skills: string[] }> {
   const operator = options.operator ?? "claude-code";
   const crew = options.crew ?? "opencode";
   const workspace = await fixtures.make({
@@ -141,11 +145,21 @@ async function makeProbeWorkspace(
 
   const chosen = selectionFor(operator, crew);
   const probe = await runJson(workspace, ["setup", "probe", "plan", ...chosen]);
-  return { ...workspace, probeId: probe.json.data.probeId, selection: chosen };
+  // The skills this release installs, read from the copy setup just made, so the canned answer
+  // names what the probe really places instead of a list that drifts from the release.
+  const skills = await Array.fromAsync(
+    new Bun.Glob("*/SKILL.md").scan({ cwd: `${workspace.repo}/.claude/skills` }),
+  );
+  return {
+    ...workspace,
+    probeId: probe.json.data.probeId,
+    selection: chosen,
+    skills: skills.map((one) => one.split("/")[0] ?? one).toSorted(),
+  };
 }
 
 async function applyProbe(
-  workspace: Workspace & { probeId: string; selection: string[] },
+  workspace: Workspace & { probeId: string; selection: string[]; skills: string[] },
   windowMs = "4000",
 ) {
   return runJson(
@@ -185,11 +199,11 @@ async function probeEntries(workspace: Workspace, pattern: string): Promise<stri
 }
 
 describe("operator setup probe apply", () => {
-  let workspace: Workspace & { probeId: string; selection: string[] };
+  let workspace: Workspace & { probeId: string; selection: string[]; skills: string[] };
 
   beforeEach(async () => {
     workspace = await makeProbeWorkspace();
-    await seedProbeReports(workspace, goodReports());
+    await seedProbeReports(workspace, goodReports({ skills: workspace.skills }));
     await seedProbePartial(workspace, "half of the synthetic work");
   }, PROBE_TIMEOUT_MS);
 
@@ -353,7 +367,7 @@ describe("operator setup probe apply", () => {
     "keeps the tracker checks skipped and unverified when no fixture is configured",
     async () => {
       const bare = await makeProbeWorkspace({ fixture: false });
-      await seedProbeReports(bare, goodReports());
+      await seedProbeReports(bare, goodReports({ skills: bare.skills }));
       await seedProbePartial(bare, "half of the synthetic work");
 
       const result = await applyProbe(bare);
@@ -374,7 +388,7 @@ describe("operator setup probe apply", () => {
     async () => {
       await Bun.$`rm ${workspace.herdr}/probe/result.json`.quiet();
       await applyProbe(workspace, "600");
-      await seedProbeReports(workspace, goodReports());
+      await seedProbeReports(workspace, goodReports({ skills: workspace.skills }));
       await applyProbe(workspace);
 
       const recorded = await Bun.file(`${workspace.repo}/.operator/local/readiness.json`).json();
@@ -478,6 +492,40 @@ describe("operator setup probe apply", () => {
   );
 
   test(
+    "fails the loading check when the host does not load what the checkout holds",
+    async () => {
+      await seedProbeReports(
+        workspace,
+        // The host answers with a skill that is not in the checkout and omits the ones that are.
+        goodReports({ skills: ["something-else"] }),
+      );
+
+      const result = await applyProbe(workspace);
+      const loading = observed(result.json, "instruction-and-skill-loading");
+
+      expect(loading).toMatchObject({ state: "failed" });
+      expect(loading?.detail).toContain("did not report loading");
+    },
+    PROBE_TIMEOUT_MS,
+  );
+
+  test(
+    "stages the project instructions and the installed skills for the launched host",
+    async () => {
+      const result = await applyProbe(workspace);
+      const loading = observed(result.json, "instruction-and-skill-loading");
+
+      expect(loading).toMatchObject({ state: "passed" });
+      expect(workspace.skills).toContain("operator");
+      for (const skill of workspace.skills) {
+        expect(loading?.detail).toContain(skill);
+      }
+      expect(loading?.detail).toContain("AGENTS.md");
+    },
+    PROBE_TIMEOUT_MS,
+  );
+
+  test(
     "reports the same mixed-host selection it launched",
     async () => {
       const result = await applyProbe(workspace);
@@ -493,7 +541,10 @@ describe("operator setup probe apply", () => {
   test(
     "fails the mixed-host check when a host answers as another host",
     async () => {
-      await seedProbeReports(workspace, goodReports({ crewHost: "claude-code" }));
+      await seedProbeReports(
+        workspace,
+        goodReports({ crewHost: "claude-code", skills: workspace.skills }),
+      );
 
       const result = await applyProbe(workspace);
 
@@ -521,7 +572,7 @@ describe("operator setup probe cleanup", () => {
     "needs its own approval before it removes a probe resource",
     async () => {
       const workspace = await makeProbeWorkspace();
-      await seedProbeReports(workspace, goodReports());
+      await seedProbeReports(workspace, goodReports({ skills: workspace.skills }));
       await seedProbePartial(workspace, "half of the synthetic work");
       await Bun.$`rm ${workspace.herdr}/probe/review.json`.quiet();
       await applyProbe(workspace, "600");
@@ -553,7 +604,7 @@ describe("operator setup probe cleanup", () => {
     "removes nothing outside the directory probes write in",
     async () => {
       const workspace = await makeProbeWorkspace();
-      await seedProbeReports(workspace, goodReports());
+      await seedProbeReports(workspace, goodReports({ skills: workspace.skills }));
       await seedProbePartial(workspace, "half of the synthetic work");
       await applyProbe(workspace);
       const kept = `${workspace.repo}/.operator/local/crew-evidence.txt`;
@@ -580,7 +631,7 @@ describe("operator setup probe cleanup", () => {
     "refuses an approval that no longer names the resources it would remove",
     async () => {
       const workspace = await makeProbeWorkspace();
-      await seedProbeReports(workspace, goodReports());
+      await seedProbeReports(workspace, goodReports({ skills: workspace.skills }));
       await seedProbePartial(workspace, "half of the synthetic work");
       await Bun.$`rm ${workspace.herdr}/probe/review.json`.quiet();
       await applyProbe(workspace, "600");
@@ -613,7 +664,10 @@ describe("the compatibility matrix", () => {
       `proves the ${operator} Operator with the ${crew} Crew`,
       async () => {
         const workspace = await makeProbeWorkspace({ operator, crew });
-        await seedProbeReports(workspace, goodReports({ operatorHost: operator, crewHost: crew }));
+        await seedProbeReports(
+          workspace,
+          goodReports({ operatorHost: operator, crewHost: crew, skills: workspace.skills }),
+        );
         await seedProbePartial(workspace, "half of the synthetic work");
 
         const result = await applyProbe(workspace);

@@ -36,7 +36,11 @@ export async function runLifecycle(lifecycle: Lifecycle): Promise<{
 
   let scratch: Scratch;
   try {
-    scratch = await makeScratch({ projectRoot: lifecycle.projectRoot, runId: lifecycle.runId });
+    scratch = await makeScratch({
+      projectRoot: lifecycle.projectRoot,
+      runId: lifecycle.runId,
+      targets: lifecycle.targets,
+    });
   } catch (error) {
     staged.push(
       failed("herdr-worktree", `The scratch repository could not be built: ${String(error)}`),
@@ -119,6 +123,12 @@ export async function runLifecycle(lifecycle: Lifecycle): Promise<{
     ],
   });
   if (loading.status === "answered") {
+    // The checkout holds this project's own instruction files and this release's own skills, so
+    // the check reads those exact names back instead of accepting any non-empty list.
+    const missed = [
+      ...scratch.instructions.filter((one) => !loading.report.instructions.includes(one)),
+      ...scratch.skills.filter((one) => !loading.report.skills.includes(one)),
+    ];
     const wrongHost = loading.report.host !== lifecycle.operator.host;
     staged.push(
       wrongHost
@@ -126,14 +136,19 @@ export async function runLifecycle(lifecycle: Lifecycle): Promise<{
             "instruction-and-skill-loading",
             `The agent reported host ${loading.report.host}, and Herdr launched ${lifecycle.operator.host}.`,
           )
-        : passed(
-            "instruction-and-skill-loading",
-            `The agent loaded ${loading.report.instructions.length} instruction files and ${loading.report.skills.length} skills.`,
-            {
-              outputs: [...loading.report.instructions, ...loading.report.skills],
-              evidence: reportEvidence("loading", scratch, loading.identity),
-            },
-          ),
+        : missed.length > 0
+          ? failed(
+              "instruction-and-skill-loading",
+              `The agent did not report loading ${missed.join(", ")}, and the checkout holds ${[...scratch.instructions, ...scratch.skills].join(", ")}.`,
+            )
+          : passed(
+              "instruction-and-skill-loading",
+              `The agent loaded ${scratch.instructions.join(", ")} and the ${scratch.skills.join(", ")} skill contents this project holds.`,
+              {
+                outputs: [...loading.report.instructions, ...loading.report.skills],
+                evidence: reportEvidence("loading", scratch, loading.identity),
+              },
+            ),
     );
     staged.push(
       passed(
