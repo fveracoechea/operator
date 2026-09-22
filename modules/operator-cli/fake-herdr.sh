@@ -44,7 +44,10 @@ worktree_row() {
   grep "^$1|" "$dir/worktrees" | tail -1
 }
 
-case "$key" in
+# `<key>.lost` performs the effect and then loses the answer, which is how an uncertain
+# external operation reaches the caller with its effect already landed.
+answer() {
+  case "$key" in
   worktree-create)
     repo=$(value_of --cwd "$@")
     path=$(value_of --path "$@")
@@ -135,11 +138,23 @@ case "$key" in
     fi
     if [ ! -f "$dir/agent-stop-refused" ]; then
       rm -f "$dir/agents/$name"
-      rm -f "$dir/pane-processes"
+      [ -f "$dir/keep-processes" ] || rm -f "$dir/pane-processes"
     fi
     printf '{"id":"cli:agent:send_keys","result":{"type":"keys_sent","agent":{"name":"%s","pane_id":"w1:p1","agent_status":"idle"}}}\n' "$name"
     ;;
   *)
     printf '{"id":"cli:%s:%s","error":{"code":"unsupported_method","message":"the fake does not answer %s"}}\n' "$group" "$sub" "$key"
     ;;
-esac
+  esac
+}
+
+response=$(answer "$@")
+status=$?
+[ "$status" -eq 0 ] || exit "$status"
+
+if [ -f "$dir/$key.lost" ]; then
+  echo "herdr: the answer was lost"
+  exit 1
+fi
+
+printf '%s\n' "$response"

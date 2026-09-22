@@ -28,8 +28,9 @@ export type TerminationProof =
 
 /**
  * Stops one Operative through its host's own stop keys and reads back what Herdr shows.
- * An agent Herdr no longer holds is already stopped, so a stop with nothing left to do is
- * proof rather than a failure. An answer that never arrived stays uncertain.
+ * Herdr is read first, so a stop whose answer was lost is reconciled from the agent that is
+ * already gone instead of being sent a second time. An answer that never arrived stays
+ * uncertain, because a lost answer never proves that nothing happened.
  */
 export async function stopHost(request: {
   agentName: string;
@@ -37,6 +38,14 @@ export async function stopHost(request: {
 }): Promise<TerminationProof> {
   if (!isSupportedHost(request.agentHost)) {
     return { status: "host-unsupported", host: request.agentHost };
+  }
+
+  const before = await HerdrControl.findAgent({ name: request.agentName });
+  if (before.status === "unknown") {
+    return { status: "uncertain", detail: before.detail };
+  }
+  if (before.status === "absent") {
+    return { status: "stopped" };
   }
 
   const sent = await HerdrControl.stopAgent({

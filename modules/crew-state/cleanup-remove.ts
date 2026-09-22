@@ -202,34 +202,43 @@ export async function removeWorktree(request: {
     return refuse(gates);
   }
 
-  const identity = await matchIdentity({ projectRoot: request.projectRoot, context });
+  // A removal that already landed but never answered is settled from what Herdr shows now,
+  // ahead of every identity read, because the checkout it would read from is already gone.
   const started = context.operations.find((one) => one.kind === CLEANUP_OPERATION[KIND]) ?? null;
-
-  // A removal that already landed but never answered is settled from what Herdr shows now.
-  if (identity.status === "matched" && !identity.checkoutPresent) {
-    if (started === null) {
-      return refuse([
-        {
-          reason: "unrelated_resource",
-          worktreePath: context.dispatch.worktreePath,
-          detail: "Herdr holds no worktree at that path, and Operator removes nothing else.",
-        },
-      ]);
-    }
-
-    const detail = `Herdr no longer holds ${context.dispatch.worktreePath}.`;
-    const reconciled = await settle({
-      state: "done",
-      detail,
-      operation: { id: started.id, state: "succeeded" },
+  if (started !== null) {
+    const checkout = await OperativeCleanup.findCheckout({
+      repoRoot: request.projectRoot,
+      path: context.dispatch.worktreePath,
     });
-    return reconciled.status === "recorded"
-      ? { status: "removed", report: report("done"), repeated: reconciled.repeated }
-      : reconciled;
+    if (checkout.status === "unknown") {
+      return refuse([{ reason: "checkout_unknown", detail: checkout.detail }]);
+    }
+    if (checkout.status === "absent") {
+      const reconciled = await settle({
+        state: "done",
+        detail: `Herdr no longer holds ${context.dispatch.worktreePath}.`,
+        operation: { id: started.id, state: "succeeded" },
+      });
+      return reconciled.status === "recorded"
+        ? { status: "removed", report: report("done"), repeated: reconciled.repeated }
+        : reconciled;
+    }
   }
 
+  const identity = await matchIdentity({ projectRoot: request.projectRoot, context });
   if (identity.status !== "matched") {
     return refuse([identityBlocker(identity)]);
+  }
+  // Operator removes Herdr-managed checkouts and nothing else, so a path Herdr does not hold
+  // is refused rather than taken apart by Git or by the filesystem.
+  if (!identity.checkoutPresent) {
+    return refuse([
+      {
+        reason: "unrelated_resource",
+        worktreePath: context.dispatch.worktreePath,
+        detail: "Herdr holds no worktree at that path, and Operator removes nothing else.",
+      },
+    ]);
   }
 
   // The evidence the closure preserved must still be readable, because deletion is the last
