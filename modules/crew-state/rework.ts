@@ -1,7 +1,9 @@
 import { eq } from "drizzle-orm";
+import { z } from "zod";
 import type { CrewReader, CrewWriter } from "./database.ts";
-import type { ReworkReason } from "./rework-input.ts";
+import { type ReworkReason, storedReworkReason } from "./rework-input.ts";
 import { reworkCycles } from "./schema.ts";
+import { readStoredValue } from "./stored.ts";
 
 export type ReworkCycleRow = typeof reworkCycles.$inferSelect;
 
@@ -14,7 +16,15 @@ export const REWORK_CYCLE_LIMIT = 3;
 export const DIAGNOSTIC_RERUN_LIMIT = 2;
 
 /** The limit one reason is counted against. Correction work shares a single budget. */
-export type LimitKind = "rework_cycles" | "diagnostic_reruns" | "review_attempts";
+export const limitKindSchema = z.enum(["rework_cycles", "diagnostic_reruns", "review_attempts"]);
+
+export type LimitKind = z.infer<typeof limitKindSchema>;
+
+// A direction request stores this column, and every reader takes it back through the schema
+// that wrote it rather than asserting the kind it expected.
+export function storedLimitKind(stored: string): LimitKind {
+  return readStoredValue("limit kind", limitKindSchema, stored);
+}
 
 export type Budget = { kind: LimitKind; limit: number };
 
@@ -25,7 +35,7 @@ const CORRECTION: Budget = { kind: "rework_cycles", limit: REWORK_CYCLE_LIMIT };
  * A findings cycle and an integration cycle both change the result, so they share one budget.
  * A diagnostic rerun changes nothing and carries its own.
  */
-export function budgetOf(reason: string): Budget {
+export function budgetOf(reason: ReworkReason): Budget {
   return reason === "diagnostic"
     ? { kind: "diagnostic_reruns", limit: DIAGNOSTIC_RERUN_LIMIT }
     : CORRECTION;
@@ -46,9 +56,9 @@ export function openCycleOf(db: CrewReader, assignmentId: string): ReworkCycleRo
 }
 
 /** How many cycles already spent the budget one reason is counted against. */
-export function cyclesUsed(cycles: ReworkCycleRow[], reason: string): number {
+export function cyclesUsed(cycles: ReworkCycleRow[], reason: ReworkReason): number {
   const { kind } = budgetOf(reason);
-  return cycles.filter((one) => budgetOf(one.reason).kind === kind).length;
+  return cycles.filter((one) => budgetOf(storedReworkReason(one.reason)).kind === kind).length;
 }
 
 export function insertCycle(

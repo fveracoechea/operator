@@ -396,7 +396,8 @@ describe("rework limits", () => {
       worktreePath: `${workspace.root}/rework-4`,
     });
     const brief = await Bun.file(`${reworked.worktreePath}/.operator/local/brief.md`).text();
-    expect(brief).toContain("findings cycle 4 of 4");
+    // The limit is still three. This cycle runs past it, and the brief says under what.
+    expect(brief).toContain("findings cycle 4 of 3");
     expect(brief).toContain(
       `This cycle runs past the recorded limit under approval ${directed.json.data.approvalId}`,
     );

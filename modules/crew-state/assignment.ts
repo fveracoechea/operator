@@ -1,9 +1,36 @@
 import { eq } from "drizzle-orm";
+import { z } from "zod";
 import type { CrewReader, CrewWriter } from "./database.ts";
 import { assignmentId, identityOf } from "./identity.ts";
+import { readStoredValue } from "./stored.ts";
 import { assignments } from "./schema.ts";
 
 export type AssignmentRow = typeof assignments.$inferSelect;
+
+/**
+ * Every state one assignment can hold.
+ * Registered work is dispatchable, claimed work has a writer, awaiting review has handed a
+ * result over, rework owes a delegated correction, paused work read an invalid result,
+ * invalidated work was accepted and then found defective, and accepted work unblocks a
+ * dependent.
+ */
+export const assignmentStateSchema = z.enum([
+  "registered",
+  "claimed",
+  "awaiting-review",
+  "rework",
+  "paused",
+  "invalidated",
+  "accepted",
+]);
+
+export type AssignmentState = z.infer<typeof assignmentStateSchema>;
+
+// An assignment row stores this column, and every reader takes it back through the schema that
+// wrote it rather than asserting the state it expected.
+export function storedAssignmentState(stored: string): AssignmentState {
+  return readStoredValue("assignment state", assignmentStateSchema, stored);
+}
 
 export function readAssignment(db: CrewReader, id: string): AssignmentRow | null {
   return db.select().from(assignments).where(eq(assignments.id, id)).all()[0] ?? null;
@@ -73,7 +100,7 @@ export function insertAssignment(
  */
 export function moveAssignment(
   db: CrewWriter,
-  request: { row: AssignmentRow; state: string; now: string },
+  request: { row: AssignmentRow; state: AssignmentState; now: string },
 ): number {
   const revision = request.row.revision + 1;
   db.update(assignments)
@@ -81,9 +108,4 @@ export function moveAssignment(
     .where(eq(assignments.id, request.row.id))
     .run();
   return revision;
-}
-
-/** Records accepted completion on one assignment row. The only writer of that transition. */
-export function markAccepted(db: CrewWriter, request: { row: AssignmentRow; now: string }): number {
-  return moveAssignment(db, { row: request.row, state: "accepted", now: request.now });
 }

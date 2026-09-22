@@ -2,8 +2,8 @@ import type { CrewReader, CrewWriter } from "./database.ts";
 import {
   type DirectionRecord,
   raiseDirection,
-  readDirection,
-  settleDirection,
+  spendDirection,
+  type Unapproved,
 } from "./direction.ts";
 import { moveAssignment, readAssignment } from "./assignment.ts";
 import { identityOf } from "./identity.ts";
@@ -64,7 +64,7 @@ export type ReworkOutcome =
       limit: number;
       used: number;
       direction: DirectionRecord;
-      approval: "missing" | "revoked";
+      approval: Unapproved;
     };
 
 type ReworkRequest = {
@@ -319,14 +319,9 @@ export function openReworkCycle(db: CrewWriter, request: ReworkRequest): ReworkO
   let approvalId: string | null = null;
 
   if (used >= limit) {
-    const direction = readDirection(db, { assignmentId: row.id, limitKind });
-    if (direction.status === "directed") {
-      settleDirection(db, {
-        directionRequestId: direction.request.directionRequestId,
-        approvalId: direction.approvalId,
-        now: request.now,
-      });
-      approvalId = direction.approvalId;
+    const spent = spendDirection(db, { assignmentId: row.id, limitKind, now: request.now });
+    if (spent.status === "directed") {
+      approvalId = spent.approvalId;
     } else {
       // The limit is reached, so the work waits on the user. The evidence of what was tried
       // stays recorded, because a limit that erased its own history would teach nobody.
@@ -351,7 +346,7 @@ export function openReworkCycle(db: CrewWriter, request: ReworkRequest): ReworkO
         limit,
         used,
         direction: raised,
-        approval: direction.status === "blocked" ? direction.approval : "missing",
+        approval: spent.approval,
       };
     }
   }
@@ -362,8 +357,7 @@ export function openReworkCycle(db: CrewWriter, request: ReworkRequest): ReworkO
     submission,
     reviewId: answers,
     cycleIndex,
-    // A directed cycle runs past the recorded limit, so the brief states the limit it runs to.
-    limit: Math.max(limit, cycleIndex),
+    limit,
     approvalId,
     corrections: accepted,
   });

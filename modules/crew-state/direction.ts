@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { matchApproval } from "./approvals.ts";
 import type { CrewReader, CrewWriter } from "./database.ts";
-import type { LimitKind } from "./rework.ts";
+import { type LimitKind, storedLimitKind } from "./rework.ts";
 import { directionRequests } from "./schema.ts";
 import { readStored } from "./stored.ts";
 
@@ -27,7 +27,7 @@ export function storedDirectionEvidence(stored: string): DirectionEvidence {
 export type DirectionRecord = {
   directionRequestId: string;
   assignmentId: string;
-  limitKind: string;
+  limitKind: LimitKind;
   limitValue: number;
   state: string;
   revision: number;
@@ -52,7 +52,7 @@ export function directionRecordOf(row: DirectionRequestRow): DirectionRecord {
   return {
     directionRequestId: row.id,
     assignmentId: row.assignmentId,
-    limitKind: row.limitKind,
+    limitKind: storedLimitKind(row.limitKind),
     limitValue: row.limitValue,
     state: row.state,
     revision: row.revision,
@@ -167,10 +167,13 @@ export function raiseDirection(
   return directionRecordOf(raised);
 }
 
+/** Why one open request is not directed: nobody granted it, or the grant was taken back. */
+export type Unapproved = "missing" | "revoked";
+
 export type DirectionCheck =
   | { status: "unblocked" }
   | { status: "directed"; request: DirectionRecord; approvalId: string }
-  | { status: "blocked"; request: DirectionRecord; approval: "missing" | "revoked" };
+  | { status: "blocked"; request: DirectionRecord; approval: Unapproved };
 
 /**
  * Reads whether a person already directed the work past one reached limit.
@@ -195,8 +198,33 @@ export function readDirection(
   return { status: "blocked", request: record, approval: match.status };
 }
 
+/**
+ * Settles the direction one action runs under, when a person granted one.
+ * It writes only when there is a direction to spend, so a caller that finds none is free to
+ * raise the request instead.
+ */
+export function spendDirection(
+  db: CrewWriter,
+  request: { assignmentId: string; limitKind: LimitKind; now: string },
+): { status: "directed"; approvalId: string } | { status: "blocked"; approval: Unapproved } {
+  const direction = readDirection(db, request);
+  if (direction.status !== "directed") {
+    return {
+      status: "blocked",
+      approval: direction.status === "blocked" ? direction.approval : "missing",
+    };
+  }
+
+  settleDirection(db, {
+    directionRequestId: direction.request.directionRequestId,
+    approvalId: direction.approvalId,
+    now: request.now,
+  });
+  return { status: "directed", approvalId: direction.approvalId };
+}
+
 /** Records the approval that carried the user's direction, which closes the request. */
-export function settleDirection(
+function settleDirection(
   db: CrewWriter,
   request: { directionRequestId: string; approvalId: string; now: string },
 ): void {

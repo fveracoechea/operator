@@ -3,6 +3,7 @@ import type { CrewReader } from "./database.ts";
 import type { Capacity } from "./capacity.ts";
 import { readAssignment } from "./assignment.ts";
 import { openDirectionsOf } from "./direction.ts";
+import { type LimitKind, storedLimitKind } from "./rework.ts";
 import { openPauses } from "./invalidate.ts";
 import type { EscalationTrigger } from "./question-input.ts";
 import { blockingQuestions, questionReportOf, triggersOf } from "./questions.ts";
@@ -27,7 +28,7 @@ export type FrontierEntry = {
 export type FrontierBlocker =
   | { reason: "dependency_pending"; dependencies: Array<{ assignmentId: string; state: string }> }
   | { reason: "review_pending"; reviewAssignmentId: string | null }
-  | { reason: "direction_required"; directionRequestId: string; limitKind: string }
+  | { reason: "direction_required"; directionRequestId: string; limitKind: LimitKind }
   | { reason: "input_invalidated"; invalidated: string[] }
   | { reason: "review_capacity_reserved"; productionLimit: number }
   | { reason: "crew_at_capacity"; limit: number };
@@ -187,7 +188,7 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
         blockers: waiting.map((request) => ({
           reason: "direction_required" as const,
           directionRequestId: request.id,
-          limitKind: request.limitKind,
+          limitKind: storedLimitKind(request.limitKind),
         })),
       });
       continue;

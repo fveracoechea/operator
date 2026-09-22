@@ -13,7 +13,8 @@ import {
   type DirectionRecord,
   raiseDirection,
   readDirection,
-  settleDirection,
+  spendDirection,
+  type Unapproved,
 } from "./direction.ts";
 import { mutate, readState } from "./operations.ts";
 import { reopenReview } from "./review.ts";
@@ -44,7 +45,7 @@ export type ReplaceResult =
       reviewId: string;
       limit: number;
       direction: DirectionRecord;
-      approval: "missing" | "revoked";
+      approval: Unapproved;
     }
   | AttemptFailure
   | Shared;
@@ -60,7 +61,7 @@ async function reachedReviewLimit(
     producerId: string;
     reviewId: string;
     attemptsHeld: number;
-    approval: "missing" | "revoked";
+    approval: Unapproved;
   },
 ): Promise<ReplaceResult> {
   const { result } = await mutate<Extract<ReplaceResult, { status: "review-attempt-limit" }>>(
@@ -126,7 +127,9 @@ export async function replaceAttempt(request: {
   // A stopped or blocked review may be tried again, and a bounded number of times, so a failing
   // review host escalates to the user instead of consuming the crew.
   const context = read.context.review;
-  let directed: { directionRequestId: string; approvalId: string } | null = null;
+  // The replacement inspects the stopped writer before it records anything, so whether it may
+  // run at all is read here and the direction it runs under is spent inside that write.
+  let producerAtLimit: string | null = null;
 
   if (
     context !== null &&
@@ -138,10 +141,7 @@ export async function replaceAttempt(request: {
       readDirection(db, { assignmentId: producerId, limitKind: "review_attempts" }),
     );
     if (direction.status === "directed") {
-      directed = {
-        directionRequestId: direction.request.directionRequestId,
-        approvalId: direction.approvalId,
-      };
+      producerAtLimit = producerId;
     } else if (direction.status === "blocked" || direction.status === "unblocked") {
       return reachedReviewLimit(request, {
         producerId,
@@ -249,9 +249,9 @@ export async function replaceAttempt(request: {
         // The replacement reviewer reads the same fixed submission and reports it itself.
         reopenReview(tx, { review: context.review, now });
       }
-      if (directed !== null) {
+      if (producerAtLimit !== null) {
         // The user directed this replacement past the limit, so the request it answered closes.
-        settleDirection(tx, { ...directed, now });
+        spendDirection(tx, { assignmentId: producerAtLimit, limitKind: "review_attempts", now });
       }
       startAttempt(tx, {
         attemptId,

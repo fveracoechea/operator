@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { type AssignmentRow, markAccepted, readAssignment } from "./assignment.ts";
+import { type AssignmentRow, moveAssignment, readAssignment } from "./assignment.ts";
 import { endAttempt, readAttempt } from "./attempt.ts";
 import type { CrewWriter } from "./database.ts";
 import { activeAttempt } from "./frontier.ts";
@@ -75,7 +75,7 @@ type AcceptRequest = {
  * second decision that says the same thing twice.
  */
 function acceptRow(db: CrewWriter, request: { row: AssignmentRow; now: string }): number {
-  const revision = markAccepted(db, request);
+  const revision = moveAssignment(db, { row: request.row, state: "accepted", now: request.now });
   resolveInvalidations(db, { assignmentId: request.row.id, now: request.now });
   return revision;
 }

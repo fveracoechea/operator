@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { codeRevisionsSchema, resultKindSchema, submittedCheckSchema } from "./submission-input.ts";
 import { storedArtifactSchema } from "./submission-store.ts";
-import { readStored } from "./stored.ts";
+import { readStored, readStoredValue } from "./stored.ts";
 
 /**
  * Two things the rework must settle that pull against each other.
@@ -23,6 +23,13 @@ const stated = {
   instruction: z.string().min(1),
   conflicts: z.array(conflict),
 };
+
+/** The three reasons a cycle is delegated. A stored reason is read back through this. */
+export const reworkReasonSchema = z.enum(["findings", "integration", "diagnostic"]);
+
+export function storedReworkReason(stored: string): ReworkReason {
+  return readStoredValue("rework reason", reworkReasonSchema, stored);
+}
 
 /**
  * Why one rework cycle is delegated.
@@ -52,7 +59,7 @@ export const reworkInputSchema = z.discriminatedUnion("reason", [
 ]);
 
 export type ReworkInput = z.infer<typeof reworkInputSchema>;
-export type ReworkReason = ReworkInput["reason"];
+export type ReworkReason = z.infer<typeof reworkReasonSchema>;
 export type ReworkConflict = z.infer<typeof conflict>;
 
 /** One accepted correction, carried with the evidence the reviewer recorded for it. */
@@ -74,7 +81,7 @@ export type ReworkCorrection = z.infer<typeof correction>;
  * submission cannot change the brief the Operative was given.
  */
 export const reworkBriefSchema = z.strictObject({
-  reason: z.enum(["findings", "integration", "diagnostic"]),
+  reason: reworkReasonSchema,
   cycleIndex: z.int().positive(),
   limit: z.int().positive(),
   // The approval that let this cycle run past the limit, when the user directed one.

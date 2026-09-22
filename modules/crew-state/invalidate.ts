@@ -1,6 +1,13 @@
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { type AssignmentRow, moveAssignment, readAssignment } from "./assignment.ts";
+import {
+  type AssignmentRow,
+  type AssignmentState,
+  assignmentStateSchema,
+  moveAssignment,
+  readAssignment,
+  storedAssignmentState,
+} from "./assignment.ts";
 import type { CrewReader, CrewWriter } from "./database.ts";
 import { assignmentDependencies, invalidations } from "./schema.ts";
 import { readStored } from "./stored.ts";
@@ -20,7 +27,7 @@ export type DefectInput = z.infer<typeof defectInputSchema>;
 const dependent = z.strictObject({
   assignmentId: z.string(),
   title: z.string(),
-  consumedState: z.string(),
+  consumedState: assignmentStateSchema,
   paused: z.boolean(),
 });
 
@@ -38,7 +45,12 @@ export type InvalidationRow = typeof invalidations.$inferSelect;
  * A paused assignment is not one of them: the pause is this workflow's own mark, and what the
  * work was doing before it is what says whether it read anything.
  */
-const CONSUMED: ReadonlySet<string> = new Set(["claimed", "awaiting-review", "rework", "accepted"]);
+const CONSUMED: ReadonlySet<AssignmentState> = new Set<AssignmentState>([
+  "claimed",
+  "awaiting-review",
+  "rework",
+  "accepted",
+]);
 
 export type InvalidateOutcome =
   | {
@@ -90,9 +102,10 @@ export function openPauses(db: CrewReader): Map<string, string[]> {
  * A second defect can reach work an earlier one already paused, and that work must return to
  * where it really was, never to the pause another invalidation put it in.
  */
-function stateBeforePause(db: CrewReader, row: AssignmentRow): string {
-  if (row.state !== "paused") {
-    return row.state;
+function stateBeforePause(db: CrewReader, row: AssignmentRow): AssignmentState {
+  const state = storedAssignmentState(row.state);
+  if (state !== "paused") {
+    return state;
   }
 
   for (const one of openInvalidations(db)) {
@@ -104,7 +117,7 @@ function stateBeforePause(db: CrewReader, row: AssignmentRow): string {
     }
   }
 
-  return row.state;
+  return state;
 }
 
 function directDependents(db: CrewReader, assignmentId: string): AssignmentRow[] {
@@ -223,7 +236,7 @@ export function invalidateResult(
  * Work that was accepted returns to the step that decided it, because an acceptance that read
  * an invalid input is a decision to take again, not a state to carry over.
  */
-function resumedState(db: CrewReader, held: Dependent): string {
+function resumedState(db: CrewReader, held: Dependent): AssignmentState {
   if (held.consumedState !== "accepted") {
     return held.consumedState;
   }
