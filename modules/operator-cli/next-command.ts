@@ -8,21 +8,23 @@ import { type Handled, type Reason, report } from "./result.ts";
 
 type Next = Extract<Awaited<ReturnType<typeof CrewState.next>>["result"], { status: "reported" }>;
 type NextAction = Next["actions"][number];
+type NextBlocker = NonNullable<NextAction["blocker"]>;
 type Readiness = Awaited<ReturnType<typeof ProjectReadiness.check>>;
 
 /**
- * What a person has to settle before one action can run.
- * An action that needs nobody carries no blocker, so the reported blockers are exactly the
- * decisions the Operator brings to the user.
+ * The CLI promise about each blocker the crew state names.
+ * The record is total, so a blocker this release cannot report is a compile error rather than
+ * an exit 3 that carries nothing for the user.
  */
-const userBlockers: Partial<Record<NextAction["action"], Reason>> = {
-  prove_readiness: "readiness_blocked",
-  answer_question: "escalation_required",
-  direct_limit: "direction_required",
-  record_tracker: "approval_required",
-  recover_tracker: "approval_required",
-  remove_worktree: "approval_required",
-};
+const reasonOfBlocker = {
+  readiness_blocked: "readiness_blocked",
+  escalation_required: "escalation_required",
+  direction_required: "direction_required",
+  approval_required: "approval_required",
+  cleanup_blocked: "cleanup_blocked",
+  cleanup_failed: "cleanup_failed",
+  cleanup_uncertain: "cleanup_uncertain",
+} as const satisfies Record<NextBlocker, Reason>;
 
 function actionLines(actions: NextAction[]): string[] {
   return actions.length === 0
@@ -31,7 +33,7 @@ function actionLines(actions: NextAction[]): string[] {
         "Next actions, in order:",
         ...actions.map(
           (one) =>
-            `  ${one.action}${one.needsUser ? " (needs the user)" : ""}: ${one.command}` +
+            `  ${one.action}${one.blocker === null ? "" : ` (the user settles ${one.blocker})`}: ${one.command}` +
             `${one.assignmentId === null ? "" : ` ${one.assignmentId}`}` +
             `${one.attemptId === null ? "" : ` attempt ${one.attemptId}`}` +
             `\n    ${one.detail}`,
@@ -66,12 +68,18 @@ function readinessInput(readiness: Readiness): { ready: boolean; detail: string 
 
 /**
  * What this session may do on its own, which is what the exit meaning reports.
- * An action that waits on a person is a blocker, so a session that holds only those does not
- * read the result as work it can start.
+ * A crew action that waits on a person outranks a wait, because waiting settles nothing a
+ * person holds and a session would read exit 6 as permission to do nothing about it.
  */
 function verdict(actions: NextAction[], waits: Next["waits"]) {
-  if (actions.some((one) => !one.needsUser)) {
+  // A standing precondition is reported and is never the reason the crew cannot advance.
+  const owed = actions.filter((one) => !CrewState.isStandingAction({ action: one.action }));
+
+  if (owed.some((one) => one.blocker === null)) {
     return { outcome: "completed" as const, reason: "next_actions_reported" as const };
+  }
+  if (owed.length > 0) {
+    return { outcome: "missing-condition" as const, reason: "next_actions_blocked" as const };
   }
   if (waits.length > 0) {
     return { outcome: "pending" as const, reason: "next_actions_waiting" as const };
@@ -83,6 +91,10 @@ function verdict(actions: NextAction[], waits: Next["waits"]) {
   return { outcome: "completed" as const, reason: "next_actions_none" as const };
 }
 
+/**
+ * What the user has to settle: every readiness check that failed, and every action that names a
+ * blocker. An exit that says a person must decide therefore always names what to decide.
+ */
 function blockersOf(readiness: Readiness, actions: NextAction[]) {
   return [
     ...(readiness.state === "ready"
@@ -91,13 +103,12 @@ function blockersOf(readiness: Readiness, actions: NextAction[]) {
           ...readiness.blockers.map((check) => blockerData(check, "readiness_blocked")),
           ...readiness.unproven.map((check) => blockerData(check, "readiness_unverified")),
         ]),
-    ...actions.flatMap((one) => {
-      const reason = one.needsUser ? userBlockers[one.action] : undefined;
-      return reason === undefined || one.action === "prove_readiness"
+    ...actions.flatMap((one) =>
+      one.blocker === null
         ? []
         : [
             {
-              reason,
+              reason: reasonOfBlocker[one.blocker],
               action: one.action,
               assignmentId: one.assignmentId,
               attemptId: one.attemptId,
@@ -105,8 +116,8 @@ function blockersOf(readiness: Readiness, actions: NextAction[]) {
               reviewId: one.reviewId,
               detail: one.detail,
             },
-          ];
-    }),
+          ],
+    ),
   ];
 }
 
@@ -130,52 +141,6 @@ export async function runCrewNext(parsed: ParsedArguments): Promise<Handled> {
     projectRoot: process.cwd(),
     readiness: readinessInput(readiness),
   });
-
-  // A project with no crew state has one crew action, so this is an answer, not a failure.
-  if (result.status === "state-missing") {
-    const readinessDetail = readinessInput(readiness);
-    const actions: NextAction[] = [
-      ...(readinessDetail.ready
-        ? []
-        : [
-            {
-              action: "prove_readiness" as const,
-              rank: CrewState.rankOfAction({ action: "prove_readiness" }),
-              assignmentId: null,
-              attemptId: null,
-              questionId: null,
-              reviewId: null,
-              revision: null,
-              needsUser: true,
-              detail: readinessDetail.detail,
-              command: "operator setup readiness",
-            },
-          ]),
-      {
-        action: "own_crew" as const,
-        rank: CrewState.rankOfAction({ action: "own_crew" }),
-        assignmentId: null,
-        attemptId: null,
-        questionId: null,
-        reviewId: null,
-        revision: null,
-        needsUser: false,
-        detail: "This project holds no crew state, so nothing is registered yet.",
-        command: "operator crew own",
-      },
-    ];
-    report({
-      json: parsed.json,
-      result: {
-        ...verdict(actions, []),
-        blockers: blockersOf(readiness, actions),
-        operation: "crew_next",
-        data: { readiness, ownership: null, actions, waits: [] },
-      },
-      lines: actionLines(actions),
-    });
-    return "reported";
-  }
 
   if (reportSharedFailure(parsed, "crew_next", result)) {
     return "reported";

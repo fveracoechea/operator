@@ -85,6 +85,15 @@ export function liveOperations(db: CrewReader, attemptId: string): OperationRow[
     .all();
 }
 
+/**
+ * The operations that recorded an intent and never proved an outcome.
+ * An intended or uncertain effect may still have landed, so every reader of that state asks
+ * this one question rather than spelling the two states again.
+ */
+export function unsettledOperations(operations: OperationRow[]): OperationRow[] {
+  return operations.filter((one) => one.state === "intended" || one.state === "uncertain");
+}
+
 export function readOperation(db: CrewReader, operationId: string): OperationRow | null {
   return (
     db.select().from(externalOperations).where(eq(externalOperations.id, operationId)).all()[0] ??

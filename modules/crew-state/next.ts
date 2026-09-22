@@ -3,13 +3,14 @@ import { type Capacity } from "./capacity.ts";
 import {
   CLEANUP_KINDS,
   type CleanupKind,
+  type CleanupState,
+  cleanupRecordOf,
   heldRetention,
   readCleanup,
-  type RetentionHoldRow,
 } from "./cleanup.ts";
 import type { CrewReader } from "./database.ts";
 import { everyStageSucceeded } from "./dispatch-context.ts";
-import { liveOperations, readDispatchRow } from "./dispatch.ts";
+import { liveOperations, readDispatchRow, unsettledOperations } from "./dispatch.ts";
 import { directionRecordOf, openDirectionsOf } from "./direction.ts";
 import { calculateFrontier, type Frontier, unmetDependencies } from "./frontier.ts";
 import { openPauses } from "./invalidate.ts";
@@ -59,12 +60,42 @@ export const NEXT_ACTIONS = [
 
 export type NextActionName = (typeof NEXT_ACTIONS)[number];
 
+/**
+ * The actions that are standing preconditions rather than work this crew owes.
+ * One is reported first and reaches the blockers a session brings to the user, and it never
+ * decides whether the crew can advance: settling it starts no work, and a running Operative is
+ * unaffected by it.
+ */
+export const STANDING_ACTIONS = ["prove_readiness"] as const satisfies NextActionName[];
+
+export function isStandingAction(action: string): boolean {
+  return STANDING_ACTIONS.some((one) => one === action);
+}
+
+/**
+ * What a person has to settle before one action can run.
+ * An action carries one of these or it carries nothing, so a session that holds only blocked
+ * actions always has something to bring to the user.
+ */
+export const NEXT_BLOCKERS = [
+  "readiness_blocked",
+  "escalation_required",
+  "direction_required",
+  "approval_required",
+  "cleanup_blocked",
+  "cleanup_failed",
+  "cleanup_uncertain",
+] as const;
+
+export type NextBlocker = (typeof NEXT_BLOCKERS)[number];
+
 /** The waits a session may hold. Each one names what has to answer before anything moves. */
 export const NEXT_WAITS = [
   "acknowledgement_pending",
   "answer_acknowledgement_pending",
   "operative_working",
   "cleanup_held",
+  "input_invalidated",
 ] as const;
 
 export type NextWaitName = (typeof NEXT_WAITS)[number];
@@ -78,8 +109,8 @@ export type NextAction = {
   reviewId: string | null;
   /** The record revision a mutation on this subject must state, when it has one. */
   revision: number | null;
-  /** True when a person has to settle something before this action can run. */
-  needsUser: boolean;
+  /** What a person must settle first, or null when this session can act alone. */
+  blocker: NextBlocker | null;
   detail: string;
   command: string;
 };
@@ -87,7 +118,7 @@ export type NextAction = {
 export type NextWait = {
   wait: NextWaitName;
   assignmentId: string;
-  attemptId: string;
+  attemptId: string | null;
   /** The Herdr agent a bounded wait watches, when this wait has one. */
   agentName: string | null;
   detail: string;
@@ -102,39 +133,68 @@ export type CrewNext = {
   frontier: Frontier;
 };
 
-const rankOf = new Map<NextActionName, number>(
-  NEXT_ACTIONS.map((action, index) => [action, (index + 1) * 10]),
-);
+export type Readiness = { ready: boolean; detail: string };
 
-/** The place one action holds in the declared order. One rendering, so a caller never guesses. */
-export function nextActionRank(action: NextActionName): number {
-  return rankOf.get(action) ?? 0;
+/** The place one action holds in the declared order. The list is total, so no name is missing. */
+function rankOf(action: NextActionName): number {
+  return (NEXT_ACTIONS.indexOf(action) + 1) * 10;
 }
 
-type Draft = Omit<NextAction, "rank"> & { action: NextActionName };
+/** One action as a reader states it. Everything it does not name is absent, not null. */
+type Draft = {
+  action: NextActionName;
+  detail: string;
+  command: string;
+  assignmentId?: string;
+  attemptId?: string;
+  questionId?: string;
+  reviewId?: string;
+  revision?: number;
+  blocker?: NextBlocker;
+};
 
-/** Collects the actions of one reading and keeps them in the one declared order. */
+/**
+ * Collects one reading of the crew.
+ * Actions come back in the declared order, and the waits travel with them, so a caller never
+ * carries the two halves of one report separately.
+ */
 function collector() {
   const held: Array<{ action: NextAction; order: number }> = [];
+  const waiting: NextWait[] = [];
 
   return {
     add(draft: Draft): void {
       held.push({
-        action: { ...draft, rank: rankOf.get(draft.action) ?? 0 },
+        action: {
+          rank: rankOf(draft.action),
+          assignmentId: null,
+          attemptId: null,
+          questionId: null,
+          reviewId: null,
+          revision: null,
+          blocker: null,
+          ...draft,
+        },
         order: held.length,
       });
+    },
+    wait(entry: Omit<NextWait, "attemptId" | "agentName"> & Partial<NextWait>): void {
+      waiting.push({ attemptId: null, agentName: null, ...entry });
     },
     actions(): NextAction[] {
       return held
         .toSorted((left, right) => left.action.rank - right.action.rank || left.order - right.order)
         .map((one) => one.action);
     },
+    waits(): NextWait[] {
+      return waiting;
+    },
   };
 }
 
 type Collector = ReturnType<typeof collector>;
 
-/** The attempts of one crew, newest last, so a report reads them in the order they started. */
+/** The attempts of one crew, oldest first, so a report reads them in the order they started. */
 function allAttempts(db: CrewReader) {
   return db
     .select()
@@ -144,13 +204,6 @@ function allAttempts(db: CrewReader) {
       (left, right) =>
         left.startedAt.localeCompare(right.startedAt) || left.id.localeCompare(right.id),
     );
-}
-
-/** Every effect of one attempt that recorded an intent and never proved an outcome. */
-function unsettledEffects(db: CrewReader, attemptId: string): string[] {
-  return liveOperations(db, attemptId)
-    .filter((one) => one.state === "intended" || one.state === "uncertain")
-    .map((one) => one.kind);
 }
 
 /** One active attempt: what it still owes, or what it is waiting for. */
@@ -163,7 +216,6 @@ function readActiveAttempt(
     unsettled: string[];
   },
   into: Collector,
-  waits: NextWait[],
 ): void {
   const dispatch = readDispatchRow(db, request.attemptId);
 
@@ -172,10 +224,6 @@ function readActiveAttempt(
       action: "reconcile_attempt",
       assignmentId: request.assignmentId,
       attemptId: request.attemptId,
-      questionId: null,
-      reviewId: null,
-      revision: null,
-      needsUser: false,
       detail: `${request.unsettled.join(", ")} never proved an outcome.`,
       command: "operator attempt reconcile",
     });
@@ -187,10 +235,6 @@ function readActiveAttempt(
       action: "adopt_attempt",
       assignmentId: request.assignmentId,
       attemptId: request.attemptId,
-      questionId: null,
-      reviewId: null,
-      revision: null,
-      needsUser: false,
       detail: "A replaced Operator claimed this attempt, so this session cannot change it yet.",
       command: "operator attempt adopt",
     });
@@ -204,10 +248,6 @@ function readActiveAttempt(
       action: "dispatch_attempt",
       assignmentId: request.assignmentId,
       attemptId: request.attemptId,
-      questionId: null,
-      reviewId: null,
-      revision: null,
-      needsUser: false,
       detail:
         dispatch === null
           ? "This assignment is claimed and has no Operative yet."
@@ -217,7 +257,7 @@ function readActiveAttempt(
     return;
   }
 
-  waits.push({
+  into.wait({
     wait: dispatch.acknowledgedAt === null ? "acknowledgement_pending" : "operative_working",
     assignmentId: request.assignmentId,
     attemptId: request.attemptId,
@@ -230,12 +270,7 @@ function readActiveAttempt(
 }
 
 /** Every question that still holds an Operative, and what carries it forward. */
-function readQuestions(
-  db: CrewReader,
-  unsettled: Set<string>,
-  into: Collector,
-  waits: NextWait[],
-): void {
+function readQuestions(db: CrewReader, unsettled: Set<string>, into: Collector): void {
   for (const row of blockingQuestions(db).toSorted((left, right) =>
     left.id.localeCompare(right.id),
   )) {
@@ -246,9 +281,8 @@ function readQuestions(
         assignmentId: row.assignmentId,
         attemptId: row.attemptId,
         questionId: row.id,
-        reviewId: null,
         revision: row.revision,
-        needsUser: triggers.length > 0,
+        ...(triggers.length === 0 ? {} : { blocker: "escalation_required" as const }),
         detail:
           triggers.length > 0
             ? `This question names ${triggers.join(", ")}, so only a person may settle it.`
@@ -265,9 +299,7 @@ function readQuestions(
         assignmentId: row.assignmentId,
         attemptId: row.attemptId,
         questionId: row.id,
-        reviewId: null,
         revision: row.revision,
-        needsUser: false,
         detail: "The answer is recorded and has not reached the Operative.",
         command: "operator question deliver",
       });
@@ -277,7 +309,7 @@ function readQuestions(
       continue;
     }
 
-    waits.push({
+    into.wait({
       wait: "answer_acknowledgement_pending",
       assignmentId: row.assignmentId,
       attemptId: row.attemptId,
@@ -301,8 +333,6 @@ function readReview(
 
   const subject = {
     assignmentId: request.assignmentId,
-    attemptId: null,
-    questionId: null,
     reviewId: review.id,
     revision: request.revision,
   };
@@ -311,7 +341,6 @@ function readReview(
     into.add({
       ...subject,
       action: "replace_attempt",
-      needsUser: false,
       detail: "The review stopped before it reported. Correct what it names, then replace it.",
       command: "operator attempt replace",
     });
@@ -326,7 +355,6 @@ function readReview(
     into.add({
       ...subject,
       action: "dispose_findings",
-      needsUser: false,
       detail: `${undisposed(findings).length} finding(s) carry no disposition.`,
       command: "operator review dispose",
     });
@@ -337,7 +365,6 @@ function readReview(
     into.add({
       ...subject,
       action: "delegate_rework",
-      needsUser: false,
       detail: `${corrections(findings).length} accepted correction(s) wait for a fresh Operative.`,
       command: "operator work rework",
     });
@@ -348,7 +375,6 @@ function readReview(
     into.add({
       ...subject,
       action: "accept_assignment",
-      needsUser: false,
       detail: "The review reported and every finding carries a disposition.",
       command: "operator work accept",
     });
@@ -377,35 +403,41 @@ function readTracker(
     }
 
     const recovers = settles.includes("recover");
+    const needsUser = settles.includes("user") || settles.includes("approved-write");
     into.add({
       action: recovers ? "recover_tracker" : "record_tracker",
       assignmentId,
-      attemptId: null,
-      questionId: null,
-      reviewId: null,
       revision,
-      needsUser: settles.includes("user") || settles.includes("approved-write"),
+      ...(needsUser ? { blocker: "approval_required" as const } : {}),
       detail: `The ${step} step is ${operation?.state ?? "unrecorded"}.`,
       command: recovers ? "operator tracker recover" : "operator tracker record",
     });
   }
 }
 
+/** What settles one recorded cleanup outcome that is not done. */
+const cleanupBlockers = {
+  pending: null,
+  blocked: "cleanup_blocked",
+  failed: "cleanup_failed",
+  uncertain: "cleanup_uncertain",
+  done: null,
+} as const satisfies Record<CleanupState, NextBlocker | null>;
+
 /** The disposal one ended attempt still owes, and the hold that keeps its resources. */
 function readCleanupOf(
   db: CrewReader,
   request: { attemptId: string; assignmentId: string; accepted: boolean },
   into: Collector,
-  waits: NextWait[],
 ): void {
   const dispatch = readDispatchRow(db, request.attemptId);
   if (dispatch === null) {
     return;
   }
 
-  const hold: RetentionHoldRow | null = heldRetention(db, request.attemptId);
+  const hold = heldRetention(db, request.attemptId);
   if (hold !== null) {
-    waits.push({
+    into.wait({
       wait: "cleanup_held",
       assignmentId: request.assignmentId,
       attemptId: request.attemptId,
@@ -415,51 +447,115 @@ function readCleanupOf(
     return;
   }
 
-  const recorded = new Map<CleanupKind, string>(
+  const recorded = new Map<CleanupKind, CleanupState>(
     CLEANUP_KINDS.flatMap((kind) => {
       const row = readCleanup(db, { attemptId: request.attemptId, kind });
-      return row === null ? [] : [[kind, row.state] as [CleanupKind, string]];
+      return row === null ? [] : [[kind, cleanupRecordOf(row).state]];
     }),
   );
 
-  const closure = recorded.get("process_closure");
-  if (closure !== "done") {
+  /**
+   * One cleanup outcome the attempt still owes.
+   * A recorded state that a retry cannot clear names the person who settles it, so a stuck
+   * cleanup stops this work instead of being offered on every reading.
+   */
+  function owed(kind: CleanupKind, action: NextActionName, command: string, detail: string) {
+    const state = recorded.get(kind);
+    const stuck = state === undefined ? null : cleanupBlockers[state];
     into.add({
-      action: closure === undefined ? "close_process" : "settle_cleanup",
+      action: stuck === null ? action : "settle_cleanup",
       assignmentId: request.assignmentId,
       attemptId: request.attemptId,
-      questionId: null,
-      reviewId: null,
-      revision: null,
-      needsUser: false,
-      detail:
-        closure === undefined
-          ? "This Operative handed its work over and its process is still open."
-          : `The recorded process closure is ${closure}.`,
-      command: "operator cleanup close",
+      ...(stuck === null ? {} : { blocker: stuck }),
+      detail: stuck === null ? detail : `The recorded ${kind.replace("_", " ")} is ${state}.`,
+      command,
     });
+  }
+
+  if (recorded.get("process_closure") !== "done") {
+    owed(
+      "process_closure",
+      "close_process",
+      "operator cleanup close",
+      "This Operative handed its work over and its process is still open.",
+    );
     return;
   }
 
+  if (recorded.get("worktree_removal") === "done" || !request.accepted) {
+    return;
+  }
+
+  // Removing a checkout is never this session's decision, so it names a person either way.
   const removal = recorded.get("worktree_removal");
-  if (removal === "done" || !request.accepted) {
-    return;
-  }
-
+  const stuck = removal === undefined ? null : cleanupBlockers[removal];
   into.add({
-    action: removal === undefined ? "remove_worktree" : "settle_cleanup",
+    action: stuck === null ? "remove_worktree" : "settle_cleanup",
     assignmentId: request.assignmentId,
     attemptId: request.attemptId,
-    questionId: null,
-    reviewId: null,
-    revision: null,
-    needsUser: true,
+    blocker: stuck ?? "approval_required",
     detail:
-      removal === undefined
+      stuck === null
         ? "Removing this checkout needs its own approval against the inspected inputs."
         : `The recorded worktree removal is ${removal}.`,
     command: "operator cleanup remove",
   });
+}
+
+/** The readiness verdict, reported as the action it is when this selection is not ready. */
+function readReadiness(readiness: Readiness, into: Collector): void {
+  if (readiness.ready) {
+    return;
+  }
+
+  into.add({
+    action: "prove_readiness",
+    blocker: "readiness_blocked",
+    detail: readiness.detail,
+    command: "operator setup readiness",
+  });
+}
+
+/** An empty crew, so a project with no state answers in the shape every other reading uses. */
+function emptyFrontier(capacity: Capacity): Frontier {
+  return {
+    capacity: {
+      ...capacity,
+      active: { total: 0, production: 0, review: 0 },
+      freeSlots: capacity.limit,
+    },
+    dispatchable: [],
+    blocked: [],
+    active: [],
+    planning: [],
+    accepted: [],
+    questions: [],
+  };
+}
+
+/**
+ * What a project that holds no crew state may do next.
+ * It answers in the same shape as a project that holds one, because a session reads one
+ * contract and not two.
+ */
+export function calculateUnowned(request: { capacity: Capacity; readiness: Readiness }): CrewNext {
+  const into = collector();
+  readReadiness(request.readiness, into);
+  into.add({
+    action: "own_crew",
+    detail: "This project holds no crew state, so nothing is registered yet.",
+    command: "operator crew own",
+  });
+
+  const frontier = emptyFrontier(request.capacity);
+  return {
+    status: "reported",
+    ownership: null,
+    capacity: frontier.capacity,
+    actions: into.actions(),
+    waits: into.waits(),
+    frontier,
+  };
 }
 
 /**
@@ -469,30 +565,17 @@ function readCleanupOf(
  */
 export function calculateNext(
   db: CrewReader,
-  request: { capacity: Capacity; readiness: { ready: boolean; detail: string } },
+  request: { capacity: Capacity; readiness: Readiness },
 ): CrewNext {
   const frontier = calculateFrontier(db, request.capacity);
   const ownership = currentOwnership(db);
   const into = collector();
-  const waits: NextWait[] = [];
 
-  if (!request.readiness.ready) {
-    into.add({
-      action: "prove_readiness",
-      assignmentId: null,
-      attemptId: null,
-      questionId: null,
-      reviewId: null,
-      revision: null,
-      needsUser: true,
-      detail: request.readiness.detail,
-      command: "operator setup readiness",
-    });
-  }
+  readReadiness(request.readiness, into);
 
   const held = allAttempts(db).map((attempt) => ({
     attempt,
-    unsettled: unsettledEffects(db, attempt.id),
+    unsettled: unsettledOperations(liveOperations(db, attempt.id)).map((one) => one.kind),
   }));
   const unsettled = new Set(
     held.flatMap((one) => (one.unsettled.length === 0 ? [] : [one.attempt.id])),
@@ -514,7 +597,6 @@ export function calculateNext(
           unsettled: pending,
         },
         into,
-        waits,
       );
       continue;
     }
@@ -530,12 +612,11 @@ export function calculateNext(
           accepted: assignment.state === "accepted",
         },
         into,
-        waits,
       );
     }
   }
 
-  readQuestions(db, unsettled, into, waits);
+  readQuestions(db, unsettled, into);
 
   const paused = openPauses(db);
   for (const row of db
@@ -548,17 +629,22 @@ export function calculateNext(
       into.add({
         action: "direct_limit",
         assignmentId: row.id,
-        attemptId: null,
-        questionId: null,
-        reviewId: null,
         revision: record.revision,
-        needsUser: true,
+        blocker: "direction_required",
         detail: `${record.limitKind} reached ${record.limitValue}. Only the user can direct it.`,
         command: "operator approval grant",
       });
     }
 
-    if (paused.has(row.id)) {
+    // Work that read an invalid result waits for the corrected one, so it is reported as the
+    // wait it is rather than left out of the reading.
+    const invalid = paused.get(row.id);
+    if (invalid !== undefined) {
+      into.wait({
+        wait: "input_invalidated",
+        assignmentId: row.id,
+        detail: `This work read a result a defect was found in: ${invalid.join(", ")}.`,
+      });
       continue;
     }
 
@@ -573,11 +659,8 @@ export function calculateNext(
         into.add({
           action: "accept_assignment",
           assignmentId: row.id,
-          attemptId: null,
-          questionId: null,
           reviewId: review.id,
           revision: row.revision,
-          needsUser: false,
           detail: "This reviewer reported both axes, so its own assignment can be accepted.",
           command: "operator work accept",
         });
@@ -598,11 +681,7 @@ export function calculateNext(
     into.add({
       action: "resolve_planning",
       assignmentId: entry.assignmentId,
-      attemptId: null,
-      questionId: null,
-      reviewId: null,
       revision: entry.revision,
-      needsUser: false,
       detail: "Planning work is registered so dependencies resolve, and the Operator answers it.",
       command: "operator work accept",
     });
@@ -612,11 +691,7 @@ export function calculateNext(
     into.add({
       action: "claim_assignment",
       assignmentId: entry.assignmentId,
-      attemptId: null,
-      questionId: null,
-      reviewId: null,
       revision: entry.revision,
-      needsUser: false,
       detail: `${entry.kind} work the frontier offers now.`,
       command: "operator work claim",
     });
@@ -634,7 +709,7 @@ export function calculateNext(
           },
     capacity: frontier.capacity,
     actions: into.actions(),
-    waits,
+    waits: into.waits(),
     frontier,
   };
 }

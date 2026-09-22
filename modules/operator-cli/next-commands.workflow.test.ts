@@ -9,6 +9,8 @@ import {
 } from "./review-cycle-fixture.ts";
 import {
   headCommit,
+  nextActions,
+  ownCrew,
   requestId as request,
   runJson,
   stopFakeAgents,
@@ -21,64 +23,10 @@ afterEach(async () => {
   await fixtures.removeAll();
 });
 
-type Action = {
-  action: string;
-  assignmentId: string | null;
-  attemptId: string | null;
-  questionId: string | null;
-  revision: number | null;
-  needsUser: boolean;
-};
-
-type Wait = { wait: string; assignmentId: string; attemptId: string };
-
-async function next(workspace: Workspace) {
-  const result = await runJson(workspace, ["crew", "next", "--claude"]);
-  const actions: Action[] = result.json.data.actions ?? [];
-  const waits: Wait[] = result.json.data.waits ?? [];
-  return {
-    ...result,
-    actions,
-    waits,
-    names: actions.map((one) => one.action),
-    forAction(name: string): Action[] {
-      return actions.filter((one) => one.action === name);
-    },
-  };
-}
-
 async function writeInput(workspace: Workspace, value: unknown): Promise<string> {
   const path = `${workspace.root}/input-${crypto.randomUUID()}.json`;
   await Bun.write(path, JSON.stringify(value));
   return path;
-}
-
-async function own(workspace: Workspace, label = "operator-session"): Promise<string> {
-  const owned = await runJson(workspace, [
-    "crew",
-    "own",
-    "--request",
-    request(),
-    "--owner-label",
-    label,
-  ]);
-  return owned.json.data.ownerToken;
-}
-
-/** Takes the crew from a session that is gone, which is what a fresh Operator does first. */
-async function takeOver(workspace: Workspace, revision: number, label = "second-session") {
-  const taken = await runJson(workspace, [
-    "crew",
-    "own",
-    "--request",
-    request(),
-    "--owner-label",
-    label,
-    "--takeover",
-    "--ownership-revision",
-    String(revision),
-  ]);
-  return taken.json.data.ownerToken as string;
 }
 
 type ItemOverrides = {
@@ -203,14 +151,14 @@ async function adopt(workspace: Workspace, ownerToken: string, attemptId: string
 describe("the three entry points", () => {
   test("offers the items of an approved specification in the order they were registered", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
-    const ownerToken = await own(workspace);
+    const ownerToken = await ownCrew(workspace);
     const registered = await register(workspace, ownerToken, {
       sourceKind: "specification",
       id: "github:operator#15",
       items: [item({ key: "15.1" }), item({ key: "15.2", dependsOn: ["15.1"] })],
     });
 
-    const reported = await next(workspace);
+    const reported = await nextActions(workspace);
 
     expect(reported.forAction("claim_assignment").map((one) => one.assignmentId)).toEqual([
       registered.get("15.1") ?? null,
@@ -220,14 +168,14 @@ describe("the three entry points", () => {
 
   test("offers the items of a ready ticket", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
-    const ownerToken = await own(workspace);
+    const ownerToken = await ownCrew(workspace);
     const registered = await register(workspace, ownerToken, {
       sourceKind: "ticket",
       id: "github:operator#26",
       items: [item({ key: "26.1" })],
     });
 
-    const reported = await next(workspace);
+    const reported = await nextActions(workspace);
 
     expect(reported.forAction("claim_assignment")[0]?.assignmentId).toBe(registered.get("26.1"));
     expect(reported.json.data.frontier.dispatchable[0].sourceKind).toBe("ticket");
@@ -235,7 +183,7 @@ describe("the three entry points", () => {
 
   test("resolves the planning work of a wayfinder map before the task that depends on it", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
-    const ownerToken = await own(workspace);
+    const ownerToken = await ownCrew(workspace);
     const registered = await register(workspace, ownerToken, {
       sourceKind: "wayfinder",
       id: "github:operator#1",
@@ -245,7 +193,7 @@ describe("the three entry points", () => {
       ],
     });
 
-    const offered = await next(workspace);
+    const offered = await nextActions(workspace);
     expect(offered.forAction("resolve_planning")[0]?.assignmentId).toBe(registered.get("1.1"));
     expect(offered.names).not.toContain("claim_assignment");
 
@@ -262,14 +210,14 @@ describe("the three entry points", () => {
       "1",
     ]);
 
-    const resolved = await next(workspace);
+    const resolved = await nextActions(workspace);
     expect(resolved.names).not.toContain("resolve_planning");
     expect(resolved.forAction("claim_assignment")[0]?.assignmentId).toBe(registered.get("1.2"));
   });
 
   test("reports the tracker steps a wayfinder assignment still owes after acceptance", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
-    const ownerToken = await own(workspace);
+    const ownerToken = await ownCrew(workspace);
     const registered = await register(workspace, ownerToken, {
       sourceKind: "wayfinder",
       id: "github:fveracoechea/operator#1",
@@ -292,7 +240,7 @@ describe("the three entry points", () => {
     ]);
     expect(accepted.exitCode).toBe(0);
 
-    const reported = await next(workspace);
+    const reported = await nextActions(workspace);
 
     const steps = reported.forAction("record_tracker");
     expect(steps).toHaveLength(3);
@@ -306,23 +254,23 @@ describe("the three entry points", () => {
 describe("a fresh Operator after session loss", () => {
   test("adopts an assignment that was claimed and never launched", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
-    const ownerToken = await own(workspace);
+    const ownerToken = await ownCrew(workspace);
     const registered = await register(workspace, ownerToken, {
       sourceKind: "specification",
       id: "github:operator#15",
       items: [item({ key: "15.1" })],
     });
     const claimed = await claim(workspace, ownerToken, String(registered.get("15.1")));
-    const second = await takeOver(workspace, 1);
+    const second = await ownCrew(workspace, { label: "second-session", takeoverFrom: 1 });
 
-    const blocked = await next(workspace);
+    const blocked = await nextActions(workspace);
     expect(blocked.forAction("adopt_attempt")[0]?.attemptId).toBe(claimed.json.data.attemptId);
 
     const adopted = await adopt(workspace, second, claimed.json.data.attemptId);
     expect(adopted.exitCode).toBe(0);
     expect(adopted.json.data.report).toBeNull();
 
-    const resumed = await next(workspace);
+    const resumed = await nextActions(workspace);
     expect(resumed.forAction("dispatch_attempt")[0]?.attemptId).toBe(claimed.json.data.attemptId);
 
     const launched = await dispatch(workspace, second, {
@@ -334,7 +282,7 @@ describe("a fresh Operator after session loss", () => {
 
   test("adopts an Operative that has not acknowledged its brief yet", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
-    const ownerToken = await own(workspace);
+    const ownerToken = await ownCrew(workspace);
     const registered = await register(workspace, ownerToken, {
       sourceKind: "specification",
       id: "github:operator#15",
@@ -343,11 +291,11 @@ describe("a fresh Operator after session loss", () => {
     const claimed = await claim(workspace, ownerToken, String(registered.get("15.1")));
     const worktreePath = `${workspace.root}/operative`;
     await dispatch(workspace, ownerToken, { attemptId: claimed.json.data.attemptId, worktreePath });
-    const second = await takeOver(workspace, 1);
+    const second = await ownCrew(workspace, { label: "second-session", takeoverFrom: 1 });
 
     await adopt(workspace, second, claimed.json.data.attemptId);
 
-    const waiting = await next(workspace);
+    const waiting = await nextActions(workspace);
     expect(waiting.exitCode).toBe(6);
     expect(waiting.waits[0]?.wait).toBe("acknowledgement_pending");
 
@@ -380,14 +328,14 @@ describe("a fresh Operator after session loss", () => {
       ],
       producer.worktreePath,
     );
-    const second = await takeOver(workspace, 1);
+    const second = await ownCrew(workspace, { label: "second-session", takeoverFrom: 1 });
     await adopt(workspace, second, producer.attemptId);
 
-    const reported = await next(workspace);
+    const reported = await nextActions(workspace);
 
     const question = reported.forAction("answer_question")[0];
     expect(question?.attemptId).toBe(producer.attemptId);
-    expect(question?.needsUser).toBe(true);
+    expect(question?.blocker).toBe("escalation_required");
     const shown = await runJson(workspace, [
       "question",
       "show",
@@ -404,9 +352,9 @@ describe("a fresh Operator after session loss", () => {
     const artifact = await commitArtifact(workspace, producer, "the result\n");
     const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
     expect(submitted.exitCode).toBe(6);
-    await takeOver(workspace, 1);
+    await ownCrew(workspace, { label: "second-session", takeoverFrom: 1 });
 
-    const reported = await next(workspace);
+    const reported = await nextActions(workspace);
 
     expect(reported.names).not.toContain("adopt_attempt");
     expect(reported.forAction("claim_assignment")[0]?.assignmentId).toBe(
@@ -418,7 +366,7 @@ describe("a fresh Operator after session loss", () => {
   test("sends a stopped Operative to replacement instead of adoption", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const producer = await startProducer(workspace);
-    const second = await takeOver(workspace, 1);
+    const second = await ownCrew(workspace, { label: "second-session", takeoverFrom: 1 });
     await stopFakeAgents(workspace);
 
     const refused = await adopt(workspace, second, producer.attemptId);
@@ -451,7 +399,7 @@ describe("a fresh Operator after session loss", () => {
     ]);
     expect(replaced.exitCode).toBe(0);
 
-    const resumed = await next(workspace);
+    const resumed = await nextActions(workspace);
     expect(resumed.names).not.toContain("adopt_attempt");
     expect(resumed.forAction("dispatch_attempt")[0]?.attemptId).toBe(replaced.json.data.attemptId);
   });
@@ -460,14 +408,14 @@ describe("a fresh Operator after session loss", () => {
 describe("crew capacity", () => {
   test("offers three assignments to a crew of three and holds one slot for review", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
-    const ownerToken = await own(workspace);
+    const ownerToken = await ownCrew(workspace);
     const registered = await register(workspace, ownerToken, {
       sourceKind: "specification",
       id: "github:operator#15",
       items: [item({ key: "15.1" }), item({ key: "15.2" }), item({ key: "15.3" })],
     });
 
-    const reported = await next(workspace);
+    const reported = await nextActions(workspace);
 
     expect(reported.json.data.capacity.limit).toBe(3);
     expect(reported.json.data.capacity.reviewReserve).toBe(1);
@@ -483,14 +431,14 @@ describe("crew capacity", () => {
 
   test("runs one assignment at a time in a crew of one", async () => {
     const workspace = await makeReviewWorkspace(fixtures, { maxActiveAgents: 1 });
-    const ownerToken = await own(workspace);
+    const ownerToken = await ownCrew(workspace);
     const registered = await register(workspace, ownerToken, {
       sourceKind: "specification",
       id: "github:operator#15",
       items: [item({ key: "15.1" }), item({ key: "15.2" })],
     });
 
-    const offered = await next(workspace);
+    const offered = await nextActions(workspace);
     expect(offered.json.data.capacity.reviewReserve).toBe(0);
     expect(offered.forAction("claim_assignment").map((one) => one.assignmentId)).toEqual([
       registered.get("15.1") ?? null,
@@ -498,7 +446,7 @@ describe("crew capacity", () => {
 
     await claim(workspace, ownerToken, String(registered.get("15.1")));
 
-    const full = await next(workspace);
+    const full = await nextActions(workspace);
     expect(full.names).not.toContain("claim_assignment");
     const held = full.json.data.frontier.blocked.find(
       (one: { assignmentId: string }) => one.assignmentId === registered.get("15.2"),
@@ -510,7 +458,7 @@ describe("crew capacity", () => {
 describe("a mixed-host crew", () => {
   test("launches each Operative on the host its own dispatch fixed", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
-    const ownerToken = await own(workspace);
+    const ownerToken = await ownCrew(workspace);
     const registered = await register(workspace, ownerToken, {
       sourceKind: "specification",
       id: "github:operator#15",
@@ -589,9 +537,9 @@ describe("a direct instruction from a person to an Operative", () => {
     expect(raised.exitCode).toBe(6);
     expect(raised.json.reason).toBe("question_raised");
 
-    const asked = await next(workspace);
+    const asked = await nextActions(workspace);
     const question = asked.forAction("answer_question")[0];
-    expect(question?.needsUser).toBe(true);
+    expect(question?.blocker).toBe("escalation_required");
 
     // An Operator decision is refused, because the question names a subject only a person settles.
     const decided = await runJson(workspace, [
@@ -653,7 +601,7 @@ describe("a direct instruction from a person to an Operative", () => {
       String(question?.questionId),
     ]);
     expect(delivered.exitCode).toBe(6);
-    expect((await next(workspace)).waits.map((one) => one.wait)).toContain(
+    expect((await nextActions(workspace)).waits.map((one) => one.wait)).toContain(
       "answer_acknowledgement_pending",
     );
 

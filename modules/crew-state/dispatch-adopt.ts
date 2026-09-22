@@ -7,6 +7,7 @@ import {
   reportOfContext,
   type Shared,
 } from "./dispatch-context.ts";
+import { unsettledOperations } from "./dispatch.ts";
 import { record } from "./operations.ts";
 
 export type AdoptResult =
@@ -52,9 +53,7 @@ export async function adoptAttempt(request: {
     };
   }
 
-  const pending = context.operations.filter(
-    (one) => one.state === "intended" || one.state === "uncertain",
-  );
+  const pending = unsettledOperations(context.operations);
   if (pending.length > 0) {
     return {
       status: "reconciliation-required",

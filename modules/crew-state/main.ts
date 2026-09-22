@@ -14,7 +14,7 @@ import { readCapacity } from "./capacity.ts";
 import { acceptAssignment } from "./acceptance.ts";
 import { claimAssignment } from "./claims.ts";
 import { calculateFrontier } from "./frontier.ts";
-import { calculateNext, type NextActionName, nextActionRank } from "./next.ts";
+import { calculateNext, calculateUnowned, isStandingAction } from "./next.ts";
 import { parseInput } from "./input.ts";
 import { mutate, readState } from "./operations.ts";
 import { claimOwnership, currentOwnership } from "./ownership.ts";
@@ -636,28 +636,40 @@ export const CrewState = {
   },
 
   /**
+   * True when one next action is a standing precondition rather than work this crew owes.
+   * A caller reads this to decide what the crew can advance on its own.
+   */
+  isStandingAction(request: { action: string }): boolean {
+    return isStandingAction(request.action);
+  },
+
+  /**
    * Reports everything this crew may do next, in one order, and writes nothing.
    * Readiness, the frontier order, dependency gates, review priority, capacity, pending
    * acknowledgements, and every recovery a restart owes are answered here, so a session never
    * keeps a second schedule of its own beside this one.
    */
-  /** The place one next action holds in the declared order, for a caller that adds one. */
-  rankOfAction(request: { action: NextActionName }): number {
-    return nextActionRank(request.action);
-  },
-
   async next(request: Located & { readiness: { ready: boolean; detail: string } }) {
     const capacity = await readCapacity(request.projectRoot);
     if (capacity.status !== "ok") {
       return { repeated: false, result: capacity };
     }
 
+    const input = { capacity: capacity.capacity, readiness: request.readiness };
     const result = await readState(request.projectRoot, (db) => ({
       stateVersion: STATE_VERSION,
-      ...calculateNext(db, { capacity: capacity.capacity, readiness: request.readiness }),
+      ...calculateNext(db, input),
     }));
 
-    return { repeated: false, result };
+    // A project with no crew state owes exactly one crew action, so it is answered here in the
+    // same shape rather than left to a caller to build a second rendering of this report.
+    return {
+      repeated: false,
+      result:
+        result.status === "state-missing"
+          ? { stateVersion: STATE_VERSION, ...calculateUnowned(input) }
+          : result,
+    };
   },
 
   /** Reports the work a crew of this size may start now, and why the rest waits. Writes nothing. */

@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  acceptProduction,
   commitArtifact,
   disposeFindings,
+  invalidateResult,
   makeReviewWorkspace,
   registerDependents,
   reportBody,
@@ -15,6 +17,9 @@ import {
 import {
   headCommit,
   markFakeAgent,
+  type NextAction,
+  nextActions,
+  ownCrew,
   requestId as request,
   runJson,
   stopFakeAgents,
@@ -26,54 +31,6 @@ const fixtures = workspaces();
 afterEach(async () => {
   await fixtures.removeAll();
 });
-
-type Action = {
-  action: string;
-  rank: number;
-  assignmentId: string | null;
-  attemptId: string | null;
-  questionId: string | null;
-  reviewId: string | null;
-  revision: number | null;
-  needsUser: boolean;
-  command: string;
-};
-
-type Wait = { wait: string; assignmentId: string; attemptId: string; agentName: string | null };
-
-async function next(workspace: Workspace) {
-  const result = await runJson(workspace, ["crew", "next", "--claude"]);
-  const actions: Action[] = result.json.data.actions;
-  const waits: Wait[] = result.json.data.waits ?? [];
-  return {
-    ...result,
-    actions,
-    waits,
-    names: actions.map((one) => one.action),
-    of(name: string): Action {
-      const found = actions.find((one) => one.action === name);
-      if (found === undefined) {
-        throw new Error(`the next actions carry no ${name}: ${actions.map((o) => o.action)}`);
-      }
-      return found;
-    },
-  };
-}
-
-async function own(workspace: Workspace, label: string, revision: number): Promise<string> {
-  const taken = await runJson(workspace, [
-    "crew",
-    "own",
-    "--request",
-    request(),
-    "--owner-label",
-    label,
-    "--takeover",
-    "--ownership-revision",
-    String(revision),
-  ]);
-  return taken.json.data.ownerToken;
-}
 
 async function adopt(workspace: Workspace, ownerToken: string, attemptId: string) {
   return runJson(workspace, [
@@ -114,7 +71,7 @@ async function raise(
   );
 }
 
-async function answer(workspace: Workspace, ownerToken: string, question: Action) {
+async function answer(workspace: Workspace, ownerToken: string, question: NextAction) {
   const path = `${workspace.root}/answer-${crypto.randomUUID()}.json`;
   await Bun.write(
     path,
@@ -156,7 +113,7 @@ describe("the next actions", () => {
   test("answers a project with no crew state with the ownership it needs", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
 
-    const reported = await next(workspace);
+    const reported = await nextActions(workspace);
 
     expect(reported.exitCode).toBe(0);
     expect(reported.json.reason).toBe("next_actions_reported");
@@ -168,10 +125,10 @@ describe("the next actions", () => {
     const workspace = await makeReviewWorkspace(fixtures);
     await startProducer(workspace);
 
-    const reported = await next(workspace);
+    const reported = await nextActions(workspace);
 
     expect(reported.names[0]).toBe("prove_readiness");
-    expect(reported.of("prove_readiness").needsUser).toBe(true);
+    expect(reported.of("prove_readiness").blocker).toBe("readiness_blocked");
     expect(reported.json.data.readiness.state).toBe("blocked");
     expect(
       reported.json.blockers.some((one: { reason: string }) => one.reason === "not_configured"),
@@ -185,7 +142,7 @@ describe("the next actions", () => {
       { key: "26.2", kind: "production", title: "Depends on the first item" },
     ]);
 
-    const reported = await next(workspace);
+    const reported = await nextActions(workspace);
 
     expect(reported.actions.some((one) => one.assignmentId === registered.get("26.2"))).toBe(false);
     const blocked = reported.json.data.frontier.blocked.find(
@@ -202,7 +159,7 @@ describe("the next actions", () => {
       { key: "26.2", kind: "production", title: "Independent work", dependsOn: [] },
     ]);
 
-    const reported = await next(workspace);
+    const reported = await nextActions(workspace);
 
     expect(reported.json.data.capacity.limit).toBe(1);
     expect(reported.json.data.capacity.reviewReserve).toBe(0);
@@ -260,7 +217,7 @@ describe("the next actions", () => {
     ]);
     const assignmentId = registered.json.data.registered[0].assignmentId;
 
-    const offered = await next(workspace);
+    const offered = await nextActions(workspace);
     expect(offered.of("claim_assignment").assignmentId).toBe(assignmentId);
 
     const claimed = await runJson(workspace, [
@@ -275,7 +232,7 @@ describe("the next actions", () => {
       "--revision",
       "1",
     ]);
-    const claimedNext = await next(workspace);
+    const claimedNext = await nextActions(workspace);
     expect(claimedNext.of("dispatch_attempt").attemptId).toBe(claimed.json.data.attemptId);
 
     await runJson(workspace, [
@@ -293,7 +250,7 @@ describe("the next actions", () => {
       `${workspace.root}/operative`,
     ]);
 
-    const waiting = await next(workspace);
+    const waiting = await nextActions(workspace);
     expect(waiting.exitCode).toBe(6);
     expect(waiting.json.reason).toBe("next_actions_waiting");
     expect(waiting.waits[0]?.wait).toBe("acknowledgement_pending");
@@ -314,7 +271,7 @@ describe("the next actions", () => {
       "--owner-token",
       producer.ownerToken,
       "--question",
-      (await next(workspace)).of("answer_question").questionId ?? "",
+      (await nextActions(workspace)).of("answer_question").questionId ?? "",
       "--revision",
       "1",
       "--input",
@@ -330,7 +287,7 @@ describe("the next actions", () => {
         return path;
       })(),
     ]);
-    const questionId = (await next(workspace)).of("deliver_answer").questionId;
+    const questionId = (await nextActions(workspace)).of("deliver_answer").questionId;
     await runJson(workspace, [
       "question",
       "deliver",
@@ -342,7 +299,7 @@ describe("the next actions", () => {
       String(questionId),
     ]);
 
-    const reported = await next(workspace);
+    const reported = await nextActions(workspace);
 
     expect(reported.of("reconcile_attempt").attemptId).toBe(producer.attemptId);
     expect(reported.names).not.toContain("deliver_answer");
@@ -353,11 +310,11 @@ describe("the next actions", () => {
     const producer = await startProducer(workspace);
     await raise(workspace, producer, ["scope"]);
 
-    const reported = await next(workspace);
+    const reported = await nextActions(workspace);
 
     const question = reported.of("answer_question");
     expect(question.attemptId).toBe(producer.attemptId);
-    expect(question.needsUser).toBe(true);
+    expect(question.blocker).toBe("escalation_required");
     expect(
       reported.json.blockers.some(
         (one: { reason: string }) => one.reason === "escalation_required",
@@ -370,11 +327,11 @@ describe("the next actions", () => {
     const producer = await startProducer(workspace);
     await raise(workspace, producer);
 
-    const asked = await next(workspace);
-    expect(asked.of("answer_question").needsUser).toBe(false);
+    const asked = await nextActions(workspace);
+    expect(asked.of("answer_question").blocker).toBeNull();
     await answer(workspace, producer.ownerToken, asked.of("answer_question"));
 
-    const answered = await next(workspace);
+    const answered = await nextActions(workspace);
     const questionId = answered.of("deliver_answer").questionId;
     await runJson(workspace, [
       "question",
@@ -387,7 +344,7 @@ describe("the next actions", () => {
       String(questionId),
     ]);
 
-    const delivered = await next(workspace);
+    const delivered = await nextActions(workspace);
     expect(delivered.names).not.toContain("deliver_answer");
     expect(delivered.waits.map((one) => one.wait)).toContain("answer_acknowledgement_pending");
 
@@ -396,7 +353,7 @@ describe("the next actions", () => {
       ["question", "acknowledge", "--request", request(), "--question", String(questionId)],
       producer.worktreePath,
     );
-    const resolved = await next(workspace);
+    const resolved = await nextActions(workspace);
     expect(resolved.waits.map((one) => one.wait)).not.toContain("answer_acknowledgement_pending");
   });
 
@@ -410,7 +367,7 @@ describe("the next actions", () => {
     const artifact = await commitArtifact(workspace, producer, "the result\n");
     const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
 
-    const reported = await next(workspace);
+    const reported = await nextActions(workspace);
 
     const claims = reported.actions.filter((one) => one.action === "claim_assignment");
     expect(claims[0]?.assignmentId).toBe(submitted.json.data.reviewAssignmentId);
@@ -443,7 +400,7 @@ describe("the next actions", () => {
       }),
     );
 
-    const undisposed = await next(workspace);
+    const undisposed = await nextActions(workspace);
     expect(undisposed.of("dispose_findings").reviewId).toBe(submitted.json.data.reviewId);
 
     await disposeFindings(workspace, producer, submitted.json.data.reviewId, [
@@ -457,7 +414,7 @@ describe("the next actions", () => {
       },
     ]);
 
-    const disposed = await next(workspace);
+    const disposed = await nextActions(workspace);
     const accept = disposed.actions.filter((one) => one.action === "accept_assignment");
     expect(accept.map((one) => one.assignmentId)).toContain(producer.assignmentId);
   });
@@ -467,9 +424,9 @@ describe("adoption", () => {
   test("blocks every attempt a replaced Operator claimed until this session adopts it", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const producer = await startProducer(workspace);
-    const ownerToken = await own(workspace, "second-session", 1);
+    const ownerToken = await ownCrew(workspace, { label: "second-session", takeoverFrom: 1 });
 
-    const taken = await next(workspace);
+    const taken = await nextActions(workspace);
     expect(taken.of("adopt_attempt").attemptId).toBe(producer.attemptId);
     expect(taken.json.data.ownership.ownerLabel).toBe("second-session");
 
@@ -478,7 +435,7 @@ describe("adoption", () => {
     expect(adopted.json.reason).toBe("attempt_adopted");
     expect(adopted.json.data.report.stage).toBe("acknowledged");
 
-    const after = await next(workspace);
+    const after = await nextActions(workspace);
     expect(after.names).not.toContain("adopt_attempt");
     expect(after.waits.map((one) => one.wait)).toContain("operative_working");
   });
@@ -486,7 +443,7 @@ describe("adoption", () => {
   test("answers a second adoption of the same attempt without acting again", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const producer = await startProducer(workspace);
-    const ownerToken = await own(workspace, "second-session", 1);
+    const ownerToken = await ownCrew(workspace, { label: "second-session", takeoverFrom: 1 });
     await adopt(workspace, ownerToken, producer.attemptId);
 
     const again = await adopt(workspace, ownerToken, producer.attemptId);
@@ -498,7 +455,7 @@ describe("adoption", () => {
   test("refuses to adopt an attempt whose writer is gone", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const producer = await startProducer(workspace);
-    const ownerToken = await own(workspace, "second-session", 1);
+    const ownerToken = await ownCrew(workspace, { label: "second-session", takeoverFrom: 1 });
     await stopFakeAgents(workspace);
 
     const refused = await adopt(workspace, ownerToken, producer.attemptId);
@@ -582,13 +539,154 @@ describe("adoption", () => {
     ]);
     expect(uncertain.exitCode).toBe(5);
     await markFakeAgent(workspace, uncertain.json.data.agentName);
-    const second = await own(workspace, "second-session", 1);
+    const second = await ownCrew(workspace, { label: "second-session", takeoverFrom: 1 });
 
     const refused = await adopt(workspace, second, claimed.json.data.attemptId);
 
     expect(refused.exitCode).toBe(3);
     expect(refused.json.reason).toBe("reconciliation_required");
-    const reported = await next(workspace);
+    const reported = await nextActions(workspace);
     expect(reported.of("reconcile_attempt").attemptId).toBe(claimed.json.data.attemptId);
+  });
+});
+
+describe("the next-actions contract", () => {
+  test("never answers exit 3 with nothing for the user to settle", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const artifact = await commitArtifact(workspace, producer, "the result\n");
+    await submit(workspace, producer, submissionBody(producer, artifact, base));
+    // An edit nobody registered blocks the closure, which is the state that has to name a person.
+    await Bun.write(`${producer.worktreePath}/notes.md`, "a human edit\n");
+    const blocked = await runJson(workspace, [
+      "cleanup",
+      "close",
+      "--request",
+      request(),
+      "--owner-token",
+      producer.ownerToken,
+      "--attempt",
+      producer.attemptId,
+    ]);
+    expect(blocked.json.reason).toBe("cleanup_blocked");
+
+    const reported = await nextActions(workspace);
+
+    const settle = reported.of("settle_cleanup");
+    expect(settle.blocker).toBe("cleanup_blocked");
+    expect(reported.reasons).toContain("cleanup_blocked");
+    // Every action that waits on a person reaches the blockers a session brings to the user.
+    for (const action of reported.actions.filter((one) => one.blocker !== null)) {
+      expect(reported.blockers.some((one) => one.action === action.action)).toBe(true);
+    }
+  });
+
+  test("stops work on a blocked process closure instead of offering it again", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const artifact = await commitArtifact(workspace, producer, "the result\n");
+    await submit(workspace, producer, submissionBody(producer, artifact, base));
+    await Bun.write(`${producer.worktreePath}/notes.md`, "a human edit\n");
+    await runJson(workspace, [
+      "cleanup",
+      "close",
+      "--request",
+      request(),
+      "--owner-token",
+      producer.ownerToken,
+      "--attempt",
+      producer.attemptId,
+    ]);
+
+    const reported = await nextActions(workspace);
+
+    expect(reported.names).not.toContain("close_process");
+    expect(reported.of("settle_cleanup").blocker).toBe("cleanup_blocked");
+  });
+
+  test("reports a person before a wait, because a wait clears nothing a person holds", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const producer = await startProducer(workspace);
+    await raise(workspace, producer, ["visible-behavior"]);
+
+    const reported = await nextActions(workspace);
+
+    expect(reported.waiting).toContain("operative_working");
+    expect(reported.exitCode).toBe(3);
+    expect(reported.json.reason).toBe("next_actions_blocked");
+    expect(reported.reasons).toContain("escalation_required");
+  });
+
+  test("reports work that a defect paused rather than answering that nothing waits", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const producer = await startProducer(workspace);
+    const registered = await registerDependents(workspace, producer, [
+      { key: "26.2", kind: "production", title: "Reads the first result" },
+    ]);
+    const base = await headCommit(workspace);
+    const artifact = await commitArtifact(workspace, producer, "the result\n");
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
+    await reportReview(
+      workspace,
+      reviewer,
+      submitted.json.data.reviewId,
+      reportBody({ submissionIdentity: submitted.json.data.identity, host: workspace.host }),
+    );
+    const accepted = await acceptProduction(workspace, producer, {
+      submissionId: submitted.json.data.submissionId,
+      revision: submitted.json.data.revision,
+      prHead: artifact.commit,
+    });
+    expect(accepted.json.reason).toBe("assignment_accepted");
+    const dependent = String(registered.get("26.2"));
+    await runJson(workspace, [
+      "work",
+      "claim",
+      "--request",
+      request(),
+      "--owner-token",
+      producer.ownerToken,
+      "--assignment",
+      dependent,
+      "--revision",
+      "1",
+    ]);
+    const invalidated = await invalidateResult(workspace, producer, {
+      assignmentId: producer.assignmentId,
+      revision: accepted.json.data.revision,
+      defect: {
+        summary: "The export drops the second column.",
+        evidence: "The reader test fails on the accepted commit.",
+        foundBy: "the user",
+      },
+    });
+    expect(invalidated.json.reason).toBe("result_invalidated");
+
+    const reported = await nextActions(workspace);
+
+    const paused = reported.waits.find((one) => one.assignmentId === dependent);
+    expect(paused?.wait).toBe("input_invalidated");
+    expect(paused?.detail).toContain(producer.assignmentId);
+  });
+
+  test("answers a project with no crew state in the shape every reading uses", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+
+    const empty = await nextActions(workspace);
+    const producer = await startProducer(workspace);
+    const owned = await nextActions(workspace);
+
+    expect(Object.keys(empty.json.data).toSorted()).toEqual(
+      Object.keys(owned.json.data).toSorted(),
+    );
+    expect(empty.json.data.stateVersion).toBe(owned.json.data.stateVersion);
+    expect(empty.json.data.frontier.dispatchable).toEqual([]);
+    expect(empty.json.data.capacity.limit).toBe(3);
+    expect(empty.json.data.ownership).toBeNull();
+    expect(owned.json.data.ownership.ownerLabel).toBe("operator-session");
+    expect(producer.attemptId).toBeTruthy();
   });
 });
