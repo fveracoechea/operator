@@ -140,19 +140,28 @@ function allAttempts(db: CrewReader) {
     );
 }
 
+/** Every effect of one attempt that recorded an intent and never proved an outcome. */
+function unsettledEffects(db: CrewReader, attemptId: string): string[] {
+  return liveOperations(db, attemptId)
+    .filter((one) => one.state === "intended" || one.state === "uncertain")
+    .map((one) => one.kind);
+}
+
 /** One active attempt: what it still owes, or what it is waiting for. */
 function readActiveAttempt(
   db: CrewReader,
-  request: { attemptId: string; assignmentId: string; ownedByCurrent: boolean },
+  request: {
+    attemptId: string;
+    assignmentId: string;
+    ownedByCurrent: boolean;
+    unsettled: string[];
+  },
   into: Collector,
   waits: NextWait[],
 ): void {
   const dispatch = readDispatchRow(db, request.attemptId);
-  const unsettled = liveOperations(db, request.attemptId).filter(
-    (one) => one.state === "intended" || one.state === "uncertain",
-  );
 
-  if (unsettled.length > 0) {
+  if (request.unsettled.length > 0) {
     into.add({
       action: "reconcile_attempt",
       assignmentId: request.assignmentId,
@@ -161,7 +170,7 @@ function readActiveAttempt(
       reviewId: null,
       revision: null,
       needsUser: false,
-      detail: `${unsettled.map((one) => one.kind).join(", ")} never proved an outcome.`,
+      detail: `${request.unsettled.join(", ")} never proved an outcome.`,
       command: "operator attempt reconcile",
     });
     return;
@@ -210,7 +219,12 @@ function readActiveAttempt(
 }
 
 /** Every question that still holds an Operative, and what carries it forward. */
-function readQuestions(db: CrewReader, into: Collector, waits: NextWait[]): void {
+function readQuestions(
+  db: CrewReader,
+  unsettled: Set<string>,
+  into: Collector,
+  waits: NextWait[],
+): void {
   for (const row of blockingQuestions(db).toSorted((left, right) =>
     left.id.localeCompare(right.id),
   )) {
@@ -233,7 +247,8 @@ function readQuestions(db: CrewReader, into: Collector, waits: NextWait[]): void
       continue;
     }
 
-    if (row.state === "answered") {
+    // A delivery that never proved an outcome is reconciled, never submitted a second time.
+    if (row.state === "answered" && !unsettled.has(row.attemptId)) {
       into.add({
         action: "deliver_answer",
         assignmentId: row.assignmentId,
@@ -245,6 +260,9 @@ function readQuestions(db: CrewReader, into: Collector, waits: NextWait[]): void
         detail: "The answer is recorded and has not reached the Operative.",
         command: "operator question deliver",
       });
+      continue;
+    }
+    if (row.state === "answered") {
       continue;
     }
 
@@ -461,7 +479,15 @@ export function calculateNext(
     });
   }
 
-  for (const attempt of allAttempts(db)) {
+  const held = allAttempts(db).map((attempt) => ({
+    attempt,
+    unsettled: unsettledEffects(db, attempt.id),
+  }));
+  const unsettled = new Set(
+    held.flatMap((one) => (one.unsettled.length === 0 ? [] : [one.attempt.id])),
+  );
+
+  for (const { attempt, unsettled: pending } of held) {
     const assignment = readAssignment(db, attempt.assignmentId);
     if (assignment === null) {
       continue;
@@ -474,6 +500,7 @@ export function calculateNext(
           attemptId: attempt.id,
           assignmentId: attempt.assignmentId,
           ownedByCurrent: ownership !== null && ownership.token === attempt.ownerToken,
+          unsettled: pending,
         },
         into,
         waits,
@@ -497,7 +524,7 @@ export function calculateNext(
     }
   }
 
-  readQuestions(db, into, waits);
+  readQuestions(db, unsettled, into, waits);
 
   const paused = openPauses(db);
   for (const row of db
