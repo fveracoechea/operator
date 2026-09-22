@@ -18,7 +18,13 @@ import {
 } from "./direction.ts";
 import { mutate, readState } from "./operations.ts";
 import { reopenReview } from "./review.ts";
-import { openOperation, recordInspection, recordPlan, settleOperation } from "./dispatch.ts";
+import {
+  openOperation,
+  recordInspection,
+  recordPlan,
+  settleOperation,
+  unsettledOperations,
+} from "./dispatch.ts";
 
 /** One review, plus at most two replacements after a failure is inspected. */
 const REVIEW_ATTEMPT_LIMIT = 3;
@@ -155,9 +161,7 @@ export async function replaceAttempt(request: {
     }
   }
 
-  const pending = read.context.operations.filter(
-    (one) => one.state === "intended" || one.state === "uncertain",
-  );
+  const pending = unsettledOperations(read.context.operations);
   if (pending.length > 0) {
     return {
       status: "reconciliation-required",

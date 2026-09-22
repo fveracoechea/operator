@@ -14,6 +14,7 @@ import {
   isDispatchStage,
   type OperationState,
   settleOperation,
+  unsettledOperations,
 } from "./dispatch.ts";
 import { readState } from "./operations.ts";
 import { questionByDelivery } from "./questions.ts";
@@ -146,9 +147,7 @@ export async function reconcileAttempt(request: {
     baseCommit: dispatch.baseCommit,
   });
 
-  const unsettled = read.context.operations.filter(
-    (one) => one.state === "intended" || one.state === "uncertain",
-  );
+  const unsettled = unsettledOperations(read.context.operations);
   const findings: Finding[] = [];
 
   for (const operation of unsettled) {

@@ -151,3 +151,81 @@ export async function markFakeAgent(
 export function requestId(): string {
   return crypto.randomUUID();
 }
+
+/** One action of the next-actions contract, as a caller reads it out of the JSON result. */
+export type NextAction = {
+  action: string;
+  rank: number;
+  assignmentId: string | null;
+  attemptId: string | null;
+  questionId: string | null;
+  reviewId: string | null;
+  revision: number | null;
+  blocker: string | null;
+  detail: string;
+  command: string;
+};
+
+/** One wait of the next-actions contract. */
+export type NextWait = {
+  wait: string;
+  assignmentId: string;
+  attemptId: string | null;
+  agentName: string | null;
+  detail: string;
+};
+
+/**
+ * The one read-only reading a session takes before it acts.
+ * Every coordination test drives the shipped CLI through this, so the order, the gates, and the
+ * exit meaning are asserted where a session reads them.
+ */
+export async function nextActions(workspace: Workspace, targets: string[] = ["--claude"]) {
+  const result = await runJson(workspace, ["crew", "next", ...targets]);
+  const actions: NextAction[] = result.json.data?.actions ?? [];
+  const waits: NextWait[] = result.json.data?.waits ?? [];
+  const blockers: Array<{ reason: string; [key: string]: unknown }> = result.json.blockers ?? [];
+
+  return {
+    ...result,
+    actions,
+    waits,
+    blockers,
+    names: actions.map((one) => one.action),
+    waiting: waits.map((one) => one.wait),
+    reasons: blockers.map((one) => one.reason),
+    forAction(name: string): NextAction[] {
+      return actions.filter((one) => one.action === name);
+    },
+    of(name: string): NextAction {
+      const found = actions.find((one) => one.action === name);
+      if (found === undefined) {
+        throw new Error(`the next actions carry no ${name}: ${actions.map((one) => one.action)}`);
+      }
+      return found;
+    },
+  };
+}
+
+/**
+ * Takes crew ownership and answers with the owner token every mutation carries.
+ * A takeover names the ownership revision it inspected, so two sessions cannot both believe
+ * they won.
+ */
+export async function ownCrew(
+  workspace: Workspace,
+  options: { label?: string; takeoverFrom?: number } = {},
+): Promise<string> {
+  const taken = await runJson(workspace, [
+    "crew",
+    "own",
+    "--request",
+    requestId(),
+    "--owner-label",
+    options.label ?? "operator-session",
+    ...(options.takeoverFrom === undefined
+      ? []
+      : ["--takeover", "--ownership-revision", String(options.takeoverFrom)]),
+  ]);
+  return taken.json.data.ownerToken;
+}

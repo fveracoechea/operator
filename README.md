@@ -9,8 +9,8 @@ The name comes from *The Matrix*: the crew member who loads programs, guides mis
 
 ## Status
 
-**Project installation, setup, readiness, the crew frontier, Operative dispatch, question routing, reviewed acceptance, delegated rework, tracker completion, and approved cleanup work.**
-The repository contains the Bun CLI, its local and CI quality gate, `operator install`, `operator setup`, `operator setup readiness`, `operator crew own`, `operator work`, `operator attempt`, `operator question`, `operator approval`, `operator review`, `operator tracker`, and `operator cleanup`.
+**Project installation, setup, readiness, the crew frontier, Operative dispatch, question routing, reviewed acceptance, delegated rework, tracker completion, approved cleanup, and the coordination and recovery loop work.**
+The repository contains the Bun CLI, its local and CI quality gate, `operator install`, `operator setup`, `operator setup readiness`, `operator crew own`, `operator crew next`, `operator work`, `operator attempt`, `operator question`, `operator approval`, `operator review`, `operator tracker`, and `operator cleanup`, together with the Operator-owned skill that drives them.
 The live readiness probe and release automation are not implemented yet.
 
 ## CLI Foundation
@@ -409,6 +409,39 @@ It answers 0 even when the tracker operation is incomplete, because the query it
 A verified step is never written again to repair another.
 See [ADR 0009](docs/adr/0009-a-tracker-update-is-three-recoverable-steps.md).
 
+## Coordination and Recovery
+
+One read-only command answers what a crew does next.
+
+```sh
+operator crew next --claude --operator-host claude-code --json
+```
+
+It reads readiness, the frontier order, dependency gates, review priority, capacity, pending acknowledgements, open questions, undisposed findings, unfinished tracker steps, and unfinished cleanup, and reports them as one ranked list of actions.
+Each action names the command to run, the record it acts on, and the revision to state.
+`data.waits` says what is running and what has not answered yet, with the Herdr agent a bounded wait watches.
+`data.frontier` carries the order, the gates, and the capacity the actions come from.
+
+Each action carries the blocker a person must settle, or nothing when the session can act alone.
+The exit meaning says what the session may do on its own.
+`0` offers at least one action that needs nobody else, `6` says nothing can advance and a bounded wait is next, and `3` says every open crew action waits on a person and names each blocker.
+A project that is not ready is reported as a standing precondition rather than as a refusal, because continuing without proven readiness is the user's decision and settling it starts no work.
+
+A fresh Operator takes the crew, settles the unproven effects, and then adopts each attempt it inherited.
+
+```sh
+operator crew own --request <id> --owner-label <label> --takeover --ownership-revision <n> --json
+operator attempt reconcile --request <id> --owner-token <token> --attempt <id> --json
+operator attempt adopt --request <id> --owner-token <token> --attempt <id> --json
+```
+
+Adoption states that this session read what one attempt holds.
+It changes nothing about the work, the checkout, the brief, or the questions.
+It runs only when every effect of that attempt is settled and its Operative is still running.
+An attempt whose writer is gone is replaced, not adopted, and an attempt that already ended needs neither.
+
+The Operator-owned skill reads this one command instead of keeping a queue of its own.
+See [ADR 0011](docs/adr/0011-one-read-only-command-owns-the-coordination-order.md).
 
 ## The Workflow We Want
 

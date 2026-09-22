@@ -6,7 +6,10 @@ Read this before you launch, recover, or replace an Operative.
 
 1. `operator crew own --request <id> --owner-label <label> --json` gives you the owner token every mutation needs.
 2. `operator work register --request <id> --owner-token <token> --input <path> --json` records the approved work.
-3. `operator work frontier --json` says what may start now and why the rest waits.
+   Read [REGISTRATION.md](REGISTRATION.md) for what that request carries.
+3. `operator crew next --claude --json` says what to do now and why the rest waits.
+   Read [COORDINATION.md](COORDINATION.md) for that loop.
+   `operator work frontier --json` prints the order, the gates, and the capacity on their own.
 4. `operator work claim --request <id> --owner-token <token> --assignment <id> --revision <n> --json` gives you one attempt.
 5. `operator attempt dispatch --request <id> --owner-token <token> --attempt <id> --commit <sha> --json` launches it.
 6. The Operative hands over its result with `operator attempt submit`.
@@ -62,6 +65,15 @@ A replacement is a new attempt on the same assignment.
 
 The inspected checkout and branch are retained.
 Never delete a checkout to make a replacement simpler.
+
+## One crew, two hosts
+
+A dispatch may name its own crew host and model with `--crew-host` and `--crew-model`.
+The launch records that selection, so two Operatives of one crew can run on different hosts.
+
+Everything else stays the same.
+The brief, the protocol, and every command are identical on OpenCode and on Claude Code.
+A recovery restores the recorded host, so a session override reaches new launches only.
 
 ## Direct Herdr use
 

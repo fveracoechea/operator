@@ -9,6 +9,7 @@ import { runApproval } from "./approval-command.ts";
 import { runAttempt } from "./attempt-command.ts";
 import { runCleanup } from "./cleanup-command.ts";
 import { runCrewOwn } from "./crew-command.ts";
+import { runCrewNext } from "./next-command.ts";
 import { runInstall } from "./install-command.ts";
 import { runQuestion } from "./question-command.ts";
 import { runReview } from "./review-command.ts";
@@ -22,8 +23,15 @@ type CrewCommand = (words: string[], parsed: ParsedArguments) => Promise<Handled
 
 // The commands that read crew state. Each one names its own operations in its own module.
 const crewCommands: Record<string, CrewCommand | undefined> = {
-  crew: async (words, parsed) =>
-    words.length === 1 && words[0] === "own" ? runCrewOwn(parsed) : "invalid-arguments",
+  crew: async (words, parsed) => {
+    if (words.length !== 1) {
+      return "invalid-arguments";
+    }
+    if (words[0] === "own") {
+      return runCrewOwn(parsed);
+    }
+    return words[0] === "next" ? runCrewNext(parsed) : "invalid-arguments";
+  },
   work: runWork,
   attempt: runAttempt,
   question: runQuestion,
@@ -113,15 +121,20 @@ export async function run(args: string[]): Promise<void> {
     const firstFlag = rest.findIndex((word) => word.startsWith("--"));
     const words = firstFlag === -1 ? rest : rest.slice(0, firstFlag);
     const parsed = parseArguments(firstFlag === -1 ? [] : rest.slice(firstFlag));
+    // The next actions answer for one installation and one selection, so only that read
+    // carries the target and selection flags every other crew command refuses.
+    const selects = command === "crew" && words[0] === "next";
     if (
       parsed.unsupported.length > 0 ||
-      parsed.targets.length > 0 ||
+      (!selects && parsed.targets.length > 0) ||
       parsed.approvedPlan !== undefined ||
-      // Only crew ownership can be taken over, so any other command refuses the flag.
-      (command !== "crew" && parsed.takeover) ||
+      // Only crew ownership can be taken over, so every other command refuses the flag.
+      (parsed.takeover && !(command === "crew" && words[0] === "own")) ||
       // A dispatch fixes the selection it launches with, so only it reads a selection override.
       parsed.approvedProbe !== undefined ||
-      (!(command === "attempt" && words[0] === "dispatch") && hasSelectionOrProbeArguments(parsed))
+      (!(command === "attempt" && words[0] === "dispatch") &&
+        !selects &&
+        hasSelectionOrProbeArguments(parsed))
     ) {
       rejectArguments(parsed.json);
       return;

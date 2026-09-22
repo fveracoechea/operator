@@ -11,7 +11,8 @@ export function reportMissingTarget(
     | "setup_apply"
     | "setup_readiness"
     | "setup_probe_plan"
-    | "setup_probe_apply",
+    | "setup_probe_apply"
+    | "crew_next",
 ): void {
   console.error(usage);
   report({

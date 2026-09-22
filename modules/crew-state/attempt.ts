@@ -32,6 +32,21 @@ export function startAttempt(
 }
 
 /**
+ * Moves one live attempt to the Operator that owns the crew now.
+ * The attempt, its checkout, its brief, and its questions are unchanged, because adoption
+ * transfers who may act on the attempt and nothing about the work it holds.
+ */
+export function reassignAttempt(
+  db: CrewWriter,
+  request: { attempt: AttemptRow; ownerToken: string },
+): void {
+  db.update(attempts)
+    .set({ ownerToken: request.ownerToken, revision: request.attempt.revision + 1 })
+    .where(eq(attempts.id, request.attempt.id))
+    .run();
+}
+
+/**
  * Records the final state of one attempt without ending its assignment.
  * An attempt that already ended, such as one that submitted its result, keeps the time it
  * ended, so a later acceptance does not rewrite when the writing stopped.

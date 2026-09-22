@@ -71,6 +71,15 @@ An approved specification, a ready ticket, and a wayfinder map are the three sup
 The recorded statement of whether an assignment is executable or planning only.
 Planning-only work is registered so dependencies resolve, and it is never dispatched to an Operative.
 
+**Next actions**:
+The ordered list of what one crew may do now, with the waits that hold the rest.
+It is one read that changes nothing, and it is the only schedule, so a session keeps no queue beside it.
+An action that names a blocker waits on a person; a standing precondition is reported first and never decides whether the crew can advance.
+
+**Attempt adoption**:
+A new Operator's statement that it read what one inherited attempt holds.
+It transfers who may act on the attempt and changes nothing about the work, so it needs settled effects and a running Operative.
+
 **Crew frontier**:
 The assignments a crew may start now, with the reason every other assignment waits.
 It is a read that changes nothing.
