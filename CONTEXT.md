@@ -143,6 +143,19 @@ The Standards axis and the Spec axis stay separate and are never merged or reran
 The Operator's answer to one review finding.
 It is corrected, rejected with a reason and the evidence that refutes the finding, or deferred with a reason and a follow-up reference, so no finding leaves a review unanswered.
 
+**Rework cycle**:
+One delegated correction round on one submitted result.
+It carries the accepted findings, the conflicts it must settle, and the revisions it combines, and a fresh Operative answers all of them in one combined revision.
+The reviewer that found the problem and the Operator that disposed of it are never its writer.
+
+**Direction request**:
+The recorded statement that one assignment reached a limit and now waits on the user.
+It keeps the evidence of what was tried, blocks acceptance while it is open, and is passed only by an approval that names the assignment and the revision of the request it answers.
+
+**Invalidated result**:
+An accepted result a defect was found in afterwards.
+Its acceptance and evidence stay recorded, and only the dependents that consumed it are paused.
+
 **Review capability**:
 The reviewer host's ability to run the required review sub-agents.
 An unavailable capability is a recorded blocker, never permission for a single-context self-review.

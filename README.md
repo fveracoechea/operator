@@ -323,6 +323,47 @@ A stopped reviewer, a missing input, an unavailable review capability, a missing
 See [ADR 0007](docs/adr/0007-review-is-crew-work-and-acceptance-reads-only-recorded-evidence.md).
 
 
+## Rework, Limits, and Invalidated Results
+
+A finding the Operator accepted for correction goes to a fresh Operative, never to the reviewer that found it.
+
+```sh
+operator work rework --request <id> --owner-token <token> --assignment <id> --revision <n> --input cycle.json --json
+```
+
+The request names one reason.
+A `findings` cycle answers the accepted corrections of a reported review whose findings all carry a disposition.
+An `integration` cycle also names the revisions it combines.
+A `diagnostic` cycle names the recorded checks a test infrastructure failure is suspected behind, and at least one of them must not have passed.
+Each cycle states the Operator instruction and the conflicts the Operative must settle, and it records no resolution of its own.
+
+The cycle returns the assignment to the frontier.
+Claim it again, dispatch it from the submitted commit, and the brief carries the fixed submission, every accepted correction with its evidence, the conflicts, the revisions to combine, fixed copies of the artifacts, and the original acceptance requirements.
+One cycle produces one combined revision, which registers its own review assignment.
+That reviewer receives every earlier round, its dispositions, and the cycles they delegated, and it checks the revision for regressions.
+Nothing between the two revisions can be accepted.
+
+Three limits hold across sessions: three correction cycles for one assignment, two diagnostic reruns, and three attempts on one review, which is one reviewer and two replacements per submitted revision.
+A reached limit records a direction request, keeps the failure evidence, and blocks acceptance with `direction_required` until the user directs it.
+
+```sh
+operator approval grant --request <id> --owner-token <token> --input direction.json --json
+```
+
+The direction is an approval with action `limit-direction`, the assignment as its target, scope `limit:<kind>`, and the revision of the direction request as its request revision.
+Reaching the same limit again moves that revision, so the earlier approval covers nothing.
+
+```sh
+operator work invalidate --request <id> --owner-token <token> --assignment <id> --revision <n> --input defect.json --json
+```
+
+A defect found after acceptance keeps the acceptance, the submission, the review, and every finding.
+The assignment returns to the frontier as `invalidated`, and only the dependents that consumed the result are paused.
+A dependent that never started stays held by the dependency gate.
+Accepting the corrected result releases the paused dependents, and one that was accepted returns to the step that decided it.
+See [ADR 0008](docs/adr/0008-rework-is-a-delegated-cycle-and-a-limit-blocks-acceptance.md).
+
+
 ## The Workflow We Want
 
 1. You work with the Operator to clarify a goal and choose work to delegate.
