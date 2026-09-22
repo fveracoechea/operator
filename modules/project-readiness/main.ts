@@ -236,7 +236,7 @@ function expectedCosts(report: Report): string[] {
     hostLine("crew"),
     report.fixture === null
       ? "No probe fixture is configured, so the probe makes no GitHub call."
-      : `GitHub fixture ${report.fixture.repository}#${report.fixture.issue}: one comment written, one issue closed and reopened, and the reads the tracker checks need.`,
+      : `GitHub fixture ${report.fixture.repository}#${report.fixture.issue}: one comment written, one issue closed and reopened, and the reads the tracker checks need. The fixture issue must be open, or the closure checks are skipped and nothing is written to it.`,
     "Operator charges nothing of its own. Each provider bills the tokens its own host spends.",
   ];
 }

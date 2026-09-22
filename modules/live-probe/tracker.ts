@@ -295,12 +295,23 @@ export async function runTrackerChecks(request: {
  * Closes the fixture issue with an explicit reason, reads the history back, and reopens it.
  * The reopen is the probe putting the fixture back as it found it, and it also makes the
  * reopen event the history check reads.
+ * A fixture that is not open already is left exactly as it is, because reopening it would
+ * change a state the probe never set and the probe restores nothing it did not do.
  */
 async function closeAndRestore(
   fixture: Fixture,
   probeId: string,
 ): Promise<{ closure: Staged; events: Staged }> {
   const target = { repository: fixture.repository, issue: fixture.issue };
+  const before = await GithubTracker.readIssue(target);
+  if (before.status !== "found" || before.value.state !== "open") {
+    const detail =
+      before.status === "found"
+        ? `The probe fixture issue #${fixture.issue} is ${before.value.state}, and the closure check needs an open one. Nothing was written.`
+        : `The state of the probe fixture issue could not be read, so nothing was written: ${before.status === "absent" ? "it is not there" : before.detail}`;
+    return { closure: skipped("github-closure", detail), events: skipped("github-events", detail) };
+  }
+
   const operationId = crypto.randomUUID();
   const planned = await TrackerUpdate.plan({
     provider: PROVIDER,

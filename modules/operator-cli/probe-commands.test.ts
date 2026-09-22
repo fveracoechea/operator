@@ -408,6 +408,33 @@ describe("operator setup probe apply", () => {
   );
 
   test(
+    "writes nothing to a fixture issue that is not open, and skips what needed it",
+    async () => {
+      const state: GithubFakeState = await Bun.file(`${workspace.github}/state.json`).json();
+      const held = state.issues[String(FIXTURE_ISSUE)];
+      expect(held).toBeDefined();
+      await writeFixtureState(workspace, {
+        ...state,
+        issues: {
+          ...state.issues,
+          [String(FIXTURE_ISSUE)]: { ...(held as FakeIssue), state: "closed" },
+        },
+      });
+
+      const result = await applyProbe(workspace);
+      const after: GithubFakeState = await Bun.file(`${workspace.github}/state.json`).json();
+
+      expect(observed(result.json, "github-closure")).toMatchObject({ state: "skipped" });
+      expect(observed(result.json, "github-events")).toMatchObject({ state: "skipped" });
+      // The probe restores nothing it did not do, so the issue keeps the state it was found in.
+      expect(after.issues[String(FIXTURE_ISSUE)]?.state).toBe("closed");
+      expect(after.events[String(FIXTURE_ISSUE)] ?? []).toEqual([]);
+      expect((await githubCalls(workspace)).some((one) => one.startsWith("PATCH"))).toBe(false);
+    },
+    PROBE_TIMEOUT_MS,
+  );
+
+  test(
     "reports the same mixed-host selection it launched",
     async () => {
       const result = await applyProbe(workspace);
