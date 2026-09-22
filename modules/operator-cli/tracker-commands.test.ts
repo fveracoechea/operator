@@ -564,13 +564,31 @@ describe("operator tracker show", () => {
     expect(shown.json.data.complete).toBe(false);
     expect(shown.json.data.incomplete).toEqual(["completion", "map_amendment"]);
 
-    const steps: Array<{ step: string; state: string; writeAttempts: number }> =
-      shown.json.data.steps;
+    const steps: Array<{
+      step: string;
+      state: string;
+      writeAttempts: number;
+      nextActions: string[];
+    }> = shown.json.data.steps;
     expect(steps.find((one) => one.step === "resolution")?.state).toBe("verified");
     expect(steps.find((one) => one.step === "completion")?.state).toBe("failed");
     expect(steps.find((one) => one.step === "map_amendment")?.state).toBe("unrecorded");
+    // Each step names what may follow it, and a finished one asks for nothing.
+    expect(steps.find((one) => one.step === "resolution")?.nextActions).toEqual([]);
+    expect(steps.find((one) => one.step === "completion")?.nextActions).toEqual([
+      "operator tracker record",
+    ]);
     // The verified resolution was never written a second time to repair the completion.
     expect(steps.find((one) => one.step === "resolution")?.writeAttempts).toBe(1);
+    expect(await commentsOn(workspace, TICKET)).toHaveLength(1);
+
+    // Completing the blocked step leaves the verified one exactly as it was.
+    const closed = await recordStep(workspace, { input: completionBody() });
+    expect(closed.exitCode).toBe(0);
+    const after = await showSteps(workspace);
+    const held = after.json.data.steps.find((one: { step: string }) => one.step === "resolution");
+    expect(held.writeAttempts).toBe(1);
+    expect(held.state).toBe("verified");
     expect(await commentsOn(workspace, TICKET)).toHaveLength(1);
   });
 
