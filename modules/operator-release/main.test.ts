@@ -157,3 +157,36 @@ describe("the release artifact", () => {
     );
   });
 });
+
+describe("the release tooling", () => {
+  test("builds a complete artifact through the command a maintainer runs", async () => {
+    const artifactRoot = outputRoot();
+
+    const child = Bun.spawn(
+      ["bun", "scripts/release.ts", "build", "--out", artifactRoot, "--commit", commit],
+      { cwd: sourceRoot, stderr: "pipe", stdout: "pipe" },
+    );
+    const [exitCode, stderr, stdout] = await Promise.all([
+      child.exited,
+      new Response(child.stderr).text(),
+      new Response(child.stdout).text(),
+    ]);
+
+    expect(stderr).toBe("");
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(stdout).status).toBe("built");
+    expect((await OperatorRelease.inspect({ artifactRoot })).status).toBe("complete");
+  }, 300_000);
+
+  test("refuses to build without the commit it is built from", async () => {
+    const child = Bun.spawn(["bun", "scripts/release.ts", "build", "--out", outputRoot()], {
+      cwd: sourceRoot,
+      stderr: "pipe",
+      stdout: "pipe",
+    });
+    const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+
+    expect(exitCode).toBe(2);
+    expect(stderr).toContain("--commit");
+  });
+});

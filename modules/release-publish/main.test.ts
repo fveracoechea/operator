@@ -324,3 +324,45 @@ describe("the published artifact", () => {
     expect(second.identity).toBe(first.identity);
   });
 });
+
+describe("the release toolchain", () => {
+  test("names no Deno anywhere in the release path", async () => {
+    const checked = [
+      ".github/workflows/release.yml",
+      ".github/workflows/release-smoke.yml",
+      "scripts/release.ts",
+      "package.json",
+      "modules/release-publish/main.ts",
+      "modules/release-publish/jsr-client.ts",
+    ];
+
+    for (const path of checked) {
+      const text = await Bun.file(`${sourceRoot}/${path}`).text();
+      expect(text.toLowerCase(), path).not.toContain("deno");
+    }
+  });
+
+  test("keeps every third-party action pinned by commit", async () => {
+    const workflows = [".github/workflows/release.yml", ".github/workflows/release-smoke.yml"];
+
+    for (const path of workflows) {
+      const text = await Bun.file(`${sourceRoot}/${path}`).text();
+      const uses = [...text.matchAll(/uses:\s*(\S+)/g)].map((match) => match[1] ?? "");
+      expect(uses.length, path).toBeGreaterThan(0);
+      for (const used of uses) {
+        expect(used, `${path} uses ${used}`).toMatch(/@[0-9a-f]{40}$/);
+      }
+    }
+  });
+
+  test("reads no publishing token of its own from the environment", async () => {
+    const client = await Bun.file(`${sourceRoot}/modules/release-publish/jsr-client.ts`).text();
+
+    // The only environment the client reads is the short-lived credential the runner offers.
+    const read = [...client.matchAll(/environment\.([A-Z_]+)/g)].map((match) => match[1]);
+    expect([...new Set(read)].toSorted()).toEqual([
+      "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+      "ACTIONS_ID_TOKEN_REQUEST_URL",
+    ]);
+  });
+});

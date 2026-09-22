@@ -280,7 +280,8 @@ describe("the JSR delivery path", () => {
           target: "ESNext",
           strict: true,
           noEmit: true,
-          skipLibCheck: true,
+          // The shipped declarations are checked, not skipped: that is what a consumer receives.
+          skipLibCheck: false,
           typeRoots: [`${sourceRoot}/node_modules/@types`],
           types: ["bun"],
         },
