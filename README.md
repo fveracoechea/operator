@@ -318,9 +318,51 @@ operator work accept --request <id> --owner-token <token> --assignment <id> --at
 
 Acceptance verifies the current ownership, the assignment revision, the exact submission, both axis reports, a disposition on every finding, no correction still waiting for rework, a passing outcome on every recorded check, and the pull request head you name against the head the submission stated.
 A check outcome a review observed for itself outranks the producer's own word, so a contradiction blocks.
-Operator does not read the pull request itself; the tracker boundary arrives with #24.
+Operator does not read the pull request itself; acceptance compares the head you state against the head the submission recorded, and reading a live head remains separate work.
 A stopped reviewer, a missing input, an unavailable review capability, a missing pull-request authority, a failed check, and a flaky check each block instead of passing.
 See [ADR 0007](docs/adr/0007-review-is-crew-work-and-acceptance-reads-only-recorded-evidence.md).
+
+
+## Tracker Completion and Recovery
+
+Completing work on the tracker is three separate outcomes, and each one is recorded and recovered on its own.
+
+```sh
+operator tracker record --request <id> --owner-token <token> --assignment <id> --revision <n> --input step.json --json
+operator tracker recover --request <id> --owner-token <token> --operation <id> --json
+operator tracker show --assignment <id> --json
+operator tracker map --assignment <id> --json
+```
+
+The request names one step: `resolution` writes the decision comment, `completion` closes the ticket with an explicit reason, and `map_amendment` appends one amendment to the wayfinder map.
+The ticket comes from the source the assignment was registered from, so a request that names another repository or issue is refused.
+GitHub is the only tracker this release implements.
+
+Every step writes its intent, its expected actor, and its exact content before it acts, and records its write attempt and the answer that came back.
+It then reads what the tracker actually shows and settles the step from that reading.
+A comment carries its logical operation in an HTML marker, which is how recovery finds it again.
+
+A write that never returned a definite answer stays uncertain, because it may still have applied.
+`operator tracker recover` reads the exact comment when the server named one, and otherwise reads every accessible comment page and records what the scan covered.
+Two matching comments, changed content, and another author are each a conflict for a person to settle.
+Another write under an uncertain operation needs an approval that names the operation and the number of attempts already recorded:
+
+```sh
+operator approval grant --request <id> --owner-token <token> --input approval.json --json
+operator tracker record ... --approval <id> --json
+```
+
+Completion reads the ticket before it closes it.
+An observed closed state with the intended reason satisfies the step without claiming that Operator caused it, and a different reason or a reopen after the close is a conflict.
+
+`operator tracker map` reads the map as its baseline body plus every explicit amendment.
+Independent additions combine; an incomplete scan, an edited amendment, and two amendments of one section each stop the session.
+Operator never replaces a shared issue body.
+
+`operator tracker show` reports the three steps, what each one is blocked by, and what may follow it.
+It answers 0 even when the tracker operation is incomplete, because the query itself succeeded.
+A verified step is never written again to repair another.
+See [ADR 0009](docs/adr/0009-a-tracker-update-is-three-recoverable-steps.md).
 
 
 ## The Workflow We Want
