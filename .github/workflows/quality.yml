@@ -52,10 +52,13 @@ jobs:
       - run: bun install --frozen-lockfile
       # Both agent hosts and both mixed Crews are covered inside these files, against the Herdr
       # and GitHub fakes. No live probe runs here, because a live probe needs its own approval.
+      # `shell: bash` sets `pipefail`, so `tee` cannot answer for the test run it copies.
       - name: Live checks, first attempt
+        shell: bash
         run: bun test modules/live-probe modules/operator-cli/probe-commands.test.ts modules/project-readiness 2>&1 | tee live-attempt-1.log
       # A check that passes only sometimes is a blocker, so the same files run again.
       - name: Live checks, second attempt
+        shell: bash
         run: bun test modules/live-probe modules/operator-cli/probe-commands.test.ts modules/project-readiness 2>&1 | tee live-attempt-2.log
       - name: Preserve every attempt
         if: always()
