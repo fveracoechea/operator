@@ -1,3 +1,4 @@
+import { LiveProbe } from "../live-probe/main.ts";
 import { ProjectReadiness } from "../project-readiness/main.ts";
 import { type ParsedArguments, targetFlag } from "./arguments.ts";
 import { reportMissingTarget } from "./missing-target.ts";
@@ -162,24 +163,141 @@ export async function runProbeApply(parsed: ParsedArguments): Promise<void> {
     return;
   }
 
+  const run = await LiveProbe.run({
+    projectRoot: process.cwd(),
+    probeId: result.plan.probeId,
+    approvedProbeId: result.plan.probeId,
+    planRevision: result.plan.planRevision,
+    targets: result.report.targets,
+    operator: {
+      host: result.plan.agents.operator.host,
+      model: result.plan.agents.operator.model,
+    },
+    crew: { host: result.plan.agents.crew.host, model: result.plan.agents.crew.model },
+    fixture: result.plan.fixture,
+    inputs: result.report.inputs,
+    versions: result.report.versions,
+    checks: result.plan.checks.map((check) => check.name),
+  });
+
+  const readiness = await ProjectReadiness.record({
+    projectRoot: process.cwd(),
+    targets: parsed.targets,
+    overrides: parsed.overrides,
+    run: run.run,
+  });
+
+  const unproven = run.run.observations.filter((one) => one.state !== "passed");
+  const failures = unproven.filter((one) => one.state === "failed");
+
   report({
     json: parsed.json,
     result: {
-      outcome: "missing-condition",
-      reason: "live_probe_unavailable",
-      blockers: [
-        {
-          reason: "live_probe_unavailable",
-          detail:
-            "This Operator release runs no live probe, so the configuration stays unverified.",
-        },
-      ],
+      outcome:
+        unproven.length === 0 ? "completed" : failures.length > 0 ? "failed" : "missing-condition",
+      reason:
+        unproven.length === 0
+          ? "probe_completed"
+          : failures.length > 0
+            ? "probe_run_failed"
+            : "probe_incomplete",
+      blockers: unproven.map((one) => ({
+        reason:
+          one.state === "failed" ? ("live_check_failed" as const) : ("live_check_skipped" as const),
+        check: one.name,
+        detail: one.detail,
+      })),
       operation: "setup_probe_apply",
-      data: probeData(result),
+      data: { probeId: result.plan.probeId, run: run.run, readiness },
     },
     lines: [
-      "The probe is approved, and this Operator release runs no live check. Nothing was launched.",
-      "The configuration stays unverified.",
+      `Operator live probe ${result.plan.probeId} ran ${run.run.observations.length} checks.`,
+      "",
+      ...run.run.observations.flatMap((one) => [
+        `  ${one.state.padEnd(8)} ${one.name}`,
+        `    ${one.detail}`,
+      ]),
+      "",
+      `Readiness is now ${readiness.state}. The readiness claim is ${readiness.claims.readiness} and the release claim is ${readiness.claims.release}.`,
+      run.run.cleanup.resources.length === 0
+        ? "The probe left no temporary resource behind."
+        : `The probe left ${run.run.cleanup.resources.length} temporary resources. Remove them with \`operator setup probe cleanup\`.`,
+    ],
+  });
+}
+
+/**
+ * Removes the temporary resources earlier probes left behind, under its own approval.
+ * Deleting a probe resource carries no authority over an Operative worktree, a merge, or a
+ * release, and the recorded observations stay, so every failed attempt survives its resources.
+ */
+export async function runProbeCleanup(parsed: ParsedArguments): Promise<void> {
+  const result = await LiveProbe.removeResources({
+    projectRoot: process.cwd(),
+    approvedCleanupId: parsed.approvedCleanup,
+  });
+
+  if (result.status === "nothing") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "completed",
+        reason: "probe_no_resources",
+        blockers: [],
+        operation: "setup_probe_cleanup",
+        data: result,
+      },
+      lines: ["The probe holds no temporary resource. Nothing was removed."],
+    });
+    return;
+  }
+
+  if (result.status === "approval-required" || result.status === "approval-stale") {
+    const stale = result.status === "approval-stale";
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "missing-condition",
+        reason: stale ? "approval_stale" : "approval_required",
+        blockers: [
+          {
+            reason: stale ? "approval_stale" : "approval_required",
+            currentCleanupId: result.cleanupId,
+            approvedCleanupId: parsed.approvedCleanup ?? null,
+          },
+        ],
+        operation: "setup_probe_cleanup",
+        data: result,
+      },
+      lines: [
+        stale
+          ? "The approved cleanup no longer names these resources. Nothing was removed."
+          : "Removing a probe resource needs its own approval. Nothing was removed.",
+        "",
+        "These probe resources would be removed:",
+        ...result.directories.map((one) => `  ${one}`),
+        "",
+        "The recorded observations stay, so every failed attempt is preserved.",
+        "",
+        `Approve with: operator setup probe cleanup --approved-cleanup ${result.cleanupId}`,
+      ],
+    });
+    return;
+  }
+
+  report({
+    json: parsed.json,
+    result: {
+      outcome: "completed",
+      reason: "probe_resources_removed",
+      blockers: [],
+      operation: "setup_probe_cleanup",
+      data: result,
+    },
+    lines: [
+      "Removed the temporary resources of earlier probes:",
+      ...result.directories.map((one) => `  ${one}`),
+      "The recorded observations stay, so every failed attempt is preserved.",
     ],
   });
 }

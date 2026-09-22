@@ -63,7 +63,6 @@ export type Reason =
   | "unreadable_evidence"
   | "probe_plan_ready"
   | "probe_blocked"
-  | "live_probe_unavailable"
   | "probe_completed"
   | "probe_incomplete"
   | "probe_run_failed"

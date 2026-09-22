@@ -878,7 +878,10 @@ describe("operator setup probe", () => {
     expect(approval).toBeDefined();
     const applied = await runJson(root, path, (approval ?? "").split(" "));
 
-    expect(applied.json.reason).toBe("live_probe_unavailable");
+    // The approval matched, so the probe ran. This machine holds no Herdr that answers it.
+    expect(applied.json.reason).not.toBe("approval_required");
+    expect(applied.json.reason).not.toBe("approval_stale");
+    expect(applied.json.data.run.probeId).toBe(applied.json.data.probeId);
   });
 
   test("refuses to plan a probe for a blocked project", async () => {
@@ -926,12 +929,12 @@ describe("operator setup probe", () => {
     expect(result.json.reason).toBe("approval_stale");
   });
 
-  test("leaves the configuration unverified while this release runs no live check", async () => {
+  test("writes nothing outside the ignored Operator directory", async () => {
     const path = await makeFullPath();
     const root = await makeProject();
     await configure(root, path, ["--claude"]);
     const plan = await runJson(root, path, ["setup", "probe", "plan", ...ready]);
-    const before = await Bun.$`git -C ${root} status --porcelain --ignored`.text();
+    const before = await Bun.$`git -C ${root} status --porcelain`.text();
 
     const result = await runJson(root, path, [
       "setup",
@@ -942,8 +945,28 @@ describe("operator setup probe", () => {
       plan.json.data.probeId,
     ]);
 
-    expect(result.exitCode).toBe(3);
-    expect(result.json.reason).toBe("live_probe_unavailable");
-    expect(await Bun.$`git -C ${root} status --porcelain --ignored`.text()).toBe(before);
+    expect(result.json.data.run.observations.length).toBeGreaterThan(0);
+    expect(await Bun.$`git -C ${root} status --porcelain`.text()).toBe(before);
+  });
+
+  test("keeps a check unproven when Herdr answers nothing this release can read", async () => {
+    const path = await makeFullPath();
+    const root = await makeProject();
+    await configure(root, path, ["--claude"]);
+    const plan = await runJson(root, path, ["setup", "probe", "plan", ...ready]);
+
+    const result = await runJson(root, path, [
+      "setup",
+      "probe",
+      "apply",
+      ...ready,
+      "--approved-probe",
+      plan.json.data.probeId,
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.json.reason).toBe("probe_run_failed");
+    const readiness = await runJson(root, path, ["setup", "readiness", ...ready]);
+    expect(readiness.json.data.state).toBe("blocked");
   });
 });

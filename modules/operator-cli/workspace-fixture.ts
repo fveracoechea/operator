@@ -18,6 +18,8 @@ export type WorkspaceOptions = {
   config?: unknown;
   /** Extra files committed into the fixture repository before the first commit. */
   files?: Record<string, string>;
+  /** Extra executables on the fixture path, such as the agent hosts a readiness check reads. */
+  tools?: Record<string, string>;
 };
 
 /**
@@ -49,6 +51,11 @@ export function workspaces() {
       // the real external interface instead of a module replaced by path.
       await Bun.write(`${workspace.bin}/gh`, `#!/bin/sh\nexec bun ${fakeGithubPath} "$@"\n`);
       await Bun.$`chmod +x ${workspace.bin}/gh`.quiet();
+
+      for (const [name, script] of Object.entries(options.tools ?? {})) {
+        await Bun.write(`${workspace.bin}/${name}`, `#!/bin/sh\n${script}\n`);
+        await Bun.$`chmod +x ${workspace.bin}/${name}`.quiet();
+      }
 
       const config = options.config ?? { crew: { host: "claude-code" } };
       await Bun.write(`${workspace.repo}/.operator/config.json`, `${JSON.stringify(config)}\n`);
@@ -92,7 +99,12 @@ function fixturePath(bin: string): string {
   return [bin, ...kept].join(":");
 }
 
-export async function runOperator(workspace: Workspace, args: string[], cwd = workspace.repo) {
+export async function runOperator(
+  workspace: Workspace,
+  args: string[],
+  cwd = workspace.repo,
+  env: Record<string, string> = {},
+) {
   const child = Bun.spawn(["bun", cliPath, ...args], {
     cwd,
     stderr: "pipe",
@@ -102,6 +114,7 @@ export async function runOperator(workspace: Workspace, args: string[], cwd = wo
       PATH: fixturePath(workspace.bin),
       HERDR_FAKE_DIR: workspace.herdr,
       GH_FAKE_DIR: workspace.github,
+      ...env,
     },
   });
   const [exitCode, stderr, stdout] = await Promise.all([
@@ -112,9 +125,35 @@ export async function runOperator(workspace: Workspace, args: string[], cwd = wo
   return { exitCode, stderr, stdout };
 }
 
-export async function runJson(workspace: Workspace, args: string[], cwd = workspace.repo) {
-  const result = await runOperator(workspace, [...args, "--json"], cwd);
+export async function runJson(
+  workspace: Workspace,
+  args: string[],
+  cwd = workspace.repo,
+  env: Record<string, string> = {},
+) {
+  const result = await runOperator(workspace, [...args, "--json"], cwd, env);
   return { ...result, json: JSON.parse(result.stdout) };
+}
+
+/**
+ * The reports the fake Herdr answers a probe brief with, one file per step.
+ * A step with no report is a launched agent that never answered, which is how a test drives the
+ * bounded observation window to its limit.
+ */
+export async function seedProbeReports(
+  workspace: Workspace,
+  reports: Record<string, unknown>,
+): Promise<void> {
+  for (const [step, report] of Object.entries(reports)) {
+    await Bun.write(`${workspace.herdr}/probe/${step}.json`, JSON.stringify(report), {
+      createPath: true,
+    });
+  }
+}
+
+/** The partial work one interrupted agent leaves in its checkout before it is stopped. */
+export async function seedProbePartial(workspace: Workspace, text: string): Promise<void> {
+  await Bun.write(`${workspace.herdr}/probe/interruption.partial`, text, { createPath: true });
 }
 
 /** Every Herdr call the fake recorded, so a test can assert what was and was not launched. */

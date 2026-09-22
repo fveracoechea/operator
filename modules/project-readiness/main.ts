@@ -207,6 +207,15 @@ async function buildReport(request: Request) {
 
 type Report = Awaited<ReturnType<typeof buildReport>>;
 
+/**
+ * True when a check the probe cannot fix has failed.
+ * A failed live check is the reason to run a probe again, so only a failing static check, or
+ * evidence that cannot be read, holds a probe back.
+ */
+function staticallyBlocked(report: Report): boolean {
+  return report.blockers.some((one) => one.kind === "static" || one.name === "readiness-evidence");
+}
+
 function expectedCosts(report: Report): string[] {
   const prompts = liveChecks.reduce(
     (total, one) => ({
@@ -271,8 +280,6 @@ function probeDetails(report: Report) {
   return { probeId, ...details };
 }
 
-export type ProbePlan = ReturnType<typeof probeDetails>;
-
 export const ProjectReadiness = {
   /**
    * Reads the launch inputs one attempt fixes: effective selection, release, lock data, and
@@ -301,7 +308,7 @@ export const ProjectReadiness = {
    */
   async probePlan(request: Request) {
     const report = await buildReport(request);
-    if (report.state === "blocked") {
+    if (staticallyBlocked(report)) {
       return { status: "blocked" as const, report };
     }
 
@@ -311,7 +318,7 @@ export const ProjectReadiness = {
   /** Refuses to launch a live probe without an approval that matches the shown plan. */
   async probe(request: Request & { approvedProbeId: string | undefined }) {
     const report = await buildReport(request);
-    if (report.state === "blocked") {
+    if (staticallyBlocked(report)) {
       return { status: "blocked" as const, report };
     }
 

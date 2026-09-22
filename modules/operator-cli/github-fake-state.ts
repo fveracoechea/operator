@@ -37,6 +37,10 @@ export type GithubFakeState = {
   issues: Record<string, FakeIssue>;
   comments: Record<string, FakeComment[]>;
   events: Record<string, FakeEvent[]>;
+  /** The issues published under one issue, as `sub_issues` answers them. */
+  subIssues?: Record<string, FakeIssue[]>;
+  /** The issues one issue is blocked by, as `dependencies/blocked_by` answers them. */
+  blockedBy?: Record<string, FakeIssue[]>;
 };
 
 /** One injected fault, and how many more calls of its operation it applies to. */

@@ -1,6 +1,6 @@
 import { ProjectSetup } from "../project-setup/main.ts";
 import { hasSelectionOrProbeArguments, type ParsedArguments, targetFlag } from "./arguments.ts";
-import { runProbeApply, runProbePlan } from "./probe-command.ts";
+import { runProbeApply, runProbeCleanup, runProbePlan } from "./probe-command.ts";
 import { runReadiness } from "./readiness-command.ts";
 import { reportMissingTarget } from "./missing-target.ts";
 import { report } from "./result.ts";
@@ -303,10 +303,26 @@ export async function runSetup(
   const [subcommand, second] = words;
 
   if (subcommand === "probe") {
-    if (second !== "plan" && second !== "apply") {
+    if (second !== "plan" && second !== "apply" && second !== "cleanup") {
       return "invalid-arguments";
     }
     if (parsed.approvedPlan !== undefined) {
+      return "invalid-arguments";
+    }
+    if (second === "cleanup") {
+      // Cleanup names no host and no target; it disposes of what earlier runs recorded.
+      if (
+        parsed.targets.length > 0 ||
+        parsed.approvedProbe !== undefined ||
+        parsed.overrides.operator !== undefined ||
+        parsed.overrides.crew !== undefined
+      ) {
+        return "invalid-arguments";
+      }
+      await runProbeCleanup(parsed);
+      return "reported";
+    }
+    if (parsed.approvedCleanup !== undefined) {
       return "invalid-arguments";
     }
     if (second === "plan" && parsed.approvedProbe !== undefined) {

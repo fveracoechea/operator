@@ -12,6 +12,7 @@ export const usage = [
   `  operator setup readiness ${targetChoice} ${selection} ${crewSelection} [--json]`,
   `  operator setup probe plan ${targetChoice} ${selection} ${crewSelection} [--json]`,
   `  operator setup probe apply ${targetChoice} ${selection} ${crewSelection} --approved-probe <probeId> [--json]`,
+  "  operator setup probe cleanup [--approved-cleanup <cleanupId>] [--json]",
   "  operator crew own --request <id> --owner-label <label> [--json]",
   "  operator crew own --request <id> --owner-label <label> --takeover --ownership-revision <n> [--json]",
   `  operator crew next ${targetChoice} ${selection} ${crewSelection} [--json]`,
