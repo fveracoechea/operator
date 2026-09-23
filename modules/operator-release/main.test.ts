@@ -1,7 +1,11 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 // Bun has no recursive directory removal API.
 import { rm, symlink } from "node:fs/promises";
 import { OperatorRelease } from "./main.ts";
+
+// Most of these tests build a real artifact, which compiles the whole release. That takes far
+// longer than a default test, and longer again on a CI runner.
+setDefaultTimeout(300_000);
 
 const sourceRoot = new URL("../../", import.meta.url).pathname.replace(/\/$/, "");
 const outputs: string[] = [];
@@ -268,7 +272,7 @@ describe("the release tooling", () => {
     expect(exitCode).toBe(0);
     expect(JSON.parse(stdout).status).toBe("built");
     expect((await OperatorRelease.inspect({ artifactRoot })).status).toBe("complete");
-  }, 300_000);
+  });
 
   test("refuses to build without the commit it is built from", async () => {
     const child = Bun.spawn(["bun", "scripts/release.ts", "build", "--out", outputRoot()], {

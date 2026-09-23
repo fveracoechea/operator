@@ -1,4 +1,5 @@
 // Bun has no recursive directory removal or real-path API.
+import { mkdirSync, readdirSync, rmSync, symlinkSync } from "node:fs";
 import { realpath, rm } from "node:fs/promises";
 
 const cliPath = new URL("../../cli.ts", import.meta.url).pathname;
@@ -83,20 +84,60 @@ export async function headCommit(workspace: Workspace, cwd = workspace.repo): Pr
   return (await Bun.$`git -C ${cwd} rev-parse HEAD`.quiet()).stdout.toString().trim();
 }
 
+/** The tools a fixture answers itself, and the only ones a fixture PATH hides. */
+const FAKED_TOOLS = ["gh", "herdr"];
+
+// One mirror directory per PATH directory that holds a real faked tool, made once per process.
+const mirrorRoot = `${Bun.env.TMPDIR ?? "/tmp"}/operator-path-${process.pid}`;
+const mirrors = new Map<string, string>();
+
+process.on("exit", () => rmSync(mirrorRoot, { force: true, recursive: true }));
+
+function entriesOf(directory: string): string[] {
+  try {
+    return readdirSync(directory);
+  } catch {
+    // A directory this process cannot read holds nothing a fixture can reach either.
+    return [];
+  }
+}
+
+/**
+ * A stand-in for one PATH directory that links everything except the faked tools.
+ * Dropping the whole directory instead would take the rest of the machine with it: on a
+ * GitHub runner `gh` sits in `/usr/bin` beside `git`, and a fixture repository needs Git.
+ */
+function mirrorOf(directory: string): string {
+  const made = mirrors.get(directory);
+  if (made !== undefined) {
+    return made;
+  }
+
+  const mirror = `${mirrorRoot}/${mirrors.size}`;
+  mkdirSync(mirror, { recursive: true });
+  for (const name of entriesOf(directory)) {
+    if (!FAKED_TOOLS.includes(name)) {
+      symlinkSync(`${directory}/${name}`, `${mirror}/${name}`);
+    }
+  }
+  mirrors.set(directory, mirror);
+  return mirror;
+}
+
 /**
  * The PATH a fixture command runs with.
- * The fakes come first, and every directory holding a real `gh` or `herdr` is dropped, so no
- * test can reach the real tool. A test that deletes a fake to prove the tool is absent then
- * proves exactly that, instead of falling through to the one installed on this machine.
+ * The fakes come first, and every real `gh` or `herdr` is hidden, so no test can reach the real
+ * tool. A test that deletes a fake to prove the tool is absent then proves exactly that,
+ * instead of falling through to the one installed on this machine.
  */
 function fixturePath(bin: string): string {
   const inherited = (process.env.PATH ?? "").split(":").filter((one) => one.length > 0);
-  const kept = inherited.filter(
-    (directory) =>
-      Bun.which("gh", { PATH: directory }) === null &&
-      Bun.which("herdr", { PATH: directory }) === null,
+  const usable = inherited.map((directory) =>
+    FAKED_TOOLS.some((tool) => Bun.which(tool, { PATH: directory }) !== null)
+      ? mirrorOf(directory)
+      : directory,
   );
-  return [bin, ...kept].join(":");
+  return [bin, ...usable].join(":");
 }
 
 export async function runOperator(
