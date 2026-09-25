@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import packageJson from "../../package.json" with { type: "json" };
 import { usage } from "./usage.ts";
 
 const repositoryRoot = new URL("../../", import.meta.url).pathname;
@@ -52,7 +53,7 @@ describe("Operator CLI", () => {
     expect(result).toEqual({
       exitCode: 0,
       stderr: "",
-      stdout: "operator 0.0.0\n",
+      stdout: `operator ${packageJson.version}\n`,
     });
   });
 
@@ -69,7 +70,7 @@ describe("Operator CLI", () => {
         blockers: [],
         operation: "version",
         data: {
-          operatorVersion: "0.0.0",
+          operatorVersion: packageJson.version,
           bunVersion: Bun.version,
         },
       })}\n`,
@@ -88,7 +89,7 @@ describe("Operator CLI", () => {
       blockers: [],
       operation: "version",
       data: {
-        operatorVersion: "0.0.0",
+        operatorVersion: packageJson.version,
         bunVersion: Bun.version,
       },
     });
