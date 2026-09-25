@@ -1,117 +1,87 @@
 /**
- * A stand-in for the JSR management API and the GitHub Actions OIDC endpoint.
- * It answers over HTTP, so the Operator-owned client reaches it through `fetch` exactly as it
- * reaches the real registry, and the tests drive refusals, faults, and unfinished tasks.
+ * A stand-in for JSR: its public version read, and the official `jsr` client on the path.
+ * The read answers over HTTP, so the plan reaches it through `fetch` exactly as it reaches the
+ * real registry. The client is a command, so the publication reaches it exactly as it reaches
+ * the real one, and both read one state, so a version the client sends is a version JSR holds.
  */
+
+const fakeClientPath = new URL("./fake-jsr-client.ts", import.meta.url).pathname;
+
+export type JsrClientBehaviour = "publishes" | "refuses" | "publishes-then-fails";
 
 export type JsrFakeOptions = {
   /** Versions the registry already holds, so immutability is provable. */
   published?: string[];
-  /** How many task readings answer `pending` before the task settles. */
-  pendingReadings?: number;
-  /** The status the task settles on. */
-  taskOutcome?: "success" | "failure";
-  /** An HTTP status the create call answers instead of accepting the version. */
-  createStatus?: number;
-  /** Whether the runner offers an OIDC credential at all. */
-  oidc?: boolean;
+  /** What the official client does when it is asked to publish. */
+  client?: JsrClientBehaviour;
 };
+
+export type JsrClientCall = {
+  args: string[];
+  cwd: string;
+  version: string;
+  /** Every staged file the client could publish, with the installed dependencies left out. */
+  files: string[];
+  /** The dependencies installed beside the staged files, which the client resolves imports from. */
+  installed: string[];
+};
+
+export type JsrFakeState = { published: string[]; client: JsrClientBehaviour };
 
 export type JsrFake = {
   api: string;
-  oidcUrl: string;
-  environment: Record<string, string>;
-  received: Array<{ version: string; config: string; authorization: string; bytes: number }>;
   fetch: typeof fetch;
+  calls: () => Promise<JsrClientCall[]>;
   stop: () => void;
 };
 
-/** Starts the fake and answers the settings a client needs to reach it. */
-export function startJsrFake(options: JsrFakeOptions = {}): JsrFake {
-  const published = new Set(options.published ?? []);
-  const received: JsrFake["received"] = [];
-  const readings = new Map<string, number>();
+/**
+ * Starts the fake and puts its client first on the path through `binDirectory`.
+ * A later fake in the same test writes the client again, so the newest one answers.
+ */
+export async function startJsrFake(
+  request: { directory: string; binDirectory: string } & JsrFakeOptions,
+): Promise<JsrFake> {
+  const statePath = `${request.directory}/state.json`;
+  const callsPath = `${request.directory}/calls.jsonl`;
+  const state: JsrFakeState = {
+    published: request.published ?? [],
+    client: request.client ?? "publishes",
+  };
+  await Bun.write(statePath, `${JSON.stringify(state)}\n`, { createPath: true });
+  await Bun.write(callsPath, "");
+  await Bun.write(
+    `${request.binDirectory}/jsr`,
+    `#!/bin/sh\nFAKE_JSR_DIR=${request.directory} exec bun ${fakeClientPath} "$@"\n`,
+  );
+  await Bun.$`chmod +x ${request.binDirectory}/jsr`.quiet();
 
   const server = Bun.serve({
     port: 0,
-    async fetch(request) {
-      const url = new URL(request.url);
-
-      if (url.pathname === "/oidc") {
-        return options.oidc === false
-          ? new Response("no credential", { status: 403 })
-          : Response.json({ value: `oidc-token-for-${url.searchParams.get("audience")}` });
-      }
-
+    async fetch(incoming) {
+      const url = new URL(incoming.url);
       const version = /^\/scopes\/([^/]+)\/packages\/([^/]+)\/versions\/(.+)$/.exec(url.pathname);
-      if (version?.[3] !== undefined && request.method === "GET") {
-        return published.has(version[3])
+      if (version?.[3] !== undefined && incoming.method === "GET") {
+        const current: JsrFakeState = await Bun.file(statePath).json();
+        return current.published.includes(version[3])
           ? Response.json({ version: version[3], yanked: false })
           : Response.json({ code: "not_found", message: "Not Found" }, { status: 404 });
-      }
-
-      if (version?.[3] !== undefined && request.method === "POST") {
-        if (options.createStatus !== undefined) {
-          return Response.json(
-            { code: "refused", message: "the registry refused this version" },
-            { status: options.createStatus },
-          );
-        }
-
-        received.push({
-          version: version[3],
-          config: url.searchParams.get("config") ?? "",
-          authorization: request.headers.get("authorization") ?? "",
-          bytes: (await request.arrayBuffer()).byteLength,
-        });
-        return Response.json({
-          id: `task-${version[3]}`,
-          status: "pending",
-          packageScope: version[1],
-          packageName: version[2],
-          packageVersion: version[3],
-          createdAt: "2026-01-01T00:00:00Z",
-          updatedAt: "2026-01-01T00:00:00Z",
-        });
-      }
-
-      const task = /^\/publishing_tasks\/(.+)$/.exec(url.pathname);
-      if (task?.[1] !== undefined) {
-        const seen = (readings.get(task[1]) ?? 0) + 1;
-        readings.set(task[1], seen);
-        const settled = seen > (options.pendingReadings ?? 0);
-        const outcome = options.taskOutcome ?? "success";
-        if (settled && outcome === "success") {
-          published.add(task[1].replace("task-", ""));
-        }
-
-        return Response.json({
-          id: task[1],
-          status: settled ? outcome : "processing",
-          error:
-            settled && outcome === "failure" ? { code: "bad", message: "the task failed" } : null,
-          packageScope: "fveracoechea",
-          packageName: "operator",
-          packageVersion: task[1].replace("task-", ""),
-          createdAt: "2026-01-01T00:00:00Z",
-          updatedAt: "2026-01-01T00:00:00Z",
-        });
       }
 
       return Response.json({ code: "not_found", message: url.pathname }, { status: 404 });
     },
   });
 
-  const base = `http://127.0.0.1:${server.port}`;
   return {
-    api: base,
-    oidcUrl: `${base}/oidc`,
-    environment: {
-      ACTIONS_ID_TOKEN_REQUEST_URL: `${base}/oidc?x=1`,
-      ACTIONS_ID_TOKEN_REQUEST_TOKEN: "runner-token",
-    },
-    received,
+    api: `http://127.0.0.1:${server.port}`,
     fetch: globalThis.fetch,
+    async calls() {
+      const text = await Bun.file(callsPath).text();
+      return text
+        .split("\n")
+        .filter((line) => line.length > 0)
+        .map((line) => JSON.parse(line));
+    },
     stop: () => server.stop(true),
   };
 }

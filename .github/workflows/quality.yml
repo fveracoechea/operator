@@ -2,8 +2,9 @@ name: Quality
 
 on:
   pull_request:
-  push:
-    branches: [main]
+  # A push to main runs these checks inside the release workflow, which publishes only after they
+  # pass on the same commit.
+  workflow_call:
 
 permissions:
   contents: read

@@ -17,6 +17,7 @@ export const ToolInvocation = {
     tool: string;
     args: string[];
     input?: string;
+    cwd?: string;
     timeoutMs: number;
   }): Promise<Invocation> {
     // Bun.which caches the startup path, so the current PATH is read on every lookup.
@@ -31,6 +32,7 @@ export const ToolInvocation = {
 
     // A request body travels on standard input, so exact content reaches the tool unchanged.
     const child = Bun.spawn([path, ...request.args], {
+      cwd: request.cwd,
       stdin: request.input === undefined ? "ignore" : new TextEncoder().encode(request.input),
       stdout: "pipe",
       stderr: "pipe",

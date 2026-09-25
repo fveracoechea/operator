@@ -54,17 +54,19 @@ Install the newer Operator; this one cannot read it.
 
 ## Publish
 
-You have no authority to publish.
-Publication is a maintainer action, and it needs an approval bound to one exact version, one merged and checked commit, and every published byte.
+You have no authority to publish, and you never run the publication yourself.
+The release workflow publishes a version after its version pull request merges, from the merged commit, once that commit passed the quality gate and the release smoke.
+Merging that pull request is the user's decision, not yours.
 
-Report what the publication would do, and give the identity to the user:
+To report what the publication would do, run the plan:
 
 ```sh
 bun scripts/release.ts plan --out dist --commit <full-commit>
 ```
 
-The plan refuses a commit that is not merged into the release branch, a commit whose required checks did not pass, a tag that already names another commit, and a version the registry already holds.
-Changed content is a new version under a new approval, never a replacement.
+The plan refuses a commit that is not merged into the release branch, a tag that already names another commit whose release is not complete, and a version the registry already holds with no record of this release.
+It reports a version both paths already hold as `released`, and then nothing is published.
+Changed content is a new version, never a replacement.
 
 A partial publication is not repaired by hand.
-Run the same approved release again from the same commit; it delivers only the path that is still missing and leaves the delivered one alone.
+Ask the user to run the failed publish job again; it delivers only the path that is still missing and leaves the delivered one alone.

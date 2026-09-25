@@ -1,17 +1,21 @@
 #!/usr/bin/env bun
 /**
- * Release tooling. It is not part of the user-facing CLI, and it publishes nothing without an
- * approval granted against the exact version, commit, and published bytes it reports.
+ * Release tooling. It is not part of the user-facing CLI. The release workflow runs `publish`
+ * after a version pull request merges and the commit passed its checks. See ADR 0013.
  *
  *   bun scripts/release.ts build   --out <dir> --commit <sha>
  *   bun scripts/release.ts plan    --out <dir> --commit <sha> [--base main]
- *   bun scripts/release.ts publish --out <dir> --commit <sha> --approved-release <id> [--base main]
+ *   bun scripts/release.ts publish --out <dir> --commit <sha> [--base main]
  */
 
 import { OperatorRelease } from "../modules/operator-release/main.ts";
 import { ReleasePublish } from "../modules/release-publish/main.ts";
 
 const sourceRoot = new URL("../", import.meta.url).pathname.replace(/\/$/, "");
+
+// The official `jsr` client is pinned in the development dependencies, so the publication runs
+// that exact version and never one this machine happens to have installed.
+process.env.PATH = `${sourceRoot}/node_modules/.bin:${process.env.PATH ?? ""}`;
 
 function flag(args: string[], name: string): string | undefined {
   const index = args.indexOf(`--${name}`);
@@ -64,17 +68,12 @@ if (command === "build") {
     process.exit(plan.blockers.length === 0 ? 0 : 3);
   }
 
-  const result = await ReleasePublish.publish({
-    artifactRoot,
-    commit,
-    base,
-    journalPath,
-    approvedReleaseId: flag(args, "approved-release"),
-  });
+  const result = await ReleasePublish.publish({ artifactRoot, commit, base, journalPath });
   report(result);
   // A partial publication is not a failure to repair by hand. It is retried from the same
-  // approved commit, and only the missing path is sent again.
-  process.exit(result.status === "published" ? 0 : result.status === "partial" ? 6 : 3);
+  // commit, and only the missing path is sent again.
+  const exitCode = { published: 0, released: 0, partial: 6, blocked: 3 } as const;
+  process.exit(exitCode[result.status]);
 } else {
   fail("the operations are `build`, `plan`, and `publish`");
 }

@@ -135,6 +135,16 @@ describe("the release artifact", () => {
     }
   });
 
+  test("carries the source license into both manifests it publishes", async () => {
+    // The registry refuses a package that names no license, so the build carries it forward.
+    const { artifactRoot } = await buildArtifact();
+    const source = await Bun.file(new URL("../../package.json", import.meta.url)).json();
+
+    expect(source.license).toBeString();
+    expect((await Bun.file(`${artifactRoot}/jsr.json`).json()).license).toBe(source.license);
+    expect((await Bun.file(`${artifactRoot}/package.json`).json()).license).toBe(source.license);
+  });
+
   test("records the exact commit and version the artifact was built from", async () => {
     const { artifactRoot, result } = await buildArtifact();
 

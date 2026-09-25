@@ -13,7 +13,7 @@ Every step of the first orchestration workflow works end to end: project setup, 
 The repository also holds the release build, the Operator-owned JSR client, the Changesets and GitHub Actions workflows, and smoke tests of both delivery paths.
 
 Nothing is published yet.
-Publication is a maintainer action against one exact approved commit.
+The release workflow publishes a version after its version pull request merges.
 
 ## How it works
 
@@ -198,37 +198,44 @@ It refuses a file from a newer release with `state_version_unsupported`.
 
 ### Publishing
 
-Publication is a maintainer action, and the CLI does not carry it.
-The release tooling is separate.
+Publication is automatic, and the CLI does not carry it.
+
+1. Each change that reaches a consumer carries a changeset.
+2. On a push to `main`, Changesets opens or updates the version pull request.
+3. Merging that pull request is the decision to release that version.
+4. On the merged commit, the release workflow runs the quality gate and the release smoke. The publish job starts only after both pass.
+5. The publish job creates the tag and the GitHub release, and publishes the artifact to JSR.
+
+A later push that carries the same version publishes nothing, because both paths already hold it.
+
+The release tooling runs outside the CLI.
 
 ```sh
 bun scripts/release.ts build   --out dist --commit <full-commit>
 bun scripts/release.ts plan    --out dist --commit <full-commit>
-bun scripts/release.ts publish --out dist --commit <full-commit> --approved-release <releaseId>
+bun scripts/release.ts publish --out dist --commit <full-commit>
 ```
 
 The artifact holds runnable ESM, the public declarations, the complete owned-skill directories, and the generated configuration schema.
 Its identity covers every byte it holds.
-The release identity binds one approval to that version, that merged and checked commit, and that content.
-Changed content is a new version under a new approval.
+The release identity binds the delivery record to that version, that merged commit, and that content.
 
 The plan refuses these conditions:
 
 - A commit that is not merged into the release branch.
-- A commit whose required checks did not pass.
-- A tag that already names another commit.
-- A version that the registry already holds.
+- A tag that already names another commit whose release is not complete.
+- A version that the registry already holds, with no record of this release.
 
-A published tag never moves and a published version is never replaced.
+A published tag never moves and a published version is never replaced, so changed content is a new version.
 
 A partial publication records what it delivered.
-When you run the same approved release again from the same commit, it sends only the path that is still missing.
-The workflow then exits 6, which is the pending exit meaning, not a failure to repair by hand.
+Run the failed publish job again, and it sends only the path that is still missing.
+The job then exits 6, which is the pending exit meaning, not a failure to repair by hand.
 
-Changesets prepares the version pull request on a push to `main`, and it publishes nothing.
-The publish job is a manual run on a pinned Bun, with every action pinned by commit.
-It authenticates to the registry with the short-lived credential that GitHub issues to the job.
-No publishing token is stored, and there is no personal-token fallback.
+The JSR path uses the official `jsr` client, pinned in the development dependencies.
+It runs on a staged copy of the artifact, and it authenticates with the short-lived credential that GitHub issues to the job.
+No publishing token is stored.
+Deno runs only inside that client as a publishing tool, and Operator never runs on Deno.
 See [ADR 0013](docs/adr/0013-one-release-is-one-matched-version-delivered-twice.md).
 
 ## Project readiness
@@ -798,7 +805,8 @@ Each module exports one interface object from `main.ts`, and `bun run lint:modul
 | Distribution | GitHub-hosted source and JSR |
 
 [Map the first Operator orchestration workflow](https://github.com/fveracoechea/operator/issues/1) holds the approved scope and the decision tickets.
-The approved [CLI and skill distribution contract](https://github.com/fveracoechea/operator/issues/7#issuecomment-5729841818) settles exact release selection, skill installation, updates, runtime boundaries, and publication approval.
+The approved [CLI and skill distribution contract](https://github.com/fveracoechea/operator/issues/7#issuecomment-5729841818) settles exact release selection, skill installation, updates, and runtime boundaries.
+[ADR 0013](docs/adr/0013-one-release-is-one-matched-version-delivered-twice.md) records how publication works.
 
 ## References
 

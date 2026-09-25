@@ -48,12 +48,12 @@ A missing or mismatched installation, and missing lock data, stop the work that 
 The built contents of one release: runnable ESM, the public declarations, the complete owned-skill directories, and the generated configuration schema.
 It is identified by every byte it holds, so changed content is a different release.
 
-**Publication approval**:
-A person's permission to publish one exact version, from one merged and checked commit, of one exact artifact.
-A merge is not one, and an approval never reaches content that changed after it was granted.
+**Release publication**:
+The automatic delivery of one version, after its version pull request merges, from that merged commit, once the commit passed the quality gate and the release smoke.
+Merging the version pull request is the decision to publish, and a push that carries a version both paths already hold publishes nothing.
 
 **Delivery record**:
-What one approved release has already delivered, path by path.
+What one release has already delivered, path by path.
 A retry reads it and carries the same artifact to the missing path only, because a published tag is never moved and a published version is never replaced.
 
 **State version**:

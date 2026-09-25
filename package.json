@@ -2,6 +2,7 @@
   "name": "@fveracoechea/operator",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "bin": {
     "operator": "./cli.ts"
   },
@@ -16,6 +17,7 @@
     "lint:modules": "bun scripts/check-module-shape.ts && bunx --bun --no-install depcruise --config dependency-cruiser.config.cjs cli.ts modules scripts",
     "lint:skills": "bun scripts/check-skill-shape.ts",
     "preinstall": "bun scripts/require-bun.ts",
+    "release": "bun scripts/release.ts",
     "changeset": "bunx --bun @changesets/cli@3.0.3",
     "test:module-boundaries": "bun scripts/prove-module-boundaries.ts",
     "test": "bun test",
@@ -29,6 +31,7 @@
   "devDependencies": {
     "@types/bun": "1.4.2",
     "dependency-cruiser": "18.4.0",
+    "jsr": "0.14.3",
     "oxfmt": "0.68.0",
     "oxlint": "1.83.0",
     "typescript": "6.0.3"

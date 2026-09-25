@@ -1,25 +1,12 @@
 import { OperatorRelease } from "../operator-release/main.ts";
 import { createRelease, createTag } from "./github-release.ts";
 import { type PathRecord, type PublicationJournal, readJournal, writeJournal } from "./journal.ts";
-import { awaitTask, createVersion, readOidcCredential } from "./jsr-client.ts";
+import { publishWithClient, readVersion } from "./jsr-registry.ts";
 import { scanArtifact } from "./pack.ts";
-import {
-  computeReleasePlan,
-  JSR_CONFIG,
-  jsrSettings,
-  type PlanRequest,
-  type ReleasePlan,
-} from "./plan.ts";
+import { computeReleasePlan, jsrSettings, type PlanRequest, type ReleasePlan } from "./plan.ts";
 import { packTarball } from "./tar.ts";
 
-type PublishRequest = PlanRequest & {
-  approvedReleaseId: string | undefined;
-  environment?: Record<string, string | undefined>;
-  attempts?: number;
-  waitMs?: number;
-  sleep?: (ms: number) => Promise<void>;
-  now?: string;
-};
+type PublishRequest = PlanRequest & { now?: string };
 
 function record(
   state: PathRecord["state"],
@@ -49,9 +36,9 @@ export const ReleasePublish = {
   },
 
   /**
-   * Packs one built artifact into the gzipped tarball a registry receives.
-   * The bytes are fixed by the artifact alone, so a retry sends exactly what the approval was
-   * granted against.
+   * Packs one built artifact into the gzipped tarball a registry serves.
+   * The bytes are fixed by the artifact alone, so the smoke test installs exactly what a
+   * registry would hold.
    */
   async pack(request: { artifactRoot: string; prefix?: string }) {
     const entries = await scanArtifact(request.artifactRoot, request.prefix ?? "");
@@ -63,20 +50,18 @@ export const ReleasePublish = {
   },
 
   /**
-   * Delivers only the paths this approved release has not delivered yet.
+   * Delivers only the paths this release has not delivered yet.
    * A published tag is never moved and a published version is never replaced, so a retry of a
-   * partial publication carries the same artifact to the missing path and nothing else.
+   * partial publication carries the same artifact to the missing path and nothing else. A
+   * version both paths already hold is released, and nothing is sent.
    */
   async publish(request: PublishRequest) {
     const plan = await computeReleasePlan(request);
     if (plan.blockers.length > 0) {
       return { status: "blocked" as const, plan };
     }
-    if (request.approvedReleaseId === undefined) {
-      return { status: "approval-required" as const, plan };
-    }
-    if (request.approvedReleaseId !== plan.releaseId) {
-      return { status: "approval-stale" as const, plan };
+    if (plan.state === "released") {
+      return { status: "released" as const, plan };
     }
 
     const now = request.now ?? new Date().toISOString();
@@ -113,7 +98,7 @@ export const ReleasePublish = {
     };
   },
 
-  /** Reports what one approved release has already delivered. Writes nothing. */
+  /** Reports what one release has already delivered. Writes nothing. */
   async delivered(request: { journalPath: string }) {
     return readJournal(request.journalPath);
   },
@@ -169,47 +154,21 @@ async function publishRegistry(
   request: PublishRequest,
   now: string,
 ): Promise<PathRecord> {
-  const jsr = jsrSettings(request);
-  const credential = await readOidcCredential({
-    environment: request.environment ?? process.env,
-    fetch: jsr.fetch,
-  });
-  if (credential.status === "unavailable") {
-    return record("failed", credential.detail, null, now);
+  const sent = await publishWithClient({ artifactRoot: plan.artifact.root });
+  if (sent.status === "succeeded") {
+    return record("published", `JSR published version ${plan.version}.`, null, now);
   }
 
-  const packed = await ReleasePublish.pack({ artifactRoot: plan.artifact.root });
-  const created = await createVersion({
-    ...jsr,
-    version: plan.version,
-    credential: credential.header,
-    tarball: packed.bytes,
-    config: JSR_CONFIG,
-  });
-  if (created.status !== "succeeded") {
+  // The client may have sent the version before it failed, so the registry answers what landed.
+  const landed = await readVersion({ ...jsrSettings(request), version: plan.version });
+  if (landed.status === "succeeded" && landed.value.published) {
     return record(
-      created.status === "uncertain" ? "uncertain" : "failed",
-      created.detail,
+      "published",
+      `JSR holds version ${plan.version}, although the client reported: ${sent.detail}`,
       null,
       now,
     );
   }
 
-  const settled = await awaitTask({
-    api: jsr.api,
-    fetch: jsr.fetch,
-    taskId: created.value.id,
-    attempts: request.attempts ?? 30,
-    waitMs: request.waitMs ?? 1000,
-    sleep: request.sleep,
-  });
-
-  return settled.status === "succeeded"
-    ? record("published", `JSR published version ${plan.version}.`, created.value.id, now)
-    : record(
-        settled.status === "uncertain" ? "uncertain" : "failed",
-        settled.detail,
-        created.value.id,
-        now,
-      );
+  return record(sent.status === "uncertain" ? "uncertain" : "failed", sent.detail, null, now);
 }

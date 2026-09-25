@@ -19,6 +19,7 @@ const SKILLS_DIRECTORY = "skills";
 const sourceManifestSchema = z.object({
   name: z.string().min(1),
   version: z.string().min(1),
+  license: z.string().min(1),
   engines: z.object({ bun: z.string().min(1) }),
   dependencies: z.record(z.string(), z.string()),
 });
@@ -120,6 +121,7 @@ function packageManifest(source: SourceManifest): string {
     {
       name: source.name,
       version: source.version,
+      license: source.license,
       type: "module",
       bin: { operator: "./cli.js" },
       exports: {
@@ -150,6 +152,7 @@ function jsrManifest(source: SourceManifest): string {
     {
       name: source.name,
       version: source.version,
+      license: source.license,
       exports: { "./cli": "./cli.js" },
       imports,
     },

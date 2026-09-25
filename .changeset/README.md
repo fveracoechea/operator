@@ -4,6 +4,6 @@ The author of a change decides what it does to a consumer, so every change that 
 consumer carries a changeset.
 Write one with `bun run changeset`, and let the release workflow open the version pull request.
 
-Nothing here publishes anything.
-Publication is a separate approved action against one exact merged and checked commit, described
-in [the release topic of the Operator skill](../skills/operator/RELEASE.md).
+Merging the version pull request publishes that version.
+The release workflow publishes it from the merged commit after that commit passes its checks,
+as described in [the release topic of the Operator skill](../skills/operator/RELEASE.md).

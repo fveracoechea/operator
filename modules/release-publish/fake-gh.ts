@@ -15,7 +15,6 @@ const faultsPath = `${directory}/faults.json`;
 
 const stateSchema = z.object({
   compare: z.record(z.string(), z.string()),
-  checkRuns: z.record(z.string(), z.array(z.object({ name: z.string(), conclusion: z.string() }))),
   tags: z.record(z.string(), z.string()),
   releases: z.record(z.string(), z.string()),
 });
@@ -24,7 +23,7 @@ async function readState(): Promise<ReleaseFakeState> {
   const file = Bun.file(statePath);
   return (await file.exists())
     ? stateSchema.parse(await file.json())
-    : { compare: {}, checkRuns: {}, tags: {}, releases: {} };
+    : { compare: {}, tags: {}, releases: {} };
 }
 
 async function writeState(state: ReleaseFakeState): Promise<void> {
@@ -79,13 +78,6 @@ const state = await readState();
 const compare = /^repos\/[^/]+\/[^/]+\/compare\/([^.]+)\.\.\.(.+)$/.exec(endpoint);
 if (compare?.[2] !== undefined) {
   answer(200, { status: state.compare[compare[2]] ?? "diverged" });
-  process.exit(0);
-}
-
-const checks = /^repos\/[^/]+\/[^/]+\/commits\/([^/]+)\/check-runs$/.exec(endpoint);
-if (checks?.[1] !== undefined) {
-  const runs = state.checkRuns[checks[1]] ?? [];
-  answer(200, { total_count: runs.length, check_runs: runs });
   process.exit(0);
 }
 
