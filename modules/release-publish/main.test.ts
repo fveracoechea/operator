@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { z } from "zod";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
@@ -9,6 +9,10 @@ import { ReleasePublish } from "./main.ts";
 
 const sourceRoot = new URL("../../", import.meta.url).pathname.replace(/\/$/, "");
 const fakeGhPath = new URL("./fake-gh.ts", import.meta.url).pathname;
+
+// Every test publishes a real artifact, and building one compiles the whole release. That takes
+// far longer than a default test, and longer again on a CI runner.
+setDefaultTimeout(300_000);
 
 const COMMIT = "1".repeat(40);
 const OTHER_COMMIT = "2".repeat(40);
@@ -31,11 +35,15 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
 });
 
-/** The path a publication runs with. The real `gh` is dropped, so no test can reach it. */
+/**
+ * The path a publication runs with.
+ * The fake comes first, so a call reaches it and never the `gh` this machine installed. The
+ * rest of the path stays: dropping every directory that holds a real `gh` would drop the tools
+ * beside it, and on a GitHub runner that is all of `/usr/bin`.
+ */
 function fixturePath(): string {
   const inherited = inheritedPath.split(":").filter((one) => one.length > 0);
-  const kept = inherited.filter((directory) => Bun.which("gh", { PATH: directory }) === null);
-  return [binDirectory, ...kept].join(":");
+  return [binDirectory, ...inherited].join(":");
 }
 
 async function seedGithub(state: Partial<ReleaseFakeState>): Promise<void> {

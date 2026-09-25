@@ -38,9 +38,9 @@ jobs:
       # a separate approved action against one exact merged and checked commit.
       - uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
         with:
-          version: bunx --bun @changesets/cli@${{ env.CHANGESETS_VERSION }} version
-          commit: "chore: version the Operator release"
-          title: "chore: version the Operator release"
+          version-script: bunx --bun @changesets/cli@${{ env.CHANGESETS_VERSION }} version
+          commit-message: "chore: version the Operator release"
+          pr-title: "chore: version the Operator release"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
