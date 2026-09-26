@@ -104,7 +104,7 @@ export async function startAgent(
     };
   }
 
-  const name = `operator-probe-${lifecycle.runId}-${request.role}`;
+  const name = `operator-probe-${lifecycle.runId.replaceAll("-", "").slice(0, 8)}-${request.role}`;
   const started = await HerdrControl.startAgent({
     name,
     kind: lifecycle[request.role].host,
