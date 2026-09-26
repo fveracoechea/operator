@@ -29,7 +29,7 @@ In a segment folder each file name has a fixed role:
 | `$param.tsx`              | `/segment/:param`    | a dynamic **leaf** (`Route.useParams()`, or `params` in the loader)                                                                            |
 | `$param/`                 | `/segment/:param/*`  | a dynamic segment that has children (`$param/route.tsx` plus children)                                                                         |
 | `_layout/`                | (no URL segment)     | a **pathless** layout: `_layout/route.tsx` wraps `_layout/<child>.tsx` to share UI without a path segment                                      |
-| `-<name>/`, `-<name>.tsx` | **not a route**      | route-scoped helpers, which the `-` prefix keeps out of the tree                                                                               |
+| `-<name>/`, `-<name>.tsx` | **not a route**      | the page's own layout pieces, which the `-` prefix keeps out of the tree                                                                       |
 
 A leaf is a file, `<name>.tsx` or `index.tsx`.
 A folder with `route.tsx` exists only when a segment wraps its children in a shared layout.
@@ -50,10 +50,10 @@ routes/
     profile.tsx              /profile      (rendered inside _authed)
 ```
 
-### Co-locate a route's helpers behind a `-` prefix
+### Keep only the page's layout behind a `-` prefix
 
-What one route alone imports (a table, its columns, a sub-component) goes in a `-` prefixed sibling; the `-` keeps it out of the tree.
-Move it out when a second route needs it.
+A `-` prefixed sibling holds what arranges this one page, such as the grid that places its sections; the `-` keeps it out of the tree.
+Code that knows a domain concept, such as its reads, its rules or the cards that show it, goes in that feature's module from its first line, even when one route uses it (`deep-modules`).
 
 ## Name a nested route by its folders, not by dots
 

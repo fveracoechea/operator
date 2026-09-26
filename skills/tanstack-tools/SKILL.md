@@ -41,7 +41,7 @@ Only a package that ships a `skills/` directory is found, so add a package to th
 
 ### Start (`@tanstack/react-start`)
 
-- **A server function, or the module that owns one**: [start-server-functions.md](start-server-functions.md).
+- **A server function**: [start-server-functions.md](start-server-functions.md). The module that owns it follows the `deep-modules` skill.
 - **A route's SSR mode or loader**: [start-routes-and-ssr.md](start-routes-and-ssr.md). The loader section applies without Start too.
 
 ### Query (`@tanstack/react-query`)
