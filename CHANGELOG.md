@@ -5,6 +5,7 @@
 ### Patch Changes
 
 - 6b9db67: Keep concurrent GitHub calls in the release test log and locate Bash through the test environment, so quality checks do not fail on a lost log entry or a machine without `/bin/bash`.
+- Ship an installation guide and CLI documentation with the JSR release.
 
 ## 0.1.0
 
