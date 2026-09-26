@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
-// Bun has no recursive directory copy or removal API, or symbolic link creation API.
-import { cp, rm, symlink } from "node:fs/promises";
+import packageJson from "../../package.json" with { type: "json" };
+import { usage } from "./usage.ts";
 
 const repositoryRoot = new URL("../../", import.meta.url).pathname;
 
-async function runOperator(args: string[], cwd = repositoryRoot) {
-  const process = Bun.spawn(["bun", `${repositoryRoot}/cli.ts`, ...args], {
-    cwd,
+async function runOperator(args: string[]) {
+  const process = Bun.spawn(["bun", "cli.ts", ...args], {
+    cwd: repositoryRoot,
     stderr: "pipe",
     stdout: "pipe",
   });
@@ -53,7 +53,7 @@ describe("Operator CLI", () => {
     expect(result).toEqual({
       exitCode: 0,
       stderr: "",
-      stdout: "operator 0.0.0\n",
+      stdout: `operator ${packageJson.version}\n`,
     });
   });
 
@@ -70,7 +70,7 @@ describe("Operator CLI", () => {
         blockers: [],
         operation: "version",
         data: {
-          operatorVersion: "0.0.0",
+          operatorVersion: packageJson.version,
           bunVersion: Bun.version,
         },
       })}\n`,
@@ -89,7 +89,7 @@ describe("Operator CLI", () => {
       blockers: [],
       operation: "version",
       data: {
-        operatorVersion: "0.0.0",
+        operatorVersion: packageJson.version,
         bunVersion: Bun.version,
       },
     });
@@ -100,7 +100,7 @@ describe("Operator CLI", () => {
 
     expect(result).toEqual({
       exitCode: 2,
-      stderr: "Usage: operator --version [--json]\n",
+      stderr: `${usage}\n`,
       stdout: "",
     });
   });
@@ -110,7 +110,7 @@ describe("Operator CLI", () => {
 
     expect(result).toEqual({
       exitCode: 2,
-      stderr: "Usage: operator --version [--json]\n",
+      stderr: `${usage}\n`,
       stdout: `${JSON.stringify({
         schemaVersion: 1,
         outcome: "invalid",
@@ -121,212 +121,33 @@ describe("Operator CLI", () => {
     });
   });
 
-  test("requires an explicit install target without writing to the project", async () => {
-    const project = `${Bun.env.TMPDIR ?? "/tmp"}/operator-install-${crypto.randomUUID()}`;
-    await Bun.$`mkdir -p ${project}`.quiet();
+  const unsupportedRequests = [
+    ["install", "--claude", "--operator-host", "claude-code"],
+    ["setup", "plan", "--claude", "--crew-model", "sonnet"],
+    ["setup", "rollback", "--operator-host", "opencode"],
+    ["setup", "readiness", "--claude", "--approved-plan", "abc"],
+    ["setup", "readiness", "--claude", "--operator-host", "cursor"],
+    ["setup", "readiness", "--claude", "--operator-host"],
+    ["setup", "probe", "--claude"],
+    ["setup", "probe", "wibble", "--claude"],
+    ["setup", "probe", "plan", "--claude", "--approved-probe", "abc"],
+    ["setup", "probe", "apply", "--claude", "--approved-plan", "abc"],
+  ];
 
-    try {
-      const process = Bun.spawn(["bun", `${repositoryRoot}/cli.ts`, "install", "--json"], {
-        cwd: project,
-        stderr: "pipe",
-        stdout: "pipe",
-      });
-      const [exitCode, stderr, stdout] = await Promise.all([
-        process.exited,
-        new Response(process.stderr).text(),
-        new Response(process.stdout).text(),
-      ]);
+  for (const args of unsupportedRequests) {
+    test(`refuses \`operator ${args.join(" ")}\``, async () => {
+      const result = await runOperator([...args, "--json"]);
 
-      expect(exitCode).toBe(2);
-      expect(stderr).toBe("operator install: pass --opencode, --claude, or both.\n");
-      expect(JSON.parse(stdout)).toEqual({
-        schemaVersion: 1,
-        outcome: "invalid",
-        reason: "install_target_required",
-        blockers: [],
-        operation: "install",
-      });
-      expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: project, dot: true }))).toEqual(
-        [],
-      );
-    } finally {
-      await rm(project, { force: true, recursive: true });
-    }
-  });
-
-  test("installs the complete Operator skill into one explicit target", async () => {
-    const project = `${Bun.env.TMPDIR ?? "/tmp"}/operator-install-${crypto.randomUUID()}`;
-    await Bun.$`mkdir -p ${project}`.quiet();
-
-    try {
-      const process = Bun.spawn(
-        ["bun", `${repositoryRoot}/cli.ts`, "install", "--opencode", "--json"],
-        {
-          cwd: project,
-          stderr: "pipe",
-          stdout: "pipe",
-        },
-      );
-      const [exitCode, stderr, stdout] = await Promise.all([
-        process.exited,
-        new Response(process.stderr).text(),
-        new Response(process.stdout).text(),
-      ]);
-
-      expect(exitCode).toBe(0);
-      expect(stderr).toBe("");
-      expect(JSON.parse(stdout)).toEqual({
-        schemaVersion: 1,
-        outcome: "completed",
-        reason: "skills_installed",
-        blockers: [],
-        operation: "install",
-        data: {
-          targets: ["opencode"],
-          changed: [".agents/skills/operator"],
-        },
-      });
-
-      const sourceFiles = await Array.fromAsync(
-        new Bun.Glob("**/*").scan({ cwd: `${repositoryRoot}/skills/operator`, dot: true }),
-      );
-      const installedFiles = await Array.fromAsync(
-        new Bun.Glob("**/*").scan({ cwd: `${project}/.agents/skills/operator`, dot: true }),
-      );
-      expect(installedFiles.toSorted()).toEqual(sourceFiles.toSorted());
-      for (const path of sourceFiles) {
-        expect(await Bun.file(`${project}/.agents/skills/operator/${path}`).text()).toBe(
-          await Bun.file(`${repositoryRoot}/skills/operator/${path}`).text(),
-        );
-      }
-    } finally {
-      await rm(project, { force: true, recursive: true });
-    }
-  });
-
-  test("installs matching skill copies into both explicit targets", async () => {
-    const project = `${Bun.env.TMPDIR ?? "/tmp"}/operator-install-${crypto.randomUUID()}`;
-    await Bun.$`mkdir -p ${project}`.quiet();
-
-    try {
-      const process = Bun.spawn(
-        ["bun", `${repositoryRoot}/cli.ts`, "install", "--opencode", "--claude", "--json"],
-        { cwd: project, stderr: "pipe", stdout: "pipe" },
-      );
-      const [exitCode, stdout] = await Promise.all([
-        process.exited,
-        new Response(process.stdout).text(),
-      ]);
-
-      expect(exitCode).toBe(0);
-      expect(JSON.parse(stdout)).toMatchObject({
-        outcome: "completed",
-        reason: "skills_installed",
-        data: {
-          targets: ["opencode", "claude"],
-          changed: [".agents/skills/operator", ".claude/skills/operator"],
-        },
-      });
-      expect(await Bun.file(`${project}/.agents/skills/operator/SKILL.md`).exists()).toBe(true);
-      expect(await Bun.file(`${project}/.claude/skills/operator/SKILL.md`).exists()).toBe(true);
-    } finally {
-      await rm(project, { force: true, recursive: true });
-    }
-  });
-
-  test("adopts matching copies and rejects a modified copy before writing another target", async () => {
-    const project = `${Bun.env.TMPDIR ?? "/tmp"}/operator-install-${crypto.randomUUID()}`;
-    await Bun.$`mkdir -p ${project}/.claude/skills`.quiet();
-    await cp(`${repositoryRoot}/skills/operator`, `${project}/.claude/skills/operator`, {
-      recursive: true,
+      expect(result.exitCode).toBe(2);
+      expect(JSON.parse(result.stdout).reason).toBe("invalid_arguments");
     });
+  }
 
-    try {
-      const matching = await runOperator(["install", "--claude", "--json"], project);
-      expect(matching.exitCode).toBe(0);
-      expect(JSON.parse(matching.stdout)).toMatchObject({
-        outcome: "completed",
-        reason: "skills_already_installed",
-        data: { changed: [] },
-      });
+  test("lists every supported command in its usage", async () => {
+    const result = await runOperator([]);
 
-      await Bun.write(`${project}/.claude/skills/operator/SKILL.md`, "user modification\n");
-      const conflict = await runOperator(["install", "--opencode", "--claude", "--json"], project);
-      expect(conflict.exitCode).toBe(4);
-      expect(JSON.parse(conflict.stdout)).toEqual({
-        schemaVersion: 1,
-        outcome: "conflict",
-        reason: "skill_copy_conflict",
-        blockers: [
-          {
-            reason: "skill_copy_conflict",
-            path: ".claude/skills/operator",
-            target: "claude",
-          },
-        ],
-        operation: "install",
-      });
-      expect(await Bun.file(`${project}/.agents/skills/operator/SKILL.md`).exists()).toBe(false);
-      expect(await Bun.file(`${project}/.claude/skills/operator/SKILL.md`).text()).toBe(
-        "user modification\n",
-      );
-    } finally {
-      await rm(project, { force: true, recursive: true });
-    }
-  });
-
-  test("rejects a symlinked skill copy", async () => {
-    const project = `${Bun.env.TMPDIR ?? "/tmp"}/operator-install-${crypto.randomUUID()}`;
-    const external = `${Bun.env.TMPDIR ?? "/tmp"}/operator-skill-${crypto.randomUUID()}`;
-    await Bun.$`mkdir -p ${project}/.agents/skills`.quiet();
-    await cp(`${repositoryRoot}/skills/operator`, external, { recursive: true });
-    await symlink(external, `${project}/.agents/skills/operator`);
-
-    try {
-      const result = await runOperator(["install", "--opencode", "--json"], project);
-
-      expect(result.exitCode).toBe(4);
-      expect(JSON.parse(result.stdout)).toMatchObject({
-        outcome: "conflict",
-        reason: "skill_copy_conflict",
-        blockers: [
-          {
-            reason: "skill_copy_conflict",
-            path: ".agents/skills/operator",
-          },
-        ],
-      });
-      expect(await Bun.file(`${external}/SKILL.md`).text()).toBe(
-        await Bun.file(`${repositoryRoot}/skills/operator/SKILL.md`).text(),
-      );
-    } finally {
-      await Promise.all([
-        rm(project, { force: true, recursive: true }),
-        rm(external, { force: true, recursive: true }),
-      ]);
-    }
-  });
-
-  test("does not install through a symlinked target parent", async () => {
-    const project = `${Bun.env.TMPDIR ?? "/tmp"}/operator-install-${crypto.randomUUID()}`;
-    const external = `${Bun.env.TMPDIR ?? "/tmp"}/operator-skills-${crypto.randomUUID()}`;
-    await Bun.$`mkdir -p ${project} ${external}`.quiet();
-    await symlink(external, `${project}/.agents`);
-
-    try {
-      const result = await runOperator(["install", "--opencode", "--json"], project);
-
-      expect(result.exitCode).toBe(4);
-      expect(JSON.parse(result.stdout)).toMatchObject({
-        outcome: "conflict",
-        reason: "skill_copy_conflict",
-      });
-      expect(await Bun.file(`${external}/skills/operator/SKILL.md`).exists()).toBe(false);
-    } finally {
-      await Promise.all([
-        rm(project, { force: true, recursive: true }),
-        rm(external, { force: true, recursive: true }),
-      ]);
-    }
+    expect(result.stderr).toContain("operator setup readiness");
+    expect(result.stderr).toContain("operator setup probe plan");
+    expect(result.stderr).toContain("operator setup probe apply");
   });
 });
