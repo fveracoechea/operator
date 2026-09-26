@@ -109,6 +109,7 @@ export async function startAgent(
     name,
     kind: lifecycle[request.role].host,
     paneId: pane.value.paneId,
+    model: lifecycle[request.role].model,
   });
   if (started.status !== "succeeded") {
     return {

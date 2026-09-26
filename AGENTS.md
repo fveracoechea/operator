@@ -23,3 +23,11 @@ Run `bun run lint:modules` to enforce module shape, boundaries, and dependency c
 
 `skills/` holds the Operator-owned skills that ship with a release and that `operator install` copies into a project.
 `.agents/skills/` holds this repository's own development skills and is never installed elsewhere.
+
+<!-- operator:instructions -->
+## Operator
+
+This project is coordinated with Operator.
+Load the `operator` skill before you delegate work, change the crew configuration, or run a setup operation.
+Operator configuration lives in `.operator/config.json`, which is local to this checkout and is not committed.
+<!-- /operator:instructions -->

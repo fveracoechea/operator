@@ -24,7 +24,7 @@ Read [COORDINATION.md](COORDINATION.md) before you act on what it reports.
 A session that did not start this crew acquires it first.
 Read [RECOVERY.md](RECOVERY.md) before you own, adopt, or resume anything.
 
-An Operative reads only what its brief and the shared protocol give it.
+An Operative loads the `operative` skill and reads the fixed brief for its assignment.
 Read [BRIEFING.md](BRIEFING.md) before you write a prompt for one.
 
 ## The named operations

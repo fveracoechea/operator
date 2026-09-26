@@ -201,6 +201,7 @@ export const OperativeDispatch = {
       name: request.plan.agentName,
       kind: request.plan.agentKind,
       paneId: pane.value.paneId,
+      model: request.plan.agentModel,
     });
     if (started.status !== "succeeded") {
       return started.status === "failed"

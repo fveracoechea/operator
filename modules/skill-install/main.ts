@@ -1,5 +1,6 @@
 import { type BundledSkill, readBundledSkills, sameBytes, scanFiles } from "./assets.ts";
 import { type SkillTarget, skillTargets } from "./targets.ts";
+import { MattSkills } from "./upstream.ts";
 
 type Placement = { skill: string; target: SkillTarget; path: string };
 type Conflict = { skill: string; target: SkillTarget; paths: string[] };
@@ -79,6 +80,19 @@ async function inspectProject(projectRoot: string, targets: SkillTarget[]): Prom
 }
 
 export const SkillInstall = {
+  /** Plans pinned upstream Matt skill copies for the selected project hosts. */
+  async mattPlan(request: { projectRoot: string; targets: SkillTarget[]; commit?: string }) {
+    return MattSkills.plan(request);
+  },
+  /** Applies an approved upstream plan after fetching and checking its pinned bytes again. */
+  async mattApply(request: {
+    projectRoot: string;
+    targets: SkillTarget[];
+    commit: string;
+    approvedPlanId: string | undefined;
+  }) {
+    return MattSkills.apply(request);
+  },
   /** Identifies the exact skill contents this release installs, for release and evidence matching. */
   async identity(): Promise<string> {
     const hasher = new Bun.CryptoHasher("sha256");

@@ -125,6 +125,26 @@ operator install --opencode --claude
 The command adopts a copy that already matches this release, and writes nothing for it.
 A copy that someone changed is a conflict, and the command then writes nothing.
 
+Install Matt Pocock's upstream skills separately.
+Run this before creating Operative worktrees, and commit the installed project skills so new worktrees contain `code-review`.
+
+```sh
+operator install matt plan --opencode --claude --json
+operator install matt apply --opencode --claude --commit <commit> --approved-plan <planId> --json
+```
+
+`plan` calls GitHub to resolve `mattpocock/skills` `main` to its current full commit.
+Authenticate `gh` before you run it.
+That commit is what "latest" means for this plan.
+`apply` fetches the same commit, checks every file against its Git blob hash, and refuses a changed plan.
+Only the selected hosts receive skills.
+The command skips upstream `unslop` and `cursor`, and never replaces an Operator-owned skill.
+It records installed content hashes under each target's skill directory in `.operator-matt-skills.json`.
+It updates a skill only if its installed copy matches that record.
+An unrecorded copy that differs from the current upstream files is a conflict.
+Resolve any conflict before applying again.
+To update Matt skills later, run `operator install matt plan` again and apply its new commit and plan ID.
+
 Setup inspects first and writes nothing until you approve the same plan.
 
 ```sh

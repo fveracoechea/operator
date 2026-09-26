@@ -178,6 +178,7 @@ describe("operator attempt dispatch", () => {
     ]);
     expect(await Bun.file(`${worktree}/.operator/local/bun.lock`).exists()).toBe(true);
     expect(await Bun.file(`${worktree}/.claude/skills/operator/SKILL.md`).exists()).toBe(true);
+    expect(await Bun.file(`${worktree}/.claude/skills/operative/SKILL.md`).exists()).toBe(true);
 
     const brief = await Bun.file(`${worktree}/.operator/local/brief.md`).text();
     expect(brief).toContain(crew.attemptId);
@@ -194,6 +195,7 @@ describe("operator attempt dispatch", () => {
     const prompt = await Bun.file(`${workspace.herdr}/last-prompt`).text();
     expect(prompt).toContain(crew.attemptId);
     expect(prompt).toContain(".operator/local/brief.md");
+    expect(prompt).toContain("Load the `operative` skill");
 
     const acknowledged = await runJson(
       workspace,
@@ -205,6 +207,20 @@ describe("operator attempt dispatch", () => {
 
     const shown = await runJson(workspace, ["attempt", "show", "--attempt", crew.attemptId]);
     expect(shown.json.data.stage).toBe("acknowledged");
+  });
+
+  test("starts the selected OpenCode crew model rather than the host default", async () => {
+    const workspace = await makeWorkspace({
+      crew: { host: "opencode", model: "openai/gpt-5.6-terra" },
+    });
+    const crew = await claimedAttempt(workspace);
+
+    const dispatched = await dispatch(workspace, crew);
+
+    expect(dispatched.json.reason).toBe("acknowledgement_pending");
+    expect((await calls(workspace)).find((line) => line.startsWith("agent start"))).toContain(
+      "-- --model openai/gpt-5.6-terra",
+    );
   });
 
   test("copies no credential and no crew state into the worktree", async () => {

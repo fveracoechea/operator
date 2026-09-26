@@ -4,7 +4,6 @@ import {
   hasSelectionOrProbeArguments,
   hasUpdateArguments,
   type ParsedArguments,
-  parseArguments,
   splitRequest,
 } from "./arguments.ts";
 import { runApproval } from "./approval-command.ts";
@@ -12,7 +11,7 @@ import { runAttempt } from "./attempt-command.ts";
 import { runCleanup } from "./cleanup-command.ts";
 import { runCrewOwn } from "./crew-command.ts";
 import { runCrewNext } from "./next-command.ts";
-import { runInstall } from "./install-command.ts";
+import { runInstall, runMattSkills } from "./install-command.ts";
 import { runUpdate } from "./update-command.ts";
 import { runQuestion } from "./question-command.ts";
 import { runReview } from "./review-command.ts";
@@ -107,8 +106,22 @@ export async function run(args: string[]): Promise<void> {
   }
 
   if (command === "install") {
-    const parsed = parseArguments(rest);
+    const { words, parsed } = splitRequest(rest);
+    if (words[0] === "matt") {
+      const { baseCommit: _commit, ...otherCrewFlags } = parsed.crew;
+      if (
+        parsed.unsupported.length > 0 ||
+        Object.keys(otherCrewFlags).length > 0 ||
+        parsed.takeover ||
+        hasUpdateArguments(parsed) ||
+        hasSelectionOrProbeArguments(parsed) ||
+        (await runMattSkills(words.slice(1), parsed)) !== "reported"
+      )
+        rejectArguments(parsed.json);
+      return;
+    }
     if (
+      words.length !== 0 ||
       parsed.unsupported.length > 0 ||
       parsed.approvedPlan !== undefined ||
       hasCrewArguments(parsed) ||

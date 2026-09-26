@@ -16,6 +16,25 @@ A copy that already matches is adopted without a write.
 A copy the user changed is a conflict.
 The command then writes nothing and reports the conflicting paths.
 
+## Install Matt Pocock skills
+
+Plan and approve the upstream skills before you create Operative worktrees.
+Commit the installed project skills so new worktrees contain `code-review`.
+
+```sh
+operator install matt plan --opencode --claude --json
+operator install matt apply --opencode --claude --commit <commit> --approved-plan <planId> --json
+```
+
+The plan resolves the current `mattpocock/skills` `main` commit.
+Authenticate `gh` before you run it.
+"Latest" means that pinned commit, not the moving branch at apply time.
+Apply verifies the fetched files and refuses stale approval or local edits.
+The plan selects skills from the pinned upstream tree.
+Upstream `unslop` and `cursor` are excluded.
+The target's `.operator-matt-skills.json` records content hashes for later updates.
+To update the skills, run `operator install matt plan` again and apply the new plan.
+
 ## Configure the project
 
 Setup inspects the project and prints the exact changes it proposes.

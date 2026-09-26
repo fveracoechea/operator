@@ -59,6 +59,7 @@ export type DispatchPlan = {
   agentName: string;
   agentKind: string;
   agentHost: string;
+  agentModel: string | null;
   briefPath: string;
   briefText: string;
   briefIdentity: string;
@@ -265,6 +266,7 @@ function promptDocument(brief: Brief): string {
             ? `You are the Operative on Operator attempt ${brief.attemptId} for assignment ${brief.assignmentId}.`
             : `You are the Operative on Operator attempt ${brief.attemptId}, reworking the reviewed result of assignment ${brief.assignmentId}.`,
           read,
+          "Load the `operative` skill from this worktree and follow it.",
           acknowledge,
           "Do not change any file before that acknowledgement succeeds.",
         ]
@@ -339,6 +341,7 @@ export function planDispatch(request: {
     agentName: `operative-${short}`,
     agentKind: request.agentKind,
     agentHost: request.agentHost,
+    agentModel: request.snapshot.selection.crew.model,
     briefPath: BRIEF_PATH,
     briefText,
     briefIdentity,

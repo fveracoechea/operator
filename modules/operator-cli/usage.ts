@@ -6,6 +6,8 @@ export const usage = [
   "Usage:",
   "  operator --version [--json]",
   `  operator install ${targetChoice} [--json]`,
+  `  operator install matt plan ${targetChoice} [--json]`,
+  `  operator install matt apply ${targetChoice} --commit <sha> --approved-plan <planId> [--json]`,
   `  operator update plan ${targetChoice} --commit <sha> [--delivery <path>] [--package-version <v>] [--json]`,
   `  operator update apply ${targetChoice} --commit <sha> [--delivery <path>] [--package-version <v>] --approved-update <id> [--json]`,
   `  operator setup plan ${targetChoice} [--json]`,

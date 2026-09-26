@@ -141,9 +141,21 @@ export const HerdrControl = {
     name: string;
     kind: string;
     paneId: string;
+    model?: string | null;
   }): Promise<HerdrOutcome<Agent>> {
     const outcome = await invokeHerdr({
-      args: ["agent", "start", request.name, "--kind", request.kind, "--pane", request.paneId],
+      args: [
+        "agent",
+        "start",
+        request.name,
+        "--kind",
+        request.kind,
+        "--pane",
+        request.paneId,
+        ...(request.model === null || request.model === undefined
+          ? []
+          : ["--", "--model", request.model]),
+      ],
       timeoutMs: LAUNCH_TIMEOUT_MS,
     });
     if (outcome.status !== "succeeded") {

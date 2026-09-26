@@ -29,6 +29,9 @@ A rework brief adds the cycle it answers, the accepted corrections, and the conf
 
 ## The protocol every role shares
 
+Production and rework Operatives load the `operative` skill from their worktree.
+The skill explains how to follow this protocol; the fixed brief supplies the exact commands and authority limits.
+
 **Acknowledgement.**
 The Operative runs `operator attempt acknowledge` from its own worktree before it changes any file.
 Herdr acknowledges a submission, not a turn, so this is the only proof the brief arrived.

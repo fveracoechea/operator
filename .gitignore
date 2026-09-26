@@ -1,3 +1,6 @@
 node_modules/
 module-boundary-probe-*.ts
 modules/module-boundary-probe-*
+
+# Operator local files, written by `operator setup`.
+/.operator/
