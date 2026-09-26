@@ -10,9 +10,9 @@ const pathRecord = z.strictObject({
 });
 
 /**
- * What one approved release has already delivered.
- * A retry reads this, so a path that succeeded is never sent again and the artifact the
- * approval was granted against is the one the missing path receives.
+ * What one release has already delivered.
+ * A retry reads this, so a path that succeeded is never sent again and the artifact the first
+ * attempt delivered is the one the missing path receives.
  */
 export const journalSchema = z.strictObject({
   schemaVersion: z.literal(1),

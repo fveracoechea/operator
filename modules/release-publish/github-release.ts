@@ -16,11 +16,6 @@ export type Merged =
   | { status: "not-merged"; comparison: string }
   | { status: "unknown"; detail: string };
 
-export type Checked =
-  | { status: "passed"; runs: number }
-  | { status: "not-passed"; failing: string[]; runs: number }
-  | { status: "unknown"; detail: string };
-
 export type TagState =
   | { status: "absent" }
   | { status: "present"; sha: string }
@@ -45,36 +40,6 @@ export async function readMerged(request: {
   return comparison === "identical" || comparison === "behind"
     ? { status: "merged", comparison }
     : { status: "not-merged", comparison };
-}
-
-/** Reads whether every check run of the commit concluded successfully. */
-export async function readChecks(request: {
-  repository: string;
-  commit: string;
-}): Promise<Checked> {
-  const outcome = await GithubApi.call({
-    args: [`repos/${request.repository}/commits/${request.commit}/check-runs`, "--paginate"],
-    timeoutMs: READ_TIMEOUT_MS,
-  });
-  if (outcome.status !== "succeeded") {
-    return { status: "unknown", detail: outcome.detail };
-  }
-
-  const runs = ToolInvocation.list(outcome.value.body, "check_runs");
-  if (runs.length === 0) {
-    return { status: "unknown", detail: "No check run is recorded for that commit." };
-  }
-
-  const failing = runs
-    .filter((run) => ToolInvocation.text(run, "conclusion") !== "success")
-    .map(
-      (run) =>
-        `${ToolInvocation.text(run, "name") ?? "unnamed"}: ${ToolInvocation.text(run, "conclusion") ?? "unfinished"}`,
-    );
-
-  return failing.length === 0
-    ? { status: "passed", runs: runs.length }
-    : { status: "not-passed", failing, runs: runs.length };
 }
 
 /** Reads the commit one tag names, if the tag exists at all. */

@@ -22,13 +22,19 @@ The search for it stops at that installation, because an ancestor lock describes
 Crew state records the release it was written under.
 A file an earlier release wrote is left exactly as it stands until an approved update migrates it, so a command that happened to run first never rewrites a format nobody has backed up.
 
-Publication is approved against one exact version, one merged and checked commit, and every published byte.
-A published tag is never moved and a published version is never replaced, so changed content is a new version under a new approval.
+Publication is automatic.
+The author decides what a release is through changesets, so merging the version pull request is the decision to publish that version.
+The release job then publishes from the merged commit, and only after the quality gate and the release smoke passed on that same commit.
+A push that carries a version both paths already hold publishes nothing.
+A published tag is never moved and a published version is never replaced, so changed content is a new version.
 What a release has already delivered is recorded, so a partial publication carries the same artifact to the missing path and leaves the delivered one alone.
 An answer that never came stays uncertain, because a timeout does not prove that the effect did not happen.
 
-The registry client is ours.
-It speaks the documented management API over `fetch`, authenticates with the short-lived credential the release job is issued, and reaches for no stored or personal token when that credential is absent.
+The registry client is the official `jsr` client, pinned in the development dependencies.
+It runs Deno as a publishing tool inside the release job only.
+Operator never runs on Deno, and no consumer needs it.
+The client publishes a staged copy of the artifact, so the artifact the release identity covers never gains a file.
+It authenticates with the short-lived credential the release job is issued, and no publishing token is stored.
 
 ## Considered options
 
@@ -52,18 +58,27 @@ Republishing every path on a retry was rejected.
 It is simpler, and it needs no record of what already happened.
 It also moves a tag and replaces a version, which is the one thing a published release must never do.
 
-Using the standard publishing client was rejected.
-It is maintained by the registry and needs no code here.
-It invokes Deno, which the approved toolchain excludes, so this repository owns a small client against the documented API instead.
+Approving each publication by hand was rejected.
+It let a person check the exact bytes before they left, and it kept a merge from publishing anything.
+It also made every release a second step that a person had to remember after the merge, and the version pull request already states what the release is.
+The accepted cost is that a merged version pull request publishes with no check beyond the ones that commit passed.
+
+Owning the registry client was rejected.
+It kept Deno out of the release job, and a fake endpoint proved it against the documented API.
+Nothing ever proved it against the live registry, and it copied a client the registry maintains.
+Deno runs only as a publishing tool in the release job, so the accepted cost is one more download in that job.
 
 Falling back to a stored publishing token when the short-lived credential is absent was rejected.
 It would make a release succeed more often.
-It would also make a release that nobody approved for this run indistinguishable from one that was.
+It would also keep a credential that outlives the job, so anyone who could read it could publish a version outside the release workflow.
 
 ## Consequences
 
-The live registry API is not exercised by this repository.
-The client is proven against a fake endpoint and the documented contract, so a change in the real API is reported rather than worked around by adding Deno, a stored token, another registry, or a declaration bypass.
+The official client is exercised only in the release job.
+The tests put a fake client on the path, so a change in the behaviour of the real client shows up in the first release after the pinned version moves.
+A failed client does not prove that nothing landed, so the release reads the registry before it records the path as failed.
+
+The registry accepts the short-lived credential only from a repository linked to the package, so that link is set up on JSR before the first release.
 
 A project that has selected no release is unverified, never ready.
 That is one more step before a crew can start, and it is the step that makes a launch snapshot mean something.

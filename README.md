@@ -9,17 +9,90 @@ The name comes from *The Matrix*: the crew member who loads programs, guides mis
 
 ## Status
 
-**Project installation, setup, release selection and updates, readiness, the approved live probe, the crew frontier, Operative dispatch, question routing, reviewed acceptance, delegated rework, tracker completion, approved cleanup, the coordination and recovery loop, and the release path all work.**
-The repository contains the Bun CLI, its local and CI quality gate, `operator install`, `operator update`, `operator setup`, `operator setup readiness`, `operator setup probe`, `operator crew own`, `operator crew next`, `operator work`, `operator attempt`, `operator question`, `operator approval`, `operator review`, `operator tracker`, and `operator cleanup`, together with the Operator-owned skill that drives them.
-It also contains the release build, the Operator-owned JSR client, the Changesets and GitHub Actions workflows, and the smoke tests of both delivery paths.
-Nothing has been published yet: publication is a maintainer action against one exact approved commit.
+Every step of the first orchestration workflow works end to end: project setup, release selection and updates, readiness, the live probe, crew state, dispatch, questions, review, rework, tracker completion, cleanup, and the coordination loop.
+The repository also holds the release build, the Operator-owned JSR client, the Changesets and GitHub Actions workflows, and smoke tests of both delivery paths.
 
-## CLI Foundation
+Nothing is published yet.
+The release workflow publishes a version after its version pull request merges.
+
+## How it works
+
+1. You work with the Operator to clarify a goal and choose the work to delegate.
+2. The Operator registers the work and assigns each item to a crew member, called an Operative. Each Operative runs in its own Git worktree that Herdr manages.
+3. Operatives use skills such as `implement`, `research`, `improve-codebase-architecture`, and `grilling` to do their work.
+4. An Operative that cannot continue asks the Operator. The Operator answers from recorded decisions, and brings the questions that need your judgment to you.
+5. A separate reviewer checks each result on the Standards and Spec axes before the Operator presents it for acceptance.
+6. After you accept a result, the Operator closes the crew agent and removes its worktree. Cleanup that is not complete stays visible until it is done or you defer it.
+
+You can talk to an Operative directly, but the main workflow goes through the Operator.
+
+Herdr supplies the terminal and agent control.
+Operator adds the coordination rules, the skills, and the CLI operations that Herdr does not have.
+
+## Requirements
+
+| Tool | Why |
+| --- | --- |
+| [Bun](https://bun.com) 1.4.0 or later | Runs the CLI. The CLI refuses an earlier Bun. |
+| Git | Holds the project and each Operative worktree. |
+| [Herdr](https://herdr.dev/) | Creates worktrees, launches agents, and reads their panes. |
+| GitHub CLI (`gh`) | Reads and writes the tracker. GitHub is the only tracker this release supports. |
+| Claude Code, OpenCode, or both | The agent hosts for the Operator and the crew. |
+
+## Quick start
+
+Each command that changes the project first shows a plan, and changes nothing until you approve that exact plan.
+Add `--json` to any command for the versioned machine result.
+
+```sh
+# 1. Install the Operator-owned skills for one or more agent targets.
+operator install --claude
+
+# 2. Configure the project. Review the plan, then apply it.
+operator setup plan --claude --json
+operator setup apply --claude --approved-plan <planId> --json
+
+# 3. Select the exact release the project coordinates with.
+operator update plan --claude --commit <full-commit> --json
+operator update apply --claude --commit <full-commit> --approved-update <updateId> --json
+
+# 4. Check readiness, then prove the live checks with an approved probe.
+operator setup readiness --claude --operator-host claude-code --json
+operator setup probe plan --claude --operator-host claude-code --crew-host opencode --json
+operator setup probe apply --claude --operator-host claude-code --crew-host opencode --approved-probe <probeId> --json
+
+# 5. Take the crew, register work, and ask what to do next.
+operator crew own --request <id> --owner-label <label> --json
+operator work register --request <id> --owner-token <token> --input work.json --json
+operator crew next --claude --operator-host claude-code --json
+```
+
+From there, `operator crew next` names each command to run, the record it acts on, and the revision to state.
+The Operator-owned skill runs that loop for you.
+
+## Contents
+
+- [CLI conventions](#cli-conventions)
+- [Project installation and setup](#project-installation-and-setup)
+- [Release and updates](#release-and-updates)
+- [Project readiness](#project-readiness)
+- [The live probe](#the-live-probe)
+- [Crew state and the frontier](#crew-state-and-the-frontier)
+- [Operative dispatch and recovery](#operative-dispatch-and-recovery)
+- [Questions, answers, and approvals](#questions-answers-and-approvals)
+- [Reviewed results and acceptance](#reviewed-results-and-acceptance)
+- [Rework, limits, and invalidated results](#rework-limits-and-invalidated-results)
+- [Tracker completion and recovery](#tracker-completion-and-recovery)
+- [Cleanup](#cleanup)
+- [Coordination and recovery](#coordination-and-recovery)
+- [Development](#development)
+
+## CLI conventions
 
 Use `bun cli.ts --version` for human output or `bun cli.ts --version --json` for the versioned machine result.
 The package also exports `main(args)` from `@fveracoechea/operator/cli`.
 
-CLI exit meanings are stable across commands:
+The exit meanings are the same for every command.
 
 | Exit | Meaning |
 | ---: | --- |
@@ -31,10 +104,17 @@ CLI exit meanings are stable across commands:
 | 5 | Uncertain external effect |
 | 6 | Recorded operation still pending |
 
-## Project Installation and Setup
+Every mutation carries a request identity, `--request <id>`.
+A repeat under the same identity returns the recorded result of a mutation that changed state, with no new effect, and `repeated` in the result says so.
+A refused mutation records nothing, so the CLI checks a repeat of it again against the current state.
+After an identity records an outcome, the CLI refuses the same identity with different input.
+
+A request that takes a JSON file with `--input` also reads standard input when you pass `-`.
+
+## Project installation and setup
 
 Install the Operator-owned skills into a project.
-At least one target is required, and the CLI never guesses a target from the agents it finds.
+You must name at least one target, and the CLI never guesses a target from the agents it finds.
 
 ```sh
 operator install --opencode
@@ -42,11 +122,10 @@ operator install --claude
 operator install --opencode --claude
 ```
 
-A copy that already matches this release is adopted without a write.
-A copy that was changed is a conflict, and the command then writes nothing.
+The command adopts a copy that already matches this release, and writes nothing for it.
+A copy that someone changed is a conflict, and the command then writes nothing.
 
-Configure the project in two steps.
-Setup inspects first and writes nothing until the same plan is approved.
+Setup inspects first and writes nothing until you approve the same plan.
 
 ```sh
 operator setup plan --claude --json
@@ -54,25 +133,30 @@ operator setup apply --claude --approved-plan <planId> --json
 ```
 
 The plan identifier covers the selected targets and the exact content of every proposed change.
-A changed project or a changed target makes a new identifier, and the old approval is refused.
+A changed project or a changed target makes a new identifier, and the CLI refuses the old approval.
 An unchanged rerun writes nothing.
 
-Setup owns `.operator/config.json`, `.operator/config.schema.json`, one marked `/.operator/` block in `.gitignore`, one marked Operator section in `AGENTS.md`, and an `@AGENTS.md` import in `CLAUDE.md`.
-It never commits, never changes the Git index, and never installs machine-wide software.
+Setup owns these files:
 
-Setup records each completed write and the previous contents of the file.
+- `.operator/config.json` and `.operator/config.schema.json`.
+- One marked `/.operator/` block in `.gitignore`.
+- One marked Operator section in `AGENTS.md`.
+- An `@AGENTS.md` import in `CLAUDE.md`.
+
+Setup never commits, never changes the Git index, and never installs machine-wide software.
+It records each completed write and the previous contents of the file.
 
 ```sh
 operator setup rollback --json
 ```
 
 Rollback restores only the files that still hold what setup wrote.
-A file changed after setup wrote it is preserved and reported as a conflict.
+It keeps a file that changed after setup wrote it, and reports that file as a conflict.
 
-## Release and Updates
+## Release and updates
 
 One release is one matched version of the CLI code and the Operator-owned skills.
-It reaches a project by one of two paths, both from the same commit, and neither runs a build when it is retrieved.
+It reaches a project by one of two paths, both from the same commit, and neither path runs a build when you retrieve it.
 
 ```sh
 # The source path, as a convenience and pinned to one exact commit.
@@ -87,9 +171,9 @@ bun --no-install -e 'const { main } = await import(Bun.pathToFileURL(Bun.resolve
 ```
 
 The registry path keeps its own manifest, lock data, and dependencies under `.operator/install/`, so Operator never shares a dependency with the application it serves.
-The launcher resolves the package from that installation and leaves the project as the working directory.
+The launcher resolves the package from that installation and keeps the project as the working directory.
 
-Coordinated work runs one known release, so a project records the exact one it coordinates with.
+Coordinated work runs one known release, so a project records the exact release it coordinates with.
 
 ```sh
 operator update plan --claude --commit <full-commit> --json
@@ -100,44 +184,61 @@ A registry installation also names its exact published version with `--delivery 
 The update identifier covers the release it moves to, the skills it would write, the recorded formats it would migrate, and the records it would back up.
 
 An update writes nothing while the crew still has work in flight.
-It copies every durable record aside and reads each copy back before a recorded format moves, and a migration that cannot finish puts those records back exactly as they were.
+It copies every durable record aside and reads each copy back before a recorded format moves.
+If a migration cannot finish, the update puts those records back exactly as they were.
 It writes the CLI selection and the owned skills together, so a project never runs one release of the code against the workflow instructions of another.
 
 Until a project selects a release, the `operator-installation` check is unverified and the project is never ready.
 A missing installation, a mismatched one, and missing lock data are blockers.
 Operator never answers them with another installation.
 
-Crew state records the release it was written under.
-A state file an earlier release wrote is refused with `state_version_outdated` until an approved update migrates it; a file a newer release wrote is refused with `state_version_unsupported`.
+Crew state records the release that wrote it.
+The CLI refuses a state file from an earlier release with `state_version_outdated` until an approved update migrates it.
+It refuses a file from a newer release with `state_version_unsupported`.
 
 ### Publishing
 
-Publication is a maintainer action, and the CLI does not carry it.
-The release tooling is separate.
+Publication is automatic, and the CLI does not carry it.
+
+1. Each change that reaches a consumer carries a changeset.
+2. On a push to `main`, Changesets opens or updates the version pull request.
+3. Merging that pull request is the decision to release that version.
+4. On the merged commit, the release workflow runs the quality gate and the release smoke. The publish job starts only after both pass.
+5. The publish job creates the tag and the GitHub release, and publishes the artifact to JSR.
+
+A later push that carries the same version publishes nothing, because both paths already hold it.
+
+The release tooling runs outside the CLI.
 
 ```sh
 bun scripts/release.ts build   --out dist --commit <full-commit>
 bun scripts/release.ts plan    --out dist --commit <full-commit>
-bun scripts/release.ts publish --out dist --commit <full-commit> --approved-release <releaseId>
+bun scripts/release.ts publish --out dist --commit <full-commit>
 ```
 
-The artifact holds runnable ESM, the public declarations, the complete owned-skill directories, and the generated configuration schema, and it is identified by every byte it holds.
-The release identity binds one approval to that version, that merged and checked commit, and that content.
-Changed content is a new version under a new approval.
+The artifact holds runnable ESM, the public declarations, the complete owned-skill directories, and the generated configuration schema.
+Its identity covers every byte it holds.
+The release identity binds the delivery record to that version, that merged commit, and that content.
 
-The plan refuses a commit that is not merged into the release branch, a commit whose required checks did not pass, a tag that already names another commit, and a version the registry already holds.
-A published tag is never moved and a published version is never replaced.
+The plan refuses these conditions:
 
-A partial publication records what was delivered.
-Running the same approved release again from the same commit sends only the path that is still missing.
-The workflow exits 6 in that case, which is the pending exit meaning, not a failure to repair by hand.
+- A commit that is not merged into the release branch.
+- A tag that already names another commit whose release is not complete.
+- A version that the registry already holds, with no record of this release.
 
-Changesets prepares the version pull request on a push to `main`, and it publishes nothing.
-The publish job is a manual run on a pinned Bun, with every action pinned by commit, and it authenticates to the registry with the short-lived credential the job is issued.
-No publishing token is stored, and there is no personal-token fallback.
+A published tag never moves and a published version is never replaced, so changed content is a new version.
+
+A partial publication records what it delivered.
+Run the failed publish job again, and it sends only the path that is still missing.
+The job then exits 6, which is the pending exit meaning, not a failure to repair by hand.
+
+The JSR path uses the official `jsr` client, pinned in the development dependencies.
+It runs on a staged copy of the artifact, and it authenticates with the short-lived credential that GitHub issues to the job.
+No publishing token is stored.
+Deno runs only inside that client as a publishing tool, and Operator never runs on Deno.
 See [ADR 0013](docs/adr/0013-one-release-is-one-matched-version-delivered-twice.md).
 
-## Project Readiness
+## Project readiness
 
 Configured is not ready.
 Configured means the approved setup plan is complete and the selected files and settings validate.
@@ -148,7 +249,7 @@ operator setup readiness --claude --operator-host claude-code --json
 ```
 
 The command reads the machine and the project and writes nothing.
-It reports one of three answers beside a separate `configured` field.
+It reports one of three states beside a separate `configured` field.
 
 | State | Meaning |
 | --- | --- |
@@ -156,22 +257,27 @@ It reports one of three answers beside a separate `configured` field.
 | `unverified` | Every required static check passed, and required live evidence is missing or stale. |
 | `ready` | Every required check passed against the current inputs. |
 
-Static checks observe the selected hosts, Bun, Git, Herdr, the GitHub CLI, the instruction files, the discoverable skill contents, the Operator release, the selected installation, its lock data, and the project settings.
-They never prove host termination, the native review sub-agents, or provider compatibility.
+Static checks observe these items:
+
+- The selected hosts, Bun, Git, Herdr, and the GitHub CLI.
+- The instruction files and the discoverable skill contents.
+- The Operator release, the selected installation, and its lock data.
+- The project settings.
+
+Static checks never prove host termination, the native review sub-agents, or provider compatibility.
 Those need a live probe.
 
-Each selection field is resolved on its own, from a session override, then `.operator/config.json`, then the host default.
+The CLI resolves each selection field on its own, from a session override, then `.operator/config.json`, then the host default.
 A missing Crew host follows the Operator host, and a missing model stays with the selected host default.
 Operator never substitutes an unavailable host or model, and it never guesses a host that nothing names.
 
-## The Live Probe
+## The live probe
 
-A live probe launches agents, spends provider tokens, and writes to a tracker, so it carries its own approval.
+A live probe launches agents, spends provider tokens, and writes to a tracker, so it needs its own approval.
 
 ```sh
 operator setup probe plan --claude --operator-host claude-code --crew-host opencode --json
 operator setup probe apply --claude --operator-host claude-code --crew-host opencode --approved-probe <probeId> --json
-operator setup probe cleanup --json
 ```
 
 The plan shows what the run would use, before anything launches.
@@ -185,7 +291,7 @@ The plan shows what the run would use, before anything launches.
 - Each check, and the claims it feeds.
 - What cleanup removes, and what it leaves.
 
-A change to the project, the selection, or what the plan declares makes a new `probeId` and refuses the old approval.
+A change to the project, the selection, or what the plan declares makes a new `probeId`, and the CLI refuses the old approval.
 
 The probe runs on resources it creates for itself.
 It builds a synthetic repository under `.operator/local/probe/`, asks Herdr for one managed worktree of it, launches one agent on each selected host, and writes to the tracker fixture you name in configuration.
@@ -196,19 +302,28 @@ It reaches no project issue, no Operative worktree, no branch, no remote, and no
 { "probe": { "githubFixture": { "repository": "you/probe-fixture", "issue": 7, "mapIssue": 7 } } }
 ```
 
-A project with no fixture keeps every tracker check skipped, so it is never ready and never releasable, and the plan says so before anything runs.
+If a project names no fixture, every tracker check stays skipped.
+That project is then never ready and never releasable, and the plan says so before anything runs.
 
-`operator setup probe cleanup` removes the scratch repositories earlier runs left behind, under its own approval bound to the directories it would remove.
-It removes nothing else, and the recorded observations stay, so every failed attempt survives its resources.
+Probe cleanup removes the scratch repositories that earlier runs left behind.
+It has its own approval, bound to the directories it would remove.
 
-Recorded live results live in `.operator/local/readiness.json` as a list of attempts, appended and never rewritten.
+```sh
+operator setup probe cleanup --json
+operator setup probe cleanup --approved-cleanup <cleanupId> --json
+```
+
+It removes nothing else, and the recorded observations stay, so every failed attempt outlives its resources.
+
+Operator records live results in `.operator/local/readiness.json` as a list of attempts, and only appends to it.
 Each observation holds its state, the versions and inputs it ran against, its outputs, its evidence, and the state of what it left behind.
-The result that stands for one check is the most recent attempt that ran it, and a check no attempt ran keeps the earlier result standing.
-A changed input makes its own record stale and leaves unrelated records valid.
+The most recent attempt that ran a check gives the result for that check.
+If no attempt ran a check, the earlier result stays.
+A changed input makes its own record stale and keeps unrelated records valid.
 A check that failed, and a check the probe attempted and could not run, both hold back the claims they feed.
 See [ADR 0002](docs/adr/0002-readiness-is-derived-and-only-live-evidence-is-recorded.md) and [ADR 0012](docs/adr/0012-a-live-probe-proves-itself-on-its-own-resources.md).
 
-## Crew State and the Frontier
+## Crew state and the frontier
 
 One Operator owns a crew at a time.
 Ownership creates the crew state, which is one SQLite database in `.operator/local/`.
@@ -222,16 +337,22 @@ The result carries the owner token that every later mutation must present.
 A takeover names the ownership revision it inspected, so two Operators cannot both believe they won.
 It invalidates the former token, so a stale Operator session cannot change crew state.
 
-Work is registered from an approved specification, a ready ticket, or a wayfinder map.
-The request is a JSON file, or `-` to read standard input.
+You register work from an approved specification, a ready ticket, or a wayfinder map.
 
 ```sh
 operator work register --request <id> --owner-token <token> --input work.json --json
 ```
 
-Registration records each item with its source revision, approved scope, acceptance requirements, permissions, fixed inputs, dependencies, and planning boundary.
-Registering the same item twice names the existing assignment instead of creating a second one.
-A dependency cycle is refused before anything is dispatched, and so is a re-registration that states different dependencies.
+Registration records each item with these fields:
+
+- The source revision.
+- The approved scope and the acceptance requirements.
+- The permissions and the fixed inputs.
+- The dependencies and the planning boundary.
+
+When you register the same item twice, the CLI names the existing assignment and does not create a second one.
+The CLI refuses a dependency cycle before it dispatches anything.
+It also refuses a re-registration that states different dependencies.
 
 ```sh
 operator work frontier --json
@@ -241,31 +362,28 @@ operator work claim --request <id> --owner-token <token> --assignment <id> --rev
 The frontier reports what the crew may start now and why the rest waits.
 It writes nothing.
 A claim recomputes the same frontier, so it can never take work the frontier withheld.
-Two concurrent claims give the assignment to one caller, and the other names the attempt that already holds it.
+When two claims race, one caller gets the assignment, and the other names the attempt that already holds it.
 
-The crew limit defaults to three active agents and is set by `crew.maxActiveAgents` in `.operator/config.json`.
-A limit of two or more holds one slot for review, so production work never fills the crew.
+The crew limit is three active agents by default.
+Set it with `crew.maxActiveAgents` in `.operator/config.json`.
+A limit of two or more keeps one slot for review, so production work never fills the crew.
 A limit of one runs one assignment at a time.
-Queued review is offered before new production work.
+The frontier offers queued review before new production work.
 
 A dependent starts only after its dependencies reach accepted completion.
-Executable work is accepted from the attempt that holds it.
-The Operator resolves planning work itself, so planning work is accepted with no attempt.
+You accept executable work from the attempt that holds it.
+The Operator resolves planning work itself, so you accept planning work with no attempt.
 
 ```sh
 operator work accept --request <id> --owner-token <token> --assignment <id> --attempt <id> --revision <n> --json
 operator work accept --request <id> --owner-token <token> --assignment <id> --revision <n> --json
 ```
 
-Every mutation carries a request identity.
-A repeat under the same identity returns the recorded result of a mutation that changed state, with no new effect, and `repeated` in the result says so.
-A refused mutation records nothing, so a repeat of it is checked again against the current state.
-Once an identity has recorded an outcome, the same identity carrying different input is refused.
 See [ADR 0003](docs/adr/0003-crew-state-is-one-sqlite-file-created-once.md) and [ADR 0004](docs/adr/0004-the-frontier-is-the-only-dispatch-rule.md).
 
-## Operative Dispatch and Recovery
+## Operative dispatch and recovery
 
-A claimed assignment is dispatched into its own Herdr-managed worktree.
+The Operator dispatches a claimed assignment into its own Herdr-managed worktree.
 The dispatch names the commit it starts from, because a worktree never picks up uncommitted work from another checkout.
 
 ```sh
@@ -276,8 +394,14 @@ The command fixes the whole launch before it acts: the branch, the checkout, the
 It then creates the worktree, copies and verifies the fixed inputs, starts the selected agent host, and submits the brief.
 Each effect records its intent before the call and its outcome after it.
 
-The worktree receives the project configuration, its schema, a release record, the frozen lock data, a control reference, the brief, and the skills of this release.
-No other file is copied out of the controlling checkout, so credentials stay in the host credential store.
+The worktree receives these files:
+
+- The project configuration and its schema.
+- A release record and the frozen lock data.
+- A control reference and the brief.
+- The skills of this release.
+
+Dispatch copies no other file out of the controlling checkout, so credentials stay in the host credential store.
 
 Herdr acknowledges a submission, not a turn.
 A dispatch therefore reports `pending` until the Operative acknowledges its assignment from its own worktree.
@@ -287,7 +411,7 @@ operator attempt acknowledge --request <id> --attempt <id> --json
 ```
 
 A Herdr call that never answered is uncertain, because a timeout does not prove that the effect did not happen.
-The attempt then blocks until it is reconciled against what Herdr and the checkout actually show.
+The attempt then blocks until you reconcile it against what Herdr and the checkout show.
 
 ```sh
 operator attempt reconcile --request <id> --owner-token <token> --attempt <id> --json
@@ -300,14 +424,20 @@ A replacement is a new attempt on the same assignment, not a second writer.
 operator attempt replace --request <id> --owner-token <token> --attempt <id> --inspection <identity> --json
 ```
 
-It runs only when every effect is settled, the former writer is proven stopped, and the caller states the identity of the partial-work inspection it read.
-The inspected checkout and branch are retained.
+A replacement runs only when all of these are true:
+
+- Every effect is settled.
+- The former writer is proven stopped.
+- The caller states the identity of the partial-work inspection it read.
+
+The CLI keeps the inspected checkout and branch.
 
 The launch snapshot fixes the crew host, model, release, lock data, and skills.
-A recovery restores that record, so a changed project setting or a session override blocks the attempt with a named drift instead of reaching a launch already in progress.
+A recovery restores that record.
+So a changed project setting or a session override blocks the attempt with a named drift, and never reaches a launch already in progress.
 See [ADR 0005](docs/adr/0005-dispatch-is-staged-and-an-unproven-effect-blocks.md).
 
-## Questions, Answers, and Approvals
+## Questions, answers, and approvals
 
 An Operative that cannot continue inside its authority limits raises one question from its own worktree.
 
@@ -316,8 +446,13 @@ operator question raise --request <id> --attempt <id> --input question.json --js
 operator question revise --request <id> --attempt <id> --question <id> --revision <n> --input question.json --json
 ```
 
-The report states the question, its evidence, its options, the Operative's recommendation, the scope that waits, and the work that continues without the answer.
-It carries no authority of its own, so a report that states an approval is refused.
+The report states these items:
+
+- The question, its evidence, and its options.
+- The Operative's recommendation.
+- The scope that waits, and the work that continues without the answer.
+
+A report has no authority of its own, so the CLI refuses a report that states an approval.
 One Operative waits on one question at a time.
 Every other assignment stays dispatchable, and `operator work frontier` lists the open questions beside the work they hold.
 
@@ -326,10 +461,18 @@ operator question answer --request <id> --owner-token <token> --question <id> --
 ```
 
 An answer is a requirement, a human answer, or an Operator decision.
-The exact words are recorded apart from the structured reading of them, and a requirement also names its source and revision.
-A question that names visible behavior, scope, security permissions, unresolved ambiguity, or conflicting explicit requirements refuses an Operator decision, so it goes to the user.
-Conflicting requirements and unresolved ambiguity refuse a recorded requirement too, because no single source closes either one.
-One question revision carries one decision, and a question nobody waits on any more takes no further change.
+The CLI records the exact words apart from the structured reading of them, and a requirement also names its source and revision.
+
+Some subjects go to the user and refuse an Operator decision:
+
+- Visible behavior.
+- Scope.
+- Security permissions.
+- Unresolved ambiguity.
+- Conflicting explicit requirements.
+
+Conflicting requirements and unresolved ambiguity also refuse a recorded requirement, because no single source closes either one.
+One question revision carries one decision, and a question that nobody waits on any more takes no further change.
 
 The Operative names those subjects when it raises the question, and the Operator records the ones it finds itself.
 
@@ -337,7 +480,7 @@ The Operative names those subjects when it raises the question, and the Operator
 operator question escalate --request <id> --owner-token <token> --question <id> --revision <n> --input escalation.json --json
 ```
 
-An escalation drops an Operator decision recorded before it and leaves a person's answer standing.
+An escalation drops an Operator decision recorded before it and keeps a person's answer.
 
 ```sh
 operator question deliver --request <id> --owner-token <token> --question <id> --json
@@ -346,12 +489,12 @@ operator question show --question <id> --json
 ```
 
 Recording an answer, delivering it, and receiving it are three states.
-A repeated delivery reports what it already sent instead of submitting the answer again.
-The Operative's own acknowledgement is the only proof the answer arrived, and it releases the work that waited.
+A repeated delivery reports what it already sent and does not submit the answer again.
+The Operative's own acknowledgement is the only proof that the answer arrived, and it releases the work that waited.
 A delivery that never answered is uncertain, so it blocks another delivery until `operator attempt reconcile` settles it.
 
 A revised question makes its recorded answer inapplicable.
-Using that answer again takes an approval that names it, this question, and the revision it is reused for.
+To use that answer again, you need an approval that names the answer, this question, and the revision it is reused for.
 
 ```sh
 operator question reapply --request <id> --owner-token <token> --question <id> --revision <n> --answer <id> --approval <id> --json
@@ -364,12 +507,13 @@ operator approval check --input check.json --json
 ```
 
 An approval binds one action, its targets, its scope, and the revision of the request it was granted against.
-It covers an action when those words match and the approval names every target of the action, so a broader grant covers a narrower action and never the other way round.
-A grant records the person's exact words and is the only producer of an approval.
+It covers an action when those words match and the approval names every target of the action.
+So a broader grant covers a narrower action, and never the other way round.
+A grant records the person's exact words and is the only way to make an approval.
 Silence, a timeout, a general direction to finish, and an Operative report grant nothing.
 See [ADR 0006](docs/adr/0006-a-question-holds-only-its-own-work-and-authority-is-granted.md).
 
-## Reviewed Results and Acceptance
+## Reviewed results and acceptance
 
 An Operative hands over its finished result from its own worktree.
 
@@ -377,16 +521,25 @@ An Operative hands over its finished result from its own worktree.
 operator attempt submit --request <id> --attempt <id> --input result.json --json
 ```
 
-The submission fixes the assignment revision, the requirement revision, the acceptance requirements it was produced against, every artifact with its content identity, every check with its outcome, the known concerns, the decisions the Operative made, and the code revisions where there are any.
-Each path artifact is copied into a durable store and verified, so the reviewer reads a fixed copy rather than a worktree that keeps changing.
+The submission fixes these items:
+
+- The assignment revision and the requirement revision.
+- The acceptance requirements it was produced against.
+- Every artifact, with its content identity.
+- Every check, with its outcome.
+- The known concerns and the decisions the Operative made.
+- The code revisions, if there are any.
+
+The CLI copies each path artifact into a durable store and verifies it, so the reviewer reads a fixed copy and not a worktree that keeps changing.
 
 A submission moves the assignment to awaiting review and ends its attempt.
 It is never accepted completion.
-The ended attempt frees the crew slot it held, so a one-agent crew hands its only slot from the producer to the reviewer.
+The ended attempt frees its crew slot, so a one-agent crew hands its only slot from the producer to the reviewer.
 
 The submission registers its own review assignment, which the frontier offers first.
 Claim and dispatch it like any other assignment.
-Its brief carries the fixed result, tells the reviewer to load the existing `code-review` skill, and requires the Standards and Spec axes to run as native sub-agents of that reviewer's own host.
+Its brief carries the fixed result and tells the reviewer to load the existing `code-review` skill.
+The brief requires the Standards and Spec axes to run as native sub-agents of the reviewer's own host.
 Those sub-agents take no Herdr slot and no worktree of their own, and they never edit, commit, or rework.
 
 ```sh
@@ -397,9 +550,10 @@ operator review show --review <id> --json
 A complete report names the submission identity it read, carries both axes exactly once, records a window for each sub-agent, and states what each axis checked.
 A code result requires the diff, the requirements, and the checks.
 A non-code result requires the artifacts, the requirements, the citations, and the provenance of each recorded answer.
-Two axes that ran one after the other are refused, and so is a sub-agent that ran outside the reviewer host.
-A host that cannot run the axes records a blocker instead of a partial review.
-A blocked review is a stopped review, so `operator attempt replace` returns it to registered for one replacement reviewer, up to three attempts in all.
+The CLI refuses two axes that ran one after the other, and a sub-agent that ran outside the reviewer host.
+A host that cannot run the axes records a blocker, not a partial review.
+A blocked review is a stopped review.
+`operator attempt replace` returns it to registered for one replacement reviewer, up to three attempts in all.
 
 A review report ends the review chain, so a reviewer never submits a result and no review triggers another review.
 
@@ -407,43 +561,65 @@ A review report ends the review chain, so a reviewer never submits a result and 
 operator review dispose --request <id> --owner-token <token> --review <id> --input dispositions.json --json
 ```
 
-Each finding is corrected, rejected with a reason and the evidence that refutes it, or deferred with a reason and a follow-up.
+The Operator gives each finding one disposition:
+
+- Corrected.
+- Rejected, with a reason and the evidence that refutes it.
+- Deferred, with a reason and a follow-up.
+
 A blocker is never deferred.
 
 ```sh
 operator work accept --request <id> --owner-token <token> --assignment <id> --attempt <id> --revision <n> --submission <id> --pr-head <sha> --json
 ```
 
-Acceptance verifies the current ownership, the assignment revision, the exact submission, both axis reports, a disposition on every finding, no correction still waiting for rework, a passing outcome on every recorded check, and the pull request head you name against the head the submission stated.
-A check outcome a review observed for itself outranks the producer's own word, so a contradiction blocks.
-Operator does not read the pull request itself; acceptance compares the head you state against the head the submission recorded, and reading a live head remains separate work.
-A stopped reviewer, a missing input, an unavailable review capability, a missing pull-request authority, a failed check, and a flaky check each block instead of passing.
+Acceptance verifies these items:
+
+- The current ownership and the assignment revision.
+- The exact submission and both axis reports.
+- A disposition on every finding, and no correction still waiting for rework.
+- A passing outcome on every recorded check.
+- The pull request head you name, against the head the submission stated.
+
+A check outcome that a review observed for itself outranks the producer's own word, so a contradiction blocks.
+Operator does not read the pull request itself.
+Acceptance compares the head you state against the head the submission recorded, and reading a live head is separate work.
+A stopped reviewer, a missing input, an unavailable review capability, a missing pull-request authority, a failed check, and a flaky check each block acceptance.
 See [ADR 0007](docs/adr/0007-review-is-crew-work-and-acceptance-reads-only-recorded-evidence.md).
 
+## Rework, limits, and invalidated results
 
-## Rework, Limits, and Invalidated Results
-
-A finding the Operator accepted for correction goes to a fresh Operative, never to the reviewer that found it.
+The Operator sends a finding it accepted for correction to a fresh Operative, never to the reviewer that found it.
 
 ```sh
 operator work rework --request <id> --owner-token <token> --assignment <id> --revision <n> --input cycle.json --json
 ```
 
 The request names one reason.
-A `findings` cycle answers the accepted corrections of a reported review whose findings all carry a disposition.
-An `integration` cycle names the revisions it combines, and names a review only when it answers one.
-A review that already reported is answered either way.
-A `diagnostic` cycle names the recorded checks a test infrastructure failure is suspected behind, and at least one of them must not have passed.
+
+| Reason | What the cycle answers |
+| --- | --- |
+| `findings` | The accepted corrections of a reported review whose findings all carry a disposition. |
+| `integration` | The revisions it combines. It names a review only when it answers one. |
+| `diagnostic` | The recorded checks that a test infrastructure failure may be behind. At least one of them must not have passed. |
+
+A cycle answers a review that already reported, whatever its reason.
 Each cycle states the Operator instruction and the conflicts the Operative must settle, and it records no resolution of its own.
-A conflict names only work the cycle carries, so a finding of any round that no correction in this cycle answers is refused.
+A conflict names only work that the cycle carries, so the CLI refuses a finding from any round that no correction in this cycle answers.
 
 The cycle returns the assignment to the frontier.
-Claim it again, dispatch it from the submitted commit, and the brief carries the fixed submission, every accepted correction with its evidence, the conflicts, the revisions to combine, fixed copies of the artifacts, and the original acceptance requirements.
+Claim it again, and dispatch it from the submitted commit.
+The brief carries the fixed submission, every accepted correction with its evidence, the conflicts, the revisions to combine, fixed copies of the artifacts, and the original acceptance requirements.
 One cycle produces one combined revision, which registers its own review assignment.
 That reviewer receives every earlier round, its dispositions, and the cycles they delegated, and it checks the revision for regressions.
-Nothing between the two revisions can be accepted.
+You cannot accept anything between the two revisions.
 
-Three limits hold across sessions: three correction cycles for one assignment, two diagnostic reruns, and three attempts on one review, which is one reviewer and two replacements per submitted revision.
+Three limits apply across sessions:
+
+- Three correction cycles for one assignment.
+- Two diagnostic reruns.
+- Three attempts on one review, which is one reviewer and two replacements for each submitted revision.
+
 A reached limit records a direction request, keeps the failure evidence, and blocks acceptance with `direction_required` until the user directs it.
 
 ```sh
@@ -452,23 +628,22 @@ operator approval grant --request <id> --owner-token <token> --input direction.j
 
 The direction is an approval with action `limit-direction`, the assignment as its target, scope `limit:<kind>`, and the revision of the direction request as its request revision.
 The request keeps the evidence of every further attempt that reached the same limit.
-Once a direction is spent, reaching that limit again opens the request at the next revision, so the earlier approval covers nothing.
+After a direction is spent, a new reach of that limit opens the request at the next revision, so the earlier approval covers nothing.
 
 ```sh
 operator work invalidate --request <id> --owner-token <token> --assignment <id> --revision <n> --input defect.json --json
 ```
 
 A defect found after acceptance keeps the acceptance, the submission, the review, and every finding.
-Review work is refused, because a review holds no result of its own.
-The assignment returns to the frontier as `invalidated`, and only the dependents that consumed the result are paused.
+The CLI refuses to invalidate review work, because a review holds no result of its own.
+The assignment returns to the frontier as `invalidated`, and only the dependents that consumed the result pause.
 A dependent that never started stays held by the dependency gate.
-Accepting the corrected result releases the dependents no other defect still holds, and one that was accepted returns to the step that decided it.
+Accepting the corrected result releases the dependents that no other defect still holds, and a dependent that was accepted returns to the step that decided it.
 See [ADR 0008](docs/adr/0008-rework-is-a-delegated-cycle-and-a-limit-blocks-acceptance.md).
 
+## Tracker completion and recovery
 
-## Tracker Completion and Recovery
-
-Completing work on the tracker is three separate outcomes, and each one is recorded and recovered on its own.
+Completing work on the tracker is three separate outcomes, and the CLI records and recovers each one on its own.
 
 ```sh
 operator tracker record --request <id> --owner-token <token> --assignment <id> --revision <n> --input step.json --json
@@ -477,18 +652,26 @@ operator tracker show --assignment <id> --json
 operator tracker map --assignment <id> --json
 ```
 
-The request names one step: `resolution` writes the decision comment, `completion` closes the ticket with an explicit reason, and `map_amendment` appends one amendment to the wayfinder map.
-The ticket comes from the source the assignment was registered from, so a request that names another repository or issue is refused.
-GitHub is the only tracker this release implements.
+The request names one step.
+
+| Step | Effect |
+| --- | --- |
+| `resolution` | Writes the decision comment. |
+| `completion` | Closes the ticket with an explicit reason. |
+| `map_amendment` | Appends one amendment to the wayfinder map. |
+
+The ticket comes from the source the assignment was registered from, so the CLI refuses a request that names another repository or issue.
+GitHub is the only tracker this release supports.
 
 Every step writes its intent, its expected actor, and its exact content before it acts, and records its write attempt and the answer that came back.
-It then reads what the tracker actually shows and settles the step from that reading.
-A comment carries its logical operation in an HTML marker, which is how recovery finds it again.
+It then reads what the tracker shows and settles the step from that reading.
+A comment carries its logical operation in an HTML marker, and recovery uses that marker to find it again.
 
 A write that never returned a definite answer stays uncertain, because it may still have applied.
-`operator tracker recover` reads the exact comment when the server named one, and otherwise reads every accessible comment page and records what the scan covered.
+`operator tracker recover` reads the exact comment when the server named one.
+Otherwise it reads every accessible comment page and records what the scan covered.
 Two matching comments, changed content, and another author are each a conflict for a person to settle.
-Another write under an uncertain operation needs an approval that names the operation and the number of attempts already recorded:
+Another write under an uncertain operation needs an approval that names the operation and the number of attempts already recorded.
 
 ```sh
 operator approval grant --request <id> --owner-token <token> --input approval.json --json
@@ -496,34 +679,83 @@ operator tracker record ... --approval <id> --json
 ```
 
 Completion reads the ticket before it closes it.
-An observed closed state with the intended reason satisfies the step without claiming that Operator caused it, and a different reason or a reopen after the close is a conflict.
+If the ticket is already closed with the intended reason, the step is satisfied, and Operator does not claim that it caused the close.
+A different reason, or a reopen after the close, is a conflict.
 
 `operator tracker map` reads the map as its baseline body plus every explicit amendment.
-Independent additions combine; an incomplete scan, an edited amendment, and two amendments of one section each stop the session.
-Operator never replaces a shared issue body: an amendment is an appended comment, and no request can ask for anything else.
+Independent additions combine.
+An incomplete scan, an edited amendment, and two amendments of one section each stop the session.
+Operator never replaces a shared issue body, because an amendment is always an appended comment.
 
-`operator tracker show` reports the three steps, what each one is blocked by, and what may follow it.
-It answers 0 even when the tracker operation is incomplete, because the query itself succeeded.
-A verified step is never written again to repair another.
+`operator tracker show` reports the three steps, what blocks each one, and what may follow it.
+It exits 0 even when the tracker operation is incomplete, because the query itself succeeded.
+Operator never writes a verified step again to repair another step.
 See [ADR 0009](docs/adr/0009-a-tracker-update-is-three-recoverable-steps.md).
 
-## Coordination and Recovery
+## Cleanup
 
-One read-only command answers what a crew does next.
+Cleanup is two recorded outcomes on one attempt, and each one needs its own proof and its own approval.
+
+```sh
+operator cleanup close --request <id> --owner-token <token> --attempt <id> --json
+operator cleanup remove --request <id> --owner-token <token> --attempt <id> --json
+operator cleanup show --attempt <id> --json
+```
+
+`operator cleanup close` ends one Operative process.
+It runs only after a durable handoff, which is a submitted result or the two axis reports of a review.
+Before it stops anything, it copies the brief, the control reference, the release record, and every artifact the submission fixed into the controlling checkout, and reads each copy back.
+
+`operator cleanup remove` disposes of one Operative checkout.
+It needs a closed process, the preserved evidence verified again, and a remote copy of every commit.
+It also needs an approval that names this checkout or the workflow, because acceptance alone does not grant removal.
+
+The two outcomes are separate, so a stop that cannot be proven never holds back a removal that is already safe.
+Each one recovers on its own after a restart.
+Operator performs exactly two effects here, both through Herdr: the host's own stop keys, and an unforced worktree removal.
+It deletes no branch and runs no Git removal.
+
+```sh
+operator cleanup hold --request <id> --owner-token <token> --attempt <id> --input hold.json --json
+operator cleanup release --request <id> --owner-token <token> --attempt <id> --revision <n> --json
+```
+
+A retention hold keeps one Operative's resources.
+It blocks every cleanup of its attempt until a person releases it, and it outlives the session that placed it.
+`operator cleanup show` reports every hold.
+See [ADR 0010](docs/adr/0010-cleanup-is-two-outcomes-behind-proof-and-approval.md).
+
+## Coordination and recovery
+
+One read-only command tells a crew what to do next.
 
 ```sh
 operator crew next --claude --operator-host claude-code --json
 ```
 
-It reads readiness, the frontier order, dependency gates, review priority, capacity, pending acknowledgements, open questions, undisposed findings, unfinished tracker steps, and unfinished cleanup, and reports them as one ranked list of actions.
+It reads these items and reports them as one ranked list of actions:
+
+- Readiness.
+- The frontier order, dependency gates, review priority, and capacity.
+- Pending acknowledgements and open questions.
+- Findings with no disposition.
+- Unfinished tracker steps and unfinished cleanup.
+
 Each action names the command to run, the record it acts on, and the revision to state.
-`data.waits` says what is running and what has not answered yet, with the Herdr agent a bounded wait watches.
-`data.frontier` carries the order, the gates, and the capacity the actions come from.
+`data.waits` says what is running and what has not answered yet, with the Herdr agent that a bounded wait watches.
+`data.frontier` carries the order, the gates, and the capacity that the actions come from.
 
 Each action carries the blocker a person must settle, or nothing when the session can act alone.
 The exit meaning says what the session may do on its own.
-`0` offers at least one action that needs nobody else, `6` says nothing can advance and a bounded wait is next, and `3` says every open crew action waits on a person and names each blocker.
-A project that is not ready is reported as a standing precondition rather than as a refusal, because continuing without proven readiness is the user's decision and settling it starts no work.
+
+| Exit | Meaning for `crew next` |
+| ---: | --- |
+| 0 | At least one action needs nobody else. |
+| 3 | Every open crew action waits on a person, and the result names each blocker. |
+| 6 | Nothing can advance, and a bounded wait is next. |
+
+A project that is not ready is a standing precondition, not a refusal.
+Continuing without proven readiness is the user's decision, and settling it starts no work.
 
 A fresh Operator takes the crew, settles the unproven effects, and then adopts each attempt it inherited.
 
@@ -536,69 +768,45 @@ operator attempt adopt --request <id> --owner-token <token> --attempt <id> --jso
 Adoption states that this session read what one attempt holds.
 It changes nothing about the work, the checkout, the brief, or the questions.
 It runs only when every effect of that attempt is settled and its Operative is still running.
-An attempt whose writer is gone is replaced, not adopted, and an attempt that already ended needs neither.
+You replace an attempt whose writer is gone, and you do not adopt it.
+An attempt that already ended needs neither.
 
-The Operator-owned skill reads this one command instead of keeping a queue of its own.
+The Operator-owned skill reads this one command and keeps no queue of its own.
 See [ADR 0011](docs/adr/0011-one-read-only-command-owns-the-coordination-order.md).
 
-## The Workflow We Want
-
-1. You work with the Operator to clarify a goal and choose work to delegate.
-2. The Operator assigns tasks or tickets to crew members, each with its own Git worktree managed through Herdr.
-3. Crew members use skills such as `implement`, `research`, `improve-codebase-architecture`, and `grilling` to do their work.
-4. Crew members report findings and ask questions through the Operator. It uses established decisions and brings questions that need your judgment back to you.
-5. Work passes the agreed tests and review checks before the Operator presents the results for acceptance.
-6. The Operator closes completed crew agents and removes their Herdr-managed worktrees after results are preserved and the required approval is in place. Pending cleanup remains visible until it is complete or explicitly deferred.
-
-You can interact with a crew member directly, but that is an optional path, not the main workflow. The Matrix-inspired name for crew members is still open.
-
-Herdr should provide as much of the terminal and agent control as possible. Operator should add the coordination rules, skills, and CLI operations that are missing, rather than duplicate Herdr.
-
-## Current Destination
-
-An implementation-ready specification for the first Operator orchestration workflow: project setup, isolated crew work, questions routed through the Operator, and reviewed results. The specification must also settle the supporting CLI, distribution, release, and quality requirements.
-
-Follow [Map the first Operator orchestration workflow](https://github.com/fveracoechea/operator/issues/1) for the approved scope and current decision tickets. The map uses native GitHub sub-issues and blocking relationships. Questions that are not yet clear enough to become tickets remain in its **Not yet specified** section.
-
-This effort ends when the route to implementation is clear. Building and releasing the production workflow comes afterward.
-
-## Technical Requirements
-
-These are requirements for the planned implementation, not tools already configured in this repo.
-
-| Area | Requirement |
-| --- | --- |
-| Runtime | Bun for all Operator CLI code |
-| Language | TypeScript with explicit type checking |
-| Linting | Oxlint |
-| Formatting | Oxfmt |
-| Tests | Bun tests, including end-to-end checks of CLI behavior |
-| Versioning | Changesets |
-| Releases | Automated GitHub Actions release workflow |
-| Distribution | Both GitHub-hosted source and JSR |
-
-The two delivery paths are described under [Release and Updates](#release-and-updates).
-The approved [CLI and skill distribution contract](https://github.com/fveracoechea/operator/issues/7#issuecomment-5729841818) settles exact release selection, skill installation, updates, runtime boundaries, and publication approval.
-
-Fast local feedback and CI checks must agree on what passes. The specification will define test boundaries, review gates, and failure handling before implementation starts.
-
-## Decision Tracking
-
-The map is the planning index, not a build backlog. Each child ticket holds one question and, when resolved, its answer. Human decision tickets require live discussion; research findings do not stand in for user approval.
-
-The open discussions include [Matrix-inspired crew terminology](https://github.com/fveracoechea/operator/issues/6) and [safe crew cleanup after completion](https://github.com/fveracoechea/operator/issues/12).
-
-## Working in This Repo
+## Development
 
 Start with [AGENTS.md](AGENTS.md) for the engineering skill configuration and [CONTEXT.md](CONTEXT.md) for the shared vocabulary.
 
 - [Issue tracker conventions](docs/agents/issue-tracker.md): GitHub operations, wayfinder maps, claims, and dependencies.
 - [Triage labels](docs/agents/triage-labels.md): the five default triage roles.
-- [Domain documentation](docs/agents/domain.md): how skills read the glossary and architecture decisions.
+- [Domain documentation](docs/agents/domain.md): how skills read the glossary and the architecture decisions.
+- [Architecture decisions](docs/adr/): one record for each decision that is hard to reverse.
 
-Installed skills live in `.agents/skills/`; `skills-lock.json` records their upstream sources and hashes.
-Run `bun run quality` for the same formatting, linting, typechecking, module-boundary, and test gate used in CI.
-Write a changeset for every change that reaches a consumer with `bun run changeset`.
+```sh
+bun install
+bun run quality     # The same gate CI runs: format, lint, typecheck, module boundaries, and tests.
+bun run changeset   # Describe a change that reaches a consumer.
+```
+
+Production code lives in flat `modules/<feature-or-capability>/` directories.
+Each module exports one interface object from `main.ts`, and `bun run lint:modules` enforces the module shape and boundaries.
+`skills/` holds the skills that ship with a release.
+`.agents/skills/` holds this repository's own development skills, and `skills-lock.json` records their upstream sources and hashes.
+
+| Area | Tool |
+| --- | --- |
+| Runtime, package manager, and tests | Bun |
+| Language | TypeScript, checked with `tsc` |
+| Linting | Oxlint |
+| Formatting | Oxfmt |
+| Module boundaries | dependency-cruiser |
+| Versioning | Changesets |
+| Distribution | GitHub-hosted source and JSR |
+
+[Map the first Operator orchestration workflow](https://github.com/fveracoechea/operator/issues/1) holds the approved scope and the decision tickets.
+The approved [CLI and skill distribution contract](https://github.com/fveracoechea/operator/issues/7#issuecomment-5729841818) settles exact release selection, skill installation, updates, and runtime boundaries.
+[ADR 0013](docs/adr/0013-one-release-is-one-matched-version-delivered-twice.md) records how publication works.
 
 ## References
 

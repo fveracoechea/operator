@@ -4,7 +4,7 @@ import { z } from "zod";
 import { rm } from "node:fs/promises";
 import { OperatorRelease } from "../operator-release/main.ts";
 import type { ReleaseFakeState } from "./fake-publish-state.ts";
-import { type JsrFake, startJsrFake } from "./fake-jsr.ts";
+import { type JsrFake, type JsrFakeOptions, startJsrFake } from "./fake-jsr.ts";
 import { ReleasePublish } from "./main.ts";
 
 const sourceRoot = new URL("../../", import.meta.url).pathname.replace(/\/$/, "");
@@ -19,6 +19,7 @@ const OTHER_COMMIT = "2".repeat(40);
 
 const roots: string[] = [];
 const fakes: JsrFake[] = [];
+let root = "";
 let artifactRoot = "";
 let ghDirectory = "";
 let binDirectory = "";
@@ -49,7 +50,7 @@ function fixturePath(): string {
 async function seedGithub(state: Partial<ReleaseFakeState>): Promise<void> {
   await Bun.write(
     `${ghDirectory}/state.json`,
-    `${JSON.stringify({ compare: {}, checkRuns: {}, tags: {}, releases: {}, ...state })}\n`,
+    `${JSON.stringify({ compare: {}, tags: {}, releases: {}, ...state })}\n`,
   );
 }
 
@@ -61,7 +62,7 @@ async function seedFault(name: string, kind: string, remaining = 1): Promise<voi
 }
 
 beforeEach(async () => {
-  const root = `${Bun.env.TMPDIR ?? "/tmp"}/operator-publish-${crypto.randomUUID()}`;
+  root = `${Bun.env.TMPDIR ?? "/tmp"}/operator-publish-${crypto.randomUUID()}`;
   roots.push(root);
   artifactRoot = `${root}/artifact`;
   ghDirectory = `${root}/gh`;
@@ -82,12 +83,15 @@ beforeEach(async () => {
 
   await seedGithub({
     compare: { [COMMIT]: "behind", [OTHER_COMMIT]: "diverged" },
-    checkRuns: { [COMMIT]: [{ name: "Quality", conclusion: "success" }] },
   });
 });
 
-function jsrFake(options: Parameters<typeof startJsrFake>[0] = {}): JsrFake {
-  const fake = startJsrFake(options);
+async function jsrFake(options: JsrFakeOptions = {}): Promise<JsrFake> {
+  const fake = await startJsrFake({
+    directory: `${root}/jsr-${fakes.length}`,
+    binDirectory,
+    ...options,
+  });
   fakes.push(fake);
   return fake;
 }
@@ -102,16 +106,13 @@ function request(fake: JsrFake, extra: Partial<PublishRequest> = {}): PublishReq
     repository: "fveracoechea/operator",
     journalPath,
     jsr: { api: fake.api, scope: "fveracoechea", package: "operator", fetch: fake.fetch },
-    environment: fake.environment,
-    waitMs: 1,
-    approvedReleaseId: undefined,
     ...extra,
   };
 }
 
 describe("the release plan", () => {
-  test("binds one approval to the exact version, commit, and published bytes", async () => {
-    const fake = jsrFake();
+  test("binds one release identity to the exact version, commit, and published bytes", async () => {
+    const fake = await jsrFake();
 
     const first = await ReleasePublish.plan(request(fake));
     const second = await ReleasePublish.plan(request(fake));
@@ -123,7 +124,7 @@ describe("the release plan", () => {
   });
 
   test("makes changed content a different release", async () => {
-    const fake = jsrFake();
+    const fake = await jsrFake();
     const before = await ReleasePublish.plan(request(fake));
 
     await Bun.write(`${artifactRoot}/skills/operator/SKILL.md`, "changed\n");
@@ -133,49 +134,48 @@ describe("the release plan", () => {
   });
 
   test("refuses a commit that is not merged into the release branch", async () => {
-    const fake = jsrFake();
+    const fake = await jsrFake();
 
     const plan = await ReleasePublish.plan(request(fake, { commit: OTHER_COMMIT }));
 
     expect(plan.blockers.map((one) => one.reason)).toContain("commit_not_merged");
   });
 
-  test("refuses a commit whose checks did not pass", async () => {
+  test("refuses to finish from this commit a version another commit half released", async () => {
     await seedGithub({
       compare: { [COMMIT]: "behind" },
-      checkRuns: { [COMMIT]: [{ name: "Quality", conclusion: "failure" }] },
-    });
-    const fake = jsrFake();
-
-    const plan = await ReleasePublish.plan(request(fake));
-
-    expect(plan.blockers.map((one) => one.reason)).toContain("checks_contradicted");
-  });
-
-  test("refuses a commit with no recorded check at all", async () => {
-    await seedGithub({ compare: { [COMMIT]: "behind" }, checkRuns: {} });
-    const fake = jsrFake();
-
-    const plan = await ReleasePublish.plan(request(fake));
-
-    expect(plan.blockers.map((one) => one.reason)).toContain("checks_unproven");
-  });
-
-  test("refuses to move a tag that already names another commit", async () => {
-    await seedGithub({
-      compare: { [COMMIT]: "behind" },
-      checkRuns: { [COMMIT]: [{ name: "Quality", conclusion: "success" }] },
       tags: { [`v${version}`]: OTHER_COMMIT },
     });
-    const fake = jsrFake();
+    const fake = await jsrFake();
 
     const plan = await ReleasePublish.plan(request(fake));
 
     expect(plan.blockers.map((one) => one.reason)).toContain("tag_moved");
   });
 
+  test("reports a version an earlier commit released in full as released", async () => {
+    // Every push to main after a release carries the released version until the next version
+    // pull request merges, so that push has nothing to publish and nothing to refuse.
+    await seedGithub({
+      compare: { [COMMIT]: "behind" },
+      tags: { [`v${version}`]: OTHER_COMMIT },
+      releases: {
+        [`v${version}`]: `https://github.com/fveracoechea/operator/releases/v${version}`,
+      },
+    });
+    const fake = await jsrFake({ published: [version] });
+
+    const plan = await ReleasePublish.plan(request(fake));
+    const result = await ReleasePublish.publish(request(fake));
+
+    expect(plan.state).toBe("released");
+    expect(plan.blockers).toEqual([]);
+    expect(result.status).toBe("released");
+    expect(await fake.calls()).toEqual([]);
+  });
+
   test("refuses to replace a version the registry already holds", async () => {
-    const fake = jsrFake({ published: [version] });
+    const fake = await jsrFake({ published: [version] });
 
     const plan = await ReleasePublish.plan(request(fake));
 
@@ -184,94 +184,63 @@ describe("the release plan", () => {
 });
 
 describe("the publication", () => {
-  test("refuses to publish without an approval for this exact release", async () => {
-    const fake = jsrFake();
+  test("delivers both paths from one commit", async () => {
+    const fake = await jsrFake();
 
-    const result = await ReleasePublish.publish(request(fake, { approvedReleaseId: undefined }));
-
-    expect(result.status).toBe("approval-required");
-    expect(fake.received).toEqual([]);
-  });
-
-  test("refuses an approval granted against different content", async () => {
-    const fake = jsrFake();
-
-    const result = await ReleasePublish.publish(
-      request(fake, { approvedReleaseId: "0".repeat(64) }),
-    );
-
-    expect(result.status).toBe("approval-stale");
-    expect(fake.received).toEqual([]);
-  });
-
-  test("delivers both paths from one approved commit", async () => {
-    const fake = jsrFake();
-    const plan = await ReleasePublish.plan(request(fake));
-
-    const result = await ReleasePublish.publish(
-      request(fake, { approvedReleaseId: plan.releaseId }),
-    );
+    const result = await ReleasePublish.publish(request(fake));
 
     expect(result.status).toBe("published");
-    expect(fake.received[0]).toMatchObject({ version, config: "/jsr.json" });
-    expect(fake.received[0]?.authorization).toStartWith("githuboidc ");
+    const [call, ...more] = await fake.calls();
+    expect(more).toEqual([]);
+    expect(call?.version).toBe(version);
+    // The client publishes a staged copy, so the artifact the identity covers never changes.
+    expect(call?.cwd).not.toBe(artifactRoot);
+    expect(call?.files).toEqual(await OperatorRelease.contents({ artifactRoot }));
+    // It resolves the imports of the shipped code, so the dependencies are installed beside it.
+    const manifest = await Bun.file(`${artifactRoot}/package.json`).json();
+    expect(call?.installed).toEqual(Object.keys(manifest.dependencies).toSorted());
     const state: ReleaseFakeState = await Bun.file(`${ghDirectory}/state.json`).json();
     expect(state.tags[`v${version}`]).toBe(COMMIT);
     expect(state.releases[`v${version}`]).toContain(`v${version}`);
   });
 
-  test("uses no credential of its own when the runner offers no short-lived one", async () => {
-    const fake = jsrFake();
-    const plan = await ReleasePublish.plan(request(fake));
+  test("hands the official client no token of its own", async () => {
+    // The client authenticates with the short-lived credential the runner issues to the job.
+    const fake = await jsrFake();
 
-    const result = await ReleasePublish.publish(
-      request(fake, {
-        approvedReleaseId: plan.releaseId,
-        environment: { JSR_TOKEN: "a-personal-token-that-must-not-be-used" },
-      }),
-    );
+    await ReleasePublish.publish(request(fake));
 
-    expect(result.status).toBe("partial");
-    expect(fake.received).toEqual([]);
-    const delivered = await ReleasePublish.delivered({ journalPath });
-    expect(delivered.state === "read" && delivered.journal.paths.jsr?.state).toBe("failed");
+    expect((await fake.calls()).map((call) => call.args)).toEqual([["publish"]]);
   });
 
   test("keeps the delivered path and retries only the missing one", async () => {
-    const fake = jsrFake({ createStatus: 400 });
+    const fake = await jsrFake({ client: "refuses" });
     const plan = await ReleasePublish.plan(request(fake));
 
-    const first = await ReleasePublish.publish(
-      request(fake, { approvedReleaseId: plan.releaseId }),
-    );
+    const first = await ReleasePublish.publish(request(fake));
     expect(first.status).toBe("partial");
     expect(first.status === "partial" && first.journal.paths["github-source"]?.state).toBe(
       "published",
     );
 
-    const retryFake = jsrFake();
+    const retryFake = await jsrFake();
     const retryPlan = await ReleasePublish.plan(request(retryFake));
     expect(retryPlan.releaseId).toBe(plan.releaseId);
-    const second = await ReleasePublish.publish(
-      request(retryFake, { approvedReleaseId: plan.releaseId }),
-    );
+    const second = await ReleasePublish.publish(request(retryFake));
 
     expect(second.status).toBe("published");
     // The source path was already delivered, so the retry sent no second tag request.
     const calls = await Bun.file(`${ghDirectory}/calls.log`).text();
     expect(calls.split("\n").filter((line) => line.includes("git/refs")).length).toBe(1);
-    expect(retryFake.received.length).toBe(1);
+    expect((await retryFake.calls()).length).toBe(1);
   });
 
   test("refuses a retry that would send different content under the same version", async () => {
-    const fake = jsrFake({ createStatus: 400 });
-    const plan = await ReleasePublish.plan(request(fake));
-    await ReleasePublish.publish(request(fake, { approvedReleaseId: plan.releaseId }));
+    const fake = await jsrFake({ client: "refuses" });
+    await ReleasePublish.publish(request(fake));
 
     await Bun.write(`${artifactRoot}/skills/operator/SKILL.md`, "changed\n");
-    const retry = await ReleasePublish.publish(
-      request(jsrFake(), { approvedReleaseId: plan.releaseId }),
-    );
+    const retry = await ReleasePublish.publish(request(await jsrFake()));
 
     expect(retry.status).toBe("blocked");
     expect(retry.status === "blocked" && retry.plan.blockers.map((one) => one.reason)).toContain(
@@ -279,27 +248,32 @@ describe("the publication", () => {
     );
   });
 
-  test("leaves an unfinished registry answer uncertain instead of assuming it landed", async () => {
-    const fake = jsrFake({ pendingReadings: 5 });
-    const plan = await ReleasePublish.plan(request(fake));
+  test("reads what landed when the client fails after it sent the version", async () => {
+    // A failed client does not prove the version is absent, so the registry answers instead.
+    const fake = await jsrFake({ client: "publishes-then-fails" });
 
-    const result = await ReleasePublish.publish(
-      request(fake, { approvedReleaseId: plan.releaseId, attempts: 2, waitMs: 1 }),
-    );
+    const result = await ReleasePublish.publish(request(fake));
+
+    expect(result.status).toBe("published");
+    const delivered = await ReleasePublish.delivered({ journalPath });
+    expect(delivered.state === "read" && delivered.journal.paths.jsr?.state).toBe("published");
+  });
+
+  test("records a refused version as failed, so the next run sends it again", async () => {
+    const fake = await jsrFake({ client: "refuses" });
+
+    const result = await ReleasePublish.publish(request(fake));
 
     expect(result.status).toBe("partial");
     const delivered = await ReleasePublish.delivered({ journalPath });
-    expect(delivered.state === "read" && delivered.journal.paths.jsr?.state).toBe("uncertain");
+    expect(delivered.state === "read" && delivered.journal.paths.jsr?.state).toBe("failed");
   });
 
   test("leaves a faulted tag write uncertain rather than repeating it", async () => {
     await seedFault("create_tag", "server_error");
-    const fake = jsrFake();
-    const plan = await ReleasePublish.plan(request(fake));
+    const fake = await jsrFake();
 
-    const result = await ReleasePublish.publish(
-      request(fake, { approvedReleaseId: plan.releaseId }),
-    );
+    const result = await ReleasePublish.publish(request(fake));
 
     expect(result.status).toBe("partial");
     const delivered = await ReleasePublish.delivered({ journalPath });
@@ -334,29 +308,38 @@ describe("the published artifact", () => {
   });
 });
 
+const workflowSchema = z.object({
+  on: z.record(z.string(), z.unknown()),
+  jobs: z.record(
+    z.string(),
+    z.object({
+      uses: z.string().optional(),
+      needs: z.array(z.string()).optional(),
+      if: z.string().optional(),
+      outputs: z.record(z.string(), z.string()).optional(),
+      permissions: z.record(z.string(), z.string()).optional(),
+    }),
+  ),
+});
+
+async function readWorkflow(path: string) {
+  return workflowSchema.parse(Bun.YAML.parse(await Bun.file(`${sourceRoot}/${path}`).text()));
+}
+
 describe("the release toolchain", () => {
-  test("names no Deno anywhere in the release path", async () => {
-    const checked = [
+  test("keeps every third-party action pinned by commit", async () => {
+    const workflows = [
+      ".github/workflows/quality.yml",
       ".github/workflows/release.yml",
       ".github/workflows/release-smoke.yml",
-      "scripts/release.ts",
-      "package.json",
-      "modules/release-publish/main.ts",
-      "modules/release-publish/jsr-client.ts",
     ];
-
-    for (const path of checked) {
-      const text = await Bun.file(`${sourceRoot}/${path}`).text();
-      expect(text.toLowerCase(), path).not.toContain("deno");
-    }
-  });
-
-  test("keeps every third-party action pinned by commit", async () => {
-    const workflows = [".github/workflows/release.yml", ".github/workflows/release-smoke.yml"];
 
     for (const path of workflows) {
       const text = await Bun.file(`${sourceRoot}/${path}`).text();
-      const uses = [...text.matchAll(/uses:\s*(\S+)/g)].map((match) => match[1] ?? "");
+      const uses = [...text.matchAll(/uses:\s*(\S+)/g)]
+        .map((match) => match[1] ?? "")
+        // A workflow of this repository runs at the commit that calls it.
+        .filter((used) => !used.startsWith("./"));
       expect(uses.length, path).toBeGreaterThan(0);
       for (const used of uses) {
         expect(used, `${path} uses ${used}`).toMatch(/@[0-9a-f]{40}$/);
@@ -364,56 +347,61 @@ describe("the release toolchain", () => {
     }
   });
 
-  test("gives the publish job every scope the reads it makes need", async () => {
-    // The job token carries exactly what the job declares. A read it cannot make answers 403,
-    // and the plan then refuses the release for evidence it was never allowed to gather.
-    const workflow = z
-      .object({
-        jobs: z.object({ publish: z.object({ permissions: z.record(z.string(), z.string()) }) }),
-      })
-      .parse(Bun.YAML.parse(await Bun.file(`${sourceRoot}/.github/workflows/release.yml`).text()));
+  test("publishes only after the quality gate and the release smoke pass on that commit", async () => {
+    const release = await readWorkflow(".github/workflows/release.yml");
+    const publish = release.jobs.publish;
+    const callers = Object.entries(release.jobs).filter(([name]) =>
+      (publish?.needs ?? []).includes(name),
+    );
 
-    expect(workflow.jobs.publish.permissions).toMatchObject({
+    expect(callers.map(([, job]) => job.uses).toSorted()).toEqual([
+      "./.github/workflows/quality.yml",
+      "./.github/workflows/release-smoke.yml",
+      undefined,
+    ]);
+    // Each called workflow runs on the commit it is called from only because it accepts a call.
+    for (const path of [".github/workflows/quality.yml", ".github/workflows/release-smoke.yml"]) {
+      expect(Object.keys((await readWorkflow(path)).on), path).toContain("workflow_call");
+    }
+  });
+
+  test("publishes only when no changeset is still waiting for its version pull request", async () => {
+    // Changesets opens the version pull request while changesets are pending. A push with none
+    // left is the merge of that pull request, or a push that carries the released version.
+    const release = await readWorkflow(".github/workflows/release.yml");
+
+    expect(release.jobs.publish?.needs).toContain("prepare");
+    expect(release.jobs.prepare?.outputs?.hasChangesets).toContain("outputs.has-changesets");
+    expect(release.jobs.publish?.if).toBe("needs.prepare.outputs.hasChangesets == 'false'");
+  });
+
+  test("gives the publish job every scope the reads and writes it makes need", async () => {
+    // The job token carries exactly what the job declares. A call it cannot make answers 403.
+    const release = await readWorkflow(".github/workflows/release.yml");
+
+    expect(release.jobs.publish?.permissions).toEqual({
       // `repos/.../compare`, the tag refs, and the releases.
       contents: "write",
-      // The short-lived registry credential.
+      // The short-lived credential the official JSR client authenticates with.
       "id-token": "write",
-      // `repos/.../commits/<sha>/check-runs`, which proves the commit passed its checks.
-      checks: "read",
       // `gh run download`, which recovers what an earlier attempt already delivered.
       actions: "read",
     });
-  });
-
-  test("reads no publishing token of its own from the environment", async () => {
-    const client = await Bun.file(`${sourceRoot}/modules/release-publish/jsr-client.ts`).text();
-
-    // The only environment the client reads is the short-lived credential the runner offers.
-    const read = [...client.matchAll(/environment\.([A-Z_]+)/g)].map((match) => match[1]);
-    expect([...new Set(read)].toSorted()).toEqual([
-      "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
-      "ACTIONS_ID_TOKEN_REQUEST_URL",
-    ]);
   });
 });
 
 describe("a source path that is half delivered", () => {
   test("creates the missing release beside the tag a first attempt already landed", async () => {
     await seedFault("create_release", "server_error");
-    const fake = jsrFake();
-    const plan = await ReleasePublish.plan(request(fake));
+    const fake = await jsrFake();
 
-    const first = await ReleasePublish.publish(
-      request(fake, { approvedReleaseId: plan.releaseId }),
-    );
+    const first = await ReleasePublish.publish(request(fake));
     expect(first.status).toBe("partial");
     const afterFirst: ReleaseFakeState = await Bun.file(`${ghDirectory}/state.json`).json();
     expect(afterFirst.tags[`v${version}`]).toBe(COMMIT);
     expect(afterFirst.releases[`v${version}`]).toBeUndefined();
 
-    const retry = await ReleasePublish.publish(
-      request(jsrFake(), { approvedReleaseId: plan.releaseId }),
-    );
+    const retry = await ReleasePublish.publish(request(await jsrFake()));
 
     expect(retry.status).toBe("published");
     const afterRetry: ReleaseFakeState = await Bun.file(`${ghDirectory}/state.json`).json();
@@ -426,21 +414,16 @@ describe("a source path that is half delivered", () => {
 
 describe("a path the record already names as delivered", () => {
   test("is left alone rather than sent again when the registry answer disagrees", async () => {
-    const fake = jsrFake();
-    const plan = await ReleasePublish.plan(request(fake));
-    const first = await ReleasePublish.publish(
-      request(fake, { approvedReleaseId: plan.releaseId }),
-    );
+    const fake = await jsrFake();
+    const first = await ReleasePublish.publish(request(fake));
     expect(first.status).toBe("published");
 
     // A registry that answers as if it never received the version, and refuses a second send.
-    const forgetful = jsrFake({ createStatus: 400 });
-    const retry = await ReleasePublish.publish(
-      request(forgetful, { approvedReleaseId: plan.releaseId }),
-    );
+    const forgetful = await jsrFake({ client: "refuses" });
+    const retry = await ReleasePublish.publish(request(forgetful));
 
     expect(retry.status).toBe("published");
-    expect(forgetful.received).toEqual([]);
+    expect(await forgetful.calls()).toEqual([]);
     const delivered = await ReleasePublish.delivered({ journalPath });
     expect(delivered.state === "read" && delivered.journal.paths.jsr?.state).toBe("published");
   });

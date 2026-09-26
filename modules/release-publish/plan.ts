@@ -1,13 +1,12 @@
 import { OperatorRelease } from "../operator-release/main.ts";
-import { readChecks, readMerged, readRelease, readTag } from "./github-release.ts";
+import { readMerged, readRelease, readTag } from "./github-release.ts";
 import { type JournalRead, type PathRecord, readJournal } from "./journal.ts";
-import { readVersion } from "./jsr-client.ts";
+import { readVersion } from "./jsr-registry.ts";
 
 export const REPOSITORY = "fveracoechea/operator";
 export const JSR_SCOPE = "fveracoechea";
 export const JSR_PACKAGE = "operator";
 export const JSR_API = "https://api.jsr.io";
-export const JSR_CONFIG = "/jsr.json";
 
 export type DeliveryPath = "github-source" | "jsr";
 
@@ -16,8 +15,6 @@ export type ReleaseBlocker = {
     | "artifact_incomplete"
     | "artifact_changed"
     | "commit_not_merged"
-    | "checks_unproven"
-    | "checks_contradicted"
     | "tag_moved"
     | "version_published"
     | "unreadable_journal";
@@ -60,8 +57,9 @@ async function readPublishedVersion(request: PlanRequest, version: string) {
 
 /**
  * Inspects the exact artifact, commit, and published state one release would act on.
- * The identity covers the version, the commit, and every published byte, so an approval never
- * reaches a changed artifact and changed content needs a new version and a new approval.
+ * The identity covers the version, the commit, and every published byte, so a retry never sends
+ * a changed artifact under a version it already delivered, and changed content needs a new
+ * version. The workflow runs this only after the commit passed its checks.
  */
 export async function computeReleasePlan(request: PlanRequest) {
   const repository = request.repository ?? REPOSITORY;
@@ -80,7 +78,7 @@ export async function computeReleasePlan(request: PlanRequest) {
       blocker(
         "artifact_incomplete",
         `The artifact is missing ${inspection.missing.join(", ")}.`,
-        "Build the release artifact again from the approved commit.",
+        "Build the release artifact again from the release commit.",
       ),
     );
   }
@@ -89,7 +87,7 @@ export async function computeReleasePlan(request: PlanRequest) {
       blocker(
         "artifact_changed",
         `The artifact was built from commit ${manifest.commit}, and this release names ${request.commit}.`,
-        "Build the artifact from the commit the approval names.",
+        "Build the artifact from the commit this release names.",
       ),
     );
   }
@@ -112,14 +110,13 @@ export async function computeReleasePlan(request: PlanRequest) {
       blocker(
         "artifact_changed",
         "The artifact differs from the one the recorded publication delivered, so a retry would send different content under the same version.",
-        "Restore the approved artifact, or publish changed content as a new version under a new approval.",
+        "Restore the artifact the recorded publication delivered, or publish changed content as a new version.",
       ),
     );
   }
 
-  const [merged, checked, tagState, releaseState, publishedVersion] = await Promise.all([
+  const [merged, tagState, releaseState, publishedVersion] = await Promise.all([
     readMerged({ repository, base: request.base, commit: request.commit }),
-    readChecks({ repository, commit: request.commit }),
     readTag({ repository, tag }),
     readRelease({ repository, tag }),
     readPublishedVersion(request, version),
@@ -130,7 +127,7 @@ export async function computeReleasePlan(request: PlanRequest) {
       blocker(
         "commit_not_merged",
         `Commit ${request.commit} is ${merged.comparison} ${request.base}, so it is not a merged commit.`,
-        "Merge the release commit first. Merge alone is still not authorization to publish.",
+        "Publish only a commit that is merged into the release branch.",
       ),
     );
   }
@@ -143,25 +140,6 @@ export async function computeReleasePlan(request: PlanRequest) {
       ),
     );
   }
-  if (checked.status === "not-passed") {
-    blockers.push(
-      blocker(
-        "checks_contradicted",
-        `These checks did not pass on ${request.commit}: ${checked.failing.join(", ")}.`,
-        "Publish only a commit whose required checks passed.",
-      ),
-    );
-  }
-  if (checked.status === "unknown") {
-    blockers.push(
-      blocker(
-        "checks_unproven",
-        `The checks of ${request.commit} could not be read: ${checked.detail}`,
-        "Establish that the required checks passed, then plan the release again.",
-      ),
-    );
-  }
-
   const recorded: Partial<Record<DeliveryPath, PathRecord>> =
     journal.state === "read" ? journal.journal.paths : {};
   const sourceDone =
@@ -169,23 +147,32 @@ export async function computeReleasePlan(request: PlanRequest) {
       ? `The tag ${tag} and its release already exist.`
       : null;
 
-  if (tagState.status === "present" && tagState.sha !== request.commit) {
+  const jsrPublished = publishedVersion.status === "succeeded" && publishedVersion.value.published;
+  // Every push to the release branch carries the version of the last release until the next
+  // version pull request merges. Both paths already hold that version, so nothing is due.
+  const state: "due" | "released" =
+    tagState.status === "present" && releaseState.status === "present" && jsrPublished
+      ? "released"
+      : "due";
+
+  if (state === "due" && tagState.status === "present" && tagState.sha !== request.commit) {
     blockers.push(
       blocker(
         "tag_moved",
-        `The tag ${tag} already names commit ${tagState.sha}, and a published tag is never moved.`,
-        "Publish the changed content as a new version under a new approval.",
+        `The tag ${tag} already names commit ${tagState.sha}, and that release is not complete. A published tag is never moved.`,
+        `Run the publication of commit ${tagState.sha} again, so the missing path receives the artifact built there.`,
       ),
     );
   }
 
-  const jsrPublished = publishedVersion.status === "succeeded" && publishedVersion.value.published;
-  if (jsrPublished && recorded.jsr?.state !== "published") {
+  // A version this release tried to send may have landed after the client failed, so only a
+  // version with no record of this release at all belongs to someone else.
+  if (state === "due" && jsrPublished && recorded.jsr === undefined) {
     blockers.push(
       blocker(
         "version_published",
         `JSR already holds ${JSR_SCOPE}/${JSR_PACKAGE}@${version}, and this release has no record of publishing it.`,
-        "Publish the changed content as a new version under a new approval.",
+        "Publish the changed content as a new version.",
       ),
     );
   }
@@ -212,8 +199,8 @@ export async function computeReleasePlan(request: PlanRequest) {
     commit: request.commit,
     artifactIdentity: inspection.artifactIdentity,
     artifact: { root: inspection.artifactRoot, missing: inspection.missing },
+    state,
     merged,
-    checked,
     // What the source path already holds, so a retry creates only the half that is still missing.
     source: { tag: tagState, release: releaseState },
     paths,
@@ -223,7 +210,7 @@ export async function computeReleasePlan(request: PlanRequest) {
 
   return {
     ...body,
-    // The identity binds an approval to this exact version, commit, and published content.
+    // The identity binds the delivery record to this exact version, commit, and published content.
     releaseId: new Bun.CryptoHasher("sha256")
       .update(
         JSON.stringify({
