@@ -49,7 +49,7 @@ describe("the running release", () => {
 });
 
 describe("the release artifact", () => {
-  test("ships runnable ESM, declarations, skills, and the generated schema", async () => {
+  test("ships runnable ESM, declarations, documentation, skills, and the generated schema", async () => {
     const { artifactRoot, result } = await buildArtifact();
 
     expect(result.status).toBe("built");
@@ -60,6 +60,18 @@ describe("the release artifact", () => {
     expect(await Bun.file(`${artifactRoot}/skills/operator/SKILL.md`).exists()).toBe(true);
     expect(await Bun.file(`${artifactRoot}/config.schema.json`).exists()).toBe(true);
     expect(await Bun.file(`${artifactRoot}/jsr.json`).exists()).toBe(true);
+    expect(await Bun.file(`${artifactRoot}/README.md`).text()).toBe(
+      await Bun.file(`${sourceRoot}/docs/jsr/README.md`).text(),
+    );
+    const cli = await Bun.file(`${artifactRoot}/cli.js`).text();
+    expect(cli).toContain("@module");
+    expect(cli).toContain('import { main } from "@fveracoechea/operator/cli"');
+    expect(cli).toMatch(
+      /\/\*\*\s*\n \* Run one CLI command[\s\S]*?\*\/\s*export async function main\(/,
+    );
+    const declaration = await Bun.file(`${artifactRoot}/cli.d.ts`).text();
+    expect(declaration).toContain("@module");
+    expect(declaration).toContain("Run one CLI command");
   });
 
   test("leaves no TypeScript source and no test file in the artifact", async () => {

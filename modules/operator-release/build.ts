@@ -7,11 +7,25 @@ import { identifyArtifact, RELEASE_MANIFEST_PATH, scanFiles } from "./inventory.
 import { rewriteSpecifiers } from "./specifiers.ts";
 
 const ENTRY_POINT = "cli.ts";
+const README_SOURCE = "docs/jsr/README.md";
 
 /** The transpiler refuses a shebang, so the executable line travels beside the source it leads. */
 function splitShebang(text: string): { shebang: string; body: string } {
   const end = text.startsWith("#!") ? text.indexOf("\n") + 1 : 0;
   return { shebang: text.slice(0, end), body: text.slice(end) };
+}
+
+/** The transpiler drops JSDoc, so restore the public entry point's comments in shipped JS. */
+function documentEntryPoint(source: string, compiled: string): string {
+  const docs = [...source.matchAll(/\/\*\*[\s\S]*?\*\//g)];
+  const moduleDoc = docs.find((match) => match[0].includes("@module"))?.[0];
+  const mainDoc = docs.find((match) =>
+    source.slice(match.index + match[0].length).startsWith("\nexport async function main("),
+  )?.[0];
+  if (!moduleDoc || !mainDoc || !compiled.includes("export async function main(")) {
+    throw new Error("The CLI entry point must document its module and main function.");
+  }
+  return `${moduleDoc}\n${compiled.replace("export async function main(", `${mainDoc}\nexport async function main(`)}`;
 }
 const SKILLS_DIRECTORY = "skills";
 
@@ -184,9 +198,11 @@ export async function buildArtifact(request: {
   for (const path of sources) {
     const { shebang, body } = splitShebang(await Bun.file(`${sourceRoot}/${path}`).text());
     const compiled = rewriteSpecifiers(transpiler.transformSync(body));
-    await Bun.write(`${artifactRoot}/${path.replace(/\.ts$/, ".js")}`, `${shebang}${compiled}`, {
-      createPath: true,
-    });
+    await Bun.write(
+      `${artifactRoot}/${path.replace(/\.ts$/, ".js")}`,
+      `${shebang}${path === ENTRY_POINT ? documentEntryPoint(body, compiled) : compiled}`,
+      { createPath: true },
+    );
   }
 
   const declarations = await writeDeclarations({ sourceRoot, artifactRoot, sources });
@@ -203,6 +219,7 @@ export async function buildArtifact(request: {
   }
 
   await Bun.write(`${artifactRoot}/config.schema.json`, OperatorConfig.jsonSchemaText());
+  await Bun.write(`${artifactRoot}/README.md`, Bun.file(`${sourceRoot}/${README_SOURCE}`));
   await Bun.write(`${artifactRoot}/package.json`, packageManifest(source));
   await Bun.write(`${artifactRoot}/jsr.json`, jsrManifest(source));
 

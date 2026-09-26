@@ -37,6 +37,7 @@ export async function identifyArtifact(artifactRoot: string): Promise<string> {
 
 /** The parts a release must contain before either delivery path may carry it. */
 export const REQUIRED_PARTS = [
+  "README.md",
   "cli.js",
   "cli.d.ts",
   "package.json",
