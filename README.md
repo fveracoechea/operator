@@ -12,8 +12,7 @@ The name comes from *The Matrix*: the crew member who loads programs, guides mis
 Every step of the first orchestration workflow works end to end: project setup, release selection and updates, readiness, the live probe, crew state, dispatch, questions, review, rework, tracker completion, cleanup, and the coordination loop.
 The repository also holds the release build, the Operator-owned JSR client, the Changesets and GitHub Actions workflows, and smoke tests of both delivery paths.
 
-Nothing is published yet.
-The release workflow publishes a version after its version pull request merges.
+The release workflow publishes a version to JSR and GitHub after its version pull request merges.
 
 ## How it works
 
