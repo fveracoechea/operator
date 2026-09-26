@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # A stand-in for the Herdr CLI. It answers in Herdr's response shape and records every call, so
 # tests drive dispatch, interruption, reconciliation, and cleanup through the real external
 # interface. One file under `agents/` marks each live agent, so a test stops one and keeps another.

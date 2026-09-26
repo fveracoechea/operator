@@ -7,6 +7,8 @@
  */
 
 import { z } from "zod";
+// Bun.write cannot append atomically across the concurrent fake gh processes.
+import { appendFile } from "node:fs/promises";
 import type { ReleaseFakeFault, ReleaseFakeState } from "./fake-publish-state.ts";
 
 const directory = process.env.RELEASE_GH_DIR ?? "";
@@ -63,9 +65,7 @@ async function readInput(args: string[]): Promise<unknown> {
 }
 
 const args = Bun.argv.slice(2);
-const log = Bun.file(`${directory}/calls.log`);
-const before = (await log.exists()) ? await log.text() : "";
-await Bun.write(log, `${before}${args.join(" ")}\n`, { createPath: true });
+await appendFile(`${directory}/calls.log`, `${args.join(" ")}\n`);
 
 const [command, , endpoint] = args;
 if (command !== "api" || endpoint === undefined) {
