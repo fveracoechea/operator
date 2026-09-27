@@ -22,7 +22,7 @@ Run `bun run lint:modules` to enforce module shape, boundaries, and dependency c
 ### Bundled skills
 
 `skills/` holds the Operator-owned skills that ship with a release and that `operator install` copies into a project.
-`.agents/skills/` holds this repository's own development skills and is never installed elsewhere.
+`.agents/skills/` holds development skills and links to bundled skills; `.claude/skills/` links to the same homes. Only bundled skills are installed elsewhere.
 
 <!-- operator:instructions -->
 ## Operator
