@@ -45,7 +45,7 @@ The exact release one project coordinates with: its delivery path, its full comm
 A missing or mismatched installation, and missing lock data, stop the work that reads it; they never permit another installation to stand in.
 
 **Release artifact**:
-The built contents of one release: runnable ESM, the public declarations, the complete owned-skill directories, and the generated configuration schema.
+The built contents of one release: runnable ESM, the public declarations, the complete owned-skill directories, the Herdr plugin, and the generated configuration schema.
 It is identified by every byte it holds, so changed content is a different release.
 
 **Release publication**:
@@ -123,6 +123,10 @@ Planning-only work is registered so dependencies resolve, and it is never dispat
 The ordered list of what one crew may do now, with the waits that hold the rest.
 It is one read that changes nothing, and it is the only schedule, so a session keeps no queue beside it.
 An action that names a blocker waits on a person; a standing precondition is reported first and never decides whether the crew can advance.
+
+**Wake binding**:
+The association between one crew owner, one Operator agent session, and the attempts it was waiting for when it yielded.
+It permits one wake prompt after a fresh next-actions read needs the Operator's attention.
 
 **Attempt adoption**:
 A new Operator's statement that it read what one inherited attempt holds.
@@ -273,3 +277,46 @@ The list is explicit and holds no credential, and the copies stay readable after
 **Retention hold**:
 An explicit decision to keep one Operative's resources.
 It blocks every cleanup of its attempt until a person releases it, and it outlives the session that placed it.
+
+## Herdr language
+
+These terms follow [Herdr's concepts](https://herdr.dev/docs/concepts/).
+
+**Herdr workspace**:
+A top-level project container that owns tabs and panes.
+Operator groups an Operative's worktree workspace with the Operator's current workspace, but neither workspace is the checkout itself.
+
+**Herdr worktree workspace**:
+A separate Herdr workspace opened for a Git worktree checkout and grouped with its parent workspace.
+The Operative runs in its own worktree workspace, not in a tab or pane of the parent.
+
+**Herdr tab**:
+A layout of panes inside a Herdr workspace.
+It groups terminal views without creating another workspace.
+
+**Herdr pane**:
+A terminal inside a tab that holds a real process and persists when a client detaches.
+An Operator or Operative agent can run in one pane.
+
+**Herdr agent**:
+An agent process that Herdr recognizes inside a pane.
+This is the process Herdr observes, not an Operator assignment or attempt.
+
+**Herdr agent state**:
+Herdr's observation of an agent as `blocked`, `working`, `done`, `idle`, or `unknown`.
+`done` means a completion has not been seen, while `idle` means it has been seen or the agent is waiting; each client tracks which completions it has displayed, so its badge can differ from the server's state.
+
+**Herdr session**:
+A persistent server namespace that owns its own panes, sockets, and runtime state.
+It is distinct from an agent session.
+
+**Agent session**:
+One Operator or Operative agent's conversation with its host.
+It is distinct from the Herdr session that runs its pane.
+
+**Herdr server**:
+The background process that owns Herdr panes and their running processes, even when no client is attached.
+
+**Herdr client**:
+A terminal UI attached to a Herdr server.
+The client can detach without stopping the server or its agents.

@@ -40,6 +40,7 @@ export type Brief = {
 };
 
 export type Snapshot = {
+  parentWorkspaceId?: string;
   selection: {
     crew: { host: string | null; model: string | null };
   };
@@ -53,6 +54,7 @@ export type Snapshot = {
 };
 
 export type DispatchPlan = {
+  parentWorkspaceId?: string;
   assignmentId: string;
   attemptId: string;
   baseCommit: string;
@@ -337,6 +339,9 @@ export function planDispatch(request: {
   );
 
   return {
+    ...(request.snapshot.parentWorkspaceId === undefined
+      ? {}
+      : { parentWorkspaceId: request.snapshot.parentWorkspaceId }),
     assignmentId: request.brief.assignmentId,
     attemptId: request.brief.attemptId,
     baseCommit: request.baseCommit,

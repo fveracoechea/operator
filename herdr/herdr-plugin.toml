@@ -1,0 +1,17 @@
+id = "operator.wake"
+name = "Operator wake"
+version = "0.1.0"
+min_herdr_version = "0.9.1"
+description = "Resume a waiting Operator after crew activity"
+platforms = ["linux", "macos", "windows"]
+
+[[startup]]
+command = ["bun", "wake.ts", "startup"]
+
+[[events]]
+on = "pane.agent_status_changed"
+command = ["bun", "wake.ts", "event"]
+
+[[events]]
+on = "pane.exited"
+command = ["bun", "wake.ts", "event"]

@@ -27,6 +27,11 @@ function describe(value: string | null): string {
 }
 
 export const OperativeDispatch = {
+  /** Resolves the Operator pane after a move, before its parent workspace is fixed in a launch. */
+  async parentWorkspace(request: { paneId: string }) {
+    return HerdrControl.findPaneWorkspace(request);
+  },
+
   /**
    * Reads the control reference one Operative worktree carries.
    * It names the controlling checkout, so an Operative never searches nearby directories for
@@ -159,6 +164,9 @@ export const OperativeDispatch = {
   }): Promise<LaunchOutcome<{ workspaceId: string; worktreePath: string }>> {
     const created = await HerdrControl.createWorktree({
       repoRoot: request.projectRoot,
+      ...(request.plan.parentWorkspaceId === undefined
+        ? {}
+        : { parentWorkspaceId: request.plan.parentWorkspaceId }),
       path: request.plan.worktreePath,
       branch: request.plan.branch,
       baseCommit: request.plan.baseCommit,

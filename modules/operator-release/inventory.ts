@@ -47,4 +47,6 @@ export const REQUIRED_PARTS = [
   "modules/operator-cli/main.js",
   "modules/operator-cli/main.d.ts",
   "skills/operator/SKILL.md",
+  "herdr/herdr-plugin.toml",
+  "herdr/wake.ts",
 ];

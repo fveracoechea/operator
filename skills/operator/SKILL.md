@@ -20,6 +20,7 @@ Nothing here depends on which host you run on, and a crew may mix the two.
 Run `operator crew next` first, on every turn that touches the crew.
 It is the only schedule.
 Read [COORDINATION.md](COORDINATION.md) before you act on what it reports.
+Read [WAKE.md](WAKE.md) when you install or verify automatic resumption after crew waits.
 
 A session that did not start this crew acquires it first.
 Read [RECOVERY.md](RECOVERY.md) before you own, adopt, or resume anything.

@@ -351,6 +351,7 @@ export const CrewState = {
       baseCommit: string | null;
       branch: string | null;
       worktreePath: string | null;
+      paneId: string | null;
       overrides: Overrides;
     },
   ) {

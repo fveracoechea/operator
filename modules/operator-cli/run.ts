@@ -20,6 +20,7 @@ import { runTracker } from "./tracker-command.ts";
 import { exitCodeByOutcome, type Handled, writeJsonResult } from "./result.ts";
 import { usage } from "./usage.ts";
 import { runWork } from "./work-command.ts";
+import { runWake } from "./wake-command.ts";
 
 type CrewCommand = (words: string[], parsed: ParsedArguments) => Promise<Handled>;
 
@@ -87,6 +88,11 @@ export async function run(args: string[]): Promise<void> {
   }
 
   const [command, ...rest] = args;
+
+  if (command === "wake") {
+    if ((await runWake(rest)) !== "reported") rejectArguments(rest.includes("--json"));
+    return;
+  }
 
   if (command === "update") {
     const { words, parsed } = splitRequest(rest);

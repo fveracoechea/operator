@@ -69,6 +69,7 @@ async function runDispatch(parsed: ParsedArguments): Promise<Handled> {
     baseCommit: parsed.crew.baseCommit ?? null,
     branch: parsed.crew.branch ?? null,
     worktreePath: parsed.crew.worktreePath ?? null,
+    paneId: process.env.HERDR_PANE_ID?.trim() || null,
     overrides: parsed.overrides,
   });
 
@@ -106,6 +107,20 @@ async function runDispatch(parsed: ParsedArguments): Promise<Handled> {
       lines: ["A dispatch starts from an explicit commit. Name it with `--commit`."],
     });
     return "reported";
+  }
+
+  if (result.status === "workspace-required") {
+    return refuse({
+      json: parsed.json,
+      operation: "attempt_dispatch",
+      outcome: "missing-condition",
+      reason: "herdr_workspace_required",
+      detail: { attemptId: result.attemptId, detail: result.detail },
+      lines: [
+        result.detail,
+        "Run dispatch from the Operator's Herdr pane to group its worktree there.",
+      ],
+    });
   }
 
   if (result.status === "host-unnamed") {

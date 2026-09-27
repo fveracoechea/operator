@@ -62,6 +62,11 @@ answer() {
   case "$key" in
   worktree-create)
     repo=$(value_of --cwd "$@")
+    parent=$(value_of --workspace "$@")
+    if [ -n "$parent" ]; then
+      [ "$parent" = "w0" ] || refuse "workspace_not_found" "no workspace $parent"
+      repo="$HERDR_FAKE_REPO"
+    fi
     path=$(value_of --path "$@")
     branch=$(value_of --branch "$@")
     base=$(value_of --base "$@")
@@ -112,6 +117,12 @@ answer() {
   pane-list)
     workspace=$(value_of --workspace "$@")
     printf '{"id":"cli:pane:list","result":{"type":"pane_list","panes":[{"pane_id":"%s:p1","workspace_id":"%s"}]}}\n' "$workspace" "$workspace"
+    ;;
+  pane-get)
+    pane="${1:-}"
+    [ -n "$pane" ] || refuse "pane_not_found" "no pane"
+    workspace="${pane%%:*}"
+    printf '{"id":"cli:pane:get","result":{"type":"pane_info","pane":{"pane_id":"%s","workspace_id":"%s"}}}\n' "$pane" "$workspace"
     ;;
   pane-split)
     source=$(value_of --pane "$@")
