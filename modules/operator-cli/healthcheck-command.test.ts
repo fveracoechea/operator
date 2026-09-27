@@ -21,9 +21,12 @@ test("healthcheck reads connections and names unproven capabilities without laun
   expect(result.json.data.connections).toMatchObject({
     herdr: { state: "passed" },
     github: { state: "passed" },
-    "wake-plugin": { state: "passed" },
   });
-  expect(result.json.data.dispatch).toEqual({ state: "blocked", gate: "readiness" });
+  expect(result.json.data.wakePlugin.state).toBe("passed");
+  expect(result.json.data.dispatch).toEqual({
+    readinessRequired: false,
+    gate: "assignment-and-launch-preconditions",
+  });
   expect(
     result.json.data.readiness.unproven.some(
       (one: { name: string }) => one.name === "provider-compatibility",
@@ -33,7 +36,7 @@ test("healthcheck reads connections and names unproven capabilities without laun
   expect(await githubCalls(workspace)).toEqual(["GET user"]);
 });
 
-test("healthcheck reports a missing, disabled, or foreign wake plugin with installation steps", async () => {
+test("healthcheck reports a missing, disabled, or foreign wake plugin as an optional advisory", async () => {
   const workspace = await fixtures.make();
   for (const [marker, detail] of [
     ["plugin-missing", "not installed"],
@@ -42,13 +45,17 @@ test("healthcheck reports a missing, disabled, or foreign wake plugin with insta
   ] as const) {
     await Bun.write(`${workspace.herdr}/${marker}`, "");
     const result = await runJson(workspace, ["healthcheck", "--claude"]);
-    expect(result.json.blockers).toContainEqual(
+    expect(result.json.data.advisories).toContainEqual(
       expect.objectContaining({
-        check: "wake-plugin-connection",
+        check: "wake-plugin",
         nextAction: expect.stringContaining("herdr plugin link"),
         detail: expect.stringContaining(detail),
       }),
     );
+    expect(result.json.data.connections.herdr.state).toBe("passed");
+    expect(
+      result.json.blockers.some((one: { check: string }) => one.check === "wake-plugin-connection"),
+    ).toBe(false);
     await Bun.$`rm ${workspace.herdr}/${marker}`.quiet();
   }
 });
@@ -69,7 +76,7 @@ test("healthcheck reports authentication failure and still keeps the dispatch ga
       nextAction: expect.stringContaining("gh auth login"),
     }),
   );
-  expect(result.json.data.dispatch.gate).toBe("readiness");
+  expect(result.json.data.dispatch.readinessRequired).toBe(false);
 });
 
 test("healthcheck checks fixture read access without writing to its issue", async () => {
@@ -93,5 +100,5 @@ test("healthcheck rejects an approval flag and lists full probe approval separat
   expect(invalid.exitCode).toBe(2);
   const human = await runOperator(workspace, ["healthcheck", "--claude"]);
   expect(human.stdout).toContain("The full compatibility probe needs separate approval");
-  expect(human.stdout).toContain("Herdr wake plugin: passed");
+  expect(human.stdout).toContain("Herdr wake plugin (optional): passed");
 });

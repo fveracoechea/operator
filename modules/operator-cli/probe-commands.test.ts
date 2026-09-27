@@ -444,6 +444,26 @@ describe("operator setup probe apply", () => {
   );
 
   test(
+    "a missing optional wake plugin leaves a proven healthcheck successful",
+    async () => {
+      expect((await applyProbe(workspace)).json.reason).toBe("probe_completed");
+      await Bun.write(`${workspace.herdr}/plugin-missing`, "");
+
+      const health = await runJson(workspace, ["healthcheck", ...workspace.selection]);
+
+      expect(health.exitCode).toBe(0);
+      expect(health.json.reason).toBe("healthcheck_passed");
+      expect(health.json.data.connections.herdr.state).toBe("passed");
+      expect(health.json.data.wakePlugin.state).toBe("failed");
+      expect(health.json.data.advisories).toContainEqual(
+        expect.objectContaining({ check: "wake-plugin" }),
+      );
+      expect(health.json.blockers).toEqual([]);
+    },
+    PROBE_TIMEOUT_MS,
+  );
+
+  test(
     "reproves stale tracker evidence without launching hosts or replacing provider evidence",
     async () => {
       const first = await applyProbe(workspace);
@@ -511,6 +531,111 @@ describe("operator setup probe apply", () => {
           (one: Observation) => one.name === "provider-compatibility",
         )?.state,
       ).toBe("passed");
+    },
+    PROBE_TIMEOUT_MS,
+  );
+
+  test(
+    "an approved tracker reproof lists every fixture check and all writes it runs",
+    async () => {
+      const first = await applyProbe(workspace);
+      expect(first.json.reason).toBe("probe_completed");
+      const file = `${workspace.repo}/.operator/local/readiness.json`;
+      const evidence = await Bun.file(file).json();
+      const comment = evidence.attempts[0].observations.find(
+        (one: Observation) => one.name === "github-comment",
+      );
+      comment.inputs["tool:github"] = "an earlier GitHub CLI";
+      await Bun.write(file, JSON.stringify(evidence));
+
+      const plan = await runJson(workspace, [
+        "setup",
+        "probe",
+        "plan",
+        ...workspace.selection,
+        "--stale-only",
+      ]);
+      const expected = (first.json.data.attempt.observations as Observation[])
+        .filter((one) => one.name.startsWith("github-"))
+        .map((one) => one.name);
+      expect(plan.json.data.checks.map((one: { name: string }) => one.name).toSorted()).toEqual(
+        expected.toSorted(),
+      );
+      expect(plan.json.data.expectedCosts.join(" ")).toContain(
+        "three comments written, one issue closed and reopened",
+      );
+
+      const before = await githubCalls(workspace);
+      const ran = await runJson(workspace, [
+        "setup",
+        "probe",
+        "apply",
+        ...workspace.selection,
+        "--stale-only",
+        "--approved-probe",
+        plan.json.data.probeId,
+      ]);
+      const writes = (await githubCalls(workspace))
+        .slice(before.length)
+        .filter((one) => one.startsWith("POST") || one.startsWith("PATCH"));
+      expect(writes.filter((one) => one.startsWith("POST"))).toHaveLength(3);
+      expect(writes.filter((one) => one.startsWith("PATCH"))).toHaveLength(2);
+      expect(
+        ran.json.data.attempt.observations.map((one: Observation) => one.name).toSorted(),
+      ).toEqual(expected.toSorted());
+    },
+    PROBE_TIMEOUT_MS,
+  );
+
+  test(
+    "an approved lifecycle reproof lists every check and every billed prompt it runs",
+    async () => {
+      const first = await applyProbe(workspace);
+      expect(first.json.reason).toBe("probe_completed");
+      const file = `${workspace.repo}/.operator/local/readiness.json`;
+      const evidence = await Bun.file(file).json();
+      const worktree = evidence.attempts[0].observations.find(
+        (one: Observation) => one.name === "herdr-worktree",
+      );
+      worktree.inputs["tool:herdr"] = "an earlier Herdr CLI";
+      await Bun.write(file, JSON.stringify(evidence));
+
+      const plan = await runJson(workspace, [
+        "setup",
+        "probe",
+        "plan",
+        ...workspace.selection,
+        "--stale-only",
+      ]);
+      const expected = (first.json.data.attempt.observations as Observation[])
+        .filter((one) => !one.name.startsWith("github-"))
+        .map((one) => one.name);
+      expect(plan.json.data.checks.map((one: { name: string }) => one.name).toSorted()).toEqual(
+        expected.toSorted(),
+      );
+      const before = await herdrCalls(workspace);
+      const ran = await runJson(workspace, [
+        "setup",
+        "probe",
+        "apply",
+        ...workspace.selection,
+        "--stale-only",
+        "--approved-probe",
+        plan.json.data.probeId,
+      ]);
+      const prompts = (await herdrCalls(workspace))
+        .slice(before.length)
+        .filter((one) => one.startsWith("agent prompt "));
+      const charged = (plan.json.data.expectedCosts as string[])
+        .filter((line) => line.includes("synthetic prompts"))
+        .map((line) => Number(/(\d+) synthetic prompts/.exec(line)?.[1]));
+      expect(charged).toEqual([
+        prompts.filter((one) => one.includes("-operator ")).length,
+        prompts.filter((one) => one.includes("-crew ")).length,
+      ]);
+      expect(
+        ran.json.data.attempt.observations.map((one: Observation) => one.name).toSorted(),
+      ).toEqual(expected.toSorted());
     },
     PROBE_TIMEOUT_MS,
   );

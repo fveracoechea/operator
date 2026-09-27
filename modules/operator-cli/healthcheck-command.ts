@@ -25,13 +25,16 @@ export async function runHealthcheck(parsed: ParsedArguments): Promise<void> {
     GithubApi.connection(readiness.fixture),
     HerdrControl.wakePlugin(readiness.versions.herdr ?? "missing"),
   ]);
-  const connections: Record<"herdr" | "github" | "wake-plugin", Connection> = {
-    herdr,
-    github,
-    "wake-plugin": plugin,
-  };
+  const connections: Record<"herdr" | "github", Connection> = { herdr, github };
   const failures = Object.entries(connections).filter(([, value]) => value.state === "failed");
-  const dispatch = readiness.state === "ready" ? "allowed" : "blocked";
+  const advisories =
+    plugin.state === "failed"
+      ? [{ check: "wake-plugin", detail: plugin.detail, nextAction: plugin.nextAction }]
+      : [];
+  const dispatch = {
+    readinessRequired: false,
+    gate: "assignment-and-launch-preconditions",
+  } as const;
   const stale = readiness.unproven.filter((one) => one.state === "stale").map((one) => one.name);
   const overrides = (["operator", "crew"] as const).flatMap((role) => [
     ...(readiness.selection[role].hostSource === "session-override"
@@ -69,16 +72,16 @@ export async function runHealthcheck(parsed: ParsedArguments): Promise<void> {
         })),
       ],
       operation: "healthcheck",
-      data: { readiness, connections, dispatch: { state: dispatch, gate: "readiness" }, reproof },
+      data: { readiness, connections, wakePlugin: plugin, advisories, dispatch, reproof },
     },
     lines: [
       "Operator healthcheck (read-only)",
-      `Dispatch: ${dispatch}. The readiness claim must be proven before a new attempt can dispatch.`,
+      "Readiness is a standing precondition in `operator crew next`. `operator attempt dispatch` checks assignment and launch conditions independently; it does not enforce readiness.",
       `Herdr connection: ${herdr.state}. ${herdr.detail}`,
       ...(herdr.nextAction ? [`  Next: ${herdr.nextAction}`] : []),
       `GitHub access: ${github.state}. ${github.detail}`,
       ...(github.nextAction ? [`  Next: ${github.nextAction}`] : []),
-      `Herdr wake plugin: ${plugin.state}. ${plugin.detail}`,
+      `Herdr wake plugin (optional): ${plugin.state}. ${plugin.detail}`,
       ...(plugin.nextAction ? [`  Next: ${plugin.nextAction}`] : []),
       "A connected host and an authenticated GitHub client do not prove model answers, review agents, termination, or tracker writes.",
       "",

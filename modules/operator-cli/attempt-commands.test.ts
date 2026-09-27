@@ -192,6 +192,23 @@ describe("operator attempt dispatch", () => {
     expect(await Bun.file(`${workspace.root}/operative/bun.lock`).text()).toBe(lock);
   });
 
+  test("healthcheck reports unproven readiness as a standing precondition, not a dispatch gate", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await claimedAttempt(workspace);
+    const health = await runJson(workspace, ["healthcheck", "--claude"]);
+    expect(health.json.data.readiness.state).not.toBe("ready");
+
+    const launched = await dispatch(workspace, crew);
+    expect(launched.json.reason).toBe("acknowledgement_pending");
+    expect(health.json.data.dispatch).toEqual({
+      readinessRequired: false,
+      gate: "assignment-and-launch-preconditions",
+    });
+    const human = await runOperator(workspace, ["healthcheck", "--claude"]);
+    expect(human.stdout).toContain("Readiness is a standing precondition");
+    expect(human.stdout).not.toContain("must be proven before a new attempt can dispatch");
+  });
+
   test("groups an Operative worktree with the Operator's current Herdr workspace", async () => {
     const workspace = await makeWorkspace();
     const crew = await claimedAttempt(workspace);

@@ -290,10 +290,15 @@ function probeCredentialList(report: Report, selected: typeof liveChecks): strin
 }
 
 function probeDetails(report: Report, staleOnly: boolean) {
+  const stale = report.unproven.filter((check) => check.state === "stale");
+  const groups = new Set(
+    stale.map((check) => liveChecks.find((one) => one.name === check.name)?.group),
+  );
+  const lifecycleStale = [...groups].some((group) => group !== undefined && group !== "tracker");
+  // Each group executes as one sequence. Approve every check it will run, not only the stale
+  // observation that caused the sequence to be selected.
   const selected = staleOnly
-    ? liveChecks.filter((one) =>
-        report.unproven.some((check) => check.state === "stale" && check.name === one.name),
-      )
+    ? liveChecks.filter((one) => (one.group === "tracker" ? groups.has("tracker") : lifecycleStale))
     : liveChecks;
   const tracker = selected.some((one) => one.group === "tracker");
   const lifecycle = selected.some((one) => one.group !== "tracker");
@@ -328,12 +333,12 @@ function probeDetails(report: Report, staleOnly: boolean) {
     execution: [
       ...(lifecycle
         ? [
-            "The lifecycle runs as one synthetic host session. Only selected observations replace recorded evidence.",
+            "The lifecycle runs as one synthetic host session. Every listed check runs and replaces its recorded observation.",
           ]
         : []),
       ...(tracker
         ? [
-            "The tracker fixture checks run as one sequence, including their fixture writes. Only selected observations replace recorded evidence.",
+            "The tracker fixture checks run as one sequence, including their fixture writes. Every listed check runs and replaces its recorded observation.",
           ]
         : []),
     ],
