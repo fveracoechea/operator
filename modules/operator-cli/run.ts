@@ -59,35 +59,122 @@ function rejectArguments(json: boolean): void {
   process.exitCode = exitCodeByOutcome.invalid;
 }
 
+async function runUpdateCommand(rest: string[]): Promise<void> {
+  const { words, parsed } = splitRequest(rest);
+  // The update names the release it selects by a full commit, and nothing else about a crew.
+  const { baseCommit: _commit, ...otherCrewFlags } = parsed.crew;
+  if (
+    parsed.unsupported.length > 0 ||
+    parsed.approvedPlan !== undefined ||
+    parsed.takeover ||
+    Object.keys(otherCrewFlags).length > 0 ||
+    hasSelectionOrProbeArguments(parsed) ||
+    hasConfigArguments(parsed) ||
+    (await runUpdate(words, parsed)) !== "reported"
+  )
+    rejectArguments(parsed.json);
+}
+
+async function runInstallCommand(rest: string[]): Promise<void> {
+  const { words, parsed } = splitRequest(rest);
+  if (words[0] === "matt") {
+    const { baseCommit: _commit, ...otherCrewFlags } = parsed.crew;
+    if (
+      parsed.unsupported.length > 0 ||
+      Object.keys(otherCrewFlags).length > 0 ||
+      parsed.takeover ||
+      hasUpdateArguments(parsed) ||
+      hasSelectionOrProbeArguments(parsed) ||
+      hasConfigArguments(parsed) ||
+      (await runMattSkills(words.slice(1), parsed)) !== "reported"
+    )
+      rejectArguments(parsed.json);
+    return;
+  }
+  if (
+    words.length !== 0 ||
+    parsed.unsupported.length > 0 ||
+    parsed.approvedPlan !== undefined ||
+    hasCrewArguments(parsed) ||
+    hasUpdateArguments(parsed) ||
+    hasSelectionOrProbeArguments(parsed) ||
+    hasConfigArguments(parsed)
+  ) {
+    rejectArguments(parsed.json);
+    return;
+  }
+  await runInstall(parsed);
+}
+
+async function runSetupCommand(rest: string[]): Promise<void> {
+  const { words, parsed } = splitRequest(rest);
+  if (
+    parsed.unsupported.length > 0 ||
+    hasCrewArguments(parsed) ||
+    hasConfigArguments(parsed) ||
+    hasUpdateArguments(parsed) ||
+    (await runSetup(words, parsed)) !== "reported"
+  )
+    rejectArguments(parsed.json);
+}
+
+async function runConfigCommand(rest: string[]): Promise<void> {
+  const { words, parsed } = splitRequest(rest);
+  if (
+    parsed.unsupported.length > 0 ||
+    parsed.targets.length > 0 ||
+    parsed.takeover ||
+    hasCrewArguments(parsed) ||
+    hasSelectionOrProbeArguments(parsed) ||
+    hasUpdateArguments(parsed) ||
+    (await runConfig(words, parsed)) !== "reported"
+  )
+    rejectArguments(parsed.json);
+}
+
+function runtimeSupported(args: string[], version: string, supportedBun: string): boolean {
+  // The Bun check runs before any command so an unsupported runtime never writes files.
+  if (Bun.semver.satisfies(Bun.version, supportedBun)) return true;
+  if (args.includes("--json")) {
+    writeJsonResult({
+      outcome: "failed",
+      reason: "unsupported_bun",
+      blockers: [{ reason: "unsupported_bun", required: supportedBun, actual: Bun.version }],
+      operation: "startup",
+      data: { operatorVersion: version, bunVersion: Bun.version },
+    });
+  }
+  console.error(`operator: Bun ${supportedBun} is required; running ${Bun.version}.`);
+  process.exitCode = exitCodeByOutcome.failed;
+  return false;
+}
+
+function reportVersion(args: string[], version: string): boolean {
+  if (args.length === 2 && args.includes("--version") && args.includes("--json")) {
+    writeJsonResult({
+      outcome: "completed",
+      reason: "version_reported",
+      blockers: [],
+      operation: "version",
+      data: { operatorVersion: version, bunVersion: Bun.version },
+    });
+    process.exitCode = exitCodeByOutcome.completed;
+    return true;
+  }
+  if (args.length === 1 && args[0] === "--version") {
+    console.log(`operator ${version}`);
+    process.exitCode = exitCodeByOutcome.completed;
+    return true;
+  }
+  return false;
+}
+
 export async function run(args: string[]): Promise<void> {
   // The release reports its own version and supported runtime. A registry rewrites the package
   // manifest, so a published copy is never read through it.
   const { version, supportedBun } = await OperatorRelease.manifest();
 
-  // The Bun check runs before any command so an unsupported runtime never writes files.
-  if (!Bun.semver.satisfies(Bun.version, supportedBun)) {
-    if (args.includes("--json")) {
-      writeJsonResult({
-        outcome: "failed",
-        reason: "unsupported_bun",
-        blockers: [
-          {
-            reason: "unsupported_bun",
-            required: supportedBun,
-            actual: Bun.version,
-          },
-        ],
-        operation: "startup",
-        data: {
-          operatorVersion: version,
-          bunVersion: Bun.version,
-        },
-      });
-    }
-    console.error(`operator: Bun ${supportedBun} is required; running ${Bun.version}.`);
-    process.exitCode = exitCodeByOutcome.failed;
-    return;
-  }
+  if (!runtimeSupported(args, version, supportedBun)) return;
 
   const [command, ...rest] = args;
 
@@ -97,81 +184,22 @@ export async function run(args: string[]): Promise<void> {
   }
 
   if (command === "update") {
-    const { words, parsed } = splitRequest(rest);
-    // The update names the release it selects by a full commit, and nothing else about a crew.
-    const { baseCommit: _commit, ...otherCrewFlags } = parsed.crew;
-    if (
-      parsed.unsupported.length > 0 ||
-      parsed.approvedPlan !== undefined ||
-      parsed.takeover ||
-      Object.keys(otherCrewFlags).length > 0 ||
-      hasSelectionOrProbeArguments(parsed) ||
-      hasConfigArguments(parsed) ||
-      (await runUpdate(words, parsed)) !== "reported"
-    ) {
-      rejectArguments(parsed.json);
-    }
+    await runUpdateCommand(rest);
     return;
   }
 
   if (command === "install") {
-    const { words, parsed } = splitRequest(rest);
-    if (words[0] === "matt") {
-      const { baseCommit: _commit, ...otherCrewFlags } = parsed.crew;
-      if (
-        parsed.unsupported.length > 0 ||
-        Object.keys(otherCrewFlags).length > 0 ||
-        parsed.takeover ||
-        hasUpdateArguments(parsed) ||
-        hasSelectionOrProbeArguments(parsed) ||
-        hasConfigArguments(parsed) ||
-        (await runMattSkills(words.slice(1), parsed)) !== "reported"
-      )
-        rejectArguments(parsed.json);
-      return;
-    }
-    if (
-      words.length !== 0 ||
-      parsed.unsupported.length > 0 ||
-      parsed.approvedPlan !== undefined ||
-      hasCrewArguments(parsed) ||
-      hasUpdateArguments(parsed) ||
-      hasSelectionOrProbeArguments(parsed) ||
-      hasConfigArguments(parsed)
-    ) {
-      rejectArguments(parsed.json);
-      return;
-    }
-    await runInstall(parsed);
+    await runInstallCommand(rest);
     return;
   }
 
   if (command === "setup") {
-    const { words, parsed } = splitRequest(rest);
-    if (
-      parsed.unsupported.length > 0 ||
-      hasCrewArguments(parsed) ||
-      hasConfigArguments(parsed) ||
-      hasUpdateArguments(parsed) ||
-      (await runSetup(words, parsed)) !== "reported"
-    ) {
-      rejectArguments(parsed.json);
-    }
+    await runSetupCommand(rest);
     return;
   }
 
   if (command === "config") {
-    const { words, parsed } = splitRequest(rest);
-    if (
-      parsed.unsupported.length > 0 ||
-      parsed.targets.length > 0 ||
-      parsed.takeover ||
-      hasCrewArguments(parsed) ||
-      hasSelectionOrProbeArguments(parsed) ||
-      hasUpdateArguments(parsed) ||
-      (await runConfig(words, parsed)) !== "reported"
-    )
-      rejectArguments(parsed.json);
+    await runConfigCommand(rest);
     return;
   }
 
@@ -205,26 +233,6 @@ export async function run(args: string[]): Promise<void> {
     return;
   }
 
-  if (args.length === 2 && args.includes("--version") && args.includes("--json")) {
-    writeJsonResult({
-      outcome: "completed",
-      reason: "version_reported",
-      blockers: [],
-      operation: "version",
-      data: {
-        operatorVersion: version,
-        bunVersion: Bun.version,
-      },
-    });
-    process.exitCode = exitCodeByOutcome.completed;
-    return;
-  }
-
-  if (args.length === 1 && args[0] === "--version") {
-    console.log(`operator ${version}`);
-    process.exitCode = exitCodeByOutcome.completed;
-    return;
-  }
-
+  if (reportVersion(args, version)) return;
   rejectArguments(args.includes("--json"));
 }

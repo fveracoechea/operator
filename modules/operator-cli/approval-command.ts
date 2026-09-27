@@ -204,7 +204,7 @@ async function runCheck(parsed: ParsedArguments): Promise<Handled> {
           : { reason: "approval_missing" as const },
       ],
       operation: "approval_check",
-      ...(revoked ? { data: result.approval } : {}),
+      data: revoked ? result.approval : undefined,
     },
     lines: revoked
       ? [`Approval ${result.approval.approvalId} covered this action and is revoked.`]

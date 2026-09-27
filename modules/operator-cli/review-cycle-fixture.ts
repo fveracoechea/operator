@@ -26,15 +26,10 @@ export async function makeReviewWorkspace(
   options: { host?: Host; maxActiveAgents?: number; reviewSkill?: boolean } = {},
 ): Promise<Workspace> {
   const host = options.host ?? "claude-code";
+  const crew: { host: Host; maxActiveAgents?: number } = { host };
+  if (options.maxActiveAgents !== undefined) crew.maxActiveAgents = options.maxActiveAgents;
   const fixture = await fixtures.make({
-    config: {
-      crew: {
-        host,
-        ...(options.maxActiveAgents === undefined
-          ? {}
-          : { maxActiveAgents: options.maxActiveAgents }),
-      },
-    },
+    config: { crew },
     files:
       options.reviewSkill === false ? {} : { [SKILL_PATH[host]]: "---\nname: code-review\n---\n" },
   });

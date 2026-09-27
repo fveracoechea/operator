@@ -711,21 +711,20 @@ async function runSubmit(parsed: ParsedArguments): Promise<Handled> {
 
   if (result.status === "artifact-unreadable" || result.status === "artifact-identity-changed") {
     const unreadable = result.status === "artifact-unreadable";
+    const blocker = unreadable
+      ? { reason: "artifact_unreadable" as const, name: result.name, path: result.path }
+      : {
+          reason: "artifact_identity_changed" as const,
+          name: result.name,
+          path: result.path,
+          found: result.found,
+        };
     report({
       json: parsed.json,
       result: {
         outcome: unreadable ? "missing-condition" : "conflict",
         reason: unreadable ? "artifact_unreadable" : "artifact_identity_changed",
-        blockers: [
-          {
-            reason: unreadable
-              ? ("artifact_unreadable" as const)
-              : ("artifact_identity_changed" as const),
-            name: result.name,
-            path: result.path,
-            ...(unreadable ? {} : { found: result.found }),
-          },
-        ],
+        blockers: [blocker],
         operation: "attempt_submit",
       },
       lines: [

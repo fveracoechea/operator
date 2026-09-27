@@ -40,17 +40,17 @@ type ItemOverrides = {
 
 function item(overrides: ItemOverrides) {
   const { key, kind, wayfinderType, dependsOn, trackerIssue } = overrides;
-  return {
+  const entry = {
     key,
     title: overrides.title ?? `Item ${key}`,
     ...(wayfinderType === undefined ? { kind: kind ?? "production" } : { wayfinderType }),
-    ...(trackerIssue === undefined ? {} : { trackerIssue }),
     approvedScope: `The approved scope of item ${key}.`,
     acceptanceRequirements: ["The quality gate passes."],
     permissions: { writePaths: ["modules/"], allowedCommands: ["bun test"], network: false },
     fixedInputs: [],
     dependsOn: (dependsOn ?? []).map((one) => ({ key: one })),
   };
+  return trackerIssue === undefined ? entry : { ...entry, trackerIssue };
 }
 
 async function register(
@@ -63,6 +63,7 @@ async function register(
     items: ReturnType<typeof item>[];
   },
 ) {
+  const sourceData = { id: source.id, revision: "rev-1", tracker: "github" };
   const registered = await runJson(workspace, [
     "work",
     "register",
@@ -73,12 +74,8 @@ async function register(
     "--input",
     await writeInput(workspace, {
       sourceKind: source.sourceKind,
-      source: {
-        id: source.id,
-        revision: "rev-1",
-        tracker: "github",
-        ...(source.location === undefined ? {} : { location: source.location }),
-      },
+      source:
+        source.location === undefined ? sourceData : { ...sourceData, location: source.location },
       items: source.items,
     }),
   ]);

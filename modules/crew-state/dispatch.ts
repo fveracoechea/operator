@@ -294,10 +294,9 @@ export function settleOperation(
     .where(eq(externalOperations.id, request.operationId))
     .run();
 
-  const runtime = {
-    ...(request.workspaceId === undefined ? {} : { workspaceId: request.workspaceId }),
-    ...(request.paneId === undefined ? {} : { paneId: request.paneId }),
-  };
+  const runtime: { workspaceId?: string | null; paneId?: string | null } = {};
+  if (request.workspaceId !== undefined) runtime.workspaceId = request.workspaceId;
+  if (request.paneId !== undefined) runtime.paneId = request.paneId;
   if (Object.keys(runtime).length > 0) {
     db.update(attemptDispatch)
       .set({ ...runtime, updatedAt: request.now })

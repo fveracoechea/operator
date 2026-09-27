@@ -80,6 +80,35 @@ function valueOf(args: string[], index: number): string | undefined {
   return value === undefined || value.startsWith("--") ? undefined : value;
 }
 
+function readApprovalFlag(
+  argument: string | undefined,
+  args: string[],
+  index: number,
+  parsed: ParsedArguments,
+): number | null {
+  if (
+    argument !== "--package-version" &&
+    argument !== "--approved-update" &&
+    argument !== "--approved-plan" &&
+    argument !== "--approved-probe" &&
+    argument !== "--approved-cleanup"
+  )
+    return null;
+
+  // A flag with no value of its own never swallows the flag that follows it.
+  const value = valueOf(args, index + 1);
+  if (value === undefined) {
+    parsed.unsupported.push(argument);
+    return 0;
+  }
+  if (argument === "--package-version") parsed.packageVersion = value;
+  if (argument === "--approved-update") parsed.approvedUpdate = value;
+  if (argument === "--approved-plan") parsed.approvedPlan = value;
+  if (argument === "--approved-probe") parsed.approvedProbe = value;
+  if (argument === "--approved-cleanup") parsed.approvedCleanup = value;
+  return 1;
+}
+
 export function parseArguments(args: string[]): ParsedArguments {
   const parsed: ParsedArguments = {
     json: false,
@@ -101,6 +130,7 @@ export function parseArguments(args: string[]): ParsedArguments {
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     const selection = argument === undefined ? undefined : selectionFlags.get(argument);
+    const approvalFlag = readApprovalFlag(argument, args, index, parsed);
 
     if (argument === "--json") {
       parsed.json = true;
@@ -137,39 +167,8 @@ export function parseArguments(args: string[]): ParsedArguments {
 
       index += 1;
       parsed.delivery = value;
-    } else if (argument === "--package-version" || argument === "--approved-update") {
-      const value = valueOf(args, index + 1);
-      if (value === undefined) {
-        parsed.unsupported.push(argument);
-        continue;
-      }
-
-      index += 1;
-      if (argument === "--package-version") {
-        parsed.packageVersion = value;
-      } else {
-        parsed.approvedUpdate = value;
-      }
-    } else if (
-      argument === "--approved-plan" ||
-      argument === "--approved-probe" ||
-      argument === "--approved-cleanup"
-    ) {
-      // A flag with no value of its own never swallows the flag that follows it.
-      const value = valueOf(args, index + 1);
-      if (value === undefined) {
-        parsed.unsupported.push(argument);
-        continue;
-      }
-
-      index += 1;
-      if (argument === "--approved-plan") {
-        parsed.approvedPlan = value;
-      } else if (argument === "--approved-probe") {
-        parsed.approvedProbe = value;
-      } else {
-        parsed.approvedCleanup = value;
-      }
+    } else if (approvalFlag !== null) {
+      index += approvalFlag;
     } else if (argument !== undefined && selection !== undefined) {
       const value = valueOf(args, index + 1);
       if (value === undefined) {

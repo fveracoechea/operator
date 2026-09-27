@@ -44,15 +44,13 @@ async function makeWorkspace(
   options: { host?: Host; reasoningEffort?: string } = {},
 ): Promise<Workspace> {
   const host = options.host ?? "claude-code";
+  const crew: { host: Host; model?: string; reasoningEffort?: string } = { host };
+  if (options.reasoningEffort !== undefined) {
+    crew.model = "openai/gpt-6-sol";
+    crew.reasoningEffort = options.reasoningEffort;
+  }
   const fixture = await fixtures.make({
-    config: {
-      crew: {
-        host,
-        ...(options.reasoningEffort === undefined
-          ? {}
-          : { model: "openai/gpt-6-sol", reasoningEffort: options.reasoningEffort }),
-      },
-    },
+    config: { crew },
     files: { ".gitignore": IGNORE_RULES },
   });
 

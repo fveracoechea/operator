@@ -39,6 +39,7 @@ async function commitProbeWork(scratch: Scratch): Promise<string | null> {
 }
 
 /** Runs every lifecycle and project-readiness check, in the one order their evidence allows. */
+// oxlint-disable-next-line complexity -- Probe steps must preserve their evidence and skip order.
 export async function runLifecycle(lifecycle: Lifecycle): Promise<{
   staged: Staged[];
   resources: string[];

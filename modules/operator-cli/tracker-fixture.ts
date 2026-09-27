@@ -98,6 +98,16 @@ export async function makeTrackerWorkspace(
   ]);
   const ownerToken = owned.json.data.ownerToken;
 
+  const item = {
+    key: String(TICKET),
+    title: "Complete and recover GitHub tracker updates",
+    wayfinderType: "task",
+    approvedScope: "Build the tracker completion path.",
+    acceptanceRequirements: ["The quality gate passes."],
+    permissions: { writePaths: ["modules/"], allowedCommands: ["bun test"], network: false },
+    fixedInputs: [],
+    dependsOn: [],
+  };
   const inputPath = await writeInput(workspace, {
     sourceKind: "wayfinder",
     source: {
@@ -106,19 +116,7 @@ export async function makeTrackerWorkspace(
       tracker: "github",
       location: { repository: REPOSITORY, mapIssue },
     },
-    items: [
-      {
-        key: String(TICKET),
-        title: "Complete and recover GitHub tracker updates",
-        wayfinderType: "task",
-        ...(trackerIssue === null ? {} : { trackerIssue }),
-        approvedScope: "Build the tracker completion path.",
-        acceptanceRequirements: ["The quality gate passes."],
-        permissions: { writePaths: ["modules/"], allowedCommands: ["bun test"], network: false },
-        fixedInputs: [],
-        dependsOn: [],
-      },
-    ],
+    items: [trackerIssue === null ? item : { ...item, trackerIssue }],
   });
 
   const registered = await runJson(workspace, [

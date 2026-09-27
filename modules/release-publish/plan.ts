@@ -79,6 +79,44 @@ async function readPublishedVersion(request: PlanRequest, version: string) {
   return readVersion({ ...jsrSettings(request), version });
 }
 
+function artifactBlockers(request: {
+  notes: string | null;
+  version: string;
+  inspection: Awaited<ReturnType<typeof OperatorRelease.inspect>>;
+  manifestCommit: string | undefined;
+  commit: string;
+}): ReleaseBlocker[] {
+  const blockers: ReleaseBlocker[] = [];
+  if (request.notes === null) {
+    blockers.push(
+      blocker(
+        "changelog_missing",
+        `CHANGELOG.md has no notes for version ${request.version}.`,
+        "Add this version's changeset notes before publishing the release.",
+      ),
+    );
+  }
+  if (request.inspection.status === "incomplete") {
+    blockers.push(
+      blocker(
+        "artifact_incomplete",
+        `The artifact is missing ${request.inspection.missing.join(", ")}.`,
+        "Build the release artifact again from the release commit.",
+      ),
+    );
+  }
+  if (request.manifestCommit !== undefined && request.manifestCommit !== request.commit) {
+    blockers.push(
+      blocker(
+        "artifact_changed",
+        `The artifact was built from commit ${request.manifestCommit}, and this release names ${request.commit}.`,
+        "Build the artifact from the commit this release names.",
+      ),
+    );
+  }
+  return blockers;
+}
+
 /**
  * Inspects the exact artifact, commit, and published state one release would act on.
  * The identity covers the version, the commit, and every published byte, so a retry never sends
@@ -100,34 +138,13 @@ export async function computeReleasePlan(request: PlanRequest) {
     version,
   );
 
-  const blockers: ReleaseBlocker[] = [];
-  if (notes === null) {
-    blockers.push(
-      blocker(
-        "changelog_missing",
-        `CHANGELOG.md has no notes for version ${version}.`,
-        "Add this version's changeset notes before publishing the release.",
-      ),
-    );
-  }
-  if (inspection.status === "incomplete") {
-    blockers.push(
-      blocker(
-        "artifact_incomplete",
-        `The artifact is missing ${inspection.missing.join(", ")}.`,
-        "Build the release artifact again from the release commit.",
-      ),
-    );
-  }
-  if (manifest.commit !== undefined && manifest.commit !== request.commit) {
-    blockers.push(
-      blocker(
-        "artifact_changed",
-        `The artifact was built from commit ${manifest.commit}, and this release names ${request.commit}.`,
-        "Build the artifact from the commit this release names.",
-      ),
-    );
-  }
+  const blockers = artifactBlockers({
+    notes,
+    version,
+    inspection,
+    manifestCommit: manifest.commit,
+    commit: request.commit,
+  });
 
   const journal: JournalRead = await readJournal(request.journalPath);
   if (journal.state === "unreadable") {

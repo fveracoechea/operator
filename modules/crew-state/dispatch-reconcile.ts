@@ -182,15 +182,16 @@ export async function reconcileAttempt(request: {
         input: { operationId: operation.id, state: outcome.state, detail: outcome.detail },
       },
       ({ tx, now }) => {
-        settleOperation(tx, {
+        const input: Parameters<typeof settleOperation>[1] = {
           operationId: operation.id,
           attemptId: request.attemptId,
           state: outcome.state,
           detail: outcome.detail,
-          ...(outcome.workspaceId === undefined ? {} : { workspaceId: outcome.workspaceId }),
-          ...(outcome.paneId === undefined ? {} : { paneId: outcome.paneId }),
           now,
-        });
+        };
+        if (outcome.workspaceId !== undefined) input.workspaceId = outcome.workspaceId;
+        if (outcome.paneId !== undefined) input.paneId = outcome.paneId;
+        settleOperation(tx, input);
         return { commit: true, outcome: { status: "recorded" as const } };
       },
     );
