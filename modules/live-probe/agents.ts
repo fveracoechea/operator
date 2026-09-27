@@ -36,6 +36,18 @@ export const LIFECYCLE_CHECKS = [
 
 export type Launched = { name: string; paneId: string };
 
+/** A stopped agent can leave only its interactive shell in a pane. */
+export function isIdleShell(
+  process: { pid: number; name: string; command: string },
+  shellPid: number | null,
+): boolean {
+  if (process.pid === shellPid) return true;
+  const command = process.command.trim();
+  return ["sh", "bash", "zsh", "fish"].some(
+    (name) => process.name === name && (command === name || command.endsWith(`/${name}`)),
+  );
+}
+
 type Answer<Step extends ProbeStep> =
   | { status: "answered"; report: ReportOf<Step>; identity: string; waitedMs: number }
   | { status: "unanswered"; detail: string };

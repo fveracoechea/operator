@@ -81,9 +81,16 @@ operator setup probe cleanup --json
 operator setup probe cleanup --approved-cleanup <cleanupId> --json
 ```
 
-Removing the scratch repositories earlier probes left behind needs its own approval, bound to the directories it would remove.
-Show the listed directories to the user first.
+The first command inspects any interrupted run, including its worktree, named agents, and fixture writes.
+It makes no new probe run and sends no tracker write.
+Show the listed resources and their status to the user first.
+An approved cleanup stops only the agents of the named probe, verifies their panes, removes its Herdr worktree, then removes its scratch repository.
+Cleanup stops if Herdr cannot confirm a resource or if the fixture changed while the probe was interrupted.
+Run cleanup again to inspect the remaining resources after resolving a blocker.
+Approval is bound to the inspected resources, so a changed status needs a new approval.
 The recorded observations stay, so every failed attempt survives its resources.
+An interrupted attempt without a readiness record stays unproven.
+Another apply waits until the interrupted resources are settled or cancelled.
 
 ## Recorded evidence
 

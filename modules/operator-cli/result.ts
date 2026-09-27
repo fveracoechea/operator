@@ -91,6 +91,8 @@ export type Reason =
   | "probe_blocked"
   | "probe_completed"
   | "probe_incomplete"
+  | "probe_incomplete_run"
+  | "probe_cleanup_blocked"
   | "probe_run_failed"
   | "probe_resources_removed"
   | "probe_no_resources"

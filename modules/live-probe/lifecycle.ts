@@ -6,39 +6,15 @@ import {
   ask,
   LIFECYCLE_CHECKS,
   type Lifecycle,
+  isIdleShell,
   reportEvidence,
   startAgent,
   stopAgent,
 } from "./agents.ts";
 import { ranInParallel } from "./protocol.ts";
-import { makeScratch, type Scratch } from "./scratch.ts";
+import { commitProbeWork, makeScratch } from "./scratch.ts";
 import { failed, passed, passedAll, type Staged, skipped, skipRest } from "./stage.ts";
 import { proveTakeover } from "./takeover.ts";
-
-/** A stopped agent can return control to a bare interactive shell in its pane. */
-function isIdleShell(
-  process: { pid: number; name: string; command: string },
-  shellPid: number | null,
-) {
-  if (process.pid === shellPid) return true;
-  const command = process.command.trim();
-  return ["sh", "bash", "zsh", "fish"].some(
-    (name) => process.name === name && (command === name || command.endsWith(`/${name}`)),
-  );
-}
-
-/** Commits the synthetic files one probe wrote, so its checkout is clean before removal. */
-async function commitProbeWork(scratch: Scratch): Promise<string | null> {
-  try {
-    await Bun.$`git -C ${scratch.worktreePath} add -A`.quiet();
-    await Bun.$`git -C ${scratch.worktreePath} -c user.email=probe@operator.invalid -c user.name=Operator commit -q --allow-empty -m "probe evidence"`.quiet();
-    return (await Bun.$`git -C ${scratch.worktreePath} rev-parse HEAD`.quiet()).stdout
-      .toString()
-      .trim();
-  } catch {
-    return null;
-  }
-}
 
 /** Runs every lifecycle and project-readiness check, in the one order their evidence allows. */
 // oxlint-disable-next-line complexity -- Probe steps must preserve their evidence and skip order.
@@ -49,7 +25,7 @@ export async function runLifecycle(lifecycle: Lifecycle): Promise<{
   const staged: Staged[] = [];
   const resources: string[] = [];
 
-  let scratch: Scratch;
+  let scratch: Awaited<ReturnType<typeof makeScratch>>;
   try {
     scratch = await makeScratch({
       projectRoot: lifecycle.projectRoot,
@@ -379,9 +355,19 @@ export async function runLifecycle(lifecycle: Lifecycle): Promise<{
       : failed("host-termination", termination.join(" ")),
   );
 
+  if (!terminated) {
+    staged.push(
+      failed(
+        "worktree-removal",
+        "The probe worktree remains because a host or its child process is still live.",
+      ),
+    );
+    return { staged, resources };
+  }
+
   // Herdr refuses to remove a checkout that still holds uncommitted work, and it is never
   // forced. The probe commits its own synthetic files first, so the removal is a real removal.
-  const committed = await commitProbeWork(scratch);
+  const committed = await commitProbeWork(scratch.worktreePath);
   const removed = await HerdrControl.removeWorktree({ workspaceId });
   if (removed.status !== "succeeded") {
     staged.push(

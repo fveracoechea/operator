@@ -29,6 +29,14 @@ type Written =
   | { status: "written"; operationId: string; resourceId: string; expectedActor: string }
   | { status: "unwritten"; detail: string };
 
+type BeforeWrite = (write: {
+  operationId: string;
+  step: "resolution" | "map_amendment" | "completion";
+  issue: number;
+  expectedActor: string;
+  contentIdentity: string | null;
+}) => Promise<void>;
+
 /**
  * Writes one comment through the supported path, exactly as the workflow writes it.
  * The probe fixes the content before the write and reads the effect back afterwards, so a lost
@@ -36,6 +44,7 @@ type Written =
  */
 async function writeComment(
   fixture: Fixture,
+  beforeWrite: BeforeWrite,
   request: {
     issue: number;
     intent:
@@ -60,6 +69,14 @@ async function writeComment(
   if (planned.status !== "planned" || planned.content === null) {
     return { status: "unwritten", detail: `The write could not be planned: ${planned.status}` };
   }
+
+  await beforeWrite({
+    operationId,
+    step: request.intent.step,
+    issue: request.issue,
+    expectedActor: planned.expectedActor,
+    contentIdentity: planned.contentIdentity,
+  });
 
   const written = await TrackerUpdate.write({
     provider: PROVIDER,
@@ -127,6 +144,7 @@ export async function runTrackerChecks(request: {
   fixture: Fixture | null;
   probeId: string;
   runId: string;
+  beforeWrite: BeforeWrite;
 }): Promise<{ staged: Staged[]; resources: string[] }> {
   const staged: Staged[] = [];
   if (request.fixture === null) {
@@ -147,7 +165,7 @@ export async function runTrackerChecks(request: {
   const resources: string[] = [];
   const targets = targetsOf(fixture);
 
-  const comment = await writeComment(fixture, {
+  const comment = await writeComment(fixture, request.beforeWrite, {
     issue: fixture.issue,
     intent: {
       step: "resolution",
@@ -231,14 +249,14 @@ export async function runTrackerChecks(request: {
   } else {
     // An ordinary comment goes on the map first, so the check proves the reader tells the two
     // apart instead of only proving that an amendment is found.
-    const discussion = await writeComment(fixture, {
+    const discussion = await writeComment(fixture, request.beforeWrite, {
       issue: mapIssue,
       intent: {
         step: "resolution",
         body: `## Resolution\n\nOperator live probe ${request.probeId} wrote this ordinary comment, and it is not an amendment.`,
       },
     });
-    const amendment = await writeComment(fixture, {
+    const amendment = await writeComment(fixture, request.beforeWrite, {
       issue: mapIssue,
       intent: {
         step: "map_amendment",
@@ -308,7 +326,7 @@ export async function runTrackerChecks(request: {
   const subIssues = await GithubTracker.readSubIssues(target);
   staged.push(linkCheck("github-sub-issues", "sub-issues", subIssues, "sub_issues"));
 
-  const closure = await closeAndRestore(fixture, request.probeId);
+  const closure = await closeAndRestore(fixture, request.probeId, request.beforeWrite);
   staged.push(closure.closure, closure.events);
 
   return { staged, resources };
@@ -324,6 +342,7 @@ export async function runTrackerChecks(request: {
 async function closeAndRestore(
   fixture: Fixture,
   probeId: string,
+  beforeWrite: BeforeWrite,
 ): Promise<{ closure: Staged; events: Staged }> {
   const target = { repository: fixture.repository, issue: fixture.issue };
   const before = await GithubTracker.readIssue(target);
@@ -345,6 +364,14 @@ async function closeAndRestore(
     const detail = `The closure could not be planned: ${planned.status}`;
     return { closure: failed("github-closure", detail), events: skipped("github-events", detail) };
   }
+
+  await beforeWrite({
+    operationId,
+    step: "completion",
+    issue: fixture.issue,
+    expectedActor: planned.expectedActor,
+    contentIdentity: null,
+  });
 
   const written = await TrackerUpdate.write({
     provider: PROVIDER,
