@@ -15,7 +15,7 @@ Nothing is deleted, so the refusal you show the user carries every failure that 
 Bring that recorded evidence to the user and record their exact words as the approval it must be:
 
 ```
-operator approval grant --request <id> --owner-token <token> --input <path> --json
+bun run operator approval grant --request <id> --owner-token <token> --input <path> --json
 ```
 
 The approval names four things: action `limit-direction`, the assignment as its target, the scope the refusal reported, and the revision of the direction request it answers.

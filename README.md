@@ -47,10 +47,26 @@ Operator does not require `jq` to run.
 
 ## Quick start
 
-1. In your Git project, install the Operator-owned skills for your agent host:
+1. From your Git project root, add the exact published JSR release as a devDependency:
 
    ```sh
-   bunx github:fveracoechea/operator install --opencode
+   bunx --bun jsr add --bun --save-dev "@fveracoechea/operator@<version>"
+   ```
+
+   Add this script to the project's `package.json`:
+
+   ```json
+   { "scripts": { "operator": "bun node_modules/@fveracoechea/operator/cli.js" } }
+   ```
+
+   JSR's generated package manifest has no `operator` binary.
+   The project script runs the CLI entry point from its installed devDependency.
+
+   Run the installed CLI from the project root:
+
+   ```sh
+   bun run operator --version --json
+   bun run operator install --opencode
    ```
 
    Use `--claude` instead for Claude Code, or pass both flags if you use both hosts.
@@ -61,14 +77,8 @@ Operator does not require `jq` to run.
    > Load the operator skill. Set up Operator for this repository with OpenCode as the Operator and crew host. Select an exact published JSR release. Show me each plan before you apply it.
 
    The agent will guide you through project setup, installing the other project skills, selecting a release, and checking readiness.
-   After the approved JSR update creates `.operator/install/package.json`, install the version it selected from the project root:
-
-   ```sh
-   (cd .operator/install && bunx --bun jsr add --bun "@fveracoechea/operator@<version>")
-   ```
-
-   This keeps Operator out of your application's dependencies and creates the registry settings and lockfile needed for later frozen installs.
-   Use the run command reported by the update to execute the installed release.
+   Select the commit and package version of the installed release with `bun run operator update`.
+   Commit `package.json`, `.npmrc`, and `bun.lock` so new worktrees can run `bun install --frozen-lockfile` before they use the CLI.
    A live probe launches agents and needs its own approval.
    Commit the installed project skills before starting crew work so Operative worktrees can load them.
 
@@ -100,7 +110,7 @@ For the commands behind these steps, see [Project installation and setup](#proje
 
 ## CLI conventions
 
-Use `bun cli.ts --version` for human output or `bun cli.ts --version --json` for the versioned machine result.
+Use `bun run operator --version` for human output or `bun run operator --version --json` for the versioned machine result from a target project root.
 The package also exports `main(args)` from `@fveracoechea/operator/cli`.
 
 The exit meanings are the same for every command.
@@ -128,9 +138,9 @@ Install the Operator-owned skills into a project.
 You must name at least one target, and the CLI never guesses a target from the agents it finds.
 
 ```sh
-operator install --opencode
-operator install --claude
-operator install --opencode --claude
+bun run operator install --opencode
+bun run operator install --claude
+bun run operator install --opencode --claude
 ```
 
 The command adopts a copy that already matches this release, and writes nothing for it.
@@ -141,8 +151,8 @@ They provide the project workflows for shaping work, implementing it, and review
 Run this before creating Operative worktrees, and commit the installed project skills so new worktrees contain `code-review`.
 
 ```sh
-operator install matt plan --opencode --claude --json
-operator install matt apply --opencode --claude --commit <commit> --approved-plan <planId> --json
+bun run operator install matt plan --opencode --claude --json
+bun run operator install matt apply --opencode --claude --commit <commit> --approved-plan <planId> --json
 ```
 
 `plan` calls GitHub to resolve `mattpocock/skills` `main` to its current full commit.
@@ -155,13 +165,13 @@ It records installed content hashes under each target's skill directory in `.ope
 It updates a skill only if its installed copy matches that record.
 An unrecorded copy that differs from the current upstream files is a conflict.
 Resolve any conflict before applying again.
-To update Matt skills later, run `operator install matt plan` again and apply its new commit and plan ID.
+To update Matt skills later, run `bun run operator install matt plan` again and apply its new commit and plan ID.
 
 Setup inspects first and writes nothing until you approve the same plan.
 
 ```sh
-operator setup plan --claude --json
-operator setup apply --claude --approved-plan <planId> --json
+bun run operator setup plan --claude --json
+bun run operator setup apply --claude --approved-plan <planId> --json
 ```
 
 The plan identifier covers the selected targets and the exact content of every proposed change.
@@ -179,7 +189,7 @@ Setup never commits, never changes the Git index, and never installs machine-wid
 It records each completed write and the previous contents of the file.
 
 ```sh
-operator setup rollback --json
+bun run operator setup rollback --json
 ```
 
 Rollback restores only the files that still hold what setup wrote.
@@ -191,9 +201,9 @@ After setup, change settings through the CLI.
 For example, set a separate reasoning effort for OpenCode Operatives:
 
 ```sh
-operator config show --json
-operator config plan --set crew.host=opencode --set crew.model=openai/gpt-6-sol --set crew.reasoningEffort=medium --json
-operator config apply --set crew.host=opencode --set crew.model=openai/gpt-6-sol --set crew.reasoningEffort=medium --approved-plan <planId> --json
+bun run operator config show --json
+bun run operator config plan --set crew.host=opencode --set crew.model=openai/gpt-6-sol --set crew.reasoningEffort=medium --json
+bun run operator config apply --set crew.host=opencode --set crew.model=openai/gpt-6-sol --set crew.reasoningEffort=medium --approved-plan <planId> --json
 ```
 
 The plan shows the current and proposed file, the effective selection, and an ID tied to the file contents and requested edits.
@@ -201,7 +211,7 @@ Apply refuses a stale ID or invalid settings, and repeating a completed apply wr
 Use `--unset crew.reasoningEffort` to return to the host default.
 The same commands set `operator.host`, `operator.model`, `crew.maxActiveAgents`, and the `probe.githubFixture.repository`, `probe.githubFixture.issue`, and `probe.githubFixture.mapIssue` fields.
 Use `--unset probe.githubFixture` to remove the fixture.
-If an apply is interrupted, run `operator config recover --json` to compare the file against its recorded before and after identities.
+If an apply is interrupted, run `bun run operator config recover --json` to compare the file against its recorded before and after identities.
 Recovery settles that record without editing the configuration file.
 
 ## Release and updates
@@ -216,22 +226,22 @@ bunx "github:fveracoechea/operator#<full-commit>" <operation>
 ```
 
 ```sh
-# The registry path installs first, isolated from the application, then executes.
-cd .operator/install && bun install --frozen-lockfile
-bun --no-install -e 'const { main } = await import(Bun.pathToFileURL(Bun.resolveSync("@fveracoechea/operator/cli", `${process.cwd()}/.operator/install`)).href); await main(Bun.argv.slice(1))' -- <operation>
+# The registry path runs the project's exact JSR devDependency from its root.
+bun install --frozen-lockfile
+bun run operator <operation>
 ```
 
-The registry path keeps its own manifest, lock data, and dependencies under `.operator/install/`, so Operator never shares a dependency with the application it serves.
-The launcher resolves the package from that installation and keeps the project as the working directory.
+The project records Operator in `devDependencies` and in `bun.lock`.
+The script executes the installed CLI and keeps the project as the working directory.
 
 Coordinated work runs one known release, so a project records the exact release it coordinates with.
 
 ```sh
-operator update plan --claude --commit <full-commit> --json
-operator update apply --claude --commit <full-commit> --approved-update <updateId> --json
+bun run operator update plan --claude --delivery jsr --commit <full-commit> --package-version <version> --json
+bun run operator update apply --claude --delivery jsr --commit <full-commit> --package-version <version> --approved-update <updateId> --json
 ```
 
-A registry installation also names its exact published version with `--delivery jsr --package-version <version>`.
+A registry installation names its exact published version with `--delivery jsr --package-version <version>`.
 The update identifier covers the release it moves to, the skills it would write, the recorded formats it would migrate, and the records it would back up.
 
 An update writes nothing while the crew still has work in flight.
@@ -240,7 +250,7 @@ If a migration cannot finish, the update puts those records back exactly as they
 It writes the CLI selection and the owned skills together, so a project never runs one release of the code against the workflow instructions of another.
 
 Until a project selects a release, the `operator-installation` check is unverified and the project is never ready.
-A missing installation, a mismatched one, and missing lock data are blockers.
+A missing JSR devDependency or project script, a mismatched installation, and missing lock data are blockers.
 Operator never answers them with another installation.
 
 Crew state records the release that wrote it.
@@ -296,7 +306,7 @@ Configured means the approved setup plan is complete and the selected files and 
 Ready means the required checks passed for the exact selection and inputs you are about to launch.
 
 ```sh
-operator setup readiness --claude --operator-host claude-code --json
+bun run operator setup readiness --claude --operator-host claude-code --json
 ```
 
 The command reads the machine and the project and writes nothing.
@@ -321,7 +331,7 @@ Those need a live probe.
 The CLI resolves each selection field on its own, from a session override, then `.operator/config.json`, then the host default.
 A missing Crew host follows the Operator host, and a missing model stays with the selected host default.
 Operator never substitutes an unavailable host or model, and it never guesses a host that nothing names.
-Set `crew.reasoningEffort` through `operator config plan` and `operator config apply` to `low`, `medium`, `high`, `xhigh`, or `max` for new Operative launches.
+Set `crew.reasoningEffort` through `bun run operator config plan` and `bun run operator config apply` to `low`, `medium`, `high`, `xhigh`, or `max` for new Operative launches.
 OpenCode needs an explicit OpenAI crew model for this setting.
 Operator creates a worktree-local OpenCode agent with that effort, so the project-wide OpenCode model setting does not change.
 Claude Code receives the setting through its session-level `--effort` flag.
@@ -332,8 +342,8 @@ An omitted effort keeps the host default, and a recorded attempt keeps its origi
 A live probe launches agents, spends provider tokens, and writes to a tracker, so it needs its own approval.
 
 ```sh
-operator setup probe plan --claude --operator-host claude-code --crew-host opencode --json
-operator setup probe apply --claude --operator-host claude-code --crew-host opencode --approved-probe <probeId> --json
+bun run operator setup probe plan --claude --operator-host claude-code --crew-host opencode --json
+bun run operator setup probe apply --claude --operator-host claude-code --crew-host opencode --approved-probe <probeId> --json
 ```
 
 The plan shows what the run would use, before anything launches.
@@ -365,15 +375,15 @@ Probe cleanup removes the scratch repositories that earlier runs left behind.
 It has its own approval, bound to the directories it would remove.
 
 ```sh
-operator setup probe cleanup --json
-operator setup probe cleanup --approved-cleanup <cleanupId> --json
+bun run operator setup probe cleanup --json
+bun run operator setup probe cleanup --approved-cleanup <cleanupId> --json
 ```
 
 It removes nothing else, and the recorded observations stay, so every failed attempt outlives its resources.
 
 Operator records live results in `.operator/local/readiness.json` as a list of attempts, and only appends to it.
 The setup journal and readiness evidence are local CLI records, not agent instructions.
-Use `operator setup readiness` or `operator crew next` to read their conclusions in text, and add `--json` when a caller needs structured fields.
+Use `bun run operator setup readiness` or `bun run operator crew next` to read their conclusions in text, and add `--json` when a caller needs structured fields.
 The crew's concurrent assignments and ownership live in SQLite.
 Each observation holds its state, the versions and inputs it ran against, its outputs, its evidence, and the state of what it left behind.
 The most recent attempt that ran a check gives the result for that check.
@@ -388,8 +398,8 @@ One Operator owns a crew at a time.
 Ownership creates the crew state, which is one SQLite database in `.operator/local/`.
 
 ```sh
-operator crew own --request <id> --owner-label <label> --json
-operator crew own --request <id> --owner-label <label> --takeover --ownership-revision <n> --json
+bun run operator crew own --request <id> --owner-label <label> --json
+bun run operator crew own --request <id> --owner-label <label> --takeover --ownership-revision <n> --json
 ```
 
 The result carries the owner token that every later mutation must present.
@@ -399,7 +409,7 @@ It invalidates the former token, so a stale Operator session cannot change crew 
 You register work from an approved specification, a ready ticket, or a wayfinder map.
 
 ```sh
-operator work register --request <id> --owner-token <token> --input work.json --json
+bun run operator work register --request <id> --owner-token <token> --input work.json --json
 ```
 
 Registration records each item with these fields:
@@ -414,8 +424,8 @@ The CLI refuses a dependency cycle before it dispatches anything.
 It also refuses a re-registration that states different dependencies.
 
 ```sh
-operator work frontier --json
-operator work claim --request <id> --owner-token <token> --assignment <id> --revision <n> --json
+bun run operator work frontier --json
+bun run operator work claim --request <id> --owner-token <token> --assignment <id> --revision <n> --json
 ```
 
 The frontier reports what the crew may start now and why the rest waits.
@@ -434,8 +444,8 @@ You accept executable work from the attempt that holds it.
 The Operator resolves planning work itself, so you accept planning work with no attempt.
 
 ```sh
-operator work accept --request <id> --owner-token <token> --assignment <id> --attempt <id> --revision <n> --json
-operator work accept --request <id> --owner-token <token> --assignment <id> --revision <n> --json
+bun run operator work accept --request <id> --owner-token <token> --assignment <id> --attempt <id> --revision <n> --json
+bun run operator work accept --request <id> --owner-token <token> --assignment <id> --revision <n> --json
 ```
 
 See [ADR 0003](docs/adr/0003-crew-state-is-one-sqlite-file-created-once.md) and [ADR 0004](docs/adr/0004-the-frontier-is-the-only-dispatch-rule.md).
@@ -446,7 +456,7 @@ The Operator dispatches a claimed assignment into its own Herdr-managed worktree
 The dispatch names the commit it starts from, because a worktree never picks up uncommitted work from another checkout.
 
 ```sh
-operator attempt dispatch --request <id> --owner-token <token> --attempt <id> --commit <sha> --json
+bun run operator attempt dispatch --request <id> --owner-token <token> --attempt <id> --commit <sha> --json
 ```
 
 The command fixes the whole launch before it acts: the branch, the checkout, the launch snapshot, the brief, and the prompt.
@@ -456,7 +466,7 @@ Each effect records its intent before the call and its outcome after it.
 The worktree receives these files:
 
 - The project configuration and its schema.
-- A release record and the frozen lock data.
+- A release record, the selected JSR release, and the frozen lock data.
 - A control reference and the brief.
 - The skills of this release.
 
@@ -466,21 +476,21 @@ Herdr acknowledges a submission, not a turn.
 A dispatch therefore reports `pending` until the Operative acknowledges its assignment from its own worktree.
 
 ```sh
-operator attempt acknowledge --request <id> --attempt <id> --json
+bun run operator attempt acknowledge --request <id> --attempt <id> --json
 ```
 
 A Herdr call that never answered is uncertain, because a timeout does not prove that the effect did not happen.
 The attempt then blocks until you reconcile it against what Herdr and the checkout show.
 
 ```sh
-operator attempt reconcile --request <id> --owner-token <token> --attempt <id> --json
-operator attempt show --attempt <id> --json
+bun run operator attempt reconcile --request <id> --owner-token <token> --attempt <id> --json
+bun run operator attempt show --attempt <id> --json
 ```
 
 A replacement is a new attempt on the same assignment, not a second writer.
 
 ```sh
-operator attempt replace --request <id> --owner-token <token> --attempt <id> --inspection <identity> --json
+bun run operator attempt replace --request <id> --owner-token <token> --attempt <id> --inspection <identity> --json
 ```
 
 A replacement runs only when all of these are true:
@@ -501,8 +511,8 @@ See [ADR 0005](docs/adr/0005-dispatch-is-staged-and-an-unproven-effect-blocks.md
 An Operative that cannot continue inside its authority limits raises one question from its own worktree.
 
 ```sh
-operator question raise --request <id> --attempt <id> --input question.json --json
-operator question revise --request <id> --attempt <id> --question <id> --revision <n> --input question.json --json
+bun run operator question raise --request <id> --attempt <id> --input question.json --json
+bun run operator question revise --request <id> --attempt <id> --question <id> --revision <n> --input question.json --json
 ```
 
 The report states these items:
@@ -513,10 +523,10 @@ The report states these items:
 
 A report has no authority of its own, so the CLI refuses a report that states an approval.
 One Operative waits on one question at a time.
-Every other assignment stays dispatchable, and `operator work frontier` lists the open questions beside the work they hold.
+Every other assignment stays dispatchable, and `bun run operator work frontier` lists the open questions beside the work they hold.
 
 ```sh
-operator question answer --request <id> --owner-token <token> --question <id> --revision <n> --input answer.json --json
+bun run operator question answer --request <id> --owner-token <token> --question <id> --revision <n> --input answer.json --json
 ```
 
 An answer is a requirement, a human answer, or an Operator decision.
@@ -536,33 +546,33 @@ One question revision carries one decision, and a question that nobody waits on 
 The Operative names those subjects when it raises the question, and the Operator records the ones it finds itself.
 
 ```sh
-operator question escalate --request <id> --owner-token <token> --question <id> --revision <n> --input escalation.json --json
+bun run operator question escalate --request <id> --owner-token <token> --question <id> --revision <n> --input escalation.json --json
 ```
 
 An escalation drops an Operator decision recorded before it and keeps a person's answer.
 
 ```sh
-operator question deliver --request <id> --owner-token <token> --question <id> --json
-operator question acknowledge --request <id> --question <id> --json
-operator question show --question <id> --json
+bun run operator question deliver --request <id> --owner-token <token> --question <id> --json
+bun run operator question acknowledge --request <id> --question <id> --json
+bun run operator question show --question <id> --json
 ```
 
 Recording an answer, delivering it, and receiving it are three states.
 A repeated delivery reports what it already sent and does not submit the answer again.
 The Operative's own acknowledgement is the only proof that the answer arrived, and it releases the work that waited.
-A delivery that never answered is uncertain, so it blocks another delivery until `operator attempt reconcile` settles it.
+A delivery that never answered is uncertain, so it blocks another delivery until `bun run operator attempt reconcile` settles it.
 
 A revised question makes its recorded answer inapplicable.
 To use that answer again, you need an approval that names the answer, this question, and the revision it is reused for.
 
 ```sh
-operator question reapply --request <id> --owner-token <token> --question <id> --revision <n> --answer <id> --approval <id> --json
+bun run operator question reapply --request <id> --owner-token <token> --question <id> --revision <n> --answer <id> --approval <id> --json
 ```
 
 ```sh
-operator approval grant --request <id> --owner-token <token> --input approval.json --json
-operator approval revoke --request <id> --owner-token <token> --approval <id> --revision <n> --json
-operator approval check --input check.json --json
+bun run operator approval grant --request <id> --owner-token <token> --input approval.json --json
+bun run operator approval revoke --request <id> --owner-token <token> --approval <id> --revision <n> --json
+bun run operator approval check --input check.json --json
 ```
 
 An approval binds one action, its targets, its scope, and the revision of the request it was granted against.
@@ -577,7 +587,7 @@ See [ADR 0006](docs/adr/0006-a-question-holds-only-its-own-work-and-authority-is
 An Operative hands over its finished result from its own worktree.
 
 ```sh
-operator attempt submit --request <id> --attempt <id> --input result.json --json
+bun run operator attempt submit --request <id> --attempt <id> --input result.json --json
 ```
 
 The submission fixes these items:
@@ -602,8 +612,8 @@ The brief requires the Standards and Spec axes to run as native sub-agents of th
 Those sub-agents take no Herdr slot and no worktree of their own, and they never edit, commit, or rework.
 
 ```sh
-operator review report --request <id> --review <id> --input report.json --json
-operator review show --review <id> --json
+bun run operator review report --request <id> --review <id> --input report.json --json
+bun run operator review show --review <id> --json
 ```
 
 A complete report names the submission identity it read, carries both axes exactly once, records a window for each sub-agent, and states what each axis checked.
@@ -612,12 +622,12 @@ A non-code result requires the artifacts, the requirements, the citations, and t
 The CLI refuses two axes that ran one after the other, and a sub-agent that ran outside the reviewer host.
 A host that cannot run the axes records a blocker, not a partial review.
 A blocked review is a stopped review.
-`operator attempt replace` returns it to registered for one replacement reviewer, up to three attempts in all.
+`bun run operator attempt replace` returns it to registered for one replacement reviewer, up to three attempts in all.
 
 A review report ends the review chain, so a reviewer never submits a result and no review triggers another review.
 
 ```sh
-operator review dispose --request <id> --owner-token <token> --review <id> --input dispositions.json --json
+bun run operator review dispose --request <id> --owner-token <token> --review <id> --input dispositions.json --json
 ```
 
 The Operator gives each finding one disposition:
@@ -629,7 +639,7 @@ The Operator gives each finding one disposition:
 A blocker is never deferred.
 
 ```sh
-operator work accept --request <id> --owner-token <token> --assignment <id> --attempt <id> --revision <n> --submission <id> --pr-head <sha> --json
+bun run operator work accept --request <id> --owner-token <token> --assignment <id> --attempt <id> --revision <n> --submission <id> --pr-head <sha> --json
 ```
 
 Acceptance verifies these items:
@@ -651,7 +661,7 @@ See [ADR 0007](docs/adr/0007-review-is-crew-work-and-acceptance-reads-only-recor
 The Operator sends a finding it accepted for correction to a fresh Operative, never to the reviewer that found it.
 
 ```sh
-operator work rework --request <id> --owner-token <token> --assignment <id> --revision <n> --input cycle.json --json
+bun run operator work rework --request <id> --owner-token <token> --assignment <id> --revision <n> --input cycle.json --json
 ```
 
 The request names one reason.
@@ -682,7 +692,7 @@ Three limits apply across sessions:
 A reached limit records a direction request, keeps the failure evidence, and blocks acceptance with `direction_required` until the user directs it.
 
 ```sh
-operator approval grant --request <id> --owner-token <token> --input direction.json --json
+bun run operator approval grant --request <id> --owner-token <token> --input direction.json --json
 ```
 
 The direction is an approval with action `limit-direction`, the assignment as its target, scope `limit:<kind>`, and the revision of the direction request as its request revision.
@@ -690,7 +700,7 @@ The request keeps the evidence of every further attempt that reached the same li
 After a direction is spent, a new reach of that limit opens the request at the next revision, so the earlier approval covers nothing.
 
 ```sh
-operator work invalidate --request <id> --owner-token <token> --assignment <id> --revision <n> --input defect.json --json
+bun run operator work invalidate --request <id> --owner-token <token> --assignment <id> --revision <n> --input defect.json --json
 ```
 
 A defect found after acceptance keeps the acceptance, the submission, the review, and every finding.
@@ -705,10 +715,10 @@ See [ADR 0008](docs/adr/0008-rework-is-a-delegated-cycle-and-a-limit-blocks-acce
 Completing work on the tracker is three separate outcomes, and the CLI records and recovers each one on its own.
 
 ```sh
-operator tracker record --request <id> --owner-token <token> --assignment <id> --revision <n> --input step.json --json
-operator tracker recover --request <id> --owner-token <token> --operation <id> --json
-operator tracker show --assignment <id> --json
-operator tracker map --assignment <id> --json
+bun run operator tracker record --request <id> --owner-token <token> --assignment <id> --revision <n> --input step.json --json
+bun run operator tracker recover --request <id> --owner-token <token> --operation <id> --json
+bun run operator tracker show --assignment <id> --json
+bun run operator tracker map --assignment <id> --json
 ```
 
 The request names one step.
@@ -727,26 +737,26 @@ It then reads what the tracker shows and settles the step from that reading.
 A comment carries its logical operation in an HTML marker, and recovery uses that marker to find it again.
 
 A write that never returned a definite answer stays uncertain, because it may still have applied.
-`operator tracker recover` reads the exact comment when the server named one.
+`bun run operator tracker recover` reads the exact comment when the server named one.
 Otherwise it reads every accessible comment page and records what the scan covered.
 Two matching comments, changed content, and another author are each a conflict for a person to settle.
 Another write under an uncertain operation needs an approval that names the operation and the number of attempts already recorded.
 
 ```sh
-operator approval grant --request <id> --owner-token <token> --input approval.json --json
-operator tracker record ... --approval <id> --json
+bun run operator approval grant --request <id> --owner-token <token> --input approval.json --json
+bun run operator tracker record ... --approval <id> --json
 ```
 
 Completion reads the ticket before it closes it.
 If the ticket is already closed with the intended reason, the step is satisfied, and Operator does not claim that it caused the close.
 A different reason, or a reopen after the close, is a conflict.
 
-`operator tracker map` reads the map as its baseline body plus every explicit amendment.
+`bun run operator tracker map` reads the map as its baseline body plus every explicit amendment.
 Independent additions combine.
 An incomplete scan, an edited amendment, and two amendments of one section each stop the session.
 Operator never replaces a shared issue body, because an amendment is always an appended comment.
 
-`operator tracker show` reports the three steps, what blocks each one, and what may follow it.
+`bun run operator tracker show` reports the three steps, what blocks each one, and what may follow it.
 It exits 0 even when the tracker operation is incomplete, because the query itself succeeded.
 Operator never writes a verified step again to repair another step.
 See [ADR 0009](docs/adr/0009-a-tracker-update-is-three-recoverable-steps.md).
@@ -756,16 +766,16 @@ See [ADR 0009](docs/adr/0009-a-tracker-update-is-three-recoverable-steps.md).
 Cleanup is two recorded outcomes on one attempt, and each one needs its own proof and its own approval.
 
 ```sh
-operator cleanup close --request <id> --owner-token <token> --attempt <id> --json
-operator cleanup remove --request <id> --owner-token <token> --attempt <id> --json
-operator cleanup show --attempt <id> --json
+bun run operator cleanup close --request <id> --owner-token <token> --attempt <id> --json
+bun run operator cleanup remove --request <id> --owner-token <token> --attempt <id> --json
+bun run operator cleanup show --attempt <id> --json
 ```
 
-`operator cleanup close` ends one Operative process.
+`bun run operator cleanup close` ends one Operative process.
 It runs only after a durable handoff, which is a submitted result or the two axis reports of a review.
 Before it stops anything, it copies the brief, the control reference, the release record, and every artifact the submission fixed into the controlling checkout, and reads each copy back.
 
-`operator cleanup remove` disposes of one Operative checkout.
+`bun run operator cleanup remove` disposes of one Operative checkout.
 It needs a closed process, the preserved evidence verified again, and a remote copy of every commit.
 It also needs an approval that names this checkout or the workflow, because acceptance alone does not grant removal.
 
@@ -775,13 +785,13 @@ Operator performs exactly two effects here, both through Herdr: the host's own s
 It deletes no branch and runs no Git removal.
 
 ```sh
-operator cleanup hold --request <id> --owner-token <token> --attempt <id> --input hold.json --json
-operator cleanup release --request <id> --owner-token <token> --attempt <id> --revision <n> --json
+bun run operator cleanup hold --request <id> --owner-token <token> --attempt <id> --input hold.json --json
+bun run operator cleanup release --request <id> --owner-token <token> --attempt <id> --revision <n> --json
 ```
 
 A retention hold keeps one Operative's resources.
 It blocks every cleanup of its attempt until a person releases it, and it outlives the session that placed it.
-`operator cleanup show` reports every hold.
+`bun run operator cleanup show` reports every hold.
 See [ADR 0010](docs/adr/0010-cleanup-is-two-outcomes-behind-proof-and-approval.md).
 
 ## Coordination and recovery
@@ -789,7 +799,7 @@ See [ADR 0010](docs/adr/0010-cleanup-is-two-outcomes-behind-proof-and-approval.m
 One read-only command tells a crew what to do next.
 
 ```sh
-operator crew next --claude --operator-host claude-code --json
+bun run operator crew next --claude --operator-host claude-code --json
 ```
 
 It reads these items and reports them as one ranked list of actions:
@@ -822,9 +832,9 @@ See [automatic resumption](skills/operator/WAKE.md) for installation, enablement
 A fresh Operator takes the crew, settles the unproven effects, and then adopts each attempt it inherited.
 
 ```sh
-operator crew own --request <id> --owner-label <label> --takeover --ownership-revision <n> --json
-operator attempt reconcile --request <id> --owner-token <token> --attempt <id> --json
-operator attempt adopt --request <id> --owner-token <token> --attempt <id> --json
+bun run operator crew own --request <id> --owner-label <label> --takeover --ownership-revision <n> --json
+bun run operator attempt reconcile --request <id> --owner-token <token> --attempt <id> --json
+bun run operator attempt adopt --request <id> --owner-token <token> --attempt <id> --json
 ```
 
 Adoption states that this session read what one attempt holds.

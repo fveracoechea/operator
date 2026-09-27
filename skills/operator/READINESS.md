@@ -7,7 +7,7 @@ Ready means the required checks passed for this exact selection and these exact 
 ## Ask for readiness
 
 ```sh
-operator setup readiness --claude --operator-host claude-code --json
+bun run operator setup readiness --claude --operator-host claude-code --json
 ```
 
 Name the installation targets the same way setup does.
@@ -51,8 +51,8 @@ Host termination, the native review sub-agents, and provider compatibility are p
 A live probe launches agents, spends provider tokens, and writes to a tracker, so it needs its own approval.
 
 ```sh
-operator setup probe plan --claude --operator-host claude-code --crew-host opencode --json
-operator setup probe apply --claude --operator-host claude-code --crew-host opencode --approved-probe <probeId> --json
+bun run operator setup probe plan --claude --operator-host claude-code --crew-host opencode --json
+bun run operator setup probe apply --claude --operator-host claude-code --crew-host opencode --approved-probe <probeId> --json
 ```
 
 The plan shows what the run would use, before anything launches.
@@ -77,8 +77,8 @@ It grants no authority to commit, push, merge, publish, or remove anything else.
 ## Probe cleanup
 
 ```sh
-operator setup probe cleanup --json
-operator setup probe cleanup --approved-cleanup <cleanupId> --json
+bun run operator setup probe cleanup --json
+bun run operator setup probe cleanup --approved-cleanup <cleanupId> --json
 ```
 
 The first command inspects any interrupted run, including its worktree, named agents, and fixture writes.

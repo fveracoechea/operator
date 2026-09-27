@@ -377,8 +377,33 @@ type JsonResult = {
   data?: unknown;
 };
 
+let projectInvocation = "operator";
+
+/** Use the project's selected command when presenting generated follow-up commands. */
+export function useProjectInvocation(delivery: "github-source" | "jsr" | null): void {
+  projectInvocation = delivery === "jsr" ? "bun run operator" : "operator";
+}
+
+function commandText(text: string): string {
+  return projectInvocation === "operator"
+    ? text
+    : text.replace(
+        /\boperator (?=(?:install|setup|config|update|crew|work|attempt|question|approval|review|tracker|cleanup|wake)\b)/g,
+        (match, offset: number) =>
+          text.slice(Math.max(0, offset - 8), offset).endsWith("bun run ")
+            ? match
+            : `bun run ${match}`,
+      );
+}
+
 export function writeJsonResult(result: JsonResult): void {
-  console.log(JSON.stringify({ schemaVersion: 1, ...result }));
+  console.log(
+    JSON.stringify({ schemaVersion: 1, ...result }, (key: string, value: unknown) =>
+      (key === "command" || key === "nextAction") && typeof value === "string"
+        ? commandText(value)
+        : value,
+    ),
+  );
 }
 
 /**
@@ -413,7 +438,7 @@ export function report(request: { json: boolean; result: JsonResult; lines: stri
     writeJsonResult(request.result);
   } else {
     for (const line of request.lines) {
-      console.log(line);
+      console.log(commandText(line));
     }
   }
 

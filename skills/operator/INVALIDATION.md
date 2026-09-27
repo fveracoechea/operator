@@ -3,7 +3,7 @@
 Read this when accepted work turns out to be wrong.
 
 ```
-operator work invalidate --request <id> --owner-token <token> --assignment <id> --revision <n> --input <path> --json
+bun run operator work invalidate --request <id> --owner-token <token> --assignment <id> --revision <n> --input <path> --json
 ```
 
 The defect states its summary, its evidence, and who found it.

@@ -78,7 +78,12 @@ export async function observeProject(request: {
   // missing installation is reported instead of being replaced by whatever is at hand.
   const installation = await ReleaseInstall.inspect({
     projectRoot: request.projectRoot,
-    running: { version: release.version, identity: release.identity, lock: release.lock },
+    running: {
+      version: release.version,
+      identity: release.identity,
+      commit: release.commit,
+      lock: release.lock,
+    },
   });
 
   return {

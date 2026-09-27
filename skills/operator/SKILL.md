@@ -15,9 +15,13 @@ Silence is never consent.
 This skill works the same on OpenCode and on Claude Code.
 Nothing here depends on which host you run on, and a crew may mix the two.
 
+Run Operator from the project root with `bun run operator`.
+The project installs its selected JSR release as a devDependency and defines the script in `package.json`.
+Every command in this skill uses that invocation.
+
 ## Where to start
 
-Run `operator crew next` first, on every turn that touches the crew.
+Run `bun run operator crew next` first, on every turn that touches the crew.
 It is the only schedule.
 Read [COORDINATION.md](COORDINATION.md) before you act on what it reports.
 Read [WAKE.md](WAKE.md) when you install or verify automatic resumption after crew waits.
@@ -47,13 +51,13 @@ Delegated rework, the limits that bound it, and a defect found after acceptance.
 Read [REWORK.md](REWORK.md), [LIMITS.md](LIMITS.md), and [INVALIDATION.md](INVALIDATION.md) before you act on any of them.
 
 Question routing, answers, and approvals.
-`operator question` and `operator approval` carry them, and the brief tells each Operative how to raise one.
+`bun run operator question` and `bun run operator approval` carry them, and the brief tells each Operative how to raise one.
 
 Process closure and worktree removal.
-`operator cleanup` carries them, and each one needs its own proof and its own approval.
+`bun run operator cleanup` carries them, and each one needs its own proof and its own approval.
 
 Tracker completion and recovery.
-`operator tracker` carries the resolution, the ticket completion, and the map amendment as three
+`bun run operator tracker` carries the resolution, the ticket completion, and the map amendment as three
 separate outcomes, and it reports what it could not establish rather than writing again.
 
 ## Rules

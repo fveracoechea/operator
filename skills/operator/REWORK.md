@@ -6,7 +6,7 @@ Never edit the result yourself, and never ask the reviewer to repair what it fou
 `rework_pending` at acceptance means the correction has not landed yet.
 
 ```
-operator work rework --request <id> --owner-token <token> --assignment <id> --revision <n> --input <path> --json
+bun run operator work rework --request <id> --owner-token <token> --assignment <id> --revision <n> --input <path> --json
 ```
 
 The request names one reason:
@@ -25,7 +25,7 @@ A conflict names only work this cycle carries.
 `conflict_not_corrected` means you named a finding that no correction in this cycle answers.
 
 The cycle returns the assignment to the frontier.
-`operator crew next` offers it again.
+`bun run operator crew next` offers it again.
 Claim it and dispatch it from the commit the submission recorded.
 A fresh attempt is a fresh Operative, so the reviewer that found the problem never repairs it.
 

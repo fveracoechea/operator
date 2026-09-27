@@ -1,7 +1,14 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { ProjectReadiness } from "../project-readiness/main.ts";
-import { ownCrew, requestId, runJson, type Workspace, workspaces } from "./workspace-fixture.ts";
+import {
+  ownCrew,
+  requestId,
+  runJson,
+  runOperator,
+  type Workspace,
+  workspaces,
+} from "./workspace-fixture.ts";
 
 const fixtures = workspaces();
 let workspace: Workspace;
@@ -92,6 +99,25 @@ describe("operator update plan", () => {
     );
   });
 
+  test("includes the JSR selectors in the runnable approval command", async () => {
+    const result = await runOperator(workspace, [
+      "update",
+      "plan",
+      "--claude",
+      "--commit",
+      commit,
+      "--delivery",
+      "jsr",
+      "--package-version",
+      "1.2.3",
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(
+      `Approve with: bun run operator update apply --claude --commit ${commit} --delivery jsr --package-version 1.2.3 --approved-update `,
+    );
+  });
+
   test("shows the release it would select and writes nothing", async () => {
     const result = await plan();
 
@@ -149,14 +175,12 @@ describe("operator update apply", () => {
     );
   });
 
-  test("writes the exact registry alias for the selected package version", async () => {
+  test("records the selected version without changing the project's manifest", async () => {
     const { applied } = await apply(["--delivery", "jsr", "--package-version", "1.2.3"]);
 
     expect(applied.exitCode).toBe(0);
-    const manifest = await Bun.file(`${workspace.repo}/.operator/install/package.json`).json();
-    expect(manifest.dependencies["@fveracoechea/operator"]).toBe(
-      "npm:@jsr/fveracoechea__operator@1.2.3",
-    );
+    expect(applied.json.data.selection.packageVersion).toBe("1.2.3");
+    expect(await Bun.file(`${workspace.repo}/.operator/install/package.json`).exists()).toBe(false);
   });
 
   test("puts the exact release and dependency identities into what a launch fixes", async () => {
@@ -179,8 +203,7 @@ describe("operator update apply", () => {
   test("names the launcher that keeps the project working directory", async () => {
     const { applied } = await apply(["--delivery", "jsr", "--package-version", "1.2.3"]);
 
-    expect(applied.json.data.commands.run).toContain("Bun.resolveSync");
-    expect(applied.json.data.commands.run).toContain(".operator/install");
+    expect(applied.json.data.commands.run).toBe("bun run operator <operation>");
     expect(applied.json.data.commands.install).toContain("--frozen-lockfile");
   });
 

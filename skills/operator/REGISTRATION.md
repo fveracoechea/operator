@@ -4,7 +4,7 @@ Read this before you register anything.
 What you register is what every Operative receives, because the brief is built from it.
 
 ```sh
-operator work register --request <id> --owner-token <token> --input work.json --json
+bun run operator work register --request <id> --owner-token <token> --input work.json --json
 ```
 
 The input is a JSON file, or `-` to read standard input.
@@ -93,13 +93,13 @@ Planning work is registered so dependencies resolve, and it is never dispatched 
 You resolve it yourself and accept it with no attempt.
 
 ```sh
-operator work accept --request <id> --owner-token <token> --assignment <id> --revision <n> --json
+bun run operator work accept --request <id> --owner-token <token> --assignment <id> --revision <n> --json
 ```
 
-`operator crew next` offers this as `resolve_planning` once its own dependencies are accepted.
+`bun run operator crew next` offers this as `resolve_planning` once its own dependencies are accepted.
 Without it, a task blocked by a research item could never start, because the research item could never be claimed.
 
 ## After registration
 
 Read [COORDINATION.md](COORDINATION.md).
-`operator crew next` offers the work the frontier allows, in the order it allows it.
+`bun run operator crew next` offers the work the frontier allows, in the order it allows it.

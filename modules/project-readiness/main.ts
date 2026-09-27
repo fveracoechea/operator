@@ -186,11 +186,22 @@ async function buildReport(request: Request) {
   const observation = await observeProject(request);
   const inputs = fingerprints(observation);
   const live = await liveCheckResults(request.projectRoot, inputs);
-  const checks = [
+  const rawChecks = [
     ...staticChecks(observation),
     ...(live.unreadable ? [live.unreadable] : []),
     ...live.checks,
   ];
+  const checks =
+    observation.installation.selection?.delivery === "jsr"
+      ? rawChecks.map((check) => ({
+          ...check,
+          nextAction:
+            check.nextAction?.replace(
+              /\boperator (?=(?:setup|install|update|crew)\b)/g,
+              "bun run operator ",
+            ) ?? null,
+        }))
+      : rawChecks;
 
   return {
     state: reportState(checks),

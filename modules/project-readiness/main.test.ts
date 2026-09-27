@@ -608,7 +608,7 @@ describe("the selected installation", () => {
     });
   });
 
-  test("blocks when the isolated installation holds no package", async () => {
+  test("blocks when the selected JSR devDependency is absent", async () => {
     const path = await makeFullPath();
     const root = await makeProject();
     await configure(root, path, ["--claude"]);
@@ -628,7 +628,7 @@ describe("the selected installation", () => {
     });
   });
 
-  test("blocks when the isolated installation holds another version of the package", async () => {
+  test("blocks when the project installs another version of the selected JSR package", async () => {
     const path = await makeFullPath();
     const root = await makeProject();
     await configure(root, path, ["--claude"]);
@@ -638,12 +638,19 @@ describe("the selected installation", () => {
       selectionPath,
       `${JSON.stringify({ ...recorded, delivery: "jsr", packageVersion: "9.9.9" }, null, 2)}\n`,
     );
+    await Bun.write(
+      `${root}/package.json`,
+      JSON.stringify({
+        devDependencies: { "@fveracoechea/operator": "npm:@jsr/fveracoechea__operator@9.9.9" },
+        scripts: { operator: "bun node_modules/@fveracoechea/operator/cli.js" },
+      }),
+    );
     // A package is present, and it is not the exact version the selection names.
     await Bun.write(
-      `${root}/.operator/install/node_modules/@fveracoechea/operator/package.json`,
+      `${root}/node_modules/@fveracoechea/operator/package.json`,
       `${JSON.stringify({ name: "@jsr/fveracoechea__operator", version: "1.0.0" })}\n`,
     );
-    await Bun.write(`${root}/.operator/install/bun.lock`, "{}\n");
+    await Bun.write(`${root}/bun.lock`, "{}\n");
 
     const result = await runJson(root, path, ["setup", "readiness", "--claude"]);
 
@@ -654,7 +661,7 @@ describe("the selected installation", () => {
     });
   });
 
-  test("blocks when the isolated installation kept no lock data", async () => {
+  test("blocks when the project holds no lock data for its JSR devDependency", async () => {
     const path = await makeFullPath();
     const root = await makeProject();
     await configure(root, path, ["--claude"]);
@@ -664,9 +671,18 @@ describe("the selected installation", () => {
       selectionPath,
       `${JSON.stringify({ ...recorded, delivery: "jsr", packageVersion: recorded.version }, null, 2)}\n`,
     );
+    await Bun.write(
+      `${root}/package.json`,
+      JSON.stringify({
+        devDependencies: {
+          "@fveracoechea/operator": `npm:@jsr/fveracoechea__operator@${recorded.version}`,
+        },
+        scripts: { operator: "bun node_modules/@fveracoechea/operator/cli.js" },
+      }),
+    );
     // The package is installed, and the lock data that would repeat that resolution is not.
     await Bun.write(
-      `${root}/.operator/install/node_modules/@fveracoechea/operator/package.json`,
+      `${root}/node_modules/@fveracoechea/operator/package.json`,
       `${JSON.stringify({ name: "@jsr/fveracoechea__operator", version: recorded.version })}\n`,
     );
 

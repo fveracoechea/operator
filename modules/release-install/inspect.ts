@@ -1,5 +1,14 @@
 import { z } from "zod";
-import { INSTALL_ROOT, PACKAGE_NAME, type ReleaseSelection, readSelection } from "./selection.ts";
+import {
+  INSTALL_ROOT,
+  JSR_PACKAGE_NAME,
+  PACKAGE_NAME,
+  PROJECT_COMMAND,
+  PROJECT_SCRIPT,
+  SELECTION_PATH,
+  type ReleaseSelection,
+  readSelection,
+} from "./selection.ts";
 
 export type InstallationReason =
   | "release_unselected"
@@ -26,10 +35,11 @@ const LOCK_NAMES = ["bun.lock", "bun.lockb"];
 export type RunningRelease = {
   version: string;
   identity: string;
+  commit?: string | null;
   lock: { state: "present" | "missing" };
 };
 
-const SELECT_ACTION = "Run `operator update plan`, then apply the approved update.";
+const SELECT_ACTION = "Run `bun run operator update plan`, then apply the approved update.";
 
 function unmet(
   reason: InstallationReason,
@@ -41,7 +51,7 @@ function unmet(
   return { status: "unmet", reason, selection, detail, nextAction, paths };
 }
 
-/** The version the isolated installation actually holds, read from the manifest it installed. */
+/** The version the project installed, read from the manifest JSR generated. */
 async function readInstalledVersion(
   path: string,
 ): Promise<{ state: "absent" } | { state: "present"; version: string | null }> {
@@ -58,7 +68,7 @@ async function readInstalledVersion(
 
 async function hasLockData(projectRoot: string): Promise<boolean> {
   for (const name of LOCK_NAMES) {
-    if (await Bun.file(`${projectRoot}/${INSTALL_ROOT}/${name}`).exists()) {
+    if (await Bun.file(`${projectRoot}/${name}`).exists()) {
       return true;
     }
   }
@@ -68,8 +78,7 @@ async function hasLockData(projectRoot: string): Promise<boolean> {
 
 /**
  * Reports whether the recorded release selection is the one actually installed and running.
- * A missing or mismatched installation, and missing lock data, stop the work that depends on
- * them. Operator never adopts a nearby dependency and never resolves a replacement of its own.
+ * A missing or mismatched devDependency, and missing lock data, stop coordinated work.
  */
 export async function inspectInstallation(request: {
   projectRoot: string;
@@ -96,17 +105,57 @@ export async function inspectInstallation(request: {
 
   const selection = read.selection;
 
+  // Compare the selected code and skills before inspecting tools or planning a live probe.
+  if (
+    request.running.identity !== selection.releaseIdentity ||
+    (request.running.commit !== null &&
+      request.running.commit !== undefined &&
+      request.running.commit !== selection.commit)
+  ) {
+    return unmet(
+      "release_mismatch",
+      selection,
+      `This project selected Operator ${selection.version} at ${selection.commit}, but the running release is ${request.running.version}.`,
+      selection.delivery === "jsr"
+        ? `Run the selected release with \`${PROJECT_COMMAND} <operation>\` from the project root.`
+        : `Run the selected source release at commit ${selection.commit}.`,
+      [SELECTION_PATH],
+    );
+  }
+
   if (selection.delivery === "jsr") {
     const wanted = selection.packageVersion ?? selection.version;
-    const manifest = `${INSTALL_ROOT}/node_modules/${PACKAGE_NAME}/package.json`;
+    const manifest = `node_modules/${PACKAGE_NAME}/package.json`;
+    const projectManifest = Bun.file(`${request.projectRoot}/package.json`);
+    const project = await projectManifest.json().catch(() => null);
+    const parsed = z
+      .object({
+        devDependencies: z.record(z.string(), z.string()),
+        scripts: z.record(z.string(), z.string()),
+      })
+      .safeParse(project);
+    const expected = `npm:${JSR_PACKAGE_NAME}@${wanted}`;
+    if (
+      !parsed.success ||
+      parsed.data.devDependencies[PACKAGE_NAME] !== expected ||
+      parsed.data.scripts.operator !== PROJECT_SCRIPT
+    ) {
+      return unmet(
+        "install_missing",
+        selection,
+        `The project must declare ${PACKAGE_NAME} as the exact JSR devDependency ${expected} and set scripts.operator to ${PROJECT_SCRIPT}.`,
+        `Add the selected JSR devDependency and Operator script to package.json, then run \`bun install --frozen-lockfile\` from the project root.`,
+        ["package.json"],
+      );
+    }
     const installed = await readInstalledVersion(`${request.projectRoot}/${manifest}`);
     if (installed.state === "absent") {
       return unmet(
         "install_missing",
         selection,
-        `The isolated installation holds no ${PACKAGE_NAME}, so the selected release is not present.`,
-        `Install ${PACKAGE_NAME}@${wanted} in ${INSTALL_ROOT} yourself, then check again.`,
-        [INSTALL_ROOT],
+        `The project holds no installed ${PACKAGE_NAME}, so the selected release is not present.`,
+        "Run `bun install --frozen-lockfile` from the project root, then check again.",
+        [manifest],
       );
     }
     // The selection names one exact published version, so any other one is a different release.
@@ -114,8 +163,8 @@ export async function inspectInstallation(request: {
       return unmet(
         "release_mismatch",
         selection,
-        `This project selected ${PACKAGE_NAME}@${wanted}, and the isolated installation holds ${installed.version ?? "a package that names no version"}.`,
-        `Install ${PACKAGE_NAME}@${wanted} in ${INSTALL_ROOT} yourself, then check again.`,
+        `This project selected ${PACKAGE_NAME}@${wanted}, and the installation holds ${installed.version ?? "a package that names no version"}.`,
+        `Install ${PACKAGE_NAME}@${wanted} from JSR in the project root, then check again.`,
         [manifest],
       );
     }
@@ -124,9 +173,9 @@ export async function inspectInstallation(request: {
       return unmet(
         "lock_data_missing",
         selection,
-        "The isolated installation holds no lock data, so a reinstall would resolve its dependencies again instead of repeating them.",
-        `Restore the lock data in ${INSTALL_ROOT}, then reinstall with \`bun install --frozen-lockfile\` there.`,
-        [INSTALL_ROOT],
+        "The project holds no lock data, so a reinstall would resolve its dependencies again instead of repeating them.",
+        "Restore the project bun.lock, then run `bun install --frozen-lockfile` from the project root.",
+        ["bun.lock"],
       );
     }
   }
@@ -137,15 +186,6 @@ export async function inspectInstallation(request: {
       selection,
       "The running Operator installation holds no lock data, so its dependencies are not frozen.",
       "Reinstall Operator so the installation keeps its own lock data.",
-    );
-  }
-
-  if (request.running.identity !== selection.releaseIdentity) {
-    return unmet(
-      "release_mismatch",
-      selection,
-      `This project selected Operator ${selection.version}, and the running release is ${request.running.version}.`,
-      SELECT_ACTION,
     );
   }
 

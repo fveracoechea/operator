@@ -6,9 +6,9 @@ Give at least one target.
 The CLI does not guess the target from the agents it finds.
 
 ```sh
-operator install --opencode
-operator install --claude
-operator install --opencode --claude
+bun run operator install --opencode
+bun run operator install --claude
+bun run operator install --opencode --claude
 ```
 
 Each target receives a complete copy of every Operator-owned skill.
@@ -22,8 +22,8 @@ Plan and approve the upstream skills before you create Operative worktrees.
 Commit the installed project skills so new worktrees contain `code-review`.
 
 ```sh
-operator install matt plan --opencode --claude --json
-operator install matt apply --opencode --claude --commit <commit> --approved-plan <planId> --json
+bun run operator install matt plan --opencode --claude --json
+bun run operator install matt apply --opencode --claude --commit <commit> --approved-plan <planId> --json
 ```
 
 The plan resolves the current `mattpocock/skills` `main` commit.
@@ -33,7 +33,7 @@ Apply verifies the fetched files and refuses stale approval or local edits.
 The plan selects skills from the pinned upstream tree.
 Upstream `unslop` and `cursor` are excluded.
 The target's `.operator-matt-skills.json` records content hashes for later updates.
-To update the skills, run `operator install matt plan` again and apply the new plan.
+To update the skills, run `bun run operator install matt plan` again and apply the new plan.
 
 ## Configure the project
 
@@ -41,8 +41,8 @@ Setup inspects the project and prints the exact changes it proposes.
 It writes nothing until you give back the same plan identifier.
 
 ```sh
-operator setup plan --claude --json
-operator setup apply --claude --approved-plan <planId> --json
+bun run operator setup plan --claude --json
+bun run operator setup apply --claude --approved-plan <planId> --json
 ```
 
 The plan identifier covers the selected targets and the exact content of every proposed change.
@@ -67,11 +67,11 @@ Setup never commits, never changes the Git index, and never installs machine-wid
 
 ## Change project settings
 
-Read the validated settings with `operator config show --json`.
-To change a setting, run `operator config plan --set <path=value> --json`, show its exact file change to the user, then run `operator config apply` with the same flags and `--approved-plan <planId>`.
+Read the validated settings with `bun run operator config show --json`.
+To change a setting, run `bun run operator config plan --set <path=value> --json`, show its exact file change to the user, then run `bun run operator config apply` with the same flags and `--approved-plan <planId>`.
 Use `--unset <path>` to remove a setting and return to its default.
 The CLI usage lists supported fields.
-Run `operator config recover --json` if an apply was interrupted.
+Run `bun run operator config recover --json` if an apply was interrupted.
 Recovery compares the file with the recorded before and after identities and changes no configuration value.
 
 ## Select the release
@@ -82,7 +82,7 @@ Read [RELEASE.md](RELEASE.md) before you select one, update one, or answer a `st
 ## Recover an interrupted setup
 
 ```sh
-operator setup rollback --json
+bun run operator setup rollback --json
 ```
 
 Setup records each completed write and the previous contents of the file.

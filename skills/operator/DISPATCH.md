@@ -4,15 +4,15 @@ Read this before you launch, recover, or replace an Operative.
 
 ## Order of work
 
-1. `operator crew next --claude --json` reports readiness, ownership, and the next action.
+1. `bun run operator crew next --claude --json` reports readiness, ownership, and the next action.
    Read [COORDINATION.md](COORDINATION.md) for that loop.
-2. If no session owns the crew, `operator crew own --request <id> --owner-label <label> --json` gives you the owner token.
+2. If no session owns the crew, `bun run operator crew own --request <id> --owner-label <label> --json` gives you the owner token.
    Read [RECOVERY.md](RECOVERY.md) before you take over a crew another session owned.
-3. `operator work register --request <id> --owner-token <token> --input <path> --json` records the approved work.
+3. `bun run operator work register --request <id> --owner-token <token> --input <path> --json` records the approved work.
    Read [REGISTRATION.md](REGISTRATION.md) for what that request carries.
-4. When `crew next` offers a claim, `operator work claim --request <id> --owner-token <token> --assignment <id> --revision <n> --json` gives you one attempt.
-5. When `crew next` offers dispatch, `operator attempt dispatch --request <id> --owner-token <token> --attempt <id> --commit <sha> --json` launches it.
-6. The Operative hands over its result with `operator attempt submit`.
+4. When `crew next` offers a claim, `bun run operator work claim --request <id> --owner-token <token> --assignment <id> --revision <n> --json` gives you one attempt.
+5. When `crew next` offers dispatch, `bun run operator attempt dispatch --request <id> --owner-token <token> --attempt <id> --commit <sha> --json` launches it.
+6. The Operative hands over its result with `bun run operator attempt submit`.
    Read [REVIEW.md](REVIEW.md) from there.
 
 Dispatch creates the Herdr worktree and sends the fixed prompt.
@@ -34,7 +34,7 @@ A worktree never picks up uncommitted work from another checkout, so ask the use
 ## Pending is the normal answer
 
 Herdr acknowledges that it submitted the brief, not that the Operative read it.
-A dispatch reports `pending` with `acknowledgement_pending` until the Operative runs `operator attempt acknowledge` from its own worktree.
+A dispatch reports `pending` with `acknowledgement_pending` until the Operative runs `bun run operator attempt acknowledge` from its own worktree.
 Treat the assignment as started only after that acknowledgement.
 When `crew next` reports a wait for it, report the wait and yield as [COORDINATION.md](COORDINATION.md) describes.
 Do not start a second writer.
@@ -44,7 +44,7 @@ Do not start a second writer.
 Exit 5 means a call did not answer.
 The effect may have landed.
 
-Run `operator attempt reconcile --request <id> --owner-token <token> --attempt <id> --json`.
+Run `bun run operator attempt reconcile --request <id> --owner-token <token> --attempt <id> --json`.
 It reads what Herdr and the checkout actually hold and settles each unfinished effect.
 
 A delivery that stays unproven while the writer is live is yours to bring to the user.
@@ -66,7 +66,7 @@ A replacement is a new attempt on the same assignment.
 
 1. Settle every effect first. `reconciliation_required` means an effect is still unproven.
 2. Prove the former writer stopped. `writer_live` means it is still running, so stop it and confirm its termination with the user.
-3. Read the partial work. `operator attempt replace` without `--inspection` reports the uncommitted files and the commits since the base.
+3. Read the partial work. `bun run operator attempt replace` without `--inspection` reports the uncommitted files and the commits since the base.
 4. Repeat the command with `--inspection <identity>` to approve that exact reading.
 
 The inspected checkout and branch are retained.

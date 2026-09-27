@@ -4,7 +4,7 @@ Read this before you write anything an Operative will read.
 
 ## You do not write the prompt
 
-`operator attempt dispatch` writes the brief and the prompt.
+`bun run operator attempt dispatch` writes the brief and the prompt.
 It fixes both before any external effect, and it records their identities, so a recovery restores exactly what the Operative was launched with.
 
 Do not send your own prompt to an Operative.
@@ -32,13 +32,14 @@ A rework brief adds the cycle it answers, the accepted corrections, and the conf
 The fixed brief supplies each role's commands and authority limits.
 
 **Acknowledgement.**
-The Operative runs `operator attempt acknowledge` from its own worktree before it changes any file.
+In a new worktree, run `bun install --frozen-lockfile` from its root to install the project-pinned CLI.
+The Operative then runs `bun run operator attempt acknowledge` from its own worktree before it changes any file.
 Herdr acknowledges a submission, not a turn, so this is the only proof the brief arrived.
 Treat an assignment as started only after it.
 
 **Questions.**
 Work an Operative cannot do inside its authority limits is a question.
-It runs `operator question raise` with the question, its evidence, its options, its recommendation, the scope that waits, and the work that continues meanwhile.
+It runs `bun run operator question raise` with the question, its evidence, its options, its recommendation, the scope that waits, and the work that continues meanwhile.
 Only the named scope waits.
 
 **Answers.**
@@ -46,7 +47,7 @@ You record the answer, then deliver it, then the Operative acknowledges it.
 An answer never widens the authority limits of the brief.
 
 **Submission.**
-The Operative runs `operator attempt submit` from its own worktree.
+The Operative runs `bun run operator attempt submit` from its own worktree.
 A submission is a handoff to a separate review, never accepted completion.
 
 **A message from a person.**

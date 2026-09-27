@@ -2,6 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
 import { ContentIdentity } from "../content-identity/main.ts";
+import { OperatorRelease } from "../operator-release/main.ts";
+import { ReleaseInstall } from "../release-install/main.ts";
 import {
   headCommit,
   herdrCalls,
@@ -148,6 +150,48 @@ async function damageSnapshot(workspace: Workspace, attemptId: string) {
 }
 
 describe("operator attempt dispatch", () => {
+  test("carries the selected JSR release and project lock into an Operative worktree", async () => {
+    const running = await OperatorRelease.identify();
+    const lock = await Bun.file(`${running.installationRoot}/${running.lock.name}`).text();
+    const workspace = await fixtures.make({
+      files: {
+        "bun.lock": lock,
+        "package.json": JSON.stringify({
+          scripts: { operator: "bun node_modules/@fveracoechea/operator/cli.js" },
+          devDependencies: {
+            "@fveracoechea/operator": `npm:@jsr/fveracoechea__operator@${running.version}`,
+          },
+        }),
+      },
+    });
+    await ReleaseInstall.select({
+      projectRoot: workspace.repo,
+      selection: {
+        schemaVersion: 1,
+        delivery: "jsr",
+        version: running.version,
+        commit: "f".repeat(40),
+        releaseIdentity: running.identity,
+        skillsIdentity: running.skillsIdentity,
+        packageVersion: running.version,
+        upstreamSkills: [],
+        selectedAt: new Date().toISOString(),
+      },
+    });
+    const crew = await claimedAttempt(workspace);
+
+    const dispatched = await dispatch(workspace, crew);
+
+    expect(dispatched.json.reason).toBe("acknowledgement_pending");
+    expect(
+      await Bun.file(`${workspace.root}/operative/.operator/install/selection.json`).json(),
+    ).toMatchObject({
+      releaseIdentity: running.identity,
+      delivery: "jsr",
+    });
+    expect(await Bun.file(`${workspace.root}/operative/bun.lock`).text()).toBe(lock);
+  });
+
   test("groups an Operative worktree with the Operator's current Herdr workspace", async () => {
     const workspace = await makeWorkspace();
     const crew = await claimedAttempt(workspace);

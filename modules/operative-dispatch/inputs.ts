@@ -1,4 +1,5 @@
 import { ContentIdentity } from "../content-identity/main.ts";
+import { ReleaseInstall } from "../release-install/main.ts";
 import { SkillInstall } from "../skill-install/main.ts";
 import {
   type DispatchPlan,
@@ -67,6 +68,25 @@ async function intendedWrites(request: {
     };
   }
 
+  const selectionPath = ReleaseInstall.paths().selection;
+  const jsr = snapshot.installation?.delivery === "jsr";
+  const selection = jsr ? await readBytes(`${request.projectRoot}/${selectionPath}`) : null;
+  if (jsr && selection === null) {
+    return {
+      failure: "input_verification_failed",
+      detail: `The selected release record at ${selectionPath} is missing.`,
+    };
+  }
+  if (jsr) {
+    const existing = await readBytes(`${plan.worktreePath}/${snapshot.lock.name}`);
+    if (existing !== null && ContentIdentity.ofBytes(existing) !== ContentIdentity.ofBytes(lock)) {
+      return {
+        failure: "input_verification_failed",
+        detail: `The worktree lock ${snapshot.lock.name} differs from the selected installation.`,
+      };
+    }
+  }
+
   const schema = await readBytes(`${request.projectRoot}/.operator/config.schema.json`);
   const opencodeInputs =
     plan.agentHost === "opencode" && plan.agentReasoningEffort !== null
@@ -118,6 +138,8 @@ async function intendedWrites(request: {
     writes: [
       ...copies,
       ...opencodeInputs,
+      ...(selection === null ? [] : [{ path: selectionPath, bytes: selection }]),
+      ...(jsr ? [{ path: snapshot.lock.name, bytes: lock }] : []),
       { path: ".operator/config.json", bytes: configuration },
       ...(schema === null ? [] : [{ path: ".operator/config.schema.json", bytes: schema }]),
       { path: `.operator/local/${snapshot.lock.name}`, bytes: lock },

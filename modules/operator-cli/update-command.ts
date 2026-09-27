@@ -107,7 +107,7 @@ async function runPlan(parsed: ParsedArguments): Promise<Handled> {
     lines: [
       ...planLines(plan),
       "",
-      `Approve with: operator update apply ${parsed.targets.map((one) => (one === "opencode" ? "--opencode" : "--claude")).join(" ")} --commit ${plan.to.commit} --approved-update ${plan.updateId}`,
+      `Approve with: ${plan.from?.delivery === "jsr" || plan.to.delivery === "jsr" ? "bun run operator" : "operator"} update apply ${parsed.targets.map((one) => (one === "opencode" ? "--opencode" : "--claude")).join(" ")} --commit ${plan.to.commit}${plan.to.delivery === "jsr" ? ` --delivery jsr --package-version ${plan.to.packageVersion}` : ""} --approved-update ${plan.updateId}`,
     ],
   });
   return "reported";
