@@ -28,6 +28,7 @@ function documentEntryPoint(source: string, compiled: string): string {
   return `${moduleDoc}\n${compiled.replace("export async function main(", `${mainDoc}\nexport async function main(`)}`;
 }
 const SKILLS_DIRECTORY = "skills";
+const HERDR_DIRECTORY = "herdr";
 
 /** The fields of the source manifest a release carries forward into what it publishes. */
 const sourceManifestSchema = z.object({
@@ -177,8 +178,8 @@ function jsrManifest(source: SourceManifest): string {
 
 /**
  * Writes one release artifact from one checkout.
- * It holds runnable ESM, the public declarations, the complete owned-skill directories, and the
- * generated configuration schema, so retrieval never runs a build of its own.
+ * It holds runnable ESM, declarations, owned skills, the Herdr plugin, and the generated
+ * configuration schema, so retrieval never runs a build of its own.
  */
 export async function buildArtifact(request: {
   sourceRoot: string;
@@ -210,12 +211,14 @@ export async function buildArtifact(request: {
     return { status: "declaration-failed" as const, detail: declarations.detail };
   }
 
-  for (const path of await scanFiles(`${sourceRoot}/${SKILLS_DIRECTORY}`)) {
-    await Bun.write(
-      `${artifactRoot}/${SKILLS_DIRECTORY}/${path}`,
-      Bun.file(`${sourceRoot}/${SKILLS_DIRECTORY}/${path}`),
-      { createPath: true },
-    );
+  for (const directory of [SKILLS_DIRECTORY, HERDR_DIRECTORY]) {
+    for (const path of await scanFiles(`${sourceRoot}/${directory}`)) {
+      await Bun.write(
+        `${artifactRoot}/${directory}/${path}`,
+        Bun.file(`${sourceRoot}/${directory}/${path}`),
+        { createPath: true },
+      );
+    }
   }
 
   await Bun.write(`${artifactRoot}/config.schema.json`, OperatorConfig.jsonSchemaText());

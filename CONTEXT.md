@@ -45,7 +45,7 @@ The exact release one project coordinates with: its delivery path, its full comm
 A missing or mismatched installation, and missing lock data, stop the work that reads it; they never permit another installation to stand in.
 
 **Release artifact**:
-The built contents of one release: runnable ESM, the public declarations, the complete owned-skill directories, and the generated configuration schema.
+The built contents of one release: runnable ESM, the public declarations, the complete owned-skill directories, the Herdr plugin, and the generated configuration schema.
 It is identified by every byte it holds, so changed content is a different release.
 
 **Release publication**:
@@ -123,6 +123,10 @@ Planning-only work is registered so dependencies resolve, and it is never dispat
 The ordered list of what one crew may do now, with the waits that hold the rest.
 It is one read that changes nothing, and it is the only schedule, so a session keeps no queue beside it.
 An action that names a blocker waits on a person; a standing precondition is reported first and never decides whether the crew can advance.
+
+**Wake binding**:
+The association between one crew owner, one Operator agent session, and the attempts it was waiting for when it yielded.
+It permits one wake prompt after a fresh next-actions read needs the Operator's attention.
 
 **Attempt adoption**:
 A new Operator's statement that it read what one inherited attempt holds.

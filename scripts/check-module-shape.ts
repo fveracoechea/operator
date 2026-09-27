@@ -47,6 +47,8 @@ function isAllowedOutsideModules(path: string): boolean {
   return (
     path === "cli.ts" ||
     path.startsWith("scripts/") ||
+    // This Herdr plugin script only forwards events to the Operator CLI module.
+    path === "herdr/wake.ts" ||
     path.endsWith(".test.ts") ||
     path.endsWith(".config.ts")
   );

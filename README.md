@@ -769,10 +769,13 @@ The exit meaning says what the session may do on its own.
 | ---: | --- |
 | 0 | At least one action needs nobody else. |
 | 3 | Every open crew action waits on a person, and the result names each blocker. |
-| 6 | Nothing can advance, and a bounded wait is next. |
+| 6 | Nothing can advance. The Operator reports the waits and yields. |
 
 A project that is not ready is a standing precondition, not a refusal.
 Continuing without proven readiness is the user's decision, and settling it starts no work.
+
+For automatic resumption after a crew wait, link the Herdr plugin from the release's `herdr/` directory and verify it with a working Operative and reviewer.
+See [automatic resumption](skills/operator/WAKE.md) for installation, enablement, configuration, and checks.
 
 A fresh Operator takes the crew, settles the unproven effects, and then adopts each attempt it inherited.
 

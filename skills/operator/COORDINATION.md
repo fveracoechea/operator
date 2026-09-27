@@ -58,6 +58,18 @@ When only waits remain, report what `data.waits` names and end your turn.
 The user can steer the crew or answer a question while the Operative works.
 On your next turn, run `operator crew next` before making any crew decision.
 
+If the Operator wake plugin is installed, arm it after the wait-only reading and before you end the turn:
+
+```sh
+operator wake arm --owner-label <data.ownership.ownerLabel> --opencode --json
+```
+
+Pass the same installation targets and any `--operator-host`, `--operator-model`, `--crew-host`, or `--crew-model` options you used for `crew next`.
+An arm error means automatic resumption is unavailable; report it to the user.
+The plugin sends one prompt only when a fresh `crew next` has an action or user blocker.
+That prompt is a hint, so read `crew next` again before acting.
+See [WAKE.md](WAKE.md) for installation and verification.
+
 A short, bounded Herdr wait is useful for a transition expected within seconds.
 Read `data.waits` for the agent name, and refresh `crew next` after that wait ends.
 A timeout proves nothing about an Operative and never authorizes another brief.
