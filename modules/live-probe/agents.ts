@@ -53,6 +53,9 @@ export async function ask<Step extends ProbeStep>(
     step: request.step,
     reportPath,
     instructions: request.instructions,
+    instructionFiles: request.scratch.instructions,
+    skillNames: request.scratch.skills,
+    host: lifecycle[request.step === "review" ? "crew" : "operator"].host,
   });
 
   const submitted = await HerdrControl.submitPrompt({ target: request.agent.name, text: brief });

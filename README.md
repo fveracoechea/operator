@@ -335,6 +335,9 @@ operator setup probe cleanup --approved-cleanup <cleanupId> --json
 It removes nothing else, and the recorded observations stay, so every failed attempt outlives its resources.
 
 Operator records live results in `.operator/local/readiness.json` as a list of attempts, and only appends to it.
+The setup journal and readiness evidence are local CLI records, not agent instructions.
+Use `operator setup readiness` or `operator crew next` to read their conclusions in text, and add `--json` when a caller needs structured fields.
+The crew's concurrent assignments and ownership live in SQLite.
 Each observation holds its state, the versions and inputs it ran against, its outputs, its evidence, and the state of what it left behind.
 The most recent attempt that ran a check gives the result for that check.
 If no attempt ran a check, the earlier result stays.

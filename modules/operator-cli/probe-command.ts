@@ -40,8 +40,7 @@ function section(title: string, lines: string[]): string[] {
 
 function planLines(result: Planned): string[] {
   return [
-    `Operator live probe plan ${result.plan.probeId}`,
-    `Plan revision: ${result.plan.planRevision}`,
+    "Operator live probe plan",
     `Targets: ${result.report.targets.join(", ")}`,
     ...section("Agents", [
       `Operator: ${result.plan.agents.operator.host} (${result.plan.agents.operator.hostSource}), model ${result.plan.agents.operator.model ?? "the host default"}`,
@@ -214,7 +213,7 @@ export async function runProbeApply(parsed: ParsedArguments): Promise<void> {
       data: { probeId: result.plan.probeId, attempt: ran.attempt, readiness },
     },
     lines: [
-      `Operator live probe ${result.plan.probeId} ran ${ran.attempt.observations.length} checks.`,
+      `The Operator live probe ran ${ran.attempt.observations.length} checks.`,
       "",
       ...ran.attempt.observations.flatMap((one) => [
         `  ${one.state.padEnd(8)} ${one.name}`,

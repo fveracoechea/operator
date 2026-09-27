@@ -30,13 +30,12 @@ function actionLines(actions: NextAction[]): string[] {
   return actions.length === 0
     ? ["Nothing is waiting on this session."]
     : [
-        "Next actions, in order:",
+        "Next actions:",
         ...actions.map(
-          (one) =>
-            `  ${one.action}${one.blocker === null ? "" : ` (the user settles ${one.blocker})`}: ${one.command}` +
-            `${one.assignmentId === null ? "" : ` ${one.assignmentId}`}` +
-            `${one.attemptId === null ? "" : ` attempt ${one.attemptId}`}` +
-            `\n    ${one.detail}`,
+          (one, index) =>
+            `  ${index + 1}. ${one.detail}` +
+            `${one.blocker === null ? "" : " This needs a decision from the user."}` +
+            `\n     Run: ${one.command}`,
         ),
       ];
 }
@@ -48,8 +47,7 @@ function waitLines(waits: Next["waits"]): string[] {
         "Waiting:",
         ...waits.map(
           (one) =>
-            `  ${one.wait} on ${one.assignmentId}${one.agentName === null ? "" : ` (${one.agentName})`}` +
-            `\n    ${one.detail}`,
+            `  ${one.detail}${one.agentName === null ? "" : `\n    Agent: ${one.agentName}`}`,
         ),
       ];
 }

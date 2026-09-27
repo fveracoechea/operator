@@ -15,11 +15,56 @@ export function briefFor(request: {
   step: ProbeStep;
   reportPath: string;
   instructions: string[];
+  instructionFiles: string[];
+  skillNames: string[];
+  host: string;
 }): string {
+  const shape = {
+    loading: {
+      step: "loading",
+      host: request.host,
+      instructions: request.instructionFiles,
+      skills: request.skillNames,
+    },
+    question: {
+      step: "question",
+      questionId: "probe-question-1",
+      acknowledgedAt: new Date().toISOString(),
+      answer: request.probeId,
+    },
+    result: { step: "result", submissionId: "probe-result-1", artifacts: ["AGENTS.md"] },
+    review: {
+      step: "review",
+      host: request.host,
+      axes: [
+        {
+          axis: "standards",
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+        },
+        { axis: "spec", startedAt: new Date().toISOString(), finishedAt: new Date().toISOString() },
+      ],
+    },
+    interruption: { step: "interruption", wrote: "partial.txt" },
+  } satisfies Record<ProbeStep, unknown>;
   return [
     `Operator live probe ${request.probeId}, step ${request.step}.`,
     "You are a synthetic Operative. Do no project work, and change no file outside this checkout.",
+    ...(request.step === "loading"
+      ? [
+          `Read these instruction files: ${request.instructionFiles.join(", ")}.`,
+          `Read SKILL.md for each of these installed skills: ${request.skillNames.join(", ")}.`,
+          "Report their names, not absolute paths, after you have read them.",
+        ]
+      : []),
+    ...(request.step === "interruption"
+      ? [
+          "Write a partial.txt file with the work you finished, then report its name. Stop without starting a wait or a child process.",
+        ]
+      : []),
     ...request.instructions,
+    "Use exactly this JSON shape. Replace example values with what you observed, including actual timestamps for review axes:",
+    JSON.stringify(shape[request.step], null, 2),
     `${REPORT_SENTENCE}${request.reportPath}`,
   ].join("\n");
 }

@@ -63,6 +63,6 @@ These two hold everywhere. Every other rule lives in the topic file that owns it
 Ask the user before you write to a project.
 Show the exact proposed changes first, then apply the approved plan.
 
-Read the `--json` result of every command.
-The `outcome` and `reason` fields say what happened.
-The `blockers` field says what stops the work and what the user must decide.
+Use the CLI's default text to explain plans and readiness to the user.
+Use `--json` for `crew next` and for mutations that need record IDs, revisions, outcomes, or blockers.
+Describe the decision in plain language; keep approval IDs and commit hashes in the command the CLI provides.
