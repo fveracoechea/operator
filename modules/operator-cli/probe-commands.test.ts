@@ -182,9 +182,18 @@ async function applyProbe(
   );
 }
 
-/** Every Herdr call that creates or drives a resource. A version read drives nothing. */
+/** Read-only recovery inspection must not count as launching or driving an agent. */
 async function launchCalls(workspace: Workspace): Promise<string[]> {
-  return (await herdrCalls(workspace)).filter((one) => !one.startsWith("--version"));
+  return (await herdrCalls(workspace)).filter((one) =>
+    [
+      "worktree create ",
+      "worktree remove ",
+      "agent start ",
+      "agent prompt ",
+      "agent send-keys ",
+      "pane split ",
+    ].some((prefix) => one.startsWith(prefix)),
+  );
 }
 
 type Observation = {
@@ -430,6 +439,122 @@ describe("operator setup probe apply", () => {
 
       expect(rerun.exitCode).toBe(3);
       expect(rerun.json.reason).toBe("approval_required");
+    },
+    PROBE_TIMEOUT_MS,
+  );
+
+  test(
+    "reproves stale tracker evidence without launching hosts or replacing provider evidence",
+    async () => {
+      const first = await applyProbe(workspace);
+      expect(first.json.reason).toBe("probe_completed");
+      await Bun.write(`${workspace.github}/version-new`, "");
+      const health = await runJson(workspace, ["healthcheck", ...workspace.selection]);
+      expect(health.json.data.reproof).toContain("--stale-only");
+      expect(
+        health.json.data.readiness.unproven.map((one: { name: string }) => one.name),
+      ).toContain("github-comment");
+      expect(
+        health.json.data.readiness.checks.find(
+          (one: { name: string }) => one.name === "provider-compatibility",
+        )?.state,
+      ).toBe("passed");
+
+      const plan = await runJson(workspace, [
+        "setup",
+        "probe",
+        "plan",
+        ...workspace.selection,
+        "--stale-only",
+      ]);
+      expect(plan.json.data.staleOnly).toBe(true);
+      expect(plan.json.data.checks.every((one: { group: string }) => one.group === "tracker")).toBe(
+        true,
+      );
+      expect(
+        plan.json.data.expectedCosts.some((line: string) => line.includes("0 synthetic prompts")),
+      ).toBe(true);
+      await Bun.write(`${workspace.github}/version-new`, "2.2.0");
+      const staleApproval = await runJson(workspace, [
+        "setup",
+        "probe",
+        "apply",
+        ...workspace.selection,
+        "--stale-only",
+        "--approved-probe",
+        plan.json.data.probeId,
+      ]);
+      expect(staleApproval.json.reason).toBe("approval_stale");
+      await Bun.write(`${workspace.github}/version-new`, "2.1.0");
+      const before = await launchCalls(workspace);
+      const ran = await runJson(workspace, [
+        "setup",
+        "probe",
+        "apply",
+        ...workspace.selection,
+        "--stale-only",
+        "--approved-probe",
+        plan.json.data.probeId,
+      ]);
+      expect(ran.exitCode).toBe(0);
+      expect(
+        ran.json.data.attempt.observations.every((one: Observation) =>
+          one.name.startsWith("github-"),
+        ),
+      ).toBe(true);
+      expect(ran.json.data.readiness.state).toBe("ready");
+      expect(await launchCalls(workspace)).toEqual(before);
+      const recorded = await Bun.file(`${workspace.repo}/.operator/local/readiness.json`).json();
+      expect(recorded.attempts).toHaveLength(2);
+      expect(
+        recorded.attempts[0].observations.find(
+          (one: Observation) => one.name === "provider-compatibility",
+        )?.state,
+      ).toBe("passed");
+    },
+    PROBE_TIMEOUT_MS,
+  );
+
+  test(
+    "reproves Herdr evidence without writing again to the tracker fixture",
+    async () => {
+      expect((await applyProbe(workspace)).json.reason).toBe("probe_completed");
+      await Bun.write(`${workspace.herdr}/version-new`, "");
+      const plan = await runJson(workspace, [
+        "setup",
+        "probe",
+        "plan",
+        ...workspace.selection,
+        "--stale-only",
+      ]);
+      expect(plan.json.data.checks.every((one: { group: string }) => one.group !== "tracker")).toBe(
+        true,
+      );
+      const before = (await githubCalls(workspace)).filter((one) =>
+        /^(POST|PATCH|PUT|DELETE) /.test(one),
+      );
+      const refused = await runJson(workspace, [
+        "setup",
+        "probe",
+        "apply",
+        ...workspace.selection,
+        "--stale-only",
+      ]);
+      expect(refused.json.reason).toBe("approval_required");
+      const ran = await runJson(workspace, [
+        "setup",
+        "probe",
+        "apply",
+        ...workspace.selection,
+        "--stale-only",
+        "--approved-probe",
+        plan.json.data.probeId,
+      ]);
+      expect(ran.exitCode).toBe(0);
+      expect(ran.json.data.readiness.state).toBe("ready");
+      expect(
+        (await githubCalls(workspace)).filter((one) => /^(POST|PATCH|PUT|DELETE) /.test(one)),
+      ).toEqual(before);
     },
     PROBE_TIMEOUT_MS,
   );

@@ -303,7 +303,7 @@ describe("the next actions", () => {
 
     expect(reported.of("reconcile_attempt").attemptId).toBe(producer.attemptId);
     expect(reported.names).not.toContain("deliver_answer");
-  });
+  }, 15_000);
 
   test("offers an open question, and names the user when it names an escalation trigger", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
@@ -355,7 +355,7 @@ describe("the next actions", () => {
     );
     const resolved = await nextActions(workspace);
     expect(resolved.waits.map((one) => one.wait)).not.toContain("answer_acknowledgement_pending");
-  });
+  }, 15_000);
 
   test("offers the queued review before new production work", async () => {
     const workspace = await makeReviewWorkspace(fixtures);

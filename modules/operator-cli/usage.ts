@@ -5,6 +5,7 @@ const crewSelection = "[--crew-host <host>] [--crew-model <model>]";
 export const usage = [
   "Usage:",
   "  operator --version [--json]",
+  `  operator healthcheck ${targetChoice} ${selection} ${crewSelection} [--json]`,
   `  operator install ${targetChoice} [--json]`,
   `  operator install matt plan ${targetChoice} [--json]`,
   `  operator install matt apply ${targetChoice} --commit <sha> --approved-plan <planId> [--json]`,
@@ -14,8 +15,8 @@ export const usage = [
   `  operator setup apply ${targetChoice} --approved-plan <planId> [--json]`,
   "  operator setup rollback [--json]",
   `  operator setup readiness ${targetChoice} ${selection} ${crewSelection} [--json]`,
-  `  operator setup probe plan ${targetChoice} ${selection} ${crewSelection} [--json]`,
-  `  operator setup probe apply ${targetChoice} ${selection} ${crewSelection} --approved-probe <probeId> [--json]`,
+  `  operator setup probe plan ${targetChoice} ${selection} ${crewSelection} [--stale-only] [--json]`,
+  `  operator setup probe apply ${targetChoice} ${selection} ${crewSelection} [--stale-only] --approved-probe <probeId> [--json]`,
   "  operator setup probe cleanup [--approved-cleanup <cleanupId>] [--json]",
   "  operator config show [--json]",
   "  operator config plan (--set <path=value> | --unset <path>)... [--json]",

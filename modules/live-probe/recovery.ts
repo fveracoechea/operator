@@ -5,7 +5,7 @@ import { GithubTracker } from "../github-tracker/main.ts";
 import { HerdrControl } from "../herdr-control/main.ts";
 import { TrackerUpdate } from "../tracker-update/main.ts";
 import { z } from "zod";
-import { isIdleShell } from "./agents.ts";
+import { isIdleShell, probeAgentName } from "./agents.ts";
 import { commitProbeWork, PROBE_DIRECTORY, removeScratch, scratchDirectories } from "./scratch.ts";
 import type { Fixture } from "./tracker.ts";
 
@@ -57,9 +57,14 @@ function journal(projectRoot: string, runId: string): string {
   return `${root(projectRoot)}/${runId}/run.json`;
 }
 
-function names(runId: string): string[] {
+function names(projectRoot: string, runId: string): string[] {
   const prefix = `operator-probe-${runId.replaceAll("-", "").slice(0, 8)}`;
-  return [`${prefix}-operator`, `${prefix}-crew`];
+  return [
+    probeAgentName(projectRoot, runId, "operator"),
+    probeAgentName(projectRoot, runId, "crew"),
+    `${prefix}-operator`,
+    `${prefix}-crew`,
+  ];
 }
 
 async function readRun(projectRoot: string, runId: string): Promise<Run | null> {
@@ -151,7 +156,7 @@ export async function inspectRuns(projectRoot: string) {
       : ({ status: "absent" } as const);
     const agents: string[] = [];
     let detail = worktree.status === "unknown" ? worktree.detail : null;
-    for (const name of names(runId)) {
+    for (const name of names(projectRoot, runId)) {
       const found = await HerdrControl.findAgent({ name });
       if (found.status === "unknown") detail = `${name}: ${found.detail}`;
       if (found.status === "found") {

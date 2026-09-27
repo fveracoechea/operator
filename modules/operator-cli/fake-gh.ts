@@ -76,6 +76,12 @@ function parsePath(raw: string): { path: string; query: URLSearchParams } {
 }
 
 const args = process.argv.slice(2);
+if (args[0] === "--version") {
+  const file = Bun.file(`${directory}/version-new`);
+  const version = (await file.exists()) ? (await file.text()).trim() || "2.1.0" : "2.0.0";
+  console.log(`gh version ${version}`);
+  process.exit(0);
+}
 const flags = new Set(["--include", "-i"]);
 const valueFlags = new Set(["--method", "--input", "-f", "-F", "-H"]);
 

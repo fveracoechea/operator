@@ -51,6 +51,7 @@ function planLines(result: Planned): string[] {
     ...section("Credentials required", result.plan.credentials),
     ...section("Temporary resources", result.plan.temporaryResources),
     ...section("Expected costs", result.plan.expectedCosts),
+    ...section("Execution", result.plan.execution),
     ...section(
       "Checks",
       result.plan.checks.flatMap((check) => [
@@ -77,6 +78,7 @@ function approvalCommand(result: Planned): string {
     "operator setup probe apply",
     ...result.report.targets.map(targetFlag),
     ...overrides,
+    ...(result.plan.staleOnly ? ["--stale-only"] : []),
     `--approved-probe ${result.plan.probeId}`,
   ].join(" ");
 }
@@ -95,10 +97,27 @@ export async function runProbePlan(parsed: ParsedArguments): Promise<void> {
     projectRoot: process.cwd(),
     targets: parsed.targets,
     overrides: parsed.overrides,
+    staleOnly: parsed.staleOnly,
   });
 
   if (result.status === "blocked") {
     reportBlocked(parsed, result, "setup_probe_plan");
+    return;
+  }
+  if (result.status === "nothing-stale") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "missing-condition",
+        reason: "probe_nothing_stale",
+        blockers: [{ reason: "probe_nothing_stale" }],
+        operation: "setup_probe_plan",
+        data: result.report,
+      },
+      lines: [
+        "No live check has stale evidence. Use the full probe plan if other checks need proof.",
+      ],
+    });
     return;
   }
 
@@ -150,11 +169,26 @@ export async function runProbeApply(parsed: ParsedArguments): Promise<void> {
     projectRoot: process.cwd(),
     targets: parsed.targets,
     overrides: parsed.overrides,
+    staleOnly: parsed.staleOnly,
     approvedProbeId: parsed.approvedProbe,
   });
 
   if (result.status === "blocked") {
     reportBlocked(parsed, result, "setup_probe_apply");
+    return;
+  }
+  if (result.status === "nothing-stale") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "missing-condition",
+        reason: "probe_nothing_stale",
+        blockers: [{ reason: "probe_nothing_stale" }],
+        operation: "setup_probe_apply",
+        data: result.report,
+      },
+      lines: ["No live check has stale evidence. Nothing was launched."],
+    });
     return;
   }
 

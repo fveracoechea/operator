@@ -8,7 +8,11 @@ printf '%s\n' "$(printf '%s ' "$@" | tr '\n' ' ')" >> "$dir/calls.log"
 
 # The environment probe reads a version before it trusts the tool, so the fake answers one.
 if [ "${1:-}" = "--version" ]; then
-  echo "herdr 0.9.0"
+  if [ -f "$dir/version-new" ]; then
+    echo "herdr 0.9.2"
+  else
+    echo "herdr 0.9.1"
+  fi
   exit 0
 fi
 
@@ -60,6 +64,17 @@ worktree_row() {
 # external operation reaches the caller with its effect already landed.
 answer() {
   case "$key" in
+  plugin-list)
+    if [ -f "$dir/plugin-missing" ]; then
+      printf '{"result":{"plugins":[]}}\n'
+    else
+      enabled=true
+      [ -f "$dir/plugin-disabled" ] && enabled=false
+      path="${HERDR_FAKE_PLUGIN_PATH:-}"
+      [ -f "$dir/plugin-mismatch" ] && path="$dir/other/herdr-plugin.toml"
+      printf '{"result":{"plugins":[{"plugin_id":"operator.wake","manifest_path":"%s","enabled":%s,"min_herdr_version":"0.9.1","warnings":[]}]}}\n' "$path" "$enabled"
+    fi
+    ;;
   worktree-create)
     repo=$(value_of --cwd "$@")
     parent=$(value_of --workspace "$@")

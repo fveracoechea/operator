@@ -310,6 +310,7 @@ async function runSetupProbe(
     // Cleanup names no host and no target; it disposes of what earlier runs recorded.
     if (
       parsed.targets.length > 0 ||
+      parsed.staleOnly ||
       parsed.approvedProbe !== undefined ||
       parsed.overrides.operator !== undefined ||
       parsed.overrides.crew !== undefined
@@ -353,7 +354,11 @@ export async function runSetup(
   }
 
   if (subcommand === "readiness") {
-    if (parsed.approvedPlan !== undefined || parsed.approvedProbe !== undefined) {
+    if (
+      parsed.approvedPlan !== undefined ||
+      parsed.approvedProbe !== undefined ||
+      parsed.staleOnly
+    ) {
       return "invalid-arguments";
     }
     await runReadiness(parsed);

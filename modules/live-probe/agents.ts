@@ -36,6 +36,16 @@ export const LIFECYCLE_CHECKS = [
 
 export type Launched = { name: string; paneId: string };
 
+/** Stable Herdr handles include the project so simultaneous probe runs do not collide. */
+export function probeAgentName(projectRoot: string, runId: string, role: "operator" | "crew") {
+  const slug =
+    basename(projectRoot)
+      .toLowerCase()
+      .replaceAll(/[^a-z0-9]+/g, "")
+      .slice(0, 8) || "project";
+  return `probe-${slug}-${runId.replaceAll("-", "").slice(0, 8)}-${role}`;
+}
+
 /** A stopped agent can leave only its interactive shell in a pane. */
 export function isIdleShell(
   process: { pid: number; name: string; command: string },
@@ -135,12 +145,7 @@ export async function startAgent(
 
   const project = basename(lifecycle.projectRoot);
   const short = lifecycle.runId.replaceAll("-", "").slice(0, 8);
-  const slug =
-    project
-      .toLowerCase()
-      .replaceAll(/[^a-z0-9]+/g, "")
-      .slice(0, 8) || "project";
-  const name = `probe-${slug}-${short}-${request.role}`;
+  const name = probeAgentName(lifecycle.projectRoot, lifecycle.runId, request.role);
   const started = await HerdrControl.startAgent({
     name,
     kind: lifecycle[request.role].host,

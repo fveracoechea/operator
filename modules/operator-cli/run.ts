@@ -12,6 +12,7 @@ import { runAttempt } from "./attempt-command.ts";
 import { runCleanup } from "./cleanup-command.ts";
 import { runConfig } from "./config-command.ts";
 import { runCrewOwn } from "./crew-command.ts";
+import { runHealthcheck } from "./healthcheck-command.ts";
 import { runCrewNext } from "./next-command.ts";
 import { runInstall, runMattSkills } from "./install-command.ts";
 import { runUpdate } from "./update-command.ts";
@@ -132,6 +133,25 @@ async function runConfigCommand(rest: string[]): Promise<void> {
     rejectArguments(parsed.json);
 }
 
+async function runHealthcheckCommand(rest: string[]): Promise<void> {
+  const { words, parsed } = splitRequest(rest);
+  if (
+    words.length > 0 ||
+    parsed.unsupported.length > 0 ||
+    hasCrewArguments(parsed) ||
+    hasConfigArguments(parsed) ||
+    hasUpdateArguments(parsed) ||
+    parsed.approvedPlan !== undefined ||
+    parsed.approvedProbe !== undefined ||
+    parsed.approvedCleanup !== undefined ||
+    parsed.staleOnly
+  ) {
+    rejectArguments(parsed.json);
+    return;
+  }
+  await runHealthcheck(parsed);
+}
+
 function runtimeSupported(args: string[], version: string, supportedBun: string): boolean {
   // The Bun check runs before any command so an unsupported runtime never writes files.
   if (Bun.semver.satisfies(Bun.version, supportedBun)) return true;
@@ -200,6 +220,11 @@ export async function run(args: string[]): Promise<void> {
 
   if (command === "config") {
     await runConfigCommand(rest);
+    return;
+  }
+
+  if (command === "healthcheck") {
+    await runHealthcheckCommand(rest);
     return;
   }
 

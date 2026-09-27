@@ -44,6 +44,7 @@ export type ParsedArguments = {
   approvedUpdate: string | undefined;
   approvedPlan: string | undefined;
   approvedProbe: string | undefined;
+  staleOnly: boolean;
   approvedCleanup: string | undefined;
   configSets: string[];
   configUnsets: string[];
@@ -118,6 +119,7 @@ export function parseArguments(args: string[]): ParsedArguments {
     approvedUpdate: undefined,
     approvedPlan: undefined,
     approvedProbe: undefined,
+    staleOnly: false,
     approvedCleanup: undefined,
     configSets: [],
     configUnsets: [],
@@ -136,6 +138,8 @@ export function parseArguments(args: string[]): ParsedArguments {
       parsed.json = true;
     } else if (argument === "--takeover") {
       parsed.takeover = true;
+    } else if (argument === "--stale-only") {
+      parsed.staleOnly = true;
     } else if (argument === "--set" || argument === "--unset") {
       const value = valueOf(args, index + 1);
       if (value === undefined) {
@@ -234,6 +238,7 @@ export function readRevision(parsed: ParsedArguments): number | null {
 export function hasSelectionOrProbeArguments(parsed: ParsedArguments): boolean {
   return (
     parsed.approvedProbe !== undefined ||
+    parsed.staleOnly ||
     parsed.approvedCleanup !== undefined ||
     parsed.overrides.operator !== undefined ||
     parsed.overrides.crew !== undefined
