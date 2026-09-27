@@ -1,5 +1,17 @@
 # @fveracoechea/operator
 
+## 0.4.0
+
+### Minor Changes
+
+- d94e6c3: Let projects set Operative reasoning effort and change Operator configuration through approved CLI plans.
+
+### Patch Changes
+
+- 95f554c: Use an absolute worktree path for partial results and recognize the returned shell in live readiness probes.
+  Give each probe run a distinct fixture amendment section so reruns do not conflict.
+- 6061af2: Catch unsafe type assertions, copied reducer accumulators, conditional empty-object spreads, and high-complexity functions during lint.
+
 ## 0.3.0
 
 ### Minor Changes
