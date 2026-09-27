@@ -16,6 +16,7 @@ import {
 
 export type Brief = {
   assignmentId: string;
+  assignmentRevision: number;
   attemptId: string;
   sourceId: string;
   sourceKey: string;
@@ -24,6 +25,7 @@ export type Brief = {
   kind: string;
   approvedScope: string;
   acceptanceRequirements: string[];
+  requirementsIdentity: string;
   permissions: { writePaths: string[]; allowedCommands: string[]; network: boolean };
   fixedInputs: Array<{
     name: string;
@@ -200,6 +202,7 @@ function briefDocument(request: {
     "## Identity",
     "",
     `- Assignment: ${brief.assignmentId}`,
+    `- Assignment revision: ${brief.assignmentRevision}`,
     `- Attempt: ${brief.attemptId}`,
     `- Source: ${brief.sourceId} item ${brief.sourceKey} at revision ${brief.sourceRevision}`,
     `- Assignment kind: ${brief.kind}`,
@@ -216,6 +219,7 @@ function briefDocument(request: {
     "## Acceptance requirements",
     "",
     ...brief.acceptanceRequirements.map((one) => `- ${one}`),
+    `- Requirements identity: ${brief.requirementsIdentity}`,
     "",
     "## Authority limits",
     "",

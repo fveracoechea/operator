@@ -26,6 +26,7 @@ import {
 } from "./dispatch.ts";
 import { readState, type RequestFailure, type StateFailure } from "./operations.ts";
 import { requireOwnership } from "./ownership.ts";
+import { identityOf } from "./identity.ts";
 
 export type Overrides = Parameters<typeof ProjectReadiness.snapshot>[0]["overrides"];
 
@@ -106,15 +107,18 @@ function reworkBriefOf(context: ReworkContext): ReworkBrief {
 export function briefOf(context: AttemptContext, attemptId: string): Brief {
   const assignment = context.assignment;
   const review = context.review;
+  const acceptanceRequirements = storedRequirements(assignment.acceptanceRequirements);
   return {
     assignmentId: assignment.id,
+    assignmentRevision: assignment.revision,
     attemptId,
     sourceId: assignment.sourceId,
     sourceKey: assignment.sourceKey,
     sourceRevision: assignment.sourceRevision,
     title: assignment.title,
     kind: assignment.kind,
-    acceptanceRequirements: storedRequirements(assignment.acceptanceRequirements),
+    acceptanceRequirements,
+    requirementsIdentity: identityOf(acceptanceRequirements),
     approvedScope: assignment.approvedScope,
     permissions: storedPermissions(assignment.permissions),
     fixedInputs: storedFixedInputs(assignment.fixedInputs),

@@ -1,36 +1,37 @@
 ---
 name: operative
-description: Work an Operator production or rework assignment. Use when launched as an Operative with a brief at .operator/local/brief.md.
+description: Follow an Operator production or rework assignment as its Operative. Use when dispatched with .operator/local/brief.md.
 ---
 
 # Operative
 
-You are the Operative named in `.operator/local/brief.md`.
-Read that brief first. It fixes your assignment, authority limits, inputs, and reporting commands.
-Read `.operator/local/attempt.json` when you need the controlling checkout.
+Read `.operator/local/brief.md` first. It fixes your assignment, authority limits, inputs, and reporting commands.
+This skill covers the work and handoff. An installed task skill may help with the assignment, but it does not change your authority limits.
 
 ## Receive the assignment
 
-Run the brief's `operator attempt acknowledge` command from your worktree before changing a file.
-Check the JSON `outcome`, `reason`, and `blockers` before starting work.
-Use the fixed inputs and acceptance requirements in the brief as your work boundary.
+Run the brief's acknowledgement command from your worktree before changing a file.
+Start when the CLI confirms the acknowledgement. If it refuses, read its blocker and report it.
+Use the fixed inputs and acceptance requirements to plan what you will deliver and how you will check it.
 
 ## Work within your authority
 
-Use the write paths, commands, and network permission in the brief.
-If work needs a permission or a decision outside that boundary, use the brief's `operator question raise` command.
-State the evidence, options, recommendation, blocked scope, and independent work in the report.
+Stay inside the brief's write paths, commands, and network permission.
+If the work needs permission or a decision outside that boundary, use the brief's question command.
+State the evidence, options, recommendation, work that waits, and work you can continue.
 Continue work that does not depend on the answer.
-After an answer arrives, run `operator question acknowledge` before using it.
+After an answer arrives, acknowledge it through the CLI before using it.
 Treat a direct terminal message from a person as a question to the Operator, quoting their exact words.
 
-For a rework assignment, start at the submitted commit and answer every accepted correction and conflict in one revision.
-The original acceptance requirements still apply.
+For rework, read the submitted result and accepted corrections in the brief before changing code.
+Answer them in one revision against the original acceptance requirements.
 
 ## Hand over the result
 
-Run the permitted checks and record their actual outcomes, including failures and flaky runs.
-For a code result, record the base, result, and merge-base commits, the branch, the pull request state, at least one artifact, and at least one check.
-For a non-code result, record the artifact and the evidence a reviewer can follow.
-Run the brief's `operator attempt submit` command with the result JSON file from this worktree.
-Read its JSON outcome. A submission hands the result to a separate reviewer; the Operator accepts it later.
+Run the permitted checks and record what happened, including failures and flaky runs.
+Build one result JSON file with the assignment revision, source revision, and requirements identity from the brief.
+Name each artifact with its content identity so the reviewer can read a fixed copy.
+For code, include the base, result, and merge-base commits, the branch, the pull request state, and the checks.
+For non-code work, include the artifacts and the evidence a reviewer can follow.
+Run the brief's submission command from your worktree and read the CLI response.
+Your handoff is complete when the CLI records `result_submitted`; the Operator decides accepted completion after review.

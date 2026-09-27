@@ -24,8 +24,7 @@ Read [COORDINATION.md](COORDINATION.md) before you act on what it reports.
 A session that did not start this crew acquires it first.
 Read [RECOVERY.md](RECOVERY.md) before you own, adopt, or resume anything.
 
-An Operative loads the `operative` skill and reads the fixed brief for its assignment.
-Read [BRIEFING.md](BRIEFING.md) before you write a prompt for one.
+Read [BRIEFING.md](BRIEFING.md) before you register work for an Operative.
 
 ## The named operations
 
@@ -38,7 +37,7 @@ Read [RELEASE.md](RELEASE.md) before you select a release, update a project, or 
 
 Crew ownership, work registration, the frontier, and Operative dispatch.
 Read [REGISTRATION.md](REGISTRATION.md) before you register approved work.
-Read [DISPATCH.md](DISPATCH.md) before you launch or recover an Operative.
+Read [DISPATCH.md](DISPATCH.md) before you claim, launch, or recover an Operative; it covers the Herdr launch and skill choice.
 
 Result submission, separate two-axis review, finding dispositions, and accepted completion.
 Read [REVIEW.md](REVIEW.md) before you review a result or accept an assignment.
@@ -57,8 +56,6 @@ Tracker completion and recovery.
 separate outcomes, and it reports what it could not establish rather than writing again.
 
 ## Rules
-
-These two hold everywhere. Every other rule lives in the topic file that owns it.
 
 Ask the user before you write to a project.
 Show the exact proposed changes first, then apply the approved plan.

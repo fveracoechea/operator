@@ -103,7 +103,12 @@ async function claimedAttempt(workspace: Workspace) {
     "1",
   ]);
 
-  return { ownerToken, assignmentId, attemptId: claimed.json.data.attemptId };
+  return {
+    ownerToken,
+    assignmentId,
+    attemptId: claimed.json.data.attemptId,
+    assignmentRevision: Number(claimed.json.data.revision),
+  };
 }
 
 async function dispatch(
@@ -185,6 +190,10 @@ describe("operator attempt dispatch", () => {
     expect(brief).toContain(crew.assignmentId);
     expect(brief).toContain("Build the dispatch path.");
     expect(brief).toContain("The quality gate passes.");
+    expect(brief).toContain(`- Assignment revision: ${crew.assignmentRevision}`);
+    expect(brief).toContain(
+      `- Requirements identity: ${ContentIdentity.of(["The quality gate passes."])}`,
+    );
     expect(brief).toContain("modules/");
     expect(brief).toContain("operator attempt acknowledge");
 
