@@ -144,6 +144,7 @@ export type Reason =
   | "snapshot_unreadable"
   | "dispatch_plan_changed"
   | "commit_required"
+  | "herdr_workspace_required"
   | "attempt_reconciled"
   | "attempt_replaced"
   | "attempt_adopted"

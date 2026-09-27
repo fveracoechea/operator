@@ -3,6 +3,7 @@ import { z } from "zod";
 // The launch inputs a dispatch needs from a recorded snapshot. Unknown keys are kept, because the
 // record belongs to the release that wrote it and a recovery must not narrow it.
 const snapshotSchema = z.looseObject({
+  parentWorkspaceId: z.string().min(1).optional(),
   selection: z.looseObject({
     crew: z.looseObject({
       host: z.string().nullable(),

@@ -148,6 +148,97 @@ async function damageSnapshot(workspace: Workspace, attemptId: string) {
 }
 
 describe("operator attempt dispatch", () => {
+  test("groups an Operative worktree with the Operator's current Herdr workspace", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await claimedAttempt(workspace);
+
+    const dispatched = await runJson(
+      workspace,
+      [
+        "attempt",
+        "dispatch",
+        "--request",
+        request(),
+        "--owner-token",
+        crew.ownerToken,
+        "--attempt",
+        crew.attemptId,
+        "--commit",
+        await headCommit(workspace),
+        "--worktree",
+        `${workspace.root}/operative`,
+      ],
+      workspace.repo,
+      { HERDR_WORKSPACE_ID: "stale", HERDR_PANE_ID: "w0:p1" },
+    );
+
+    expect(dispatched.json.reason).toBe("acknowledgement_pending");
+    const created = (await calls(workspace)).find((line) => line.startsWith("worktree create"));
+    expect(created).toContain("--workspace w0");
+    expect(created).not.toContain("--cwd");
+  });
+
+  test("refuses a new launch outside a Herdr workspace", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await claimedAttempt(workspace);
+    const launched = await runJson(
+      workspace,
+      [
+        "attempt",
+        "dispatch",
+        "--request",
+        request(),
+        "--owner-token",
+        crew.ownerToken,
+        "--attempt",
+        crew.attemptId,
+        "--commit",
+        await headCommit(workspace),
+      ],
+      workspace.repo,
+      { HERDR_WORKSPACE_ID: "", HERDR_PANE_ID: "" },
+    );
+
+    expect(launched.json.reason).toBe("herdr_workspace_required");
+    expect((await calls(workspace)).some((line) => line.startsWith("worktree create"))).toBe(false);
+  });
+
+  test("keeps the original parent workspace when retrying a failed worktree creation", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await claimedAttempt(workspace);
+    await Bun.write(`${workspace.herdr}/worktree-create.error`, "worktree_refused");
+
+    const failed = await dispatch(workspace, crew);
+    expect(failed.json.reason).toBe("dispatch_stage_failed");
+    await rm(`${workspace.herdr}/worktree-create.error`);
+
+    const retried = await runJson(
+      workspace,
+      [
+        "attempt",
+        "dispatch",
+        "--request",
+        request(),
+        "--owner-token",
+        crew.ownerToken,
+        "--attempt",
+        crew.attemptId,
+        "--commit",
+        await headCommit(workspace),
+        "--worktree",
+        `${workspace.root}/operative`,
+      ],
+      workspace.repo,
+      { HERDR_WORKSPACE_ID: "w9", HERDR_PANE_ID: "w9:p1" },
+    );
+
+    expect(retried.json.reason).toBe("acknowledgement_pending");
+    expect((await calls(workspace)).filter((line) => line.startsWith("worktree create"))).toEqual([
+      expect.stringContaining("--workspace w0"),
+      expect.stringContaining("--workspace w0"),
+    ]);
+  });
+
   test("prepares an isolated worktree and stays pending until the Operative acknowledges", async () => {
     const workspace = await makeWorkspace();
     const crew = await claimedAttempt(workspace);
@@ -267,6 +358,7 @@ describe("operator attempt dispatch", () => {
       "agent get",
       "agent prompt",
       "agent start",
+      "pane get",
       "pane list",
       "worktree create",
       "worktree list",

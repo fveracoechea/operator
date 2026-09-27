@@ -16,6 +16,9 @@ Read this before you launch, recover, or replace an Operative.
    Read [REVIEW.md](REVIEW.md) from there.
 
 Dispatch creates the Herdr worktree and sends the fixed prompt.
+Run dispatch from the Operator's Herdr pane.
+It groups the new worktree workspace with the Operator's current workspace and keeps that parent on retries.
+Dispatch refuses a new launch when it cannot identify the current workspace.
 That prompt tells a production or rework Operative to load `operative` from its worktree.
 A review assignment receives `code-review` instead.
 

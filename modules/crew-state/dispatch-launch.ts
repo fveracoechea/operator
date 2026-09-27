@@ -39,6 +39,7 @@ export type DispatchResult =
   | { status: "snapshot-unreadable"; attemptId: string; detail: string }
   | { status: "plan-changed"; attemptId: string; recorded: string; computed: string }
   | { status: "commit-required"; attemptId: string }
+  | { status: "workspace-required"; attemptId: string; detail: string }
   | { status: "review-base-changed"; attemptId: string; recorded: string; requested: string }
   | { status: "host-unnamed"; attemptId: string }
   | AttemptFailure
@@ -123,6 +124,7 @@ export async function dispatchAttempt(request: {
   baseCommit: string | null;
   branch: string | null;
   worktreePath: string | null;
+  paneId: string | null;
   overrides: Overrides;
 }): Promise<DispatchResult> {
   const read = await readContext(request.projectRoot, request);
@@ -146,12 +148,32 @@ export async function dispatchAttempt(request: {
       : { status: "awaiting-acknowledgement", report, repeated: true };
   }
 
+  const parent =
+    recorded === null && request.paneId !== null
+      ? await OperativeDispatch.parentWorkspace({ paneId: request.paneId })
+      : null;
+  if (recorded === null && (parent === null || parent.status !== "found")) {
+    return {
+      status: "workspace-required",
+      attemptId,
+      detail:
+        parent === null
+          ? "This command is not running in a Herdr pane."
+          : parent.status === "absent"
+            ? "Herdr cannot find the Operator pane."
+            : parent.detail,
+    };
+  }
+
   const current = await ProjectReadiness.snapshot({
     projectRoot: request.projectRoot,
     overrides: request.overrides,
   });
 
-  let snapshot: Snapshot = current;
+  let snapshot: Snapshot =
+    parent?.status === "found"
+      ? { ...current, parentWorkspaceId: parent.value.workspaceId }
+      : current;
   if (recorded !== null) {
     const restored = OperativeDispatch.readSnapshot({ recorded: recorded.snapshot });
     if (restored.status !== "read") {

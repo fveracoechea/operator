@@ -80,9 +80,25 @@ function lookupFrom<Value>(
 }
 
 export const HerdrControl = {
+  /** Reads the pane's current workspace, which may differ from its launch-time environment. */
+  async findPaneWorkspace(request: { paneId: string }): Promise<Lookup<{ workspaceId: string }>> {
+    const outcome = await invokeHerdr({
+      args: ["pane", "get", request.paneId],
+      timeoutMs: READ_TIMEOUT_MS,
+    });
+    return lookupFrom(outcome, ["pane_not_found"], (result) => {
+      const workspaceId = ToolInvocation.text(
+        ToolInvocation.record(result, "pane"),
+        "workspace_id",
+      );
+      return workspaceId === null ? null : { workspaceId };
+    });
+  },
+
   /** Creates the isolated checkout one Operative writes in, on an explicit branch and commit. */
   async createWorktree(request: {
     repoRoot: string;
+    parentWorkspaceId?: string;
     path: string;
     branch: string;
     baseCommit: string;
@@ -92,8 +108,9 @@ export const HerdrControl = {
       args: [
         "worktree",
         "create",
-        "--cwd",
-        request.repoRoot,
+        ...(request.parentWorkspaceId === undefined
+          ? ["--cwd", request.repoRoot]
+          : ["--workspace", request.parentWorkspaceId]),
         "--path",
         request.path,
         "--branch",

@@ -284,7 +284,11 @@ These terms follow [Herdr's concepts](https://herdr.dev/docs/concepts/).
 
 **Herdr workspace**:
 A top-level project container that owns tabs and panes.
-Operator can associate an Operative's checkout with a Herdr workspace, but the workspace is not the checkout.
+Operator groups an Operative's worktree workspace with the Operator's current workspace, but neither workspace is the checkout itself.
+
+**Herdr worktree workspace**:
+A separate Herdr workspace opened for a Git worktree checkout and grouped with its parent workspace.
+The Operative runs in its own worktree workspace, not in a tab or pane of the parent.
 
 **Herdr tab**:
 A layout of panes inside a Herdr workspace.
