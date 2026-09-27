@@ -20,7 +20,7 @@
     "release": "bun scripts/release.ts",
     "changeset": "bunx --bun @changesets/cli@3.0.3",
     "test:module-boundaries": "bun scripts/prove-module-boundaries.ts",
-    "test": "bun test",
+    "test": "bun test --parallel=4",
     "typecheck": "bunx --bun --no-install tsc --noEmit -p tsconfig.json",
     "quality": "bun run --parallel format:check lint typecheck lint:modules lint:skills test:module-boundaries test"
   },

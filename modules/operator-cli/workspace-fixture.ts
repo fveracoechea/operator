@@ -87,8 +87,8 @@ export async function headCommit(workspace: Workspace, cwd = workspace.repo): Pr
 /** The tools a fixture answers itself, and the only ones a fixture PATH hides. */
 const FAKED_TOOLS = ["gh", "herdr"];
 
-// One mirror directory per PATH directory that holds a real faked tool, made once per process.
-const mirrorRoot = `${Bun.env.TMPDIR ?? "/tmp"}/operator-path-${process.pid}`;
+// Isolated test files reuse a worker process, so each fixture instance needs its own mirror root.
+const mirrorRoot = `${Bun.env.TMPDIR ?? "/tmp"}/operator-path-${crypto.randomUUID()}`;
 const mirrors = new Map<string, string>();
 
 process.on("exit", () => rmSync(mirrorRoot, { force: true, recursive: true }));
