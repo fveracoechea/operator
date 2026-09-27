@@ -67,6 +67,13 @@
       "skillPath": "skills/productivity/handoff/SKILL.md",
       "computedHash": "20e5f4afdef502637510bc5c64d27645d3c85c88df9cb006824bbb0980166319"
     },
+    "hunk-extensions": {
+      "source": "modem-dev/hunk",
+      "ref": "main",
+      "sourceType": "github",
+      "skillPath": "packages/hunk/skills/hunk-extensions/SKILL.md",
+      "computedHash": "f0682550646628d0f0bc9f98bb3d3336d6c761efbdfeec93adbabd93a97a6141"
+    },
     "implement": {
       "source": "mattpocock/skills",
       "sourceType": "github",
