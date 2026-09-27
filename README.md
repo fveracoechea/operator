@@ -6,6 +6,9 @@ The name comes from *The Matrix*: the crew member who loads programs, guides mis
 
 <img width="1600" height="689" alt="image" src="https://github.com/user-attachments/assets/800655fa-8603-47d5-9f2e-6cf0b56dcad6" />
 
+Operator is based on [Matt Pocock's agent skills and workflow](https://github.com/mattpocock/skills).
+His skills guide the work from clarifying a goal and writing a spec through tickets, implementation, and review.
+Operator builds on that workflow by coordinating the agents, worktrees, and recorded decisions that carry the work between those steps.
 
 ## Status
 
@@ -18,9 +21,9 @@ The release workflow publishes a version to JSR and GitHub after its version pul
 
 1. You work with the Operator to clarify a goal and choose the work to delegate.
 2. The Operator registers the work and assigns each item to a crew member, called an Operative. Each Operative runs in its own Git worktree that Herdr manages.
-3. Operatives use skills such as `implement`, `research`, `improve-codebase-architecture`, and `grilling` to do their work.
+3. Operatives use Matt Pocock's skills such as `implement`, `research`, `improve-codebase-architecture`, and `grilling` to do their work.
 4. An Operative that cannot continue asks the Operator. The Operator answers from recorded decisions, and brings the questions that need your judgment to you.
-5. A separate reviewer checks each result on the Standards and Spec axes before the Operator presents it for acceptance.
+5. A separate reviewer uses Matt's `code-review` skill to check each result on the Standards and Spec axes before the Operator presents it for acceptance.
 6. After you accept a result, the Operator closes the crew agent and removes its worktree. Cleanup that is not complete stays visible until it is done or you defer it.
 
 You can talk to an Operative directly, but the main workflow goes through the Operator.
@@ -125,6 +128,7 @@ The command adopts a copy that already matches this release, and writes nothing 
 A copy that someone changed is a conflict, and the command then writes nothing.
 
 Install Matt Pocock's upstream skills separately.
+They provide the project workflows for shaping work, implementing it, and reviewing results.
 Run this before creating Operative worktrees, and commit the installed project skills so new worktrees contain `code-review`.
 
 ```sh
