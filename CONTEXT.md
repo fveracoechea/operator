@@ -273,3 +273,42 @@ The list is explicit and holds no credential, and the copies stay readable after
 **Retention hold**:
 An explicit decision to keep one Operative's resources.
 It blocks every cleanup of its attempt until a person releases it, and it outlives the session that placed it.
+
+## Herdr language
+
+These terms follow [Herdr's concepts](https://herdr.dev/docs/concepts/).
+
+**Herdr workspace**:
+A top-level project container that owns tabs and panes.
+Operator can associate an Operative's checkout with a Herdr workspace, but the workspace is not the checkout.
+
+**Herdr tab**:
+A layout of panes inside a Herdr workspace.
+It groups terminal views without creating another workspace.
+
+**Herdr pane**:
+A terminal inside a tab that holds a real process and persists when a client detaches.
+An Operator or Operative agent can run in one pane.
+
+**Herdr agent**:
+An agent process that Herdr recognizes inside a pane.
+This is the process Herdr observes, not an Operator assignment or attempt.
+
+**Herdr agent state**:
+Herdr's observation of an agent as `blocked`, `working`, `done`, `idle`, or `unknown`.
+`done` means a completion has not been seen, while `idle` means it has been seen or the agent is waiting; each client tracks which completions it has displayed, so its badge can differ from the server's state.
+
+**Herdr session**:
+A persistent server namespace that owns its own panes, sockets, and runtime state.
+It is distinct from an agent session.
+
+**Agent session**:
+One Operator or Operative agent's conversation with its host.
+It is distinct from the Herdr session that runs its pane.
+
+**Herdr server**:
+The background process that owns Herdr panes and their running processes, even when no client is attached.
+
+**Herdr client**:
+A terminal UI attached to a Herdr server.
+The client can detach without stopping the server or its agents.
