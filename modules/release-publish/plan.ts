@@ -14,6 +14,7 @@ export type ReleaseBlocker = {
   reason:
     | "artifact_incomplete"
     | "artifact_changed"
+    | "changelog_missing"
     | "commit_not_merged"
     | "tag_moved"
     | "version_published"
@@ -43,7 +44,30 @@ export type PlanRequest = {
   repository?: string;
   jsr?: { api: string; scope: string; package: string; fetch: typeof fetch };
   journalPath: string;
+  changelogPath?: string;
 };
+
+async function releaseNotes(path: string, version: string): Promise<string | null> {
+  const file = Bun.file(path);
+  if (!(await file.exists())) {
+    return null;
+  }
+
+  const text = await file.text();
+  const headings = [...text.matchAll(/^## ([^\r\n]+)\r?$/gm)];
+  const position = headings.findIndex((heading) => heading[1] === version);
+  if (position === -1) {
+    return null;
+  }
+
+  const start = headings[position]?.index;
+  if (start === undefined) {
+    return null;
+  }
+  const end = headings[position + 1]?.index ?? text.length;
+  const notes = text.slice(start, end).trim();
+  return notes === `## ${version}` ? null : notes;
+}
 
 export function jsrSettings(request: PlanRequest) {
   return (
@@ -71,8 +95,21 @@ export async function computeReleasePlan(request: PlanRequest) {
     : {};
   const version = manifest.version ?? "0.0.0";
   const tag = `v${version}`;
+  const notes = await releaseNotes(
+    request.changelogPath ?? new URL("../../CHANGELOG.md", import.meta.url).pathname,
+    version,
+  );
 
   const blockers: ReleaseBlocker[] = [];
+  if (notes === null) {
+    blockers.push(
+      blocker(
+        "changelog_missing",
+        `CHANGELOG.md has no notes for version ${version}.`,
+        "Add this version's changeset notes before publishing the release.",
+      ),
+    );
+  }
   if (inspection.status === "incomplete") {
     blockers.push(
       blocker(
@@ -196,6 +233,7 @@ export async function computeReleasePlan(request: PlanRequest) {
     repository,
     version,
     tag,
+    notes,
     commit: request.commit,
     artifactIdentity: inspection.artifactIdentity,
     artifact: { root: inspection.artifactRoot, missing: inspection.missing },

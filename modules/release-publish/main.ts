@@ -129,7 +129,7 @@ async function publishSource(plan: ReleasePlan): Promise<PathRecord> {
     repository: plan.repository,
     tag: plan.tag,
     name: `Operator ${plan.version}`,
-    body: `Operator ${plan.version} from commit ${plan.commit}.`,
+    body: plan.notes ?? "",
   });
 
   return released.status === "succeeded"

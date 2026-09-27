@@ -3,6 +3,7 @@ export type ReleaseFakeState = {
   compare: Record<string, string>;
   tags: Record<string, string>;
   releases: Record<string, string>;
+  releaseBodies?: Record<string, string>;
 };
 
 export type ReleaseFakeFault = { kind: string; remaining: number };

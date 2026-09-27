@@ -19,6 +19,7 @@ const stateSchema = z.object({
   compare: z.record(z.string(), z.string()),
   tags: z.record(z.string(), z.string()),
   releases: z.record(z.string(), z.string()),
+  releaseBodies: z.record(z.string(), z.string()).optional(),
 });
 
 async function readState(): Promise<ReleaseFakeState> {
@@ -124,7 +125,7 @@ if (/^repos\/[^/]+\/[^/]+\/git\/refs$/.test(endpoint)) {
 
 if (/^repos\/[^/]+\/[^/]+\/releases$/.test(endpoint)) {
   const fault = await takeFault("create_release");
-  const body = z.object({ tag_name: z.string() }).parse(await readInput(args));
+  const body = z.object({ tag_name: z.string(), body: z.string() }).parse(await readInput(args));
   if (fault === "server_error") {
     answer(500, { message: "the release may or may not exist" });
     process.exit(0);
@@ -132,6 +133,8 @@ if (/^repos\/[^/]+\/[^/]+\/releases$/.test(endpoint)) {
 
   const url = `https://github.test/releases/${body.tag_name}`;
   state.releases[body.tag_name] = url;
+  state.releaseBodies ??= {};
+  state.releaseBodies[body.tag_name] = body.body;
   await writeState(state);
   answer(201, { html_url: url, tag_name: body.tag_name });
   process.exit(0);

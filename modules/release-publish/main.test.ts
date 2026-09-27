@@ -184,6 +184,37 @@ describe("the release plan", () => {
 });
 
 describe("the publication", () => {
+  test("publishes only the matching changelog section as the GitHub release body", async () => {
+    const changelogPath = `${root}/CHANGELOG.md`;
+    await Bun.write(
+      changelogPath,
+      `# Operator\n\n## ${version}\n\n### Minor Changes\n\n- A new release note.\n\n## 0.2.0\n\n- An older release note.\n`,
+    );
+    const fake = await jsrFake();
+
+    const result = await ReleasePublish.publish(request(fake, { changelogPath }));
+
+    expect(result.status).toBe("published");
+    const state: ReleaseFakeState = await Bun.file(`${ghDirectory}/state.json`).json();
+    expect(state.releaseBodies?.[`v${version}`]).toBe(
+      `## ${version}\n\n### Minor Changes\n\n- A new release note.`,
+    );
+  });
+
+  test("blocks publication before creating a tag when this version has no changelog", async () => {
+    const changelogPath = `${root}/CHANGELOG.md`;
+    await Bun.write(changelogPath, "# Operator\n\n## 0.2.0\n\n- An older release note.\n");
+    const fake = await jsrFake();
+
+    const result = await ReleasePublish.publish(request(fake, { changelogPath }));
+
+    expect(result.status).toBe("blocked");
+    expect(result.plan.blockers.map((one) => one.reason)).toContain("changelog_missing");
+    const state: ReleaseFakeState = await Bun.file(`${ghDirectory}/state.json`).json();
+    expect(state.tags).toEqual({});
+    expect(await fake.calls()).toEqual([]);
+  });
+
   test("delivers both paths from one commit", async () => {
     const fake = await jsrFake();
 
