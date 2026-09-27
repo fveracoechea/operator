@@ -26,7 +26,7 @@ An action that names a blocker waits on a person, and that blocker is also in th
 The exit code says what this session may do on its own.
 
 - `0`: at least one action needs nobody else. Take the first one.
-- `6`: nothing can advance now. Wait.
+- `6`: nothing can advance now. Report the waits and yield.
 - `3`: every open crew action waits on a person. Bring the blockers to the user.
 
 Readiness is the one exception, because settling it starts no work.
@@ -54,20 +54,15 @@ If the user decides to continue without proven readiness, say so in your report 
 
 ## Waiting
 
-Exit 6 means nothing you can run will move the crew.
-Wait on one of the agents `data.waits` names, and bound the wait.
+When only waits remain, report what `data.waits` names and end your turn.
+The user can steer the crew or answer a question while the Operative works.
+On your next turn, run `operator crew next` before making any crew decision.
 
-```sh
-herdr agent wait <agentName> --timeout 300000
-```
-
-Read `data.waits` for the agent name.
-A wait is read-only.
+A short, bounded Herdr wait is useful for a transition expected within seconds.
+Read `data.waits` for the agent name, and refresh `crew next` after that wait ends.
+A timeout proves nothing about an Operative and never authorizes another brief.
+Herdr inspection and waits are read-only.
 Never send keys, submit a prompt, start an agent, or create a checkout by hand.
-
-Run `operator crew next` again when the wait ends, whatever its outcome.
-A wait that timed out proves nothing.
-It is never evidence that an Operative stopped, and never a reason to send a brief again.
 
 ## Independent work continues
 

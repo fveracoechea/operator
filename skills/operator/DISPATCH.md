@@ -32,9 +32,8 @@ A worktree never picks up uncommitted work from another checkout, so ask the use
 
 Herdr acknowledges that it submitted the brief, not that the Operative read it.
 A dispatch reports `pending` with `acknowledgement_pending` until the Operative runs `operator attempt acknowledge` from its own worktree.
-Wait for that acknowledgement before you treat the assignment as started.
-
-Use a bounded Herdr wait or a periodic check while you wait.
+Treat the assignment as started only after that acknowledgement.
+When `crew next` reports a wait for it, report the wait and yield as [COORDINATION.md](COORDINATION.md) describes.
 Do not start a second writer.
 
 ## Uncertain is not failure
