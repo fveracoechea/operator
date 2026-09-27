@@ -214,16 +214,17 @@ export const OperativeDispatch = {
     projectRoot: string;
     plan: DispatchPlan;
   }): Promise<LaunchOutcome<{ workspaceId: string; worktreePath: string }>> {
-    const created = await HerdrControl.createWorktree({
+    const input: Parameters<typeof HerdrControl.createWorktree>[0] = {
       repoRoot: request.projectRoot,
-      ...(request.plan.parentWorkspaceId === undefined
-        ? {}
-        : { parentWorkspaceId: request.plan.parentWorkspaceId }),
       path: request.plan.worktreePath,
       branch: request.plan.branch,
       baseCommit: request.plan.baseCommit,
       label: request.plan.agentName,
-    });
+    };
+    if (request.plan.parentWorkspaceId !== undefined) {
+      input.parentWorkspaceId = request.plan.parentWorkspaceId;
+    }
+    const created = await HerdrControl.createWorktree(input);
     if (created.status === "failed") {
       return { status: "failed", code: created.code, detail: created.detail };
     }

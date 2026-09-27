@@ -256,33 +256,12 @@ async function runClaim(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
-async function runAccept(parsed: ParsedArguments): Promise<Handled> {
-  const mutation = readMutation(parsed);
-  const assignmentId = parsed.crew.assignmentId;
-  // Planning work carries no attempt, so the attempt is optional here and checked by kind.
-  const attemptId = parsed.crew.attemptId ?? null;
-  const revision = readRevision(parsed);
-  if (mutation === null || assignmentId === undefined || revision === null) {
-    return "invalid-arguments";
-  }
+type AcceptanceResult = Awaited<ReturnType<typeof CrewState.accept>>["result"];
 
-  const { repeated, result } = await CrewState.accept({
-    projectRoot: process.cwd(),
-    ...mutation,
-    assignmentId,
-    attemptId,
-    revision,
-    submissionId: parsed.crew.submissionId ?? null,
-    prHead: parsed.crew.prHead ?? null,
-  });
-
-  if (
-    reportSharedFailure(parsed, "work_accept", result) ||
-    reportAssignmentFailure(parsed, "work_accept", result)
-  ) {
-    return "reported";
-  }
-
+function reportAcceptancePrerequisite(
+  parsed: ParsedArguments,
+  result: AcceptanceResult,
+): Handled | null {
   if (result.status === "not-claimed") {
     report({
       json: parsed.json,
@@ -357,18 +336,19 @@ async function runAccept(parsed: ParsedArguments): Promise<Handled> {
 
   if (result.status === "submission-required" || result.status === "submission-mismatch") {
     const required = result.status === "submission-required";
+    const blocker = required
+      ? { reason: "submission_required" as const, assignmentId: result.assignmentId }
+      : {
+          reason: "submission_mismatch" as const,
+          assignmentId: result.assignmentId,
+          recordedSubmissionId: result.recordedSubmissionId,
+        };
     report({
       json: parsed.json,
       result: {
         outcome: required ? "missing-condition" : "conflict",
         reason: required ? "submission_required" : "submission_mismatch",
-        blockers: [
-          {
-            reason: required ? ("submission_required" as const) : ("submission_mismatch" as const),
-            assignmentId: result.assignmentId,
-            ...(required ? {} : { recordedSubmissionId: result.recordedSubmissionId }),
-          },
-        ],
+        blockers: [blocker],
         operation: "work_accept",
       },
       lines: [
@@ -380,6 +360,37 @@ async function runAccept(parsed: ParsedArguments): Promise<Handled> {
     });
     return "reported";
   }
+  return null;
+}
+
+async function runAccept(parsed: ParsedArguments): Promise<Handled> {
+  const mutation = readMutation(parsed);
+  const assignmentId = parsed.crew.assignmentId;
+  // Planning work carries no attempt, so the attempt is optional here and checked by kind.
+  const attemptId = parsed.crew.attemptId ?? null;
+  const revision = readRevision(parsed);
+  if (mutation === null || assignmentId === undefined || revision === null) {
+    return "invalid-arguments";
+  }
+
+  const { repeated, result } = await CrewState.accept({
+    projectRoot: process.cwd(),
+    ...mutation,
+    assignmentId,
+    attemptId,
+    revision,
+    submissionId: parsed.crew.submissionId ?? null,
+    prHead: parsed.crew.prHead ?? null,
+  });
+
+  if (
+    reportSharedFailure(parsed, "work_accept", result) ||
+    reportAssignmentFailure(parsed, "work_accept", result)
+  ) {
+    return "reported";
+  }
+  const prerequisite = reportAcceptancePrerequisite(parsed, result);
+  if (prerequisite !== null) return prerequisite;
 
   if (result.status === "review-incomplete") {
     return refuse({
@@ -553,19 +564,24 @@ async function runAccept(parsed: ParsedArguments): Promise<Handled> {
 
   if (result.status === "pr-head-required" || result.status === "pr-head-changed") {
     const required = result.status === "pr-head-required";
+    const blocker = required
+      ? {
+          reason: "pr_head_required" as const,
+          assignmentId: result.assignmentId,
+          recorded: result.headCommit,
+        }
+      : {
+          reason: "pr_head_changed" as const,
+          assignmentId: result.assignmentId,
+          recorded: result.recorded,
+          stated: result.stated,
+        };
     report({
       json: parsed.json,
       result: {
         outcome: required ? "missing-condition" : "conflict",
         reason: required ? "pr_head_required" : "pr_head_changed",
-        blockers: [
-          {
-            reason: required ? ("pr_head_required" as const) : ("pr_head_changed" as const),
-            assignmentId: result.assignmentId,
-            recorded: required ? result.headCommit : result.recorded,
-            ...(required ? {} : { stated: result.stated }),
-          },
-        ],
+        blockers: [blocker],
         operation: "work_accept",
       },
       lines: [
@@ -579,6 +595,7 @@ async function runAccept(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
+  if (result.status !== "accepted") return "invalid-arguments";
   report({
     json: parsed.json,
     result: {

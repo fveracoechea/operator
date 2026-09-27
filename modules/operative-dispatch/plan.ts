@@ -362,10 +362,7 @@ export function planDispatch(request: {
         ],
   );
 
-  return {
-    ...(request.snapshot.parentWorkspaceId === undefined
-      ? {}
-      : { parentWorkspaceId: request.snapshot.parentWorkspaceId }),
+  const plan: DispatchPlan = {
     assignmentId: request.brief.assignmentId,
     attemptId: request.brief.attemptId,
     baseCommit: request.baseCommit,
@@ -387,6 +384,10 @@ export function planDispatch(request: {
     // A reviewer that cannot load the review skill is blocked before any agent starts.
     requiredSkill: review === null ? null : REVIEW_SKILL,
   };
+  if (request.snapshot.parentWorkspaceId !== undefined) {
+    plan.parentWorkspaceId = request.snapshot.parentWorkspaceId;
+  }
+  return plan;
 }
 
 export function agentKindFor(host: string): string {

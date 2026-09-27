@@ -283,14 +283,16 @@ export function recordEscalation(
     now: string;
   },
 ): void {
-  db.update(questions)
-    .set({
-      operatorEscalation: JSON.stringify(request.input),
-      ...(request.droppedAnswerId === null ? {} : { answerId: null, state: "open" }),
-      updatedAt: request.now,
-    })
-    .where(eq(questions.id, request.row.id))
-    .run();
+  const update =
+    request.droppedAnswerId === null
+      ? { operatorEscalation: JSON.stringify(request.input), updatedAt: request.now }
+      : {
+          operatorEscalation: JSON.stringify(request.input),
+          answerId: null,
+          state: "open" as const,
+          updatedAt: request.now,
+        };
+  db.update(questions).set(update).where(eq(questions.id, request.row.id)).run();
 }
 
 export function insertAnswer(

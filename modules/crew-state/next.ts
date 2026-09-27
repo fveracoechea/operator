@@ -276,19 +276,20 @@ function readQuestions(db: CrewReader, unsettled: Set<string>, into: Collector):
   )) {
     const triggers = triggersOf(row);
     if (row.state === "open") {
-      into.add({
+      const action: Draft = {
         action: "answer_question",
         assignmentId: row.assignmentId,
         attemptId: row.attemptId,
         questionId: row.id,
         revision: row.revision,
-        ...(triggers.length === 0 ? {} : { blocker: "escalation_required" as const }),
         detail:
           triggers.length > 0
             ? `This question names ${triggers.join(", ")}, so only a person may settle it.`
             : "This question is inside delegated authority.",
         command: "operator question answer",
-      });
+      };
+      if (triggers.length > 0) action.blocker = "escalation_required";
+      into.add(action);
       continue;
     }
 
@@ -405,14 +406,15 @@ function readTracker(
     const recovers = settles.includes("recover");
     // A conflict and another write after an uncertain one are both a person's call.
     const person = settles.includes("user") || settles.includes("approved-write");
-    into.add({
+    const action: Draft = {
       action: recovers ? "recover_tracker" : "record_tracker",
       assignmentId,
       revision,
-      ...(person ? { blocker: "approval_required" as const } : {}),
       detail: `The ${step} step is ${operation?.state ?? "unrecorded"}.`,
       command: recovers ? "operator tracker recover" : "operator tracker record",
-    });
+    };
+    if (person) action.blocker = "approval_required";
+    into.add(action);
   }
 }
 
@@ -463,14 +465,15 @@ function readCleanupOf(
   function owed(kind: CleanupKind, action: NextActionName, command: string, detail: string) {
     const state = recorded.get(kind);
     const stuck = state === undefined ? null : cleanupBlockers[state];
-    into.add({
+    const draft: Draft = {
       action: stuck === null ? action : "settle_cleanup",
       assignmentId: request.assignmentId,
       attemptId: request.attemptId,
-      ...(stuck === null ? {} : { blocker: stuck }),
       detail: stuck === null ? detail : `The recorded ${kind.replace("_", " ")} is ${state}.`,
       command,
-    });
+    };
+    if (stuck !== null) draft.blocker = stuck;
+    into.add(draft);
   }
 
   if (recorded.get("process_closure") !== "done") {

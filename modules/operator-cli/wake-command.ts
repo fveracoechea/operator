@@ -3,9 +3,7 @@ import { CrewWake } from "../crew-wake/main.ts";
 import { resolve } from "node:path";
 import { type Handled, refuse, report } from "./result.ts";
 
-/** The wake command is called by the Operator and the Herdr plugin launcher. */
-export async function runWake(args: string[]): Promise<Handled> {
-  const [mode, ...flags] = args;
+function readWakeFlags(flags: string[]) {
   const options = new Map<string, string>();
   const targets: string[] = [];
   const selection: string[] = [];
@@ -35,8 +33,17 @@ export async function runWake(args: string[]): Promise<Handled> {
       !flags[index + 1]?.startsWith("--")
     ) {
       options.set(flag, flags[++index] ?? "");
-    } else return "invalid-arguments";
+    } else return null;
   }
+  return { options, targets, selection, json, event };
+}
+
+/** The wake command is called by the Operator and the Herdr plugin launcher. */
+export async function runWake(args: string[]): Promise<Handled> {
+  const [mode, ...flags] = args;
+  const parsed = readWakeFlags(flags);
+  if (parsed === null) return "invalid-arguments";
+  const { options, targets, selection, json, event } = parsed;
   const root = options.get("--root");
   const owner = options.get("--owner-label");
   const compiledCli = resolve(import.meta.dir, "../../cli.js");

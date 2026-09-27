@@ -174,10 +174,9 @@ async function apply(parsed: ParsedArguments): Promise<void> {
       data:
         result.status === "applied"
           ? { ...planData(result.plan), repeated: false }
-          : {
-              repeated: result.repeated,
-              ...(result.plan === undefined ? {} : planData(result.plan)),
-            },
+          : result.plan === undefined
+            ? { repeated: result.repeated }
+            : { repeated: result.repeated, ...planData(result.plan) },
     },
     lines: [
       result.status === "applied"

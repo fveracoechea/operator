@@ -92,6 +92,7 @@ async function readApproval(
  * accepted result, preserved evidence, remote copies of every commit, and an approval granted
  * against these exact inputs.
  */
+// oxlint-disable-next-line complexity -- Removal gates and recovery run in one ordered operation.
 export async function removeWorktree(request: {
   projectRoot: string;
   requestId: string;

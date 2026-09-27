@@ -296,41 +296,45 @@ async function runRollback(parsed: ParsedArguments): Promise<void> {
   });
 }
 
+async function runSetupProbe(
+  second: string | undefined,
+  parsed: ParsedArguments,
+): Promise<"reported" | "invalid-arguments"> {
+  if (second !== "plan" && second !== "apply" && second !== "cleanup") {
+    return "invalid-arguments";
+  }
+  if (parsed.approvedPlan !== undefined) {
+    return "invalid-arguments";
+  }
+  if (second === "cleanup") {
+    // Cleanup names no host and no target; it disposes of what earlier runs recorded.
+    if (
+      parsed.targets.length > 0 ||
+      parsed.approvedProbe !== undefined ||
+      parsed.overrides.operator !== undefined ||
+      parsed.overrides.crew !== undefined
+    ) {
+      return "invalid-arguments";
+    }
+    await runProbeCleanup(parsed);
+    return "reported";
+  }
+  if (parsed.approvedCleanup !== undefined) {
+    return "invalid-arguments";
+  }
+  if (second === "plan" && parsed.approvedProbe !== undefined) {
+    return "invalid-arguments";
+  }
+  await (second === "plan" ? runProbePlan(parsed) : runProbeApply(parsed));
+  return "reported";
+}
+
 export async function runSetup(
   words: string[],
   parsed: ParsedArguments,
 ): Promise<"reported" | "invalid-arguments"> {
   const [subcommand, second] = words;
-
-  if (subcommand === "probe") {
-    if (second !== "plan" && second !== "apply" && second !== "cleanup") {
-      return "invalid-arguments";
-    }
-    if (parsed.approvedPlan !== undefined) {
-      return "invalid-arguments";
-    }
-    if (second === "cleanup") {
-      // Cleanup names no host and no target; it disposes of what earlier runs recorded.
-      if (
-        parsed.targets.length > 0 ||
-        parsed.approvedProbe !== undefined ||
-        parsed.overrides.operator !== undefined ||
-        parsed.overrides.crew !== undefined
-      ) {
-        return "invalid-arguments";
-      }
-      await runProbeCleanup(parsed);
-      return "reported";
-    }
-    if (parsed.approvedCleanup !== undefined) {
-      return "invalid-arguments";
-    }
-    if (second === "plan" && parsed.approvedProbe !== undefined) {
-      return "invalid-arguments";
-    }
-    await (second === "plan" ? runProbePlan(parsed) : runProbeApply(parsed));
-    return "reported";
-  }
+  if (subcommand === "probe") return runSetupProbe(second, parsed);
 
   if (words.length !== 1) {
     return "invalid-arguments";

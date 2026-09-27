@@ -117,6 +117,7 @@ async function runStage(request: {
  * Every stage records its intent before it acts and its outcome after, so an interrupted launch
  * is reconciled against Herdr instead of being repeated into a second writer.
  */
+// oxlint-disable-next-line complexity -- Splitting the launch would hide the recorded stage order.
 export async function dispatchAttempt(request: {
   projectRoot: string;
   requestId: string;
@@ -367,19 +368,20 @@ export async function dispatchAttempt(request: {
         input: { operationId, state: outcome.status, detail: outcome.detail },
       },
       ({ tx, now }) => {
-        settleOperation(tx, {
+        const input: Parameters<typeof settleOperation>[1] = {
           operationId,
           attemptId,
           state: outcome.status,
           detail: outcome.detail,
-          ...(outcome.status === "succeeded" && outcome.workspaceId !== undefined
-            ? { workspaceId: outcome.workspaceId }
-            : {}),
-          ...(outcome.status === "succeeded" && outcome.paneId !== undefined
-            ? { paneId: outcome.paneId }
-            : {}),
           now,
-        });
+        };
+        if (outcome.status === "succeeded" && outcome.workspaceId !== undefined) {
+          input.workspaceId = outcome.workspaceId;
+        }
+        if (outcome.status === "succeeded" && outcome.paneId !== undefined) {
+          input.paneId = outcome.paneId;
+        }
+        settleOperation(tx, input);
         return { commit: true, outcome: { status: "recorded" as const } };
       },
     );

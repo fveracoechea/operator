@@ -103,21 +103,19 @@ async function makeProbeWorkspace(
 ): Promise<Workspace & { probeId: string; selection: string[]; skills: string[] }> {
   const operator = options.operator ?? "claude-code";
   const crew = options.crew ?? "opencode";
+  const config: {
+    operator: { host: Host };
+    crew: { host: Host };
+    probe?: { githubFixture: { repository: string; issue: number } };
+  } = { operator: { host: operator }, crew: { host: crew } };
+  if (options.fixture !== false) {
+    config.probe = { githubFixture: { repository: FIXTURE_REPOSITORY, issue: FIXTURE_ISSUE } };
+  }
   const workspace = await fixtures.make({
     tools: hostTools,
     // Operator refuses to configure a project that tracks its own local directory.
     files: { ".gitignore": "/.operator/\n" },
-    config: {
-      operator: { host: operator },
-      crew: { host: crew },
-      ...(options.fixture === false
-        ? {}
-        : {
-            probe: {
-              githubFixture: { repository: FIXTURE_REPOSITORY, issue: FIXTURE_ISSUE },
-            },
-          }),
-    },
+    config,
   });
 
   await writeFixtureState(workspace, {
