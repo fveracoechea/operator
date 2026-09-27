@@ -185,7 +185,16 @@ export const HerdrControl = {
     kind: string;
     paneId: string;
     model?: string | null;
+    reasoningEffort?: string | null;
   }): Promise<HerdrOutcome<Agent>> {
+    const agentArgs = [
+      ...(request.model === null || request.model === undefined ? [] : ["--model", request.model]),
+      ...(request.reasoningEffort === null || request.reasoningEffort === undefined
+        ? []
+        : request.kind === "claude"
+          ? ["--effort", request.reasoningEffort]
+          : ["--agent", "operator-crew"]),
+    ];
     const outcome = await invokeHerdr({
       args: [
         "agent",
@@ -195,9 +204,7 @@ export const HerdrControl = {
         request.kind,
         "--pane",
         request.paneId,
-        ...(request.model === null || request.model === undefined
-          ? []
-          : ["--", "--model", request.model]),
+        ...(agentArgs.length === 0 ? [] : ["--", ...agentArgs]),
       ],
       timeoutMs: LAUNCH_TIMEOUT_MS,
     });

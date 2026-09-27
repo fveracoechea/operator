@@ -1,10 +1,20 @@
 import { HerdrControl } from "../herdr-control/main.ts";
+import { ContentIdentity } from "../content-identity/main.ts";
 import { SkillInstall } from "../skill-install/main.ts";
 import { type AnswerDelivery, answerDocument } from "./answer.ts";
 import { type PrepareOutcome, prepareInputs } from "./inputs.ts";
 import { inspectReviewWork, inspectWork, type WorkInspection } from "./inspect.ts";
 import { readReference } from "./reference.ts";
-import { BRIEF_PATH, LOCAL_ROOT, REFERENCE_PATH, RELEASE_PATH } from "./plan.ts";
+import {
+  BRIEF_PATH,
+  LOCAL_ROOT,
+  OPENCODE_AGENT_PATH,
+  OPENCODE_EFFORT_PLUGIN_PATH,
+  opencodeAgentText,
+  opencodeEffortPluginText,
+  REFERENCE_PATH,
+  RELEASE_PATH,
+} from "./plan.ts";
 import { readSnapshot } from "./snapshot.ts";
 import {
   agentKindFor,
@@ -57,13 +67,36 @@ export const OperativeDispatch = {
    * whose exact expected content survives in the crew state. A cleanup can therefore notice an
    * edit to it, even though Operator's own paths are excluded from the checkout reading.
    */
-  launchInputs(request: { briefIdentity: string }): Array<{
+  launchInputs(request: { briefIdentity: string; snapshot: string }): Array<{
     name: string;
     path: string;
     expected: string | null;
   }> {
+    const stored = readSnapshot(request.snapshot);
+    const effort =
+      stored.status === "read" && stored.snapshot.selection.crew.host === "opencode"
+        ? stored.snapshot.selection.crew.reasoningEffort
+        : null;
     return [
       { name: "brief", path: BRIEF_PATH, expected: request.briefIdentity },
+      ...(effort === null || effort === undefined
+        ? []
+        : [
+            {
+              name: "opencode-agent",
+              path: OPENCODE_AGENT_PATH,
+              expected: ContentIdentity.ofText(opencodeAgentText(effort)),
+            },
+          ]),
+      ...(effort === null || effort === undefined
+        ? []
+        : [
+            {
+              name: "opencode-effort-plugin",
+              path: OPENCODE_EFFORT_PLUGIN_PATH,
+              expected: ContentIdentity.ofText(opencodeEffortPluginText(effort)),
+            },
+          ]),
       { name: "control-reference", path: REFERENCE_PATH, expected: null },
       { name: "release", path: RELEASE_PATH, expected: null },
     ];
@@ -78,6 +111,8 @@ export const OperativeDispatch = {
     if (hasAgentKind(request.agentHost)) {
       prefixes.push(`${SkillInstall.targetRoot({ target: request.agentHost })}/`);
     }
+    if (request.agentHost === "opencode")
+      prefixes.push(OPENCODE_AGENT_PATH, OPENCODE_EFFORT_PLUGIN_PATH);
     return prefixes;
   },
 
@@ -89,10 +124,22 @@ export const OperativeDispatch = {
     baseCommit: string;
     branch: string | null;
     worktreePath: string | null;
-  }): { status: "planned"; plan: DispatchPlan } | { status: "host-unnamed" } {
+  }):
+    | { status: "planned"; plan: DispatchPlan }
+    | { status: "host-unnamed" }
+    | { status: "effort-unsupported"; detail: string } {
     const host = request.snapshot.selection.crew.host;
     if (!hasAgentKind(host)) {
       return { status: "host-unnamed" };
+    }
+
+    const effort = request.snapshot.selection.crew.reasoningEffort;
+    const model = request.snapshot.selection.crew.model;
+    if (effort && host === "opencode" && (model === null || !model.startsWith("openai/"))) {
+      return {
+        status: "effort-unsupported",
+        detail: `OpenCode needs an explicit OpenAI crew model to apply reasoning effort ${effort}; selected model: ${model ?? "host default"}.`,
+      };
     }
 
     return {
@@ -136,6 +183,11 @@ export const OperativeDispatch = {
         "selection.crew.model",
         request.recorded.selection.crew.model,
         request.current.selection.crew.model,
+      ],
+      [
+        "selection.crew.reasoningEffort",
+        request.recorded.selection.crew.reasoningEffort ?? null,
+        request.current.selection.crew.reasoningEffort ?? null,
       ],
     ];
 
@@ -210,6 +262,7 @@ export const OperativeDispatch = {
       kind: request.plan.agentKind,
       paneId: pane.value.paneId,
       model: request.plan.agentModel,
+      reasoningEffort: request.plan.agentReasoningEffort,
     });
     if (started.status !== "succeeded") {
       return started.status === "failed"

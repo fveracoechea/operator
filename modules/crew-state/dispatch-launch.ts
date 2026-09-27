@@ -42,6 +42,7 @@ export type DispatchResult =
   | { status: "workspace-required"; attemptId: string; detail: string }
   | { status: "review-base-changed"; attemptId: string; recorded: string; requested: string }
   | { status: "host-unnamed"; attemptId: string }
+  | { status: "effort-unsupported"; attemptId: string; detail: string }
   | AttemptFailure
   | Shared;
 
@@ -229,6 +230,9 @@ export async function dispatchAttempt(request: {
   });
   if (launch.status === "host-unnamed") {
     return { status: "host-unnamed", attemptId };
+  }
+  if (launch.status === "effort-unsupported") {
+    return { status: "effort-unsupported", attemptId, detail: launch.detail };
   }
 
   const plan = launch.plan;

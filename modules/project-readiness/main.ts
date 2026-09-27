@@ -162,7 +162,14 @@ function selectionSummary(observation: Observation) {
     };
   }
 
-  return { operator: role("operator"), crew: role("crew") };
+  return {
+    operator: role("operator"),
+    crew: {
+      ...role("crew"),
+      reasoningEffort: observation.selection.crew.reasoningEffort.value,
+      reasoningEffortSource: observation.selection.crew.reasoningEffort.source,
+    },
+  };
 }
 
 function fixtureOf(observation: Observation) {

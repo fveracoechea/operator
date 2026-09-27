@@ -1,6 +1,15 @@
 import { ContentIdentity } from "../content-identity/main.ts";
 import { SkillInstall } from "../skill-install/main.ts";
-import { type DispatchPlan, RELEASE_PATH, REFERENCE_PATH, type Snapshot } from "./plan.ts";
+import {
+  type DispatchPlan,
+  OPENCODE_AGENT_PATH,
+  OPENCODE_EFFORT_PLUGIN_PATH,
+  opencodeAgentText,
+  opencodeEffortPluginText,
+  RELEASE_PATH,
+  REFERENCE_PATH,
+  type Snapshot,
+} from "./plan.ts";
 
 export type PreparedInput = { path: string; identity: string };
 
@@ -59,6 +68,31 @@ async function intendedWrites(request: {
   }
 
   const schema = await readBytes(`${request.projectRoot}/.operator/config.schema.json`);
+  const opencodeInputs =
+    plan.agentHost === "opencode" && plan.agentReasoningEffort !== null
+      ? [
+          {
+            path: OPENCODE_AGENT_PATH,
+            bytes: encoder.encode(opencodeAgentText(plan.agentReasoningEffort)),
+          },
+          {
+            path: OPENCODE_EFFORT_PLUGIN_PATH,
+            bytes: encoder.encode(opencodeEffortPluginText(plan.agentReasoningEffort)),
+          },
+        ]
+      : [];
+  for (const input of opencodeInputs) {
+    const existing = await readBytes(`${plan.worktreePath}/${input.path}`);
+    if (
+      existing !== null &&
+      ContentIdentity.ofBytes(existing) !== ContentIdentity.ofBytes(input.bytes)
+    ) {
+      return {
+        failure: "input_verification_failed",
+        detail: `${input.path} already exists with different contents.`,
+      };
+    }
+  }
 
   // A review carries fixed copies of the submitted artifacts, so the reviewer never reads the
   // producer worktree, which another attempt may still change.
@@ -83,6 +117,7 @@ async function intendedWrites(request: {
   return {
     writes: [
       ...copies,
+      ...opencodeInputs,
       { path: ".operator/config.json", bytes: configuration },
       ...(schema === null ? [] : [{ path: ".operator/config.schema.json", bytes: schema }]),
       { path: `.operator/local/${snapshot.lock.name}`, bytes: lock },

@@ -9,6 +9,7 @@ const agentSelection = z.strictObject({
 // The crew also carries its own concurrency, because the Operator agent is not one of the crew.
 const crewSelection = agentSelection.extend({
   maxActiveAgents: z.number().int().min(1).optional(),
+  reasoningEffort: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
 });
 
 /**

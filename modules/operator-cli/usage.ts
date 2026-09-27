@@ -17,6 +17,10 @@ export const usage = [
   `  operator setup probe plan ${targetChoice} ${selection} ${crewSelection} [--json]`,
   `  operator setup probe apply ${targetChoice} ${selection} ${crewSelection} --approved-probe <probeId> [--json]`,
   "  operator setup probe cleanup [--approved-cleanup <cleanupId>] [--json]",
+  "  operator config show [--json]",
+  "  operator config plan (--set <path=value> | --unset <path>)... [--json]",
+  "  operator config apply (--set <path=value> | --unset <path>)... --approved-plan <planId> [--json]",
+  "  operator config recover [--json]",
   "  operator crew own --request <id> --owner-label <label> [--json]",
   "  operator crew own --request <id> --owner-label <label> --takeover --ownership-revision <n> [--json]",
   `  operator crew next ${targetChoice} ${selection} ${crewSelection} [--json]`,
@@ -59,4 +63,6 @@ export const usage = [
   "",
   "A host is `opencode` or `claude-code`.",
   "A delivery path is `github-source` or `jsr`; `jsr` also needs an exact package version.",
+  "Config fields: operator.host/model, crew.host/model/reasoningEffort/maxActiveAgents, probe.githubFixture.repository/issue/mapIssue.",
+  "Unset probe.githubFixture to remove the fixture.",
 ].join("\n");

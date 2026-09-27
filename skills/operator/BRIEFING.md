@@ -21,7 +21,7 @@ Register those carefully, because they are what the Operative gets.
 - **Approved scope** and **acceptance requirements**, with the requirements identity needed to submit the result.
 - **Authority limits**: the write paths, the allowed commands, and whether network access is permitted. Work outside them is a question, never the Operative's own decision.
 - **Fixed inputs**, with the content identity of every path input. They are fixed at dispatch, so a later change to their source does not change them.
-- **Effective configuration**: the crew host and model, the Operator release, the lock data, and the skill contents of this launch.
+- **Effective configuration**: the crew host, model, and reasoning effort, the Operator release, the lock data, and the skill contents of this launch.
 - **The reporting protocol** of its role.
 
 A review brief adds the fixed submission it reads, its two axes, and the coverage each axis owes.

@@ -22,6 +22,7 @@ function launchLines(report: DispatchReport): string[] {
     `Attempt ${report.attemptId} on assignment ${report.assignmentId} is ${report.stage}.`,
     `Checkout ${report.worktreePath} on ${report.branch} from ${report.baseCommit}.`,
     `Operative ${report.agentName} runs on ${report.agentHost}.`,
+    `Model ${report.agentModel ?? "host default"}, reasoning effort ${report.reasoningEffort ?? "host default"}.`,
     ...report.operations.map(
       (one) => `  ${one.kind}: ${one.state}${one.detail === null ? "" : ` (${one.detail})`}`,
     ),
@@ -138,6 +139,17 @@ async function runDispatch(parsed: ParsedArguments): Promise<Handled> {
       ],
     });
     return "reported";
+  }
+
+  if (result.status === "effort-unsupported") {
+    return refuse({
+      json: parsed.json,
+      operation: "attempt_dispatch",
+      outcome: "missing-condition",
+      reason: "reasoning_effort_unsupported",
+      detail: { attemptId: result.attemptId, detail: result.detail },
+      lines: [result.detail],
+    });
   }
 
   if (result.status === "snapshot-unreadable") {

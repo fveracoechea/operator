@@ -40,10 +40,19 @@ const SKILL_PATH: Record<Host, string> = {
 };
 
 /** A fixture project with a remote, so a cleanup can prove where the commits also live. */
-async function makeWorkspace(options: { host?: Host } = {}): Promise<Workspace> {
+async function makeWorkspace(
+  options: { host?: Host; reasoningEffort?: string } = {},
+): Promise<Workspace> {
   const host = options.host ?? "claude-code";
   const fixture = await fixtures.make({
-    config: { crew: { host } },
+    config: {
+      crew: {
+        host,
+        ...(options.reasoningEffort === undefined
+          ? {}
+          : { model: "openai/gpt-6-sol", reasoningEffort: options.reasoningEffort }),
+      },
+    },
     files: { ".gitignore": IGNORE_RULES },
   });
 
@@ -198,6 +207,21 @@ describe("operator cleanup close", () => {
     expect(closed.json.data.agentHost).toBe("opencode");
     const stop = (await herdrCalls(workspace)).find((line) => line.startsWith("agent send-keys "));
     expect(stop).toContain("esc ctrl+c ctrl+d");
+  });
+
+  test("preserves the OpenCode effort inputs before closing the process", async () => {
+    const workspace = await makeWorkspace({ host: "opencode", reasoningEffort: "medium" });
+    const { producer } = await acceptedCycle(workspace);
+
+    const closed = await close(workspace, producer.ownerToken, producer.attemptId);
+
+    expect(closed.json.reason).toBe("process_closed");
+    expect(closed.json.data.evidence.map((one: { name: string }) => one.name)).toContain(
+      "opencode-agent",
+    );
+    expect(closed.json.data.evidence.map((one: { name: string }) => one.name)).toContain(
+      "opencode-effort-plugin",
+    );
   });
 
   test("closes a reviewer whose axes ran as sub-agents of its own host", async () => {

@@ -1,6 +1,7 @@
 import { OperatorRelease } from "../operator-release/main.ts";
 import {
   hasCrewArguments,
+  hasConfigArguments,
   hasSelectionOrProbeArguments,
   hasUpdateArguments,
   type ParsedArguments,
@@ -9,6 +10,7 @@ import {
 import { runApproval } from "./approval-command.ts";
 import { runAttempt } from "./attempt-command.ts";
 import { runCleanup } from "./cleanup-command.ts";
+import { runConfig } from "./config-command.ts";
 import { runCrewOwn } from "./crew-command.ts";
 import { runCrewNext } from "./next-command.ts";
 import { runInstall, runMattSkills } from "./install-command.ts";
@@ -104,6 +106,7 @@ export async function run(args: string[]): Promise<void> {
       parsed.takeover ||
       Object.keys(otherCrewFlags).length > 0 ||
       hasSelectionOrProbeArguments(parsed) ||
+      hasConfigArguments(parsed) ||
       (await runUpdate(words, parsed)) !== "reported"
     ) {
       rejectArguments(parsed.json);
@@ -121,6 +124,7 @@ export async function run(args: string[]): Promise<void> {
         parsed.takeover ||
         hasUpdateArguments(parsed) ||
         hasSelectionOrProbeArguments(parsed) ||
+        hasConfigArguments(parsed) ||
         (await runMattSkills(words.slice(1), parsed)) !== "reported"
       )
         rejectArguments(parsed.json);
@@ -132,7 +136,8 @@ export async function run(args: string[]): Promise<void> {
       parsed.approvedPlan !== undefined ||
       hasCrewArguments(parsed) ||
       hasUpdateArguments(parsed) ||
-      hasSelectionOrProbeArguments(parsed)
+      hasSelectionOrProbeArguments(parsed) ||
+      hasConfigArguments(parsed)
     ) {
       rejectArguments(parsed.json);
       return;
@@ -146,11 +151,27 @@ export async function run(args: string[]): Promise<void> {
     if (
       parsed.unsupported.length > 0 ||
       hasCrewArguments(parsed) ||
+      hasConfigArguments(parsed) ||
       hasUpdateArguments(parsed) ||
       (await runSetup(words, parsed)) !== "reported"
     ) {
       rejectArguments(parsed.json);
     }
+    return;
+  }
+
+  if (command === "config") {
+    const { words, parsed } = splitRequest(rest);
+    if (
+      parsed.unsupported.length > 0 ||
+      parsed.targets.length > 0 ||
+      parsed.takeover ||
+      hasCrewArguments(parsed) ||
+      hasSelectionOrProbeArguments(parsed) ||
+      hasUpdateArguments(parsed) ||
+      (await runConfig(words, parsed)) !== "reported"
+    )
+      rejectArguments(parsed.json);
     return;
   }
 
@@ -165,6 +186,7 @@ export async function run(args: string[]): Promise<void> {
       (!selects && parsed.targets.length > 0) ||
       parsed.approvedPlan !== undefined ||
       hasUpdateArguments(parsed) ||
+      hasConfigArguments(parsed) ||
       // Only crew ownership can be taken over, so every other command refuses the flag.
       (parsed.takeover && !(command === "crew" && words[0] === "own")) ||
       // A dispatch fixes the selection it launches with, so only it reads a selection override.

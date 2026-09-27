@@ -65,6 +65,15 @@ Setup owns these files:
 
 Setup never commits, never changes the Git index, and never installs machine-wide software.
 
+## Change project settings
+
+Read the validated settings with `operator config show --json`.
+To change a setting, run `operator config plan --set <path=value> --json`, show its exact file change to the user, then run `operator config apply` with the same flags and `--approved-plan <planId>`.
+Use `--unset <path>` to remove a setting and return to its default.
+The CLI usage lists supported fields.
+Run `operator config recover --json` if an apply was interrupted.
+Recovery compares the file with the recorded before and after identities and changes no configuration value.
+
 ## Select the release
 
 A configured project is not yet coordinating with a known release.

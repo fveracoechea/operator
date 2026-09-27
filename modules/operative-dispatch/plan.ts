@@ -42,7 +42,7 @@ export type Brief = {
 export type Snapshot = {
   parentWorkspaceId?: string;
   selection: {
-    crew: { host: string | null; model: string | null };
+    crew: { host: string | null; model: string | null; reasoningEffort?: string | null };
   };
   release: { version: string; identity: string };
   // A record written before a project selected an exact release carries none.
@@ -64,6 +64,7 @@ export type DispatchPlan = {
   agentKind: string;
   agentHost: string;
   agentModel: string | null;
+  agentReasoningEffort: string | null;
   briefPath: string;
   briefText: string;
   briefIdentity: string;
@@ -88,6 +89,28 @@ export const REVIEW_SKILL = "code-review";
 export const BRIEF_PATH = ".operator/local/brief.md";
 export const REFERENCE_PATH = ".operator/local/attempt.json";
 export const RELEASE_PATH = ".operator/local/release.json";
+export const OPENCODE_AGENT_PATH = ".opencode/agents/operator-crew.md";
+export const OPENCODE_EFFORT_PLUGIN_PATH = ".opencode/plugins/operator-crew-effort.ts";
+
+/** The agent is local to one worktree, so its provider options do not change the project model. */
+export function opencodeAgentText(effort: string): string {
+  return `---\ndescription: Operator crew agent\nmode: primary\nvariant: ${effort}\nreasoningEffort: ${effort}\n---\n`;
+}
+
+/** OpenCode's TUI may restore a saved variant after it loads the agent's preferred variant. */
+export function opencodeEffortPluginText(effort: string): string {
+  return `export default async function operatorCrewEffort() {
+  return {
+    "chat.params": async (
+      input: { agent: string },
+      output: { options: Record<string, unknown> },
+    ) => {
+      if (input.agent === "operator-crew") output.options.reasoningEffort = "${effort}";
+    },
+  };
+}
+`;
+}
 
 /** True when this release knows which executable Herdr starts for that host. */
 export function hasAgentKind(host: string | null): host is keyof typeof agentKindByHost {
@@ -253,6 +276,7 @@ function briefDocument(request: {
     "",
     `- Crew host: ${snapshot.selection.crew.host ?? "unnamed"}`,
     `- Crew model: ${snapshot.selection.crew.model ?? "host default"}`,
+    `- Crew reasoning effort: ${snapshot.selection.crew.reasoningEffort ?? "host default"}`,
     `- Operator release: ${snapshot.release.version} (${snapshot.release.identity})`,
     `- Lock data: ${snapshot.lock.name ?? "none"} (${snapshot.lock.identity ?? "none"})`,
     `- Skills: ${snapshot.skills.identity}`,
@@ -351,6 +375,7 @@ export function planDispatch(request: {
     agentKind: request.agentKind,
     agentHost: request.agentHost,
     agentModel: request.snapshot.selection.crew.model,
+    agentReasoningEffort: request.snapshot.selection.crew.reasoningEffort ?? null,
     briefPath: BRIEF_PATH,
     briefText,
     briefIdentity,

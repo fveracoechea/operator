@@ -53,7 +53,7 @@ A timeout does not prove non-delivery.
 
 ## Drift blocks a recovery
 
-A launch records the crew host, model, release, lock data, and skills it used.
+A launch records the crew host, model, reasoning effort, release, lock data, and skills it used.
 A recovery restores that record.
 
 Exit 4 with `snapshot_drift` means the project changed since the launch.

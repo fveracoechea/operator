@@ -45,6 +45,8 @@ export type ParsedArguments = {
   approvedPlan: string | undefined;
   approvedProbe: string | undefined;
   approvedCleanup: string | undefined;
+  configSets: string[];
+  configUnsets: string[];
   overrides: SelectionOverrides;
   takeover: boolean;
   crew: CrewArguments;
@@ -88,6 +90,8 @@ export function parseArguments(args: string[]): ParsedArguments {
     approvedPlan: undefined,
     approvedProbe: undefined,
     approvedCleanup: undefined,
+    configSets: [],
+    configUnsets: [],
     overrides: {},
     takeover: false,
     crew: {},
@@ -102,6 +106,14 @@ export function parseArguments(args: string[]): ParsedArguments {
       parsed.json = true;
     } else if (argument === "--takeover") {
       parsed.takeover = true;
+    } else if (argument === "--set" || argument === "--unset") {
+      const value = valueOf(args, index + 1);
+      if (value === undefined) {
+        parsed.unsupported.push(argument);
+        continue;
+      }
+      index += 1;
+      (argument === "--set" ? parsed.configSets : parsed.configUnsets).push(value);
     } else if (argument !== undefined && isCrewFlag(argument)) {
       const value = valueOf(args, index + 1);
       if (value === undefined) {
@@ -232,6 +244,10 @@ export function hasSelectionOrProbeArguments(parsed: ParsedArguments): boolean {
 /** True when the request carries a crew-state flag the addressed command has no use for. */
 export function hasCrewArguments(parsed: ParsedArguments): boolean {
   return parsed.takeover || Object.keys(parsed.crew).length > 0;
+}
+
+export function hasConfigArguments(parsed: ParsedArguments): boolean {
+  return parsed.configSets.length > 0 || parsed.configUnsets.length > 0;
 }
 
 /** True when the request carries a release selector only the update path reads. */
