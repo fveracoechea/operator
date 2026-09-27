@@ -21,12 +21,12 @@ function planLines(plan: Plan): string[] {
   const from =
     plan.from === null
       ? "This project has selected no Operator release yet."
-      : `Selected now: Operator ${plan.from.version} from ${plan.from.delivery} at commit ${plan.from.commit}.`;
+      : `Selected now: Operator ${plan.from.version} from ${plan.from.delivery}.`;
 
   return [
-    `Operator update plan ${plan.updateId}`,
+    "Operator update plan",
     from,
-    `Selecting: Operator ${plan.to.version} from ${plan.to.delivery} at commit ${plan.to.commit}.`,
+    `Selecting: Operator ${plan.to.version} from ${plan.to.delivery}.`,
     ...(plan.to.packageVersion === null
       ? []
       : [`Registry package version: ${plan.to.packageVersion}.`]),

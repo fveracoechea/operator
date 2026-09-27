@@ -4,16 +4,20 @@ Read this before you launch, recover, or replace an Operative.
 
 ## Order of work
 
-1. `operator crew own --request <id> --owner-label <label> --json` gives you the owner token every mutation needs.
-2. `operator work register --request <id> --owner-token <token> --input <path> --json` records the approved work.
-   Read [REGISTRATION.md](REGISTRATION.md) for what that request carries.
-3. `operator crew next --claude --json` says what to do now and why the rest waits.
+1. `operator crew next --claude --json` reports readiness, ownership, and the next action.
    Read [COORDINATION.md](COORDINATION.md) for that loop.
-   `operator work frontier --json` prints the order, the gates, and the capacity on their own.
-4. `operator work claim --request <id> --owner-token <token> --assignment <id> --revision <n> --json` gives you one attempt.
-5. `operator attempt dispatch --request <id> --owner-token <token> --attempt <id> --commit <sha> --json` launches it.
+2. If no session owns the crew, `operator crew own --request <id> --owner-label <label> --json` gives you the owner token.
+   Read [RECOVERY.md](RECOVERY.md) before you take over a crew another session owned.
+3. `operator work register --request <id> --owner-token <token> --input <path> --json` records the approved work.
+   Read [REGISTRATION.md](REGISTRATION.md) for what that request carries.
+4. When `crew next` offers a claim, `operator work claim --request <id> --owner-token <token> --assignment <id> --revision <n> --json` gives you one attempt.
+5. When `crew next` offers dispatch, `operator attempt dispatch --request <id> --owner-token <token> --attempt <id> --commit <sha> --json` launches it.
 6. The Operative hands over its result with `operator attempt submit`.
    Read [REVIEW.md](REVIEW.md) from there.
+
+Dispatch creates the Herdr worktree and sends the fixed prompt.
+That prompt tells a production or rework Operative to load `operative` from its worktree.
+A review assignment receives `code-review` instead.
 
 Generate a new request identity for each mutation.
 Repeat the same identity only to recover the result of a call you did not see finish.

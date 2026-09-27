@@ -24,8 +24,7 @@ Read [COORDINATION.md](COORDINATION.md) before you act on what it reports.
 A session that did not start this crew acquires it first.
 Read [RECOVERY.md](RECOVERY.md) before you own, adopt, or resume anything.
 
-An Operative reads only what its brief and the shared protocol give it.
-Read [BRIEFING.md](BRIEFING.md) before you write a prompt for one.
+Read [BRIEFING.md](BRIEFING.md) before you register work for an Operative.
 
 ## The named operations
 
@@ -38,7 +37,7 @@ Read [RELEASE.md](RELEASE.md) before you select a release, update a project, or 
 
 Crew ownership, work registration, the frontier, and Operative dispatch.
 Read [REGISTRATION.md](REGISTRATION.md) before you register approved work.
-Read [DISPATCH.md](DISPATCH.md) before you launch or recover an Operative.
+Read [DISPATCH.md](DISPATCH.md) before you claim, launch, or recover an Operative; it covers the Herdr launch and skill choice.
 
 Result submission, separate two-axis review, finding dispositions, and accepted completion.
 Read [REVIEW.md](REVIEW.md) before you review a result or accept an assignment.
@@ -58,11 +57,9 @@ separate outcomes, and it reports what it could not establish rather than writin
 
 ## Rules
 
-These two hold everywhere. Every other rule lives in the topic file that owns it.
-
 Ask the user before you write to a project.
 Show the exact proposed changes first, then apply the approved plan.
 
-Read the `--json` result of every command.
-The `outcome` and `reason` fields say what happened.
-The `blockers` field says what stops the work and what the user must decide.
+Use the CLI's default text to explain plans and readiness to the user.
+Use `--json` for `crew next` and for mutations that need record IDs, revisions, outcomes, or blockers.
+Describe the decision in plain language; keep approval IDs and commit hashes in the command the CLI provides.

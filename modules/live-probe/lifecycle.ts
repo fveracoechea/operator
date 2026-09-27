@@ -98,7 +98,11 @@ export async function runLifecycle(lifecycle: Lifecycle): Promise<{
     return { staged, resources };
   }
 
-  const operator = await startAgent(lifecycle, { role: "operator", workspaceId });
+  const operator = await startAgent(lifecycle, {
+    role: "operator",
+    workspaceId,
+    worktreePath: scratch.worktreePath,
+  });
   staged.push(
     operator.status === "started"
       ? passed(
@@ -167,47 +171,61 @@ export async function runLifecycle(lifecycle: Lifecycle): Promise<{
     );
   }
 
-  const question = await ask(lifecycle, {
-    agent: operator.agent,
-    step: "question",
-    scratch,
-    instructions: [
-      "Answer the synthetic question `what is the probe identity?` and acknowledge that you received it.",
-    ],
-  });
+  const question =
+    loading.status === "answered"
+      ? await ask(lifecycle, {
+          agent: operator.agent,
+          step: "question",
+          scratch,
+          instructions: [
+            "Answer the synthetic question `what is the probe identity?` and acknowledge that you received it.",
+          ],
+        })
+      : null;
   staged.push(
-    question.status === "answered"
-      ? passed(
-          "question-and-answer",
-          `The agent acknowledged question ${question.report.questionId} at ${question.report.acknowledgedAt}.`,
-          {
-            outputs: [question.report.answer],
-            evidence: reportEvidence("question", scratch, question.identity),
-          },
-        )
-      : failed("question-and-answer", question.detail),
+    question === null
+      ? skipped("question-and-answer", "The Operator host never answered the loading brief.")
+      : question.status === "answered"
+        ? passed(
+            "question-and-answer",
+            `The agent acknowledged question ${question.report.questionId} at ${question.report.acknowledgedAt}.`,
+            {
+              outputs: [question.report.answer],
+              evidence: reportEvidence("question", scratch, question.identity),
+            },
+          )
+        : failed("question-and-answer", question.detail),
   );
 
-  const result = await ask(lifecycle, {
-    agent: operator.agent,
-    step: "result",
-    scratch,
-    instructions: ["Submit a synthetic result naming the artifacts it fixes."],
-  });
+  const result =
+    question?.status === "answered"
+      ? await ask(lifecycle, {
+          agent: operator.agent,
+          step: "result",
+          scratch,
+          instructions: ["Submit a synthetic result naming the artifacts it fixes."],
+        })
+      : null;
   staged.push(
-    result.status === "answered"
-      ? passed(
-          "result-reporting",
-          `The agent submitted result ${result.report.submissionId} with ${result.report.artifacts.length} artifacts.`,
-          {
-            outputs: result.report.artifacts,
-            evidence: reportEvidence("result", scratch, result.identity),
-          },
-        )
-      : failed("result-reporting", result.detail),
+    result === null
+      ? skipped("result-reporting", "The Operator host did not answer the preceding brief.")
+      : result.status === "answered"
+        ? passed(
+            "result-reporting",
+            `The agent submitted result ${result.report.submissionId} with ${result.report.artifacts.length} artifacts.`,
+            {
+              outputs: result.report.artifacts,
+              evidence: reportEvidence("result", scratch, result.identity),
+            },
+          )
+        : failed("result-reporting", result.detail),
   );
 
-  const reviewer = await startAgent(lifecycle, { role: "crew", workspaceId });
+  const reviewer = await startAgent(lifecycle, {
+    role: "crew",
+    workspaceId,
+    worktreePath: scratch.worktreePath,
+  });
   if (reviewer.status !== "started") {
     staged.push(failed("review-sub-agents", reviewer.detail));
     staged.push(skipped("mixed-host-operation", "The Crew host was never launched."));
@@ -261,13 +279,18 @@ export async function runLifecycle(lifecycle: Lifecycle): Promise<{
 
   staged.push(await proveTakeover(scratch, operator.agent));
 
-  const interruption = await ask(lifecycle, {
-    agent: operator.agent,
-    step: "interruption",
-    scratch,
-    instructions: ["Start long work, and write what you finished before you are stopped."],
-  });
-  if (interruption.status !== "answered") {
+  const interruption =
+    result?.status === "answered"
+      ? await ask(lifecycle, {
+          agent: operator.agent,
+          step: "interruption",
+          scratch,
+          instructions: ["Start long work, and write what you finished before you are stopped."],
+        })
+      : null;
+  if (interruption === null) {
+    staged.push(skipped("interruption", "The Operator host did not answer the preceding brief."));
+  } else if (interruption.status !== "answered") {
     staged.push(failed("interruption", interruption.detail));
   } else {
     const stopped = await stopAgent(operator.agent);

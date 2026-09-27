@@ -90,9 +90,9 @@ export async function waitForFile(request: {
   windowMs: number;
 }): Promise<{ status: "read"; text: string; waitedMs: number } | { status: "timed-out" }> {
   const started = Bun.nanoseconds();
-  const file = Bun.file(request.path);
 
   for (;;) {
+    const file = Bun.file(request.path);
     if (await file.exists()) {
       return {
         status: "read",

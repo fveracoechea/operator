@@ -6,6 +6,9 @@ The name comes from *The Matrix*: the crew member who loads programs, guides mis
 
 <img width="1600" height="689" alt="image" src="https://github.com/user-attachments/assets/800655fa-8603-47d5-9f2e-6cf0b56dcad6" />
 
+Operator is based on [Matt Pocock's agent skills and workflow](https://github.com/mattpocock/skills).
+His skills guide the work from clarifying a goal and writing a spec through tickets, implementation, and review.
+Operator builds on that workflow by coordinating the agents, worktrees, and recorded decisions that carry the work between those steps.
 
 ## Status
 
@@ -18,9 +21,9 @@ The release workflow publishes a version to JSR and GitHub after its version pul
 
 1. You work with the Operator to clarify a goal and choose the work to delegate.
 2. The Operator registers the work and assigns each item to a crew member, called an Operative. Each Operative runs in its own Git worktree that Herdr manages.
-3. Operatives use skills such as `implement`, `research`, `improve-codebase-architecture`, and `grilling` to do their work.
+3. Operatives use Matt Pocock's skills such as `implement`, `research`, `improve-codebase-architecture`, and `grilling` to do their work.
 4. An Operative that cannot continue asks the Operator. The Operator answers from recorded decisions, and brings the questions that need your judgment to you.
-5. A separate reviewer checks each result on the Standards and Spec axes before the Operator presents it for acceptance.
+5. A separate reviewer uses Matt's `code-review` skill to check each result on the Standards and Spec axes before the Operator presents it for acceptance.
 6. After you accept a result, the Operator closes the crew agent and removes its worktree. Cleanup that is not complete stays visible until it is done or you defer it.
 
 You can talk to an Operative directly, but the main workflow goes through the Operator.
@@ -38,36 +41,27 @@ Operator adds the coordination rules, the skills, and the CLI operations that He
 | GitHub CLI (`gh`) | Reads and writes the tracker. GitHub is the only tracker this release supports. |
 | Claude Code, OpenCode, or both | The agent hosts for the Operator and the crew. |
 
+Optional: [`jq`](https://jqlang.github.io/jq/) lets agents select fields from the CLI's `--json` output without reading the full result.
+Operator does not require `jq` to run.
+
 ## Quick start
 
-Each command that changes the project first shows a plan, and changes nothing until you approve that exact plan.
-Add `--json` to any command for the versioned machine result.
+Open your Git project in Herdr and start a Claude Code or OpenCode agent there.
+Use that agent as your Operator. You can give it these prompts in order.
 
-```sh
-# 1. Install the Operator-owned skills for one or more agent targets.
-operator install --claude
+1. Set up the project:
 
-# 2. Configure the project. Review the plan, then apply it.
-operator setup plan --claude --json
-operator setup apply --claude --approved-plan <planId> --json
+   > Set up Operator for this repository. Use Claude Code as the Operator host and OpenCode for the crew. Check the required tools, install the Operator and Matt Pocock skills for those hosts, configure the project, select an exact Operator release, and check readiness. Show me each plan before you apply it. Tell me what I need to approve or do myself.
 
-# 3. Select the exact release the project coordinates with.
-operator update plan --claude --commit <full-commit> --json
-operator update apply --claude --commit <full-commit> --approved-update <updateId> --json
+   If you use only one agent host, name it for both roles instead. The setup may ask you to authenticate `gh`, choose a GitHub repository and issue for the live probe, or commit the installed project skills so crew worktrees can use them. The probe launches agents and writes to its tracker fixture, so review its plan before you approve it.
 
-# 4. Check readiness, then prove the live checks with an approved probe.
-operator setup readiness --claude --operator-host claude-code --json
-operator setup probe plan --claude --operator-host claude-code --crew-host opencode --json
-operator setup probe apply --claude --operator-host claude-code --crew-host opencode --approved-probe <probeId> --json
+2. Give the Operator a first task:
 
-# 5. Take the crew, register work, and ask what to do next.
-operator crew own --request <id> --owner-label <label> --json
-operator work register --request <id> --owner-token <token> --input work.json --json
-operator crew next --claude --operator-host claude-code --json
-```
+   > I want to add a search field to the issues list. Help me define what it should search and how I will know it works. Once we agree on the scope, create or use a GitHub issue for the task, register the approved work with Operator, and coordinate the crew through implementation and review. Ask me before you make decisions about visible behavior or accept a result on my behalf.
 
-From there, `operator crew next` names each command to run, the record it acts on, and the revision to state.
-The Operator-owned skill runs that loop for you.
+   Replace the example task with a change in your project. The Operator will ask for decisions when it needs them and show you the reviewed result before acceptance. You can return to the same project later and ask the Operator to resume the crew.
+
+For the commands behind these prompts, see [Project installation and setup](#project-installation-and-setup), [Project readiness](#project-readiness), and [Coordination and recovery](#coordination-and-recovery).
 
 ## Contents
 
@@ -123,6 +117,27 @@ operator install --opencode --claude
 
 The command adopts a copy that already matches this release, and writes nothing for it.
 A copy that someone changed is a conflict, and the command then writes nothing.
+
+Install Matt Pocock's upstream skills separately.
+They provide the project workflows for shaping work, implementing it, and reviewing results.
+Run this before creating Operative worktrees, and commit the installed project skills so new worktrees contain `code-review`.
+
+```sh
+operator install matt plan --opencode --claude --json
+operator install matt apply --opencode --claude --commit <commit> --approved-plan <planId> --json
+```
+
+`plan` calls GitHub to resolve `mattpocock/skills` `main` to its current full commit.
+Authenticate `gh` before you run it.
+That commit is what "latest" means for this plan.
+`apply` fetches the same commit, checks every file against its Git blob hash, and refuses a changed plan.
+Only the selected hosts receive skills.
+The command skips upstream `unslop` and `cursor`, and never replaces an Operator-owned skill.
+It records installed content hashes under each target's skill directory in `.operator-matt-skills.json`.
+It updates a skill only if its installed copy matches that record.
+An unrecorded copy that differs from the current upstream files is a conflict.
+Resolve any conflict before applying again.
+To update Matt skills later, run `operator install matt plan` again and apply its new commit and plan ID.
 
 Setup inspects first and writes nothing until you approve the same plan.
 
@@ -315,6 +330,9 @@ operator setup probe cleanup --approved-cleanup <cleanupId> --json
 It removes nothing else, and the recorded observations stay, so every failed attempt outlives its resources.
 
 Operator records live results in `.operator/local/readiness.json` as a list of attempts, and only appends to it.
+The setup journal and readiness evidence are local CLI records, not agent instructions.
+Use `operator setup readiness` or `operator crew next` to read their conclusions in text, and add `--json` when a caller needs structured fields.
+The crew's concurrent assignments and ownership live in SQLite.
 Each observation holds its state, the versions and inputs it ran against, its outputs, its evidence, and the state of what it left behind.
 The most recent attempt that ran a check gives the result for that check.
 If no attempt ran a check, the earlier result stays.

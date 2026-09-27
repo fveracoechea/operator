@@ -16,6 +16,7 @@ import {
 
 export type Brief = {
   assignmentId: string;
+  assignmentRevision: number;
   attemptId: string;
   sourceId: string;
   sourceKey: string;
@@ -24,6 +25,7 @@ export type Brief = {
   kind: string;
   approvedScope: string;
   acceptanceRequirements: string[];
+  requirementsIdentity: string;
   permissions: { writePaths: string[]; allowedCommands: string[]; network: boolean };
   fixedInputs: Array<{
     name: string;
@@ -59,6 +61,7 @@ export type DispatchPlan = {
   agentName: string;
   agentKind: string;
   agentHost: string;
+  agentModel: string | null;
   briefPath: string;
   briefText: string;
   briefIdentity: string;
@@ -199,6 +202,7 @@ function briefDocument(request: {
     "## Identity",
     "",
     `- Assignment: ${brief.assignmentId}`,
+    `- Assignment revision: ${brief.assignmentRevision}`,
     `- Attempt: ${brief.attemptId}`,
     `- Source: ${brief.sourceId} item ${brief.sourceKey} at revision ${brief.sourceRevision}`,
     `- Assignment kind: ${brief.kind}`,
@@ -215,6 +219,7 @@ function briefDocument(request: {
     "## Acceptance requirements",
     "",
     ...brief.acceptanceRequirements.map((one) => `- ${one}`),
+    `- Requirements identity: ${brief.requirementsIdentity}`,
     "",
     "## Authority limits",
     "",
@@ -265,6 +270,7 @@ function promptDocument(brief: Brief): string {
             ? `You are the Operative on Operator attempt ${brief.attemptId} for assignment ${brief.assignmentId}.`
             : `You are the Operative on Operator attempt ${brief.attemptId}, reworking the reviewed result of assignment ${brief.assignmentId}.`,
           read,
+          "Load the `operative` skill from this worktree and follow it.",
           acknowledge,
           "Do not change any file before that acknowledgement succeeds.",
         ]
@@ -339,6 +345,7 @@ export function planDispatch(request: {
     agentName: `operative-${short}`,
     agentKind: request.agentKind,
     agentHost: request.agentHost,
+    agentModel: request.snapshot.selection.crew.model,
     briefPath: BRIEF_PATH,
     briefText,
     briefIdentity,

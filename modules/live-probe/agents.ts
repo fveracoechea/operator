@@ -53,6 +53,9 @@ export async function ask<Step extends ProbeStep>(
     step: request.step,
     reportPath,
     instructions: request.instructions,
+    instructionFiles: request.scratch.instructions,
+    skillNames: request.scratch.skills,
+    host: lifecycle[request.step === "review" ? "crew" : "operator"].host,
   });
 
   const submitted = await HerdrControl.submitPrompt({ target: request.agent.name, text: brief });
@@ -94,7 +97,7 @@ export function reportEvidence(step: ProbeStep, scratch: Scratch, identity: stri
 
 export async function startAgent(
   lifecycle: Lifecycle,
-  request: { role: "operator" | "crew"; workspaceId: string },
+  request: { role: "operator" | "crew"; workspaceId: string; worktreePath: string },
 ): Promise<{ status: "started"; agent: Launched } | { status: "failed"; detail: string }> {
   const pane = await HerdrControl.findRootPane({ workspaceId: request.workspaceId });
   if (pane.status !== "found") {
@@ -104,11 +107,23 @@ export async function startAgent(
     };
   }
 
-  const name = `operator-probe-${lifecycle.runId}-${request.role}`;
+  const shell =
+    request.role === "crew"
+      ? await HerdrControl.splitPane({ paneId: pane.value.paneId, cwd: request.worktreePath })
+      : null;
+  if (shell !== null && shell.status !== "succeeded") {
+    return {
+      status: "failed",
+      detail: `Herdr did not open a Crew pane: ${shell.status === "failed" ? `${shell.code}: ${shell.detail}` : shell.detail}`,
+    };
+  }
+
+  const name = `operator-probe-${lifecycle.runId.replaceAll("-", "").slice(0, 8)}-${request.role}`;
   const started = await HerdrControl.startAgent({
     name,
     kind: lifecycle[request.role].host,
-    paneId: pane.value.paneId,
+    paneId: shell === null ? pane.value.paneId : shell.value.paneId,
+    model: lifecycle[request.role].model,
   });
   if (started.status !== "succeeded") {
     return {
@@ -129,16 +144,17 @@ export async function stopAgent(
     return { status: "failed", detail: `The stop left no answer: ${stopped.detail}` };
   }
 
-  const found = await HerdrControl.findAgent({ name: agent.name });
-  if (found.status === "found") {
-    return { status: "failed", detail: `Herdr still reports ${agent.name} as live.` };
+  const deadline = Bun.nanoseconds() + 10_000_000_000;
+  while (Bun.nanoseconds() < deadline) {
+    const found = await HerdrControl.findAgent({ name: agent.name });
+    if (found.status === "absent") return { status: "stopped" };
+    if (found.status === "unknown") {
+      return {
+        status: "failed",
+        detail: `Herdr cannot say whether ${agent.name} stopped: ${found.detail}`,
+      };
+    }
+    await Bun.sleep(100);
   }
-  if (found.status === "unknown") {
-    return {
-      status: "failed",
-      detail: `Herdr cannot say whether ${agent.name} stopped: ${found.detail}`,
-    };
-  }
-
-  return { status: "stopped" };
+  return { status: "failed", detail: `Herdr still reports ${agent.name} as live.` };
 }

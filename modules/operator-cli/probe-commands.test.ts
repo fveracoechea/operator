@@ -306,6 +306,10 @@ describe("operator setup probe apply", () => {
       const calls = await herdrCalls(workspace);
 
       expect(calls.some((one) => one.startsWith("worktree create"))).toBe(true);
+      for (const call of calls.filter((one) => one.startsWith("agent start "))) {
+        const name = call.split(" ")[2];
+        expect(name).toMatch(/^[a-z][a-z0-9_-]{0,31}$/);
+      }
       expect(calls.some((one) => one.startsWith("worktree remove"))).toBe(true);
       expect(observed(result.json, "host-termination")?.state).toBe("passed");
       // The test worktree is gone, and the scratch repository stays until a cleanup is approved.
@@ -355,6 +359,12 @@ describe("operator setup probe apply", () => {
       expect(result.exitCode).toBe(1);
       expect(result.json.reason).toBe("probe_run_failed");
       expect(observed(result.json, "question-and-answer")).toMatchObject({ state: "failed" });
+      expect(observed(result.json, "result-reporting")).toMatchObject({ state: "skipped" });
+      expect(observed(result.json, "interruption")).toMatchObject({ state: "skipped" });
+      const prompts = (await herdrCalls(workspace)).filter((one) =>
+        one.startsWith("agent prompt "),
+      );
+      expect(prompts.filter((one) => one.includes("-operator "))).toHaveLength(2);
       const readiness = await runJson(workspace, ["setup", "readiness", ...selection]);
       expect(readiness.json.data.state).toBe("blocked");
       expect(readiness.json.data.claims.readiness).toBe("blocked");

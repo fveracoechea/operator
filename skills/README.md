@@ -1,10 +1,10 @@
 # Skills
 
 The skills Operator owns and hand-edits.
-A release ships these directories whole, and `operator setup` copies them into a consumer project.
+A release ships these directories whole, and `operator install` copies them into a consumer project.
 
 Every skill here has exactly one home, so no name in this directory is a second copy under `.agents/skills/`.
-This repository reaches its own owned skills through a symlink instead.
+This repository reaches them through symlinks in `.agents/skills/` and `.claude/skills/`.
 Write to the portable frontmatter floor, `name`, `description`, `license`, `compatibility`, and `metadata`, because opencode drops every other field without a word.
 The frontmatter `name` and the directory name are the same string.
 A `SKILL.md` is a router and stays under 150 lines, and every markdown file beside it is reached by a link from it, as [ADR-0014](../docs/adr/0014-an-owned-skill-is-a-router-with-topic-files.md) records.
@@ -14,6 +14,7 @@ A `SKILL.md` is a router and stays under 150 lines, and every markdown file besi
 - **[bun](./bun/SKILL.md)** - Use when writing or reviewing Bun code including runtime, bun test, Bun.serve, bundler, bun install, or scripts.
 - **[deep-modules](./deep-modules/SKILL.md)** - Use when adding or changing a feature or capability in a TypeScript app: code for a domain concept, a screen and its data, where new or shared code goes, a module interface or sub-module, or a module test.
 - **[no-slop](./no-slop/SKILL.md)** - Use when writing or editing prose, documentation, code comments, commit messages, or issue and pull request text.
+- **[operative](./operative/SKILL.md)** - Use when dispatched for production or rework with a fixed Operator brief.
 - **[operator](./operator/SKILL.md)** - Use when preparing a project for Operator, running approved work through a crew, or resuming an Operator session that ended.
 - **[pr-review](./pr-review/SKILL.md)** - Use when reviewing a pull request by number or URL, or posting review comments on one.
 - **[react-best-practices](./react-best-practices/SKILL.md)** - Use when writing, reviewing or changing client side React: useEffect, useState, Suspense, derived state, re-render, a lazy chunk, or data waterfall.

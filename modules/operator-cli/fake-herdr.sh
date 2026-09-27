@@ -113,6 +113,11 @@ answer() {
     workspace=$(value_of --workspace "$@")
     printf '{"id":"cli:pane:list","result":{"type":"pane_list","panes":[{"pane_id":"%s:p1","workspace_id":"%s"}]}}\n' "$workspace" "$workspace"
     ;;
+  pane-split)
+    source=$(value_of --pane "$@")
+    pane="${source%:*}:p2"
+    printf '{"id":"cli:pane:split","result":{"type":"pane_info","pane":{"pane_id":"%s"}}}\n' "$pane"
+    ;;
   pane-process-info)
     pane=$(value_of --pane "$@")
     entries=""
@@ -127,6 +132,12 @@ answer() {
   agent-start)
     name="${1:-}"
     pane=$(value_of --pane "$@")
+    for marker in "$dir/agents/"*; do
+      [ -f "$marker" ] || continue
+      if [ "$(cat "$marker")" = "$pane" ]; then
+        refuse "agent_pane_busy" "the pane is not an available shell"
+      fi
+    done
     mkdir -p "$dir/agents"
     printf '%s' "$pane" > "$dir/agents/$name"
     printf '{"id":"cli:agent:start","result":{"type":"agent_started","argv":[],"agent":{"name":"%s","pane_id":"%s","agent_status":"idle","cwd":""}}}\n' "$name" "$pane"
@@ -157,7 +168,8 @@ answer() {
     if [ -f "$dir/agents/$name" ]; then
       printf '{"id":"cli:agent:get","result":{"type":"agent_info","agent":{"name":"%s","pane_id":"%s","agent_status":"working"}}}\n' "$name" "$(cat "$dir/agents/$name")"
     else
-      printf '{"id":"cli:agent:get","error":{"code":"agent_not_found","message":"agent target %s not found"}}\n' "$name"
+      printf '{"id":"cli:agent:get","error":{"code":"agent_not_found","message":"agent target %s not found"}}\n' "$name" >&2
+      exit 1
     fi
     ;;
   agent-list)

@@ -17,8 +17,8 @@ Register those carefully, because they are what the Operative gets.
 
 ## What every brief carries
 
-- **Identity**: the assignment, the attempt, the source and its revision, the assignment kind, the controlling checkout, the worktree, and the branch with its base commit.
-- **Approved scope** and **acceptance requirements**, as they were registered.
+- **Identity**: the assignment and its revision, the attempt, the source and its revision, the assignment kind, the controlling checkout, the worktree, and the branch with its base commit.
+- **Approved scope** and **acceptance requirements**, with the requirements identity needed to submit the result.
 - **Authority limits**: the write paths, the allowed commands, and whether network access is permitted. Work outside them is a question, never the Operative's own decision.
 - **Fixed inputs**, with the content identity of every path input. They are fixed at dispatch, so a later change to their source does not change them.
 - **Effective configuration**: the crew host and model, the Operator release, the lock data, and the skill contents of this launch.
@@ -28,6 +28,8 @@ A review brief adds the fixed submission it reads, its two axes, and the coverag
 A rework brief adds the cycle it answers, the accepted corrections, and the conflicts it must settle.
 
 ## The protocol every role shares
+
+The fixed brief supplies each role's commands and authority limits.
 
 **Acknowledgement.**
 The Operative runs `operator attempt acknowledge` from its own worktree before it changes any file.

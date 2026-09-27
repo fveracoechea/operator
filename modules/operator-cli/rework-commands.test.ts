@@ -162,6 +162,9 @@ describe("operator work rework", () => {
       commit: first.artifact.commit,
       worktreePath: `${workspace.root}/rework`,
     });
+    expect(await Bun.file(`${workspace.herdr}/last-prompt`).text()).toContain(
+      "Load the `operative` skill",
+    );
 
     // The rework runs as its own Herdr agent, never the reviewer's and never the Operator.
     const agents = (await herdrCalls(workspace))
@@ -170,6 +173,7 @@ describe("operator work rework", () => {
     expect(new Set(agents).size).toBe(agents.length);
 
     const brief = await Bun.file(`${reworked.worktreePath}/.operator/local/brief.md`).text();
+    expect(brief).toContain(`- Assignment revision: ${reworked.assignmentRevision}`);
     expect(brief).toContain("## The result you rework");
     expect(brief).toContain("findings cycle 1 of 3");
     expect(brief).toContain(gate);
@@ -203,6 +207,9 @@ describe("operator work rework", () => {
       producer,
       second.submitted.json,
       second.artifact.commit,
+    );
+    expect(await Bun.file(`${workspace.herdr}/last-prompt`).text()).toContain(
+      "Load the `code-review` skill",
     );
     const secondBrief = await Bun.file(
       `${secondReviewer.worktreePath}/.operator/local/brief.md`,
