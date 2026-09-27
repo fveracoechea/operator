@@ -11,10 +11,12 @@ import type { Fixture } from "./tracker.ts";
 
 type Write = {
   operationId: string;
-  step: "resolution" | "map_amendment" | "completion";
+  step: "resolution" | "map_amendment" | "completion" | "reopen";
   issue: number;
   expectedActor: string;
   contentIdentity: string | null;
+  eventCount?: number | null;
+  outcome?: "succeeded" | "failed" | "uncertain" | "unavailable";
 };
 type Run = {
   runId: string;
@@ -25,10 +27,12 @@ type Run = {
 };
 const writeSchema = z.object({
   operationId: z.uuid(),
-  step: z.enum(["resolution", "map_amendment", "completion"]),
+  step: z.enum(["resolution", "map_amendment", "completion", "reopen"]),
   issue: z.number(),
   expectedActor: z.string(),
   contentIdentity: z.string().nullable(),
+  eventCount: z.number().nullable().optional(),
+  outcome: z.enum(["succeeded", "failed", "uncertain", "unavailable"]).optional(),
 });
 const runSchema = z.object({
   runId: z.uuid(),
@@ -82,7 +86,10 @@ export async function beginRun(projectRoot: string, run: Run): Promise<void> {
   const path = journal(projectRoot, run.runId);
   await mkdir(`${root(projectRoot)}/${run.runId}`, { recursive: true });
   const temporary = `${path}.${crypto.randomUUID()}.tmp`;
-  await Bun.write(temporary, `${JSON.stringify(run)}\n`);
+  // A lifecycle-only run has no fixture effect to reconcile, even if one is configured.
+  const stored =
+    run.fixtureState === null && run.writes.length === 0 ? { ...run, fixture: null } : run;
+  await Bun.write(temporary, `${JSON.stringify(stored)}\n`);
   await rename(temporary, path);
 }
 
@@ -90,19 +97,141 @@ export async function beginRun(projectRoot: string, run: Run): Promise<void> {
 export async function intendWrite(projectRoot: string, runId: string, write: Write): Promise<void> {
   const run = await readRun(projectRoot, runId);
   if (run === null) throw new Error("The probe run record is missing before a tracker write.");
+  if (run.fixture === null || run.fixtureState === null) {
+    throw new Error("A probe fixture write requires a recorded fixture and baseline.");
+  }
   const path = journal(projectRoot, runId);
   const temporary = `${path}.${crypto.randomUUID()}.tmp`;
-  await Bun.write(temporary, `${JSON.stringify({ ...run, writes: [...run.writes, write] })}\n`);
+  const previous = run.writes.find((one) => one.operationId === write.operationId);
+  if (
+    previous !== undefined &&
+    (previous.outcome !== undefined ||
+      write.outcome === undefined ||
+      previous.step !== write.step ||
+      previous.issue !== write.issue ||
+      previous.expectedActor !== write.expectedActor ||
+      previous.contentIdentity !== write.contentIdentity ||
+      previous.eventCount !== write.eventCount)
+  )
+    throw new Error("A probe fixture write cannot change identity or be sent twice.");
+  if (previous === undefined && write.outcome !== undefined) {
+    throw new Error("A probe fixture write needs an intent before its outcome.");
+  }
+  const writes =
+    previous === undefined
+      ? [...run.writes, write]
+      : run.writes.map((one) => (one.operationId === write.operationId ? write : one));
+  await Bun.write(temporary, `${JSON.stringify({ ...run, writes })}\n`);
   await rename(temporary, path);
+}
+
+/** Old runs have no journal. Prove the repository's own committed probe identity first. */
+async function ownsLegacyRepository(
+  directory: string,
+  runId: string,
+  hasWorktree: boolean,
+): Promise<boolean> {
+  const repo = `${directory}/repo`;
+  try {
+    const [top, readme, email, message] = await Promise.all([
+      Bun.$`git -C ${repo} rev-parse --show-toplevel`.quiet(),
+      Bun.$`git -C ${repo} show HEAD:README.md`.quiet(),
+      Bun.$`git -C ${repo} log -1 --format=%ae`.quiet(),
+      Bun.$`git -C ${repo} log -1 --format=%s`.quiet(),
+    ]);
+    if (
+      top.stdout.toString().trim() !== repo ||
+      readme.stdout.toString() !== `# Operator live probe ${runId}\n` ||
+      email.stdout.toString().trim() !== "probe@operator.invalid" ||
+      message.stdout.toString().trim() !== "probe"
+    )
+      return false;
+    if (!hasWorktree) return true;
+    const branch = await Bun.$`git -C ${directory}/worktree symbolic-ref --short HEAD`.quiet();
+    return branch.stdout.toString().trim() === `operator-probe/${runId}`;
+  } catch {
+    return false;
+  }
 }
 
 export async function finishRun(projectRoot: string, runId: string): Promise<void> {
   await rm(journal(projectRoot, runId));
 }
 
+async function inspectWrite(
+  fixture: Fixture,
+  state: string,
+  write: Write,
+): Promise<{ status: string; detail: string | null }> {
+  if (write.step === "reopen") {
+    const history = await GithubTracker.readEvents({
+      repository: fixture.repository,
+      issue: write.issue,
+    });
+    const reopened =
+      write.eventCount !== null &&
+      write.eventCount !== undefined &&
+      history.coverage.complete &&
+      history.events
+        .slice(write.eventCount)
+        .some((one) => one.event === "reopened" && one.actor === write.expectedActor);
+    const proven = reopened && state === "open";
+    return {
+      status: `reopen ${proven ? "observed" : "uncertain"}`,
+      detail: proven
+        ? null
+        : `The fixture reopen ${write.operationId} is not proven. Inspect the fixture before cleanup.`,
+    };
+  }
+  const observed = await TrackerUpdate.observe({
+    provider: "github",
+    step: write.step,
+    target: { repository: fixture.repository, issue: write.issue },
+    operationId: write.operationId,
+    expectedActor: write.expectedActor,
+    contentIdentity: write.contentIdentity,
+    resourceId: null,
+    sentWrites: 1,
+    now: new Date().toISOString(),
+  });
+  if (observed.kind === "closure") {
+    const unsettled =
+      (write.outcome === undefined || write.outcome === "uncertain") &&
+      !(observed.state === "closed" && observed.stateReason === "completed");
+    return {
+      status: `closure ${unsettled ? "uncertain" : (observed.state ?? "unknown")}`,
+      detail:
+        observed.read === "found" && observed.eventCoverage.complete && !unsettled
+          ? null
+          : `The fixture closure ${write.operationId} cannot be settled from its response and a complete read.`,
+    };
+  }
+  const unique =
+    observed.coverage.complete &&
+    observed.exactMatches.length <= 1 &&
+    observed.editedMatches.length === 0 &&
+    observed.actorMismatches.length === 0;
+  const matched = unique && observed.exactMatches.length === 1;
+  const absent =
+    unique &&
+    observed.exactMatches.length === 0 &&
+    (write.outcome === "failed" || write.outcome === "unavailable");
+  return {
+    status: `${write.step} ${matched ? "written" : absent ? "absent" : "uncertain"}`,
+    detail: !unique
+      ? `The fixture write ${write.operationId} cannot be settled from a complete, unique comment scan.`
+      : matched || absent
+        ? null
+        : `The fixture comment ${write.operationId} has no proven outcome. An empty scan does not settle an uncertain write.`,
+  };
+}
+
 /** Reads intended fixture effects by identity, without sending a second write. */
 async function inspectFixture(run: Run): Promise<{ fixture: string; detail: string | null }> {
   if (run.fixture === null) return { fixture: "none", detail: null };
+  if (run.fixtureState === null && run.writes.length === 0) {
+    return { fixture: "configured, no fixture write", detail: null };
+  }
   const read = await GithubTracker.readIssue(run.fixture);
   let fixture = read.status === "found" ? read.value.state : "unknown";
   let detail: string | null =
@@ -110,32 +239,13 @@ async function inspectFixture(run: Run): Promise<{ fixture: string; detail: stri
       ? `The fixture ${run.fixture.repository}#${run.fixture.issue} is ${fixture}, and it was ${run.fixtureState ?? "unknown"} before the run. Inspect it before cleanup.`
       : null;
   for (const write of run.writes) {
-    const observed = await TrackerUpdate.observe({
-      provider: "github",
-      step: write.step,
-      target: { repository: run.fixture.repository, issue: write.issue },
-      operationId: write.operationId,
-      expectedActor: write.expectedActor,
-      contentIdentity: write.contentIdentity,
-      resourceId: null,
-      sentWrites: 1,
-      now: new Date().toISOString(),
-    });
-    if (observed.kind === "comment") {
-      if (
-        !observed.coverage.complete ||
-        observed.exactMatches.length > 1 ||
-        observed.editedMatches.length > 0 ||
-        observed.actorMismatches.length > 0
-      ) {
-        detail = `The fixture write ${write.operationId} cannot be settled from a complete, unique comment scan.`;
-      }
-      fixture += `, ${write.step} ${observed.exactMatches.length === 1 ? "written" : observed.coverage.complete ? "absent" : "unknown"}`;
-    } else {
-      if (observed.read !== "found" || !observed.eventCoverage.complete)
-        detail = `The fixture closure ${write.operationId} cannot be settled from a complete read.`;
-      fixture += `, closure ${observed.state ?? "unknown"}`;
-    }
+    const observed = await inspectWrite(
+      run.fixture,
+      read.status === "found" ? read.value.state : "unknown",
+      write,
+    );
+    fixture += `, ${observed.status}`;
+    detail ??= observed.detail;
   }
   return { fixture, detail };
 }
@@ -169,6 +279,13 @@ export async function inspectRuns(projectRoot: string) {
         }
         agents.push(name);
       }
+    }
+    if (
+      run === null &&
+      !(await ownsLegacyRepository(directory, runId, worktree.status === "found"))
+    ) {
+      detail =
+        "This scratch repository has no probe journal or committed probe ownership proof. Preserve it for inspection.";
     }
     const fixtureStatus =
       run === null

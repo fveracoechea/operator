@@ -215,7 +215,7 @@ if (path === "user") {
   }
 } else if (issueMatch?.[1] !== undefined && method === "PATCH") {
   const number = issueMatch[1];
-  const fault = await faulted("closeIssue");
+  const fault = await faulted(body?.state === "open" ? "reopenIssue" : "closeIssue");
   if (fault !== "answered") {
     const held = state.issues[number];
     if (held === undefined) {

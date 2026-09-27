@@ -31,10 +31,12 @@ type Written =
 
 type BeforeWrite = (write: {
   operationId: string;
-  step: "resolution" | "map_amendment" | "completion";
+  step: "resolution" | "map_amendment" | "completion" | "reopen";
   issue: number;
   expectedActor: string;
   contentIdentity: string | null;
+  eventCount?: number | null;
+  outcome?: "succeeded" | "failed" | "uncertain" | "unavailable";
 }) => Promise<void>;
 
 /**
@@ -70,13 +72,14 @@ async function writeComment(
     return { status: "unwritten", detail: `The write could not be planned: ${planned.status}` };
   }
 
-  await beforeWrite({
+  const intent = {
     operationId,
     step: request.intent.step,
     issue: request.issue,
     expectedActor: planned.expectedActor,
     contentIdentity: planned.contentIdentity,
-  });
+  };
+  await beforeWrite(intent);
 
   const written = await TrackerUpdate.write({
     provider: PROVIDER,
@@ -84,6 +87,7 @@ async function writeComment(
     step: request.intent.step,
     content: planned.content,
   });
+  await beforeWrite({ ...intent, outcome: written.status });
   if (written.status !== "succeeded") {
     return {
       status: "unwritten",
@@ -365,13 +369,14 @@ async function closeAndRestore(
     return { closure: failed("github-closure", detail), events: skipped("github-events", detail) };
   }
 
-  await beforeWrite({
+  const closeIntent = {
     operationId,
-    step: "completion",
+    step: "completion" as const,
     issue: fixture.issue,
     expectedActor: planned.expectedActor,
     contentIdentity: null,
-  });
+  };
+  await beforeWrite(closeIntent);
 
   const written = await TrackerUpdate.write({
     provider: PROVIDER,
@@ -379,6 +384,7 @@ async function closeAndRestore(
     step: "completion",
     closeReason: "completed",
   });
+  await beforeWrite({ ...closeIntent, outcome: written.status });
   if (written.status !== "succeeded") {
     const detail = `The fixture issue did not close: ${written.status}`;
     return { closure: failed("github-closure", detail), events: skipped("github-events", detail) };
@@ -399,7 +405,17 @@ async function closeAndRestore(
   const observed = read.observation.kind === "closure" ? read.observation : null;
   const closedRight = observed?.state === "closed" && observed.stateReason === "completed";
 
+  const reopenIntent = {
+    operationId: crypto.randomUUID(),
+    step: "reopen" as const,
+    issue: fixture.issue,
+    expectedActor: planned.expectedActor,
+    contentIdentity: null,
+    eventCount: observed?.eventCoverage.complete ? observed.events.length : null,
+  };
+  await beforeWrite(reopenIntent);
   const reopened = await GithubTracker.reopenIssue(target);
+  await beforeWrite({ ...reopenIntent, outcome: reopened.status });
   const restored =
     reopened.status === "succeeded"
       ? {
