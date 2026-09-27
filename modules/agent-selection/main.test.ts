@@ -12,6 +12,22 @@ describe("Effective selection", () => {
     expect(selection.operator.model).toEqual({ value: "sonnet", source: "project-configuration" });
   });
 
+  test("keeps crew reasoning effort separate from the Operator model", () => {
+    const selection = AgentSelection.resolve({
+      overrides: {},
+      configuration: {
+        operator: { host: "opencode", model: "openai/gpt-6-sol" },
+        crew: { reasoningEffort: "medium" },
+      },
+    });
+
+    expect(selection.crew.reasoningEffort).toEqual({
+      value: "medium",
+      source: "project-configuration",
+    });
+    expect(selection.crew.model).toEqual({ value: null, source: "host-default" });
+  });
+
   test("applies precedence field by field instead of role by role", () => {
     const selection = AgentSelection.resolve({
       overrides: { crew: { model: "haiku" } },

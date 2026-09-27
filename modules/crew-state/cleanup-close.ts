@@ -114,7 +114,10 @@ export async function closeProcess(request: {
     projectRoot: request.projectRoot,
     worktreePath: context.dispatch.worktreePath,
     attemptId: context.attempt.id,
-    copies: OperativeDispatch.launchInputs({ briefIdentity: context.dispatch.briefIdentity }),
+    copies: OperativeDispatch.launchInputs({
+      briefIdentity: context.dispatch.briefIdentity,
+      snapshot: context.dispatch.snapshot,
+    }),
     held: heldArtifacts(context.submission),
   });
   if (preserved.status !== "preserved") {

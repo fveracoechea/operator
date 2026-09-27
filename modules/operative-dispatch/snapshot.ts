@@ -8,6 +8,7 @@ const snapshotSchema = z.looseObject({
     crew: z.looseObject({
       host: z.string().nullable(),
       model: z.string().nullable(),
+      reasoningEffort: z.string().nullable().optional(),
     }),
   }),
   release: z.looseObject({ version: z.string(), identity: z.string() }),

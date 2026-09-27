@@ -230,6 +230,9 @@ export async function replaceAttempt(request: {
       detail: "The recorded snapshot names no crew host.",
     };
   }
+  if (launch.status === "effort-unsupported") {
+    return { status: "snapshot-unreadable", attemptId: request.attemptId, detail: launch.detail };
+  }
 
   const previous = read.context.attempt;
   const plan = launch.plan;

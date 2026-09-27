@@ -185,6 +185,25 @@ operator setup rollback --json
 Rollback restores only the files that still hold what setup wrote.
 It keeps a file that changed after setup wrote it, and reports that file as a conflict.
 
+### Change project configuration
+
+After setup, change settings through the CLI.
+For example, set a separate reasoning effort for OpenCode Operatives:
+
+```sh
+operator config show --json
+operator config plan --set crew.host=opencode --set crew.model=openai/gpt-6-sol --set crew.reasoningEffort=medium --json
+operator config apply --set crew.host=opencode --set crew.model=openai/gpt-6-sol --set crew.reasoningEffort=medium --approved-plan <planId> --json
+```
+
+The plan shows the current and proposed file, the effective selection, and an ID tied to the file contents and requested edits.
+Apply refuses a stale ID or invalid settings, and repeating a completed apply writes nothing.
+Use `--unset crew.reasoningEffort` to return to the host default.
+The same commands set `operator.host`, `operator.model`, `crew.maxActiveAgents`, and the `probe.githubFixture.repository`, `probe.githubFixture.issue`, and `probe.githubFixture.mapIssue` fields.
+Use `--unset probe.githubFixture` to remove the fixture.
+If an apply is interrupted, run `operator config recover --json` to compare the file against its recorded before and after identities.
+Recovery settles that record without editing the configuration file.
+
 ## Release and updates
 
 One release is one matched version of the CLI code and the Operator-owned skills.
@@ -302,6 +321,11 @@ Those need a live probe.
 The CLI resolves each selection field on its own, from a session override, then `.operator/config.json`, then the host default.
 A missing Crew host follows the Operator host, and a missing model stays with the selected host default.
 Operator never substitutes an unavailable host or model, and it never guesses a host that nothing names.
+Set `crew.reasoningEffort` through `operator config plan` and `operator config apply` to `low`, `medium`, `high`, `xhigh`, or `max` for new Operative launches.
+OpenCode needs an explicit OpenAI crew model for this setting.
+Operator creates a worktree-local OpenCode agent with that effort, so the project-wide OpenCode model setting does not change.
+Claude Code receives the setting through its session-level `--effort` flag.
+An omitted effort keeps the host default, and a recorded attempt keeps its original effort during recovery.
 
 ## The live probe
 

@@ -8,7 +8,14 @@ import { readConfiguration } from "./observe.ts";
 export type LaunchSnapshot = {
   selection: {
     operator: { host: string | null; model: string | null };
-    crew: { host: string | null; model: string | null; hostSource: string; modelSource: string };
+    crew: {
+      host: string | null;
+      model: string | null;
+      reasoningEffort: string | null;
+      hostSource: string;
+      modelSource: string;
+      reasoningEffortSource: string;
+    };
   };
   release: { version: string; identity: string };
   // How this project retrieves the release, and the exact identity it retrieves it by. A crew
@@ -58,8 +65,10 @@ export async function readLaunchSnapshot(request: {
       crew: {
         host: selection.crew.host.value,
         model: selection.crew.model.value,
+        reasoningEffort: selection.crew.reasoningEffort.value,
         hostSource: selection.crew.host.source,
         modelSource: selection.crew.model.source,
+        reasoningEffortSource: selection.crew.reasoningEffort.source,
       },
     },
     release: { version: release.version, identity: release.identity },

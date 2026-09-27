@@ -1,6 +1,10 @@
 type Host = "opencode" | "claude-code";
 
-type Role = { host?: Host | undefined; model?: string | undefined };
+type Role = {
+  host?: Host | undefined;
+  model?: string | undefined;
+  reasoningEffort?: string | undefined;
+};
 
 type Selection = { operator?: Role | undefined; crew?: Role | undefined };
 
@@ -15,7 +19,7 @@ type Field<Value> = { value: Value | null; source: Source };
 
 type Resolved = {
   operator: { host: Field<Host>; model: Field<string> };
-  crew: { host: Field<Host>; model: Field<string> };
+  crew: { host: Field<Host>; model: Field<string>; reasoningEffort: Field<string> };
 };
 
 function field<Value>(
@@ -67,6 +71,11 @@ export const AgentSelection = {
       crew: {
         host: crewHost,
         model: field(input.overrides.crew?.model, input.configuration.crew?.model, hostDefault),
+        reasoningEffort: field(
+          input.overrides.crew?.reasoningEffort,
+          input.configuration.crew?.reasoningEffort,
+          hostDefault,
+        ),
       },
     };
   },

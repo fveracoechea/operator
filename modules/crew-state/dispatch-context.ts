@@ -54,6 +54,8 @@ export type DispatchReport = {
   worktreePath: string;
   agentName: string;
   agentHost: string;
+  agentModel: string | null;
+  reasoningEffort: string | null;
   promptIdentity: string;
   snapshotIdentity: string;
   operations: Array<{ kind: string; state: string; detail: string | null }>;
@@ -137,6 +139,8 @@ export function reportOf(request: {
   acknowledged: boolean;
 }): DispatchReport {
   const { dispatch } = request;
+  const recorded = OperativeDispatch.readSnapshot({ recorded: dispatch.snapshot });
+  const crew = recorded.status === "read" ? recorded.snapshot.selection.crew : null;
 
   return {
     attemptId: request.attempt.id,
@@ -147,6 +151,8 @@ export function reportOf(request: {
     worktreePath: dispatch.worktreePath,
     agentName: dispatch.agentName,
     agentHost: dispatch.agentHost,
+    agentModel: crew?.model ?? null,
+    reasoningEffort: crew?.reasoningEffort ?? null,
     promptIdentity: dispatch.promptIdentity,
     snapshotIdentity: dispatch.snapshotIdentity,
     operations: request.operations.map((one) => ({

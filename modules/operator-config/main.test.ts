@@ -15,6 +15,22 @@ describe("Operator configuration", () => {
     expect(parsed.ok).toBe(true);
   });
 
+  test("validates the crew reasoning effort", () => {
+    expect(OperatorConfig.parse({ crew: { reasoningEffort: "medium" } })).toEqual({
+      ok: true,
+      config: { crew: { reasoningEffort: "medium" } },
+    });
+    expect(OperatorConfig.parse({ crew: { reasoningEffort: "extreme" } }).ok).toBe(false);
+    const schema = JSON.parse(OperatorConfig.jsonSchemaText());
+    expect(schema.properties.crew.properties.reasoningEffort.enum).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+  });
+
   test("rejects an unknown field", () => {
     expect(OperatorConfig.parse({ operatr: {} })).toEqual({
       ok: false,

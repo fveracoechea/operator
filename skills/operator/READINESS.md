@@ -69,6 +69,7 @@ The approval is bound to the plan revision, so a change to the project, the sele
 
 The probe acts only on resources it makes for itself and on the fixture named by `probe.githubFixture` in `.operator/config.json`.
 A project with no fixture keeps every GitHub check skipped, so it stays unverified until the user names one.
+Use the configuration commands in [SETUP.md](SETUP.md) to plan and apply the fixture fields.
 
 The probe's approval covers the run and the removal of the Herdr test worktree, because removing that worktree is one of the checks.
 It grants no authority to commit, push, merge, publish, or remove anything else.

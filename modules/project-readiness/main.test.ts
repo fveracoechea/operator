@@ -344,6 +344,8 @@ describe("operator setup readiness", () => {
         hostSource: "operator-host",
         model: null,
         modelSource: "host-default",
+        reasoningEffort: null,
+        reasoningEffortSource: "host-default",
       },
     });
     expect(result.json.data.appliesTo).toBe("new-launches");

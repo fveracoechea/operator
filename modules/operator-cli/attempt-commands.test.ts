@@ -323,6 +323,63 @@ describe("operator attempt dispatch", () => {
     );
   });
 
+  test("applies OpenCode effort through a worktree-local agent and records it", async () => {
+    const workspace = await makeWorkspace({
+      crew: { host: "opencode", model: "openai/gpt-6-sol", reasoningEffort: "medium" },
+    });
+    const crew = await claimedAttempt(workspace);
+
+    const dispatched = await dispatch(workspace, crew);
+    expect(dispatched.json.reason).toBe("acknowledgement_pending");
+    expect((await calls(workspace)).find((line) => line.startsWith("agent start"))).toContain(
+      "-- --model openai/gpt-6-sol --agent operator-crew",
+    );
+    const agent = await Bun.file(
+      `${workspace.root}/operative/.opencode/agents/operator-crew.md`,
+    ).text();
+    expect(agent).toContain("reasoningEffort: medium");
+    expect(agent).toContain("variant: medium");
+    const pluginPath = `${workspace.root}/operative/.opencode/plugins/operator-crew-effort.ts`;
+    const plugin = await Bun.file(pluginPath).text();
+    expect(plugin).toContain('output.options.reasoningEffort = "medium"');
+    const hooks = await (await import(pluginPath)).default();
+    const selected = { options: { reasoningEffort: "high" } };
+    await hooks["chat.params"]({ agent: "operator-crew" }, selected);
+    expect(selected.options.reasoningEffort).toBe("medium");
+    const other = { options: { reasoningEffort: "high" } };
+    await hooks["chat.params"]({ agent: "build" }, other);
+    expect(other.options.reasoningEffort).toBe("high");
+    const brief = await Bun.file(`${workspace.root}/operative/.operator/local/brief.md`).text();
+    expect(brief).toContain("- Crew reasoning effort: medium");
+    const shown = await runJson(workspace, ["attempt", "show", "--attempt", crew.attemptId]);
+    expect(shown.json.data.reasoningEffort).toBe("medium");
+  });
+
+  test("passes Claude Code effort as a session flag", async () => {
+    const workspace = await makeWorkspace({
+      crew: { host: "claude-code", reasoningEffort: "high" },
+    });
+    const crew = await claimedAttempt(workspace);
+
+    const dispatched = await dispatch(workspace, crew);
+    expect(dispatched.json.reason).toBe("acknowledgement_pending");
+    expect((await calls(workspace)).find((line) => line.startsWith("agent start"))).toContain(
+      "-- --effort high",
+    );
+  });
+
+  test("refuses OpenCode effort without an explicit supported model before creating a worktree", async () => {
+    const workspace = await makeWorkspace({
+      crew: { host: "opencode", reasoningEffort: "medium" },
+    });
+    const crew = await claimedAttempt(workspace);
+
+    const result = await dispatch(workspace, crew);
+    expect(result.json.reason).toBe("reasoning_effort_unsupported");
+    expect(result.json.blockers[0].detail).toContain("explicit OpenAI crew model");
+    expect((await calls(workspace)).some((line) => line.startsWith("worktree create"))).toBe(false);
+  });
+
   test("copies no credential and no crew state into the worktree", async () => {
     const workspace = await makeWorkspace();
     await Bun.write(`${workspace.repo}/.env`, "TOKEN=secret\n");
@@ -624,6 +681,25 @@ describe("acknowledgement", () => {
 });
 
 describe("snapshot restoration", () => {
+  test("reports a changed reasoning effort before resuming a failed launch", async () => {
+    const workspace = await makeWorkspace({
+      crew: { host: "claude-code", reasoningEffort: "low" },
+    });
+    const crew = await claimedAttempt(workspace);
+    await Bun.write(`${workspace.herdr}/agent-start.error`, "agent_not_ready");
+    await dispatch(workspace, crew);
+    await Bun.write(
+      `${workspace.repo}/.operator/config.json`,
+      `${JSON.stringify({ crew: { host: "claude-code", reasoningEffort: "high" } })}\n`,
+    );
+    await rm(`${workspace.herdr}/agent-start.error`);
+
+    const resumed = await dispatch(workspace, crew);
+    expect(resumed.json.reason).toBe("snapshot_drift");
+    expect(resumed.json.blockers.map((one: { input: string }) => one.input)).toContain(
+      "selection.crew.reasoningEffort",
+    );
+  });
   test("refuses to launch an attempt whose recorded inputs drifted", async () => {
     const workspace = await makeWorkspace();
     const crew = await claimedAttempt(workspace);
