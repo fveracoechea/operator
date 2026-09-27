@@ -168,7 +168,8 @@ answer() {
     if [ -f "$dir/agents/$name" ]; then
       printf '{"id":"cli:agent:get","result":{"type":"agent_info","agent":{"name":"%s","pane_id":"%s","agent_status":"working"}}}\n' "$name" "$(cat "$dir/agents/$name")"
     else
-      printf '{"id":"cli:agent:get","error":{"code":"agent_not_found","message":"agent target %s not found"}}\n' "$name"
+      printf '{"id":"cli:agent:get","error":{"code":"agent_not_found","message":"agent target %s not found"}}\n' "$name" >&2
+      exit 1
     fi
     ;;
   agent-list)

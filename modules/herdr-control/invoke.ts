@@ -52,7 +52,8 @@ export async function invokeHerdr(request: {
 
   let body: unknown;
   try {
-    body = JSON.parse(invoked.stdout);
+    // Herdr writes successful results to stdout and command errors to stderr with exit 1.
+    body = JSON.parse(invoked.stdout.trim() || invoked.stderr.trim());
   } catch {
     // A command that answered nothing readable leaves its effect unknown, never assumed absent.
     return {

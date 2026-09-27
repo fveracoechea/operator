@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { LiveProbe } from "./main.ts";
 import { ProjectReadiness } from "../project-readiness/main.ts";
 import { briefFor, readReport, type ProbeStep } from "./protocol.ts";
+import { waitForFile } from "./scratch.ts";
 
 describe("the live probe catalogue", () => {
   test("runs exactly the checks readiness declares", () => {
@@ -44,5 +45,18 @@ test("a live probe brief gives the agent a report the reader accepts", () => {
     if (step === "interruption") {
       expect(brief).toContain("Stop without starting a wait or a child process.");
     }
+  }
+});
+
+test("reads a report written after observation starts", async () => {
+  const path = `/tmp/opencode/operator-live-report-${crypto.randomUUID()}.json`;
+  try {
+    const pending = waitForFile({ path, windowMs: 500 });
+    await Bun.sleep(40);
+    await Bun.write(path, '{"step":"loading"}');
+    expect(await pending).toMatchObject({ status: "read", text: '{"step":"loading"}' });
+  } finally {
+    const { rm } = await import("node:fs/promises");
+    await rm(path, { force: true });
   }
 });
