@@ -63,7 +63,7 @@ describe("the release artifact", () => {
     await symlink(`${sourceRoot}/node_modules`, `${artifactRoot}/node_modules`);
     const discovery = Bun.spawn(
       ["bun", `${artifactRoot}/cli.js`, "wake", "plugin-path", "--json"],
-      { stdout: "pipe", stderr: "pipe" },
+      { cwd: artifactRoot, stdout: "pipe", stderr: "pipe" },
     );
     const [discoveryOutput, discoveryCode] = await Promise.all([
       new Response(discovery.stdout).json(),
