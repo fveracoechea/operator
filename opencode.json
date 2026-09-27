@@ -3,9 +3,9 @@
   "provider": {
     "openai": {
       "models": {
-        "gpt-5.6-terra": {
+        "gpt-6-sol": {
           "options": {
-            "reasoningEffort": "high"
+            "reasoningEffort": "medium"
           }
         }
       }
