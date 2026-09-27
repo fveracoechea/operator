@@ -59,6 +59,8 @@ describe("the release artifact", () => {
     expect(await Bun.file(`${artifactRoot}/modules/operator-cli/main.d.ts`).exists()).toBe(true);
     expect(await Bun.file(`${artifactRoot}/skills/operator/SKILL.md`).exists()).toBe(true);
     expect(await Bun.file(`${artifactRoot}/herdr/herdr-plugin.toml`).exists()).toBe(true);
+    // A fetched release has its dependencies installed beside the CLI.
+    await symlink(`${sourceRoot}/node_modules`, `${artifactRoot}/node_modules`);
     const discovery = Bun.spawn(
       ["bun", `${artifactRoot}/cli.js`, "wake", "plugin-path", "--json"],
       { stdout: "pipe", stderr: "pipe" },
