@@ -219,7 +219,8 @@ export const OperativeDispatch = {
       path: request.plan.worktreePath,
       branch: request.plan.branch,
       baseCommit: request.plan.baseCommit,
-      label: request.plan.agentName,
+      label: request.plan.workspaceLabel,
+      tabLabel: request.plan.tabLabel,
     };
     if (request.plan.parentWorkspaceId !== undefined) {
       input.parentWorkspaceId = request.plan.parentWorkspaceId;
@@ -269,6 +270,17 @@ export const OperativeDispatch = {
       return started.status === "failed"
         ? { status: "failed", code: started.code, detail: started.detail }
         : started;
+    }
+
+    const labeled = await HerdrControl.labelAgent({
+      paneId: started.value.paneId,
+      agentName: request.plan.agentName,
+      label: request.plan.agentLabel,
+    });
+    if (labeled.status !== "succeeded") {
+      return labeled.status === "failed"
+        ? { status: "failed", code: labeled.code, detail: labeled.detail }
+        : labeled;
     }
 
     return {

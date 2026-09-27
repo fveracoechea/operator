@@ -81,6 +81,10 @@ answer() {
     printf '{"id":"cli:worktree:create","result":{"type":"worktree_created","workspace":{"workspace_id":"%s"},"worktree":{"path":"%s","branch":"%s","is_linked_worktree":true}}}\n' "$workspace" "$path" "$branch"
     ;;
   worktree-list)
+    source=$(value_of --cwd "$@")
+    [ -n "$source" ] || source="$HERDR_FAKE_REPO"
+    source_workspace="w-source"
+    [ "$source" = "$HERDR_FAKE_REPO" ] && source_workspace="w0"
     entries=""
     if [ -f "$dir/worktrees" ]; then
       while IFS='|' read -r workspace path repo branch; do
@@ -93,7 +97,14 @@ answer() {
         fi
       done < "$dir/worktrees"
     fi
-    printf '{"id":"cli:worktree:list","result":{"type":"worktree_list","worktrees":[%s]}}\n' "${entries#,}"
+    printf '{"id":"cli:worktree:list","result":{"type":"worktree_list","source":{"source_workspace_id":"%s"},"worktrees":[%s]}}\n' "$source_workspace" "${entries#,}"
+    ;;
+  workspace-rename|tab-rename|pane-report-metadata)
+    printf '{"id":"cli:%s:%s","result":{}}\n' "$group" "$sub"
+    ;;
+  tab-list)
+    workspace=$(value_of --workspace "$@")
+    printf '{"id":"cli:tab:list","result":{"tabs":[{"tab_id":"%s:t1"}]}}\n' "$workspace"
     ;;
   worktree-remove)
     workspace=$(value_of --workspace "$@")

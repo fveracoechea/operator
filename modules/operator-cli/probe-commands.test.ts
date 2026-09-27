@@ -304,10 +304,29 @@ describe("operator setup probe apply", () => {
       const calls = await herdrCalls(workspace);
 
       expect(calls.some((one) => one.startsWith("worktree create"))).toBe(true);
+      expect(
+        calls.some((one) =>
+          /^worktree create .*--label repo probe [a-f0-9]{8} worktree /.test(one),
+        ),
+      ).toBe(true);
+      expect(
+        calls.some((one) =>
+          /^workspace rename w-source repo probe [a-f0-9]{8} repository /.test(one),
+        ),
+      ).toBe(true);
+      expect(
+        calls.some((one) =>
+          /^tab rename w1:t1 repo probe [a-f0-9]{8} Operator and Crew /.test(one),
+        ),
+      ).toBe(true);
       for (const call of calls.filter((one) => one.startsWith("agent start "))) {
         const name = call.split(" ")[2];
         expect(name).toMatch(/^[a-z][a-z0-9_-]{0,31}$/);
+        expect(name).toMatch(/^probe-repo-[a-f0-9]{8}-(operator|crew)$/);
       }
+      expect(
+        calls.some((one) => one.startsWith("pane report-metadata w1:p1 --source operator")),
+      ).toBe(true);
       expect(calls.some((one) => one.startsWith("worktree remove"))).toBe(true);
       expect(observed(result.json, "host-termination")?.state).toBe("passed");
       // The test worktree is gone, and the scratch repository stays until a cleanup is approved.

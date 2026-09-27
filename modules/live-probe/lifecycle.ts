@@ -1,5 +1,7 @@
 import { ContentIdentity } from "../content-identity/main.ts";
 import { HerdrControl } from "../herdr-control/main.ts";
+// Bun has no path manipulation API.
+import { basename } from "node:path";
 import {
   ask,
   LIFECYCLE_CHECKS,
@@ -63,12 +65,16 @@ export async function runLifecycle(lifecycle: Lifecycle): Promise<{
   }
   resources.push(`scratch repository ${scratch.repo}`);
 
+  const project = basename(lifecycle.projectRoot);
+  const probe = lifecycle.runId.slice(0, 8);
   const created = await HerdrControl.createWorktree({
     repoRoot: scratch.repo,
     path: scratch.worktreePath,
     branch: scratch.branch,
     baseCommit: scratch.baseCommit,
-    label: `operator-probe-${lifecycle.runId}`,
+    label: `${project} probe ${probe} worktree`,
+    tabLabel: `${project} probe ${probe} Operator and Crew`,
+    sourceLabel: `${project} probe ${probe} repository`,
   });
   if (created.status !== "succeeded") {
     staged.push(

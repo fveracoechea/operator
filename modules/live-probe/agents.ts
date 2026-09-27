@@ -1,4 +1,6 @@
 import { HerdrControl } from "../herdr-control/main.ts";
+// Bun has no path manipulation API.
+import { basename } from "node:path";
 import { briefFor, type ProbeStep, readReport, type ReportOf } from "./protocol.ts";
 import type { Scratch, Target } from "./scratch.ts";
 import { waitForFile } from "./scratch.ts";
@@ -119,7 +121,14 @@ export async function startAgent(
     };
   }
 
-  const name = `operator-probe-${lifecycle.runId.replaceAll("-", "").slice(0, 8)}-${request.role}`;
+  const project = basename(lifecycle.projectRoot);
+  const short = lifecycle.runId.replaceAll("-", "").slice(0, 8);
+  const slug =
+    project
+      .toLowerCase()
+      .replaceAll(/[^a-z0-9]+/g, "")
+      .slice(0, 8) || "project";
+  const name = `probe-${slug}-${short}-${request.role}`;
   const started = await HerdrControl.startAgent({
     name,
     kind: lifecycle[request.role].host,
@@ -130,6 +139,18 @@ export async function startAgent(
     return {
       status: "failed",
       detail: `Herdr did not start the ${request.role} host: ${started.status === "failed" ? `${started.code}: ${started.detail}` : started.detail}`,
+    };
+  }
+
+  const labeled = await HerdrControl.labelAgent({
+    paneId: started.value.paneId,
+    agentName: name,
+    label: `${project} probe ${short} ${request.role === "crew" ? "Crew" : "Operator"}`,
+  });
+  if (labeled.status !== "succeeded") {
+    return {
+      status: "failed",
+      detail: `Herdr did not label the ${request.role} host: ${labeled.status === "failed" ? `${labeled.code}: ${labeled.detail}` : labeled.detail}`,
     };
   }
 

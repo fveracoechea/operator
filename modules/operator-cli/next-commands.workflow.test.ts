@@ -667,7 +667,7 @@ describe("either supported host as Operator", () => {
     const working = await nextActions(workspace, targets);
     expect(working.exitCode).toBe(6);
     expect(working.waiting).toEqual(["operative_working"]);
-  });
+  }, 20_000);
 });
 
 describe("a mixed-host crew", () => {

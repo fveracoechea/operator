@@ -103,6 +103,8 @@ export const HerdrControl = {
     branch: string;
     baseCommit: string;
     label: string;
+    tabLabel?: string;
+    sourceLabel?: string;
   }): Promise<HerdrOutcome<{ workspaceId: string; worktree: Worktree }>> {
     const outcome = await invokeHerdr({
       args: [
@@ -136,7 +138,70 @@ export const HerdrControl = {
       return { status: "uncertain", detail: "herdr created a worktree it did not describe." };
     }
 
+    if (request.sourceLabel !== undefined) {
+      const listed = await invokeHerdr({
+        args: ["worktree", "list", "--cwd", request.repoRoot],
+        timeoutMs: READ_TIMEOUT_MS,
+      });
+      if (listed.status !== "succeeded") return listed;
+      const sourceId = ToolInvocation.text(
+        ToolInvocation.record(listed.value, "source"),
+        "source_workspace_id",
+      );
+      if (sourceId === null) {
+        return {
+          status: "uncertain",
+          detail: "herdr did not identify the probe repository workspace.",
+        };
+      }
+      const renamed = await invokeHerdr({
+        args: ["workspace", "rename", sourceId, request.sourceLabel],
+        timeoutMs: READ_TIMEOUT_MS,
+      });
+      if (renamed.status !== "succeeded") return renamed;
+    }
+    if (request.tabLabel !== undefined) {
+      const listed = await invokeHerdr({
+        args: ["tab", "list", "--workspace", workspaceId],
+        timeoutMs: READ_TIMEOUT_MS,
+      });
+      if (listed.status !== "succeeded") return listed;
+      const first = ToolInvocation.list(listed.value, "tabs")[0];
+      const tabId = ToolInvocation.text(first, "tab_id");
+      if (tabId === null) {
+        return { status: "uncertain", detail: "herdr did not identify the worktree tab." };
+      }
+      const renamed = await invokeHerdr({
+        args: ["tab", "rename", tabId, request.tabLabel],
+        timeoutMs: READ_TIMEOUT_MS,
+      });
+      if (renamed.status !== "succeeded") return renamed;
+    }
+
     return { status: "succeeded", value: { workspaceId, worktree } };
+  },
+
+  /** Adds a readable agent label without changing the stable name used by prompts and recovery. */
+  async labelAgent(request: {
+    paneId: string;
+    agentName: string;
+    label: string;
+  }): Promise<HerdrOutcome<null>> {
+    const outcome = await invokeHerdr({
+      args: [
+        "pane",
+        "report-metadata",
+        request.paneId,
+        "--source",
+        "operator",
+        "--agent",
+        request.agentName,
+        "--display-agent",
+        request.label,
+      ],
+      timeoutMs: READ_TIMEOUT_MS,
+    });
+    return outcome.status === "succeeded" ? { status: "succeeded", value: null } : outcome;
   },
 
   /** Reads the pane a new worktree workspace opened, so the launch names a real target. */

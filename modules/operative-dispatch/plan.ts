@@ -61,6 +61,9 @@ export type DispatchPlan = {
   branch: string;
   worktreePath: string;
   agentName: string;
+  workspaceLabel: string;
+  tabLabel: string;
+  agentLabel: string;
   agentKind: string;
   agentHost: string;
   agentModel: string | null;
@@ -130,6 +133,21 @@ function slug(value: string): string {
       .replaceAll(/^-+|-+$/g, "")
       .slice(0, 24) || "work"
   );
+}
+
+/** Herdr keeps display text separate from the stable attempt and agent handles. */
+function displayLabels(projectRoot: string, brief: Brief) {
+  const project = basename(projectRoot).replaceAll(/[-_]+/g, " ");
+  const projectName = project.charAt(0).toUpperCase() + project.slice(1);
+  const ticket = /^\d+$/.test(brief.sourceKey) ? `#${brief.sourceKey}` : brief.sourceKey;
+  const role =
+    brief.review !== null ? "Reviewer" : brief.rework !== null ? "Rework Operative" : "Operative";
+  const assignment = `${ticket} ${role}: ${brief.title}`;
+  return {
+    workspaceLabel: `${projectName} ${assignment}`.slice(0, 80),
+    tabLabel: assignment.slice(0, 80),
+    agentLabel: assignment.slice(0, 80),
+  };
 }
 
 /**
@@ -369,6 +387,7 @@ export function planDispatch(request: {
     branch,
     worktreePath,
     agentName: `operative-${short}`,
+    ...displayLabels(request.projectRoot, request.brief),
     agentKind: request.agentKind,
     agentHost: request.agentHost,
     agentModel: request.snapshot.selection.crew.model,

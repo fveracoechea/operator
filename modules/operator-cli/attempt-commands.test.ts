@@ -417,6 +417,9 @@ describe("operator attempt dispatch", () => {
       "agent start",
       "pane get",
       "pane list",
+      "pane report-metadata",
+      "tab list",
+      "tab rename",
       "worktree create",
       "worktree list",
     ]);
