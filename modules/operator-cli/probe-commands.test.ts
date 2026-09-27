@@ -359,6 +359,12 @@ describe("operator setup probe apply", () => {
       expect(result.exitCode).toBe(1);
       expect(result.json.reason).toBe("probe_run_failed");
       expect(observed(result.json, "question-and-answer")).toMatchObject({ state: "failed" });
+      expect(observed(result.json, "result-reporting")).toMatchObject({ state: "skipped" });
+      expect(observed(result.json, "interruption")).toMatchObject({ state: "skipped" });
+      const prompts = (await herdrCalls(workspace)).filter((one) =>
+        one.startsWith("agent prompt "),
+      );
+      expect(prompts.filter((one) => one.includes("-operator "))).toHaveLength(2);
       const readiness = await runJson(workspace, ["setup", "readiness", ...selection]);
       expect(readiness.json.data.state).toBe("blocked");
       expect(readiness.json.data.claims.readiness).toBe("blocked");

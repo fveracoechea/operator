@@ -136,6 +136,32 @@ export const HerdrControl = {
     });
   },
 
+  /** Opens a shell pane beside a live agent so a second agent has its own terminal. */
+  async splitPane(request: {
+    paneId: string;
+    cwd: string;
+  }): Promise<HerdrOutcome<{ paneId: string }>> {
+    const outcome = await invokeHerdr({
+      args: [
+        "pane",
+        "split",
+        "--pane",
+        request.paneId,
+        "--direction",
+        "right",
+        "--cwd",
+        request.cwd,
+        "--no-focus",
+      ],
+      timeoutMs: LAUNCH_TIMEOUT_MS,
+    });
+    if (outcome.status !== "succeeded") return outcome;
+    const paneId = ToolInvocation.text(ToolInvocation.record(outcome.value, "pane"), "pane_id");
+    return paneId === null
+      ? { status: "uncertain", detail: "herdr opened a pane it did not describe." }
+      : { status: "succeeded", value: { paneId } };
+  },
+
   /** Starts the agent host in a prepared pane. Success means that host owns that terminal. */
   async startAgent(request: {
     name: string;
