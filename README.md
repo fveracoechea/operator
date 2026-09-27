@@ -41,6 +41,9 @@ Operator adds the coordination rules, the skills, and the CLI operations that He
 | GitHub CLI (`gh`) | Reads and writes the tracker. GitHub is the only tracker this release supports. |
 | Claude Code, OpenCode, or both | The agent hosts for the Operator and the crew. |
 
+Optional: [`jq`](https://jqlang.github.io/jq/) lets agents select fields from the CLI's `--json` output without reading the full result.
+Operator does not require `jq` to run.
+
 ## Quick start
 
 Each command that changes the project first shows a plan, and changes nothing until you approve that exact plan.
