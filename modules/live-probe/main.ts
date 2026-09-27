@@ -121,7 +121,11 @@ export const LiveProbe = {
       resources.push(...ran.resources);
     }
 
-    const tracker = await runTrackerChecks({ fixture: request.fixture, probeId: request.probeId });
+    const tracker = await runTrackerChecks({
+      fixture: request.fixture,
+      probeId: request.probeId,
+      runId,
+    });
     staged.push(...tracker.staged);
     resources.push(...tracker.resources);
     staged.push(providerCompatibility(request, staged));

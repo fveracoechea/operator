@@ -13,6 +13,18 @@ import { makeScratch, type Scratch } from "./scratch.ts";
 import { failed, passed, passedAll, type Staged, skipped, skipRest } from "./stage.ts";
 import { proveTakeover } from "./takeover.ts";
 
+/** A stopped agent can return control to a bare interactive shell in its pane. */
+function isIdleShell(
+  process: { pid: number; name: string; command: string },
+  shellPid: number | null,
+) {
+  if (process.pid === shellPid) return true;
+  const command = process.command.trim();
+  return ["sh", "bash", "zsh", "fish"].some(
+    (name) => process.name === name && (command === name || command.endsWith(`/${name}`)),
+  );
+}
+
 /** Commits the synthetic files one probe wrote, so its checkout is clean before removal. */
 async function commitProbeWork(scratch: Scratch): Promise<string | null> {
   try {
@@ -333,10 +345,19 @@ export async function runLifecycle(lifecycle: Lifecycle): Promise<{
     }
 
     const processes = await HerdrControl.readPaneProcesses({ paneId: agent.paneId });
-    if (processes.status === "found" && processes.value.foreground.length > 0) {
+    if (processes.status === "unknown") {
+      terminated = false;
+      termination.push(`${agent.name}: ${processes.detail}`);
+      continue;
+    }
+    const remainingProcesses =
+      processes.status === "found"
+        ? processes.value.foreground.filter((one) => !isIdleShell(one, processes.value.shellPid))
+        : [];
+    if (remainingProcesses.length > 0) {
       terminated = false;
       termination.push(
-        `${agent.name} left ${processes.value.foreground.map((one) => one.name).join(", ")} running in its pane.`,
+        `${agent.name} left ${remainingProcesses.map((one) => one.name).join(", ")} running in its pane.`,
       );
       continue;
     }
