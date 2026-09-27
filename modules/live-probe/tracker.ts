@@ -126,6 +126,7 @@ function linkCheck(name: string, noun: string, read: Linked, endpoint: string): 
 export async function runTrackerChecks(request: {
   fixture: Fixture | null;
   probeId: string;
+  runId: string;
 }): Promise<{ staged: Staged[]; resources: string[] }> {
   const staged: Staged[] = [];
   if (request.fixture === null) {
@@ -243,7 +244,7 @@ export async function runTrackerChecks(request: {
         step: "map_amendment",
         decisionLink: `https://github.com/${fixture.repository}/issues/${fixture.issue}`,
         baselineIdentity: baseline,
-        sections: [`Live probe ${request.probeId}`],
+        sections: [`Live probe ${request.runId}`],
         supersedes: [],
         body: "- The live probe wrote this synthetic amendment.",
       },

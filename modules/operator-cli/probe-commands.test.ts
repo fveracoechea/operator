@@ -320,6 +320,36 @@ describe("operator setup probe apply", () => {
   );
 
   test(
+    "accepts the interactive shell Herdr returns to after an agent stops",
+    async () => {
+      await Bun.write(`${workspace.herdr}/pane-processes`, "101|zsh|zsh\n");
+      await Bun.write(`${workspace.herdr}/keep-processes`, "");
+
+      const result = await applyProbe(workspace);
+
+      expect(observed(result.json, "host-termination")?.state).toBe("passed");
+    },
+    PROBE_TIMEOUT_MS,
+  );
+
+  test(
+    "still fails termination when a child command remains beside the shell",
+    async () => {
+      await Bun.write(
+        `${workspace.herdr}/pane-processes`,
+        "101|zsh|zsh\n4242|node|node server.js\n",
+      );
+      await Bun.write(`${workspace.herdr}/keep-processes`, "");
+
+      const result = await applyProbe(workspace);
+
+      expect(observed(result.json, "host-termination")?.state).toBe("failed");
+      expect(observed(result.json, "host-termination")?.detail).toContain("node");
+    },
+    PROBE_TIMEOUT_MS,
+  );
+
+  test(
     "writes only to the configured fixture, never to another issue",
     async () => {
       await applyProbe(workspace);
@@ -382,6 +412,20 @@ describe("operator setup probe apply", () => {
 
       expect(rerun.exitCode).toBe(3);
       expect(rerun.json.reason).toBe("approval_required");
+    },
+    PROBE_TIMEOUT_MS,
+  );
+
+  test(
+    "keeps fixture amendments independent across approved runs of the same plan",
+    async () => {
+      const first = await applyProbe(workspace);
+      expect(observed(first.json, "github-amendment")?.state).toBe("passed");
+
+      const second = await applyProbe(workspace);
+
+      expect(observed(second.json, "github-amendment")?.state).toBe("passed");
+      expect(second.json.reason).toBe("probe_completed");
     },
     PROBE_TIMEOUT_MS,
   );

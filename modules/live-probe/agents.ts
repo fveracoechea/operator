@@ -52,6 +52,7 @@ export async function ask<Step extends ProbeStep>(
     probeId: lifecycle.probeId,
     step: request.step,
     reportPath,
+    worktreePath: request.scratch.worktreePath,
     instructions: request.instructions,
     instructionFiles: request.scratch.instructions,
     skillNames: request.scratch.skills,

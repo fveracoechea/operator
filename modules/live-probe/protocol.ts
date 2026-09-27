@@ -14,6 +14,7 @@ export function briefFor(request: {
   probeId: string;
   step: ProbeStep;
   reportPath: string;
+  worktreePath: string;
   instructions: string[];
   instructionFiles: string[];
   skillNames: string[];
@@ -59,7 +60,7 @@ export function briefFor(request: {
       : []),
     ...(request.step === "interruption"
       ? [
-          "Write a partial.txt file with the work you finished, then report its name. Stop without starting a wait or a child process.",
+          `Write a partial.txt file at ${request.worktreePath}/partial.txt with the work you finished, then report its name. Stop without starting a wait or a child process.`,
         ]
       : []),
     ...request.instructions,

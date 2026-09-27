@@ -24,7 +24,8 @@ test("a live probe brief gives the agent a report the reader accepts", () => {
     const brief = briefFor({
       probeId: "probe-1",
       step,
-      reportPath: `/tmp/probe/${step}.json`,
+      reportPath: `/tmp/probe/.operator/probe/${step}.json`,
+      worktreePath: "/tmp/probe",
       instructions: [],
       instructionFiles: ["AGENTS.md"],
       skillNames: ["operator", "operative"],
@@ -43,6 +44,7 @@ test("a live probe brief gives the agent a report the reader accepts", () => {
       );
     }
     if (step === "interruption") {
+      expect(brief).toContain("Write a partial.txt file at /tmp/probe/partial.txt");
       expect(brief).toContain("Stop without starting a wait or a child process.");
     }
   }
