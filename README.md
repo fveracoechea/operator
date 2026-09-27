@@ -58,9 +58,17 @@ Operator does not require `jq` to run.
 2. Open the project in Herdr and start an agent on that host.
    For OpenCode, ask:
 
-   > Load the operator skill. Set up Operator for this repository with OpenCode as the Operator and crew host. Show me each plan before you apply it.
+   > Load the operator skill. Set up Operator for this repository with OpenCode as the Operator and crew host. Select an exact published JSR release. Show me each plan before you apply it.
 
    The agent will guide you through project setup, installing the other project skills, selecting a release, and checking readiness.
+   After the approved JSR update creates `.operator/install/package.json`, install the version it selected from the project root:
+
+   ```sh
+   (cd .operator/install && bunx --bun jsr add --bun "@fveracoechea/operator@<version>")
+   ```
+
+   This keeps Operator out of your application's dependencies and creates the registry settings and lockfile needed for later frozen installs.
+   Use the run command reported by the update to execute the installed release.
    A live probe launches agents and needs its own approval.
    Commit the installed project skills before starting crew work so Operative worktrees can load them.
 
