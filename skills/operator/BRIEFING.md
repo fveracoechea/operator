@@ -32,8 +32,9 @@ A rework brief adds the cycle it answers, the accepted corrections, and the conf
 The fixed brief supplies each role's commands and authority limits.
 
 **Acknowledgement.**
-In a new worktree, run `bun install --frozen-lockfile` from its root to install the project-pinned CLI.
-The Operative then runs `bun run operator attempt acknowledge` from its own worktree before it changes any file.
+For a JSR selection, run `bun install --frozen-lockfile` from the new worktree root to install the project-pinned CLI.
+For a source selection, use the pinned source invocation in [SKILL.md](SKILL.md).
+The Operative then runs the `attempt acknowledge` command in its brief from its own worktree before it changes any file.
 Herdr acknowledges a submission, not a turn, so this is the only proof the brief arrived.
 Treat an assignment as started only after it.
 

@@ -10,8 +10,25 @@ import {
   selectionSchema,
   selectionText,
 } from "./selection.ts";
+import { checkWorktreeInstallation } from "./worktree.ts";
 
 export const ReleaseInstall = {
+  /** Checks that the worktree's base commit can install its selected JSR release frozen. */
+  async worktree(request: Parameters<typeof checkWorktreeInstallation>[0]) {
+    return checkWorktreeInstallation(request);
+  },
+  /** Runs the exact selected delivery from a project root. */
+  invocation(request: { delivery?: string | null; commit?: string | null }): string {
+    if (request.delivery === "jsr") return PROJECT_COMMAND;
+    if (
+      request.delivery === "github-source" &&
+      request.commit !== null &&
+      request.commit !== undefined
+    )
+      return `bunx "github:fveracoechea/operator#${request.commit}"`;
+    return "operator";
+  },
+
   /** The project-relative path the release selection owns. */
   paths() {
     return { selection: SELECTION_PATH };
@@ -52,7 +69,7 @@ export const ReleaseInstall = {
     if (selection.delivery === "github-source") {
       return {
         install: null,
-        run: `bunx "github:fveracoechea/operator#${selection.commit}" <operation>`,
+        run: `${ReleaseInstall.invocation(selection)} <operation>`,
         convenience: "bunx github:fveracoechea/operator <operation>",
       };
     }
@@ -60,7 +77,7 @@ export const ReleaseInstall = {
     const version = selection.packageVersion ?? selection.version;
     return {
       install: "bun install --frozen-lockfile",
-      run: `${PROJECT_COMMAND} <operation>`,
+      run: `${ReleaseInstall.invocation(selection)} <operation>`,
       convenience: `bunx --bun jsr add --bun --save-dev "${PACKAGE_NAME}@${version}" (records ${JSR_PACKAGE_NAME}@${version})`,
     };
   },

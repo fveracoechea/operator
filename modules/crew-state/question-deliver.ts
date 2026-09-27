@@ -48,6 +48,7 @@ type Prepared = {
   question: QuestionRow;
   answer: AnswerRow;
   agentName: string;
+  snapshot: Parameters<typeof OperativeDispatch.deliverAnswer>[0]["snapshot"];
   operation: OperationRow | null;
 };
 
@@ -137,6 +138,7 @@ export async function deliverAnswer(request: {
   const recordedAnswer = answerRecordOf(answer, question);
   const submitted = await OperativeDispatch.deliverAnswer({
     agentName,
+    snapshot: prepared.snapshot,
     answer: {
       questionId: question.id,
       questionRevision: question.revision,
@@ -242,6 +244,10 @@ async function prepare(request: {
   if (read.context.dispatch === null) {
     return { status: "not-dispatched", attemptId: question.attemptId };
   }
+  const snapshot = OperativeDispatch.readSnapshot({ recorded: read.context.dispatch.snapshot });
+  if (snapshot.status !== "read") {
+    return { status: "delivery-failed", questionId: question.id, detail: snapshot.detail };
+  }
 
   // A revision drops the answer it was given, so the recorded one always answers what is asked.
   const answer = await readState(request.projectRoot, (db) => findAnswer(db, answerId));
@@ -259,6 +265,7 @@ async function prepare(request: {
     question,
     answer: answer.answer,
     agentName: read.context.dispatch.agentName,
+    snapshot: snapshot.snapshot,
     operation,
   };
 }

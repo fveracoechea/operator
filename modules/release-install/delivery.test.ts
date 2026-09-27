@@ -240,6 +240,9 @@ describe("the JSR delivery path", () => {
     expect(await Bun.file(`${installed}/skills/operator/SKILL.md`).exists()).toBe(true);
     expect(await Bun.file(`${installed}/skills/operator/RECOVERY.md`).exists()).toBe(true);
     expect(await Bun.file(`${installed}/config.schema.json`).exists()).toBe(true);
+    const instructions = await Bun.file(`${installed}/skills/operator/SKILL.md`).text();
+    expect(instructions).toContain("github-source");
+    expect(instructions).toContain('bunx "github:fveracoechea/operator#<full-commit>"');
   });
 
   test("runs the documented project-root command without a JSR bin", async () => {

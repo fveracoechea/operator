@@ -27,12 +27,54 @@ const brief: Brief = {
   rework: null,
 };
 
+const protocolBrief: Brief = {
+  assignmentId: "assignment-1",
+  assignmentRevision: 1,
+  attemptId: "attempt-1",
+  sourceId: "source-1",
+  sourceKey: "key-1",
+  sourceRevision: "revision-1",
+  title: "Produce a result",
+  kind: "production",
+  approvedScope: "Produce a result.",
+  acceptanceRequirements: [],
+  requirementsIdentity: "requirements-1",
+  permissions: { writePaths: ["modules/"], allowedCommands: ["bun test"], network: false },
+  fixedInputs: [],
+  review: null,
+  rework: null,
+};
+
 function plan(input: Brief) {
   return planDispatch({
     projectRoot: "/projects/renabler",
     brief: input,
     snapshot,
     baseCommit: "base",
+    branch: null,
+    worktreePath: null,
+    agentHost: "opencode",
+    agentKind: "opencode",
+  });
+}
+
+function planned(delivery: "jsr" | "github-source") {
+  const snapshot: Snapshot = {
+    selection: { crew: { host: "opencode", model: null } },
+    release: { version: "0.4.0", identity: "identity-1" },
+    installation: {
+      delivery,
+      commit: "f".repeat(40),
+      packageVersion: delivery === "jsr" ? "0.4.0" : null,
+    },
+    lock: { name: "bun.lock", state: "present", identity: "lock-1", path: "/project/bun.lock" },
+    skills: { identity: "skills-1" },
+  };
+  return planDispatch({
+    projectRoot: "/project",
+    brief: protocolBrief,
+    snapshot,
+    baseCommit: "a".repeat(40),
     branch: null,
     worktreePath: null,
     agentHost: "opencode",
@@ -101,4 +143,23 @@ test("review and rework labels identify their roles on the same ticket", () => {
   expect(review.workspaceLabel).toContain("#59 Reviewer:");
   expect(rework.workspaceLabel).toContain("#59 Rework Operative:");
   expect(review.agentName).toBe(rework.agentName);
+});
+
+test("JSR Operative instructions install before acknowledging with the project script", () => {
+  const plan = planned("jsr");
+  expect(plan.briefText).toContain("bun install --frozen-lockfile");
+  expect(plan.briefText).toContain("bun run operator attempt acknowledge --request");
+  expect(plan.briefText).toContain("bun run operator attempt submit --request");
+  expect(plan.briefText).toContain("bun run operator question raise --request");
+  expect(plan.briefText).toContain("bun run operator question acknowledge --request");
+  expect(plan.promptText).toContain("bun install --frozen-lockfile");
+  expect(plan.promptText).toContain("bun run operator attempt acknowledge --request");
+});
+
+test("source Operative instructions use the selected commit", () => {
+  const plan = planned("github-source");
+  const command = `bunx "github:fveracoechea/operator#${"f".repeat(40)}"`;
+  expect(plan.briefText).toContain(`${command} attempt acknowledge --request`);
+  expect(plan.promptText).toContain(`${command} attempt acknowledge --request`);
+  expect(plan.promptText).not.toContain("bun install --frozen-lockfile");
 });

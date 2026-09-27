@@ -1064,7 +1064,7 @@ describe("operator setup probe", () => {
     const approval = plan.stdout
       .split("\n")
       .find((line) => line.startsWith("Approve with: "))
-      ?.replace("Approve with: operator ", "");
+      ?.replace(/^Approve with: .*? (?=setup probe apply )/, "");
 
     expect(approval).toBeDefined();
     const applied = await runJson(root, path, (approval ?? "").split(" "));

@@ -15,6 +15,7 @@ import {
 } from "./live.ts";
 import { type Observation, type Overrides, observeProject, type Target } from "./observe.ts";
 import { readLaunchSnapshot } from "./snapshot.ts";
+import { ReleaseInstall } from "../release-install/main.ts";
 
 type Request = {
   projectRoot: string;
@@ -191,14 +192,18 @@ async function buildReport(request: Request) {
     ...(live.unreadable ? [live.unreadable] : []),
     ...live.checks,
   ];
+  const selected = observation.installation.selection;
   const checks =
-    observation.installation.selection?.delivery === "jsr"
+    selected !== null
       ? rawChecks.map((check) => ({
           ...check,
           nextAction:
             check.nextAction?.replace(
               /\boperator (?=(?:setup|install|update|crew)\b)/g,
-              "bun run operator ",
+              (match, offset: number) =>
+                check.nextAction?.slice(Math.max(0, offset - 8), offset).endsWith("bun run ")
+                  ? match
+                  : `${ReleaseInstall.invocation(selected)} `,
             ) ?? null,
         }))
       : rawChecks;

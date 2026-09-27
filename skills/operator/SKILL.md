@@ -15,9 +15,13 @@ Silence is never consent.
 This skill works the same on OpenCode and on Claude Code.
 Nothing here depends on which host you run on, and a crew may mix the two.
 
-Run Operator from the project root with `bun run operator`.
-The project installs its selected JSR release as a devDependency and defines the script in `package.json`.
-Every command in this skill uses that invocation.
+Read `.operator/install/selection.json` when it exists to choose the selected delivery.
+Before selection, use the JSR project script to set up the project and select the release.
+For `jsr`, run Operator from the project root with `bun run operator`.
+The project defines that script in `package.json` for its JSR devDependency.
+For `github-source`, use `bunx "github:fveracoechea/operator#<full-commit>"` with the exact `commit` in the selection.
+The examples below show the JSR command.
+On a selected source delivery, replace their `bun run operator` prefix with the pinned `bunx` command.
 
 ## Where to start
 

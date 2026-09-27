@@ -203,7 +203,10 @@ async function releaseMismatch(
   rest: string[],
 ): Promise<boolean> {
   const selected = await ReleaseInstall.selection({ projectRoot: process.cwd() });
-  useProjectInvocation(selected.state === "read" ? selected.selection.delivery : null);
+  useProjectInvocation(
+    selected.state === "read" ? selected.selection.delivery : null,
+    selected.state === "read" ? selected.selection.commit : null,
+  );
   if (
     command === "update" ||
     command === "install" ||

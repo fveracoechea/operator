@@ -78,11 +78,16 @@ async function intendedWrites(request: {
     };
   }
   if (jsr) {
-    const existing = await readBytes(`${plan.worktreePath}/${snapshot.lock.name}`);
-    if (existing !== null && ContentIdentity.ofBytes(existing) !== ContentIdentity.ofBytes(lock)) {
+    const mismatch = await ReleaseInstall.worktree({
+      worktreeRoot: plan.worktreePath,
+      version: snapshot.installation?.packageVersion ?? snapshot.release.version,
+      lockName: snapshot.lock.name,
+      lockBytes: lock,
+    });
+    if (mismatch !== null) {
       return {
         failure: "input_verification_failed",
-        detail: `The worktree lock ${snapshot.lock.name} differs from the selected installation.`,
+        detail: mismatch,
       };
     }
   }
@@ -139,7 +144,6 @@ async function intendedWrites(request: {
       ...copies,
       ...opencodeInputs,
       ...(selection === null ? [] : [{ path: selectionPath, bytes: selection }]),
-      ...(jsr ? [{ path: snapshot.lock.name, bytes: lock }] : []),
       { path: ".operator/config.json", bytes: configuration },
       ...(schema === null ? [] : [{ path: ".operator/config.schema.json", bytes: schema }]),
       { path: `.operator/local/${snapshot.lock.name}`, bytes: lock },

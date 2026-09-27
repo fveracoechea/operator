@@ -9,7 +9,8 @@ Read this before you review a submitted result or accept an assignment.
 2. `bun run operator crew next --claude --json` now offers the review assignment the submission registered,
    before any new production work.
 3. `bun run operator work claim` and `bun run operator attempt dispatch` launch the reviewer, exactly as for production work.
-4. The reviewer runs `bun install --frozen-lockfile` and then `bun run operator review report` from its own worktree.
+4. For a JSR selection, the reviewer runs `bun install --frozen-lockfile` and then `bun run operator review report` from its own worktree.
+   For a source selection, it uses the pinned source invocation in [SKILL.md](SKILL.md).
 5. `bun run operator review show --review <id> --json` gives you both reports and every finding.
 6. `bun run operator review dispose --request <id> --owner-token <token> --review <id> --input <path> --json` records your judgment.
 7. `bun run operator work accept ... --submission <id> --pr-head <sha> --json` records accepted completion.

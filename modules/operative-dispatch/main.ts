@@ -1,6 +1,7 @@
 import { HerdrControl } from "../herdr-control/main.ts";
 import { ContentIdentity } from "../content-identity/main.ts";
 import { SkillInstall } from "../skill-install/main.ts";
+import { ReleaseInstall } from "../release-install/main.ts";
 import { type AnswerDelivery, answerDocument } from "./answer.ts";
 import { type PrepareOutcome, prepareInputs } from "./inputs.ts";
 import { inspectReviewWork, inspectWork, type WorkInspection } from "./inspect.ts";
@@ -332,10 +333,14 @@ export const OperativeDispatch = {
   async deliverAnswer(request: {
     agentName: string;
     answer: AnswerDelivery;
+    snapshot: Snapshot;
   }): Promise<LaunchOutcome<{ status: string }>> {
     const submitted = await HerdrControl.submitPrompt({
       target: request.agentName,
-      text: answerDocument(request.answer),
+      text: answerDocument(
+        request.answer,
+        ReleaseInstall.invocation(request.snapshot.installation ?? {}),
+      ),
     });
     if (submitted.status !== "succeeded") {
       return submitted.status === "failed"

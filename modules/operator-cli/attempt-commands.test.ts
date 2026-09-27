@@ -150,7 +150,7 @@ async function damageSnapshot(workspace: Workspace, attemptId: string) {
 }
 
 describe("operator attempt dispatch", () => {
-  test("carries the selected JSR release and project lock into an Operative worktree", async () => {
+  test("refuses a JSR base commit whose lock does not pin the selected dependency", async () => {
     const running = await OperatorRelease.identify();
     const lock = await Bun.file(`${running.installationRoot}/${running.lock.name}`).text();
     const workspace = await fixtures.make({
@@ -182,14 +182,80 @@ describe("operator attempt dispatch", () => {
 
     const dispatched = await dispatch(workspace, crew);
 
-    expect(dispatched.json.reason).toBe("acknowledgement_pending");
-    expect(
-      await Bun.file(`${workspace.root}/operative/.operator/install/selection.json`).json(),
-    ).toMatchObject({
-      releaseIdentity: running.identity,
-      delivery: "jsr",
+    expect(dispatched.json.reason).toBe("dispatch_stage_failed");
+    expect(JSON.stringify(dispatched.json)).toContain("bun.lock");
+    expect((await calls(workspace)).some((call) => call.startsWith("agent start"))).toBe(false);
+  });
+
+  test("uses the pinned source command in a selected source Operative brief", async () => {
+    const workspace = await makeWorkspace();
+    const commit = "f".repeat(40);
+    const release = await OperatorRelease.identify();
+    await ReleaseInstall.select({
+      projectRoot: workspace.repo,
+      selection: {
+        schemaVersion: 1,
+        delivery: "github-source",
+        version: release.version,
+        commit,
+        releaseIdentity: release.identity,
+        skillsIdentity: release.skillsIdentity,
+        packageVersion: null,
+        upstreamSkills: [],
+        selectedAt: new Date().toISOString(),
+      },
     });
-    expect(await Bun.file(`${workspace.root}/operative/bun.lock`).text()).toBe(lock);
+    const crew = await claimedAttempt(workspace);
+
+    const dispatched = await dispatch(workspace, crew);
+
+    expect(dispatched.json.reason).toBe("acknowledgement_pending");
+    const brief = await Bun.file(`${workspace.root}/operative/.operator/local/brief.md`).text();
+    const prompt = await Bun.file(`${workspace.herdr}/last-prompt`).text();
+    const source = `bunx "github:fveracoechea/operator#${commit}"`;
+    expect(brief).toContain(`${source} attempt acknowledge --request`);
+    expect(prompt).toContain(`${source} attempt acknowledge --request`);
+    expect(prompt).not.toContain("bun install --frozen-lockfile");
+  });
+
+  test("blocks a JSR worktree whose base commit predates its devDependency", async () => {
+    const workspace = await makeWorkspace();
+    const base = await headCommit(workspace);
+    const release = await OperatorRelease.identify();
+    await ReleaseInstall.select({
+      projectRoot: workspace.repo,
+      selection: {
+        schemaVersion: 1,
+        delivery: "jsr",
+        version: release.version,
+        commit: "f".repeat(40),
+        releaseIdentity: release.identity,
+        skillsIdentity: release.skillsIdentity,
+        packageVersion: release.version,
+        upstreamSkills: [],
+        selectedAt: new Date().toISOString(),
+      },
+    });
+    const crew = await claimedAttempt(workspace);
+
+    const dispatched = await runJson(workspace, [
+      "attempt",
+      "dispatch",
+      "--request",
+      request(),
+      "--owner-token",
+      crew.ownerToken,
+      "--attempt",
+      crew.attemptId,
+      "--commit",
+      base,
+      "--worktree",
+      `${workspace.root}/operative`,
+    ]);
+
+    expect(dispatched.json.reason).toBe("dispatch_stage_failed");
+    expect(JSON.stringify(dispatched.json)).toContain("package.json");
+    expect((await calls(workspace)).some((call) => call.startsWith("agent start"))).toBe(false);
   });
 
   test("healthcheck reports unproven readiness as a standing precondition, not a dispatch gate", async () => {

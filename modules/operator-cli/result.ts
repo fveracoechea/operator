@@ -1,4 +1,5 @@
 import type { TrackerUpdate } from "../tracker-update/main.ts";
+import { ReleaseInstall } from "../release-install/main.ts";
 
 /** What one command did with its request: it reported a result, or it cannot read the request. */
 export type Handled = "reported" | "invalid-arguments";
@@ -380,8 +381,11 @@ type JsonResult = {
 let projectInvocation = "operator";
 
 /** Use the project's selected command when presenting generated follow-up commands. */
-export function useProjectInvocation(delivery: "github-source" | "jsr" | null): void {
-  projectInvocation = delivery === "jsr" ? "bun run operator" : "operator";
+export function useProjectInvocation(
+  delivery: "github-source" | "jsr" | null,
+  commit?: string | null,
+): void {
+  projectInvocation = ReleaseInstall.invocation({ delivery, commit });
 }
 
 function commandText(text: string): string {
@@ -392,14 +396,14 @@ function commandText(text: string): string {
         (match, offset: number) =>
           text.slice(Math.max(0, offset - 8), offset).endsWith("bun run ")
             ? match
-            : `bun run ${match}`,
+            : `${projectInvocation} ${match.slice("operator ".length)}`,
       );
 }
 
 export function writeJsonResult(result: JsonResult): void {
   console.log(
     JSON.stringify({ schemaVersion: 1, ...result }, (key: string, value: unknown) =>
-      (key === "command" || key === "nextAction") && typeof value === "string"
+      (key === "command" || key === "nextAction" || key === "reproof") && typeof value === "string"
         ? commandText(value)
         : value,
     ),
