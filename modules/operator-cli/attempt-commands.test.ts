@@ -370,6 +370,53 @@ describe("operator attempt dispatch", () => {
     expect(shown.json.data.stage).toBe("acknowledged");
   });
 
+  test("keeps a live writer and its pane when Herdr refuses its display label", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await claimedAttempt(workspace);
+    await Bun.write(`${workspace.herdr}/pane-report-metadata.error`, "label_refused");
+
+    const dispatched = await dispatch(workspace, crew);
+    expect(dispatched.json.reason).toBe("acknowledgement_pending");
+    expect(
+      dispatched.json.data.operations.find((one: { kind: string }) => one.kind === "agent_start"),
+    ).toMatchObject({ state: "succeeded", detail: expect.stringContaining("label_refused") });
+    expect((await calls(workspace)).some((one) => one.startsWith("agent prompt "))).toBe(true);
+
+    const refused = await runJson(workspace, [
+      "attempt",
+      "replace",
+      "--request",
+      request(),
+      "--owner-token",
+      crew.ownerToken,
+      "--attempt",
+      crew.attemptId,
+    ]);
+    expect(refused.json.reason).toBe("writer_live");
+    expect(refused.json.blockers[0].paneId).toBe("w1:p1");
+
+    await dispatch(workspace, crew);
+    expect((await calls(workspace)).filter((one) => one.startsWith("agent start "))).toHaveLength(
+      1,
+    );
+  });
+
+  test("keeps the start result when a display label has no answer", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await claimedAttempt(workspace);
+    await Bun.write(`${workspace.herdr}/pane-report-metadata.lost`, "");
+
+    const dispatched = await dispatch(workspace, crew);
+    expect(dispatched.json.reason).toBe("acknowledgement_pending");
+    expect(
+      dispatched.json.data.operations.find((one: { kind: string }) => one.kind === "agent_start"),
+    ).toMatchObject({
+      state: "succeeded",
+      detail: expect.stringContaining("Display label unconfirmed"),
+    });
+    expect((await calls(workspace)).some((one) => one.startsWith("agent prompt "))).toBe(true);
+  });
+
   test("starts the selected OpenCode crew model rather than the host default", async () => {
     const workspace = await makeWorkspace({
       crew: { host: "opencode", model: "openai/gpt-5.6-terra" },

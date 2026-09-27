@@ -96,7 +96,7 @@ async function runStage(request: {
     return launched.status === "succeeded"
       ? {
           status: "succeeded",
-          detail: `Started ${plan.agentName} (${launched.value.status}).`,
+          detail: `Started ${plan.agentName} (${launched.value.status}) in pane ${launched.value.paneId}.${launched.value.labelWarning === null ? "" : ` ${launched.value.labelWarning}`}`,
           paneId: launched.value.paneId,
         }
       : launched.status === "failed"

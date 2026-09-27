@@ -314,16 +314,20 @@ describe("operator setup probe apply", () => {
       const calls = await herdrCalls(workspace);
 
       expect(calls.some((one) => one.startsWith("worktree create"))).toBe(true);
+      const source = calls.findIndex((one) =>
+        /^workspace create .*--label repo probe [a-f0-9]{8} repository /.test(one),
+      );
+      const worktree = calls.findIndex((one) => one.startsWith("worktree create"));
+      expect(source).toBeGreaterThanOrEqual(0);
+      expect(source).toBeLessThan(worktree);
       expect(
         calls.some((one) =>
           /^worktree create .*--label repo probe [a-f0-9]{8} worktree /.test(one),
         ),
       ).toBe(true);
-      expect(
-        calls.some((one) =>
-          /^workspace rename w-source repo probe [a-f0-9]{8} repository /.test(one),
-        ),
-      ).toBe(true);
+      expect(calls.some((one) => one.startsWith("worktree create --workspace w-source "))).toBe(
+        true,
+      );
       expect(
         calls.some((one) =>
           /^tab rename w1:t1 repo probe [a-f0-9]{8} Operator and Crew /.test(one),

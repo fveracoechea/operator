@@ -246,7 +246,7 @@ export const OperativeDispatch = {
   async launch(request: {
     plan: DispatchPlan;
     workspaceId: string;
-  }): Promise<LaunchOutcome<{ paneId: string; status: string }>> {
+  }): Promise<LaunchOutcome<{ paneId: string; status: string; labelWarning: string | null }>> {
     const pane = await HerdrControl.findRootPane({ workspaceId: request.workspaceId });
     if (pane.status === "absent") {
       return {
@@ -277,15 +277,18 @@ export const OperativeDispatch = {
       agentName: request.plan.agentName,
       label: request.plan.agentLabel,
     });
-    if (labeled.status !== "succeeded") {
-      return labeled.status === "failed"
-        ? { status: "failed", code: labeled.code, detail: labeled.detail }
-        : labeled;
-    }
-
     return {
       status: "succeeded",
-      value: { paneId: started.value.paneId, status: started.value.status },
+      value: {
+        paneId: started.value.paneId,
+        status: started.value.status,
+        labelWarning:
+          labeled.status === "succeeded"
+            ? null
+            : labeled.status === "failed"
+              ? `Display label failed: ${labeled.code}: ${labeled.detail}.`
+              : `Display label unconfirmed: ${labeled.detail}.`,
+      },
     };
   },
 

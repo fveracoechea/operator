@@ -11,17 +11,17 @@ test("worktree creation groups the checkout, labels its tab and names the probe 
   spyOn(ToolInvocation, "run").mockImplementation(async ({ args }) => {
     calls.push(args);
     const result =
-      args[0] === "worktree" && args[1] === "create"
-        ? {
-            workspace: { workspace_id: "w-child" },
-            worktree: {
-              path: "/projects/probe/worktree",
-              branch: "probe",
-              open_workspace_id: "w-child",
-            },
-          }
-        : args[0] === "worktree" && args[1] === "list"
-          ? { source: { source_workspace_id: "w-source" } }
+      args[0] === "workspace" && args[1] === "create"
+        ? { workspace: { workspace_id: "w-source" } }
+        : args[0] === "worktree" && args[1] === "create"
+          ? {
+              workspace: { workspace_id: "w-child" },
+              worktree: {
+                path: "/projects/probe/worktree",
+                branch: "probe",
+                open_workspace_id: "w-child",
+              },
+            }
           : args[0] === "tab" && args[1] === "list"
             ? { tabs: [{ tab_id: "w-child:t1" }] }
             : {};
@@ -30,7 +30,6 @@ test("worktree creation groups the checkout, labels its tab and names the probe 
 
   const outcome = await HerdrControl.createWorktree({
     repoRoot: "/projects/probe/repo",
-    parentWorkspaceId: "w-parent",
     path: "/projects/probe/worktree",
     branch: "probe",
     baseCommit: "base",
@@ -42,10 +41,19 @@ test("worktree creation groups the checkout, labels its tab and names the probe 
   expect(outcome).toMatchObject({ status: "succeeded", value: { workspaceId: "w-child" } });
   expect(calls).toEqual([
     [
+      "workspace",
+      "create",
+      "--cwd",
+      "/projects/probe/repo",
+      "--label",
+      "Renabler probe 12345678 repository",
+      "--no-focus",
+    ],
+    [
       "worktree",
       "create",
       "--workspace",
-      "w-parent",
+      "w-source",
       "--path",
       "/projects/probe/worktree",
       "--branch",
@@ -56,11 +64,46 @@ test("worktree creation groups the checkout, labels its tab and names the probe 
       "Renabler #59 Operative: Migrate customers",
       "--no-focus",
     ],
-    ["worktree", "list", "--cwd", "/projects/probe/repo"],
-    ["workspace", "rename", "w-source", "Renabler probe 12345678 repository"],
     ["tab", "list", "--workspace", "w-child"],
     ["tab", "rename", "w-child:t1", "#59 Operative: Migrate customers"],
   ]);
+});
+
+test("a lost worktree creation leaves its source workspace labeled by project", async () => {
+  const calls: string[][] = [];
+  spyOn(ToolInvocation, "run").mockImplementation(async ({ args }) => {
+    calls.push(args);
+    return args[0] === "workspace"
+      ? {
+          status: "completed",
+          exitCode: 0,
+          stdout: '{"result":{"workspace":{"workspace_id":"w-source"}}}',
+          stderr: "",
+        }
+      : { status: "no-answer", detail: "the worktree create did not answer" };
+  });
+
+  const outcome = await HerdrControl.createWorktree({
+    repoRoot: "/projects/renabler/.operator/local/probe/one/repo",
+    path: "/projects/renabler/.operator/local/probe/one/worktree",
+    branch: "probe",
+    baseCommit: "base",
+    label: "Renabler probe one worktree",
+    sourceLabel: "Renabler probe one repository",
+  });
+
+  expect(outcome.status).toBe("uncertain");
+  expect(calls[0]).toEqual([
+    "workspace",
+    "create",
+    "--cwd",
+    "/projects/renabler/.operator/local/probe/one/repo",
+    "--label",
+    "Renabler probe one repository",
+    "--no-focus",
+  ]);
+  expect(calls[1]).toContain("w-source");
+  expect(calls).toHaveLength(2);
 });
 
 test("the visible agent name does not change the handle used for prompts", async () => {

@@ -79,8 +79,11 @@ answer() {
     repo=$(value_of --cwd "$@")
     parent=$(value_of --workspace "$@")
     if [ -n "$parent" ]; then
-      [ "$parent" = "w0" ] || refuse "workspace_not_found" "no workspace $parent"
-      repo="$HERDR_FAKE_REPO"
+      case "$parent" in
+        w0) repo="$HERDR_FAKE_REPO" ;;
+        w-source) repo=$(cat "$dir/source-repo") ;;
+        *) refuse "workspace_not_found" "no workspace $parent" ;;
+      esac
     fi
     path=$(value_of --path "$@")
     branch=$(value_of --branch "$@")
@@ -113,6 +116,11 @@ answer() {
       done < "$dir/worktrees"
     fi
     printf '{"id":"cli:worktree:list","result":{"type":"worktree_list","source":{"source_workspace_id":"%s"},"worktrees":[%s]}}\n' "$source_workspace" "${entries#,}"
+    ;;
+  workspace-create)
+    repo=$(value_of --cwd "$@")
+    printf '%s' "$repo" > "$dir/source-repo"
+    printf '{"id":"cli:workspace:create","result":{"workspace":{"workspace_id":"w-source"}}}\n'
     ;;
   workspace-rename|tab-rename|pane-report-metadata)
     printf '{"id":"cli:%s:%s","result":{}}\n' "$group" "$sub"

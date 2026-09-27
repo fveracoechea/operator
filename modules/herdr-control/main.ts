@@ -196,13 +196,38 @@ export const HerdrControl = {
     tabLabel?: string;
     sourceLabel?: string;
   }): Promise<HerdrOutcome<{ workspaceId: string; worktree: Worktree }>> {
+    let sourceWorkspaceId = request.parentWorkspaceId;
+    if (request.sourceLabel !== undefined) {
+      const opened = await invokeHerdr({
+        args: [
+          "workspace",
+          "create",
+          "--cwd",
+          request.repoRoot,
+          "--label",
+          request.sourceLabel,
+          "--no-focus",
+        ],
+        timeoutMs: CREATE_TIMEOUT_MS,
+      });
+      if (opened.status !== "succeeded") return opened;
+      sourceWorkspaceId =
+        ToolInvocation.text(ToolInvocation.record(opened.value, "workspace"), "workspace_id") ??
+        undefined;
+      if (sourceWorkspaceId === undefined) {
+        return {
+          status: "uncertain",
+          detail: "herdr opened a probe repository workspace it did not describe.",
+        };
+      }
+    }
     const outcome = await invokeHerdr({
       args: [
         "worktree",
         "create",
-        ...(request.parentWorkspaceId === undefined
+        ...(sourceWorkspaceId === undefined
           ? ["--cwd", request.repoRoot]
-          : ["--workspace", request.parentWorkspaceId]),
+          : ["--workspace", sourceWorkspaceId]),
         "--path",
         request.path,
         "--branch",
@@ -228,28 +253,6 @@ export const HerdrControl = {
       return { status: "uncertain", detail: "herdr created a worktree it did not describe." };
     }
 
-    if (request.sourceLabel !== undefined) {
-      const listed = await invokeHerdr({
-        args: ["worktree", "list", "--cwd", request.repoRoot],
-        timeoutMs: READ_TIMEOUT_MS,
-      });
-      if (listed.status !== "succeeded") return listed;
-      const sourceId = ToolInvocation.text(
-        ToolInvocation.record(listed.value, "source"),
-        "source_workspace_id",
-      );
-      if (sourceId === null) {
-        return {
-          status: "uncertain",
-          detail: "herdr did not identify the probe repository workspace.",
-        };
-      }
-      const renamed = await invokeHerdr({
-        args: ["workspace", "rename", sourceId, request.sourceLabel],
-        timeoutMs: READ_TIMEOUT_MS,
-      });
-      if (renamed.status !== "succeeded") return renamed;
-    }
     if (request.tabLabel !== undefined) {
       const listed = await invokeHerdr({
         args: ["tab", "list", "--workspace", workspaceId],
