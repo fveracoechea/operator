@@ -1,5 +1,16 @@
 # @fveracoechea/operator
 
+## 0.3.0
+
+### Minor Changes
+
+- f89ce93: Ship an Operative skill for production and rework assignments.
+  Add an approved CLI plan to install and update Matt Pocock skills from a pinned upstream commit.
+  Pass the selected model to Herdr when launching crew agents and live probes.
+- 9a8944b: Resume Operator after crew changes through a one-shot Herdr wake binding.
+  Keep new Operative worktrees in the Operator pane's Herdr workspace.
+  Ship the Herdr plugin with the release artifact.
+
 ## 0.2.0
 
 ### Minor Changes
