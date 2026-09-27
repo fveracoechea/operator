@@ -46,34 +46,22 @@ Operator does not require `jq` to run.
 
 ## Quick start
 
-Each command that changes the project first shows a plan, and changes nothing until you approve that exact plan.
-Add `--json` to any command for the versioned machine result.
+Open your Git project in Herdr and start a Claude Code or OpenCode agent there.
+Use that agent as your Operator. You can give it these prompts in order.
 
-```sh
-# 1. Install the Operator-owned skills for one or more agent targets.
-operator install --claude
+1. Set up the project:
 
-# 2. Configure the project. Review the plan, then apply it.
-operator setup plan --claude --json
-operator setup apply --claude --approved-plan <planId> --json
+   > Set up Operator for this repository. Use Claude Code as the Operator host and OpenCode for the crew. Check the required tools, install the Operator and Matt Pocock skills for those hosts, configure the project, select an exact Operator release, and check readiness. Show me each plan before you apply it. Tell me what I need to approve or do myself.
 
-# 3. Select the exact release the project coordinates with.
-operator update plan --claude --commit <full-commit> --json
-operator update apply --claude --commit <full-commit> --approved-update <updateId> --json
+   If you use only one agent host, name it for both roles instead. The setup may ask you to authenticate `gh`, choose a GitHub repository and issue for the live probe, or commit the installed project skills so crew worktrees can use them. The probe launches agents and writes to its tracker fixture, so review its plan before you approve it.
 
-# 4. Check readiness, then prove the live checks with an approved probe.
-operator setup readiness --claude --operator-host claude-code --json
-operator setup probe plan --claude --operator-host claude-code --crew-host opencode --json
-operator setup probe apply --claude --operator-host claude-code --crew-host opencode --approved-probe <probeId> --json
+2. Give the Operator a first task:
 
-# 5. Take the crew, register work, and ask what to do next.
-operator crew own --request <id> --owner-label <label> --json
-operator work register --request <id> --owner-token <token> --input work.json --json
-operator crew next --claude --operator-host claude-code --json
-```
+   > I want to add a search field to the issues list. Help me define what it should search and how I will know it works. Once we agree on the scope, create or use a GitHub issue for the task, register the approved work with Operator, and coordinate the crew through implementation and review. Ask me before you make decisions about visible behavior or accept a result on my behalf.
 
-From there, `operator crew next` names each command to run, the record it acts on, and the revision to state.
-The Operator-owned skill runs that loop for you.
+   Replace the example task with a change in your project. The Operator will ask for decisions when it needs them and show you the reviewed result before acceptance. You can return to the same project later and ask the Operator to resume the crew.
+
+For the commands behind these prompts, see [Project installation and setup](#project-installation-and-setup), [Project readiness](#project-readiness), and [Coordination and recovery](#coordination-and-recovery).
 
 ## Contents
 
