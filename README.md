@@ -2,9 +2,11 @@
 
 Personal skills and CLI tools for coordinating coding agents in OpenCode and Claude Code through [Herdr](https://herdr.dev/).
 
-The name comes from *The Matrix*: the crew member who loads programs, guides missions, and keeps the people in the field connected. Here, the Operator is your primary agent. You give it direction; it coordinates a crew of sub-agents.
-
 <img width="1600" height="689" alt="image" src="https://github.com/user-attachments/assets/800655fa-8603-47d5-9f2e-6cf0b56dcad6" />
+
+> [!NOTE]
+> In *The Matrix*, the Operator loads programs, guides the crew, and keeps the line open.
+> Here, your primary agent takes that role. You set the mission; it sends coding agents into the field and brings their results back to you.
 
 Operator is based on [Matt Pocock's agent skills and workflow](https://github.com/mattpocock/skills).
 His skills guide the work from clarifying a goal and writing a spec through tickets, implementation, and review.
@@ -46,22 +48,31 @@ Operator does not require `jq` to run.
 
 ## Quick start
 
-Open your Git project in Herdr and start a Claude Code or OpenCode agent there.
-Use that agent as your Operator. You can give it these prompts in order.
+1. In your Git project, install the Operator-owned skills for your agent host:
 
-1. Set up the project:
+   ```sh
+   bunx github:fveracoechea/operator install --opencode
+   ```
 
-   > Set up Operator for this repository. Use Claude Code as the Operator host and OpenCode for the crew. Check the required tools, install the Operator and Matt Pocock skills for those hosts, configure the project, select an exact Operator release, and check readiness. Show me each plan before you apply it. Tell me what I need to approve or do myself.
+   Use `--claude` instead for Claude Code, or pass both flags if you use both hosts.
 
-   If you use only one agent host, name it for both roles instead. The setup may ask you to authenticate `gh`, choose a GitHub repository and issue for the live probe, or commit the installed project skills so crew worktrees can use them. The probe launches agents and writes to its tracker fixture, so review its plan before you approve it.
+2. Open the project in Herdr and start an agent on that host.
+   For OpenCode, ask:
 
-2. Give the Operator a first task:
+   > Load the operator skill. Set up Operator for this repository with OpenCode as the Operator and crew host. Show me each plan before you apply it.
 
-   > I want to add a search field to the issues list. Help me define what it should search and how I will know it works. Once we agree on the scope, create or use a GitHub issue for the task, register the approved work with Operator, and coordinate the crew through implementation and review. Ask me before you make decisions about visible behavior or accept a result on my behalf.
+   The agent will guide you through project setup, installing the other project skills, selecting a release, and checking readiness.
+   A live probe launches agents and needs its own approval.
+   Commit the installed project skills before starting crew work so Operative worktrees can load them.
 
-   Replace the example task with a change in your project. The Operator will ask for decisions when it needs them and show you the reviewed result before acceptance. You can return to the same project later and ask the Operator to resume the crew.
+3. Give the Operator a task in the same project:
 
-For the commands behind these prompts, see [Project installation and setup](#project-installation-and-setup), [Project readiness](#project-readiness), and [Coordination and recovery](#coordination-and-recovery).
+   > Load the operator skill. I want to add a search field to the issues list. Help me agree on what it should search, create a ticket, and coordinate the crew through implementation and review.
+
+   Replace the search field with your own goal.
+   You can return later and ask the Operator to resume the crew.
+
+For the commands behind these steps, see [Project installation and setup](#project-installation-and-setup), [Project readiness](#project-readiness), and [Coordination and recovery](#coordination-and-recovery).
 
 ## Contents
 
