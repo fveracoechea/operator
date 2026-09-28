@@ -51,6 +51,8 @@ type Resource = {
   workspaceId: string | null;
   fixture: string;
   detail: string | null;
+  resourceDetail: string | null;
+  fixtureDetail: string | null;
 };
 
 function root(projectRoot: string): string {
@@ -172,15 +174,13 @@ async function inspectWrite(
       write.eventCount !== null &&
       write.eventCount !== undefined &&
       history.coverage.complete &&
-      history.events
-        .slice(write.eventCount)
-        .some((one) => one.event === "reopened" && one.actor === write.expectedActor);
+      history.events.slice(write.eventCount).some((one) => one.event === "reopened");
     const proven = reopened && state === "open";
     return {
       status: `reopen ${proven ? "observed" : "uncertain"}`,
       detail: proven
         ? null
-        : `The fixture reopen ${write.operationId} is not proven. Inspect the fixture before cleanup.`,
+        : `The fixture reopen ${write.operationId} for ${fixture.repository}#${write.issue} is not proven. Verify its state and complete event history. Restore the fixture to open only under separate human approval, then inspect cleanup again. Operator will not resend the reopen.`,
     };
   }
   const observed = await TrackerUpdate.observe({
@@ -245,7 +245,9 @@ async function inspectFixture(run: Run): Promise<{ fixture: string; detail: stri
       write,
     );
     fixture += `, ${observed.status}`;
-    detail ??= observed.detail;
+    if (observed.detail !== null) {
+      detail = detail === null ? observed.detail : `${detail} ${observed.detail}`;
+    }
   }
   return { fixture, detail };
 }
@@ -293,6 +295,7 @@ export async function inspectRuns(projectRoot: string) {
           ? { fixture: "recorded", detail: null }
           : { fixture: "unrecorded", detail: null }
         : await inspectFixture(run);
+    const resourceDetail = detail;
     detail ??= fixtureStatus.detail;
     resources.push({
       directory,
@@ -302,9 +305,12 @@ export async function inspectRuns(projectRoot: string) {
       workspaceId: worktree.status === "found" ? worktree.value.workspaceId : null,
       fixture: fixtureStatus.fixture,
       detail,
+      resourceDetail,
+      fixtureDetail: fixtureStatus.detail,
     });
   }
   return {
+    projectRoot,
     directory: root(projectRoot),
     directories,
     resources,
@@ -315,8 +321,8 @@ export async function inspectRuns(projectRoot: string) {
 /** Refuses an unknown effect or another workspace occupant instead of removing its checkout. */
 export async function cancelRuns(inspected: Awaited<ReturnType<typeof inspectRuns>>) {
   for (const resource of inspected.resources) {
-    if (resource.detail !== null)
-      return { status: "blocked" as const, ...inspected, detail: resource.detail };
+    if (resource.resourceDetail !== null)
+      return { status: "blocked" as const, ...inspected, detail: resource.resourceDetail };
     if (resource.worktree === "present") {
       if (resource.workspaceId === null)
         return {
@@ -395,7 +401,16 @@ export async function cancelRuns(inspected: Awaited<ReturnType<typeof inspectRun
           detail: `The probe worktree remains: ${removed.status}.`,
         };
     }
-    await removeScratch(resource.directory);
+    if (resource.fixtureDetail !== null) {
+      // The worktree is gone, but the fixture still needs its write identities for reconciliation.
+      await rm(`${resource.directory}/repo`, { recursive: true, force: true });
+    } else {
+      await removeScratch(resource.directory);
+    }
+  }
+  const remaining = await inspectRuns(inspected.projectRoot);
+  if (remaining.resources.length > 0) {
+    return { status: "pending-fixture" as const, ...remaining };
   }
   return { status: "removed" as const, ...inspected };
 }

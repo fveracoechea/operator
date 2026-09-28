@@ -346,7 +346,7 @@ export async function runProbeCleanup(parsed: ParsedArguments): Promise<void> {
           ? "The approved cleanup no longer names these resources. Nothing was removed."
           : "Removing a probe resource needs its own approval. Nothing was removed.",
         "",
-        "These probe resources would be removed:",
+        "These probe resources will be inspected for approved cleanup:",
         ...result.directories.map((one) => `  ${one}`),
         ...result.resources
           .filter((one) => one.fixture !== "recorded")
@@ -356,6 +356,7 @@ export async function runProbeCleanup(parsed: ParsedArguments): Promise<void> {
           ),
         "",
         "The recorded observations stay, so every failed attempt is preserved.",
+        "An unresolved fixture keeps its journal after its verified agents and worktree are removed.",
         "",
         `Approve with: operator setup probe cleanup --approved-cleanup ${result.cleanupId}`,
       ],
@@ -375,7 +376,38 @@ export async function runProbeCleanup(parsed: ParsedArguments): Promise<void> {
       },
       lines: [
         `Probe cleanup stopped: ${result.detail}`,
-        "No other probe resource will be removed until this is settled. Run cleanup again to inspect the remaining resources.",
+        "Run cleanup again to inspect the remaining resources.",
+      ],
+    });
+    return;
+  }
+
+  if (result.status === "pending-fixture") {
+    const unresolved = result.resources.filter((one) => one.fixtureDetail !== null);
+    const pending = result.resources.filter((one) => one.fixtureDetail === null);
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "missing-condition",
+        reason: "probe_fixture_unresolved",
+        blockers: result.resources.map((one) => ({
+          reason: "probe_fixture_unresolved",
+          runId: one.runId,
+          detail:
+            one.fixtureDetail ??
+            "The fixture now verifies. A new cleanup approval is needed to remove its journal.",
+        })),
+        operation: "setup_probe_cleanup",
+        data: result,
+      },
+      lines: [
+        "Approved probe agents and worktrees were checked and removed where safe. A fixture journal remains.",
+        ...unresolved.map((one) => `  ${one.runId}: ${one.fixture}. ${one.fixtureDetail}`),
+        ...pending.map(
+          (one) =>
+            `  ${one.runId}: the fixture now verifies, but its journal needs a new cleanup approval.`,
+        ),
+        "The fixture journal remains. After the fixture is verified or restored under separate human approval, inspect cleanup again for a new approval ID. Operator will not repeat an uncertain fixture write.",
       ],
     });
     return;

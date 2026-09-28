@@ -895,6 +895,98 @@ describe("operator setup probe apply", () => {
 
 describe("operator setup probe cleanup", () => {
   test(
+    "stops the probe agent despite an unresolved reopen, then settles a verified manual restoration without replay",
+    async () => {
+      const workspace = await makeProbeWorkspace();
+      await Bun.write(`${workspace.herdr}/agent-start.lost`, "");
+      await Bun.write(
+        `${workspace.github}/faults.json`,
+        JSON.stringify({ reopenIssue: { kind: "lost", remaining: 1 } }),
+      );
+      await applyProbe(workspace);
+      const pending = await runJson(workspace, ["setup", "probe", "cleanup"]);
+      const agent = pending.json.data.resources[0].agents[0];
+      expect(agent).toMatch(/^probe-repo-[a-f0-9]{8}-operator$/);
+      const writes = (await githubCalls(workspace)).filter((one) => one.startsWith("PATCH"));
+
+      const partial = await runJson(workspace, [
+        "setup",
+        "probe",
+        "cleanup",
+        "--approved-cleanup",
+        pending.json.data.cleanupId,
+      ]);
+      expect(partial.json.reason).toBe("probe_fixture_unresolved");
+      expect(partial.exitCode).toBe(3);
+      expect(partial.json.data.resources[0]).toMatchObject({ agents: [], worktree: "absent" });
+      expect(partial.json.data.resources[0].detail).toContain(
+        `${FIXTURE_REPOSITORY}#${FIXTURE_ISSUE}`,
+      );
+      expect(await Bun.file(`${workspace.herdr}/agents/${agent}`).exists()).toBe(false);
+      expect(await probeEntries(workspace, "*/worktree")).toEqual([]);
+      expect(await probeEntries(workspace, "*/repo/.git/HEAD")).toEqual([]);
+      expect(await probeEntries(workspace, "*/run.json")).toHaveLength(1);
+      expect((await githubCalls(workspace)).filter((one) => one.startsWith("PATCH"))).toEqual(
+        writes,
+      );
+      const repeated = await applyProbe(workspace);
+      expect(repeated.json.reason).toBe("probe_incomplete_run");
+      const stale = await runJson(workspace, [
+        "setup",
+        "probe",
+        "cleanup",
+        "--approved-cleanup",
+        pending.json.data.cleanupId,
+      ]);
+      expect(stale.json.reason).toBe("approval_stale");
+
+      const state: GithubFakeState = await Bun.file(`${workspace.github}/state.json`).json();
+      const fixture = state.issues[String(FIXTURE_ISSUE)];
+      expect(fixture?.state).toBe("closed");
+      await writeFixtureState(workspace, {
+        ...state,
+        issues: {
+          ...state.issues,
+          [String(FIXTURE_ISSUE)]: {
+            ...(fixture as FakeIssue),
+            state: "open",
+            state_reason: null,
+            closed_at: null,
+            closed_by: null,
+          },
+        },
+        events: {
+          ...state.events,
+          [String(FIXTURE_ISSUE)]: [
+            ...(state.events[String(FIXTURE_ISSUE)] ?? []),
+            {
+              event: "reopened",
+              actor: { login: "fixture-custodian" },
+              state_reason: null,
+              created_at: new Date().toISOString(),
+            },
+          ],
+        },
+      });
+      const recovered = await runJson(workspace, ["setup", "probe", "cleanup"]);
+      expect(recovered.json.data.resources[0].detail).toBeNull();
+      const cleared = await runJson(workspace, [
+        "setup",
+        "probe",
+        "cleanup",
+        "--approved-cleanup",
+        recovered.json.data.cleanupId,
+      ]);
+      expect(cleared.json.reason).toBe("probe_resources_removed");
+      expect(await probeEntries(workspace, "*/run.json")).toEqual([]);
+      expect((await githubCalls(workspace)).filter((one) => one.startsWith("PATCH"))).toEqual(
+        writes,
+      );
+    },
+    PROBE_TIMEOUT_MS,
+  );
+
+  test(
     "keeps an uncertain closure intent when the fixture remains open",
     async () => {
       const workspace = await makeProbeWorkspace();
@@ -913,7 +1005,7 @@ describe("operator setup probe cleanup", () => {
         "--approved-cleanup",
         pending.json.data.cleanupId,
       ]);
-      expect(cleanup.json.reason).toBe("probe_cleanup_blocked");
+      expect(cleanup.json.reason).toBe("probe_fixture_unresolved");
       expect(await probeEntries(workspace, "*/run.json")).toHaveLength(1);
     },
     PROBE_TIMEOUT_MS,
@@ -981,7 +1073,7 @@ describe("operator setup probe cleanup", () => {
         "--approved-cleanup",
         pending.json.data.cleanupId,
       ]);
-      expect(cleanup.json.reason).toBe("probe_cleanup_blocked");
+      expect(cleanup.json.reason).toBe("probe_fixture_unresolved");
       expect((await githubCalls(workspace)).filter((call) => call.startsWith("PATCH"))).toEqual(
         patches,
       );
@@ -1011,7 +1103,7 @@ describe("operator setup probe cleanup", () => {
         "--approved-cleanup",
         pending.json.data.cleanupId,
       ]);
-      expect(cleanup.json.reason).toBe("probe_cleanup_blocked");
+      expect(cleanup.json.reason).toBe("probe_fixture_unresolved");
       expect(await probeEntries(workspace, "*/run.json")).toHaveLength(1);
     },
     PROBE_TIMEOUT_MS,
@@ -1303,7 +1395,7 @@ describe("operator setup probe cleanup", () => {
   );
 
   test(
-    "refuses cleanup when the fixture changed since the interrupted run",
+    "stops the named agent but retains the fixture journal when the fixture changed",
     async () => {
       const workspace = await makeProbeWorkspace();
       await Bun.write(`${workspace.herdr}/agent-prompt.kill`, "");
@@ -1333,10 +1425,11 @@ describe("operator setup probe cleanup", () => {
         "--approved-cleanup",
         pending.json.data.cleanupId,
       ]);
-      expect(stopped.json.reason).toBe("probe_cleanup_blocked");
+      expect(stopped.json.reason).toBe("probe_fixture_unresolved");
       expect(await probeEntries(workspace, "*/run.json")).toHaveLength(1);
+      expect(stopped.json.data.resources[0]).toMatchObject({ agents: [], worktree: "absent" });
       expect((await herdrCalls(workspace)).some((one) => one.startsWith("agent send-keys"))).toBe(
-        false,
+        true,
       );
     },
     PROBE_TIMEOUT_MS,
