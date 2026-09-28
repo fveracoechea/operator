@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import {
   acceptProduction,
   acceptReview,
@@ -24,6 +24,9 @@ import {
   runJson,
   workspaces,
 } from "./workspace-fixture.ts";
+
+// Rework tests run full producer and reviewer cycles through separate CLI processes.
+setDefaultTimeout(60_000);
 
 const fixtures = workspaces();
 

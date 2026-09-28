@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import {
   acceptProduction,
   commitArtifact,
@@ -20,6 +20,9 @@ import {
   runJson,
   workspaces,
 } from "./workspace-fixture.ts";
+
+// Review tests create Git worktrees and run several CLI processes under the parallel CI gate.
+setDefaultTimeout(60_000);
 
 const fixtures = workspaces();
 

@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
 import {
@@ -23,6 +23,9 @@ import {
   runOperator,
   workspaces,
 } from "./workspace-fixture.ts";
+
+// Cleanup tests run full producer and reviewer cycles through separate CLI processes.
+setDefaultTimeout(60_000);
 
 const fixtures = workspaces();
 

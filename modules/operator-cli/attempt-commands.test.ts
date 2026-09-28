@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
 import { ContentIdentity } from "../content-identity/main.ts";
@@ -31,6 +31,9 @@ import {
   submissionBody,
   submit,
 } from "./review-cycle-fixture.ts";
+
+// Dispatch tests create Git worktrees and run several CLI processes under the parallel CI gate.
+setDefaultTimeout(60_000);
 
 const fixtures = workspaces();
 
