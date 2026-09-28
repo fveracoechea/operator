@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import {
   acceptAssignment,
   acceptProduction,
@@ -19,6 +19,9 @@ import {
   type Workspace,
 } from "./review-cycle-fixture.ts";
 import { headCommit, requestId as request, runJson, workspaces } from "./workspace-fixture.ts";
+
+// Invalidation tests run complete review cycles through separate CLI processes.
+setDefaultTimeout(60_000);
 
 const fixtures = workspaces();
 

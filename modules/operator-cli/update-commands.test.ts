@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { ProjectReadiness } from "../project-readiness/main.ts";
 import {
@@ -9,6 +9,9 @@ import {
   type Workspace,
   workspaces,
 } from "./workspace-fixture.ts";
+
+// Update tests run separate CLI processes against project and crew state.
+setDefaultTimeout(60_000);
 
 const fixtures = workspaces();
 let workspace: Workspace;

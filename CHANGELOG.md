@@ -1,5 +1,19 @@
 # @fveracoechea/operator
 
+## 0.5.0
+
+### Minor Changes
+
+- 9bbd987: Run the selected JSR devDependency through a project-local Bun script. Check the project installation and reject a different running release before a live probe starts.
+- 39e9704: Add a read-only `operator healthcheck` for the selected release, configuration, host selection, Herdr connection, and GitHub access.
+  It lists live checks that still lack proof and reports the optional wake plugin separately.
+  Add an approved `--stale-only` probe mode that declares the cost of each selected group and avoids unrelated host or tracker groups.
+
+### Patch Changes
+
+- 91fcbe3: Show an Operative's project, ticket, task, and role in Herdr workspace, tab, and agent labels. Name probe repository and worktree workspaces by project, while keeping attempt and agent handles stable.
+- ae384c3: Record live probe resources and fixture write identities before external effects. Block repeated applies after an interruption, show remaining resources, and require scoped approval to stop probe agents and remove their worktree and scratch repository.
+
 ## 0.4.0
 
 ### Minor Changes

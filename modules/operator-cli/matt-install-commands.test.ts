@@ -1,6 +1,9 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
+
+// Installation tests spawn CLI processes and a local upstream server under the CI gate.
+setDefaultTimeout(60_000);
 
 const cli = new URL("../../cli.ts", import.meta.url).pathname;
 const roster = JSON.parse(

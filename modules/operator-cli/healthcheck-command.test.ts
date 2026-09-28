@@ -1,5 +1,8 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { githubCalls, herdrCalls, runJson, runOperator, workspaces } from "./workspace-fixture.ts";
+
+// Healthcheck tests start CLI processes that query fake Herdr and GitHub under the CI gate.
+setDefaultTimeout(60_000);
 
 const fixtures = workspaces();
 
