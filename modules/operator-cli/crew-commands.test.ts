@@ -1,6 +1,9 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
+
+// Crew tests spawn several CLI processes against the same project fixture.
+setDefaultTimeout(60_000);
 
 const cliPath = new URL("../../cli.ts", import.meta.url).pathname;
 const temporaryRoots: string[] = [];

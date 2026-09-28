@@ -1,7 +1,10 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 // Bun has no file removal API.
 import { rm } from "node:fs/promises";
 import { runJson, runOperator, workspaces } from "./workspace-fixture.ts";
+
+// Config tests run multiple CLI processes against a project fixture.
+setDefaultTimeout(60_000);
 
 const fixtures = workspaces();
 

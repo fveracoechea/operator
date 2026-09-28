@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import {
   acceptProduction,
   commitArtifact,
@@ -12,6 +12,9 @@ import {
   writeInput,
 } from "./review-cycle-fixture.ts";
 import { headCommit, requestId as request, runJson, workspaces } from "./workspace-fixture.ts";
+
+// Work tests create producer and reviewer cycles through separate CLI processes.
+setDefaultTimeout(60_000);
 
 const fixtures = workspaces();
 

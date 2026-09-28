@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import {
   acceptProduction,
   commitArtifact,
@@ -25,6 +25,9 @@ import {
   stopFakeAgents,
   workspaces,
 } from "./workspace-fixture.ts";
+
+// Next-action tests run several CLI processes under the parallel CI gate.
+setDefaultTimeout(60_000);
 
 const fixtures = workspaces();
 

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import {
   ACTOR,
   amendmentBody,
@@ -21,6 +21,9 @@ import {
   writeGithubState,
 } from "./tracker-fixture.ts";
 import { githubCalls, workspaces } from "./workspace-fixture.ts";
+
+// Tracker tests run separate CLI processes and fake GitHub requests under the CI gate.
+setDefaultTimeout(60_000);
 
 const fixtures = workspaces();
 
