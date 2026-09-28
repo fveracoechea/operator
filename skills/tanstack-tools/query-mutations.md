@@ -33,11 +33,16 @@ settings: {
 }
 ```
 
-The call site is then the factory alone, with no `useQueryClient()` and no import:
+The call site is then the factory alone, with no `useQueryClient()`.
+A component inside the feature's module imports the slice through a relative path:
 
 ```tsx
-const save = useMutation($.insights.settings.put())
+import {insightsQueries} from '../queries'
+
+const save = useMutation(insightsQueries.settings.put())
 ```
+
+A route loader or another module reads the same slice through the `$` aggregator, such as `$.insights.settings`.
 
 ## Give a mutation-options factory only the operation's inputs
 

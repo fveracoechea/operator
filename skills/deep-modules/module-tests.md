@@ -4,8 +4,10 @@
 
 A test file sits beside the unit it covers and carries its name: `main.server.test.ts` beside `main.server.ts`.
 The test calls the interface object the way a route does, and asserts what the caller observes.
-A module whose interface is `$functions.ts` is tested through its server functions, with a stand-in `createServerFn` that runs the validator and then the handler.
 When a behaviour is hard to reach through the interface, the module has the wrong shape, so fix the interface and not the test.
+
+A module whose interface is `$functions.ts` is tested through its server functions.
+Its own test uses a `createServerFn` stand-in that runs the validator and then the handler, so the test reaches the server code the RPC would run.
 
 ## Fake another module at its entry file
 
@@ -23,17 +25,17 @@ The module's own files run real in its tests.
 When one of them wraps an outside dependency, fake that dependency's module, not the file that wraps it.
 A fake at an internal file couples the test to the module's file layout, and the test breaks on a refactor that changes no behaviour.
 
-## Stand in for server functions at the RPC boundary
+## Stand in for `$functions` modules in a caller's test
 
 This applies to a full-stack app on TanStack Start.
 The test runner does not run the TanStack Start compiler, so an untransformed `createServerFn` has no transport.
-The RPC boundary is the only seam, so fake each `$functions.ts` module once, in the shared test setup, with a stand-in that speaks the real wire.
+The RPC boundary is the only seam, so a test of a route or another module fakes each `$functions.ts` module once, in the shared test setup, with a stand-in that speaks the real wire.
 The existing HTTP fakes then keep working.
 
 Give the stand-in one line per server function.
 A suite that needs more overrides the module for that file.
-The module's own tests cover what the stand-in leaves out, such as identity headers.
-A lint rule that bans module mocks stays on everywhere else, and is off for module tests and the stand-in only.
+The module's own tests, with the `createServerFn` stand-in above, cover what this stand-in leaves out, such as identity headers.
+`anti-slop/no-module-mocking` stays on everywhere else, and is off for module tests and this stand-in only.
 
 ## Test a UI member through the real route tree
 

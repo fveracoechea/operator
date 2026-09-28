@@ -74,5 +74,6 @@ Exempt a long stream from the server idle timeout, or the runtime kills it mid-r
 
 ## Reach a server function from the data layer only
 
-The query-options builder calls `$threads` and owns the key, the `queryFn`, the unwrap and the mapping.
-Components read the builder, and anything else a screen needs (a refresh, a page size, a download href) is a member of the same slice.
+The feature's query options call `$threads` and own the key, the `queryFn`, the unwrap and the mapping.
+Anything else a screen needs (a refresh, a page size, a download href) is a member of the same slice.
+The feature's own components import the slice through a relative path, and a `$` aggregator that re-exports it is for route loaders and other modules (`deep-modules`).
