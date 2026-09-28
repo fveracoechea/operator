@@ -9,23 +9,21 @@ The `codebase-design` skill, topic `DESIGN-IT-TWICE.md`, compares two or three s
 ## Keep a module only when its deletion would spread complexity to its callers
 
 Imagine you delete the module.
-When the same logic would come back in several call sites, the module earns its place.
+When the same logic would come back in its call sites, the module earns its place.
 When nothing would come back, the module is a pass-through, so delete it.
 The test measures what the module hides, not how many callers it has, so a feature with one route can pass it.
-Machinery with no caller that would miss it is not ported, and it is not kept "for later".
 
 Apply the same test to each member of the interface object, and to each server function.
-`Invoices.remove` that calls `Store.delete` with the same arguments hides nothing.
-Give it more work, such as the cache refresh every caller does next, or remove it.
-A feature module with one method per remote operation is the exception.
-Each such method names one call the feature allows, and the depth sits in the transport those methods share.
+A same-process pass-through goes: `Invoices.remove` that calls `Store.delete` with the same arguments hides nothing, so give it more work, such as the cache refresh every caller does next, or remove it.
+A method that is the feature's public operation over a transport, such as an RPC or an HTTP call, stays even when it is one line.
+It names one call the feature allows, and the depth sits in the transport those methods share.
 The transport is a capability, and its interface is general: a request method that any feature's operation calls.
 
 ## Ship the finished use case, not the steps
 
 A caller that calls `load`, then `validate`, then `save` knows the module's order of operations.
 Make that sequence one method, and keep the order inside.
-A UI member is a finished screen part for the same reason, never a set of parts with the wiring left to the route.
+A UI member is a finished screen part for the same reason, never a set of parts with the wiring left to the route, because a caller that assembles parts holds the module's state switches.
 
 ## Pull decisions down into the module
 

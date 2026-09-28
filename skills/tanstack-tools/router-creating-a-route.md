@@ -53,7 +53,7 @@ routes/
 ### Keep only the page's layout behind a `-` prefix
 
 A `-` prefixed sibling holds what arranges this one page, such as the grid that places its sections; the `-` keeps it out of the tree.
-Code that knows a domain concept, such as its reads, its rules or the cards that show it, goes in that feature's module from its first line, even when one route uses it (`deep-modules`).
+Where the rest of the page's code goes is in the `deep-modules` skill.
 
 ## Name a nested route by its folders, not by dots
 
