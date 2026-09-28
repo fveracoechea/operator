@@ -15,8 +15,14 @@ import {
 } from "./live.ts";
 import { type Observation, type Overrides, observeProject, type Target } from "./observe.ts";
 import { readLaunchSnapshot } from "./snapshot.ts";
+import { ReleaseInstall } from "../release-install/main.ts";
 
-type Request = { projectRoot: string; targets: Target[]; overrides: Overrides };
+type Request = {
+  projectRoot: string;
+  targets: Target[];
+  overrides: Overrides;
+  staleOnly?: boolean;
+};
 
 const PROBE_NEXT_ACTION = "Run `operator setup probe plan`, then apply the approved probe.";
 
@@ -94,7 +100,8 @@ async function liveCheckResults(
           {
             reason: "evidence_stale",
             detail: `${declared.summary} Its evidence was proven against different inputs: ${changed.join(", ")}.`,
-            nextAction: PROBE_NEXT_ACTION,
+            nextAction:
+              "Run `operator setup probe plan --stale-only` with the same target and selection, then apply the approved plan.",
           },
           "live",
         );
@@ -180,11 +187,26 @@ async function buildReport(request: Request) {
   const observation = await observeProject(request);
   const inputs = fingerprints(observation);
   const live = await liveCheckResults(request.projectRoot, inputs);
-  const checks = [
+  const rawChecks = [
     ...staticChecks(observation),
     ...(live.unreadable ? [live.unreadable] : []),
     ...live.checks,
   ];
+  const selected = observation.installation.selection;
+  const checks =
+    selected !== null
+      ? rawChecks.map((check) => ({
+          ...check,
+          nextAction:
+            check.nextAction?.replace(
+              /\boperator (?=(?:setup|install|update|crew)\b)/g,
+              (match, offset: number) =>
+                check.nextAction?.slice(Math.max(0, offset - 8), offset).endsWith("bun run ")
+                  ? match
+                  : `${ReleaseInstall.invocation(selected)} `,
+            ) ?? null,
+        }))
+      : rawChecks;
 
   return {
     state: reportState(checks),
@@ -235,8 +257,9 @@ function staticallyBlocked(report: Report): boolean {
   return report.blockers.some((one) => one.kind === "static" || one.name === "readiness-evidence");
 }
 
-function expectedCosts(report: Report): string[] {
-  const prompts = liveChecks.reduce(
+function expectedCosts(report: Report, selected: typeof liveChecks): string[] {
+  const lifecycle = selected.some((one) => one.group !== "tracker");
+  const prompts = (lifecycle ? liveChecks.filter((one) => one.group !== "tracker") : []).reduce(
     (total, one) => ({
       operator: total.operator + one.prompts.operator,
       crew: total.crew + one.prompts.crew,
@@ -253,38 +276,82 @@ function expectedCosts(report: Report): string[] {
   return [
     hostLine("operator"),
     hostLine("crew"),
-    report.fixture === null
-      ? "No probe fixture is configured, so the probe makes no GitHub call."
-      : `GitHub fixture ${report.fixture.repository}#${report.fixture.issue}: three comments written, one issue closed and reopened, and the reads the tracker checks need.`,
+    !selected.some((one) => one.group === "tracker")
+      ? "No tracker checks are selected. The probe makes no GitHub call."
+      : report.fixture === null
+        ? "No probe fixture is configured, so the probe makes no GitHub call."
+        : `GitHub fixture ${report.fixture.repository}#${report.fixture.issue}: three comments written, one issue closed and reopened, and the reads the tracker checks need.`,
     "Operator charges nothing of its own. Each provider bills the tokens its own host spends.",
   ];
 }
 
-function probeCredentialList(report: Report): string[] {
+function probeCredentialList(report: Report, selected: typeof liveChecks): string[] {
   return [
-    ...probeCredentials,
-    report.fixture === null ? PROBE_FIXTURE_MISSING : PROBE_FIXTURE_CREDENTIAL,
+    ...(selected.some((one) => one.group !== "tracker") ? probeCredentials : []),
+    ...(selected.some((one) => one.group === "tracker")
+      ? [report.fixture === null ? PROBE_FIXTURE_MISSING : PROBE_FIXTURE_CREDENTIAL]
+      : []),
   ];
 }
 
-function probeDetails(report: Report) {
+function probeDetails(report: Report, staleOnly: boolean) {
+  const stale = report.unproven.filter((check) => check.state === "stale");
+  const groups = new Set(
+    stale.map((check) => liveChecks.find((one) => one.name === check.name)?.group),
+  );
+  const lifecycleStale = [...groups].some((group) => group !== undefined && group !== "tracker");
+  // Each group executes as one sequence. Approve every check it will run, not only the stale
+  // observation that caused the sequence to be selected.
+  const selected = staleOnly
+    ? liveChecks.filter((one) => (one.group === "tracker" ? groups.has("tracker") : lifecycleStale))
+    : liveChecks;
+  const tracker = selected.some((one) => one.group === "tracker");
+  const lifecycle = selected.some((one) => one.group !== "tracker");
   const details = {
     planRevision: LIVE_PLAN_REVISION,
+    staleOnly,
+    reproofInputs: staleOnly
+      ? Object.fromEntries(
+          selected.map((one) => [
+            one.name,
+            Object.fromEntries(one.inputs.map((name) => [name, report.inputs[name]])),
+          ]),
+        )
+      : null,
     agents: report.selection,
     fixture: report.fixture,
-    fixtureRequirements:
-      report.fixture === null ? [PROBE_FIXTURE_MISSING] : probeFixtureRequirements,
-    providerUse: probeProviderUse,
-    credentials: probeCredentialList(report),
-    temporaryResources: probeTemporaryResources,
-    expectedCosts: expectedCosts(report),
-    checks: liveChecks.map((one) => ({
+    fixtureRequirements: !tracker
+      ? []
+      : report.fixture === null
+        ? [PROBE_FIXTURE_MISSING]
+        : probeFixtureRequirements,
+    providerUse: lifecycle ? probeProviderUse : [],
+    credentials: probeCredentialList(report, selected),
+    temporaryResources: lifecycle ? probeTemporaryResources : [],
+    expectedCosts: expectedCosts(report, selected),
+    checks: selected.map((one) => ({
       name: one.name,
       summary: one.summary,
       group: one.group,
       claims: one.claims,
     })),
-    cleanup: probeCleanup,
+    execution: [
+      ...(lifecycle
+        ? [
+            "The lifecycle runs as one synthetic host session. Every listed check runs and replaces its recorded observation.",
+          ]
+        : []),
+      ...(tracker
+        ? [
+            "The tracker fixture checks run as one sequence, including their fixture writes. Every listed check runs and replaces its recorded observation.",
+          ]
+        : []),
+    ],
+    cleanup: lifecycle
+      ? probeCleanup
+      : [
+          "No scratch repository or agent is created. The tracker fixture retains the probe's comments and issue history.",
+        ],
   };
 
   // The identity covers everything the plan shows, so an approval never survives a changed plan.
@@ -333,7 +400,10 @@ export const ProjectReadiness = {
       return { status: "blocked" as const, report };
     }
 
-    return { status: "ready" as const, report, plan: probeDetails(report) };
+    const plan = probeDetails(report, request.staleOnly ?? false);
+    return plan.checks.length === 0
+      ? { status: "nothing-stale" as const, report }
+      : { status: "ready" as const, report, plan };
   },
 
   /** Refuses to launch a live probe without an approval that matches the shown plan. */
@@ -343,7 +413,8 @@ export const ProjectReadiness = {
       return { status: "blocked" as const, report };
     }
 
-    const plan = probeDetails(report);
+    const plan = probeDetails(report, request.staleOnly ?? false);
+    if (plan.checks.length === 0) return { status: "nothing-stale" as const, report };
     if (request.approvedProbeId === undefined) {
       return { status: "approval-required" as const, report, plan };
     }

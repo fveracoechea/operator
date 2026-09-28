@@ -1,6 +1,7 @@
 // Bun has no path manipulation API.
 import { basename, dirname } from "node:path";
 import { ContentIdentity } from "../content-identity/main.ts";
+import { ReleaseInstall } from "../release-install/main.ts";
 import {
   type ReviewBrief,
   reviewInputPath,
@@ -61,6 +62,9 @@ export type DispatchPlan = {
   branch: string;
   worktreePath: string;
   agentName: string;
+  workspaceLabel: string;
+  tabLabel: string;
+  agentLabel: string;
   agentKind: string;
   agentHost: string;
   agentModel: string | null;
@@ -132,19 +136,34 @@ function slug(value: string): string {
   );
 }
 
+/** Herdr keeps display text separate from the stable attempt and agent handles. */
+function displayLabels(projectRoot: string, brief: Brief) {
+  const project = basename(projectRoot).replaceAll(/[-_]+/g, " ");
+  const projectName = project.charAt(0).toUpperCase() + project.slice(1);
+  const ticket = /^\d+$/.test(brief.sourceKey) ? `#${brief.sourceKey}` : brief.sourceKey;
+  const role =
+    brief.review !== null ? "Reviewer" : brief.rework !== null ? "Rework Operative" : "Operative";
+  const assignment = `${ticket} ${role}: ${brief.title}`;
+  return {
+    workspaceLabel: `${projectName} ${assignment}`.slice(0, 80),
+    tabLabel: assignment.slice(0, 80),
+    agentLabel: assignment.slice(0, 80),
+  };
+}
+
 /**
  * How any launched agent raises a question.
  * Work it cannot do inside its authority limits is a question, never its own decision, so this
  * reaches a producer and a reviewer alike.
  */
-function questionSection(brief: Brief): string[] {
+function questionSection(brief: Brief, invocation: string): string[] {
   return [
     "## Questions",
     "",
     "Work you cannot do inside these limits is a question, never your own decision:",
     "",
     "```",
-    `operator question raise --request <a new identity you generate> --attempt ${brief.attemptId} --input <path> --json`,
+    `${invocation} question raise --request <a new identity you generate> --attempt ${brief.attemptId} --input <path> --json`,
     "```",
     "",
     "The report states the question, its evidence, its options, your recommendation, the scope that waits, and the work you continue meanwhile.",
@@ -152,7 +171,7 @@ function questionSection(brief: Brief): string[] {
     "Acknowledge the answer you receive before you act on it:",
     "",
     "```",
-    "operator question acknowledge --request <a new identity you generate> --question <id> --json",
+    `${invocation} question acknowledge --request <a new identity you generate> --question <id> --json`,
     "```",
     "",
     "An answer never widens the authority limits above.",
@@ -165,14 +184,20 @@ function questionSection(brief: Brief): string[] {
 }
 
 /** The reporting protocol of an Operative that produces a result. */
-function productionProtocolSection(brief: Brief): string[] {
+function productionProtocolSection(brief: Brief, invocation: string): string[] {
   return [
     "## Reporting protocol",
     "",
+    ...(invocation === "bun run operator"
+      ? [
+          "Install the project's pinned dependencies from this worktree root first: `bun install --frozen-lockfile`.",
+          "",
+        ]
+      : []),
     "Acknowledge this assignment before you change any file:",
     "",
     "```",
-    `operator attempt acknowledge --request <a new identity you generate> --attempt ${brief.attemptId} --json`,
+    `${invocation} attempt acknowledge --request <a new identity you generate> --attempt ${brief.attemptId} --json`,
     "```",
     "",
     "Run it from this worktree.",
@@ -182,31 +207,37 @@ function productionProtocolSection(brief: Brief): string[] {
     "Hand over your finished result for review:",
     "",
     "```",
-    `operator attempt submit --request <a new identity you generate> --attempt ${brief.attemptId} --input <path> --json`,
+    `${invocation} attempt submit --request <a new identity you generate> --attempt ${brief.attemptId} --input <path> --json`,
     "```",
     "",
     "A submission is a handoff to a separate review, never accepted completion.",
     "",
-    ...questionSection(brief),
+    ...questionSection(brief, invocation),
   ];
 }
 
 /** The sections that differ between producing a result, reworking one, and reviewing one. */
-function roleSections(brief: Brief): { result: string[]; protocol: string[] } {
+function roleSections(brief: Brief, invocation: string): { result: string[]; protocol: string[] } {
   if (brief.review !== null) {
     return {
       result: submittedResultSection(brief.review),
-      protocol: [...reviewProtocolSection(brief.review), ...questionSection(brief)],
+      protocol: [
+        ...reviewProtocolSection(brief.review, invocation),
+        ...questionSection(brief, invocation),
+      ],
     };
   }
 
   // Rework is production work under the same scope and authority, so it keeps the production
   // protocol and adds the result it corrects and the rules that hold the cycle together.
   return brief.rework === null
-    ? { result: [], protocol: productionProtocolSection(brief) }
+    ? { result: [], protocol: productionProtocolSection(brief, invocation) }
     : {
         result: reworkResultSection(brief.rework),
-        protocol: [...reworkProtocolSection(brief.rework), ...productionProtocolSection(brief)],
+        protocol: [
+          ...reworkProtocolSection(brief.rework),
+          ...productionProtocolSection(brief, invocation),
+        ],
       };
 }
 
@@ -219,7 +250,8 @@ function briefDocument(request: {
   controllingCheckout: string;
 }): string {
   const { brief, snapshot } = request;
-  const role = roleSections(brief);
+  const invocation = ReleaseInstall.invocation(snapshot.installation ?? {});
+  const role = roleSections(brief, invocation);
 
   return [
     `# Operative brief for attempt ${brief.attemptId}`,
@@ -285,9 +317,14 @@ function briefDocument(request: {
   ].join("\n");
 }
 
-function promptDocument(brief: Brief): string {
+function promptDocument(brief: Brief, snapshot: Snapshot): string {
+  const invocation = ReleaseInstall.invocation(snapshot.installation ?? {});
   const read = `Read ${BRIEF_PATH} in this worktree first. It carries your scope, authority limits, and reporting protocol.`;
-  const acknowledge = `Then acknowledge the assignment with: operator attempt acknowledge --request <a new identity you generate> --attempt ${brief.attemptId} --json`;
+  const acknowledge = `Then acknowledge the assignment with: ${invocation} attempt acknowledge --request <a new identity you generate> --attempt ${brief.attemptId} --json`;
+  const install =
+    invocation === "bun run operator"
+      ? ["First run `bun install --frozen-lockfile` from this worktree root."]
+      : [];
 
   return (
     brief.review === null
@@ -297,6 +334,7 @@ function promptDocument(brief: Brief): string {
             : `You are the Operative on Operator attempt ${brief.attemptId}, reworking the reviewed result of assignment ${brief.assignmentId}.`,
           read,
           "Load the `operative` skill from this worktree and follow it.",
+          ...install,
           acknowledge,
           "Do not change any file before that acknowledgement succeeds.",
         ]
@@ -304,6 +342,7 @@ function promptDocument(brief: Brief): string {
           `You are the reviewer on Operator attempt ${brief.attemptId} for review ${brief.review.reviewId}.`,
           read,
           "Load the `code-review` skill and run its Standards and Spec axes as parallel sub-agents of this host.",
+          ...install,
           acknowledge,
           "Never edit, commit, or rework the result you review.",
         ]
@@ -340,7 +379,7 @@ export function planDispatch(request: {
     controllingCheckout: request.projectRoot,
   });
   const briefIdentity = ContentIdentity.ofText(briefText);
-  const promptText = promptDocument(request.brief);
+  const promptText = promptDocument(request.brief, request.snapshot);
 
   const review = request.brief.review;
   const rework = request.brief.rework;
@@ -369,6 +408,7 @@ export function planDispatch(request: {
     branch,
     worktreePath,
     agentName: `operative-${short}`,
+    ...displayLabels(request.projectRoot, request.brief),
     agentKind: request.agentKind,
     agentHost: request.agentHost,
     agentModel: request.snapshot.selection.crew.model,

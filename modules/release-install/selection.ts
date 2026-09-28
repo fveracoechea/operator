@@ -2,8 +2,9 @@ import { z } from "zod";
 
 export const INSTALL_ROOT = ".operator/install";
 export const SELECTION_PATH = `${INSTALL_ROOT}/selection.json`;
-export const MANIFEST_PATH = `${INSTALL_ROOT}/package.json`;
 export const PACKAGE_NAME = "@fveracoechea/operator";
+export const PROJECT_COMMAND = "bun run operator";
+export const PROJECT_SCRIPT = "bun node_modules/@fveracoechea/operator/cli.js";
 
 // JSR serves its npm-compatible package under a flattened scope name.
 export const JSR_PACKAGE_NAME = "@jsr/fveracoechea__operator";
@@ -66,23 +67,4 @@ export async function readSelection(projectRoot: string): Promise<SelectionRead>
 
 export function selectionText(selection: ReleaseSelection): string {
   return `${JSON.stringify(selection, null, 2)}\n`;
-}
-
-/**
- * The isolated installation manifest.
- * The alias is exact, never a range, so a reinstall resolves the same published version and
- * never a replacement the registry decided on.
- */
-export function manifestText(request: { packageVersion: string }): string {
-  return `${JSON.stringify(
-    {
-      name: "operator-installation",
-      private: true,
-      dependencies: {
-        [PACKAGE_NAME]: `npm:${JSR_PACKAGE_NAME}@${request.packageVersion}`,
-      },
-    },
-    null,
-    2,
-  )}\n`;
 }

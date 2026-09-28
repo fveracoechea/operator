@@ -159,7 +159,7 @@ function priorRoundsSection(review: ReviewBrief): string[] {
  * Both axes run as native sub-agents of this host, in parallel and in separate contexts, and
  * neither one may change the work it reads.
  */
-export function reviewProtocolSection(review: ReviewBrief): string[] {
+export function reviewProtocolSection(review: ReviewBrief, invocation = "operator"): string[] {
   const research =
     review.resultKind === "code"
       ? []
@@ -188,16 +188,16 @@ export function reviewProtocolSection(review: ReviewBrief): string[] {
     ...research,
     "## Reporting protocol",
     "",
-    "Acknowledge this assignment before you read anything:",
+    "Acknowledge this assignment before you review the submitted result:",
     "",
     "```",
-    `operator attempt acknowledge --request <a new identity you generate> --attempt ${review.attemptId} --json`,
+    `${invocation} attempt acknowledge --request <a new identity you generate> --attempt ${review.attemptId} --json`,
     "```",
     "",
     "Write your result to a JSON file, then record it:",
     "",
     "```",
-    `operator review report --request <a new identity you generate> --review ${review.reviewId} --input <path> --json`,
+    `${invocation} review report --request <a new identity you generate> --review ${review.reviewId} --input <path> --json`,
     "```",
     "",
     "A complete report carries this shape:",

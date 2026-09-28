@@ -5,7 +5,7 @@ Read this before you start work, and again on every turn that changes the crew.
 ## One command answers what to do next
 
 ```sh
-operator crew next --claude --json
+bun run operator crew next --claude --json
 ```
 
 Name the installation targets the same way setup does, and the hosts you are about to launch.
@@ -34,7 +34,7 @@ It is reported first and it reaches the blockers, and it never makes the exit co
 
 ## Refresh, act, refresh
 
-Run `operator crew next` again after every command that changes the crew.
+Run `bun run operator crew next` again after every command that changes the crew.
 A stale reading is the fastest way to dispatch work that another step already took.
 
 Take the first action the list offers.
@@ -56,12 +56,12 @@ If the user decides to continue without proven readiness, say so in your report 
 
 When only waits remain, report what `data.waits` names and end your turn.
 The user can steer the crew or answer a question while the Operative works.
-On your next turn, run `operator crew next` before making any crew decision.
+On your next turn, run `bun run operator crew next` before making any crew decision.
 
 If the Operator wake plugin is installed, arm it after the wait-only reading and before you end the turn:
 
 ```sh
-operator wake arm --owner-label <data.ownership.ownerLabel> --opencode --json
+bun run operator wake arm --owner-label <data.ownership.ownerLabel> --opencode --json
 ```
 
 Pass the same installation targets and any `--operator-host`, `--operator-model`, `--crew-host`, or `--crew-model` options you used for `crew next`.
@@ -110,7 +110,7 @@ Report the results, the decisions you took, and the blockers that remain.
 Name each decision as your own.
 An Operator decision is not a human answer.
 A summary of something the user said earlier is not a human answer either.
-`operator question show` prints the recorded authority of every answer, so use those words.
+`bun run operator question show` prints the recorded authority of every answer, so use those words.
 
 Quote a person with their exact words.
 State your reading of those words separately.

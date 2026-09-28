@@ -2,9 +2,10 @@ import { ContentIdentity } from "../content-identity/main.ts";
 import { type Host, LIFECYCLE_CHECKS, type Lifecycle } from "./agents.ts";
 import type { Target } from "./scratch.ts";
 import { runLifecycle } from "./lifecycle.ts";
-import { PROBE_DIRECTORY, removeScratch, scratchDirectories } from "./scratch.ts";
 import { failed, passed, passedAll, type Staged, skipRest } from "./stage.ts";
 import { type Fixture, TRACKER_CHECKS, runTrackerChecks } from "./tracker.ts";
+import { GithubTracker } from "../github-tracker/main.ts";
+import { beginRun, cancelRuns, finishRun, inspectRuns, intendWrite } from "./recovery.ts";
 
 /** The bounded window one agent answer is waited for. A window that runs out fails the check. */
 const DEFAULT_OBSERVATION_MS = 120_000;
@@ -72,20 +73,18 @@ function isTarget(name: string): name is Target {
   return name === "opencode" || name === "claude-code";
 }
 
-/** What a cleanup would remove, and the identity an approval of it must match. */
-async function inspectScratch(projectRoot: string) {
-  const directories = await scratchDirectories(projectRoot);
-  return {
-    directory: `${projectRoot}/${PROBE_DIRECTORY}`,
-    directories,
-    cleanupId: ContentIdentity.of(directories.map((one) => one.slice(projectRoot.length))),
-  };
-}
-
 export const LiveProbe = {
   /** The checks this release can run. A declared name outside this list is recorded as skipped. */
   supportedChecks(): string[] {
     return SUPPORTED;
+  },
+
+  async inspect(projectRoot: string) {
+    return inspectRuns(projectRoot);
+  },
+
+  async finish(projectRoot: string, runId: string) {
+    return finishRun(projectRoot, runId);
   },
 
   /**
@@ -100,13 +99,34 @@ export const LiveProbe = {
     const staged: Staged[] = [];
     const resources: string[] = [];
 
-    if (request.operator.host === null || request.crew.host === null) {
+    const lifecycleSelected = request.checks.some(
+      (name) => LIFECYCLE_CHECKS.includes(name) || name === "provider-compatibility",
+    );
+    const trackerSelected = request.checks.some((name) => TRACKER_CHECKS.includes(name));
+    const fixtureRead =
+      !trackerSelected || request.fixture === null
+        ? null
+        : await GithubTracker.readIssue(request.fixture);
+    if (fixtureRead !== null && fixtureRead.status !== "found") {
+      throw new Error(
+        "The probe fixture state cannot be read before the run. Nothing was launched.",
+      );
+    }
+    await beginRun(request.projectRoot, {
+      runId,
+      probeId: request.probeId,
+      fixture: request.fixture,
+      fixtureState: fixtureRead?.status === "found" ? fixtureRead.value.state : null,
+      writes: [],
+    });
+
+    if (lifecycleSelected && (request.operator.host === null || request.crew.host === null)) {
       skipRest(
         staged,
         LIFECYCLE_CHECKS,
         "No host is named for both roles, so nothing was launched.",
       );
-    } else {
+    } else if (lifecycleSelected && request.operator.host !== null && request.crew.host !== null) {
       const lifecycle: Lifecycle = {
         runId,
         probeId: request.probeId,
@@ -121,14 +141,19 @@ export const LiveProbe = {
       resources.push(...ran.resources);
     }
 
-    const tracker = await runTrackerChecks({
-      fixture: request.fixture,
-      probeId: request.probeId,
-      runId,
-    });
-    staged.push(...tracker.staged);
-    resources.push(...tracker.resources);
-    staged.push(providerCompatibility(request, staged));
+    let trackerFailed = false;
+    if (trackerSelected) {
+      const tracker = await runTrackerChecks({
+        fixture: request.fixture,
+        probeId: request.probeId,
+        runId,
+        beforeWrite: async (write) => intendWrite(request.projectRoot, runId, write),
+      });
+      staged.push(...tracker.staged);
+      resources.push(...tracker.resources);
+      trackerFailed = tracker.staged.some((one) => one.state === "failed");
+    }
+    if (lifecycleSelected) staged.push(providerCompatibility(request, staged));
     skipRest(
       staged,
       request.checks,
@@ -158,6 +183,8 @@ export const LiveProbe = {
       .filter((one) => request.checks.includes(one.name));
 
     return {
+      runId,
+      trackerFailed,
       attempt: {
         probeId: request.probeId,
         planRevision: request.planRevision,
@@ -169,8 +196,11 @@ export const LiveProbe = {
         observations,
         cleanup: {
           // The scratch repository and the fixture evidence outlive the run on purpose.
-          state: "retained" as const,
-          detail: `The probe resources stay until \`operator setup probe cleanup\` is approved. Identity ${ContentIdentity.of(resources)}.`,
+          state: resources.length === 0 ? ("not-applicable" as const) : ("retained" as const),
+          detail:
+            resources.length === 0
+              ? "This probe created no scratch resource. Fixture changes stay on the fixture."
+              : `The probe resources stay until \`operator setup probe cleanup\` is approved. Identity ${ContentIdentity.of(resources)}.`,
           resources,
         },
       },
@@ -184,7 +214,7 @@ export const LiveProbe = {
    * The recorded observations stay, so every failed attempt survives its resources.
    */
   async removeResources(request: { projectRoot: string; approvedCleanupId: string | undefined }) {
-    const inspected = await inspectScratch(request.projectRoot);
+    const inspected = await inspectRuns(request.projectRoot);
     if (inspected.directories.length === 0) {
       return { status: "nothing" as const, ...inspected };
     }
@@ -195,10 +225,6 @@ export const LiveProbe = {
       return { status: "approval-stale" as const, ...inspected };
     }
 
-    for (const directory of inspected.directories) {
-      await removeScratch(directory);
-    }
-
-    return { status: "removed" as const, ...inspected };
+    return cancelRuns(inspected);
   },
 };

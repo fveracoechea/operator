@@ -8,7 +8,7 @@ Assignments, attempts, questions, answers, approvals, reviews, tracker steps, an
 ## Take the crew before you change anything
 
 ```sh
-operator crew next --claude --json
+bun run operator crew next --claude --json
 ```
 
 Read the ownership it reports.
@@ -17,7 +17,7 @@ Read the ownership it reports.
 If that Operator is gone, take the crew and name the ownership revision you read.
 
 ```sh
-operator crew own --request <id> --owner-label <label> --takeover --ownership-revision <n> --json
+bun run operator crew own --request <id> --owner-label <label> --takeover --ownership-revision <n> --json
 ```
 
 A takeover replaces the active token.
@@ -30,10 +30,10 @@ An approval that was granted to the former session therefore covers nothing here
 ## Settle the effects before you adopt
 
 A takeover blocks every attempt the former Operator claimed.
-`operator crew next` reports each one, and it reports a reconciliation before an adoption when an effect is still unproven.
+`bun run operator crew next` reports each one, and it reports a reconciliation before an adoption when an effect is still unproven.
 
 ```sh
-operator attempt reconcile --request <id> --owner-token <token> --attempt <id> --json
+bun run operator attempt reconcile --request <id> --owner-token <token> --attempt <id> --json
 ```
 
 Reconciliation reads what Herdr and the checkout actually hold, and settles each unfinished effect.
@@ -43,18 +43,18 @@ An effect that stays uncertain is yours to bring to the user, never to repeat.
 Tracker effects are settled separately, because a tracker step is not an attempt.
 
 ```sh
-operator tracker show --assignment <id> --json
-operator tracker recover --request <id> --owner-token <token> --operation <id> --json
+bun run operator tracker show --assignment <id> --json
+bun run operator tracker recover --request <id> --owner-token <token> --operation <id> --json
 ```
 
-`operator tracker recover` reads the tracker and settles one recorded step from what it shows.
+`bun run operator tracker recover` reads the tracker and settles one recorded step from what it shows.
 An unsuccessful read leaves the step where it was, because it does not prove that a write did not apply.
 A step left uncertain accepts another write only under a person's approval.
 
 ## Adopt the attempts that are still valid
 
 ```sh
-operator attempt adopt --request <id> --owner-token <token> --attempt <id> --json
+bun run operator attempt adopt --request <id> --owner-token <token> --attempt <id> --json
 ```
 
 Adoption states that this session read what the attempt holds.
@@ -75,7 +75,7 @@ A submitted result, a reported review, and an accepted assignment are records, n
 
 ## Resume everything else from the next actions
 
-After the adoptions, `operator crew next` reports the rest of the recovery in its order:
+After the adoptions, `bun run operator crew next` reports the rest of the recovery in its order:
 
 - `answer_question` and `deliver_answer` for a question the former session left open,
 - `dispose_findings` and `accept_assignment` for a review that already reported,

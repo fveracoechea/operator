@@ -76,6 +76,12 @@ function parsePath(raw: string): { path: string; query: URLSearchParams } {
 }
 
 const args = process.argv.slice(2);
+if (args[0] === "--version") {
+  const file = Bun.file(`${directory}/version-new`);
+  const version = (await file.exists()) ? (await file.text()).trim() || "2.1.0" : "2.0.0";
+  console.log(`gh version ${version}`);
+  process.exit(0);
+}
 const flags = new Set(["--include", "-i"]);
 const valueFlags = new Set(["--method", "--input", "-f", "-F", "-H"]);
 
@@ -209,7 +215,7 @@ if (path === "user") {
   }
 } else if (issueMatch?.[1] !== undefined && method === "PATCH") {
   const number = issueMatch[1];
-  const fault = await faulted("closeIssue");
+  const fault = await faulted(body?.state === "open" ? "reopenIssue" : "closeIssue");
   if (fault !== "answered") {
     const held = state.issues[number];
     if (held === undefined) {

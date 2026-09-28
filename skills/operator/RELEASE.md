@@ -3,19 +3,15 @@
 ## Select the release a project coordinates with
 
 Coordinated work has to run one known release.
-Until a project selects one, readiness stays unverified and `operator crew next` asks for this first.
+Until a project selects one, readiness stays unverified and `bun run operator crew next` asks for this first.
 
 ```sh
-operator update plan --claude --commit <full-commit> --json
-operator update apply --claude --commit <full-commit> --approved-update <updateId> --json
+bun run operator update plan --claude --delivery jsr --commit <full-commit> --package-version <version> --json
+bun run operator update apply --claude --delivery jsr --commit <full-commit> --package-version <version> --approved-update <updateId> --json
 ```
 
 The commit is the full commit of the release that is running, not a short one and not a branch.
-A registry installation also names the exact published version:
-
-```sh
-operator update plan --claude --delivery jsr --commit <full-commit> --package-version <version> --json
-```
+A source delivery runs the CLI from its pinned commit and omits `--package-version`.
 
 The update identifier covers the release it moves to, the skills it would write, the recorded formats it would migrate, and the records it would back up.
 A change to any of them makes a new identifier, and the old approval is refused.

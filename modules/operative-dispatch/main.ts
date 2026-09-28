@@ -1,6 +1,7 @@
 import { HerdrControl } from "../herdr-control/main.ts";
 import { ContentIdentity } from "../content-identity/main.ts";
 import { SkillInstall } from "../skill-install/main.ts";
+import { ReleaseInstall } from "../release-install/main.ts";
 import { type AnswerDelivery, answerDocument } from "./answer.ts";
 import { type PrepareOutcome, prepareInputs } from "./inputs.ts";
 import { inspectReviewWork, inspectWork, type WorkInspection } from "./inspect.ts";
@@ -219,7 +220,8 @@ export const OperativeDispatch = {
       path: request.plan.worktreePath,
       branch: request.plan.branch,
       baseCommit: request.plan.baseCommit,
-      label: request.plan.agentName,
+      label: request.plan.workspaceLabel,
+      tabLabel: request.plan.tabLabel,
     };
     if (request.plan.parentWorkspaceId !== undefined) {
       input.parentWorkspaceId = request.plan.parentWorkspaceId;
@@ -245,7 +247,7 @@ export const OperativeDispatch = {
   async launch(request: {
     plan: DispatchPlan;
     workspaceId: string;
-  }): Promise<LaunchOutcome<{ paneId: string; status: string }>> {
+  }): Promise<LaunchOutcome<{ paneId: string; status: string; labelWarning: string | null }>> {
     const pane = await HerdrControl.findRootPane({ workspaceId: request.workspaceId });
     if (pane.status === "absent") {
       return {
@@ -271,9 +273,23 @@ export const OperativeDispatch = {
         : started;
     }
 
+    const labeled = await HerdrControl.labelAgent({
+      paneId: started.value.paneId,
+      agentName: request.plan.agentName,
+      label: request.plan.agentLabel,
+    });
     return {
       status: "succeeded",
-      value: { paneId: started.value.paneId, status: started.value.status },
+      value: {
+        paneId: started.value.paneId,
+        status: started.value.status,
+        labelWarning:
+          labeled.status === "succeeded"
+            ? null
+            : labeled.status === "failed"
+              ? `Display label failed: ${labeled.code}: ${labeled.detail}.`
+              : `Display label unconfirmed: ${labeled.detail}.`,
+      },
     };
   },
 
@@ -317,10 +333,14 @@ export const OperativeDispatch = {
   async deliverAnswer(request: {
     agentName: string;
     answer: AnswerDelivery;
+    snapshot: Snapshot;
   }): Promise<LaunchOutcome<{ status: string }>> {
     const submitted = await HerdrControl.submitPrompt({
       target: request.agentName,
-      text: answerDocument(request.answer),
+      text: answerDocument(
+        request.answer,
+        ReleaseInstall.invocation(request.snapshot.installation ?? {}),
+      ),
     });
     if (submitted.status !== "succeeded") {
       return submitted.status === "failed"

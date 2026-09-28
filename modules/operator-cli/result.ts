@@ -1,4 +1,5 @@
 import type { TrackerUpdate } from "../tracker-update/main.ts";
+import { ReleaseInstall } from "../release-install/main.ts";
 
 /** What one command did with its request: it reported a result, or it cannot read the request. */
 export type Handled = "reported" | "invalid-arguments";
@@ -69,6 +70,10 @@ export type Reason =
   | "readiness_ready"
   | "readiness_unverified"
   | "readiness_blocked"
+  | "healthcheck_passed"
+  | "healthcheck_unverified"
+  | "healthcheck_blocked"
+  | "healthcheck_connection_failed"
   | "tool_unavailable"
   | "lock_data_missing"
   | "release_mismatch"
@@ -91,6 +96,10 @@ export type Reason =
   | "probe_blocked"
   | "probe_completed"
   | "probe_incomplete"
+  | "probe_incomplete_run"
+  | "probe_cleanup_blocked"
+  | "probe_nothing_stale"
+  | "probe_fixture_unresolved"
   | "probe_run_failed"
   | "probe_resources_removed"
   | "probe_no_resources"
@@ -306,6 +315,7 @@ export type Operation =
   | "config_apply"
   | "config_recover"
   | "setup_readiness"
+  | "healthcheck"
   | "setup_probe_plan"
   | "setup_probe_apply"
   | "setup_probe_cleanup"
@@ -369,8 +379,36 @@ type JsonResult = {
   data?: unknown;
 };
 
+let projectInvocation = "operator";
+
+/** Use the project's selected command when presenting generated follow-up commands. */
+export function useProjectInvocation(
+  delivery: "github-source" | "jsr" | null,
+  commit?: string | null,
+): void {
+  projectInvocation = ReleaseInstall.invocation({ delivery, commit });
+}
+
+function commandText(text: string): string {
+  return projectInvocation === "operator"
+    ? text
+    : text.replace(
+        /\boperator (?=(?:install|setup|config|update|crew|work|attempt|question|approval|review|tracker|cleanup|wake)\b)/g,
+        (match, offset: number) =>
+          text.slice(Math.max(0, offset - 8), offset).endsWith("bun run ")
+            ? match
+            : `${projectInvocation} ${match.slice("operator ".length)}`,
+      );
+}
+
 export function writeJsonResult(result: JsonResult): void {
-  console.log(JSON.stringify({ schemaVersion: 1, ...result }));
+  console.log(
+    JSON.stringify({ schemaVersion: 1, ...result }, (key: string, value: unknown) =>
+      (key === "command" || key === "nextAction" || key === "reproof") && typeof value === "string"
+        ? commandText(value)
+        : value,
+    ),
+  );
 }
 
 /**
@@ -405,7 +443,7 @@ export function report(request: { json: boolean; result: JsonResult; lines: stri
     writeJsonResult(request.result);
   } else {
     for (const line of request.lines) {
-      console.log(line);
+      console.log(commandText(line));
     }
   }
 

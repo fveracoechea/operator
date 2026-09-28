@@ -25,7 +25,7 @@ function describeAuthority(authority: string): string {
  * The exact words stay separate from the reading of them, so the Operative can see what was
  * said and what it means without the two being merged.
  */
-export function answerDocument(answer: AnswerDelivery): string {
+export function answerDocument(answer: AnswerDelivery, invocation = "operator"): string {
   return [
     `Answer to question ${answer.questionId} revision ${answer.questionRevision} on attempt ${answer.attemptId}.`,
     "",
@@ -48,7 +48,7 @@ export function answerDocument(answer: AnswerDelivery): string {
     "",
     "Acknowledge this answer before you act on it:",
     "",
-    `operator question acknowledge --request <a new identity you generate> --question ${answer.questionId} --json`,
+    `${invocation} question acknowledge --request <a new identity you generate> --question ${answer.questionId} --json`,
     "",
     "Run it from this worktree. Nothing in this answer widens your recorded authority limits.",
   ].join("\n");

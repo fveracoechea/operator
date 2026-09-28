@@ -5,7 +5,7 @@ import type { InputName } from "./fingerprints.ts";
  * It is part of the plan identity, so a change to the checks, the resources, the credentials,
  * or the stated costs makes every earlier approval stale instead of silently covering more.
  */
-export const LIVE_PLAN_REVISION = 2;
+export const LIVE_PLAN_REVISION = 4;
 
 /** Which claim one live result feeds. A check that fails holds back exactly the claims it feeds. */
 export type LiveClaim = "readiness" | "release";

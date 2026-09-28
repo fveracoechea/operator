@@ -29,6 +29,16 @@ type Written =
   | { status: "written"; operationId: string; resourceId: string; expectedActor: string }
   | { status: "unwritten"; detail: string };
 
+type BeforeWrite = (write: {
+  operationId: string;
+  step: "resolution" | "map_amendment" | "completion" | "reopen";
+  issue: number;
+  expectedActor: string;
+  contentIdentity: string | null;
+  eventCount?: number | null;
+  outcome?: "succeeded" | "failed" | "uncertain" | "unavailable";
+}) => Promise<void>;
+
 /**
  * Writes one comment through the supported path, exactly as the workflow writes it.
  * The probe fixes the content before the write and reads the effect back afterwards, so a lost
@@ -36,6 +46,7 @@ type Written =
  */
 async function writeComment(
   fixture: Fixture,
+  beforeWrite: BeforeWrite,
   request: {
     issue: number;
     intent:
@@ -61,12 +72,22 @@ async function writeComment(
     return { status: "unwritten", detail: `The write could not be planned: ${planned.status}` };
   }
 
+  const intent = {
+    operationId,
+    step: request.intent.step,
+    issue: request.issue,
+    expectedActor: planned.expectedActor,
+    contentIdentity: planned.contentIdentity,
+  };
+  await beforeWrite(intent);
+
   const written = await TrackerUpdate.write({
     provider: PROVIDER,
     target,
     step: request.intent.step,
     content: planned.content,
   });
+  await beforeWrite({ ...intent, outcome: written.status });
   if (written.status !== "succeeded") {
     return {
       status: "unwritten",
@@ -127,6 +148,7 @@ export async function runTrackerChecks(request: {
   fixture: Fixture | null;
   probeId: string;
   runId: string;
+  beforeWrite: BeforeWrite;
 }): Promise<{ staged: Staged[]; resources: string[] }> {
   const staged: Staged[] = [];
   if (request.fixture === null) {
@@ -147,7 +169,7 @@ export async function runTrackerChecks(request: {
   const resources: string[] = [];
   const targets = targetsOf(fixture);
 
-  const comment = await writeComment(fixture, {
+  const comment = await writeComment(fixture, request.beforeWrite, {
     issue: fixture.issue,
     intent: {
       step: "resolution",
@@ -231,14 +253,14 @@ export async function runTrackerChecks(request: {
   } else {
     // An ordinary comment goes on the map first, so the check proves the reader tells the two
     // apart instead of only proving that an amendment is found.
-    const discussion = await writeComment(fixture, {
+    const discussion = await writeComment(fixture, request.beforeWrite, {
       issue: mapIssue,
       intent: {
         step: "resolution",
         body: `## Resolution\n\nOperator live probe ${request.probeId} wrote this ordinary comment, and it is not an amendment.`,
       },
     });
-    const amendment = await writeComment(fixture, {
+    const amendment = await writeComment(fixture, request.beforeWrite, {
       issue: mapIssue,
       intent: {
         step: "map_amendment",
@@ -308,7 +330,7 @@ export async function runTrackerChecks(request: {
   const subIssues = await GithubTracker.readSubIssues(target);
   staged.push(linkCheck("github-sub-issues", "sub-issues", subIssues, "sub_issues"));
 
-  const closure = await closeAndRestore(fixture, request.probeId);
+  const closure = await closeAndRestore(fixture, request.probeId, request.beforeWrite);
   staged.push(closure.closure, closure.events);
 
   return { staged, resources };
@@ -324,6 +346,7 @@ export async function runTrackerChecks(request: {
 async function closeAndRestore(
   fixture: Fixture,
   probeId: string,
+  beforeWrite: BeforeWrite,
 ): Promise<{ closure: Staged; events: Staged }> {
   const target = { repository: fixture.repository, issue: fixture.issue };
   const before = await GithubTracker.readIssue(target);
@@ -346,12 +369,22 @@ async function closeAndRestore(
     return { closure: failed("github-closure", detail), events: skipped("github-events", detail) };
   }
 
+  const closeIntent = {
+    operationId,
+    step: "completion" as const,
+    issue: fixture.issue,
+    expectedActor: planned.expectedActor,
+    contentIdentity: null,
+  };
+  await beforeWrite(closeIntent);
+
   const written = await TrackerUpdate.write({
     provider: PROVIDER,
     target,
     step: "completion",
     closeReason: "completed",
   });
+  await beforeWrite({ ...closeIntent, outcome: written.status });
   if (written.status !== "succeeded") {
     const detail = `The fixture issue did not close: ${written.status}`;
     return { closure: failed("github-closure", detail), events: skipped("github-events", detail) };
@@ -372,7 +405,17 @@ async function closeAndRestore(
   const observed = read.observation.kind === "closure" ? read.observation : null;
   const closedRight = observed?.state === "closed" && observed.stateReason === "completed";
 
+  const reopenIntent = {
+    operationId: crypto.randomUUID(),
+    step: "reopen" as const,
+    issue: fixture.issue,
+    expectedActor: planned.expectedActor,
+    contentIdentity: null,
+    eventCount: observed?.eventCoverage.complete ? observed.events.length : null,
+  };
+  await beforeWrite(reopenIntent);
   const reopened = await GithubTracker.reopenIssue(target);
+  await beforeWrite({ ...reopenIntent, outcome: reopened.status });
   const restored =
     reopened.status === "succeeded"
       ? {

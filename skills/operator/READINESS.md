@@ -7,7 +7,7 @@ Ready means the required checks passed for this exact selection and these exact 
 ## Ask for readiness
 
 ```sh
-operator setup readiness --claude --operator-host claude-code --json
+bun run operator setup readiness --claude --operator-host claude-code --json
 ```
 
 Name the installation targets the same way setup does.
@@ -51,8 +51,8 @@ Host termination, the native review sub-agents, and provider compatibility are p
 A live probe launches agents, spends provider tokens, and writes to a tracker, so it needs its own approval.
 
 ```sh
-operator setup probe plan --claude --operator-host claude-code --crew-host opencode --json
-operator setup probe apply --claude --operator-host claude-code --crew-host opencode --approved-probe <probeId> --json
+bun run operator setup probe plan --claude --operator-host claude-code --crew-host opencode --json
+bun run operator setup probe apply --claude --operator-host claude-code --crew-host opencode --approved-probe <probeId> --json
 ```
 
 The plan shows what the run would use, before anything launches.
@@ -77,13 +77,20 @@ It grants no authority to commit, push, merge, publish, or remove anything else.
 ## Probe cleanup
 
 ```sh
-operator setup probe cleanup --json
-operator setup probe cleanup --approved-cleanup <cleanupId> --json
+bun run operator setup probe cleanup --json
+bun run operator setup probe cleanup --approved-cleanup <cleanupId> --json
 ```
 
-Removing the scratch repositories earlier probes left behind needs its own approval, bound to the directories it would remove.
-Show the listed directories to the user first.
+The first command inspects any interrupted run, including its worktree, named agents, and fixture writes.
+It makes no new probe run and sends no tracker write.
+Show the listed resources and their status to the user first.
+An approved cleanup stops only the agents of the named probe, verifies their panes, removes its Herdr worktree, then removes its scratch repository.
+Cleanup stops if Herdr cannot confirm a resource or if the fixture changed while the probe was interrupted.
+Run cleanup again to inspect the remaining resources after resolving a blocker.
+Approval is bound to the inspected resources, so a changed status needs a new approval.
 The recorded observations stay, so every failed attempt survives its resources.
+An interrupted attempt without a readiness record stays unproven.
+Another apply waits until the interrupted resources are settled or cancelled.
 
 ## Recorded evidence
 

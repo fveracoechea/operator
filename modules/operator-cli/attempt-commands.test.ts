@@ -1,7 +1,9 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
 import { ContentIdentity } from "../content-identity/main.ts";
+import { OperatorRelease } from "../operator-release/main.ts";
+import { ReleaseInstall } from "../release-install/main.ts";
 import {
   headCommit,
   herdrCalls,
@@ -29,6 +31,9 @@ import {
   submissionBody,
   submit,
 } from "./review-cycle-fixture.ts";
+
+// Dispatch tests create Git worktrees and run several CLI processes under the parallel CI gate.
+setDefaultTimeout(60_000);
 
 const fixtures = workspaces();
 
@@ -148,6 +153,131 @@ async function damageSnapshot(workspace: Workspace, attemptId: string) {
 }
 
 describe("operator attempt dispatch", () => {
+  test("refuses a JSR base commit whose lock does not pin the selected dependency", async () => {
+    const running = await OperatorRelease.identify();
+    const lock = await Bun.file(`${running.installationRoot}/${running.lock.name}`).text();
+    const workspace = await fixtures.make({
+      files: {
+        "bun.lock": lock,
+        "package.json": JSON.stringify({
+          scripts: { operator: "bun node_modules/@fveracoechea/operator/cli.js" },
+          devDependencies: {
+            "@fveracoechea/operator": `npm:@jsr/fveracoechea__operator@${running.version}`,
+          },
+        }),
+      },
+    });
+    await ReleaseInstall.select({
+      projectRoot: workspace.repo,
+      selection: {
+        schemaVersion: 1,
+        delivery: "jsr",
+        version: running.version,
+        commit: "f".repeat(40),
+        releaseIdentity: running.identity,
+        skillsIdentity: running.skillsIdentity,
+        packageVersion: running.version,
+        upstreamSkills: [],
+        selectedAt: new Date().toISOString(),
+      },
+    });
+    const crew = await claimedAttempt(workspace);
+
+    const dispatched = await dispatch(workspace, crew);
+
+    expect(dispatched.json.reason).toBe("dispatch_stage_failed");
+    expect(JSON.stringify(dispatched.json)).toContain("bun.lock");
+    expect((await calls(workspace)).some((call) => call.startsWith("agent start"))).toBe(false);
+  });
+
+  test("uses the pinned source command in a selected source Operative brief", async () => {
+    const workspace = await makeWorkspace();
+    const commit = "f".repeat(40);
+    const release = await OperatorRelease.identify();
+    await ReleaseInstall.select({
+      projectRoot: workspace.repo,
+      selection: {
+        schemaVersion: 1,
+        delivery: "github-source",
+        version: release.version,
+        commit,
+        releaseIdentity: release.identity,
+        skillsIdentity: release.skillsIdentity,
+        packageVersion: null,
+        upstreamSkills: [],
+        selectedAt: new Date().toISOString(),
+      },
+    });
+    const crew = await claimedAttempt(workspace);
+
+    const dispatched = await dispatch(workspace, crew);
+
+    expect(dispatched.json.reason).toBe("acknowledgement_pending");
+    const brief = await Bun.file(`${workspace.root}/operative/.operator/local/brief.md`).text();
+    const prompt = await Bun.file(`${workspace.herdr}/last-prompt`).text();
+    const source = `bunx "github:fveracoechea/operator#${commit}"`;
+    expect(brief).toContain(`${source} attempt acknowledge --request`);
+    expect(prompt).toContain(`${source} attempt acknowledge --request`);
+    expect(prompt).not.toContain("bun install --frozen-lockfile");
+  });
+
+  test("blocks a JSR worktree whose base commit predates its devDependency", async () => {
+    const workspace = await makeWorkspace();
+    const base = await headCommit(workspace);
+    const release = await OperatorRelease.identify();
+    await ReleaseInstall.select({
+      projectRoot: workspace.repo,
+      selection: {
+        schemaVersion: 1,
+        delivery: "jsr",
+        version: release.version,
+        commit: "f".repeat(40),
+        releaseIdentity: release.identity,
+        skillsIdentity: release.skillsIdentity,
+        packageVersion: release.version,
+        upstreamSkills: [],
+        selectedAt: new Date().toISOString(),
+      },
+    });
+    const crew = await claimedAttempt(workspace);
+
+    const dispatched = await runJson(workspace, [
+      "attempt",
+      "dispatch",
+      "--request",
+      request(),
+      "--owner-token",
+      crew.ownerToken,
+      "--attempt",
+      crew.attemptId,
+      "--commit",
+      base,
+      "--worktree",
+      `${workspace.root}/operative`,
+    ]);
+
+    expect(dispatched.json.reason).toBe("dispatch_stage_failed");
+    expect(JSON.stringify(dispatched.json)).toContain("package.json");
+    expect((await calls(workspace)).some((call) => call.startsWith("agent start"))).toBe(false);
+  });
+
+  test("healthcheck reports unproven readiness as a standing precondition, not a dispatch gate", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await claimedAttempt(workspace);
+    const health = await runJson(workspace, ["healthcheck", "--claude"]);
+    expect(health.json.data.readiness.state).not.toBe("ready");
+
+    const launched = await dispatch(workspace, crew);
+    expect(launched.json.reason).toBe("acknowledgement_pending");
+    expect(health.json.data.dispatch).toEqual({
+      readinessRequired: false,
+      gate: "assignment-and-launch-preconditions",
+    });
+    const human = await runOperator(workspace, ["healthcheck", "--claude"]);
+    expect(human.stdout).toContain("Readiness is a standing precondition");
+    expect(human.stdout).not.toContain("must be proven before a new attempt can dispatch");
+  });
+
   test("groups an Operative worktree with the Operator's current Herdr workspace", async () => {
     const workspace = await makeWorkspace();
     const crew = await claimedAttempt(workspace);
@@ -309,6 +439,53 @@ describe("operator attempt dispatch", () => {
     expect(shown.json.data.stage).toBe("acknowledged");
   });
 
+  test("keeps a live writer and its pane when Herdr refuses its display label", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await claimedAttempt(workspace);
+    await Bun.write(`${workspace.herdr}/pane-report-metadata.error`, "label_refused");
+
+    const dispatched = await dispatch(workspace, crew);
+    expect(dispatched.json.reason).toBe("acknowledgement_pending");
+    expect(
+      dispatched.json.data.operations.find((one: { kind: string }) => one.kind === "agent_start"),
+    ).toMatchObject({ state: "succeeded", detail: expect.stringContaining("label_refused") });
+    expect((await calls(workspace)).some((one) => one.startsWith("agent prompt "))).toBe(true);
+
+    const refused = await runJson(workspace, [
+      "attempt",
+      "replace",
+      "--request",
+      request(),
+      "--owner-token",
+      crew.ownerToken,
+      "--attempt",
+      crew.attemptId,
+    ]);
+    expect(refused.json.reason).toBe("writer_live");
+    expect(refused.json.blockers[0].paneId).toBe("w1:p1");
+
+    await dispatch(workspace, crew);
+    expect((await calls(workspace)).filter((one) => one.startsWith("agent start "))).toHaveLength(
+      1,
+    );
+  });
+
+  test("keeps the start result when a display label has no answer", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await claimedAttempt(workspace);
+    await Bun.write(`${workspace.herdr}/pane-report-metadata.lost`, "");
+
+    const dispatched = await dispatch(workspace, crew);
+    expect(dispatched.json.reason).toBe("acknowledgement_pending");
+    expect(
+      dispatched.json.data.operations.find((one: { kind: string }) => one.kind === "agent_start"),
+    ).toMatchObject({
+      state: "succeeded",
+      detail: expect.stringContaining("Display label unconfirmed"),
+    });
+    expect((await calls(workspace)).some((one) => one.startsWith("agent prompt "))).toBe(true);
+  });
+
   test("starts the selected OpenCode crew model rather than the host default", async () => {
     const workspace = await makeWorkspace({
       crew: { host: "opencode", model: "openai/gpt-5.6-terra" },
@@ -417,6 +594,9 @@ describe("operator attempt dispatch", () => {
       "agent start",
       "pane get",
       "pane list",
+      "pane report-metadata",
+      "tab list",
+      "tab rename",
       "worktree create",
       "worktree list",
     ]);

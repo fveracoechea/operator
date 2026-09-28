@@ -14,6 +14,7 @@ export function reportMissingTarget(
     | "setup_plan"
     | "setup_apply"
     | "setup_readiness"
+    | "healthcheck"
     | "setup_probe_plan"
     | "setup_probe_apply"
     | "crew_next",

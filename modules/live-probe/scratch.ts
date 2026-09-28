@@ -84,6 +84,17 @@ export async function makeScratch(request: {
   };
 }
 
+/** Commits synthetic work so Herdr can remove its checkout without a force flag. */
+export async function commitProbeWork(worktreePath: string): Promise<string | null> {
+  try {
+    await Bun.$`git -C ${worktreePath} add -A`.quiet();
+    await Bun.$`git -C ${worktreePath} -c user.email=probe@operator.invalid -c user.name=Operator commit -q --allow-empty -m "probe evidence"`.quiet();
+    return (await Bun.$`git -C ${worktreePath} rev-parse HEAD`.quiet()).stdout.toString().trim();
+  } catch {
+    return null;
+  }
+}
+
 /** Waits for one agent answer inside its own window. A window that runs out is a real outcome. */
 export async function waitForFile(request: {
   path: string;
@@ -111,15 +122,23 @@ export async function waitForFile(request: {
 /** Lists the recorded probe directories this project still holds. */
 export async function scratchDirectories(projectRoot: string): Promise<string[]> {
   const root = `${projectRoot}/${PROBE_DIRECTORY}`;
-  const found = await Array.fromAsync(
-    new Bun.Glob("*/repo/.git/HEAD").scan({ cwd: root, onlyFiles: true, dot: true }),
-  ).catch(() => []);
+  const found = await Promise.all([
+    Array.fromAsync(
+      new Bun.Glob("*/repo/.git/HEAD").scan({ cwd: root, onlyFiles: true, dot: true }),
+    ),
+    Array.fromAsync(new Bun.Glob("*/run.json").scan({ cwd: root, onlyFiles: true, dot: true })),
+  ])
+    .then((groups) => groups.flat())
+    .catch(() => []);
 
   return [
     ...new Set(
       found.flatMap((entry) => {
         const runId = entry.split("/")[0];
-        return runId === undefined ? [] : [`${root}/${runId}`];
+        return runId !== undefined &&
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(runId)
+          ? [`${root}/${runId}`]
+          : [];
       }),
     ),
   ].toSorted();

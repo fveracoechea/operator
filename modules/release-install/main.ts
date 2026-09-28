@@ -1,22 +1,37 @@
 import { type Installation, inspectInstallation, type RunningRelease } from "./inspect.ts";
 import {
-  INSTALL_ROOT,
   issueLines,
   JSR_PACKAGE_NAME,
-  MANIFEST_PATH,
-  manifestText,
   PACKAGE_NAME,
+  PROJECT_COMMAND,
   readSelection,
   type ReleaseSelection,
   SELECTION_PATH,
   selectionSchema,
   selectionText,
 } from "./selection.ts";
+import { checkWorktreeInstallation } from "./worktree.ts";
 
 export const ReleaseInstall = {
-  /** The project-relative paths the isolated installation owns. */
+  /** Checks that the worktree's base commit can install its selected JSR release frozen. */
+  async worktree(request: Parameters<typeof checkWorktreeInstallation>[0]) {
+    return checkWorktreeInstallation(request);
+  },
+  /** Runs the exact selected delivery from a project root. */
+  invocation(request: { delivery?: string | null; commit?: string | null }): string {
+    if (request.delivery === "jsr") return PROJECT_COMMAND;
+    if (
+      request.delivery === "github-source" &&
+      request.commit !== null &&
+      request.commit !== undefined
+    )
+      return `bunx "github:fveracoechea/operator#${request.commit}"`;
+    return "operator";
+  },
+
+  /** The project-relative path the release selection owns. */
   paths() {
-    return { root: INSTALL_ROOT, selection: SELECTION_PATH, manifest: MANIFEST_PATH };
+    return { selection: SELECTION_PATH };
   },
 
   /** Reads the exact release this project selected. Writes nothing. */
@@ -25,8 +40,7 @@ export const ReleaseInstall = {
   },
 
   /**
-   * Records one exact release selection, and the isolated manifest the registry path installs
-   * from. Existing lock data is never touched, because only a package manager may write it.
+   * Records one exact release selection. Bun owns the project's dependency and lock data.
    */
   async select(request: { projectRoot: string; selection: ReleaseSelection }) {
     const parsed = selectionSchema.safeParse(request.selection);
@@ -39,15 +53,6 @@ export const ReleaseInstall = {
       createPath: true,
     });
 
-    if (parsed.data.delivery === "jsr" && parsed.data.packageVersion !== null) {
-      written.push(MANIFEST_PATH);
-      await Bun.write(
-        `${request.projectRoot}/${MANIFEST_PATH}`,
-        manifestText({ packageVersion: parsed.data.packageVersion }),
-        { createPath: true },
-      );
-    }
-
     return { status: "selected" as const, selection: parsed.data, written };
   },
 
@@ -57,30 +62,23 @@ export const ReleaseInstall = {
   },
 
   /**
-   * The exact commands one delivery path is used through.
-   * The registry path installs first and then executes through the importable entry point, so
-   * the launcher resolves the package from the isolated installation and keeps the project
-   * directory as the working directory.
+   * The exact commands one delivery path is used through from the project root.
    */
   commands(request: { selection: ReleaseSelection }) {
     const { selection } = request;
     if (selection.delivery === "github-source") {
       return {
         install: null,
-        run: `bunx "github:fveracoechea/operator#${selection.commit}" <operation>`,
+        run: `${ReleaseInstall.invocation(selection)} <operation>`,
         convenience: "bunx github:fveracoechea/operator <operation>",
       };
     }
 
     const version = selection.packageVersion ?? selection.version;
     return {
-      install: `cd ${INSTALL_ROOT} && bun install --frozen-lockfile`,
-      run: [
-        "bun --no-install -e 'const { main } = await import(",
-        `Bun.pathToFileURL(Bun.resolveSync("${PACKAGE_NAME}/cli", \`\${process.cwd()}/${INSTALL_ROOT}\`)).href`,
-        "); await main(Bun.argv.slice(1))' -- <operation>",
-      ].join(""),
-      convenience: `bunx --bun jsr add --bun "${PACKAGE_NAME}@${version}" (in ${INSTALL_ROOT}, which records ${JSR_PACKAGE_NAME}@${version})`,
+      install: "bun install --frozen-lockfile",
+      run: `${ReleaseInstall.invocation(selection)} <operation>`,
+      convenience: `bunx --bun jsr add --bun --save-dev "${PACKAGE_NAME}@${version}" (records ${JSR_PACKAGE_NAME}@${version})`,
     };
   },
 };

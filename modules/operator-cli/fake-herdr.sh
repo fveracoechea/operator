@@ -8,7 +8,11 @@ printf '%s\n' "$(printf '%s ' "$@" | tr '\n' ' ')" >> "$dir/calls.log"
 
 # The environment probe reads a version before it trusts the tool, so the fake answers one.
 if [ "${1:-}" = "--version" ]; then
-  echo "herdr 0.9.0"
+  if [ -f "$dir/version-new" ]; then
+    echo "herdr 0.9.2"
+  else
+    echo "herdr 0.9.1"
+  fi
   exit 0
 fi
 
@@ -60,12 +64,26 @@ worktree_row() {
 # external operation reaches the caller with its effect already landed.
 answer() {
   case "$key" in
+  plugin-list)
+    if [ -f "$dir/plugin-missing" ]; then
+      printf '{"result":{"plugins":[]}}\n'
+    else
+      enabled=true
+      [ -f "$dir/plugin-disabled" ] && enabled=false
+      path="${HERDR_FAKE_PLUGIN_PATH:-}"
+      [ -f "$dir/plugin-mismatch" ] && path="$dir/other/herdr-plugin.toml"
+      printf '{"result":{"plugins":[{"plugin_id":"operator.wake","manifest_path":"%s","enabled":%s,"min_herdr_version":"0.9.1","warnings":[]}]}}\n' "$path" "$enabled"
+    fi
+    ;;
   worktree-create)
     repo=$(value_of --cwd "$@")
     parent=$(value_of --workspace "$@")
     if [ -n "$parent" ]; then
-      [ "$parent" = "w0" ] || refuse "workspace_not_found" "no workspace $parent"
-      repo="$HERDR_FAKE_REPO"
+      case "$parent" in
+        w0) repo="$HERDR_FAKE_REPO" ;;
+        w-source) repo=$(cat "$dir/source-repo") ;;
+        *) refuse "workspace_not_found" "no workspace $parent" ;;
+      esac
     fi
     path=$(value_of --path "$@")
     branch=$(value_of --branch "$@")
@@ -81,6 +99,10 @@ answer() {
     printf '{"id":"cli:worktree:create","result":{"type":"worktree_created","workspace":{"workspace_id":"%s"},"worktree":{"path":"%s","branch":"%s","is_linked_worktree":true}}}\n' "$workspace" "$path" "$branch"
     ;;
   worktree-list)
+    source=$(value_of --cwd "$@")
+    [ -n "$source" ] || source="$HERDR_FAKE_REPO"
+    source_workspace="w-source"
+    [ "$source" = "$HERDR_FAKE_REPO" ] && source_workspace="w0"
     entries=""
     if [ -f "$dir/worktrees" ]; then
       while IFS='|' read -r workspace path repo branch; do
@@ -93,7 +115,19 @@ answer() {
         fi
       done < "$dir/worktrees"
     fi
-    printf '{"id":"cli:worktree:list","result":{"type":"worktree_list","worktrees":[%s]}}\n' "${entries#,}"
+    printf '{"id":"cli:worktree:list","result":{"type":"worktree_list","source":{"source_workspace_id":"%s"},"worktrees":[%s]}}\n' "$source_workspace" "${entries#,}"
+    ;;
+  workspace-create)
+    repo=$(value_of --cwd "$@")
+    printf '%s' "$repo" > "$dir/source-repo"
+    printf '{"id":"cli:workspace:create","result":{"workspace":{"workspace_id":"w-source"}}}\n'
+    ;;
+  workspace-rename|tab-rename|pane-report-metadata)
+    printf '{"id":"cli:%s:%s","result":{}}\n' "$group" "$sub"
+    ;;
+  tab-list)
+    workspace=$(value_of --workspace "$@")
+    printf '{"id":"cli:tab:list","result":{"tabs":[{"tab_id":"%s:t1"}]}}\n' "$workspace"
     ;;
   worktree-remove)
     workspace=$(value_of --workspace "$@")

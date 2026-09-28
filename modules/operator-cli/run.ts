@@ -1,4 +1,5 @@
 import { OperatorRelease } from "../operator-release/main.ts";
+import { ReleaseInstall } from "../release-install/main.ts";
 import {
   hasCrewArguments,
   hasConfigArguments,
@@ -12,6 +13,7 @@ import { runAttempt } from "./attempt-command.ts";
 import { runCleanup } from "./cleanup-command.ts";
 import { runConfig } from "./config-command.ts";
 import { runCrewOwn } from "./crew-command.ts";
+import { runHealthcheck } from "./healthcheck-command.ts";
 import { runCrewNext } from "./next-command.ts";
 import { runInstall, runMattSkills } from "./install-command.ts";
 import { runUpdate } from "./update-command.ts";
@@ -19,7 +21,13 @@ import { runQuestion } from "./question-command.ts";
 import { runReview } from "./review-command.ts";
 import { runSetup } from "./setup-command.ts";
 import { runTracker } from "./tracker-command.ts";
-import { exitCodeByOutcome, type Handled, writeJsonResult } from "./result.ts";
+import {
+  exitCodeByOutcome,
+  type Handled,
+  refuse,
+  useProjectInvocation,
+  writeJsonResult,
+} from "./result.ts";
 import { usage } from "./usage.ts";
 import { runWork } from "./work-command.ts";
 import { runWake } from "./wake-command.ts";
@@ -132,6 +140,25 @@ async function runConfigCommand(rest: string[]): Promise<void> {
     rejectArguments(parsed.json);
 }
 
+async function runHealthcheckCommand(rest: string[]): Promise<void> {
+  const { words, parsed } = splitRequest(rest);
+  if (
+    words.length > 0 ||
+    parsed.unsupported.length > 0 ||
+    hasCrewArguments(parsed) ||
+    hasConfigArguments(parsed) ||
+    hasUpdateArguments(parsed) ||
+    parsed.approvedPlan !== undefined ||
+    parsed.approvedProbe !== undefined ||
+    parsed.approvedCleanup !== undefined ||
+    parsed.staleOnly
+  ) {
+    rejectArguments(parsed.json);
+    return;
+  }
+  await runHealthcheck(parsed);
+}
+
 function runtimeSupported(args: string[], version: string, supportedBun: string): boolean {
   // The Bun check runs before any command so an unsupported runtime never writes files.
   if (Bun.semver.satisfies(Bun.version, supportedBun)) return true;
@@ -169,6 +196,49 @@ function reportVersion(args: string[], version: string): boolean {
   return false;
 }
 
+/** Stops commands that cannot safely use a different selected release. */
+async function releaseMismatch(
+  args: string[],
+  command: string | undefined,
+  rest: string[],
+): Promise<boolean> {
+  const selected = await ReleaseInstall.selection({ projectRoot: process.cwd() });
+  useProjectInvocation(
+    selected.state === "read" ? selected.selection.delivery : null,
+    selected.state === "read" ? selected.selection.commit : null,
+  );
+  if (
+    command === "update" ||
+    command === "install" ||
+    (command === "setup" && rest[0] === "readiness") ||
+    args.includes("--version") ||
+    selected.state !== "read"
+  )
+    return false;
+
+  const running = await OperatorRelease.identify();
+  if (
+    selected.selection.releaseIdentity === running.identity &&
+    (running.commit === null || selected.selection.commit === running.commit)
+  )
+    return false;
+
+  refuse({
+    json: args.includes("--json"),
+    operation: "startup",
+    outcome: "conflict",
+    reason: "release_mismatch",
+    detail: { selectedVersion: selected.selection.version, runningVersion: running.version },
+    lines: [
+      `This project selected Operator ${selected.selection.version} at ${selected.selection.commit}, but this CLI runs ${running.version}.`,
+      selected.selection.delivery === "jsr"
+        ? "Run the selected release with `bun run operator <operation>` from the project root."
+        : `Run the selected source release at commit ${selected.selection.commit}.`,
+    ],
+  });
+  return true;
+}
+
 export async function run(args: string[]): Promise<void> {
   // The release reports its own version and supported runtime. A registry rewrites the package
   // manifest, so a published copy is never read through it.
@@ -177,6 +247,7 @@ export async function run(args: string[]): Promise<void> {
   if (!runtimeSupported(args, version, supportedBun)) return;
 
   const [command, ...rest] = args;
+  if (await releaseMismatch(args, command, rest)) return;
 
   if (command === "wake") {
     if ((await runWake(rest)) !== "reported") rejectArguments(rest.includes("--json"));
@@ -200,6 +271,11 @@ export async function run(args: string[]): Promise<void> {
 
   if (command === "config") {
     await runConfigCommand(rest);
+    return;
+  }
+
+  if (command === "healthcheck") {
+    await runHealthcheckCommand(rest);
     return;
   }
 

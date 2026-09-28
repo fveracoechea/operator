@@ -4,15 +4,16 @@ Read this before you review a submitted result or accept an assignment.
 
 ## Order of work
 
-1. The Operative runs `operator attempt submit` from its own worktree.
+1. The Operative runs `bun run operator attempt submit` from its own worktree.
    You do not run it.
-2. `operator crew next --claude --json` now offers the review assignment the submission registered,
+2. `bun run operator crew next --claude --json` now offers the review assignment the submission registered,
    before any new production work.
-3. `operator work claim` and `operator attempt dispatch` launch the reviewer, exactly as for production work.
-4. The reviewer runs `operator review report` from its own worktree.
-5. `operator review show --review <id> --json` gives you both reports and every finding.
-6. `operator review dispose --request <id> --owner-token <token> --review <id> --input <path> --json` records your judgment.
-7. `operator work accept ... --submission <id> --pr-head <sha> --json` records accepted completion.
+3. `bun run operator work claim` and `bun run operator attempt dispatch` launch the reviewer, exactly as for production work.
+4. For a JSR selection, the reviewer runs `bun install --frozen-lockfile` and then `bun run operator review report` from its own worktree.
+   For a source selection, it uses the pinned source invocation in [SKILL.md](SKILL.md).
+5. `bun run operator review show --review <id> --json` gives you both reports and every finding.
+6. `bun run operator review dispose --request <id> --owner-token <token> --review <id> --input <path> --json` records your judgment.
+7. `bun run operator work accept ... --submission <id> --pr-head <sha> --json` records accepted completion.
 
 ## A submission is not completion
 
@@ -56,9 +57,9 @@ A blocked or partial review accepts nothing.
 A blocked review is a stopped review, not a verdict.
 Correct what it names, then replace the stopped reviewer:
 
-1. `operator attempt replace --request <id> --owner-token <token> --attempt <id> --json` reports the partial work.
+1. `bun run operator attempt replace --request <id> --owner-token <token> --attempt <id> --json` reports the partial work.
 2. Repeat it with `--inspection <identity>` to approve that exact reading.
-3. `operator attempt dispatch` launches the replacement into the same checkout.
+3. `bun run operator attempt dispatch` launches the replacement into the same checkout.
 
 The replacement reads the same fixed submission and reports it itself.
 One review holds at most three attempts.

@@ -80,6 +80,96 @@ function lookupFrom<Value>(
 }
 
 export const HerdrControl = {
+  /** Checks the enabled wake plugin against the release that runs this CLI. */
+  async wakePlugin(herdrVersion: string) {
+    const invoked = await ToolInvocation.run({
+      tool: "herdr",
+      args: ["plugin", "list", "--json"],
+      timeoutMs: 5_000,
+    });
+    const nextAction =
+      'Run `herdr plugin link "$(operator wake plugin-path)"` and `herdr plugin enable operator.wake`, then check again. Unlink an earlier copy first.';
+    if (invoked.status !== "completed" || invoked.exitCode !== 0) {
+      return {
+        state: "failed" as const,
+        detail:
+          invoked.status === "completed"
+            ? `Herdr plugin list exited ${invoked.exitCode}.`
+            : invoked.detail,
+        nextAction,
+      };
+    }
+    let answer: unknown;
+    try {
+      answer = JSON.parse(invoked.stdout);
+    } catch {
+      return {
+        state: "failed" as const,
+        detail: "Herdr plugin list returned invalid JSON.",
+        nextAction,
+      };
+    }
+    const plugins = ToolInvocation.list(ToolInvocation.record(answer, "result"), "plugins");
+    const plugin = plugins.find((one) => ToolInvocation.text(one, "plugin_id") === "operator.wake");
+    if (plugin === undefined) {
+      return {
+        state: "failed" as const,
+        detail: "The Operator wake plugin is not installed.",
+        nextAction,
+      };
+    }
+    const expected = new URL("../../herdr/herdr-plugin.toml", import.meta.url).pathname;
+    const actual = ToolInvocation.text(plugin, "manifest_path");
+    const minimum = ToolInvocation.text(plugin, "min_herdr_version");
+    const compatible = minimum !== null && Bun.semver.satisfies(herdrVersion, `>=${minimum}`);
+    const enabled = ToolInvocation.record(plugin, "enabled") === true;
+    const warnings = ToolInvocation.record(plugin, "warnings");
+    if (
+      actual !== expected ||
+      !enabled ||
+      !compatible ||
+      (Array.isArray(warnings) && warnings.length > 0)
+    ) {
+      return {
+        state: "failed" as const,
+        detail: `The Operator wake plugin is ${enabled ? "enabled" : "disabled"} at ${actual ?? "an unknown path"}; expected ${expected}. Herdr ${herdrVersion} must meet the plugin minimum ${minimum ?? "unknown"}.${Array.isArray(warnings) && warnings.length > 0 ? " Herdr reports plugin warnings." : ""}`,
+        nextAction:
+          !compatible && minimum !== null
+            ? `Upgrade Herdr to ${minimum} or later, then check again.`
+            : nextAction,
+      };
+    }
+    return {
+      state: "passed" as const,
+      detail: "The enabled Operator wake plugin matches this CLI release.",
+      nextAction: null,
+    };
+  },
+  /** A read-only server request. A version string alone cannot prove a server connection. */
+  async connection(request: { repoRoot: string }) {
+    const result = await invokeHerdr({
+      args: ["worktree", "list", "--cwd", request.repoRoot],
+      timeoutMs: READ_TIMEOUT_MS,
+    });
+    if (
+      result.status === "succeeded" &&
+      result.value !== null &&
+      typeof result.value === "object" &&
+      "worktrees" in result.value &&
+      Array.isArray(result.value.worktrees)
+    ) {
+      return {
+        state: "passed" as const,
+        detail: "Herdr answered a worktree list request.",
+        nextAction: null,
+      };
+    }
+    return {
+      state: "failed" as const,
+      detail: result.status === "succeeded" ? "Herdr returned no worktree list." : result.detail,
+      nextAction: "Start or connect to the Herdr server, then check again.",
+    };
+  },
   /** Reads the pane's current workspace, which may differ from its launch-time environment. */
   async findPaneWorkspace(request: { paneId: string }): Promise<Lookup<{ workspaceId: string }>> {
     const outcome = await invokeHerdr({
@@ -103,14 +193,41 @@ export const HerdrControl = {
     branch: string;
     baseCommit: string;
     label: string;
+    tabLabel?: string;
+    sourceLabel?: string;
   }): Promise<HerdrOutcome<{ workspaceId: string; worktree: Worktree }>> {
+    let sourceWorkspaceId = request.parentWorkspaceId;
+    if (request.sourceLabel !== undefined) {
+      const opened = await invokeHerdr({
+        args: [
+          "workspace",
+          "create",
+          "--cwd",
+          request.repoRoot,
+          "--label",
+          request.sourceLabel,
+          "--no-focus",
+        ],
+        timeoutMs: CREATE_TIMEOUT_MS,
+      });
+      if (opened.status !== "succeeded") return opened;
+      sourceWorkspaceId =
+        ToolInvocation.text(ToolInvocation.record(opened.value, "workspace"), "workspace_id") ??
+        undefined;
+      if (sourceWorkspaceId === undefined) {
+        return {
+          status: "uncertain",
+          detail: "herdr opened a probe repository workspace it did not describe.",
+        };
+      }
+    }
     const outcome = await invokeHerdr({
       args: [
         "worktree",
         "create",
-        ...(request.parentWorkspaceId === undefined
+        ...(sourceWorkspaceId === undefined
           ? ["--cwd", request.repoRoot]
-          : ["--workspace", request.parentWorkspaceId]),
+          : ["--workspace", sourceWorkspaceId]),
         "--path",
         request.path,
         "--branch",
@@ -136,7 +253,48 @@ export const HerdrControl = {
       return { status: "uncertain", detail: "herdr created a worktree it did not describe." };
     }
 
+    if (request.tabLabel !== undefined) {
+      const listed = await invokeHerdr({
+        args: ["tab", "list", "--workspace", workspaceId],
+        timeoutMs: READ_TIMEOUT_MS,
+      });
+      if (listed.status !== "succeeded") return listed;
+      const first = ToolInvocation.list(listed.value, "tabs")[0];
+      const tabId = ToolInvocation.text(first, "tab_id");
+      if (tabId === null) {
+        return { status: "uncertain", detail: "herdr did not identify the worktree tab." };
+      }
+      const renamed = await invokeHerdr({
+        args: ["tab", "rename", tabId, request.tabLabel],
+        timeoutMs: READ_TIMEOUT_MS,
+      });
+      if (renamed.status !== "succeeded") return renamed;
+    }
+
     return { status: "succeeded", value: { workspaceId, worktree } };
+  },
+
+  /** Adds a readable agent label without changing the stable name used by prompts and recovery. */
+  async labelAgent(request: {
+    paneId: string;
+    agentName: string;
+    label: string;
+  }): Promise<HerdrOutcome<null>> {
+    const outcome = await invokeHerdr({
+      args: [
+        "pane",
+        "report-metadata",
+        request.paneId,
+        "--source",
+        "operator",
+        "--agent",
+        request.agentName,
+        "--display-agent",
+        request.label,
+      ],
+      timeoutMs: READ_TIMEOUT_MS,
+    });
+    return outcome.status === "succeeded" ? { status: "succeeded", value: null } : outcome;
   },
 
   /** Reads the pane a new worktree workspace opened, so the launch names a real target. */

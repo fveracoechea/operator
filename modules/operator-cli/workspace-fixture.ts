@@ -5,6 +5,7 @@ import { realpath, rm } from "node:fs/promises";
 const cliPath = new URL("../../cli.ts", import.meta.url).pathname;
 const fakeHerdrPath = new URL("./fake-herdr.sh", import.meta.url).pathname;
 const fakeGithubPath = new URL("./fake-gh.ts", import.meta.url).pathname;
+const wakePluginPath = new URL("../../herdr/herdr-plugin.toml", import.meta.url).pathname;
 
 export type Workspace = {
   root: string;
@@ -155,6 +156,7 @@ export async function runOperator(
       PATH: fixturePath(workspace.bin),
       HERDR_FAKE_DIR: workspace.herdr,
       HERDR_FAKE_REPO: workspace.repo,
+      HERDR_FAKE_PLUGIN_PATH: wakePluginPath,
       HERDR_WORKSPACE_ID: "w0",
       HERDR_PANE_ID: "w0:p1",
       GH_FAKE_DIR: workspace.github,

@@ -150,13 +150,11 @@ describe("the GitHub source delivery path", () => {
 
 describe("the JSR delivery path", () => {
   let project = "";
-  let installRoot = "";
   let launcher: string[] = [];
 
   beforeAll(async () => {
     project = `${root}/jsr-project`;
-    installRoot = `${project}/${ReleaseInstall.paths().root}`;
-    await Bun.$`mkdir -p ${installRoot}`.quiet();
+    await Bun.$`mkdir -p ${project}`.quiet();
 
     // The registry generates its own manifest, which carries no command, script, or engine field.
     const registryRoot = `${root}/registry-artifact`;
@@ -178,9 +176,19 @@ describe("the JSR delivery path", () => {
     fakes.push(registry);
 
     await Bun.write(
-      `${installRoot}/bunfig.toml`,
+      `${project}/bunfig.toml`,
       `[install.scopes]\n"@jsr" = { url = "${registry.url}" }\n`,
     );
+    await Bun.write(
+      `${project}/package.json`,
+      JSON.stringify({
+        name: "jsr-consumer",
+        private: true,
+        scripts: { operator: "bun node_modules/@fveracoechea/operator/cli.js" },
+        devDependencies: { "@fveracoechea/operator": `npm:@jsr/fveracoechea__operator@${version}` },
+      }),
+    );
+    const release = await OperatorRelease.identify();
     const selected = await ReleaseInstall.select({
       projectRoot: project,
       selection: {
@@ -188,8 +196,8 @@ describe("the JSR delivery path", () => {
         delivery: "jsr",
         version,
         commit: sourceCommit,
-        releaseIdentity: "a".repeat(64),
-        skillsIdentity: "b".repeat(64),
+        releaseIdentity: release.identity,
+        skillsIdentity: release.skillsIdentity,
         packageVersion: version,
         upstreamSkills: [],
         selectedAt: new Date().toISOString(),
@@ -197,21 +205,17 @@ describe("the JSR delivery path", () => {
     });
     expect(selected.status).toBe("selected");
 
-    const installed = await run(["bun", "install"], installRoot);
+    const installed = await run(["bun", "install"], project, {
+      BUN_INSTALL_CACHE_DIR: `${root}/jsr-cache`,
+    });
     expect(installed.exitCode).toBe(0);
 
-    launcher = [
-      "bun",
-      "--no-install",
-      "-e",
-      'const { main } = await import(Bun.pathToFileURL(Bun.resolveSync("@fveracoechea/operator/cli", `${process.cwd()}/.operator/install`)).href); await main(Bun.argv.slice(1));',
-      "--",
-    ];
+    launcher = ["bun", "run", "operator"];
   }, 300_000);
 
   test("installs the exact package version under the alias the selection records", async () => {
     const manifest = await Bun.file(
-      `${installRoot}/node_modules/@fveracoechea/operator/package.json`,
+      `${project}/node_modules/@fveracoechea/operator/package.json`,
     ).json();
 
     expect(manifest.name).toBe("@jsr/fveracoechea__operator");
@@ -220,34 +224,64 @@ describe("the JSR delivery path", () => {
     expect(manifest.engines).toBeUndefined();
   });
 
-  test("keeps its dependencies out of the application it serves", async () => {
-    expect(await Bun.file(`${installRoot}/node_modules/zod/package.json`).exists()).toBe(true);
-    expect(await Bun.file(`${project}/node_modules/zod/package.json`).exists()).toBe(false);
-  });
-
   test("preserves lock data a frozen reinstall repeats", async () => {
-    expect(await Bun.file(`${installRoot}/bun.lock`).exists()).toBe(true);
-    const before = await Bun.file(`${installRoot}/bun.lock`).text();
+    expect(await Bun.file(`${project}/bun.lock`).exists()).toBe(true);
+    const before = await Bun.file(`${project}/bun.lock`).text();
 
-    const frozen = await run(["bun", "install", "--frozen-lockfile"], installRoot);
+    const frozen = await run(["bun", "install", "--frozen-lockfile"], project);
 
     expect(frozen.exitCode).toBe(0);
-    expect(await Bun.file(`${installRoot}/bun.lock`).text()).toBe(before);
+    expect(await Bun.file(`${project}/bun.lock`).text()).toBe(before);
   });
 
   test("carries the complete owned-skill assets and the generated schema", async () => {
-    const installed = `${installRoot}/node_modules/@fveracoechea/operator`;
+    const installed = `${project}/node_modules/@fveracoechea/operator`;
 
     expect(await Bun.file(`${installed}/skills/operator/SKILL.md`).exists()).toBe(true);
     expect(await Bun.file(`${installed}/skills/operator/RECOVERY.md`).exists()).toBe(true);
     expect(await Bun.file(`${installed}/config.schema.json`).exists()).toBe(true);
+    const instructions = await Bun.file(`${installed}/skills/operator/SKILL.md`).text();
+    expect(instructions).toContain("github-source");
+    expect(instructions).toContain('bunx "github:fveracoechea/operator#<full-commit>"');
   });
 
-  test("reports the release version through the importable entry point", async () => {
+  test("runs the documented project-root command without a JSR bin", async () => {
     const result = await run([...launcher, "--version", "--json"], project);
 
     expect(result.exitCode).toBe(0);
     expect(JSON.parse(result.stdout).data).toMatchObject({ operatorVersion: version });
+    const selected = await ReleaseInstall.selection({ projectRoot: project });
+    expect(selected.state).toBe("read");
+    if (selected.state !== "read") return;
+    expect(ReleaseInstall.commands({ selection: selected.selection }).run).toBe(
+      "bun run operator <operation>",
+    );
+    const running = await OperatorRelease.identify();
+    const inspection = await ReleaseInstall.inspect({
+      projectRoot: project,
+      running: { version: running.version, identity: running.identity, lock: running.lock },
+    });
+    expect(inspection).toMatchObject({ status: "installed" });
+  });
+
+  test("refuses a project script that would run a different command", async () => {
+    const manifestPath = `${project}/package.json`;
+    const original = await Bun.file(manifestPath).text();
+    try {
+      const manifest = JSON.parse(original);
+      await Bun.write(
+        manifestPath,
+        JSON.stringify({ ...manifest, scripts: { operator: "bun other-cli.js" } }),
+      );
+      const running = await OperatorRelease.identify();
+      const inspection = await ReleaseInstall.inspect({
+        projectRoot: project,
+        running: { version: running.version, identity: running.identity, lock: running.lock },
+      });
+      expect(inspection).toMatchObject({ status: "unmet", reason: "install_missing" });
+    } finally {
+      await Bun.write(manifestPath, original);
+    }
   });
 
   test("propagates arguments and the exit meaning of a refusal", async () => {
@@ -257,7 +291,7 @@ describe("the JSR delivery path", () => {
     expect(JSON.parse(refused.stdout).reason).toBe("invalid_arguments");
   });
 
-  test("keeps the project working directory while it resolves the isolated installation", async () => {
+  test("keeps the project working directory", async () => {
     await Bun.$`git init -q ${project}`.quiet();
 
     const planned = await run([...launcher, "setup", "plan", "--claude", "--json"], project);
@@ -269,13 +303,64 @@ describe("the JSR delivery path", () => {
     expect(changed).toContain(".operator/config.json");
   });
 
+  test("returns runnable project-root next actions", async () => {
+    const next = await run([...launcher, "crew", "next", "--opencode", "--json"], project);
+    expect(next.exitCode).toBe(0);
+    const result = JSON.parse(next.stdout);
+    expect(result.data.actions.length).toBeGreaterThan(0);
+    expect(
+      result.data.actions.every((action: { command: string }) =>
+        action.command.startsWith("bun run operator "),
+      ),
+    ).toBe(true);
+    expect(
+      result.data.readiness.nextActions.every((action: string) => !action.includes("`operator ")),
+    ).toBe(true);
+  });
+
+  test("refuses a different release before a live probe can start", async () => {
+    const selectionPath = `${project}/.operator/install/selection.json`;
+    const original = await Bun.file(selectionPath).text();
+    try {
+      const selected = JSON.parse(original);
+      await Bun.write(
+        selectionPath,
+        JSON.stringify({ ...selected, releaseIdentity: "9".repeat(64) }),
+      );
+      expect((await ReleaseInstall.selection({ projectRoot: project })).state).toBe("read");
+      const refused = await run(
+        [...launcher, "setup", "probe", "apply", "--claude", "--approved-probe", "wrong", "--json"],
+        project,
+      );
+      expect(JSON.parse(refused.stdout).reason).toBe("release_mismatch");
+      expect(refused.exitCode).toBe(4);
+      expect(await Bun.file(`${project}/.operator/local/readiness.json`).exists()).toBe(false);
+    } finally {
+      await Bun.write(selectionPath, original);
+    }
+  });
+
+  test("refuses a different commit even when the version and skills match", async () => {
+    const selectionPath = `${project}/.operator/install/selection.json`;
+    const original = await Bun.file(selectionPath).text();
+    try {
+      const selected = JSON.parse(original);
+      await Bun.write(selectionPath, JSON.stringify({ ...selected, commit: "f".repeat(40) }));
+      const refused = await run([...launcher, "crew", "next", "--opencode", "--json"], project);
+      expect(refused.exitCode).toBe(4);
+      expect(JSON.parse(refused.stdout).reason).toBe("release_mismatch");
+    } finally {
+      await Bun.write(selectionPath, original);
+    }
+  });
+
   test("serves declarations a consumer can typecheck against", async () => {
     await Bun.write(
-      `${installRoot}/consumer.ts`,
+      `${project}/consumer.ts`,
       'import { main } from "@fveracoechea/operator/cli";\nexport const run: (args: string[]) => Promise<void> = main;\n',
     );
     await Bun.write(
-      `${installRoot}/tsconfig.json`,
+      `${project}/tsconfig.json`,
       `${JSON.stringify({
         compilerOptions: {
           module: "ESNext",
@@ -294,7 +379,7 @@ describe("the JSR delivery path", () => {
 
     // The compiler comes from this checkout; the declarations come from the installed package.
     const checked = await run(
-      ["bunx", "--bun", "--no-install", "tsc", "-p", `${installRoot}/tsconfig.json`],
+      ["bunx", "--bun", "--no-install", "tsc", "-p", `${project}/tsconfig.json`],
       sourceRoot,
     );
 

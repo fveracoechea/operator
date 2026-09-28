@@ -5,8 +5,8 @@ import { usage } from "./usage.ts";
 const repositoryRoot = new URL("../../", import.meta.url).pathname;
 
 async function runOperator(args: string[]) {
-  const process = Bun.spawn(["bun", "cli.ts", ...args], {
-    cwd: repositoryRoot,
+  const process = Bun.spawn(["bun", `${repositoryRoot}cli.ts`, ...args], {
+    cwd: "/tmp/opencode",
     stderr: "pipe",
     stdout: "pipe",
   });

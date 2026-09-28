@@ -51,6 +51,7 @@ function planLines(result: Planned): string[] {
     ...section("Credentials required", result.plan.credentials),
     ...section("Temporary resources", result.plan.temporaryResources),
     ...section("Expected costs", result.plan.expectedCosts),
+    ...section("Execution", result.plan.execution),
     ...section(
       "Checks",
       result.plan.checks.flatMap((check) => [
@@ -77,6 +78,7 @@ function approvalCommand(result: Planned): string {
     "operator setup probe apply",
     ...result.report.targets.map(targetFlag),
     ...overrides,
+    ...(result.plan.staleOnly ? ["--stale-only"] : []),
     `--approved-probe ${result.plan.probeId}`,
   ].join(" ");
 }
@@ -95,10 +97,27 @@ export async function runProbePlan(parsed: ParsedArguments): Promise<void> {
     projectRoot: process.cwd(),
     targets: parsed.targets,
     overrides: parsed.overrides,
+    staleOnly: parsed.staleOnly,
   });
 
   if (result.status === "blocked") {
     reportBlocked(parsed, result, "setup_probe_plan");
+    return;
+  }
+  if (result.status === "nothing-stale") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "missing-condition",
+        reason: "probe_nothing_stale",
+        blockers: [{ reason: "probe_nothing_stale" }],
+        operation: "setup_probe_plan",
+        data: result.report,
+      },
+      lines: [
+        "No live check has stale evidence. Use the full probe plan if other checks need proof.",
+      ],
+    });
     return;
   }
 
@@ -121,15 +140,55 @@ export async function runProbeApply(parsed: ParsedArguments): Promise<void> {
     return;
   }
 
+  const pending = (await LiveProbe.inspect(process.cwd())).resources.filter(
+    (one) => one.fixture !== "recorded",
+  );
+  if (pending.length > 0) {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "missing-condition",
+        reason: "probe_incomplete_run",
+        blockers: pending.map((one) => ({ reason: "probe_incomplete_run", runId: one.runId })),
+        operation: "setup_probe_apply",
+        data: { resources: pending },
+      },
+      lines: [
+        "A probe run is incomplete. No new run was started.",
+        ...pending.map(
+          (one) =>
+            `  ${one.runId}: ${one.worktree} worktree, ${one.agents.length} agents, fixture ${one.fixture}`,
+        ),
+        "Inspect or cancel it with `operator setup probe cleanup`.",
+      ],
+    });
+    return;
+  }
+
   const result = await ProjectReadiness.probe({
     projectRoot: process.cwd(),
     targets: parsed.targets,
     overrides: parsed.overrides,
+    staleOnly: parsed.staleOnly,
     approvedProbeId: parsed.approvedProbe,
   });
 
   if (result.status === "blocked") {
     reportBlocked(parsed, result, "setup_probe_apply");
+    return;
+  }
+  if (result.status === "nothing-stale") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "missing-condition",
+        reason: "probe_nothing_stale",
+        blockers: [{ reason: "probe_nothing_stale" }],
+        operation: "setup_probe_apply",
+        data: result.report,
+      },
+      lines: ["No live check has stale evidence. Nothing was launched."],
+    });
     return;
   }
 
@@ -187,6 +246,17 @@ export async function runProbeApply(parsed: ParsedArguments): Promise<void> {
     overrides: parsed.overrides,
     attempt: ran.attempt,
   });
+  const current = (await LiveProbe.inspect(process.cwd())).resources.find(
+    (one) => one.runId === ran.runId,
+  );
+  if (
+    !ran.trackerFailed &&
+    current?.worktree === "absent" &&
+    current.agents.length === 0 &&
+    current.detail === null
+  ) {
+    await LiveProbe.finish(process.cwd(), ran.runId);
+  }
 
   const unproven = ran.attempt.observations.filter((one) => one.state !== "passed");
   const failures = unproven.filter((one) => one.state === "failed");
@@ -276,12 +346,68 @@ export async function runProbeCleanup(parsed: ParsedArguments): Promise<void> {
           ? "The approved cleanup no longer names these resources. Nothing was removed."
           : "Removing a probe resource needs its own approval. Nothing was removed.",
         "",
-        "These probe resources would be removed:",
+        "These probe resources will be inspected for approved cleanup:",
         ...result.directories.map((one) => `  ${one}`),
+        ...result.resources
+          .filter((one) => one.fixture !== "recorded")
+          .map(
+            (one) =>
+              `  ${one.runId}: ${one.worktree} worktree, agents ${one.agents.join(", ") || "none"}, fixture ${one.fixture}${one.detail === null ? "" : `, ${one.detail}`}`,
+          ),
         "",
         "The recorded observations stay, so every failed attempt is preserved.",
+        "An unresolved fixture keeps its journal after its verified agents and worktree are removed.",
         "",
         `Approve with: operator setup probe cleanup --approved-cleanup ${result.cleanupId}`,
+      ],
+    });
+    return;
+  }
+
+  if (result.status === "blocked") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "conflict",
+        reason: "probe_cleanup_blocked",
+        blockers: [{ reason: "probe_cleanup_blocked", detail: result.detail }],
+        operation: "setup_probe_cleanup",
+        data: result,
+      },
+      lines: [
+        `Probe cleanup stopped: ${result.detail}`,
+        "Run cleanup again to inspect the remaining resources.",
+      ],
+    });
+    return;
+  }
+
+  if (result.status === "pending-fixture") {
+    const unresolved = result.resources.filter((one) => one.fixtureDetail !== null);
+    const pending = result.resources.filter((one) => one.fixtureDetail === null);
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "missing-condition",
+        reason: "probe_fixture_unresolved",
+        blockers: result.resources.map((one) => ({
+          reason: "probe_fixture_unresolved",
+          runId: one.runId,
+          detail:
+            one.fixtureDetail ??
+            "The fixture now verifies. A new cleanup approval is needed to remove its journal.",
+        })),
+        operation: "setup_probe_cleanup",
+        data: result,
+      },
+      lines: [
+        "Approved probe agents and worktrees were checked and removed where safe. A fixture journal remains.",
+        ...unresolved.map((one) => `  ${one.runId}: ${one.fixture}. ${one.fixtureDetail}`),
+        ...pending.map(
+          (one) =>
+            `  ${one.runId}: the fixture now verifies, but its journal needs a new cleanup approval.`,
+        ),
+        "The fixture journal remains. After the fixture is verified or restored under separate human approval, inspect cleanup again for a new approval ID. Operator will not repeat an uncertain fixture write.",
       ],
     });
     return;

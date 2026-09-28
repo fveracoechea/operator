@@ -6,8 +6,8 @@ The plugin lives in that release's `herdr/` directory, outside the installed ski
 For OpenCode or Claude Code, run:
 
 ```sh
-operator wake plugin-path
-herdr plugin link "$(operator wake plugin-path)"
+bun run operator wake plugin-path
+herdr plugin link "$(bun run operator wake plugin-path)"
 herdr plugin enable operator.wake
 herdr plugin list --json
 herdr plugin config-dir operator.wake
@@ -20,7 +20,7 @@ No project credential or Herdr configuration file is needed.
 Operator stores its wake bindings in `bindings.sqlite` under the directory printed by `herdr plugin config-dir operator.wake`.
 It writes a small runner file per project under that directory's `runners/` folder so Herdr can invoke the same Operator CLI release that armed the wait.
 
-At each wait-only result, the Operator runs `operator wake arm` from its own Herdr pane as described in [COORDINATION.md](COORDINATION.md).
+At each wait-only result, the Operator runs `bun run operator wake arm` from its own Herdr pane as described in [COORDINATION.md](COORDINATION.md).
 The command records the Operator's Herdr terminal, native agent session, crew ownership revision, and the agents named by the current waits.
 A pane move keeps the terminal identity, so the plugin can resolve the current pane ID.
 A takeover requires the new Operator to arm a new binding after it reads `crew next`.
