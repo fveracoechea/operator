@@ -187,6 +187,8 @@ It transfers who may act on the attempt and changes nothing about the work, so i
 **Crew frontier**:
 The assignments a crew may start now, with the reason every other assignment waits.
 It is a read that changes nothing.
+It never offers an assignment whose write paths overlap the paths that unaccepted work of the same work source holds.
+_Avoid_: phase, partial dependency, file lock
 
 **Ownership token**:
 The value that proves a mutation comes from the Operator that currently owns the crew.
