@@ -179,6 +179,17 @@ It fixes the plan first, then records the intent and outcome of each external ef
 The effective crew host, model, Operator release, lock data, and skill contents that one attempt was launched with.
 Recovery restores this record, never the current default.
 
+**Brief**:
+The fixed text one attempt is launched with: its identity, scope, acceptance requirements, authority limits, fixed inputs, and the reporting protocol of its role.
+It is the contract of the attempt, and the Operator never writes into it.
+_Avoid_: prompt, which only points to the brief
+
+**Project instructions**:
+The committed instruction files of one project, which a host loads by its own mechanism.
+They carry the project's rules for the crew and for the reviewer, and the base commit of a launch fixes them.
+A personal instruction file is not a project instruction.
+_Avoid_: shared rule block, common brief
+
 **External operation**:
 One recorded effect outside the crew state, with its own identity.
 It is intended, succeeded, failed, or uncertain, and an uncertain one blocks its attempt until it is reconciled.
