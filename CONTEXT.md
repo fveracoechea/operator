@@ -148,6 +148,18 @@ It carries a revision, and the registration refuses when a fresh read gives a di
 **Integration branch**:
 The one branch that collects the accepted commits of one work source, in the order they land.
 A dependent assignment starts from it.
+It moves only by a landing, or by a rewrite that puts a corrected commit in place of the one it corrects, and only from the tip the crew last recorded.
+Nothing pushes it before publish, and a published part of it is never rewritten.
+_Avoid_: autosquash, fixup, for the rewrite
+
+**Integration base**:
+The commit one integration branch starts from.
+It is fixed for the life of its work source, so a moved main branch never changes a patch that was already accepted.
+
+**Landing**:
+The move of an integration branch that adds one reviewed commit with its patch unchanged.
+It is the last step of accepting that commit, so the branch never holds a commit that failed another gate.
+_Avoid_: integrate, cherry-pick, merge, for this act
 
 **Integrated pull request**:
 A pull request that carries a contiguous range of one integration branch, with one commit for each accepted code result.
@@ -281,6 +293,7 @@ It is corrected, rejected with a reason and the evidence that refutes the findin
 **Rework cycle**:
 One delegated correction round on one submitted result.
 It carries the accepted findings, the conflicts it must settle, and the revisions it combines, and a fresh Operative answers all of them in one combined revision.
+An integration cycle applies a result again, on the current tip of its integration branch, when that result no longer lands with its reviewed patch.
 The reviewer that found the problem and the Operator that disposed of it are never its writer.
 
 **Direction request**:
@@ -289,7 +302,8 @@ It keeps the evidence of what was tried, blocks acceptance while it is open, and
 
 **Invalidated result**:
 An accepted result a defect was found in afterwards.
-Its acceptance and evidence stay recorded, and only the dependents that consumed it are paused.
+Its acceptance and evidence stay recorded, and only the dependents that consumed it, and the later results whose patch changes when it is corrected, are paused.
+A paused result is not itself invalidated, because nothing was found wrong in it.
 
 **Review capability**:
 The reviewer host's ability to run the required review sub-agents.

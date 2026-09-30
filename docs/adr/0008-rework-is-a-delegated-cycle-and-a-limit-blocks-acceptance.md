@@ -93,11 +93,13 @@ Stopping that process is [process closure](https://github.com/fveracoechea/opera
 A rework cycle waits for capacity like any other work.
 `operator work rework` returns the assignment to the frontier, and the frontier decides when it runs, so a busy crew delays a correction instead of preempting a review.
 
-The Operator dispatches the cycle from the submitted commit.
-Operator does not move a branch or a pull request, so the commit the cycle starts from is the one the caller names at dispatch, and the brief says so.
+Each cycle starts from the commit that its reason names, and the brief says which commit that is.
+A findings cycle and a diagnostic rerun start from the submitted commit, on the base of its dispatch.
+An integration cycle starts from the tip of the integration branch.
+Operator moves one branch, the integration branch of a source, and only as ADR 0020 records.
+It never moves an Operative branch or a pull request.
 
-An integration cycle names the revisions it combines as text.
-There is no tracker boundary in this release, so Operator records what the Operator read and never resolves those revisions itself.
+An integration cycle names the revisions it combines as commits that Operator read: the submitted commit, and the tip on which it no longer lands as reviewed.
 
 The state version stays at 1.
 The new tables are added to a file no release has shipped yet, and a state file that predates them is reported as unreadable rather than repaired in silence.

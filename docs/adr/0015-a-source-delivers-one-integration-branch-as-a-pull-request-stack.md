@@ -2,7 +2,7 @@
 
 One work source delivers its code through one integration branch.
 The branch collects one commit for each accepted code result, in the order the commits land.
-A dependent assignment starts from the integration branch, so its base holds exactly the results it depends on.
+A dependent assignment starts from the integration branch, so its base holds every result it depends on.
 
 A code result is exactly one commit whose parent is the base commit of its dispatch.
 `operator attempt submit` refuses a result with no commit, with more than one commit, or with a different parent.
@@ -61,6 +61,5 @@ The migration to this shape refuses a crew state file that holds a code submissi
 The user finishes that work under the earlier release first.
 An accepted submission keeps its recorded pull request as history.
 
-If acceptance refuses after a commit is on the integration branch, the branch holds a commit that is not accepted.
-Its recovery belongs to the decision about who integrates, which is still open.
-The merge method of a stack, and how each pull request of it is opened and linked, are also still open.
+The branch moves only as the last step of acceptance, so it never holds a commit that failed another gate, as ADR 0020 records.
+The merge method of a stack, and how each pull request of it is opened and linked, are still open.

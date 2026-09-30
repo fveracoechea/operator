@@ -77,4 +77,5 @@ When the tracker resolution is written is still open, and it now reads the branc
 The branch review compares the checks it ran at the head with the recorded gate at that head.
 That gate, and the checks it runs, are still open.
 
-Who writes a correction, and how a corrected commit replaces the old one on the branch, are still open.
+Who writes a correction is still open.
+ADR 0020 records how a corrected commit replaces the old one on the branch.

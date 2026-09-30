@@ -21,6 +21,11 @@ A dependency is a blocking link.
 A blocker that is an item of a registered source becomes a dependency on that assignment.
 A closed blocker gates nothing, and a closed sub-issue is not registered.
 An open blocker that no registered source holds is refused, because Operator cannot see when it is done.
+A production item whose blocker is an open production item of another registered source is refused.
+The commit of that blocker can land only on the integration branch of its own source, so the base of this source could never hold it.
+The user puts both items under one parent, or registers this item after the other source merges.
+A new item of a source whose integration base is already fixed is refused when a production blocker of it in another source was completed after that base was fixed, for the same reason.
+A closed code blocker gates nothing only because a code ticket is completed after its commit reaches the target branch; if completion comes earlier, a production blocker of another registered source is refused whatever its state.
 A parent with no sub-issues is refused, and so is a read that did not cover every sub-issue and every blocker, because an incomplete read is a gap and not a proof of absence.
 
 The source revision is the content identity of the parent title and body.
