@@ -17,6 +17,12 @@ Operative is the preferred term; "Crew member" is an accepted alternative for th
 **Assignment**:
 An approved unit of work with its inputs, dependencies, questions, and result. It persists across the loss or replacement of the crew process doing the work.
 
+**Write path**:
+A file or a folder, named from the repository root, that one assignment may change.
+A folder covers everything under it, each path has one written form, and the letter case counts.
+Only a person widens the write paths of an assignment, with an approval; an answer never does.
+_Avoid_: allowed paths, scope paths
+
 **Attempt**:
 One crew execution of an assignment, associated with its agent session and execution resources. A replacement crew process starts a new attempt on the same assignment.
 
@@ -27,6 +33,17 @@ The handoff of an assignment's result and supporting evidence for separate revie
 The separate review of one result submission, which reads that result alone against the requirements it was produced against.
 It is the review that accepted completion needs, and each submitted revision gets its own.
 _Avoid_: per-assignment review
+
+**Behavior change**:
+A difference, compared with the base, in what changed code does for some input: an output, an error, a record that is dropped or skipped, or a boundary value that falls in another class.
+Every result submission lists each one with the requirement or human answer that permits it, or states that there is none.
+A change to a comment, a private name, or a test is not one.
+_Avoid_: side effect, "no functional change"
+
+**Outside change**:
+A change found outside an Operative worktree between the launch of one attempt and its submission.
+Its writer is not known, so it is never proof of a fault, and it is explained or removed before the result is accepted.
+_Avoid_: stray write, out-of-worktree write, violation
 
 **Accepted completion**:
 The Operator's acceptance of an assignment result after required review and quality gates are satisfied. It permits dependent assignments to use that result.

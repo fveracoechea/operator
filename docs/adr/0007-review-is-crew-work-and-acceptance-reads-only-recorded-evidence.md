@@ -1,7 +1,7 @@
 # Review is ordinary crew work, and acceptance reads only recorded evidence
 
 `operator attempt submit` is the durable handoff of one result.
-It fixes the assignment revision, the requirement revision, the acceptance requirements it was produced against, every artifact with its content identity, every check with its outcome, the known concerns, the decisions the Operative made, and the code revisions where there are any.
+It fixes the assignment revision, the requirement revision, the acceptance requirements it was produced against, every artifact with its content identity, every check with its outcome, the known concerns, the decisions the Operative made, the behavior changes with their basis, the outside changes the launch scan found, and the code revisions where there are any.
 A path artifact is copied into a durable store at submission and verified against the identity the Operative stated, so the reviewer reads a fixed copy instead of a worktree another attempt may still change.
 
 A submission moves the assignment to awaiting review and ends its attempt.
@@ -20,8 +20,8 @@ The report names the identity of the subject it read, names the host the launch 
 Each axis also records the outcome of every recorded check it ran for itself.
 That reading outranks the producer's own word about its own work, so acceptance refuses when the two differ.
 A reviewer that edited or committed in its own checkout is refused before any of that, because repairing a finding is rework and rework belongs to a fresh Operative.
-A code result requires the diff, the requirements, and the checks.
-A non-code result requires the artifacts, the requirements, the citations, and the provenance of each recorded answer.
+A code result requires the diff, the requirements, the checks, and the behavior changes.
+A non-code result requires the artifacts, the requirements, the citations, the provenance of each recorded answer, and the behavior changes.
 
 A review report ends the review chain.
 It is not a submitted result, so `operator attempt submit` refuses a review attempt and no review triggers another review.
@@ -35,7 +35,7 @@ A finding is corrected, rejected with a reason, or deferred with a reason and a 
 A blocker is never deferred, because deferring one would waive an approved requirement through technical judgment alone.
 
 `operator work accept` is the only path to accepted completion, and it now reads the recorded evidence of production work.
-It verifies the current ownership, the assignment revision, the exact submission, both axis reports, a disposition on every finding, no correction still waiting for rework, a passing outcome on every recorded check, no check outcome the review observed differently, and, for a code result, the reviewed commit as the same patch on the integration branch of its source.
+It verifies the current ownership, the assignment revision, the exact submission, both axis reports, a disposition on every finding, a disposition on every outside change, no correction still waiting for rework, a passing outcome on every recorded check, no check outcome the review observed differently, and, for a code result, the reviewed commit as the same patch on the integration branch of its source.
 A stopped reviewer, a missing input, an unavailable review capability, a missing credential, a failed check, and a flaky check are each a recorded fact that blocks, never an absence that passes.
 
 ## Considered options
@@ -90,3 +90,5 @@ Only a review this workflow created holds a review record, and only that record 
 
 The state version stays at 1.
 The new tables are added to a file no release has shipped yet, and a state file that predates them is reported as unreadable rather than repaired in silence.
+
+ADR 0018 records what a result must pass at submission, before any review reads it.
