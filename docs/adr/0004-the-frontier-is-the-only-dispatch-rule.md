@@ -38,10 +38,10 @@ A submitted result is not accepted completion, and a dependent built on it would
 `operator work accept` records accepted completion in this release with no review precondition.
 The review workflow adds its preconditions to that same transition rather than adding a second path to acceptance.
 
-A registered source is fixed at the revision it was registered with.
-Registering the same source at a different revision is a conflict that needs a decision, because assignment inputs stay fixed once they exist.
-A re-registration at the same revision may add items, and an item it already holds keeps the dependencies it was registered with.
-A request that states different dependencies for a recorded item is the same kind of conflict.
+Each assignment is fixed at the source revision it was registered with, because assignment inputs stay fixed once work reads them.
+A new registration may add items.
+A new source revision, and a changed item that no attempt has read, are recorded only behind an approval, as ADR 0016 records.
+A changed item that an attempt has read, including a change to its dependencies, is a conflict that needs a decision.
 
 One `kind` field carries both the planning boundary and the dispatch priority, so review work is always executable.
 That is deliberate for this release: review work is produced by the review workflow, and planning review has no meaning yet.

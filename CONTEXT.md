@@ -115,6 +115,12 @@ It is created when an Operator first takes ownership, and it is never replaced b
 **Work source**:
 The approved origin of registered work.
 An approved specification, a ready ticket, and a wayfinder map are the three supported sources, each with its own revision.
+Operator reads each one from the tracker, as a parent issue with its sub-issues or as one issue, and never creates the issues.
+Its revision is the identity of the approved text of that parent issue or that one issue, so a comment or a closed ticket does not change it.
+
+**Registration plan**:
+The preview of what one registration would record, read from the tracker together with the Operator's input.
+It carries a revision, and the registration refuses when a fresh read gives a different one, so an approval covers exactly what gets recorded.
 
 **Integration branch**:
 The one branch that collects the accepted commits of one work source, in the order they land.
@@ -240,11 +246,12 @@ A new attempt on the same assignment, started after the former writer is proven 
 It keeps the inspected checkout and branch.
 
 **Tracker binding**:
-The tracker and the ticket one assignment was registered from.
+The tracker, the repository, and the issue one assignment was registered from.
+An issue number alone does not name an item, because a sub-issue can live in another repository.
 It is fixed at registration, so a later configuration change cannot redirect work that already exists.
 
 **Tracker location**:
-Where one work source lives in its tracker: its repository and its map, if it has one.
+Where one work source lives in its tracker: its repository and its parent issue, if it has one.
 An assignment reads its binding from the source it was registered under.
 
 **Tracker step**:
