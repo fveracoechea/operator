@@ -31,6 +31,7 @@ The Operator writes nothing into a brief: the work of one assignment is its appr
 
 The rules that are the same for every launch belong to the release, so the launch snapshot fixes them together with the code that enforces them.
 The rules of one project belong to its committed project instructions, which the host loads by its own mechanism and which the reviewer reads as the standards of the project.
+The project gate is the one project rule that the CLI runs, so it is a committed declaration that ADR 0021 records, not prose in the instructions, and the brief states its commands.
 The base commit fixes them for a launch, so an edit that is not committed does not reach the crew, and each rule has one copy that the producer and the reviewer both read.
 A personal instruction file is outside the launch: Operator neither copies it nor records it, so a rule the crew must follow lives in the project.
 

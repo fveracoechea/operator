@@ -46,8 +46,8 @@ Its writer is not known, so it is never proof of a fault, and it is explained or
 _Avoid_: stray write, out-of-worktree write, violation
 
 **Accepted completion**:
-The Operator's acceptance of an assignment result after required review and quality gates are satisfied. It permits dependent assignments to use that result.
-For a code result, the integration branch must also hold the reviewed commit as the same patch.
+The Operator's acceptance of an assignment result after required review and every gate of acceptance are satisfied. It permits dependent assignments to use that result.
+For a code result, the commit it lands as must first pass the project gate, and the integration branch must then hold the reviewed commit as the same patch.
 
 **Operator decision**:
 A decision made by the Operator within authority delegated by the user. It is distinct from a human answer, even when based on recorded human requirements.
@@ -155,11 +155,23 @@ _Avoid_: autosquash, fixup, for the rewrite
 **Integration base**:
 The commit one integration branch starts from.
 It is fixed for the life of its work source, so a moved main branch never changes a patch that was already accepted.
+It is fixed only after it passes the project gate, so a failure it already holds is never blamed on the first result.
 
 **Landing**:
 The move of an integration branch that adds one reviewed commit with its patch unchanged.
-It is the last step of accepting that commit, so the branch never holds a commit that failed another gate.
+It is the last step of accepting that commit, after the commit it lands as passed the project gate, so the branch never holds a commit that failed another gate.
 _Avoid_: integrate, cherry-pick, merge, for this act
+
+**Project gate**:
+The ordered commands that one project declares in a committed file, and that every commit of an integration branch, and its base, must pass before anything starts from it.
+It is read at the integration base and fixed with it, so no result chooses the gate that scores it.
+_Avoid_: quality gate, for this declaration; per-commit CI
+
+**Gate run**:
+One run of the project gate on one tree, recorded with its outcome for each command.
+Runs are appended and never rewritten, and a tree passes only with a passing run and no failed one; a failure followed by a pass is flaky, and it blocks.
+A reported pass from an Operative or a reviewer is not a gate run.
+_Avoid_: spare worktree, rerun, for a fresh series that a person approves
 
 **Integrated pull request**:
 A pull request that carries a contiguous range of one integration branch, with one commit for each accepted code result.
@@ -240,6 +252,7 @@ _Avoid_: prompt, which only points to the brief
 **Project instructions**:
 The committed instruction files of one project, which a host loads by its own mechanism.
 They carry the project's rules for the crew and for the reviewer, and the base commit of a launch fixes them.
+The project gate is not a project instruction, because Operator runs it.
 A personal instruction file is not a project instruction.
 _Avoid_: shared rule block, common brief
 
@@ -294,7 +307,7 @@ It is corrected, rejected with a reason and the evidence that refutes the findin
 One delegated correction round on one submitted result, or on an accepted result that was invalidated.
 It carries the accepted findings or the defect, the conflicts it must settle, the revisions it combines, and what was recorded in the earlier rounds of the assignment, and a fresh Operative answers all of them in one combined revision.
 A fresh Operative is a new attempt, in a new agent session and a new checkout.
-An integration cycle applies a result again, on the current tip of its integration branch, when that result no longer lands with its reviewed patch.
+An integration cycle applies a result again, on the commit it lands on, when that result no longer lands with its reviewed patch or no longer passes the project gate there.
 The reviewer that found the problem, the Operator that disposed of it, and the Operative that produced the result are never its writer.
 _Avoid_: send-back, same agent
 

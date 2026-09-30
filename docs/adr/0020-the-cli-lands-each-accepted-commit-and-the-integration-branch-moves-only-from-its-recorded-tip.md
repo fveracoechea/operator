@@ -1,7 +1,7 @@
 # The CLI lands each accepted commit, and the integration branch moves only from its recorded tip
 
 `operator work accept` lands a code result on the integration branch of its source as the last step of acceptance.
-Every other gate of ADR 0007 passes first, then the branch moves, and then acceptance is recorded.
+Every other gate of ADR 0007, and a passing gate run on the planned commit (ADR 0021), pass first, then the branch moves, and then acceptance is recorded.
 So the branch never holds a commit that failed another gate, and acceptance never refuses after a commit is on the branch.
 A commit that the branch already holds with an equal patch lands nothing, and its acceptance is only recorded.
 
@@ -18,9 +18,9 @@ This strict patch never refuses a normal landing, because two results in flight 
 That holds only because of two other rules: the frontier holds the write paths of unaccepted work (ADR 0004), and a result that touches a file outside its write paths, on either side of a rename, is refused at submit (ADR 0018).
 If either rule becomes weaker, this identity must be chosen again.
 
-A conflict, or a changed patch, lands nothing and records nothing.
+A conflict, a changed patch, or a planned commit that failed the project gate lands nothing and records nothing.
 The Operator then delegates an integration cycle under ADR 0008.
-The cycle plans the landing again, refuses if the commit would now land cleanly, and names the submitted commit and the current tip as the revisions it combines.
+The cycle plans the landing again, refuses if the commit would now land cleanly and no failed or flaky gate run exists at its planned commit, and names the submitted commit and the commit it lands on as the revisions it combines, with the failed gate run when there is one.
 A fresh Operative makes one new commit on that tip, and it is a new submission with its own result review, as ADR 0017 records.
 
 The integration branch is a local branch of the shared repository, in a namespace of its own, and its name is recorded on the source when it is created.
@@ -34,8 +34,8 @@ The refusal names the tip that was recorded and the tip that was found, or the w
 Operator never resets or adopts a moved branch; a person puts it back.
 
 A correction of a landed commit is rewritten in place.
-When the correction is accepted, the CLI rebuilds the branch in the same order: the corrected commit takes the place of the old one, and each later commit lands again if its patch is still equal and no result it depends on was taken out.
-A later commit that fails either test is taken out of the branch and paused as a consumer of the corrected result under ADR 0008.
+When the correction is accepted, the CLI rebuilds the branch in the same order: the corrected commit takes the place of the old one, and each later commit lands again if its patch is still equal, no result it depends on was taken out, and it passed the project gate at its new place (ADR 0021).
+A later commit that fails any of these tests is taken out of the branch and paused as a consumer of the corrected result under ADR 0008.
 Its acceptance is taken again later as an ordinary landing on the tip.
 If its patch is equal, it lands with no new review; if not, it becomes an integration cycle.
 The branch moves once, from the old tip to the rebuilt one.
@@ -93,7 +93,7 @@ Other people already read what was published.
 ## Consequences
 
 A landing runs no check, because it has no worktree.
-Whether a gate runs on the landed tree, and when, is the decision about the gate at every commit.
+The project gate runs on the planned commit before the move, in a checkout of its own, as ADR 0021 records.
 
 A fast-forward landing keeps the commit identity of the Operative, and a merge landing gives a new identity with an equal patch.
 A rewrite gives every later commit a new identity, so a link to a commit is written only after the last change of the branch.

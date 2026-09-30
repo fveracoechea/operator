@@ -74,8 +74,8 @@ When a finding joins two commits, the later one usually has fewer dependents, so
 A ticket can be closed at acceptance and then reopened by a branch finding.
 When the tracker resolution is written is still open, and it now reads the branch review as one more input.
 
-The branch review compares the checks it ran at the head with the recorded gate at that head.
-That gate, and the checks it runs, are still open.
+The branch review runs the project gate at the head, and publish refuses when that observation differs from the gate run at the head, as ADR 0021 records.
+Both bind to the tree of the head, so a signature at publish does not break the comparison.
 
 A fresh Operative writes the correction, in an invalidation cycle under ADR 0008.
 ADR 0020 records how a corrected commit replaces the old one on the branch.

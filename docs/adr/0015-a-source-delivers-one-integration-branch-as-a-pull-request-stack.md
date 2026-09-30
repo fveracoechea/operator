@@ -9,7 +9,7 @@ A code result is exactly one commit whose parent is the base commit of its dispa
 The submission names no pull request.
 The reviewer therefore reads the exact commit that lands, with the message that its Operative wrote.
 
-Accepted completion of a code result means that the integration branch holds the reviewed commit as the same patch, and that every gate of ADR 0007 passes.
+Accepted completion of a code result means that the integration branch holds the reviewed commit as the same patch, that the commit it lands as passed the project gate first (ADR 0021), and that every gate of ADR 0007 passes.
 The patch identity is compared, not the commit identity, because integration can move a commit to a new base with no change to its patch.
 A patch that changed during integration, for example through a conflict resolution, is not the reviewed result, and acceptance refuses it.
 This comparison replaces the pull request head check that ADR 0007 first recorded.

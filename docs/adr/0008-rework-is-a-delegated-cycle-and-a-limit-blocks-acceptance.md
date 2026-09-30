@@ -3,12 +3,13 @@
 `operator work rework` delegates one correction round on one submitted result, and `operator work invalidate` delegates one on an accepted result that a defect was found in.
 The cycle is registered against the producer assignment, never against the review, so the assignment returns to the frontier and the correction reaches a fresh Operative through the ordinary claim and dispatch path.
 A fresh Operative is a new attempt, in a new agent session and a new checkout.
-The reviewer that found the problem never repairs it, the Operator holds no worktree of its own, and the attempt of the producer ended at its submission, so none of them is the writer of the correction.
+The reviewer that found the problem never repairs it, the Operator holds no worktree it writes in, and the attempt of the producer ended at its submission, so none of them is the writer of the correction.
+The gate checkout of ADR 0021 never commits and never moves a branch, so it does not change this.
 The producer fixes its own work with its own context in one place only: a refusal at submit, which leaves its attempt running, as ADR 0018 records.
 
 A cycle carries one reason.
 A findings cycle answers the corrections the Operator accepted.
-An integration cycle combines the submitted result with other named revisions.
+An integration cycle combines the submitted result with other named revisions, when it no longer lands as reviewed: a conflict, a changed patch, or a candidate that failed the project gate (ADR 0021).
 A diagnostic rerun runs recorded checks again when a test infrastructure failure is suspected.
 An invalidation cycle corrects the defect that an invalidation recorded.
 A findings cycle needs a reported review whose every finding already carries a disposition, because a cycle that starts on a half-read review leaves the unanswered findings with nothing to return to.
@@ -131,7 +132,7 @@ A rework cycle waits for capacity like any other work.
 
 Each cycle starts from the commit that its reason names, and the brief says which commit that is.
 A findings cycle and a diagnostic rerun start from the submitted commit, on the base of its dispatch.
-An integration cycle starts from the tip of the integration branch.
+An integration cycle starts from the commit that its result lands on: the tip of the integration branch, or, in a rewrite, the parent of the commit it replaces.
 An invalidation cycle of a code result starts from the landed commit that it corrects, on the parent of that commit, as ADR 0020 records.
 Operator moves one branch, the integration branch of a source, and only as ADR 0020 records.
 It never moves an Operative branch or a pull request.

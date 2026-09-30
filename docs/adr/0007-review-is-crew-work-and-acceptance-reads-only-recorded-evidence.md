@@ -35,7 +35,7 @@ A finding is corrected, rejected with a reason, or deferred with a reason and a 
 A blocker is never deferred, because deferring one would waive an approved requirement through technical judgment alone.
 
 `operator work accept` is the only path to accepted completion, and it now reads the recorded evidence of production work.
-It verifies the current ownership, the assignment revision, the exact submission, both axis reports, a disposition on every finding, a disposition on every outside change, no correction still waiting for rework, a passing outcome on every recorded check, no check outcome the review observed differently, and, for a code result, the reviewed commit as the same patch on the integration branch of its source.
+It verifies the current ownership, the assignment revision, the exact submission, both axis reports, a disposition on every finding, a disposition on every outside change, no correction still waiting for rework, a passing outcome on every recorded check, no check outcome the review observed differently, and, for a code result, a passing gate run on the commit it lands as (ADR 0021) and the reviewed commit as the same patch on the integration branch of its source.
 A stopped reviewer, a missing input, an unavailable review capability, a missing credential, a failed check, and a flaky check are each a recorded fact that blocks, never an absence that passes.
 
 ## Considered options

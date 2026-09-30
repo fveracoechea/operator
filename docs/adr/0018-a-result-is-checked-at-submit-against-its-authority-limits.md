@@ -11,7 +11,7 @@ Registration refuses a write path that is not in its one canonical form, and an 
 The crew frontier reads the same rule, so the check of a result and the check of an overlap cannot disagree about what "inside" means.
 
 `operator attempt submit` checks a result before it records it.
-It refuses a result when the commit shape of ADR 0015 is wrong, when the worktree holds work that is not committed, when the commit touches a file outside the write paths, or when a behavior change names no recorded basis.
+It refuses a result when the commit shape of ADR 0015 is wrong, when the worktree holds work that is not committed, when the commit touches a file outside the write paths, when a behavior change names no recorded basis, or, for a code result, when its recorded checks do not show each command of the project gate as passed (ADR 0021).
 Work that is not committed is refused because a check that passed on it is no proof for the commit that lands.
 The files that Operator wrote into the worktree, and the path artifacts of a non-code result that lie inside the write paths, are not such work.
 The commit touches a file when it adds, changes, or deletes it, and a rename touches both of its paths.
