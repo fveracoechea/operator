@@ -57,7 +57,8 @@ async function fakeTool(name: string, exitCode = 0) {
   };
 }
 
-test("a new bun checkout can run a dependency's script after the hook", async () => {
+/** A committed bun project whose dependency ships a bin, checked out with no node_modules. */
+async function bunCheckout() {
   const root = await checkout({
     "package.json": JSON.stringify({ name: "consumer", dependencies: { tool: "file:./tool" } }),
     "tool/package.json": JSON.stringify({
@@ -66,29 +67,61 @@ test("a new bun checkout can run a dependency's script after the hook", async ()
       bin: { tool: "bin.ts" },
     }),
     "tool/bin.ts": '#!/usr/bin/env bun\nconsole.log("tool ran");\n',
+    "other/package.json": JSON.stringify({ name: "other", version: "1.0.0" }),
   });
   expect((await run([process.execPath, "install"], root)).exitCode).toBe(0);
   await rm(join(root, "node_modules"), { recursive: true });
-  const lockfile = await Bun.file(join(root, "bun.lock")).text();
+  return { root, lockfile: await Bun.file(join(root, "bun.lock")).text() };
+}
+
+test("a new bun checkout can run a dependency's script after the hook", async () => {
+  const { root, lockfile } = await bunCheckout();
   const before = await run([process.execPath, "run", "tool"], root);
   expect(before.stderr).toContain('Script not found "tool"');
 
   const hook = await created(root);
 
   expect(hook.exitCode).toBe(0);
-  expect(hook.stdout).toContain(`Installed dependencies in ${root} with bun.`);
+  expect(hook.stdout).toContain(`Installed dependencies in ${root}.`);
   expect((await run([process.execPath, "run", "tool"], root)).stdout).toContain("tool ran");
   expect(await Bun.file(join(root, "bun.lock")).text()).toBe(lockfile);
 });
 
-test("an npm checkout gets a clean install from its lockfile", async () => {
-  const root = await checkout({ "package.json": "{}", "package-lock.json": "{}" });
+test("a lockfile that disagrees with the manifest fails the hook and stays unchanged", async () => {
+  const { root, lockfile } = await bunCheckout();
+  await Bun.write(
+    join(root, "package.json"),
+    JSON.stringify({
+      name: "consumer",
+      dependencies: { tool: "file:./tool", other: "file:./other" },
+    }),
+  );
+
+  const hook = await created(root);
+
+  expect(hook.exitCode).not.toBe(0);
+  expect(hook.stderr).toContain(
+    `bun install --frozen-lockfile exited ${hook.exitCode} in ${root}.`,
+  );
+  expect(await Bun.file(join(root, "bun.lock")).text()).toBe(lockfile);
+});
+
+test.each([
+  [["bun.lock"], "bun install --frozen-lockfile"],
+  [["bun.lockb"], "bun install --frozen-lockfile"],
+  [["package-lock.json"], "npm ci"],
+  [["npm-shrinkwrap.json"], "npm ci"],
+  [["package-lock.json", "bun.lock"], "bun install --frozen-lockfile"],
+])("a checkout with %p installs with %s", async (lockfiles, command) => {
+  const root = await checkout(
+    Object.fromEntries([["package.json", "{}"], ...lockfiles.map((name) => [name, "{}"])]),
+  );
   const npm = await fakeTool("npm");
 
   const hook = await created(root, npm.env);
 
-  expect(hook.exitCode).toBe(0);
-  expect(await npm.calls()).toBe(`${await realpath(root)} ci\n`);
+  expect(hook.stdout).toContain(`Running \`${command}\` in ${root}.`);
+  expect(await npm.calls()).toBe(command === "npm ci" ? `${await realpath(root)} ci\n` : "");
 });
 
 test("a failed install fails the hook, so the plugin log shows it", async () => {
@@ -101,16 +134,23 @@ test("a failed install fails the hook, so the plugin log shows it", async () => 
   expect(hook.stderr).toContain(`npm ci exited 3 in ${root}.`);
 });
 
+test("a package manager missing from PATH fails the hook with a clear message", async () => {
+  const root = await checkout({ "package.json": "{}", "package-lock.json": "{}" });
+  const empty = await checkout({});
+
+  const hook = await created(root, { PATH: empty });
+
+  expect(hook.exitCode).toBe(1);
+  expect(hook.stderr).toContain(`Could not run npm ci in ${root}:`);
+});
+
 test("a checkout with no lockfile is left untouched", async () => {
   const root = await checkout({ "package.json": "{}" });
-  const bun = await fakeTool("bun");
   const npm = await fakeTool("npm");
 
-  const hook = await created(root, {
-    PATH: `${bun.env.PATH.split(":")[0]}:${npm.env.PATH}`,
-  });
+  const hook = await created(root, npm.env);
 
   expect(hook.exitCode).toBe(0);
   expect(hook.stdout).toContain(`No lockfile in ${root}. Skipped the dependency install.`);
-  expect((await bun.calls()) + (await npm.calls())).toBe("");
+  expect(await npm.calls()).toBe("");
 });

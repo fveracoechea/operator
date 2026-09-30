@@ -43,9 +43,13 @@ If the crew state needs attention while the Operator is idle, the startup comman
 
 ## Dependencies in a new worktree
 
-The same plugin installs the dependencies of each worktree that Herdr creates, so agent hooks that run a package bin work from the first tool call.
+The same plugin starts a dependency install in each worktree that Herdr creates, so agent hooks that run a package bin can work in the checkout.
 The hook runs `bun install --frozen-lockfile` when the checkout has `bun.lock` or `bun.lockb`, and `npm ci` when it has `package-lock.json` or `npm-shrinkwrap.json`.
-A checkout without one of these lockfiles is left untouched.
+When the checkout has both kinds of lockfile, bun wins.
+A checkout without one of these lockfiles at its root is left untouched.
 The install never rewrites the lockfile, because Herdr refuses to remove a dirty checkout.
+`npm ci` runs the lifecycle scripts of dependencies, and bun blocks them unless the project trusts them.
 Herdr runs the hook in the background, and `herdr worktree create` does not wait for it.
+Until the install ends, an agent hook that needs a package bin can still fail.
+When the project runs Operator through `bun run operator`, the Operative brief still starts with `bun install --frozen-lockfile`, which covers a slow install and a machine without the plugin.
 Check `herdr plugin log list --plugin operator.wake` for the install output and exit code.
