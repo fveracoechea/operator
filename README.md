@@ -827,6 +827,7 @@ A project that is not ready is a standing precondition, not a refusal.
 Continuing without proven readiness is the user's decision, and settling it starts no work.
 
 For automatic resumption after a crew wait, link the Herdr plugin from the release's `herdr/` directory and verify it with a working Operative and reviewer.
+The same plugin installs the dependencies of each new Herdr worktree from its bun or npm lockfile.
 See [automatic resumption](skills/operator/WAKE.md) for installation, enablement, configuration, and checks.
 
 A fresh Operator takes the crew, settles the unproven effects, and then adopts each attempt it inherited.

@@ -49,4 +49,5 @@ export const REQUIRED_PARTS = [
   "skills/operator/SKILL.md",
   "herdr/herdr-plugin.toml",
   "herdr/wake.ts",
+  "herdr/worktree.ts",
 ];

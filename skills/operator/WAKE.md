@@ -40,3 +40,12 @@ Confirm that the resumed Operator reads a new `crew next` result.
 Run the same check with OpenCode and Claude Code as the Operator host.
 To check restart recovery, leave an armed wait, restart the Herdr server by your normal session procedure, and check the plugin log for the startup command.
 If the crew state needs attention while the Operator is idle, the startup command wakes it.
+
+## Dependencies in a new worktree
+
+The same plugin installs the dependencies of each worktree that Herdr creates, so agent hooks that run a package bin work from the first tool call.
+The hook runs `bun install --frozen-lockfile` when the checkout has `bun.lock` or `bun.lockb`, and `npm ci` when it has `package-lock.json` or `npm-shrinkwrap.json`.
+A checkout without one of these lockfiles is left untouched.
+The install never rewrites the lockfile, because Herdr refuses to remove a dirty checkout.
+Herdr runs the hook in the background, and `herdr worktree create` does not wait for it.
+Check `herdr plugin log list --plugin operator.wake` for the install output and exit code.

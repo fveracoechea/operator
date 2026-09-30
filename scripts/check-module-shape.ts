@@ -49,8 +49,9 @@ function isAllowedOutsideModules(path: string): boolean {
     path.startsWith("scripts/") ||
     // Vendored lint rules are tooling, not Operator production modules.
     path.startsWith("tools/oxlint/anti-slop/") ||
-    // This Herdr plugin script only forwards events to the Operator CLI module.
+    // These Herdr plugin scripts run on their own, outside the Operator CLI module.
     path === "herdr/wake.ts" ||
+    path === "herdr/worktree.ts" ||
     path.endsWith(".test.ts") ||
     path.endsWith(".config.ts")
   );
