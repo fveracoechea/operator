@@ -148,7 +148,7 @@ It carries a revision, and the registration refuses when a fresh read gives a di
 **Integration branch**:
 The one branch that collects the accepted commits of one work source, in the order they land.
 A dependent assignment starts from it.
-It moves only by a landing, or by a rewrite that puts a corrected commit in place of the one it corrects, and only from the tip the crew last recorded.
+It moves only by a landing, or by a rewrite that puts a corrected commit in place of the one it corrects or takes a withdrawn commit out, and only from the tip the crew last recorded.
 Nothing pushes it before publish, and a published part of it is never rewritten.
 _Avoid_: autosquash, fixup, for the rewrite
 
@@ -218,7 +218,7 @@ It transfers who may act on the attempt and changes nothing about the work, so i
 **Crew frontier**:
 The assignments a crew may start now, with the reason every other assignment waits.
 It is a read that changes nothing.
-It never offers an assignment whose write paths overlap the paths that unaccepted work of the same work source holds.
+It never offers an assignment whose write paths overlap the paths that unaccepted work of the same work source holds, and it offers no production work of a work source whose integration branch still holds a withdrawn commit.
 _Avoid_: phase, partial dependency, file lock
 
 **Ownership token**:
@@ -321,6 +321,13 @@ Its acceptance and evidence stay recorded, and only the dependents that consumed
 A paused result is not itself invalidated, because nothing was found wrong in it.
 Its correction is a rework cycle that counts against the same limit as every other correction of that assignment.
 
+**Withdrawal**:
+The end of one registered assignment that a person took out of its work source, by removing its issue from the parent issue.
+It is recorded behind the approval of a registration plan, only when no attempt of it is running and each dependent is withdrawn with it or no longer depends on it.
+A withdrawn assignment never unblocks a dependent, and its history stays.
+A commit of it that the integration branch holds is taken out of that branch.
+_Avoid_: cancel, drop, descope, abandon, revert, for this act
+
 **Review capability**:
 The reviewer host's ability to run the required review sub-agents.
 An unavailable capability is a recorded blocker, never permission for a single-context self-review.
@@ -370,7 +377,7 @@ It never touches the checkout.
 **Worktree removal**:
 The disposal of one approved Herdr-managed checkout.
 Accepted completion is not disposal authority, so it also needs a closed process, preserved evidence, a checkout that holds only the commit its handoff names, and an approval granted against these exact inputs.
-When that commit is the accepted result of its assignment, the integration branch must still hold it; a commit that a later accepted result replaced needs no such proof, because its record stays.
+When that commit is the accepted result of its assignment, the integration branch must still hold it; a commit that a later accepted result replaced, or a commit of a withdrawn assignment, needs no such proof, because its record stays.
 _Avoid_: remote copy, pushed, for this proof
 
 **Cleanup request revision**:

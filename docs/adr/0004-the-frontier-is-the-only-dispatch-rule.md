@@ -8,7 +8,7 @@ An assignment is dispatchable when it is executable, unclaimed, and every assign
 Accepted completion is the only state that unblocks a dependent, so no work starts from an unreviewed result.
 
 The frontier never offers a production assignment whose write paths overlap the paths that other work of the same source holds.
-A production assignment holds its write paths from its first claim until it reaches accepted completion, and again from the moment it leaves accepted completion until it reaches it again.
+A production assignment holds its write paths from its first claim until it reaches accepted completion, and again from the moment it leaves accepted completion until it reaches it again, or until it is withdrawn (ADR 0016).
 Inside one reading, each assignment that the frontier offers also holds its write paths, in priority order, in the same way that it takes a crew slot, so one reading never offers two overlapping assignments.
 An assignment that has not started holds nothing, so a ready assignment never waits behind an earlier one that waits on something else.
 The frontier withholds an assignment whose write paths overlap held paths, and it names each holder and each overlapping pair of paths.
@@ -24,6 +24,8 @@ The hold exists because a code result is one commit on the base of its dispatch,
 Two results that change one file from the same base can combine with no conflict and still change a patch, and acceptance refuses a changed patch after its review is already done.
 The hold ends at accepted completion, because the integration branch then holds the commit, and the next dispatch starts from that branch.
 A commit that is on the integration branch but not yet accepted still holds its paths.
+A withdrawn assignment whose commit the integration branch still holds keeps its paths until the take-out of ADR 0020 moves the branch without that commit.
+While such a take-out waits, the frontier offers no production assignment of that source, so no base holds a commit that no assignment owns.
 
 The hold applies inside one source, because each source has its own integration branch.
 Work of another source never starts from that branch, so a hold across sources would stop parallel work and prevent no refusal.
@@ -83,6 +85,9 @@ The grant exists because the work needs the path to finish, and the user who app
 
 An override that turns the hold off for one item, and a folder kind that only adds files, were rejected.
 A narrow file path is the escape: for example, the name of a new file can be chosen before the work.
+
+A production dispatch from a tip that still holds a withdrawn commit was rejected.
+Its result could use code that the take-out then removes, and the fault would show only at its gate run.
 
 ## Consequences
 

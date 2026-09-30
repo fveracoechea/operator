@@ -8,9 +8,9 @@ Two reviews run.
 The result review of each submission stays the gate of accepted completion, as ADR 0007 records, so a dependent never starts from an unreviewed result and no barrier holds parallel work.
 A branch review then reads the integration branch of the source as a whole, and it gates the publish.
 
-The branch review runs once for the source, when every executable code assignment of the source is accepted.
+The branch review runs once for the source, when every executable code assignment of the source that is not withdrawn is accepted.
 An invalidated assignment, or an open direction request, holds it, because the branch is then not final.
-The acceptance that makes this condition true registers the branch review, in the same way that a submission registers its result review.
+The acceptance, the withdrawal, or the take-out that makes this condition true registers the branch review, in the same way that a submission registers its result review.
 A source with one code commit, whose spec is the spec of that one item, has no branch review, because that review would read exactly what the result review already read.
 
 A branch review is ordinary review work under ADR 0007.

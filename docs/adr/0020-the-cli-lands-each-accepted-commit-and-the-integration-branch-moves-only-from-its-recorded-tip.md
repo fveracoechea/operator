@@ -41,6 +41,12 @@ If its patch is equal, it lands with no new review; if not, it becomes an integr
 The branch moves once, from the old tip to the rebuilt one.
 This check of every later commit replaces a separate check that corrected commits share no file, and it finds more: a correction and a later commit that no correction targets.
 
+A withdrawal of a landed commit (ADR 0016) is the same rewrite with no replacement.
+`operator work take-out` rebuilds the branch of one source in the same order without every withdrawn commit that it still holds, and each later commit lands again under the same three tests.
+A later accepted commit that fails a test is taken out and returns to awaiting review, not to a pause, because no correction will come to release it; a later commit that is not accepted keeps its state.
+While a take-out waits, the branch holds a commit that no assignment owns, so the frontier offers no production work of that source (ADR 0004).
+The take-out is its own command, because a registration reads only the tracker and never moves a branch, and acceptance records accepted completion, which a withdrawal is not.
+
 A commit inside a published pull request of the stack is never rewritten in place.
 A rewrite whose position is inside a published range refuses and names that pull request, and the publish decision owns what follows.
 A commit that landed after the last publish is rewritten locally like any other.
@@ -89,6 +95,13 @@ The disturbed commits would stay accepted while a newer revision waits, which is
 
 A rewrite of a published range with a force push was rejected.
 Other people already read what was published.
+
+A take-out inside `operator work accept` was rejected.
+That command would then record an outcome that is not accepted completion, so one command would have two meanings.
+A take-out inside the registration was rejected, because a registration reads only the tracker.
+
+A revert of a withdrawn commit, as a new item, was rejected.
+The pull request would hold a commit and its revert, and every reader would read the change twice.
 
 ## Consequences
 

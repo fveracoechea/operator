@@ -50,7 +50,22 @@ A changed parent body is a new source revision, and a changed item that has no a
 Both need an approval bound to the registration plan revision.
 Each recorded assignment keeps the source revision it was registered under, so work that already started is not changed.
 A changed item that has an attempt or is accepted is refused, because its writer read the old text, and the change goes in a new sub-issue.
-A recorded item that the read no longer finds is refused.
+A recorded item that the read no longer finds is a withdrawal, because the person who removed its issue from the parent changed the structure that the tracker owns.
+A withdrawal is recorded only behind the approval bound to the registration plan revision, like every other change that a new read finds.
+A recorded item that the read finds closed, while it is not in accepted completion, is refused, and the person removes it from the parent to withdraw it.
+Operator also closes the issues it completes, so a closed state alone cannot say that a person withdrew the work.
+
+A withdrawal is refused while an attempt of the item is active, or an attempt of a review whose subject holds its result, because a process is closed only after a durable handoff (ADR 0010).
+It is refused while an effect of the item is unsettled, such as a tracker step, a landing, or a gate run, because recovery comes first (ADR 0011).
+It is refused unless each recorded dependent of the item, in any source, is withdrawn in the same read or no longer names it as a blocker.
+A dependent that has an attempt cannot drop that blocker, by the rule for a changed item above, so work that read the result is withdrawn with it.
+
+A withdrawn assignment ends in its own state, and it never unblocks a dependent.
+Its attempts, submissions, reviews, findings, invalidations, and planning record stay as they were recorded.
+Its open cycle, its open invalidation, its open direction request, and each review of it that no attempt holds close with it.
+A withdrawn commit that the integration branch still holds is taken out, as ADR 0020 records.
+Operator writes nothing to the tracker for a withdrawal, because the removal that the person made is already there.
+A withdrawn issue that is added to its parent again is refused, because it matches the recorded item by its issue identity, and a new sub-issue carries the work again.
 On a new read, the input names only the new and changed items.
 
 ## Considered options
@@ -79,6 +94,27 @@ A map body also holds the destination and the notes, which change the work.
 A refusal for a blocker whose position is after its dependent was rejected.
 The frontier waits on the dependency anyway, so the refusal would only make the user reorder issues.
 
+A withdrawal command with its own approval and no tracker change was rejected.
+The next read would still find the issue under its parent, so the tracker and the crew state would hold two structures.
+
+A closed issue as a second signal of withdrawal was rejected.
+Operator closes the issues it completes, so that state has two writers, and one signal is less to keep correct.
+
+A withdrawal that the Operator decides was rejected, because scope is outside delegated authority (ADR 0006).
+
+A withdrawal that withdraws every dependent by itself was rejected.
+Operator would then withdraw items that the tracker still lists, and the next read would refuse them.
+
+A withdrawn blocker that counts as satisfied was rejected.
+The base of the source never holds a withdrawn commit, and a planning dependent would start with no planning record.
+
+A withdrawal that stops a running Operative was rejected.
+Closure follows a durable handoff, and stopping work that nobody handed over belongs to process closure.
+The accepted cost is that an unwanted attempt runs to its handoff and holds its slot.
+
+A tracker comment for each withdrawal was rejected.
+It is a new tracker step for text that repeats what the tracker already shows.
+
 ## Consequences
 
 A source registered by an earlier release keeps its keys, and its bindings gain the repository of the source.
@@ -87,6 +123,7 @@ The user finishes its work, or registers the parent issue as a new source.
 
 Each change to a map body needs one approval before the next tickets of that map are registered.
 
-Withdrawal of a registered assignment is not decided here, so a sub-issue removed from its parent stops the next registration of its source.
+A source cannot withdraw every item this way, because a parent with no sub-issues is refused and a ticket source is its own parent.
+Withdrawal of a whole source is not decided.
 
 ADR 0004 is amended: a new source revision is no longer a conflict by itself, and an item that no attempt has read can take new content behind an approval.

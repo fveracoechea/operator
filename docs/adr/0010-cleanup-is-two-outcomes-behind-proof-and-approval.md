@@ -20,7 +20,7 @@ Any other head is work nobody handed over, and it retains the checkout.
 When that commit is the accepted result of its assignment, the integration branch must still hold it.
 The crew state names the commit on the branch that carries each accepted result, and removal reads the branch once: it must be at the recorded tip, with that commit in its history.
 A branch at another tip, a missing branch, and a landing whose outcome is not recorded yet each retain the checkout, as ADR 0020 stops every other step on them.
-A submitted commit that a later accepted result of the same assignment replaced needs no such proof, because its record and its review reports stay, and its branch survives the removal.
+A submitted commit that a later accepted result of the same assignment replaced needs no such proof, and neither does a commit of an assignment that was withdrawn, because its record and its review reports stay, and its branch survives the removal.
 No part of this proof reads a remote, so a removal never waits for publish.
 
 Removal needs one more thing that acceptance does not grant: permission.
