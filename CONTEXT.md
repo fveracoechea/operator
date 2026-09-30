@@ -51,6 +51,7 @@ For a code result, the integration branch must also hold the reviewed commit as 
 
 **Operator decision**:
 A decision made by the Operator within authority delegated by the user. It is distinct from a human answer, even when based on recorded human requirements.
+A general delegation to decide from a named source does not make each decision a human answer: it makes that source an approved source, and a quote from it is a requirement.
 
 **Human answer**:
 A response given by the user to a question. An Operator inference or summary is not itself a human answer.
@@ -171,6 +172,12 @@ _Avoid_: integration review, final review, whole-branch review, and "branch revi
 The recorded statement of whether an assignment is executable or planning only.
 Planning-only work is registered so dependencies resolve, and it is never dispatched to an Operative.
 
+**Planning record**:
+What the Operator records when it accepts planning work: each decision with the question as it was asked, its answer authority, the exact words, and the reading of them, and the longer texts that the decision names.
+Each direct dependent receives it in its brief, and the resolution on the tracker is a rendering of it.
+It is fixed once it is accepted, so a changed decision invalidates the planning work.
+_Avoid_: decision record, Decision section
+
 **Next actions**:
 The ordered list of what one crew may do now, with the waits that hold the rest.
 It is one read that changes nothing, and it is the only schedule, so a session keeps no queue beside it.
@@ -214,7 +221,7 @@ The effective crew host, model, Operator release, lock data, and skill contents 
 Recovery restores this record, never the current default.
 
 **Brief**:
-The fixed text one attempt is launched with: its identity, scope, acceptance requirements, authority limits, fixed inputs, and the reporting protocol of its role.
+The fixed text one attempt is launched with: its identity, scope, acceptance requirements, authority limits, fixed inputs, the planning records of the planning work it depends on, and the reporting protocol of its role.
 It is the contract of the attempt, and the Operator never writes into it.
 _Avoid_: prompt, which only points to the brief
 
@@ -241,8 +248,10 @@ The recorded number of one question as asked.
 It moves when the question or its target changes, which makes an answer recorded for the earlier revision inapplicable.
 
 **Answer authority**:
-Which of a requirement, a human answer, or an Operator decision stands behind one answer.
+Which of a requirement, a human answer, or an Operator decision stands behind one answer or one planning decision.
 The exact words are recorded apart from the structured interpretation of them.
+A requirement quotes a stored copy of its source, and its words must appear in that copy.
+A decision of a grilling or a prototype never has an Operator decision behind it, because it is the user's side of a decision.
 
 **Escalation trigger**:
 A subject a question names that is outside delegated authority: visible behavior, scope, security permissions, unresolved ambiguity, or conflicting explicit requirements.

@@ -61,7 +61,7 @@ That directory holds the crew state and whatever else the user keeps there, and 
 
 One shared rule block, registered as a fixed input on every item, was rejected.
 It needs no new code, and the hand-run flow that this crew automates used one.
-The reviewer never receives a fixed input of the producer, every item holds its own copy, and an item that an attempt already read keeps the old copy after the block changes.
+The reviewer would read the block as a requirement of the work, every item holds its own copy, and an item that an attempt already read keeps the old copy after the block changes.
 
 A field in the project configuration, copied into every brief, was rejected.
 It gives each project one place for its rules.

@@ -11,7 +11,8 @@ Every other assignment stays dispatchable, because a question holds the assignme
 
 An answer is a requirement, a human answer, or an Operator decision.
 The exact words stay in their own field, separate from the structured reading of them, so a later session can see what was said as well as what it was taken to mean.
-A requirement also names the source and revision it comes from.
+A requirement also names its source by a stored copy, whose content identity is the revision of the source, and its exact words must appear in that copy, as ADR 0019 records.
+A text that the crew state already holds is a source with no copy.
 An Operator decision quotes nobody, because no human text stands behind it.
 
 Five subjects are outside delegated authority: visible behavior, scope, security permissions, unresolved ambiguity, and conflicting explicit requirements.
