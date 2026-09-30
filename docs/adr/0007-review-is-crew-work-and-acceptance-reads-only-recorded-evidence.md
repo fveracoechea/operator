@@ -34,8 +34,8 @@ A finding is corrected, rejected with a reason, or deferred with a reason and a 
 A blocker is never deferred, because deferring one would waive an approved requirement through technical judgment alone.
 
 `operator work accept` is the only path to accepted completion, and it now reads the recorded evidence of production work.
-It verifies the current ownership, the assignment revision, the exact submission, both axis reports, a disposition on every finding, no correction still waiting for rework, a passing outcome on every recorded check, no check outcome the review observed differently, and the pull request head the caller read against the head the submission recorded.
-A stopped reviewer, a missing input, an unavailable review capability, a missing credential, a missing pull-request authority, a failed check, and a flaky check are each a recorded fact that blocks, never an absence that passes.
+It verifies the current ownership, the assignment revision, the exact submission, both axis reports, a disposition on every finding, no correction still waiting for rework, a passing outcome on every recorded check, no check outcome the review observed differently, and, for a code result, the reviewed commit as the same patch on the integration branch of its source.
+A stopped reviewer, a missing input, an unavailable review capability, a missing credential, a failed check, and a flaky check are each a recorded fact that blocks, never an absence that passes.
 
 ## Considered options
 
@@ -73,10 +73,9 @@ Operator does not run the other host's sub-agents, so it cannot observe them.
 It records what the reviewer states, refuses a report that contradicts itself, and binds every report to the submission identity it read.
 A live probe of the selected hosts is what proves the capability itself.
 
-The pull request head is the head the Operator read, not a head Operator fetched.
-There is no tracker boundary in this release, so acceptance compares the stated head against the head the submission recorded, and nothing else.
-The command output says so, because a message that claims more than the check performs is the way a gate becomes trusted for what it does not do.
-Reading the live head is follow-up work for [Complete and recover GitHub tracker updates](https://github.com/fveracoechea/operator/issues/24), which owns the tracker boundary.
+Acceptance compares patches, not commit identities, because integration can move a reviewed commit to a new base with no change to its patch.
+A submission names no pull request, and ADR 0015 records why a source delivers one integration branch instead of a pull request for each assignment.
+The command output states what the check compared, because a message that claims more than the check performs is the way a gate becomes trusted for what it does not do.
 
 A blocker may be rejected with a stated reason.
 That is the Operator's delegated authority, and the reason is recorded beside the finding.

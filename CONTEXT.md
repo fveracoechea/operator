@@ -25,6 +25,7 @@ The handoff of an assignment's result and supporting evidence for separate revie
 
 **Accepted completion**:
 The Operator's acceptance of an assignment result after required review and quality gates are satisfied. It permits dependent assignments to use that result.
+For a code result, the integration branch must also hold the reviewed commit as the same patch.
 
 **Operator decision**:
 A decision made by the Operator within authority delegated by the user. It is distinct from a human answer, even when based on recorded human requirements.
@@ -114,6 +115,19 @@ It is created when an Operator first takes ownership, and it is never replaced b
 **Work source**:
 The approved origin of registered work.
 An approved specification, a ready ticket, and a wayfinder map are the three supported sources, each with its own revision.
+
+**Integration branch**:
+The one branch that collects the accepted commits of one work source, in the order they land.
+A dependent assignment starts from it.
+
+**Integrated pull request**:
+A pull request that carries a contiguous range of one integration branch, with one commit for each accepted code result.
+_Avoid_: pull request per assignment
+
+**Pull request stack**:
+The ordered integrated pull requests of one work source, each based on the one below it.
+A stack of one is the default.
+_Avoid_: delivery group
 
 **Planning boundary**:
 The recorded statement of whether an assignment is executable or planning only.
