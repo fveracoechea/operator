@@ -78,7 +78,7 @@ Adopting a moved branch as the new tip was rejected, because it puts unreviewed 
 Resetting it was rejected, because it deletes work of a person.
 
 An integration cycle that the refused acceptance opens by itself was rejected.
-A refused command changes nothing, and the instruction and the conflicts of a cycle are the Operator's judgment.
+A refused command changes nothing, and delegating a cycle, with the conflicts it names, is the Operator's judgment.
 
 A correction as a new commit on top was rejected.
 The corrected assignment would own two commits, and its first commit would still fail the gate on its own.

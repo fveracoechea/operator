@@ -233,8 +233,8 @@ The effective crew host, model, Operator release, lock data, and skill contents 
 Recovery restores this record, never the current default.
 
 **Brief**:
-The fixed text one attempt is launched with: its identity, scope, acceptance requirements, authority limits, fixed inputs, the planning records of the planning work it depends on, and the reporting protocol of its role.
-It is the contract of the attempt, and the Operator never writes into it.
+The fixed text one attempt is launched with: its identity, scope, acceptance requirements, authority limits, fixed inputs, the planning records of the planning work it depends on, the rework cycle it answers, if any, and the reporting protocol of its role.
+It is the contract of the attempt, and the Operator never writes into it; a rework cycle carries the Operator's recorded dispositions and conflicts, never an instruction of its own.
 _Avoid_: prompt, which only points to the brief
 
 **Project instructions**:
@@ -291,10 +291,12 @@ The Operator's answer to one review finding.
 It is corrected, rejected with a reason and the evidence that refutes the finding, or deferred with a reason and a follow-up reference, so no finding leaves a review unanswered.
 
 **Rework cycle**:
-One delegated correction round on one submitted result.
-It carries the accepted findings, the conflicts it must settle, and the revisions it combines, and a fresh Operative answers all of them in one combined revision.
+One delegated correction round on one submitted result, or on an accepted result that was invalidated.
+It carries the accepted findings or the defect, the conflicts it must settle, the revisions it combines, and what was recorded in the earlier rounds of the assignment, and a fresh Operative answers all of them in one combined revision.
+A fresh Operative is a new attempt, in a new agent session and a new checkout.
 An integration cycle applies a result again, on the current tip of its integration branch, when that result no longer lands with its reviewed patch.
-The reviewer that found the problem and the Operator that disposed of it are never its writer.
+The reviewer that found the problem, the Operator that disposed of it, and the Operative that produced the result are never its writer.
+_Avoid_: send-back, same agent
 
 **Direction request**:
 The recorded statement that one assignment, or the branch review of one work source, reached a limit and now waits on the user.
@@ -304,6 +306,7 @@ It keeps the evidence of what was tried, blocks acceptance while it is open, and
 An accepted result a defect was found in afterwards.
 Its acceptance and evidence stay recorded, and only the dependents that consumed it, and the later results whose patch changes when it is corrected, are paused.
 A paused result is not itself invalidated, because nothing was found wrong in it.
+Its correction is a rework cycle that counts against the same limit as every other correction of that assignment.
 
 **Review capability**:
 The reviewer host's ability to run the required review sub-agents.

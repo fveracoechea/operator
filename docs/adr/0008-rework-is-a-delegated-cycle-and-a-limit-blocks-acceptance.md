@@ -1,20 +1,35 @@
 # Rework is a delegated cycle, and a reached limit or a found defect blocks acceptance
 
-`operator work rework` delegates one correction round on one submitted result.
-The cycle is registered against the producer assignment, never against the review, so the assignment returns to the frontier and the accepted corrections reach a fresh Operative through the ordinary claim and dispatch path.
-The reviewer that found the problem never repairs it, and the Operator holds no worktree of its own, so neither of them can be the writer of the correction.
+`operator work rework` delegates one correction round on one submitted result, and `operator work invalidate` delegates one on an accepted result that a defect was found in.
+The cycle is registered against the producer assignment, never against the review, so the assignment returns to the frontier and the correction reaches a fresh Operative through the ordinary claim and dispatch path.
+A fresh Operative is a new attempt, in a new agent session and a new checkout.
+The reviewer that found the problem never repairs it, the Operator holds no worktree of its own, and the attempt of the producer ended at its submission, so none of them is the writer of the correction.
+The producer fixes its own work with its own context in one place only: a refusal at submit, which leaves its attempt running, as ADR 0018 records.
 
 A cycle carries one reason.
 A findings cycle answers the corrections the Operator accepted.
 An integration cycle combines the submitted result with other named revisions.
 A diagnostic rerun runs recorded checks again when a test infrastructure failure is suspected.
+An invalidation cycle corrects the defect that an invalidation recorded.
 A findings cycle needs a reported review whose every finding already carries a disposition, because a cycle that starts on a half-read review leaves the unanswered findings with nothing to return to.
 An integration cycle names a review only when it answers one, because a revision can need combining before any reviewer has read it.
 A review that already reported is answered either way, so its findings are never combined away unanswered.
 A diagnostic rerun needs a recorded check that did not pass, because a passing check has nothing to diagnose.
+An invalidation cycle opens in the same change as the invalidation, because the recorded defect is already the work it carries.
 
-The cycle brief is written once, when the cycle is delegated.
+The cycle is fixed once, when it is delegated.
 It fixes the submission and its identity, every accepted correction with the reviewer evidence and the Operator reason, the conflicts to settle, the revisions to combine, the recorded checks, and a fixed copy of every submitted artifact.
+An invalidation cycle fixes the defect in the words of its finder, the finding with its target commits and its disposition when a branch review found the defect, and the accepted submission and the landed commit that it corrects.
+
+The Operator writes no instruction of its own into a cycle.
+Each reason renders one fixed sentence that the release owns, and the recorded findings, defect, conflicts, commits, or checks are the content.
+A disposition reason and a conflict stay, because each one is a recorded decision bound to a finding or to work that the cycle carries.
+
+A fresh writer does not hold the context of the producer, so the brief of every cycle carries what the crew state recorded about the earlier rounds of the assignment.
+That is the decisions, the concerns, and the behavior changes of the submission it corrects, every answered question of every earlier attempt, and every earlier finding with its disposition, its reason, and the cycle it delegated.
+The writer therefore reads the same rounds that the reviewer of its revision checks for a regression.
+The brief also carries the planning records that the assignment depends on, derived again at the dispatch of the cycle, so a correction follows the decision that is accepted now.
+All of it is derived from the record at dispatch and fixed by the brief identity, so the Operator copies nothing and a replacement receives the same words.
 The approved scope, the acceptance requirements, and the authority limits of the assignment are unchanged, because a correction is the same work rather than new work.
 
 One cycle produces one combined revision.
@@ -36,12 +51,13 @@ A rejected finding records the evidence that refutes it.
 The Operator may still reject a blocker, which is the delegated authority ADR 0007 recorded, but a rejection contradicts a reviewer, and a reason with nothing behind it reads exactly like a finding waved away.
 
 Three limits are counted from the crew state, so they outlive the session that reached them.
-An assignment holds three correction cycles, counting findings and integration together, because both change the result.
+An assignment holds three correction cycles, counting findings, integration, and invalidation cycles together, because each of them changes the result.
 It holds two diagnostic reruns, counted on their own, because a rerun changes nothing.
 One review holds three attempts, which is one reviewer and two replacements, and each submitted revision registers its own review assignment and therefore its own budget.
 A work source also holds three branch reviews that reported, and ADR 0017 records why a fourth waits on a direction request in the same way.
 
 A reached limit records a direction request against the assignment.
+An invalidation that finds the budget spent still records the defect and pauses what consumed it, because a found defect is never refused, and it records the direction request in the same change, which withholds the dispatch of the correction until the user answers.
 The request blocks acceptance, states the limit and what was already tried, and keeps every attempt, submission, review, and finding that led to it.
 It is passed only by an approval that names this assignment, the scope of that limit, and the revision of the request it answers.
 The cycle that approval permits records it, and the brief of that cycle states it, so work past a limit is visible to the Operative that runs it.
@@ -51,7 +67,8 @@ A limit reached again after a direction was spent opens the request at the next 
 
 `operator work invalidate` records a defect found after acceptance.
 Review work is refused, because a review holds no result of its own and a review that read the work wrongly is answered by reviewing that work again.
-The assignment moves to invalidated and returns to the frontier, because the fix is work on that assignment.
+The assignment moves to invalidated and returns to the frontier, because the fix is work on that assignment, and the invalidation cycle that the same change opens carries that fix.
+Planning work opens no cycle, because it is never dispatched, and the Operator resolves it again, as ADR 0019 records.
 Its acceptance, submission, review, findings, and attempts stay exactly as they were recorded, because that history is what names the dependents that read the invalid result.
 Only work that consumed the result is paused.
 A dependent that never started has read nothing, and the dependency gate already holds it.
@@ -84,6 +101,25 @@ Work that never started read nothing, and pausing it would say the crew lost mor
 Resuming a paused dependent through a second command was rejected.
 The corrected result is the exact condition those dependents wait on, and a second decision that says the same thing is one more thing to forget.
 
+Repair by the producer, with the context it built, was rejected.
+In the flow run by hand, each fix went back to the agent that wrote the commit, and that agent amended its commit with its full context.
+Here a producer kept for its review would hold its crew slot through that review, which stops a one-agent crew, or it would run as an agent that no limit counts.
+An integration cycle starts on a tip the producer never saw, and a correction of accepted work comes after the producer was closed, so a producer path would sit beside the fresh path that those cycles, and a producer that stopped, still need.
+The context of a producer also holds reasoning that nothing recorded, and no recovery can restore it, while a fresh writer reads only what its brief fixes.
+The slot rule, the one writer path, and the recorded inputs carry this decision.
+The independence of the writer is a minor reason, because a separate reviewer reads the combined revision either way, and a fresh writer gains only that it does not defend its own earlier reading.
+The accepted cost is one launch and one full reading of the brief and the code for each cycle, and a fresh writer can misread what the producer meant.
+The recorded rounds in the brief reduce that cost, and they do not remove it.
+
+A free instruction from the Operator in the brief of a cycle was rejected.
+It is bound to no finding, so nothing can compare it with the work the cycle carries, and it can ask for work that no finding names.
+
+A correction of accepted work that receives only the ordinary production brief was rejected.
+Its writer would have to find the defect again, and a defect from any finder would correct the same work with no limit.
+
+A findings cycle that the Operator opens by hand on an invalidated assignment was rejected.
+It is a second command for a defect that is already recorded, and a finder that is not a review has no review to name.
+
 ## Consequences
 
 A paused assignment is reported as blocked even while its former writer is still live.
@@ -96,6 +132,7 @@ A rework cycle waits for capacity like any other work.
 Each cycle starts from the commit that its reason names, and the brief says which commit that is.
 A findings cycle and a diagnostic rerun start from the submitted commit, on the base of its dispatch.
 An integration cycle starts from the tip of the integration branch.
+An invalidation cycle of a code result starts from the landed commit that it corrects, on the parent of that commit, as ADR 0020 records.
 Operator moves one branch, the integration branch of a source, and only as ADR 0020 records.
 It never moves an Operative branch or a pull request.
 

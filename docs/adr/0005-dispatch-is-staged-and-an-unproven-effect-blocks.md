@@ -27,7 +27,7 @@ Every copy is read back and compared before any agent starts.
 The brief is the contract of one attempt.
 It carries every rule that binds the Operative, every command the Operative runs, and the refusal each command can give, so a rule that a command enforces is stated once, beside that command.
 The owned skill that the Operative loads carries the method of the work and restates no rule of the brief.
-The Operator writes nothing into a brief: the work of one assignment is its approved scope, and anything the Operative must learn after launch arrives as a recorded answer.
+The Operator writes nothing into a brief: the work of one assignment is its approved scope, anything the Operative must learn after launch arrives as a recorded answer, and a correction carries only the recorded dispositions and conflicts of its cycle, as ADR 0008 records.
 
 The rules that are the same for every launch belong to the release, so the launch snapshot fixes them together with the code that enforces them.
 The rules of one project belong to its committed project instructions, which the host loads by its own mechanism and which the reviewer reads as the standards of the project.
