@@ -104,6 +104,8 @@ Signing, if a project needs it, belongs to publish.
 Two sources that share code are one source, or they run one after the other, as ADR 0016 records.
 
 The crew state records the integration branch of each source, its base, its recorded tip, and each landing with its intent and outcome, so the state version moves with the migration that ADR 0015 already requires.
+Each landing also names the commit on the branch that carries its accepted result, and a landing that lands nothing names the commit that already holds the equal patch.
+A rewrite updates that commit for every result it lands again, because removal of a checkout proves the accepted result from it (ADR 0010).
 A landing whose outcome was not recorded is a recovery action of the next actions, ahead of new work, as ADR 0011 orders recovery.
 
 Operator now needs a Git version that can merge without a worktree, and readiness refuses an older one.

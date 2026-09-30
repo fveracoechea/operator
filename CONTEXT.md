@@ -356,7 +356,9 @@ It never touches the checkout.
 
 **Worktree removal**:
 The disposal of one approved Herdr-managed checkout.
-Accepted completion is not disposal authority, so it also needs a closed process, preserved evidence, a remote copy of every commit, and an approval granted against these exact inputs.
+Accepted completion is not disposal authority, so it also needs a closed process, preserved evidence, a checkout that holds only the commit its handoff names, and an approval granted against these exact inputs.
+When that commit is the accepted result of its assignment, the integration branch must still hold it; a commit that a later accepted result replaced needs no such proof, because its record stays.
+_Avoid_: remote copy, pushed, for this proof
 
 **Cleanup request revision**:
 The recorded name of the inputs one cleanup would act on.
