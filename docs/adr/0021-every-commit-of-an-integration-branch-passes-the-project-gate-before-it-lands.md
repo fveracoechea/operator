@@ -34,7 +34,7 @@ The cycle counts against the correction limit of the assignment, so a failure th
 
 The CLI runs the gate, because an exit status that Operator code reads is a fact, and an agent that reports a pass makes a claim.
 The run is asynchronous, because a gate can outlast the time that one call of an agent host may block.
-Each source has one gate checkout, which Herdr creates and later removes.
+Each source has one gate checkout, which Herdr creates and removes when the source is finished (ADR 0022).
 Its HEAD is detached at each key, and every file that is not in the tree is removed before each run, so nothing outside the key can change an outcome.
 An Operator runner in the pane starts each command with its arguments and no shell, reads each exit status from the process, and records each outcome with its output as a stored artifact.
 The runner writes only while the owner that started the run still owns the crew.
@@ -110,7 +110,7 @@ The key does not cover the machine, so a changed tool version outside the tree d
 
 A failed or flaky key at the base has no assignment to correct it, so only the user can clear it: by a fixed main branch and a new base, or by an approval of a fresh series.
 
-A rebase of the branch onto a moved main branch gives every commit a new tree, so every commit is gated again before it is published.
+A rebase of the branch onto a moved main branch, which a person approves (ADR 0022), gives every commit a new tree, so every commit is gated again before it is published.
 
 Removal of the gate checkout needs no approval, because it holds no work, as ADR 0012 records for the checkout of a probe.
 The branch that Herdr creates for it never moves and stays after the checkout is gone.

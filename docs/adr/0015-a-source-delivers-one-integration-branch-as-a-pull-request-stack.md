@@ -62,4 +62,4 @@ The user finishes that work under the earlier release first.
 An accepted submission keeps its recorded pull request as history.
 
 The branch moves only as the last step of acceptance, so it never holds a commit that failed another gate, as ADR 0020 records.
-The merge method of a stack, and how each pull request of it is opened and linked, are still open.
+ADR 0022 records how each pull request of a stack is opened, linked, and merged: by the CLI, with a merge commit, from the bottom up.

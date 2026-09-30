@@ -135,7 +135,7 @@ A findings cycle and a diagnostic rerun start from the submitted commit, on the 
 An integration cycle starts from the commit that its result lands on: the tip of the integration branch, or, in a rewrite, the parent of the commit it replaces.
 An invalidation cycle of a code result starts from the landed commit that it corrects, on the parent of that commit, as ADR 0020 records.
 Operator moves one branch, the integration branch of a source, and only as ADR 0020 records.
-It never moves an Operative branch or a pull request.
+It never moves an Operative branch, and it changes a pull request only as ADR 0022 records.
 
 An integration cycle names the revisions it combines as commits that Operator read: the submitted commit, and the tip on which it no longer lands as reviewed.
 

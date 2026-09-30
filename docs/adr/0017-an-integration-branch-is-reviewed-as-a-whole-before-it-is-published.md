@@ -46,8 +46,8 @@ The tip moves, so the evidence is not fixed, and a sibling that lands after the 
 A branch review after each commit lands was rejected.
 It finds a relation between commits earlier, but it runs a second review for every result.
 
-A branch review for each part of a stack was rejected for now.
-A partial publish is not decided, and a finding against a published part has no correction path.
+A branch review for each part of a stack was rejected.
+The whole stack is published at once (ADR 0022), so no part is published before the review of the whole head.
 
 A submission with no producer, as the subject of a branch review, was rejected.
 Acceptance, rework, and invalidation all read a submission as the result of one assignment.
@@ -71,8 +71,7 @@ The correction also moves every later commit to a new base, and a conflict in th
 That cost is accepted.
 When a finding joins two commits, the later one usually has fewer dependents, so it is the cheaper target, but the Operator chooses with a reason.
 
-A ticket can be closed at acceptance and then reopened by a branch finding.
-When the tracker resolution is written is still open, and it now reads the branch review as one more input.
+The tracker steps of a code result run only after its pull request merged (ADR 0022), and every branch review comes before publish, so a branch finding never reopens a closed ticket.
 
 The branch review runs the project gate at the head, and publish refuses when that observation differs from the gate run at the head, as ADR 0021 records.
 Both bind to the tree of the head, so a signature at publish does not break the comparison.

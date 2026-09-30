@@ -24,10 +24,10 @@ The cycle plans the landing again, refuses if the commit would now land cleanly 
 A fresh Operative makes one new commit on that tip, and it is a new submission with its own result review, as ADR 0017 records.
 
 The integration branch is a local branch of the shared repository, in a namespace of its own, and its name is recorded on the source when it is created.
-Its base is the commit that the first code dispatch of the source names, and that base is fixed for the life of the source.
+Its base is the commit that the first code dispatch of the source names, and that base changes only through a rebase onto a new base that a person approves (ADR 0022).
 Every later production dispatch of the source starts from the recorded tip, so its base holds every result it depends on.
 An invalidated assignment whose commit is on the branch starts from that commit instead, on the parent of that commit, because its correction takes the place of that commit.
-Nothing pushes the branch before publish, and publish pushes it with the user's approval and never with force.
+Nothing pushes the branch before publish, and publish pushes its commits under new remote names, with the user's approval and never with force (ADR 0022).
 
 A branch that moved outside this protocol stops every landing, rewrite, and production dispatch of its source, and a branch that a worktree has checked out stops every landing and rewrite.
 The refusal names the tip that was recorded and the tip that was found, or the worktree.
@@ -48,7 +48,7 @@ While a take-out waits, the branch holds a commit that no assignment owns, so th
 The take-out is its own command, because a registration reads only the tracker and never moves a branch, and acceptance records accepted completion, which a withdrawal is not.
 
 A commit inside a published pull request of the stack is never rewritten in place.
-A rewrite whose position is inside a published range refuses and names that pull request, and the publish decision owns what follows.
+A rewrite or a take-out whose position is inside an open published range refuses and names that pull request until the range is recalled, and a new stack publication follows (ADR 0022).
 A commit that landed after the last publish is rewritten locally like any other.
 
 ## Considered options
@@ -75,7 +75,8 @@ A push after each landing was rejected.
 A push writes where other people read, and one push path at publish is less to keep correct.
 
 A base recorded at registration was rejected, because registration reads only the tracker.
-A base that follows the main branch was rejected, because the rebase that follows it changes patches that were already accepted.
+A base that follows the main branch by itself was rejected, because the rebase that follows it changes patches that were already accepted.
+A rebase that a person approves goes through the rewrite, so a patch that it changes becomes an integration cycle (ADR 0022).
 
 A committer of the current user at the current time was rejected.
 The landed commit would be known only after the move, so recovery could not name what it expects.
@@ -111,8 +112,8 @@ The project gate runs on the planned commit before the move, in a checkout of it
 A fast-forward landing keeps the commit identity of the Operative, and a merge landing gives a new identity with an equal patch.
 A rewrite gives every later commit a new identity, so a link to a commit is written only after the last change of the branch.
 
-A landed commit carries no signature of the user.
-Signing, if a project needs it, belongs to publish.
+A landed commit carries no signature of the user, and publish pushes it unsigned.
+Publish refuses a target branch that requires signed commits (ADR 0022), and how Operator would sign is not decided.
 
 Two sources that share code are one source, or they run one after the other, as ADR 0016 records.
 

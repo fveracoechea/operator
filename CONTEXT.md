@@ -140,6 +140,7 @@ The approved origin of registered work.
 An approved specification, a ready ticket, and a wayfinder map are the three supported sources, each with its own revision.
 Operator reads each one from the tracker, as a parent issue with its sub-issues or as one issue, and never creates the issues.
 Its revision is the identity of the approved text of that parent issue or that one issue, so a comment or a closed ticket does not change it.
+It is finished when every integrated pull request of its last stack publication merged with a merge commit and every tracker step of its items is verified, or, when it has nothing to publish, when the rest of its work is accepted and its tracker steps are verified.
 
 **Registration plan**:
 The preview of what one registration would record, read from the tracker together with the Operator's input.
@@ -149,12 +150,13 @@ It carries a revision, and the registration refuses when a fresh read gives a di
 The one branch that collects the accepted commits of one work source, in the order they land.
 A dependent assignment starts from it.
 It moves only by a landing, or by a rewrite that puts a corrected commit in place of the one it corrects or takes a withdrawn commit out, and only from the tip the crew last recorded.
-Nothing pushes it before publish, and a published part of it is never rewritten.
+Nothing pushes it before publish, and publish pushes its commits only under new remote names, so a pushed branch is never pushed again.
+A published part of it is rewritten only after its pull requests are recalled, and a part that merged is never rewritten.
 _Avoid_: autosquash, fixup, for the rewrite
 
 **Integration base**:
 The commit one integration branch starts from.
-It is fixed for the life of its work source, so a moved main branch never changes a patch that was already accepted.
+It changes only through a rebase onto a new base that a person approves, so a moved main branch never changes an accepted patch by itself, and a patch that the rebase changes is reviewed again.
 It is fixed only after it passes the project gate, so a failure it already holds is never blamed on the first result.
 
 **Landing**:
@@ -175,12 +177,29 @@ _Avoid_: spare worktree, rerun, for a fresh series that a person approves
 
 **Integrated pull request**:
 A pull request that carries a contiguous range of one integration branch, with one commit for each accepted code result.
+Operator opens it with a body rendered from the records, and a person merges it with a merge commit, so each of its commits reaches the target branch as it was reviewed and gated.
 _Avoid_: pull request per assignment
 
 **Pull request stack**:
 The ordered integrated pull requests of one work source, each based on the one below it.
 A stack of one is the default.
+It is published at once and merged from the bottom up, and after each merge the next one is based on the target branch.
 _Avoid_: delivery group
+
+**Stack publication**:
+One numbered push and opening of the pull request stack of one work source, at one reviewed head, with the cut points, titles, and bodies that one approval covers.
+A work source can have several, because a change to a published range needs a new one and a pushed branch is never pushed again.
+_Avoid_: release publication, and "publication" alone, for this act
+
+**Recall**:
+The return of the open integrated pull requests of one stack publication, from one part up, to drafts, before a correction or a withdrawal changes that range.
+It keeps the change off the target branch while it is made, and the next stack publication closes what it recalled.
+_Avoid_: withdraw, retract, for this act
+
+**Stack fault**:
+An outcome on GitHub that no stack publication planned: a merge that is not a merge commit, a merge into another base, a commit that no review read on a pushed branch, or a close with no merge.
+Operator adopts nothing from it, and it waits on a person.
+_Avoid_: delivery fault
 
 **Branch snapshot**:
 The recorded integration branch of one work source at one head: its base, its head, and its ordered commits with the accepted result of each.
@@ -348,6 +367,7 @@ An assignment reads its binding from the source it was registered under.
 **Tracker step**:
 One of the three outcomes of completing work on a tracker: the recorded resolution, the ticket completion, and the map amendment.
 Each one has its own intent, evidence, outcome, and recovery action.
+For a code result, the three run only after the pull request that carries its commit merged into the target branch, and its resolution is a rendering of the records.
 
 **Logical operation**:
 The name of one intended tracker effect, fixed before the first write and kept through every recovery attempt.
