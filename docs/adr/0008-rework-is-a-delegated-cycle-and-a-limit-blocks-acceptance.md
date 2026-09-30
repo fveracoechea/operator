@@ -39,6 +39,7 @@ Three limits are counted from the crew state, so they outlive the session that r
 An assignment holds three correction cycles, counting findings and integration together, because both change the result.
 It holds two diagnostic reruns, counted on their own, because a rerun changes nothing.
 One review holds three attempts, which is one reviewer and two replacements, and each submitted revision registers its own review assignment and therefore its own budget.
+A work source also holds three branch reviews that reported, and ADR 0017 records why a fourth waits on a direction request in the same way.
 
 A reached limit records a direction request against the assignment.
 The request blocks acceptance, states the limit and what was already tried, and keeps every attempt, submission, review, and finding that led to it.

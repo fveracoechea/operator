@@ -10,12 +10,13 @@ The ended attempt frees the crew slot it held, so a one-agent crew hands its onl
 
 The submission registers its own review assignment.
 Review is therefore ordinary crew work: the frontier offers it first, it is claimed and dispatched like any other assignment, and it holds one Herdr slot and its own worktree.
-Its brief carries the fixed result, tells the reviewer to load the existing `code-review` skill, and requires both axes to run as native sub-agents of that reviewer's own host.
+A review reads one fixed subject: a submission, or the branch snapshot of a work source that ADR 0017 records.
+Its brief carries the fixed result and a fixed copy of the approved scope, the acceptance requirements, and the fixed inputs the result was produced against, tells the reviewer to load the existing `code-review` skill, names that copy as the spec it reads, and requires both axes to run as native sub-agents of that reviewer's own host.
 Those sub-agents read files and run the recorded check commands.
 They never edit, commit, push, or rework, and they never take a Herdr slot or worktree of their own.
 
 `operator review report` records the two axis reports, or the blocker that stopped the review.
-The report names the submission identity it read, names the host the launch recorded, carries both axes exactly once, records a window for each sub-agent that overlaps the other, and states what each axis read.
+The report names the identity of the subject it read, names the host the launch recorded, carries both axes exactly once, records a window for each sub-agent that overlaps the other, and states what each axis read.
 Each axis also records the outcome of every recorded check it ran for itself.
 That reading outranks the producer's own word about its own work, so acceptance refuses when the two differ.
 A reviewer that edited or committed in its own checkout is refused before any of that, because repairing a finding is rework and rework belongs to a fresh Operative.
@@ -57,6 +58,9 @@ Operator cannot stop another host from writing, but it can read the checkout aft
 Letting the reviewer read the producer worktree was rejected.
 That checkout keeps changing, and evidence that can change is not fixed evidence.
 
+Letting the Spec axis read the live issue as its spec was rejected.
+The reviewer has no network access, the issue can change after registration, and the acceptance requirements come from the Operator input rather than from the issue.
+
 Copying the `code-review` skill into the review worktree was rejected.
 Operator installs only the skills it owns, so a checkout with no review skill blocks the launch instead of receiving a copy Operator does not maintain.
 
@@ -70,7 +74,7 @@ A finding disposed as corrected blocks acceptance with `rework_pending` until th
 
 The sub-agent records are the reviewer's own report, as an acknowledgement is.
 Operator does not run the other host's sub-agents, so it cannot observe them.
-It records what the reviewer states, refuses a report that contradicts itself, and binds every report to the submission identity it read.
+It records what the reviewer states, refuses a report that contradicts itself, and binds every report to the identity of the subject it read.
 A live probe of the selected hosts is what proves the capability itself.
 
 Acceptance compares patches, not commit identities, because integration can move a reviewed commit to a new base with no change to its patch.

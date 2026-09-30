@@ -23,6 +23,11 @@ One crew execution of an assignment, associated with its agent session and execu
 **Result submission**:
 The handoff of an assignment's result and supporting evidence for separate review. It is not accepted completion.
 
+**Result review**:
+The separate review of one result submission, which reads that result alone against the requirements it was produced against.
+It is the review that accepted completion needs, and each submitted revision gets its own.
+_Avoid_: per-assignment review
+
 **Accepted completion**:
 The Operator's acceptance of an assignment result after required review and quality gates are satisfied. It permits dependent assignments to use that result.
 For a code result, the integration branch must also hold the reviewed commit as the same patch.
@@ -135,6 +140,16 @@ The ordered integrated pull requests of one work source, each based on the one b
 A stack of one is the default.
 _Avoid_: delivery group
 
+**Branch snapshot**:
+The recorded integration branch of one work source at one head: its base, its head, and its ordered commits with the accepted result of each.
+It is what a branch review reads, and a different head is a different snapshot.
+_Avoid_: branch state
+
+**Branch review**:
+The review of one branch snapshot as a whole, which looks for what no result review can see: a relation between commits, and the coverage of the work source as a whole.
+It gates the publish of that exact head, not the acceptance of any assignment.
+_Avoid_: integration review, final review, whole-branch review, and "branch review" for the review of an Operative branch
+
 **Planning boundary**:
 The recorded statement of whether an assignment is executable or planning only.
 Planning-only work is registered so dependencies resolve, and it is never dispatched to an Operative.
@@ -228,7 +243,7 @@ The file in an Operative worktree that names the controlling checkout, assignmen
 An Operative reads it instead of searching nearby directories for crew state.
 
 **Axis report**:
-One half of a review, written by one native sub-agent of the reviewer host.
+One half of a result review or a branch review, written by one native sub-agent of the reviewer host.
 The Standards axis and the Spec axis stay separate and are never merged or reranked.
 
 **Finding disposition**:
@@ -241,7 +256,7 @@ It carries the accepted findings, the conflicts it must settle, and the revision
 The reviewer that found the problem and the Operator that disposed of it are never its writer.
 
 **Direction request**:
-The recorded statement that one assignment reached a limit and now waits on the user.
+The recorded statement that one assignment, or the branch review of one work source, reached a limit and now waits on the user.
 It keeps the evidence of what was tried, blocks acceptance while it is open, and is passed only by an approval that names the assignment and the revision of the request it answers.
 
 **Invalidated result**:
