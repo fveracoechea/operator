@@ -422,6 +422,12 @@ Registration records each item with these fields:
 When you register the same item twice, the CLI names the existing assignment and does not create a second one.
 The CLI refuses a dependency cycle before it dispatches anything.
 It also refuses a re-registration that states different dependencies.
+It refuses a write path that is not in its canonical form, and a production item with no write path.
+The report gives the number of item pairs whose write paths overlap, and this command lists each pair:
+
+```sh
+bun run operator work overlaps --source <id> --json
+```
 
 ```sh
 bun run operator work frontier --json

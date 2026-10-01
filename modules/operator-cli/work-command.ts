@@ -128,6 +128,10 @@ async function runRegister(parsed: ParsedArguments): Promise<Handled> {
         source: result.source,
         registered: result.registered,
         existing: result.existing,
+        overlaps: {
+          ...result.overlaps,
+          command: `operator work overlaps --source ${result.source.id}`,
+        },
         repeated,
       },
     },
@@ -140,6 +144,12 @@ async function runRegister(parsed: ParsedArguments): Promise<Handled> {
       ...(result.existing.length === 0
         ? []
         : [`${result.existing.length} item(s) were already registered and stay fixed.`]),
+      ...(result.overlaps.pairCount === 0
+        ? []
+        : [
+            `${result.overlaps.pairCount} pair(s) of items write overlapping paths: ${result.overlaps.sourceKeys.join(", ")}.`,
+            `List them with: operator work overlaps --source ${result.source.id}`,
+          ]),
     ],
   });
   return "reported";
@@ -679,6 +689,50 @@ async function runFrontier(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
+async function runOverlaps(parsed: ParsedArguments): Promise<Handled> {
+  const sourceId = parsed.crew.sourceId;
+  if (sourceId === undefined) {
+    return "invalid-arguments";
+  }
+
+  const { result } = await CrewState.overlaps({ projectRoot: process.cwd(), sourceId });
+  if (reportSharedFailure(parsed, "work_overlaps", result)) {
+    return "reported";
+  }
+
+  if (result.status === "unknown-source") {
+    return refuse({
+      json: parsed.json,
+      operation: "work_overlaps",
+      outcome: "invalid",
+      reason: "unknown_source",
+      detail: { sourceId: result.sourceId },
+      lines: [`No source is registered as ${result.sourceId}.`],
+    });
+  }
+
+  report({
+    json: parsed.json,
+    result: {
+      outcome: "completed",
+      reason: "overlaps_reported",
+      blockers: [],
+      operation: "work_overlaps",
+      data: { sourceId: result.sourceId, overlaps: result.overlaps },
+    },
+    lines: [
+      result.overlaps.length === 0
+        ? `No two items of ${result.sourceId} write overlapping paths.`
+        : `These items of ${result.sourceId} write overlapping paths:`,
+      ...result.overlaps.map(
+        (one) =>
+          `  ${one.sourceKeys.join(" and ")}: ${one.paths.map((pair) => pair.join(" with ")).join(", ")}`,
+      ),
+    ],
+  });
+  return "reported";
+}
+
 export async function runWork(words: string[], parsed: ParsedArguments): Promise<Handled> {
   if (words.length !== 1) {
     return "invalid-arguments";
@@ -702,6 +756,9 @@ export async function runWork(words: string[], parsed: ParsedArguments): Promise
   }
   if (subcommand === "frontier") {
     return runFrontier(parsed);
+  }
+  if (subcommand === "overlaps") {
+    return runOverlaps(parsed);
   }
 
   return "invalid-arguments";

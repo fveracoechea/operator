@@ -26,6 +26,7 @@ const crewFieldByFlag = {
   "--review": "reviewId",
   "--operation": "operationId",
   "--pr-head": "prHead",
+  "--source": "sourceId",
 } as const;
 
 type CrewFlag = keyof typeof crewFieldByFlag;

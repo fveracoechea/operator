@@ -1,9 +1,10 @@
 import { eq } from "drizzle-orm";
-import type { CrewWriter } from "./database.ts";
+import type { CrewReader, CrewWriter } from "./database.ts";
 import { insertAssignment, nextOrderIndex } from "./assignment.ts";
 import { assignmentId } from "./identity.ts";
 import { assignmentDependencies, assignments, workSources } from "./schema.ts";
-import { isExecutable, kindOf, type WorkInput } from "./work-input.ts";
+import { isExecutable, kindOf, storedPermissions, type WorkInput } from "./work-input.ts";
+import { overlappingPaths } from "./write-paths.ts";
 
 export type RegisteredAssignment = {
   assignmentId: string;
@@ -16,12 +17,25 @@ export type RegisteredAssignment = {
   state: string;
 };
 
+/** Two items of one source whose write paths overlap and that no dependency orders. */
+export type WritePathOverlap = {
+  sourceKeys: [string, string];
+  paths: Array<[string, string]>;
+};
+
+/**
+ * What a registration says about its overlaps. The Operator reads the registration report, so
+ * the report gives only the count and the items, and `findOverlaps` gives each pair on request.
+ */
+export type OverlapSummary = { pairCount: number; sourceKeys: string[] };
+
 export type RegisterResult =
   | {
       status: "registered";
       source: { id: string; kind: string; revision: string; orderIndex: number };
       registered: RegisteredAssignment[];
       existing: RegisteredAssignment[];
+      overlaps: OverlapSummary;
     }
   | {
       status: "source-revision-changed";
@@ -93,6 +107,75 @@ function findCycle(edges: Map<string, string[]>): string[] | null {
   }
 
   return null;
+}
+
+/** Every recorded dependency, by the assignment that waits. */
+function dependencyEdges(db: CrewReader): Map<string, string[]> {
+  const edges = new Map<string, string[]>();
+  for (const row of db.select().from(assignmentDependencies).all()) {
+    edges.set(
+      row.assignmentId,
+      [...(edges.get(row.assignmentId) ?? []), row.dependsOnId].toSorted(),
+    );
+  }
+  return edges;
+}
+
+/** Whether a chain of dependencies leads from one assignment to another. */
+function reaches(edges: Map<string, string[]>, from: string, to: string): boolean {
+  const seen = new Set<string>();
+  const pending = [from];
+  for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
+    if (node === to) {
+      return true;
+    }
+    if (!seen.has(node)) {
+      seen.add(node);
+      pending.push(...(edges.get(node) ?? []));
+    }
+  }
+  return false;
+}
+
+/**
+ * Each pair of production items in one source whose registered write paths overlap and that no
+ * dependency orders, in item order. A pair that a dependency orders never runs at the same time,
+ * so it is not reported. The paths of a pair stay in the order each item registered them.
+ */
+function findOverlaps(db: CrewReader, sourceId: string): WritePathOverlap[] {
+  const edges = dependencyEdges(db);
+  const production = db
+    .select()
+    .from(assignments)
+    .where(eq(assignments.sourceId, sourceId))
+    .all()
+    .filter((row) => row.kind === "production")
+    .toSorted((one, other) => one.orderIndex - other.orderIndex)
+    .map((row) => ({ row, writePaths: storedPermissions(row.permissions).writePaths }));
+
+  return production.flatMap((one, index) =>
+    production.slice(index + 1).flatMap((other): WritePathOverlap[] => {
+      if (reaches(edges, one.row.id, other.row.id) || reaches(edges, other.row.id, one.row.id)) {
+        return [];
+      }
+      const paths = overlappingPaths(one.writePaths, other.writePaths);
+      return paths.length === 0
+        ? []
+        : [{ sourceKeys: [one.row.sourceKey, other.row.sourceKey], paths }];
+    }),
+  );
+}
+
+/** The count of pairs and each item in one, in item order. */
+function summarize(overlaps: WritePathOverlap[], items: RegisteredAssignment[]): OverlapSummary {
+  const involved = new Set(overlaps.flatMap((one) => one.sourceKeys));
+  return {
+    pairCount: overlaps.length,
+    sourceKeys: items
+      .filter((one) => involved.has(one.sourceKey))
+      .toSorted((one, other) => one.orderIndex - other.orderIndex)
+      .map((one) => one.sourceKey),
+  };
 }
 
 export function registerWork(
@@ -233,14 +316,7 @@ export function registerWork(
     }
   }
 
-  const edges = new Map<string, string[]>();
-  for (const row of db.select().from(assignmentDependencies).all()) {
-    edges.set(
-      row.assignmentId,
-      [...(edges.get(row.assignmentId) ?? []), row.dependsOnId].toSorted(),
-    );
-  }
-  const cycle = findCycle(edges);
+  const cycle = findCycle(dependencyEdges(db));
   if (cycle !== null) {
     return { status: "dependency-cycle", cycle };
   }
@@ -255,5 +331,13 @@ export function registerWork(
     },
     registered,
     existing,
+    overlaps: summarize(findOverlaps(db, source.id), registered.concat(existing)),
   };
+}
+
+/** Each overlapping pair of one registered source, or a refusal when the source is unknown. */
+export function showOverlaps(db: CrewReader, sourceId: string) {
+  return db.select().from(workSources).where(eq(workSources.id, sourceId)).all().length === 0
+    ? { status: "unknown-source" as const, sourceId }
+    : { status: "reported" as const, sourceId, overlaps: findOverlaps(db, sourceId) };
 }

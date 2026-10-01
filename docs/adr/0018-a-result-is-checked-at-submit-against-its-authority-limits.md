@@ -7,7 +7,7 @@ Operator cannot stop every host from writing, but it can read the checkout and t
 
 A write path is a file or a folder, named from the repository root.
 A folder covers everything under it, segment by segment, and the letter case counts.
-Registration refuses a write path that is not in its one canonical form, and an executable item with no write path.
+Registration refuses a write path that is not in its one canonical form, and a production item with no write path.
 The crew frontier reads the same rule, so the check of a result and the check of an overlap cannot disagree about what "inside" means.
 
 `operator attempt submit` checks a result before it records it.

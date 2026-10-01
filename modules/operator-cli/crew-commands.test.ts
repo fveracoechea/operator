@@ -65,17 +65,22 @@ type ItemOverrides = {
   kind?: "production" | "review" | "planning";
   wayfinderType?: "research" | "grilling" | "prototype" | "task";
   dependsOn?: Array<{ sourceId?: string; key: string }>;
+  writePaths?: string[];
 };
 
 function item(overrides: ItemOverrides) {
-  const { key, title, kind, wayfinderType, dependsOn } = overrides;
+  const { key, title, kind, wayfinderType, dependsOn, writePaths } = overrides;
   return {
     key,
     title: title ?? `Item ${key}`,
     ...(wayfinderType === undefined ? { kind: kind ?? "production" } : { wayfinderType }),
     approvedScope: `The approved scope of item ${key}.`,
     acceptanceRequirements: ["The quality gate passes."],
-    permissions: { writePaths: ["modules/"], allowedCommands: ["bun test"], network: false },
+    permissions: {
+      writePaths: writePaths ?? ["modules/"],
+      allowedCommands: ["bun test"],
+      network: false,
+    },
     fixedInputs: [{ name: "brief", kind: "value", value: `brief ${key}`, contentIdentity: null }],
     dependsOn: dependsOn ?? [],
   };
@@ -85,10 +90,11 @@ type SourceOverrides = {
   sourceKind?: "specification" | "ticket" | "wayfinder";
   id?: string;
   revision?: string;
-  items: ReturnType<typeof item>[];
+  // A test can send an item that the schema refuses, so an item can be any value.
+  items: unknown[];
 };
 
-async function register(root: string, token: string, overrides: SourceOverrides) {
+async function writeSource(root: string, overrides: SourceOverrides): Promise<string> {
   const body = {
     sourceKind: overrides.sourceKind ?? "specification",
     source: {
@@ -100,6 +106,15 @@ async function register(root: string, token: string, overrides: SourceOverrides)
   };
   const path = `${root}/request-${crypto.randomUUID()}.json`;
   await Bun.write(path, JSON.stringify(body));
+  return path;
+}
+
+async function overlaps(root: string, sourceId: string) {
+  return runJson(root, ["work", "overlaps", "--source", sourceId]);
+}
+
+async function register(root: string, token: string, overrides: SourceOverrides) {
+  const path = await writeSource(root, overrides);
   return runJson(root, [
     "work",
     "register",
@@ -531,6 +546,272 @@ describe("operator work register", () => {
     expect(result.exitCode).toBe(2);
     expect(result.json.reason).toBe("invalid_work_input");
     expect(result.json.blockers.length).toBeGreaterThan(1);
+  });
+
+  test("refuses every write path that is not in its canonical form, in item order", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+
+    const result = await register(root, token, {
+      items: [
+        item({
+          key: "a",
+          writePaths: ["/etc/", "./modules/", "modules/../docs/", "modules//crew/", "modules/."],
+        }),
+        item({ key: "b", writePaths: ["modules\\crew/", "modules/*.ts", "docs/adr-?.md", ""] }),
+        item({ key: "c", writePaths: [] }),
+        item({ key: "d", kind: "planning", writePaths: [] }),
+        { ...item({ key: "e", writePaths: [] }), title: 5 },
+        {
+          ...item({ key: "f" }),
+          permissions: { writePaths: [], allowedCommands: [""], network: false },
+        },
+      ],
+    });
+
+    expect(result.exitCode).toBe(2);
+    expect(result.json.reason).toBe("invalid_work_input");
+    expect(result.json.blockers.map((one: { issue: string }) => one.issue.split(":")[0])).toEqual([
+      "items.0.permissions.writePaths.0",
+      "items.0.permissions.writePaths.1",
+      "items.0.permissions.writePaths.2",
+      "items.0.permissions.writePaths.3",
+      "items.0.permissions.writePaths.4",
+      "items.1.permissions.writePaths.0",
+      "items.1.permissions.writePaths.1",
+      "items.1.permissions.writePaths.2",
+      "items.1.permissions.writePaths.3",
+      "items.2.permissions.writePaths",
+      "items.4.title",
+      "items.4.permissions.writePaths",
+      "items.5.permissions.allowedCommands.0",
+      "items.5.permissions.writePaths",
+    ]);
+    expect(result.json.blockers[0].issue).toContain("absolute");
+
+    const frontier = await runJson(root, ["work", "frontier"]);
+    expect(frontier.json.data.dispatchable).toEqual([]);
+  });
+
+  test("refuses a malformed item or permission record and checks only what it can read", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+    const empty = { writePaths: [], allowedCommands: [], network: false };
+
+    const result = await register(root, token, {
+      items: [
+        null,
+        "an item",
+        { ...item({ key: "c" }), permissions: { ...empty, writePaths: null } },
+        { ...item({ key: "d" }), permissions: { ...empty, surprise: true } },
+        { ...item({ key: "e", writePaths: [] }), kind: "bogus" },
+      ],
+    });
+
+    expect(result.exitCode).toBe(2);
+    expect(result.json.reason).toBe("invalid_work_input");
+    expect(result.json.blockers.map((one: { issue: string }) => one.issue.split(":")[0])).toEqual([
+      "items.0",
+      "items.1",
+      "items.2.permissions.writePaths",
+      "items.3.permissions",
+      "items.3.permissions.writePaths",
+      "items.4.kind",
+    ]);
+  });
+
+  test("refuses a malformed item of a wayfinder source", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+
+    const result = await register(root, token, {
+      sourceKind: "wayfinder",
+      id: "github:operator#1",
+      items: [null],
+    });
+
+    expect(result.exitCode).toBe(2);
+    expect(result.json.reason).toBe("invalid_work_input");
+  });
+
+  test("refuses a wayfinder task with no write path and keeps planning work without one", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+
+    const result = await register(root, token, {
+      sourceKind: "wayfinder",
+      id: "github:operator#1",
+      items: [
+        item({ key: "research-1", wayfinderType: "research", writePaths: [] }),
+        item({ key: "task-1", wayfinderType: "task", writePaths: [] }),
+      ],
+    });
+
+    expect(result.exitCode).toBe(2);
+    expect(result.json.blockers.map((one: { issue: string }) => one.issue.split(":")[0])).toEqual([
+      "items.1.permissions.writePaths",
+    ]);
+  });
+
+  test("accepts a write path that names a file the repository does not hold yet", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+
+    const result = await register(root, token, {
+      items: [item({ key: "a", writePaths: ["modules/crew-state/write-paths.ts", "docs/adr/"] })],
+    });
+
+    expect(result.json.reason).toBe("work_registered");
+  });
+
+  test("reports each pair of overlapping items that no dependency orders", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+    await register(root, token, {
+      items: [
+        item({ key: "a", writePaths: ["modules/crew", "modules/crew/"] }),
+        item({ key: "b", writePaths: ["modules/crew-state/"] }),
+        item({ key: "c", writePaths: ["modules/"] }),
+        item({ key: "d", writePaths: ["docs/adr/0018.md", "modules/crew-state/main.ts"] }),
+        item({ key: "e", writePaths: ["modules/crew-state/"], dependsOn: [{ key: "c" }] }),
+        item({ key: "f", writePaths: ["modules/crew-state/main.ts"], dependsOn: [{ key: "e" }] }),
+        item({ key: "g", kind: "planning", writePaths: ["modules/"] }),
+        item({ key: "h", writePaths: ["Modules/"] }),
+      ],
+    });
+
+    const result = await overlaps(root, "github:operator#15");
+
+    expect(result.json.reason).toBe("overlaps_reported");
+    expect(result.json.data.overlaps).toEqual([
+      {
+        sourceKeys: ["a", "c"],
+        paths: [
+          ["modules/crew", "modules/"],
+          ["modules/crew/", "modules/"],
+        ],
+      },
+      { sourceKeys: ["b", "c"], paths: [["modules/crew-state/", "modules/"]] },
+      { sourceKeys: ["b", "d"], paths: [["modules/crew-state/", "modules/crew-state/main.ts"]] },
+      { sourceKeys: ["b", "e"], paths: [["modules/crew-state/", "modules/crew-state/"]] },
+      { sourceKeys: ["b", "f"], paths: [["modules/crew-state/", "modules/crew-state/main.ts"]] },
+      { sourceKeys: ["c", "d"], paths: [["modules/", "modules/crew-state/main.ts"]] },
+      { sourceKeys: ["d", "e"], paths: [["modules/crew-state/main.ts", "modules/crew-state/"]] },
+      {
+        sourceKeys: ["d", "f"],
+        paths: [["modules/crew-state/main.ts", "modules/crew-state/main.ts"]],
+      },
+    ]);
+  });
+
+  test("modules/crew does not cover modules/crew-state/", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+    await register(root, token, {
+      items: [
+        item({ key: "a", writePaths: ["modules/crew"] }),
+        item({ key: "b", writePaths: ["modules/crew-state/"] }),
+      ],
+    });
+
+    expect((await overlaps(root, "github:operator#15")).json.data.overlaps).toEqual([]);
+  });
+
+  test("modules/ covers modules/crew-state/main.ts", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+    await register(root, token, {
+      items: [
+        item({ key: "a", writePaths: ["modules/"] }),
+        item({ key: "b", writePaths: ["modules/crew-state/main.ts"] }),
+      ],
+    });
+
+    expect((await overlaps(root, "github:operator#15")).json.data.overlaps).toEqual([
+      { sourceKeys: ["a", "b"], paths: [["modules/", "modules/crew-state/main.ts"]] },
+    ]);
+  });
+
+  test("gives only a summary of the overlaps and the command that lists them", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+    const items = [
+      item({ key: "a", writePaths: ["docs/"] }),
+      item({ key: "b", writePaths: ["skills/"] }),
+      item({ key: "c", writePaths: ["docs/adr/"] }),
+      item({ key: "d", writePaths: ["docs/adr/0018.md"] }),
+    ];
+
+    const registered = await register(root, token, { items });
+    const text = await runOperator(root, [
+      "work",
+      "register",
+      "--request",
+      request(),
+      "--owner-token",
+      token,
+      "--input",
+      await writeSource(root, { items }),
+    ]);
+
+    expect(registered.json.data.overlaps).toEqual({
+      pairCount: 3,
+      sourceKeys: ["a", "c", "d"],
+      command: "operator work overlaps --source github:operator#15",
+    });
+    expect(text.stdout).toContain("3 pair(s) of items write overlapping paths: a, c, d.");
+    expect(text.stdout).toContain("operator work overlaps --source github:operator#15");
+    expect(text.stdout).not.toContain("docs/adr/");
+  });
+
+  test("counts an overlap with an item of the same source that is already registered", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+    await register(root, token, { items: [item({ key: "a", writePaths: ["docs/"] })] });
+
+    const second = await register(root, token, {
+      items: [
+        item({ key: "a", writePaths: ["docs/"] }),
+        item({ key: "b", writePaths: ["docs/adr/"] }),
+      ],
+    });
+    const otherSource = await register(root, token, {
+      sourceKind: "ticket",
+      id: "github:operator#19",
+      items: [item({ key: "c", writePaths: ["docs/"] })],
+    });
+
+    expect(second.json.data.overlaps).toMatchObject({ pairCount: 1, sourceKeys: ["a", "b"] });
+    expect(otherSource.json.data.overlaps).toMatchObject({ pairCount: 0, sourceKeys: [] });
+  });
+
+  test("refuses to list the overlaps of a source that is not registered", async () => {
+    const root = await makeProject();
+    await own(root);
+
+    const result = await overlaps(root, "github:operator#404");
+
+    expect(result.exitCode).toBe(2);
+    expect(result.json.reason).toBe("unknown_source");
+  });
+
+  test("reads back a write path that was stored before the grammar existed", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+    await register(root, token, {
+      items: [item({ key: "a", writePaths: ["docs/"] }), item({ key: "b" })],
+    });
+    await Bun.$`bun -e ${`
+      const { Database } = require("bun:sqlite");
+      const db = new Database(${JSON.stringify(`${root}/.operator/local/crew-state.sqlite`)});
+      db.exec(\`update assignments set permissions = '{"writePaths":["./docs/old"],"allowedCommands":[],"network":false}' where source_key = 'b'\`);
+      db.close();
+    `}`.quiet();
+
+    const result = await overlaps(root, "github:operator#15");
+
+    expect(result.json.reason).toBe("overlaps_reported");
+    expect(result.json.data.overlaps).toEqual([]);
   });
 });
 

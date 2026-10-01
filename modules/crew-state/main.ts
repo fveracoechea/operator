@@ -26,7 +26,7 @@ import { approvalCheckSchema, approvalInputSchema } from "./approval-input.ts";
 import { raiseQuestion, reviseQuestion } from "./question-raise.ts";
 import { showQuestion } from "./question-report.ts";
 import { defectInputSchema, type InvalidateOutcome, invalidateResult } from "./invalidate.ts";
-import { registerWork } from "./registration.ts";
+import { registerWork, showOverlaps } from "./registration.ts";
 import { openReworkCycle, type ReworkOutcome } from "./rework-open.ts";
 import { reworkInputSchema } from "./rework-input.ts";
 import { dispositionInputSchema } from "./review-input.ts";
@@ -121,6 +121,15 @@ export const CrewState = {
       },
       ({ tx, now }) => commitOn(registerWork(tx, { input, now }), "registered"),
     );
+  },
+
+  /**
+   * Lists each pair of production items in one source whose write paths overlap and that no
+   * dependency orders, in item order. A registration reports only their count.
+   */
+  async overlaps(request: Located & { sourceId: string }) {
+    const result = await readState(request.projectRoot, (db) => showOverlaps(db, request.sourceId));
+    return { repeated: false, result };
   },
 
   /** Claims one dispatchable assignment. Exactly one concurrent claim wins. */

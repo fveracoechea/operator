@@ -47,7 +47,7 @@ A source registered with no location records none, and its assignments refuse tr
   "approvedScope": "Build the dispatch path and nothing else.",
   "acceptanceRequirements": ["The quality gate passes."],
   "permissions": {
-    "writePaths": ["modules/"],
+    "writePaths": ["modules/operative-dispatch/", ".changeset/dispatch-path.md"],
     "allowedCommands": ["bun test"],
     "network": false
   },
@@ -86,6 +86,28 @@ Name a key in the same source, or add `sourceId` to name an item in another one.
 A dependency is released only by accepted completion, never by a submitted result.
 A cycle is refused before anything is dispatched, and nothing is registered.
 An item you register again with different dependencies is a conflict for you to settle.
+
+## Write paths
+
+A write path is a file, or a folder that ends with `/`, named from the repository root.
+A folder covers everything under it, segment by segment, so `modules/crew/` does not cover `modules/crew-state/`.
+The letter case counts, and there is no token for the whole repository.
+A write path can name a file that does not exist yet.
+
+Registration refuses a write path that is absolute, that has a backslash or a glob character, or that has an empty, `.`, or `..` segment.
+It refuses a production item with no write path.
+It reports every refusal at once, in item order, as `invalid_work_input`, and registers nothing.
+
+Name the narrowest paths that hold the work.
+Under ADR 0004, the crew frontier never offers an assignment whose write paths overlap the paths that unaccepted work of the same source holds, so broad paths make a source run one assignment at a time.
+A later release adds this hold to the frontier, so name narrow paths now.
+For a shared folder, name the exact file, for example the item's own `.changeset/<name>.md`, not `.changeset/`.
+
+The registration report gives only a summary of the overlaps: in `overlaps`, the number of pairs of production items whose write paths overlap and that no dependency orders, the item keys involved, and the command that lists each pair.
+This is information, not a refusal, and the items stay registered.
+Do not list the pairs yourself.
+Tell the person the number of pairs and the command.
+A narrower path needs a new revision of the source, and that is the person's decision.
 
 ## Planning work is registered too
 

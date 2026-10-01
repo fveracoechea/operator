@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { readStored } from "./stored.ts";
+import { writePathRefusal } from "./write-paths.ts";
 
 export type AssignmentKind = "production" | "review" | "planning";
 
@@ -29,11 +30,22 @@ const fixedInput = z
     path: ["contentIdentity"],
   });
 
-const permissions = z.strictObject({
+const writePath = z.string().superRefine((path, context) => {
+  const refusal = writePathRefusal(path);
+  if (refusal !== null) {
+    context.addIssue({ code: "custom", message: refusal });
+  }
+});
+
+// A crew state can hold work registered before the write-path grammar existed, so a stored
+// record is read back in the shape it was written, not refused at dispatch.
+const permissionRecord = z.strictObject({
   writePaths: z.array(z.string().min(1)),
   allowedCommands: z.array(z.string().min(1)),
   network: z.boolean(),
 });
+
+const permissions = permissionRecord.extend({ writePaths: z.array(writePath) });
 
 const itemFields = {
   key: z.string().min(1),
@@ -48,15 +60,47 @@ const itemFields = {
   dependsOn: z.array(dependency),
 };
 
-const declaredItem = z.strictObject({
-  ...itemFields,
-  kind: z.enum(["production", "review", "planning"]),
-});
+/** The fields the write-path check reads. It runs only when each of them was read as valid. */
+function readsWritePaths(issue: z.core.$ZodRawIssue): boolean {
+  const [field, inner] = issue.path ?? [];
+  // An unknown key beside the write paths leaves the write paths themselves readable.
+  const whole = issue.code !== "unrecognized_keys";
+  if (field === undefined) {
+    return whole;
+  }
+  if (field !== "permissions") {
+    return false;
+  }
+  return inner === "writePaths" || (inner === undefined && whole);
+}
 
-const wayfinderItem = z.strictObject({
-  ...itemFields,
-  wayfinderType: z.enum(["research", "grilling", "prototype", "task"]),
-});
+/**
+ * Production work changes the repository, so it must name where. The check also runs when
+ * another field of the item is refused, so one request reports every refusal at once.
+ */
+const writePathsRequired = {
+  message: "a production item names at least one write path",
+  path: ["permissions", "writePaths"],
+  when: (payload: z.core.ParsePayload) => !payload.issues.some(readsWritePaths),
+};
+
+function hasWritePaths(item: KindedItem & { permissions: { writePaths: string[] } }): boolean {
+  return kindOf(item) !== "production" || item.permissions.writePaths.length > 0;
+}
+
+const declaredItem = z
+  .strictObject({
+    ...itemFields,
+    kind: z.enum(["production", "review", "planning"]),
+  })
+  .refine(hasWritePaths, writePathsRequired);
+
+const wayfinderItem = z
+  .strictObject({
+    ...itemFields,
+    wayfinderType: z.enum(["research", "grilling", "prototype", "task"]),
+  })
+  .refine(hasWritePaths, writePathsRequired);
 
 /** Where one source lives in its tracker. The map issue is what an amendment is written to. */
 const trackerLocation = z.strictObject({
@@ -105,8 +149,11 @@ export const workInputSchema = z.discriminatedUnion("sourceKind", [
 export type WorkInput = z.infer<typeof workInputSchema>;
 export type WorkItem = WorkInput["items"][number];
 
+// The item type is inferred from the schemas whose check calls kindOf, so it states its own shape.
+type KindedItem = { kind: AssignmentKind } | { wayfinderType: keyof typeof kindByWayfinderType };
+
 /** The planning boundary of one item, taken from the vocabulary its own source uses. */
-export function kindOf(item: WorkItem): AssignmentKind {
+export function kindOf(item: KindedItem): AssignmentKind {
   return "kind" in item ? item.kind : kindByWayfinderType[item.wayfinderType];
 }
 
@@ -128,8 +175,8 @@ export function storedRequirements(stored: string): string[] {
   return readStored("acceptance requirement list", z.array(z.string()), stored);
 }
 
-export function storedPermissions(stored: string): z.infer<typeof permissions> {
-  return readStored("permission record", permissions, stored);
+export function storedPermissions(stored: string): z.infer<typeof permissionRecord> {
+  return readStored("permission record", permissionRecord, stored);
 }
 
 export function storedFixedInputs(stored: string): Array<z.infer<typeof fixedInput>> {

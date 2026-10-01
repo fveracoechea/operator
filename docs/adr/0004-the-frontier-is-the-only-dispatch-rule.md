@@ -92,7 +92,7 @@ Its result could use code that the take-out then removes, and the fault would sh
 ## Consequences
 
 Broad write paths make the work of a source run one assignment at a time.
-Narrow write paths are how a source gets parallel work, and the registration plan reports each overlapping pair of items that no dependency orders, so the user can narrow the paths before registration.
+Narrow write paths are how a source gets parallel work. The registration report gives the number of overlapping pairs of items that no dependency orders, and `operator work overlaps` lists each pair, so the user can narrow the paths.
 That report reads only the registered paths, because a grant comes after registration.
 
 `operator work accept` records accepted completion in this release with no review precondition.
