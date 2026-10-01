@@ -49,7 +49,12 @@ function item(overrides: ItemOverrides) {
     ...(wayfinderType === undefined ? { kind: kind ?? "production" } : { wayfinderType }),
     approvedScope: `The approved scope of item ${key}.`,
     acceptanceRequirements: ["The quality gate passes."],
-    permissions: { writePaths: ["modules/"], allowedCommands: ["bun test"], network: false },
+    // Each item writes its own folder, so the frontier hold never orders them.
+    permissions: {
+      writePaths: [`modules/${key}/`],
+      allowedCommands: ["bun test"],
+      network: false,
+    },
     fixedInputs: [],
     dependsOn: (dependsOn ?? []).map((one) => ({ key: one })),
   };

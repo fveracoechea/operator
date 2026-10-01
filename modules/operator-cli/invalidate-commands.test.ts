@@ -328,6 +328,107 @@ describe("operator work invalidate", () => {
     expect(resumed.entry.blockers ?? []).toEqual([]);
   }, 60_000);
 
+  test("an invalidated assignment holds its write paths again until it is accepted again", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const first = await acceptedResult(workspace, producer, base, "# Result\n");
+
+    const registered = await registerDependents(workspace, producer, [
+      {
+        key: "22.4",
+        kind: "production",
+        title: "Change a file the result also changed",
+        dependsOn: [],
+        writePaths: ["modules/crew-state/frontier.ts"],
+      },
+    ]);
+    const overlapping = registered.get("22.4") ?? "";
+
+    // Accepted work holds nothing, so the overlapping work is offered.
+    expect((await frontierEntry(workspace, overlapping)).group).toBe("dispatchable");
+
+    const invalidated = await invalidateResult(workspace, producer, {
+      assignmentId: producer.assignmentId,
+      revision: first.accepted.json.data.revision,
+      defect: DEFECT,
+    });
+    expect(invalidated.json.reason).toBe("result_invalidated");
+
+    const held = await frontierEntry(workspace, overlapping);
+    expect(held.group).toBe("blocked");
+    expect(held.entry.blockers).toEqual([
+      {
+        reason: "write_paths_overlap",
+        holders: [
+          {
+            assignmentId: producer.assignmentId,
+            sourceKey: "22.1",
+            hold: "started",
+            pathPairCount: 1,
+          },
+        ],
+        command: "operator work overlaps --source github:operator#15",
+      },
+    ]);
+
+    const fixing = await startRework(workspace, producer, {
+      revision: invalidated.json.data.revision,
+      commit: first.artifact.commit,
+      worktreePath: `${workspace.root}/fix`,
+    });
+    // The correction is in progress, so the paths stay held.
+    expect((await frontierEntry(workspace, overlapping)).group).toBe("blocked");
+
+    const second = await acceptedResult(workspace, fixing, base, "# Result\n\nEvery record.\n");
+    expect(second.accepted.json.reason).toBe("assignment_accepted");
+
+    expect((await frontierEntry(workspace, overlapping)).group).toBe("dispatchable");
+  }, 60_000);
+
+  test("offers an invalidated assignment again past started work that overlaps it", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const first = await acceptedResult(workspace, producer, base, "# Result\n");
+
+    const registered = await registerDependents(workspace, producer, [
+      {
+        key: "22.4",
+        kind: "production",
+        title: "Change a file the result also changed",
+        dependsOn: [],
+        writePaths: ["modules/crew-state/frontier.ts"],
+      },
+    ]);
+    const overlapping = registered.get("22.4") ?? "";
+    const claimed = await runJson(workspace, [
+      "work",
+      "claim",
+      "--request",
+      request(),
+      "--owner-token",
+      producer.ownerToken,
+      "--assignment",
+      overlapping,
+      "--revision",
+      "1",
+    ]);
+    expect(claimed.json.reason).toBe("assignment_claimed");
+
+    await invalidateResult(workspace, producer, {
+      assignmentId: producer.assignmentId,
+      revision: first.accepted.json.data.revision,
+      defect: DEFECT,
+    });
+
+    // Both started from their own bases, so withholding one of them prevents no changed patch,
+    // and two started assignments that withheld each other would wait for ever.
+    const reopened = await frontierEntry(workspace, producer.assignmentId);
+    expect(reopened.group).toBe("dispatchable");
+    expect((await frontierEntry(workspace, overlapping)).group).toBe("active");
+  }, 60_000);
+
   test("refuses a defect against a review, which holds no result of its own", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const producer = await startProducer(workspace);

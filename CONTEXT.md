@@ -20,6 +20,7 @@ An approved unit of work with its inputs, dependencies, questions, and result. I
 **Write path**:
 A file or a folder, named from the repository root, that one assignment may change.
 A folder covers everything under it, each path has one written form, and the letter case counts.
+A path that an earlier release stored is read in that form, or it fails loudly.
 Only a person widens the write paths of an assignment, with an approval; an answer never does.
 _Avoid_: allowed paths, scope paths
 
@@ -237,7 +238,7 @@ It transfers who may act on the attempt and changes nothing about the work, so i
 **Crew frontier**:
 The assignments a crew may start now, with the reason every other assignment waits.
 It is a read that changes nothing.
-It never offers an assignment whose write paths overlap the paths that unaccepted work of the same work source holds, and it offers no production work of a work source whose integration branch still holds a withdrawn commit.
+It never offers an assignment that has not started whose write paths overlap the paths that unaccepted work of the same work source holds, and it offers no production work of a work source whose integration branch still holds a withdrawn commit.
 _Avoid_: phase, partial dependency, file lock
 
 **Ownership token**:

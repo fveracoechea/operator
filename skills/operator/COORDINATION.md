@@ -98,6 +98,23 @@ None of them is repaired by hand.
 You do not choose what starts.
 `data.actions` offers `claim_assignment` for exactly the work the frontier allows, in the order it allows it, and `data.capacity` prints the limit and the review reserve that decided it.
 
+## Overlapping write paths
+
+The frontier withholds production work that has not started when its write paths overlap the paths that other unaccepted work of the same source holds.
+It reports this as the blocker `write_paths_overlap`, and the work waits until the holder reaches accepted completion.
+Started production work holds its paths until it is accepted, also when it is invalidated.
+Work that the same reading offers holds its paths too, in priority order.
+Review work and planning work hold nothing, and work of another source is never held.
+
+The blocker lists each holder with its `assignmentId`, its `sourceKey`, `started` or `offered`, and `pathPairCount`, the number of overlapping pairs of paths.
+Its `command` lists each pair.
+Do not run it to list the pairs yourself.
+Tell the person the holders and the command.
+
+This is no error to repair, and you do not schedule around it.
+Narrow write paths prevent it, and the person sets them at registration (see [REGISTRATION.md](REGISTRATION.md)).
+Tell the person when broad paths make a source run one assignment at a time.
+
 ## Mixed hosts
 
 A crew may mix OpenCode and Claude Code.

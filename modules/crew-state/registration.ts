@@ -11,7 +11,7 @@ import {
   storedPermissions,
   type WorkInput,
 } from "./work-input.ts";
-import { overlappingPaths } from "./write-paths.ts";
+import { overlappingPaths, overlapsCommand } from "./write-paths.ts";
 
 export type RegisteredAssignment = {
   assignmentId: string;
@@ -34,7 +34,7 @@ export type WritePathOverlap = {
  * What a registration says about its overlaps. The Operator reads the registration report, so
  * the report gives only the count and the items, and `findOverlaps` gives each pair on request.
  */
-export type OverlapSummary = { pairCount: number; sourceKeys: string[] };
+export type OverlapSummary = { pairCount: number; sourceKeys: string[]; command: string };
 
 export type RegisterResult =
   | {
@@ -228,7 +228,11 @@ function findOverlaps(db: CrewReader, sourceId: string): WritePathOverlap[] {
 }
 
 /** The count of pairs and each item in one, in item order. */
-function summarize(overlaps: WritePathOverlap[], items: RegisteredAssignment[]): OverlapSummary {
+function summarize(
+  sourceId: string,
+  overlaps: WritePathOverlap[],
+  items: RegisteredAssignment[],
+): OverlapSummary {
   const involved = new Set(overlaps.flatMap((one) => one.sourceKeys));
   return {
     pairCount: overlaps.length,
@@ -236,6 +240,7 @@ function summarize(overlaps: WritePathOverlap[], items: RegisteredAssignment[]):
       .filter((one) => involved.has(one.sourceKey))
       .toSorted((one, other) => one.orderIndex - other.orderIndex)
       .map((one) => one.sourceKey),
+    command: overlapsCommand(sourceId),
   };
 }
 
@@ -419,7 +424,7 @@ export function registerWork(
     },
     registered,
     existing,
-    overlaps: summarize(findOverlaps(db, source.id), registered.concat(existing)),
+    overlaps: summarize(source.id, findOverlaps(db, source.id), registered.concat(existing)),
   };
 }
 

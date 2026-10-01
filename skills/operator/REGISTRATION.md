@@ -104,9 +104,15 @@ Registration refuses a write path that is absolute, that has a backslash or a gl
 It refuses a production item with no write path.
 It reports every refusal at once, in item order, as `invalid_work_input`, and registers nothing.
 
+Work that an earlier release registered can hold a write path with no grammar.
+The CLI reads such a path in its canonical form: it removes each empty and `.` segment, and `..` removes the segment before it.
+A path with no final `/` stays a file.
+When a stored path has no canonical form, because it is absolute, has a backslash or a glob character, or leaves the repository root, each command that reads it fails and names the path.
+Tell the person the path and the assignment. Do not edit the crew state.
+
 Name the narrowest paths that hold the work.
-Under ADR 0004, the crew frontier never offers an assignment whose write paths overlap the paths that unaccepted work of the same source holds, so broad paths make a source run one assignment at a time.
-A later release adds this hold to the frontier, so name narrow paths now.
+Under ADR 0004, the crew frontier never offers new work whose write paths overlap the paths that unaccepted work of the same source holds, so broad paths make a source run one assignment at a time.
+[COORDINATION.md](COORDINATION.md) names the blocker that this hold reports.
 For a shared folder, name the exact file, for example the item's own `.changeset/<name>.md`, not `.changeset/`.
 
 The registration report gives only a summary of the overlaps: in `overlaps`, the number of pairs of production items whose write paths overlap and that no dependency orders, the item keys involved, and the command that lists each pair.

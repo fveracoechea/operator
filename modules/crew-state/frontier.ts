@@ -10,7 +10,8 @@ import { blockingQuestions, questionReportOf, triggersOf } from "./questions.ts"
 import { reviewOfSubmission } from "./review.ts";
 import { assignmentDependencies, assignments, attempts, workSources } from "./schema.ts";
 import { latestSubmission } from "./submission.ts";
-import { isExecutable, isReview } from "./work-input.ts";
+import { isExecutable, isReview, storedPermissions } from "./work-input.ts";
+import { overlappingPaths, overlapsCommand } from "./write-paths.ts";
 
 export type FrontierEntry = {
   assignmentId: string;
@@ -30,8 +31,24 @@ export type FrontierBlocker =
   | { reason: "review_pending"; reviewAssignmentId: string | null }
   | { reason: "direction_required"; directionRequestId: string; limitKind: LimitKind }
   | { reason: "input_invalidated"; invalidated: string[] }
+  | { reason: "write_paths_overlap"; holders: WritePathHolder[]; command: string }
   | { reason: "review_capacity_reserved"; productionLimit: number }
   | { reason: "crew_at_capacity"; limit: number };
+
+/**
+ * One assignment whose held write paths overlap the paths of a withheld one. `started` work
+ * holds from its first claim, and `offered` work holds inside the one reading that offered it.
+ * The Operator reads this, so it gives the number of overlapping pairs of paths and the blocker names the
+ * command that lists them.
+ */
+export type WritePathHolder = {
+  assignmentId: string;
+  sourceKey: string;
+  hold: "started" | "offered";
+  pathPairCount: number;
+};
+
+type WritePathHold = Omit<WritePathHolder, "pathPairCount"> & { sourceId: string };
 
 /** One open question and the work it holds. Every other assignment keeps moving. */
 export type WaitingQuestion = {
@@ -117,11 +134,8 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
   );
 
   const rows = db.select().from(assignments).all();
-  const liveAttempts = db
-    .select()
-    .from(attempts)
-    .all()
-    .filter((attempt) => attempt.state === "active");
+  const recordedAttempts = db.select().from(attempts).all();
+  const liveAttempts = recordedAttempts.filter((attempt) => attempt.state === "active");
   const attemptByAssignment = new Map(liveAttempts.map((one) => [one.assignmentId, one]));
 
   function entry(row: (typeof rows)[number]): FrontierEntry {
@@ -138,6 +152,39 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
       revision: row.revision,
       state: row.state,
     };
+  }
+
+  // Production work holds its write paths from its first claim until it reaches accepted
+  // completion, and again after it leaves accepted completion, so this reads no list of states.
+  const started = new Set(recordedAttempts.map((attempt) => attempt.assignmentId));
+  const writePathsOf = new Map(
+    rows.map((row) => [row.id, storedPermissions(row.permissions).writePaths]),
+  );
+  const held: WritePathHold[] = rows
+    .filter((row) => row.kind === "production" && row.state !== "accepted" && started.has(row.id))
+    .map((row) => ({
+      assignmentId: row.id,
+      sourceId: row.sourceId,
+      sourceKey: row.sourceKey,
+      hold: "started",
+    }));
+
+  function holdersOf(one: FrontierEntry): WritePathHolder[] {
+    const paths = writePathsOf.get(one.assignmentId) ?? [];
+    return (
+      held
+        .filter((holder) => holder.sourceId === one.sourceId)
+        .map((holder) => ({
+          assignmentId: holder.assignmentId,
+          sourceKey: holder.sourceKey,
+          hold: holder.hold,
+          pathPairCount: overlappingPaths(paths, writePathsOf.get(holder.assignmentId) ?? [])
+            .length,
+        }))
+        .filter((holder) => holder.pathPairCount > 0)
+        // A code-unit order, so the order never depends on the locale of the machine.
+        .toSorted((left, right) => (left.assignmentId < right.assignmentId ? -1 : 1))
+    );
   }
 
   const paused = openPauses(db);
@@ -211,6 +258,22 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
       continue;
     }
 
+    // Work that has started keeps the base of its dispatch, so only new work waits for a holder.
+    // An entry held here takes no slot, so the next entry in priority order can still start.
+    const unstartedProduction = one.kind === "production" && !started.has(one.assignmentId);
+    if (unstartedProduction) {
+      const holders = holdersOf(one);
+      if (holders.length > 0) {
+        blocked.push({
+          ...one,
+          blockers: [
+            { reason: "write_paths_overlap", holders, command: overlapsCommand(one.sourceId) },
+          ],
+        });
+        continue;
+      }
+    }
+
     if (openSlots === 0) {
       blocked.push({ ...one, blockers: [{ reason: "crew_at_capacity", limit: capacity.limit }] });
       continue;
@@ -230,6 +293,14 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
     openSlots -= 1;
     if (!isReview(one.kind)) {
       heldProduction += 1;
+    }
+    if (unstartedProduction) {
+      held.push({
+        assignmentId: one.assignmentId,
+        sourceId: one.sourceId,
+        sourceKey: one.sourceKey,
+        hold: "offered",
+      });
     }
   }
 

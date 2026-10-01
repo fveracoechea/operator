@@ -8,6 +8,9 @@ Operator cannot stop every host from writing, but it can read the checkout and t
 A write path is a file or a folder, named from the repository root.
 A folder covers everything under it, segment by segment, and the letter case counts.
 Registration refuses a write path that is not in its one canonical form, and a production item with no write path.
+A write path that an earlier release stored is read in its canonical form: each empty and `.` segment goes, and `..` takes out the segment before it.
+A stored path with no final `/` stays a file, because only the final `/` names a folder.
+A stored path with no canonical form, such as an absolute path, a glob, or a path that leaves the repository root, fails loudly, because a hold or a check that cannot read it could miss an overlap with no sign.
 The crew frontier reads the same rule, so the check of a result and the check of an overlap cannot disagree about what "inside" means.
 
 `operator attempt submit` checks a result before it records it.

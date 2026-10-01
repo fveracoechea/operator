@@ -7,11 +7,13 @@ The rules therefore have one owner, and a claim cannot take work that the report
 An assignment is dispatchable when it is executable, unclaimed, and every assignment it depends on is accepted.
 Accepted completion is the only state that unblocks a dependent, so no work starts from an unreviewed result.
 
-The frontier never offers a production assignment whose write paths overlap the paths that other work of the same source holds.
+The frontier never offers a production assignment that has not started whose write paths overlap the paths that other work of the same source holds.
 A production assignment holds its write paths from its first claim until it reaches accepted completion, and again from the moment it leaves accepted completion until it reaches it again, or until it is withdrawn (ADR 0016).
 Inside one reading, each assignment that the frontier offers also holds its write paths, in priority order, in the same way that it takes a crew slot, so one reading never offers two overlapping assignments.
 An assignment that has not started holds nothing, so a ready assignment never waits behind an earlier one that waits on something else.
-The frontier withholds an assignment whose write paths overlap held paths, and it names each holder and each overlapping pair of paths.
+An assignment that has started is never withheld by the hold, because each new attempt of it starts on the base of its dispatch (ADR 0008), so withholding it prevents no changed patch.
+The frontier withholds an assignment whose write paths overlap held paths, and it names each holder with the number of overlapping pairs of paths.
+The Operator reads the frontier, so the blocker gives this summary and names `operator work overlaps`, which lists each pair.
 Review and planning work hold no write paths, because neither makes a commit.
 Two write paths overlap by the one rule that ADR 0018 records, and the frontier uses that same rule.
 
@@ -76,6 +78,10 @@ It stops parallel work and prevents no refusal, and a hold that ends when a pull
 
 A hold by every earlier assignment that is not accepted, started or not, was rejected.
 A ready assignment would then wait behind one that waits on a dependency.
+
+Withholding started work, such as work in rework or an invalidated result, was rejected.
+Its base is already fixed, so the wait prevents no refusal, and two started assignments that overlap would each wait for the other for ever.
+An invalidated assignment and work that started after its first acceptance can overlap in this way.
 
 Ending the hold at result submission was rejected.
 The next dispatch would start from a base that does not hold the commit.

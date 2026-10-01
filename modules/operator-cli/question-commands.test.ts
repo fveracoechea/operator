@@ -41,7 +41,12 @@ function item(overrides: ItemOverrides) {
     kind: "production",
     approvedScope: `The approved scope of item ${overrides.key}.`,
     acceptanceRequirements: ["The quality gate passes."],
-    permissions: { writePaths: ["modules/"], allowedCommands: ["bun test"], network: false },
+    // Each item writes its own folder, so the frontier hold never orders them.
+    permissions: {
+      writePaths: [`modules/${overrides.key}/`],
+      allowedCommands: ["bun test"],
+      network: false,
+    },
     fixedInputs: [
       { name: "brief", kind: "value", value: `brief ${overrides.key}`, contentIdentity: null },
     ],

@@ -150,6 +150,7 @@ export type Reason =
   | "frontier_blocked"
   | "frontier_empty"
   | "dependency_pending"
+  | "write_paths_overlap"
   | "review_capacity_reserved"
   | "crew_at_capacity"
   | "unknown_attempt"

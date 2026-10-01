@@ -84,7 +84,8 @@ function item(overrides: ItemOverrides) {
     approvedScope: `The approved scope of item ${key}.`,
     acceptanceRequirements: ["The quality gate passes."],
     permissions: {
-      writePaths: writePaths ?? ["modules/"],
+      // Each item writes its own folder by default, so only a test that names a path overlaps.
+      writePaths: writePaths ?? [`modules/${key}/`],
       allowedCommands: ["bun test"],
       network: false,
     },
@@ -964,7 +965,7 @@ describe("operator work register", () => {
     expect(result.json.reason).toBe("unknown_source");
   });
 
-  test("reads back a write path that was stored before the grammar existed", async () => {
+  test("reads a write path that was stored before the grammar existed in its canonical form", async () => {
     const root = await makeProject();
     const token = await own(root);
     await register(root, token, {
@@ -980,7 +981,12 @@ describe("operator work register", () => {
     const result = await overlaps(root, "github:operator#15");
 
     expect(result.json.reason).toBe("overlaps_reported");
-    expect(result.json.data.overlaps).toEqual([]);
+    expect(
+      result.json.data.overlaps.map((one: { sourceKeys: string[] }) => ({
+        ...one,
+        sourceKeys: one.sourceKeys.map(nameOf),
+      })),
+    ).toEqual([{ sourceKeys: ["a", "b"], paths: [["docs/", "docs/old"]] }]);
   });
 });
 
@@ -1391,6 +1397,285 @@ describe("operator work frontier", () => {
     expect(
       frontier.json.data.dispatchable.map((one: { sourceKey: string }) => one.sourceKey),
     ).toEqual(["review-a"]);
+  });
+});
+
+type FrontierReading = {
+  dispatchable: Array<{ sourceKey: string }>;
+  blocked: Array<{
+    sourceKey: string;
+    blockers: Array<{ reason: string; [key: string]: unknown }>;
+  }>;
+};
+
+function offered(frontier: { json: { data: FrontierReading } }): string[] {
+  return frontier.json.data.dispatchable.map((one) => one.sourceKey);
+}
+
+function blockersOf(frontier: { json: { data: FrontierReading } }, key: string) {
+  return frontier.json.data.blocked.find((one) => one.sourceKey === key)?.blockers ?? [];
+}
+
+/** Writes the write paths of one assignment as an earlier release could have stored them. */
+function storeWritePaths(root: string, assignmentId: string, writePaths: string[]): void {
+  const sqlite = new Database(`${root}/.operator/local/crew-state.sqlite`);
+  sqlite.run(
+    "update assignments set permissions = json_set(permissions, '$.writePaths', json(?)) where id = ?",
+    [JSON.stringify(writePaths), assignmentId],
+  );
+  sqlite.close();
+}
+
+describe("the frontier holds the write paths of unaccepted work", () => {
+  const command = "operator work overlaps --source github:operator#15";
+
+  test("withholds a production assignment that overlaps work offered earlier in the reading", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+    const registered = await register(root, token, {
+      items: [
+        item({ key: "a", writePaths: ["modules/crew-state/"] }),
+        item({ key: "b", writePaths: ["modules/crew-state/frontier.ts", "docs/b.md"] }),
+        item({ key: "c", writePaths: ["docs/c.md"] }),
+      ],
+    });
+
+    const frontier = await runJson(root, ["work", "frontier"]);
+
+    // The withheld entry takes no slot, so the next entry in priority order is offered.
+    expect(offered(frontier)).toEqual(["a", "c"]);
+    expect(blockersOf(frontier, "b")).toEqual([
+      {
+        reason: "write_paths_overlap",
+        holders: [
+          {
+            assignmentId: assignmentIdOf(registered.json, "a"),
+            sourceKey: "a",
+            hold: "offered",
+            pathPairCount: 1,
+          },
+        ],
+        command,
+      },
+    ]);
+  });
+
+  test("a started assignment holds its paths, and a claim refuses through the same frontier", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+    const registered = await register(root, token, {
+      items: [
+        item({ key: "a", writePaths: ["modules/crew-state/"] }),
+        item({ key: "b", writePaths: ["modules/crew-state/frontier.ts"] }),
+      ],
+    });
+    const holder = assignmentIdOf(registered.json, "a");
+    await claim(root, token, holder, 1);
+
+    const frontier = await runJson(root, ["work", "frontier"]);
+    const expected = [
+      {
+        reason: "write_paths_overlap",
+        holders: [{ assignmentId: holder, sourceKey: "a", hold: "started", pathPairCount: 1 }],
+        command,
+      },
+    ];
+    expect(offered(frontier)).toEqual([]);
+    expect(blockersOf(frontier, "b")).toEqual(expected);
+
+    const refused = await claim(root, token, assignmentIdOf(registered.json, "b"), 1);
+    expect(refused.exitCode).toBe(3);
+    expect(refused.json.reason).toBe("assignment_not_dispatchable");
+    expect(refused.json.blockers).toEqual(expected);
+
+    // The command that the blocker names lists the pair that withholds the work.
+    const listed = await runJson(root, command.split(" ").slice(1));
+    expect(listed.json.data.overlaps).toEqual([
+      {
+        sourceKeys: ["a", "b"],
+        paths: [["modules/crew-state/", "modules/crew-state/frontier.ts"]],
+      },
+    ]);
+  });
+
+  test("reads a write path stored by an earlier release in its canonical form", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+    const registered = await register(root, token, {
+      items: [
+        item({ key: "a", writePaths: ["modules/crew-state/"] }),
+        item({ key: "b", writePaths: ["modules/crew-state/frontier.ts"] }),
+      ],
+    });
+    const holder = assignmentIdOf(registered, "a");
+    await claim(root, token, holder, 1);
+    // An earlier release stored write paths with no grammar.
+    storeWritePaths(root, holder, ["./modules//crew-state/old/../"]);
+
+    const frontier = await runJson(root, ["work", "frontier"]);
+
+    expect(offered(frontier)).toEqual([]);
+    expect(blockersOf(frontier, "b")).toEqual([
+      {
+        reason: "write_paths_overlap",
+        holders: [{ assignmentId: holder, sourceKey: "a", hold: "started", pathPairCount: 1 }],
+        command,
+      },
+    ]);
+  });
+
+  test("refuses a stored write path that has no canonical form, and names it", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+    const registered = await register(root, token, {
+      items: [
+        item({ key: "a", writePaths: ["modules/crew-state/"] }),
+        item({ key: "b", writePaths: ["docs/b.md"] }),
+      ],
+    });
+    storeWritePaths(root, assignmentIdOf(registered, "a"), ["modules/../../outside/"]);
+
+    const refused = await runOperator(root, ["work", "frontier", "--json"]);
+
+    expect(refused.exitCode).not.toBe(0);
+    expect(refused.stdout + refused.stderr).toContain(
+      'the stored write path "modules/../../outside/" leaves the repository root',
+    );
+  });
+
+  test("lists every holder by assignment id with its number of overlapping pairs", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+    const registered = await register(root, token, {
+      items: [
+        item({ key: "b", writePaths: ["docs/b.md"] }),
+        item({ key: "a", writePaths: ["modules/x/two.ts", "modules/x/one.ts"] }),
+        item({ key: "c", writePaths: ["modules/x/", "docs/", "skills/"] }),
+      ],
+    });
+    const first = assignmentIdOf(registered.json, "a");
+    const second = assignmentIdOf(registered.json, "b");
+    // The started holder is found before the holder this reading offers, so only the sort puts
+    // the smaller assignment id first.
+    expect(first < second).toBe(true);
+    await claim(root, token, second, 1);
+
+    const frontier = await runJson(root, ["work", "frontier"]);
+
+    expect(offered(frontier)).toEqual(["a"]);
+    expect(blockersOf(frontier, "c")).toEqual([
+      {
+        reason: "write_paths_overlap",
+        holders: [
+          { assignmentId: first, sourceKey: "a", hold: "offered", pathPairCount: 2 },
+          { assignmentId: second, sourceKey: "b", hold: "started", pathPairCount: 1 },
+        ],
+        command,
+      },
+    ]);
+  });
+
+  test("checks the overlap after the dependencies and before the crew capacity", async () => {
+    const root = await makeProject({
+      ".operator/config.json": `${JSON.stringify({ operator: {}, crew: { maxActiveAgents: 1 } })}\n`,
+    });
+    const token = await own(root);
+    await register(root, token, {
+      items: [
+        item({ key: "a", writePaths: ["docs/"] }),
+        item({ key: "b", writePaths: ["docs/b.md"] }),
+        item({ key: "c", writePaths: ["docs/c.md"], dependsOn: [{ key: "b" }] }),
+      ],
+    });
+
+    const frontier = await runJson(root, ["work", "frontier"]);
+
+    expect(offered(frontier)).toEqual(["a"]);
+    expect(blockersOf(frontier, "b").map((one) => one.reason)).toEqual(["write_paths_overlap"]);
+    expect(blockersOf(frontier, "c").map((one) => one.reason)).toEqual(["dependency_pending"]);
+  });
+
+  test("an assignment that has not started holds nothing", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+    await register(root, token, {
+      items: [
+        item({ key: "gate", kind: "planning", writePaths: [] }),
+        item({ key: "a", writePaths: ["docs/"], dependsOn: [{ key: "gate" }] }),
+        item({ key: "b", writePaths: ["docs/b.md"] }),
+      ],
+    });
+
+    const frontier = await runJson(root, ["work", "frontier"]);
+
+    // The earlier entry waits on its dependency, so it never stands in front of a ready one.
+    expect(offered(frontier)).toEqual(["b"]);
+    expect(blockersOf(frontier, "a").map((one) => one.reason)).toEqual(["dependency_pending"]);
+  });
+
+  test("review and planning work hold no write paths, started or offered", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+    const registered = await register(root, token, {
+      items: [
+        item({ key: "r", kind: "review", writePaths: ["docs/"] }),
+        item({ key: "s", kind: "review", writePaths: ["docs/"] }),
+        item({ key: "p", kind: "planning", writePaths: ["docs/"] }),
+        item({ key: "a", writePaths: ["docs/a.md"] }),
+      ],
+    });
+
+    // The review comes first in priority order, so an offered review would hold the paths.
+    const unstarted = await runJson(root, ["work", "frontier"]);
+    expect(offered(unstarted)).toEqual(["r", "s", "a"]);
+
+    await claim(root, token, assignmentIdOf(registered.json, "r"), 1);
+    const started = await runJson(root, ["work", "frontier"]);
+    expect(offered(started)).toEqual(["s", "a"]);
+
+    // Review work is never withheld either, also when started production work holds its paths.
+    await claim(root, token, assignmentIdOf(registered.json, "a"), 1);
+    const held = await runJson(root, ["work", "frontier"]);
+    expect(offered(held)).toEqual(["s"]);
+  });
+
+  test("holds paths only inside one source", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+    const first = await register(root, token, {
+      id: "github:operator#15",
+      items: [item({ key: "a", writePaths: ["docs/"] })],
+    });
+    await register(root, token, {
+      id: "github:operator#16",
+      items: [item({ key: "b", writePaths: ["docs/"] })],
+    });
+
+    // Both are offered in one reading, and a started holder of one source holds nothing in the other.
+    const unstarted = await runJson(root, ["work", "frontier"]);
+    expect(offered(unstarted)).toEqual(["a", "b"]);
+
+    await claim(root, token, assignmentIdOf(first.json, "a"), 1);
+    const started = await runJson(root, ["work", "frontier"]);
+    expect(offered(started)).toEqual(["b"]);
+  });
+
+  test("holds paths that the repository does not hold", async () => {
+    // The project is no repository and holds none of the paths, and the hold still applies.
+    const root = await makeProject();
+    const token = await own(root);
+    await register(root, token, {
+      items: [
+        item({ key: "a", writePaths: ["not/there/"] }),
+        item({ key: "b", writePaths: ["not/there/yet.ts"] }),
+      ],
+    });
+
+    const frontier = await runJson(root, ["work", "frontier"]);
+
+    expect(await Bun.file(`${root}/not/there/yet.ts`).exists()).toBe(false);
+    expect(offered(frontier)).toEqual(["a"]);
+    expect(blockersOf(frontier, "b").map((one) => one.reason)).toEqual(["write_paths_overlap"]);
   });
 });
 

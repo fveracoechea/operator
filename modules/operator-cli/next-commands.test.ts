@@ -159,7 +159,13 @@ describe("the next actions", () => {
     const workspace = await makeReviewWorkspace(fixtures, { maxActiveAgents: 1 });
     const producer = await startProducer(workspace);
     const registered = await registerDependents(workspace, producer, [
-      { key: "26.2", kind: "production", title: "Independent work", dependsOn: [] },
+      {
+        key: "26.2",
+        kind: "production",
+        title: "Independent work",
+        dependsOn: [],
+        writePaths: ["docs/independent.md"],
+      },
     ]);
 
     const reported = await nextActions(workspace);
@@ -364,7 +370,13 @@ describe("the next actions", () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const producer = await startProducer(workspace);
     const registered = await registerDependents(workspace, producer, [
-      { key: "26.2", kind: "production", title: "Independent work", dependsOn: [] },
+      {
+        key: "26.2",
+        kind: "production",
+        title: "Independent work",
+        dependsOn: [],
+        writePaths: ["docs/independent.md"],
+      },
     ]);
     const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "the result\n");

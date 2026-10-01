@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { readStored } from "./stored.ts";
-import { writePathRefusal } from "./write-paths.ts";
+import { canonicalWritePath, writePathRefusal } from "./write-paths.ts";
 
 export type AssignmentKind = "production" | "review" | "planning";
 
@@ -53,10 +53,21 @@ const writePath = z.string().superRefine((path, context) => {
   }
 });
 
-// A crew state can hold work registered before the write-path grammar existed, so a stored
-// record is read back in the shape it was written, not refused at dispatch.
+// A crew state can hold work registered before the write-path grammar existed. A stored path is
+// read in its canonical form, so the frontier hold and submit compare it with the one matcher. A
+// stored path with no canonical form fails loudly, because a hold that cannot read it could miss
+// an overlap with no sign.
+const storedWritePath = z.string().transform((path, context) => {
+  const read = canonicalWritePath(path);
+  if ("refusal" in read) {
+    context.addIssue({ code: "custom", message: read.refusal });
+    return z.NEVER;
+  }
+  return read.canonical;
+});
+
 const permissionRecord = z.strictObject({
-  writePaths: z.array(z.string().min(1)),
+  writePaths: z.array(storedWritePath),
   allowedCommands: z.array(z.string().min(1)),
   network: z.boolean(),
 });

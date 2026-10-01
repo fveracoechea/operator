@@ -168,10 +168,7 @@ async function runRegister(parsed: ParsedArguments): Promise<Handled> {
         source: result.source,
         registered: result.registered,
         existing: result.existing,
-        overlaps: {
-          ...result.overlaps,
-          command: `operator work overlaps --source ${result.source.id}`,
-        },
+        overlaps: result.overlaps,
         repeated,
       },
     },
@@ -188,7 +185,7 @@ async function runRegister(parsed: ParsedArguments): Promise<Handled> {
         ? []
         : [
             `${result.overlaps.pairCount} pair(s) of items write overlapping paths: ${result.overlaps.sourceKeys.join(", ")}.`,
-            `List them with: operator work overlaps --source ${result.source.id}`,
+            `List them with: ${result.overlaps.command}`,
           ]),
     ],
   });

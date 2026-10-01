@@ -596,6 +596,7 @@ export async function registerDependents(
     kind: "production" | "planning";
     title: string;
     dependsOn?: string[];
+    writePaths?: string[];
   }>,
 ) {
   const registered = await runJson(workspace, [
@@ -615,7 +616,11 @@ export async function registerDependents(
         kind: item.kind,
         approvedScope: item.title,
         acceptanceRequirements: REQUIREMENTS,
-        permissions: { writePaths: ["modules/"], allowedCommands: ["bun test"], network: false },
+        permissions: {
+          writePaths: item.writePaths ?? ["modules/"],
+          allowedCommands: ["bun test"],
+          network: false,
+        },
         fixedInputs: [],
         dependsOn: (item.dependsOn ?? ["22.1"]).map((key) => ({ key })),
       })),
