@@ -648,6 +648,24 @@ async function runShow(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
+type ResultRefusal = Extract<
+  Awaited<ReturnType<typeof CrewState.submit>>["result"],
+  { status: "result-refused" }
+>["refusals"][number];
+
+function refusalLine(refusal: ResultRefusal): string {
+  switch (refusal.reason) {
+    case "result_not_one_commit":
+      return `  result_not_one_commit: ${refusal.commits.length} commit(s) since base ${refusal.baseCommit}, and the submission names result ${refusal.statedResult} on base ${refusal.statedBase}.`;
+    case "uncommitted_work":
+      return `  uncommitted_work: ${refusal.paths.join(", ")}`;
+    case "outside_write_paths":
+      return `  outside_write_paths: ${refusal.paths.join(", ")}`;
+    case "result_check_not_run":
+      return `  result_check_not_run: the ${refusal.check} check did not run. ${refusal.detail}`;
+  }
+}
+
 async function runSubmit(parsed: ParsedArguments): Promise<Handled> {
   const { requestId, attemptId, inputPath } = parsed.crew;
   if (requestId === undefined || attemptId === undefined || inputPath === undefined) {
@@ -732,6 +750,26 @@ async function runSubmit(parsed: ParsedArguments): Promise<Handled> {
           ? `Artifact ${result.name} is not at ${result.path} in this worktree.`
           : `Artifact ${result.name} at ${result.path} does not match the identity you stated.`,
         "A review reads fixed evidence, so nothing was submitted.",
+      ],
+    });
+    return "reported";
+  }
+
+  if (result.status === "result-refused") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "conflict",
+        // The refusals come in the order submit checks them, so the first one names the result.
+        reason: result.refusals[0].reason,
+        blockers: result.refusals,
+        operation: "attempt_submit",
+        data: { attemptId: result.attemptId },
+      },
+      lines: [
+        "This result breaks its authority limits, so nothing was submitted:",
+        ...result.refusals.map(refusalLine),
+        "This attempt still runs. Fix each refusal, then submit again.",
       ],
     });
     return "reported";

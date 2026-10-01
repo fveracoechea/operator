@@ -4,7 +4,6 @@ import {
   type FixedArtifact,
   type FixedCheck,
   type FixedCode,
-  pullRequestLine,
 } from "./fixed-result.ts";
 
 /**
@@ -93,7 +92,6 @@ export function submittedResultSection(review: ReviewBrief): string[] {
           `- Submitted commit: ${review.code.resultCommit}`,
           `- Merge base: ${review.code.mergeBase}`,
           `- Branch: ${review.code.branch}`,
-          pullRequestLine(review.code.pullRequest),
         ]),
     "",
     "### Artifacts",

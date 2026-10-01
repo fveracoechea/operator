@@ -257,8 +257,6 @@ function productionProtocolSection(brief: Brief, invocation: string): string[] {
     "```",
     "",
     ...ruleLines(brief.rules.submit),
-    // ADR 0015 makes a code result one commit. Until submit checks it, the line is prose.
-    "A code result is exactly one commit, and its parent is the base commit in the Identity section.",
     "A submission is a handoff to a separate review, never accepted completion.",
     "",
     ...questionSection(brief, invocation),

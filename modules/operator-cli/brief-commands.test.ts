@@ -94,7 +94,7 @@ async function acknowledge(workspace: Workspace, attemptId: string, cwd: string)
 async function submittedResult(workspace: Workspace, producer: Producer) {
   const base = await headCommit(workspace);
   const artifact = await commitArtifact(workspace, producer, "# Result\n");
-  const body = submissionBody(producer, artifact, base);
+  const body = submissionBody(producer, artifact);
   return { base, artifact, body };
 }
 
@@ -123,6 +123,17 @@ describe("the brief states each refusal beside its command", () => {
           rule: "Run this only after the acknowledgement above succeeded.",
           // This scenario runs first, while the attempt is still unacknowledged.
           breaks: () => submit(workspace, producer, body),
+        },
+        {
+          refusal: "result_not_one_commit",
+          rule: "A code result is exactly one commit, its parent is the base commit in the Identity section, and `code.baseCommit` and `code.resultCommit` name those two commits.",
+          breaks: async () => {
+            await acknowledge(workspace, producer.attemptId, producer.worktreePath);
+            return submit(workspace, producer, {
+              ...body,
+              code: { ...body.code, resultCommit: producer.baseCommit },
+            });
+          },
         },
         {
           refusal: "artifact_unreadable",
@@ -167,11 +178,6 @@ describe("the brief states each refusal beside its command", () => {
       ],
       "review report": [],
     });
-    // ADR 0015 makes a code result one commit, and no check refuses it yet, so it is prose.
-    expect(brief).toContain(
-      "A code result is exactly one commit, and its parent is the base commit in the Identity section.",
-    );
-
     // Every refusal left the attempt running, so the result that keeps every rule submits.
     expect((await submit(workspace, producer, body)).json.reason).toBe("result_submitted");
   });

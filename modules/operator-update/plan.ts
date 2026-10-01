@@ -21,6 +21,7 @@ export type UpdateBlocker = {
     | "state_version_unsupported"
     | "unreadable_state"
     | "unmigratable_state"
+    | "code_submission_waiting"
     | "unreadable_selection"
     | "lock_data_missing"
     | "package_version_required"
@@ -116,6 +117,17 @@ export async function computeUpdatePlan(request: UpdateRequest): Promise<UpdateP
         "unmigratable_state",
         migration.detail,
         "This release cannot carry that format forward. Report it rather than replacing the file.",
+        [migration.path],
+      ),
+    );
+  }
+
+  if (migration.status === "held") {
+    blockers.push(
+      blocker(
+        "code_submission_waiting",
+        [migration.detail, ...migration.holds].join(" "),
+        "Finish review and acceptance of each named submission under the earlier release, then plan the update again.",
         [migration.path],
       ),
     );

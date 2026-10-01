@@ -1314,10 +1314,9 @@ describe("operator attempt submit", () => {
   test("hands a fixed result to a separate review instead of accepting it", async () => {
     const workspace = await makeReviewingWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n\nThe finished work.\n");
 
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
 
     expect(submitted.exitCode).toBe(6);
     expect(submitted.json.reason).toBe("result_submitted");
@@ -1341,11 +1340,15 @@ describe("operator attempt submit", () => {
   test("refuses an artifact whose content no longer matches its stated identity", async () => {
     const workspace = await makeReviewingWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    await Bun.write(`${producer.worktreePath}/${artifact.path}`, "# Changed after the identity\n");
 
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(
+      workspace,
+      producer,
+      submissionBody(producer, artifact, {
+        artifactIdentity: ContentIdentity.ofText("# Changed after the identity\n"),
+      }),
+    );
 
     expect(submitted.exitCode).toBe(4);
     expect(submitted.json.reason).toBe("artifact_identity_changed");
@@ -1354,13 +1357,12 @@ describe("operator attempt submit", () => {
   test("refuses an artifact that is not in the worktree", async () => {
     const workspace = await makeReviewingWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
 
     const submitted = await submit(
       workspace,
       producer,
-      submissionBody(producer, artifact, base, { artifactPath: "docs/absent.md" }),
+      submissionBody(producer, artifact, { artifactPath: "docs/absent.md" }),
     );
 
     expect(submitted.exitCode).toBe(3);
@@ -1370,13 +1372,12 @@ describe("operator attempt submit", () => {
   test("refuses a submission that states requirements the assignment does not hold", async () => {
     const workspace = await makeReviewingWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
 
     const submitted = await submit(
       workspace,
       producer,
-      submissionBody(producer, artifact, base, {
+      submissionBody(producer, artifact, {
         requirementsIdentity: ContentIdentity.of(["Something else."]),
       }),
     );
@@ -1388,13 +1389,12 @@ describe("operator attempt submit", () => {
   test("refuses a submission that states a stale assignment revision", async () => {
     const workspace = await makeReviewingWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
 
     const submitted = await submit(
       workspace,
       producer,
-      submissionBody(producer, artifact, base, { assignmentRevision: 1 }),
+      submissionBody(producer, artifact, { assignmentRevision: 1 }),
     );
 
     expect(submitted.exitCode).toBe(4);
@@ -1404,9 +1404,8 @@ describe("operator attempt submit", () => {
   test("a repeated submission reports the recorded one and creates no second review", async () => {
     const workspace = await makeReviewingWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const body = submissionBody(producer, artifact, base);
+    const body = submissionBody(producer, artifact);
 
     const first = await submit(workspace, producer, body);
     const second = await submit(workspace, producer, body);
@@ -1429,7 +1428,7 @@ describe("operator attempt dispatch for a review", () => {
     const producer = await startProducer(workspace);
     const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
 
     const claimed = await runJson(workspace, [
       "work",
@@ -1466,9 +1465,8 @@ describe("operator attempt dispatch for a review", () => {
   test("a checkout with no review skill blocks the reviewer before it starts", async () => {
     const workspace = await makeReviewingWorkspace({ reviewSkill: false });
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
 
     const claimed = await runJson(workspace, [
       "work",
@@ -1511,9 +1509,8 @@ describe("operator attempt replace for a review", () => {
   test("a replacement reviewer reopens a blocked review, and the attempts are bounded", async () => {
     const workspace = await makeReviewingWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const reviewId = submitted.json.data.reviewId;
     const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
 
@@ -1574,9 +1571,8 @@ describe("operator attempt replace for a review", () => {
   test("a failing review host escalates instead of taking the crew", async () => {
     const workspace = await makeReviewingWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const reviewId = submitted.json.data.reviewId;
     const first = await startReviewer(workspace, producer, submitted.json, artifact.commit);
 
@@ -1627,9 +1623,8 @@ describe("operator attempt replace for a review", () => {
   test("a second review that reaches the same limit keeps the first one on the record", async () => {
     const workspace = await makeReviewingWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const first = await startReviewer(workspace, producer, submitted.json, artifact.commit);
 
     const limited = await reviewToItsLimit(workspace, producer, submitted.json, first);
@@ -1665,7 +1660,7 @@ describe("operator attempt replace for a review", () => {
     const again = await submit(
       workspace,
       reworked,
-      submissionBody(reworked, combined, base, {
+      submissionBody(reworked, combined, {
         assignmentRevision: reworked.assignmentRevision,
       }),
     );

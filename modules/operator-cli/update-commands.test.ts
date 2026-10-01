@@ -9,6 +9,16 @@ import {
   type Workspace,
   workspaces,
 } from "./workspace-fixture.ts";
+import {
+  commitArtifact,
+  delegateRework,
+  makeReviewWorkspace,
+  registerDependents,
+  startRework,
+  startProducer,
+  submissionBody,
+  submit,
+} from "./review-cycle-fixture.ts";
 
 // Update tests run separate CLI processes against project and crew state.
 setDefaultTimeout(60_000);
@@ -58,6 +68,12 @@ function sourceKindOf(answerId: string): string | null {
   };
   sqlite.close();
   return row.source_kind;
+}
+
+function setStateVersion(version: number): void {
+  const sqlite = new Database(statePath(), { create: false, readwrite: true });
+  sqlite.query("update state_meta set state_version = ?").run(version);
+  sqlite.close();
 }
 
 function stateVersion(): number {
@@ -321,7 +337,7 @@ describe("recorded formats", () => {
 
     expect(applied.exitCode).toBe(0);
     expect(applied.json.data.migration.status).toBe("migrated");
-    expect(stateVersion()).toBe(3);
+    expect(stateVersion()).toBe(4);
     expect(recordedRelease()).toBe(applied.json.data.selection.releaseIdentity);
     expect((await runJson(workspace, ["work", "frontier"])).exitCode).toBe(0);
   });
@@ -355,5 +371,166 @@ describe("recorded formats", () => {
     expect(applied.json.blockers[0].restored).toContain(".operator/local/crew-state.sqlite");
     expect(stateVersion()).toBe(1);
     expect(new Uint8Array(await Bun.file(statePath()).arrayBuffer())).toEqual(before);
+  });
+
+  test("refuses to migrate while a code submission waits, and names each one", async () => {
+    const reviewing = await makeReviewWorkspace(fixtures);
+    workspace = reviewing;
+    const producer = await startProducer(reviewing);
+    const artifact = await commitArtifact(reviewing, producer, "# Result\n");
+    const submitted = await submit(reviewing, producer, submissionBody(producer, artifact));
+    setStateVersion(3);
+
+    const planned = await plan();
+
+    expect(planned.json.reason).toBe("update_blocked");
+    const waiting = planned.json.blockers.find(
+      (one: { reason: string }) => one.reason === "code_submission_waiting",
+    );
+    expect(waiting.detail).toContain(
+      `Code submission ${submitted.json.data.submissionId} of assignment ${producer.assignmentId} waits for review or acceptance.`,
+    );
+    expect(planned.json.data.migration.status).toBe("held");
+    expect(stateVersion()).toBe(3);
+  });
+
+  test("names every waiting code submission, and not the one a rework replaced", async () => {
+    const reviewing = await makeReviewWorkspace(fixtures);
+    workspace = reviewing;
+    const producer = await startProducer(reviewing);
+    const flaky = [{ name: "quality", command: "bun run quality", outcome: "flaky", detail: "" }];
+    const first = await commitArtifact(reviewing, producer, "# Result 0\n");
+    const replaced = await submit(
+      reviewing,
+      producer,
+      submissionBody(producer, first, { checks: flaky }),
+    );
+    const delegated = await delegateRework(reviewing, producer, {
+      revision: replaced.json.data.revision,
+      body: {
+        reason: "diagnostic",
+        checks: ["quality"],
+        instruction: "Run the quality gate again.",
+        conflicts: [],
+      },
+    });
+    const reworked = await startRework(reviewing, producer, {
+      revision: delegated.json.data.revision,
+      commit: first.commit,
+      worktreePath: `${reviewing.root}/rework`,
+    });
+    const revision = await commitArtifact(reviewing, reworked, "# Result 1\n");
+    const waiting = await submit(
+      reviewing,
+      reworked,
+      submissionBody(reworked, revision, { assignmentRevision: reworked.assignmentRevision }),
+    );
+    const registered = await registerDependents(reviewing, producer, [
+      {
+        key: "22.4",
+        kind: "production",
+        title: "The other result",
+        dependsOn: [],
+        writePaths: ["notes/"],
+      },
+    ]);
+    const other = await startRework(reviewing, producer, {
+      revision: 1,
+      commit: producer.baseCommit,
+      worktreePath: `${reviewing.root}/other`,
+      assignmentId: registered.get("22.4") ?? "",
+    });
+    const otherArtifact = await commitArtifact(reviewing, other, "# Other\n", "notes/other.md");
+    const alsoWaiting = await submit(
+      reviewing,
+      other,
+      submissionBody(other, otherArtifact, { assignmentRevision: other.assignmentRevision }),
+    );
+    expect(waiting.json.reason).toBe("result_submitted");
+    expect(alsoWaiting.json.reason).toBe("result_submitted");
+    setStateVersion(3);
+
+    const planned = await plan();
+
+    expect(planned.json.data.migration.holds).toEqual([
+      `Code submission ${waiting.json.data.submissionId} of assignment ${producer.assignmentId} waits for review or acceptance.`,
+      `Code submission ${alsoWaiting.json.data.submissionId} of assignment ${other.assignmentId} waits for review or acceptance.`,
+    ]);
+    expect(planned.json.data.migration.holds.join(" ")).not.toContain(
+      replaced.json.data.submissionId,
+    );
+  });
+
+  test("does not hold for a code assignment in rework, whose newest row still waits", async () => {
+    const reviewing = await makeReviewWorkspace(fixtures);
+    workspace = reviewing;
+    const producer = await startProducer(reviewing);
+    const flaky = [{ name: "quality", command: "bun run quality", outcome: "flaky", detail: "" }];
+    const artifact = await commitArtifact(reviewing, producer, "# Result\n");
+    const submitted = await submit(
+      reviewing,
+      producer,
+      submissionBody(producer, artifact, { checks: flaky }),
+    );
+    const delegated = await delegateRework(reviewing, producer, {
+      revision: submitted.json.data.revision,
+      body: {
+        reason: "diagnostic",
+        checks: ["quality"],
+        instruction: "Run the quality gate again.",
+        conflicts: [],
+      },
+    });
+    expect(delegated.json.reason).toBe("rework_delegated");
+    setStateVersion(3);
+
+    const planned = await plan();
+
+    // The rework submits a new result under the new release, so nothing waits on the old one.
+    expect(planned.json.data.migration.holds).toEqual([]);
+  });
+
+  test("migrates an accepted code submission and keeps its pull request as history", async () => {
+    const reviewing = await makeReviewWorkspace(fixtures);
+    workspace = reviewing;
+    const producer = await startProducer(reviewing);
+    const artifact = await commitArtifact(reviewing, producer, "# Result\n");
+    const submitted = await submit(reviewing, producer, submissionBody(producer, artifact));
+    const submissionId = submitted.json.data.submissionId;
+    // An earlier release recorded a pull request on the result, and the user accepted it there.
+    const history = { status: "open", number: 41, headCommit: artifact.commit };
+    const sqlite = new Database(statePath(), { create: false, readwrite: true });
+    const code = JSON.parse(
+      (
+        sqlite.query("select code from submissions where id = ?").get(submissionId) as {
+          code: string;
+        }
+      ).code,
+    );
+    sqlite
+      .query("update submissions set state = 'accepted', code = ? where id = ?")
+      .run(JSON.stringify({ ...code, pullRequest: history }), submissionId);
+    sqlite.query("update assignments set state = 'accepted' where kind = 'production'").run();
+    sqlite.query("update assignments set state = 'invalidated' where kind = 'review'").run();
+    sqlite.close();
+    setStateVersion(3);
+
+    const { applied } = await apply();
+
+    expect(applied.json.data.migration.status).toBe("migrated");
+    expect(stateVersion()).toBe(4);
+    const stored = new Database(statePath(), { create: false, readonly: true });
+    const kept = stored.query("select code from submissions where id = ?").get(submissionId) as {
+      code: string;
+    };
+    stored.close();
+    expect(JSON.parse(kept.code).pullRequest).toEqual(history);
+    const shown = await runJson(workspace, [
+      "review",
+      "show",
+      "--review",
+      submitted.json.data.reviewId,
+    ]);
+    expect(shown.exitCode).toBe(0);
   });
 });

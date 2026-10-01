@@ -11,7 +11,11 @@ export type MigrationStep = {
   to: number;
   summary: string;
   apply: (sqlite: Database) => void;
+  // What in the file this step cannot carry forward, one line each. Any line stops the step.
+  holds?: (sqlite: Database) => string[];
 };
+
+type WaitingRow = { id: string; assignment_id: string };
 
 export const MIGRATIONS: MigrationStep[] = [
   {
@@ -31,6 +35,32 @@ export const MIGRATIONS: MigrationStep[] = [
       // An earlier release checked no quote, so its requirements say so rather than claim a copy.
       sqlite.exec("update answers set source_kind = 'unchecked' where authority = 'requirement'");
     },
+  },
+  {
+    from: 3,
+    to: 4,
+    summary: "Record each code result as one commit, with no pull request.",
+    // An accepted record keeps its pull request as history, and its reader ignores it. A result
+    // that still waits was produced under the pull request rules, so it finishes under them.
+    holds: (sqlite) =>
+      sqlite
+        .query<WaitingRow, []>(
+          // Rework adds a new submission and leaves the old row as it was, so only the newest
+          // submission of an assignment that still awaits review is work in flight.
+          `select s.id, s.assignment_id from submissions s
+           join assignments a on a.id = s.assignment_id
+           where s.code is not null and s.state = 'awaiting-review' and a.state = 'awaiting-review'
+             and s.assignment_revision = (
+               select max(o.assignment_revision) from submissions o where o.assignment_id = s.assignment_id
+             )
+           order by s.submitted_at, s.id`,
+        )
+        .all()
+        .map(
+          (row) =>
+            `Code submission ${row.id} of assignment ${row.assignment_id} waits for review or acceptance.`,
+        ),
+    apply: () => {},
   },
 ];
 

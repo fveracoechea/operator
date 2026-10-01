@@ -29,6 +29,7 @@ import {
 import { readState, type RequestFailure, type StateFailure } from "./operations.ts";
 import { requireOwnership } from "./ownership.ts";
 import { identityOf } from "./identity.ts";
+import { ONE_COMMIT_RULE } from "./result-checks.ts";
 
 export type Overrides = Parameters<typeof ProjectReadiness.snapshot>[0]["overrides"];
 
@@ -150,7 +151,10 @@ export function briefOf(context: AttemptContext, attemptId: string): Brief {
     // A reviewer reports and never submits, so it receives none of the producer's rules.
     rules:
       review === null
-        ? { submit: [ACKNOWLEDGED_RULE, ...ARTIFACT_RULES, ...SUBMIT_RULES], report: [] }
+        ? {
+            submit: [ACKNOWLEDGED_RULE, ONE_COMMIT_RULE, ...ARTIFACT_RULES, ...SUBMIT_RULES],
+            report: [],
+          }
         : { submit: [], report: [ACKNOWLEDGED_RULE, ...REPORT_RULES] },
     review:
       review === null

@@ -353,9 +353,8 @@ describe("a fresh Operator after session loss", () => {
   test("resumes a submitted result without adopting an attempt that already ended", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "the result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     expect(submitted.exitCode).toBe(6);
     await ownCrew(workspace, { label: "second-session", takeoverFrom: 1 });
 
@@ -371,9 +370,8 @@ describe("a fresh Operator after session loss", () => {
   test("resumes a review that already reported", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "the result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
     await reportReview(
       workspace,
@@ -428,9 +426,8 @@ describe("a fresh Operator after session loss", () => {
   test("resumes an assignment whose rework cycle is still open", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "the result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
     await reportReview(
       workspace,
@@ -516,9 +513,8 @@ describe("a fresh Operator after session loss", () => {
   test("keeps a retention hold visible to the session that inherits it", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "the result\n");
-    await submit(workspace, producer, submissionBody(producer, artifact, base));
+    await submit(workspace, producer, submissionBody(producer, artifact));
     const held = await runJson(workspace, [
       "cleanup",
       "hold",

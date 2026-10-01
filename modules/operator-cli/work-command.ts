@@ -542,23 +542,6 @@ async function runAccept(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
-  if (result.status === "pr-authority-missing") {
-    return refuse({
-      json: parsed.json,
-      operation: "work_accept",
-      outcome: "missing-condition",
-      reason: "pr_authority_missing",
-      detail: {
-        assignmentId: result.assignmentId,
-        detail: result.detail,
-      },
-      lines: [
-        "This implementation carries no pull request, so it cannot be accepted.",
-        result.detail,
-      ],
-    });
-  }
-
   if (result.status === "direction-required") {
     report({
       json: parsed.json,
@@ -633,10 +616,9 @@ async function runAccept(parsed: ParsedArguments): Promise<Handled> {
       },
       lines: [
         required
-          ? `Name the pull request head you read with --pr-head. The submission stated ${result.headCommit}.`
-          : `You read head ${result.stated}. The submission stated ${result.recorded}.`,
+          ? `Name the reviewed commit you read with --pr-head. The submission recorded ${result.headCommit}.`
+          : `You read commit ${result.stated}. The submission recorded ${result.recorded}.`,
         "Evidence binds to the revision it was proven against.",
-        "Operator does not read the pull request itself, so the head you name is the head it checks.",
       ],
     });
     return "reported";

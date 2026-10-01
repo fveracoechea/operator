@@ -74,7 +74,7 @@ export async function startProducer(
         kind: "production",
         approvedScope: "Build the reviewed result path.",
         acceptanceRequirements: REQUIREMENTS,
-        permissions: { writePaths: ["modules/"], allowedCommands: ["bun test"], network: false },
+        permissions: { writePaths: ["docs/"], allowedCommands: ["bun test"], network: false },
         fixedInputs,
         dependsOn: [],
       },
@@ -106,6 +106,7 @@ export async function startProducer(
   ]);
   const attemptId = claimed.json.data.attemptId;
   const worktreePath = `${workspace.root}/operative`;
+  const baseCommit = await headCommit(workspace);
 
   await runJson(workspace, [
     "attempt",
@@ -117,7 +118,7 @@ export async function startProducer(
     "--attempt",
     attemptId,
     "--commit",
-    await headCommit(workspace),
+    baseCommit,
     "--worktree",
     worktreePath,
   ]);
@@ -134,6 +135,7 @@ export async function startProducer(
     assignmentId,
     attemptId,
     worktreePath,
+    baseCommit,
     assignmentRevision: claimed.json.data.revision as number,
   };
 }
@@ -141,8 +143,12 @@ export async function startProducer(
 export type Producer = Awaited<ReturnType<typeof startProducer>>;
 
 /** Writes one artifact into the Operative worktree and commits it, as a real result would. */
-export async function commitArtifact(workspace: Workspace, producer: Producer, text: string) {
-  const relative = "docs/result.md";
+export async function commitArtifact(
+  workspace: Workspace,
+  producer: Producer,
+  text: string,
+  relative = "docs/result.md",
+) {
   await Bun.write(`${producer.worktreePath}/${relative}`, text);
   await Bun.$`git -C ${producer.worktreePath} add ${relative}`.quiet();
   await Bun.$`git -C ${producer.worktreePath} -c user.email=t@example.com -c user.name=Test commit -m result`.quiet();
@@ -162,26 +168,20 @@ export type SubmissionOverrides = {
   artifactIdentity?: string;
   artifactPath?: string;
   checks?: Array<{ name: string; command: string; outcome: string; detail: string }>;
-  pullRequest?: unknown;
   code?: unknown;
 };
 
+/** A result body that states the dispatch base of its producer, as a real Operative does. */
 export function submissionBody(
   producer: Producer,
   artifact: { path: string; identity: string; commit: string },
-  base: string,
   overrides: SubmissionOverrides = {},
 ) {
   const code = {
-    baseCommit: base,
+    baseCommit: producer.baseCommit,
     resultCommit: artifact.commit,
-    mergeBase: base,
+    mergeBase: producer.baseCommit,
     branch: `operator/22-1`,
-    pullRequest: overrides.pullRequest ?? {
-      status: "open",
-      number: 41,
-      headCommit: artifact.commit,
-    },
   };
 
   return {
@@ -544,6 +544,7 @@ export async function startRework(
     assignmentId,
     attemptId,
     worktreePath: options.worktreePath,
+    baseCommit: options.commit,
     assignmentRevision: claimed.json.data.revision as number,
     dispatched,
   };
@@ -622,7 +623,7 @@ export async function registerDependents(
         approvedScope: item.title,
         acceptanceRequirements: REQUIREMENTS,
         permissions: {
-          writePaths: item.writePaths ?? ["modules/"],
+          writePaths: item.writePaths ?? ["docs/"],
           allowedCommands: ["bun test"],
           network: false,
         },

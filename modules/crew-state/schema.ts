@@ -5,7 +5,7 @@ import { integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqli
  * The durable shape of the crew state. A reader that finds a higher version refuses the file,
  * so this number changes only when an older Operator release can no longer read the tables.
  */
-export const STATE_VERSION = 3;
+export const STATE_VERSION = 4;
 
 export const stateMeta = sqliteTable("state_meta", {
   id: integer("id").primaryKey(),

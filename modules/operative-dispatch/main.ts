@@ -4,7 +4,7 @@ import { SkillInstall } from "../skill-install/main.ts";
 import { ReleaseInstall } from "../release-install/main.ts";
 import { type AnswerDelivery, answerDocument } from "./answer.ts";
 import { type PrepareOutcome, prepareInputs } from "./inputs.ts";
-import { inspectReviewWork, inspectWork, type WorkInspection } from "./inspect.ts";
+import { inspectCheckout, inspectWork, type WorkInspection } from "./inspect.ts";
 import { readReference } from "./reference.ts";
 import {
   BRIEF_PATH,
@@ -310,19 +310,17 @@ export const OperativeDispatch = {
   },
 
   /**
-   * Reads what a reviewer changed in its own checkout.
-   * Operator writes the launch inputs and its own skills there, so those paths are excluded
-   * and whatever remains is an edit a review was never authorized to make.
+   * Reads what one checkout holds since its base: the commits, the files they touch, and the
+   * files not committed. Operator writes the launch inputs and its own skills there, so those
+   * paths are left out, and whatever remains is the occupant's own work.
+   * A submitted result and a review report read this one inspection, so the rules that judge
+   * them read Git the same way.
    */
-  async inspectReviewWorktree(request: {
-    worktreePath: string;
-    baseCommit: string;
-    agentHost: string;
-  }) {
-    return inspectReviewWork({
+  async inspectCheckout(request: { worktreePath: string; baseCommit: string; agentHost: string }) {
+    return inspectCheckout({
       worktreePath: request.worktreePath,
       baseCommit: request.baseCommit,
-      allowedPrefixes: OperativeDispatch.writtenPrefixes({ agentHost: request.agentHost }),
+      writtenPrefixes: OperativeDispatch.writtenPrefixes({ agentHost: request.agentHost }),
     });
   },
 

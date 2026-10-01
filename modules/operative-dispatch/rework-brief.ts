@@ -3,7 +3,6 @@ import {
   type FixedArtifact,
   type FixedCheck,
   type FixedCode,
-  pullRequestLine,
 } from "./fixed-result.ts";
 
 // These follow the rework contract in crew-state. A launch cannot import that module, because
@@ -69,11 +68,7 @@ export function reworkResultSection(rework: ReworkBrief): string[] {
     `- Result kind: ${rework.resultKind}`,
     ...(rework.code === null
       ? ["- Code revisions: none recorded"]
-      : [
-          `- Submitted commit: ${rework.code.resultCommit}`,
-          `- Branch: ${rework.code.branch}`,
-          pullRequestLine(rework.code.pullRequest),
-        ]),
+      : [`- Submitted commit: ${rework.code.resultCommit}`, `- Branch: ${rework.code.branch}`]),
     "",
     REASON_SENTENCE[rework.reason],
     "",

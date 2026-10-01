@@ -605,6 +605,18 @@ The submission fixes these items:
 - The known concerns and the decisions the Operative made.
 - The code revisions, if there are any.
 
+Submit reads the worktree with Git before it records anything, and it refuses a result that breaks its authority limits:
+
+- `result_not_one_commit`: a code result is exactly one commit whose parent is the base commit of its dispatch.
+- `uncommitted_work`: a file that is not committed, outside the files Operator wrote. A path artifact of a non-code result inside the write paths is the one exception.
+- `outside_write_paths`: a commit since the base adds, changes, or deletes a file outside the write paths. A rename touches both paths.
+- `result_check_not_run`: a check that could not run, which is never a pass.
+
+It reports every refusal at once, in that order, and the first one is the reason of the result.
+A refusal records nothing, so the attempt keeps running and its Operative fixes the result.
+A code result names no pull request.
+See [ADR 0018](docs/adr/0018-a-result-is-checked-at-submit-against-its-authority-limits.md).
+
 The CLI copies each path artifact into a durable store and verifies it, so the reviewer reads a fixed copy and not a worktree that keeps changing.
 
 A submission moves the assignment to awaiting review and ends its attempt.
@@ -654,12 +666,10 @@ Acceptance verifies these items:
 - The exact submission and both axis reports.
 - A disposition on every finding, and no correction still waiting for rework.
 - A passing outcome on every recorded check.
-- The pull request head you name, against the head the submission stated.
+- The commit you name with `--pr-head`, against the result commit the submission recorded.
 
 A check outcome that a review observed for itself outranks the producer's own word, so a contradiction blocks.
-Operator does not read the pull request itself.
-Acceptance compares the head you state against the head the submission recorded, and reading a live head is separate work.
-A stopped reviewer, a missing input, an unavailable review capability, a missing pull-request authority, a failed check, and a flaky check each block acceptance.
+A stopped reviewer, a missing input, an unavailable review capability, a failed check, and a flaky check each block acceptance.
 See [ADR 0007](docs/adr/0007-review-is-crew-work-and-acceptance-reads-only-recorded-evidence.md).
 
 ## Rework, limits, and invalidated results

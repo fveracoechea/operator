@@ -46,20 +46,19 @@ export async function recordReview(request: {
 
   // A review reads and runs checks. An edit or a commit in its own checkout is rework, which
   // belongs to a fresh Operative, so the report is refused instead of recorded beside it.
-  const worktree = await OperativeDispatch.inspectReviewWorktree({
+  const worktree = await OperativeDispatch.inspectCheckout({
     worktreePath: request.worktreePath,
     baseCommit: dispatch.baseCommit,
     agentHost: dispatch.agentHost,
   });
-  if (worktree.changes.length > 0 || worktree.commits.length > 0) {
+  // A reading that failed finds nothing, as the review check always did. Submit is stricter.
+  const changes = worktree.uncommitted.status === "read" ? worktree.uncommitted.value : [];
+  const commits =
+    worktree.commits.status === "read" ? worktree.commits.value.map((one) => one.commit) : [];
+  if (changes.length > 0 || commits.length > 0) {
     return {
       repeated: false,
-      result: {
-        status: "worktree-changed",
-        attemptId: request.attemptId,
-        changes: worktree.changes,
-        commits: worktree.commits,
-      },
+      result: { status: "worktree-changed", attemptId: request.attemptId, changes, commits },
     };
   }
 

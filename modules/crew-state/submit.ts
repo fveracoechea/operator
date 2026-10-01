@@ -1,21 +1,37 @@
+import { OperativeDispatch } from "../operative-dispatch/main.ts";
 import { readWriterContext, type WriterFailure } from "./dispatch-context.ts";
 import { identityOf } from "./identity.ts";
 import { type InvalidInput, parseInput } from "./input.ts";
 import { mutate, readState } from "./operations.ts";
+import { refuseResult, type ResultRefusal } from "./result-checks.ts";
 import { submissionInputSchema } from "./submission-input.ts";
 import { submissionOfAttempt, type SubmitOutcome, submitResult } from "./submission.ts";
 import { storeArtifacts, storeSpec, type StoreOutcome } from "./submission-store.ts";
+import { storedPermissions } from "./work-input.ts";
 
 type StoreFailure = Exclude<StoreOutcome, { status: "stored" }>;
 
-export type SubmitResult = SubmitOutcome | InvalidInput | StoreFailure | WriterFailure;
+// A refused result records nothing, so its attempt keeps running and its Operative makes the fix.
+type ResultRefused = {
+  status: "result-refused";
+  attemptId: string;
+  refusals: [ResultRefusal, ...ResultRefusal[]];
+};
+
+export type SubmitResult =
+  | SubmitOutcome
+  | InvalidInput
+  | StoreFailure
+  | WriterFailure
+  | ResultRefused;
 
 type Reported = { repeated: boolean; result: SubmitResult };
 
 /**
  * Records one fixed result as a durable handoff to review.
  * The Operative runs it from its own worktree, so it carries no ownership token and the
- * attempt it names must still be the current writer.
+ * attempt it names must still be the current writer. The result is read from Git and checked
+ * against its authority limits first (ADR 0018), never taken from what the Operative states.
  */
 export async function submitAttemptResult(request: {
   projectRoot: string;
@@ -51,6 +67,31 @@ export async function submitAttemptResult(request: {
   const dispatch = read.dispatch;
 
   const input = parsed.value;
+  // Only production work submits a result, and the transaction below refuses any other kind.
+  if (read.context.assignment.kind === "production") {
+    const refusals = refuseResult({
+      inspection: await OperativeDispatch.inspectCheckout({
+        worktreePath: dispatch.worktreePath,
+        baseCommit: dispatch.baseCommit,
+        agentHost: dispatch.agentHost,
+      }),
+      input,
+      baseCommit: dispatch.baseCommit,
+      writePaths: storedPermissions(read.context.assignment.permissions).writePaths,
+    });
+    const [first, ...rest] = refusals;
+    if (first !== undefined) {
+      return {
+        repeated: false,
+        result: {
+          status: "result-refused",
+          attemptId: request.attemptId,
+          refusals: [first, ...rest],
+        },
+      };
+    }
+  }
+
   const submissionId = identityOf({ attemptId: request.attemptId, input }).slice(0, 32);
   const stored = await storeArtifacts({
     projectRoot: request.projectRoot,

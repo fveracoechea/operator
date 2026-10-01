@@ -71,9 +71,8 @@ async function makeWorkspace(
 /** One production assignment carried to accepted completion, with a reviewed result. */
 async function acceptedCycle(workspace: Workspace) {
   const producer = await startProducer(workspace);
-  const base = await headCommit(workspace);
   const artifact = await commitArtifact(workspace, producer, "# Result\n\nThe finished work.\n");
-  const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+  const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
   const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
 
   await reportReview(

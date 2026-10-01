@@ -17,6 +17,10 @@ Read this before you review a submitted result or accept an assignment.
 
 ## A submission is not completion
 
+Submit reads the Operative checkout and refuses a result that breaks its authority limits, for example with `result_not_one_commit`.
+The attempt then keeps running, and its Operative fixes the result and submits again.
+You do nothing for that refusal.
+
 Exit 6 with `result_submitted` means the result is handed over, not accepted.
 The assignment is now awaiting review, and its attempt has ended.
 
@@ -88,11 +92,10 @@ Never accept a result you reviewed yourself.
 A submitted result goes to a separate reviewer, and a review report is never a submitted result.
 
 
-Name the exact submission you read, and the pull request head you read.
+Name the exact submission you read, and the submitted commit that the review read.
 
-Operator does not read the pull request itself.
-It compares the head you name against the head the submission stated.
-Read the live head before you accept, and name that.
+A code result is one commit and names no pull request.
+Acceptance compares the commit you name against the commit the submission recorded.
 Tracker reads arrive with the GitHub integration in #24.
 
 Acceptance refuses on:
@@ -109,8 +112,7 @@ Acceptance refuses on:
 - `checks_unproven`: a recorded check failed, was flaky, or did not run.
 - `checks_contradicted`: a review ran a recorded check itself and saw a different outcome.
   What a reviewer ran outranks what the producer wrote about its own work.
-- `pr_authority_missing`: the implementation has no pull request.
-- `pr_head_required` or `pr_head_changed`: the pull request head is not the one the review saw.
+- `pr_head_required` or `pr_head_changed`: name the submitted commit that the review read with `--pr-head`.
 
 A stopped reviewer process is not a review.
 A passing rerun does not erase a failure.

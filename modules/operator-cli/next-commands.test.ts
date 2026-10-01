@@ -164,7 +164,7 @@ describe("the next actions", () => {
         kind: "production",
         title: "Independent work",
         dependsOn: [],
-        writePaths: ["docs/independent.md"],
+        writePaths: ["notes/independent.md"],
       },
     ]);
 
@@ -375,12 +375,11 @@ describe("the next actions", () => {
         kind: "production",
         title: "Independent work",
         dependsOn: [],
-        writePaths: ["docs/independent.md"],
+        writePaths: ["notes/independent.md"],
       },
     ]);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "the result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
 
     const reported = await nextActions(workspace);
 
@@ -393,9 +392,8 @@ describe("the next actions", () => {
   test("asks for the dispositions, then the acceptance", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "the result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
     await reportReview(
       workspace,
@@ -569,9 +567,8 @@ describe("the next-actions contract", () => {
   test("never answers exit 3 with nothing for the user to settle", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "the result\n");
-    await submit(workspace, producer, submissionBody(producer, artifact, base));
+    await submit(workspace, producer, submissionBody(producer, artifact));
     // An edit nobody registered blocks the closure, which is the state that has to name a person.
     await Bun.write(`${producer.worktreePath}/notes.md`, "a human edit\n");
     const blocked = await runJson(workspace, [
@@ -600,9 +597,8 @@ describe("the next-actions contract", () => {
   test("stops work on a blocked process closure instead of offering it again", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "the result\n");
-    await submit(workspace, producer, submissionBody(producer, artifact, base));
+    await submit(workspace, producer, submissionBody(producer, artifact));
     await Bun.write(`${producer.worktreePath}/notes.md`, "a human edit\n");
     await runJson(workspace, [
       "cleanup",
@@ -640,9 +636,8 @@ describe("the next-actions contract", () => {
     const registered = await registerDependents(workspace, producer, [
       { key: "26.2", kind: "production", title: "Reads the first result" },
     ]);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "the result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
     await reportReview(
       workspace,

@@ -35,29 +35,17 @@ const decision = z.strictObject({
   reason: z.string().min(1),
 });
 
-/**
- * A pull request with no authority to create it is recorded as missing, never as absent.
- * Acceptance then reports the approval blocker instead of treating silence as a pass.
- */
-const pullRequest = z.discriminatedUnion("status", [
-  z.strictObject({
-    status: z.literal("open"),
-    number: z.int().positive(),
-    headCommit: z.string().min(1),
-  }),
-  z.strictObject({
-    status: z.literal("authority-missing"),
-    detail: z.string().min(1),
-  }),
-]);
-
+// A code result is one commit on its dispatch base, so it names no pull request (ADR 0015).
 export const codeRevisionsSchema = z.strictObject({
   baseCommit: z.string().min(1),
   resultCommit: z.string().min(1),
   mergeBase: z.string().min(1),
   branch: z.string().min(1),
-  pullRequest,
 });
+
+// An earlier release recorded a pull request on each code result. A record that holds one keeps
+// it as history, and nothing reads it.
+const storedCodeSchema = codeRevisionsSchema.extend({ pullRequest: z.unknown().optional() });
 
 const fixedFields = {
   assignmentRevision: z.int().positive(),
@@ -113,7 +101,12 @@ export function storedChecks(stored: string): SubmittedCheck[] {
 }
 
 export function storedCode(stored: string): SubmittedCode {
-  return readStored("code revision record", codeRevisionsSchema, stored);
+  const { pullRequest: _history, ...code } = readStored(
+    "code revision record",
+    storedCodeSchema,
+    stored,
+  );
+  return code;
 }
 
 export function storedConcerns(stored: string): string[] {

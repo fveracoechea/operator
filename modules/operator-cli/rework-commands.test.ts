@@ -61,7 +61,7 @@ async function reviewedResult(
   const producer = await startProducer(workspace, options.fixedInputs);
   const base = await headCommit(workspace);
   const artifact = await commitArtifact(workspace, producer, "# Result\n");
-  const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+  const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
   const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
   const reported = await reportReview(
     workspace,
@@ -94,14 +94,13 @@ function findingId(reported: Reported, key: string): string {
 async function submitRevision(
   workspace: Workspace,
   reworked: Producer & { assignmentRevision: number },
-  base: string,
   text: string,
 ) {
   const artifact = await commitArtifact(workspace, reworked, text);
   const submitted = await submit(
     workspace,
     reworked,
-    submissionBody(reworked, artifact, base, { assignmentRevision: reworked.assignmentRevision }),
+    submissionBody(reworked, artifact, { assignmentRevision: reworked.assignmentRevision }),
   );
   return { artifact, submitted };
 }
@@ -205,7 +204,6 @@ describe("operator work rework", () => {
     const second = await submitRevision(
       workspace,
       reworked,
-      first.base,
       "# Result\n\nThe quality gate passed.\n",
     );
     expect(second.submitted.json.data.reworkCycleId).toBe(delegated.json.data.cycleId);
@@ -306,9 +304,8 @@ describe("rework limits", () => {
   test("a fourth correction cycle waits on the user and keeps its evidence", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     let current = await startProducer(workspace);
-    const base = await headCommit(workspace);
     let artifact = await commitArtifact(workspace, current, "# Result 0\n");
-    let submitted = await submit(workspace, current, submissionBody(current, artifact, base));
+    let submitted = await submit(workspace, current, submissionBody(current, artifact));
 
     /** One full round: review it, accept the correction, delegate it, and rework it. */
     async function correctionRound(round: number) {
@@ -358,7 +355,7 @@ describe("rework limits", () => {
       submitted = await submit(
         workspace,
         current,
-        submissionBody(current, artifact, base, {
+        submissionBody(current, artifact, {
           assignmentRevision: current.assignmentRevision,
         }),
       );
@@ -474,7 +471,6 @@ describe("rework limits", () => {
   test("a third diagnostic rerun waits on the user", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     let current = await startProducer(workspace);
-    const base = await headCommit(workspace);
     let artifact = await commitArtifact(workspace, current, "# Result 0\n");
     const flaky = [
       {
@@ -487,7 +483,7 @@ describe("rework limits", () => {
     let submitted = await submit(
       workspace,
       current,
-      submissionBody(current, artifact, base, { checks: flaky }),
+      submissionBody(current, artifact, { checks: flaky }),
     );
 
     async function rerun(round: number) {
@@ -516,7 +512,7 @@ describe("rework limits", () => {
       submitted = await submit(
         workspace,
         current,
-        submissionBody(current, artifact, base, {
+        submissionBody(current, artifact, {
           assignmentRevision: current.assignmentRevision,
           checks: flaky,
         }),
@@ -552,9 +548,8 @@ describe("conflicts and combined revisions", () => {
   test("a revision is combined before any review reported", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
 
     // The base moved under a result that no reviewer has read yet. Combining it first is the
     // point of an integration cycle, so it names no review.
@@ -614,7 +609,7 @@ describe("conflicts and combined revisions", () => {
       commit: first.artifact.commit,
       worktreePath: `${workspace.root}/round-2`,
     });
-    const second = await submitRevision(workspace, reworked, first.base, "# Result\n\nGated.\n");
+    const second = await submitRevision(workspace, reworked, "# Result\n\nGated.\n");
 
     // The second round is not reviewed yet, so this cycle carries no correction at all.
     // A finding of the earlier round is still a finding, and naming it delegates nothing.
@@ -753,7 +748,6 @@ describe("conflicts and combined revisions", () => {
     const second = await submitRevision(
       workspace,
       reworked,
-      first.base,
       "# Result\n\nThe narrower behaviour, combined with the helper.\n",
     );
     const secondReviewer = await startReviewer(

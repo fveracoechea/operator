@@ -56,7 +56,6 @@ export type AcceptResult =
       reviewId: string;
       checks: Array<{ name: string; axis: string; recorded: string; observed: string }>;
     }
-  | { status: "pr-authority-missing"; assignmentId: string; detail: string }
   | { status: "pr-head-required"; assignmentId: string; headCommit: string }
   | { status: "pr-head-changed"; assignmentId: string; recorded: string; stated: string };
 
@@ -130,7 +129,7 @@ function contradictedChecks(
 /**
  * The review gates of one code or non-code submission.
  * Every gate is a recorded fact, so a process that exited, a missing input, an unavailable
- * review capability, a failed check, or a moved pull request head can never read as acceptance.
+ * review capability, a failed check, or a stated commit that is not the reviewed one can never read as acceptance.
  */
 function reviewGate(
   db: CrewWriter,
@@ -207,27 +206,21 @@ function reviewGate(
     return null;
   }
 
+  // The Operator states the commit it read. Until acceptance lands that commit itself (ADR 0015),
+  // a stated commit that is not the reviewed one is refused.
   const code = storedCode(submission.code);
-  if (code.pullRequest.status !== "open") {
-    return {
-      status: "pr-authority-missing",
-      assignmentId: submission.assignmentId,
-      detail: code.pullRequest.detail,
-    };
-  }
-  // The Operator states the head it read, so a pull request that moved after review is refused.
   if (request.prHead === null) {
     return {
       status: "pr-head-required",
       assignmentId: submission.assignmentId,
-      headCommit: code.pullRequest.headCommit,
+      headCommit: code.resultCommit,
     };
   }
-  if (request.prHead !== code.pullRequest.headCommit) {
+  if (request.prHead !== code.resultCommit) {
     return {
       status: "pr-head-changed",
       assignmentId: submission.assignmentId,
-      recorded: code.pullRequest.headCommit,
+      recorded: code.resultCommit,
       stated: request.prHead,
     };
   }

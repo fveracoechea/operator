@@ -85,3 +85,8 @@ export function overlappingPaths(paths: string[], others: string[]): Array<[stri
 export function overlapsCommand(sourceId: string): string {
   return `operator work overlaps --source ${sourceId}`;
 }
+
+/** Each file that no write path covers, in the order given. */
+export function outsideWritePaths(files: string[], writePaths: string[]): string[] {
+  return files.filter((file) => !writePaths.some((path) => covers(path, file)));
+}

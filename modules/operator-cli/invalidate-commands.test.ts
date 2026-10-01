@@ -18,13 +18,7 @@ import {
   submit,
   type Workspace,
 } from "./review-cycle-fixture.ts";
-import {
-  headCommit,
-  nextActions,
-  requestId as request,
-  runJson,
-  workspaces,
-} from "./workspace-fixture.ts";
+import { nextActions, requestId as request, runJson, workspaces } from "./workspace-fixture.ts";
 
 // Invalidation tests run complete review cycles through separate CLI processes.
 setDefaultTimeout(60_000);
@@ -42,17 +36,12 @@ const DEFECT = {
 };
 
 /** Produces, reviews, and accepts one result, which is what a defect is later found in. */
-async function acceptedResult(
-  workspace: Workspace,
-  producer: Producer,
-  base: string,
-  text: string,
-) {
+async function acceptedResult(workspace: Workspace, producer: Producer, text: string) {
   const artifact = await commitArtifact(workspace, producer, text);
   const submitted = await submit(
     workspace,
     producer,
-    submissionBody(producer, artifact, base, { assignmentRevision: producer.assignmentRevision }),
+    submissionBody(producer, artifact, { assignmentRevision: producer.assignmentRevision }),
   );
   const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
   await reportReview(
@@ -80,8 +69,7 @@ describe("operator work invalidate", () => {
   test("pauses only the work that read the invalid result and keeps the history", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
-    const first = await acceptedResult(workspace, producer, base, "# Result\n");
+    const first = await acceptedResult(workspace, producer, "# Result\n");
     expect(first.accepted.json.reason).toBe("assignment_accepted");
 
     const dependents = await registerDependents(workspace, producer, [
@@ -156,7 +144,7 @@ describe("operator work invalidate", () => {
       commit: first.artifact.commit,
       worktreePath: `${workspace.root}/fix`,
     });
-    const second = await acceptedResult(workspace, fixing, base, "# Result\n\nEvery record.\n");
+    const second = await acceptedResult(workspace, fixing, "# Result\n\nEvery record.\n");
     expect(second.accepted.json.reason).toBe("assignment_accepted");
 
     // The corrected result is what the paused dependent waited on, so its decision comes back.
@@ -172,8 +160,7 @@ describe("operator work invalidate", () => {
   test("a dependent of two invalid results waits for both corrections", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
-    const first = await acceptedResult(workspace, producer, base, "# First\n");
+    const first = await acceptedResult(workspace, producer, "# First\n");
 
     const registered = await registerDependents(workspace, producer, [
       { key: "22.4", kind: "production", title: "The other input", dependsOn: [] },
@@ -194,7 +181,7 @@ describe("operator work invalidate", () => {
       worktreePath: `${workspace.root}/other`,
       assignmentId: other,
     });
-    const otherResult = await acceptedResult(workspace, second, base, "# Other\n");
+    const otherResult = await acceptedResult(workspace, second, "# Other\n");
     expect(otherResult.accepted.json.reason).toBe("assignment_accepted");
 
     const resolved = await acceptAssignment(workspace, producer, {
@@ -231,7 +218,7 @@ describe("operator work invalidate", () => {
       commit: first.artifact.commit,
       worktreePath: `${workspace.root}/fix-first`,
     });
-    await acceptedResult(workspace, firstFix, base, "# First, corrected\n");
+    await acceptedResult(workspace, firstFix, "# First, corrected\n");
 
     const held = await frontierEntry(workspace, consumer);
     expect(held.entry.state).toBe("paused");
@@ -253,7 +240,7 @@ describe("operator work invalidate", () => {
       worktreePath: `${workspace.root}/fix-other`,
       assignmentId: other,
     });
-    await acceptedResult(workspace, secondFix, base, "# Other, corrected\n");
+    await acceptedResult(workspace, secondFix, "# Other, corrected\n");
 
     const released = await frontierEntry(workspace, consumer);
     expect(released.entry.state).toBe("registered");
@@ -267,8 +254,7 @@ describe("operator work invalidate", () => {
   test("an invalidated planning decision is accepted again and releases its dependents", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
-    const first = await acceptedResult(workspace, producer, base, "# Result\n");
+    const first = await acceptedResult(workspace, producer, "# Result\n");
     expect(first.accepted.json.reason).toBe("assignment_accepted");
 
     const registered = await registerDependents(workspace, producer, [
@@ -331,8 +317,7 @@ describe("operator work invalidate", () => {
   test("an invalidated assignment holds its write paths again until it is accepted again", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
-    const first = await acceptedResult(workspace, producer, base, "# Result\n");
+    const first = await acceptedResult(workspace, producer, "# Result\n");
 
     const registered = await registerDependents(workspace, producer, [
       {
@@ -340,7 +325,7 @@ describe("operator work invalidate", () => {
         kind: "production",
         title: "Change a file the result also changed",
         dependsOn: [],
-        writePaths: ["modules/crew-state/frontier.ts"],
+        writePaths: ["docs/result.md"],
       },
     ]);
     const overlapping = registered.get("22.4") ?? "";
@@ -380,7 +365,7 @@ describe("operator work invalidate", () => {
     // The correction is in progress, so the paths stay held.
     expect((await frontierEntry(workspace, overlapping)).group).toBe("blocked");
 
-    const second = await acceptedResult(workspace, fixing, base, "# Result\n\nEvery record.\n");
+    const second = await acceptedResult(workspace, fixing, "# Result\n\nEvery record.\n");
     expect(second.accepted.json.reason).toBe("assignment_accepted");
 
     expect((await frontierEntry(workspace, overlapping)).group).toBe("dispatchable");
@@ -389,8 +374,7 @@ describe("operator work invalidate", () => {
   test("offers an invalidated assignment again past started work that overlaps it", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
-    const first = await acceptedResult(workspace, producer, base, "# Result\n");
+    const first = await acceptedResult(workspace, producer, "# Result\n");
 
     const registered = await registerDependents(workspace, producer, [
       {
@@ -398,7 +382,7 @@ describe("operator work invalidate", () => {
         kind: "production",
         title: "Change a file the result also changed",
         dependsOn: [],
-        writePaths: ["modules/crew-state/frontier.ts"],
+        writePaths: ["docs/result.md"],
       },
     ]);
     const overlapping = registered.get("22.4") ?? "";
@@ -432,9 +416,8 @@ describe("operator work invalidate", () => {
   test("refuses a defect against a review, which holds no result of its own", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
     await reportReview(
       workspace,
