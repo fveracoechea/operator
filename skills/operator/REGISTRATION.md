@@ -76,10 +76,16 @@ Write each requirement as something a reviewer can check.
 Name the paths the Operative may write, the commands it may run, and whether it may reach the network.
 Work outside them is a question to you, never the Operative's own decision, so a limit that is too narrow costs a question and a limit that is too wide costs control.
 
-`fixedInputs` are pinned at dispatch, so a later change to their source does not change the work in progress.
+`fixedInputs` are fixed at registration, so a later change to their source does not change the work.
 A `value` input carries its text.
 A `path` input carries its path and its content identity, because a large artifact stays outside the crew state.
-A path input with no content identity is refused.
+The path names a file inside the checkout, relative to its root, with no empty, `.`, or `..` part, because the launch reads that exact spelling from Git.
+A path input with no content identity, or one outside the checkout, is refused as `invalid_work_input`.
+Registration reads the file, and `fixed_input_mismatch` means the checkout does not hold it or holds other bytes.
+The Operative reads the file at the base commit of its launch, so the file must be committed before you dispatch.
+A launch whose base commit holds other bytes, or no file, fails at `input_preparation` and starts no agent.
+You do not edit or commit the file yourself: a change to it is crew work or the person's decision.
+An item you register again with different fixed inputs is refused as `fixed_inputs_changed`, a conflict for you to settle.
 
 `dependsOn` names the items this one waits for.
 Name a key in the same source, or add `sourceId` to name an item in another one.

@@ -1,9 +1,16 @@
 import { eq } from "drizzle-orm";
 import type { CrewReader, CrewWriter } from "./database.ts";
 import { insertAssignment, nextOrderIndex } from "./assignment.ts";
-import { assignmentId } from "./identity.ts";
+import { ContentIdentity } from "../content-identity/main.ts";
+import { assignmentId, identityOf } from "./identity.ts";
 import { assignmentDependencies, assignments, workSources } from "./schema.ts";
-import { isExecutable, kindOf, storedPermissions, type WorkInput } from "./work-input.ts";
+import {
+  isExecutable,
+  kindOf,
+  storedFixedInputs,
+  storedPermissions,
+  type WorkInput,
+} from "./work-input.ts";
 import { overlappingPaths } from "./write-paths.ts";
 
 export type RegisteredAssignment = {
@@ -56,7 +63,61 @@ export type RegisterResult =
       recorded: string[];
       requested: string[];
     }
-  | { status: "dependency-cycle"; cycle: string[] };
+  | { status: "dependency-cycle"; cycle: string[] }
+  | {
+      status: "fixed-inputs-changed";
+      sourceKey: string;
+      assignmentId: string;
+      // Only the names of the inputs that differ, so the refusal stays short for its reader.
+      changed: string[];
+    }
+  | {
+      status: "fixed-input-mismatch";
+      sourceKey: string;
+      name: string;
+      path: string;
+      statedIdentity: string;
+      foundIdentity: string | null;
+    };
+
+/** The identity of each file a path input names, or null when the checkout does not hold it. */
+export type FoundIdentities = Map<string, string | null>;
+
+/** Reads every file the path inputs of one request name, before the state transaction opens. */
+export async function readPathIdentities(
+  projectRoot: string,
+  input: WorkInput,
+): Promise<FoundIdentities> {
+  const found: FoundIdentities = new Map();
+  for (const item of input.items) {
+    for (const one of item.fixedInputs) {
+      if (one.kind !== "path" || found.has(one.value)) {
+        continue;
+      }
+      const file = Bun.file(`${projectRoot}/${one.value}`);
+      found.set(
+        one.value,
+        (await file.exists()) ? ContentIdentity.ofBytes(await file.bytes()) : null,
+      );
+    }
+  }
+  return found;
+}
+
+/** The names whose input was added, removed, or changed between the record and the request. */
+function changedInputNames(
+  recorded: WorkInput["items"][number]["fixedInputs"],
+  requested: WorkInput["items"][number]["fixedInputs"],
+): string[] {
+  const names = new Set([...recorded, ...requested].map((one) => one.name));
+  return [...names]
+    .filter(
+      (name) =>
+        identityOf(recorded.filter((one) => one.name === name)) !==
+        identityOf(requested.filter((one) => one.name === name)),
+    )
+    .toSorted();
+}
 
 function reported(row: typeof assignments.$inferSelect): RegisteredAssignment {
   return {
@@ -180,9 +241,9 @@ function summarize(overlaps: WritePathOverlap[], items: RegisteredAssignment[]):
 
 export function registerWork(
   db: CrewWriter,
-  request: { input: WorkInput; now: string },
+  request: { input: WorkInput; found: FoundIdentities; now: string },
 ): RegisterResult {
-  const { input, now } = request;
+  const { input, found, now } = request;
   const recordedSource = db
     .select()
     .from(workSources)
@@ -233,8 +294,35 @@ export function registerWork(
     const id = assignmentId(source.id, item.key);
     const recorded = held.find((row) => row.id === id);
     if (recorded !== undefined) {
+      // An item keeps the inputs it was registered with, so a changed one needs a decision.
+      if (identityOf(item.fixedInputs) !== recorded.fixedInputsIdentity) {
+        return {
+          status: "fixed-inputs-changed",
+          sourceKey: item.key,
+          assignmentId: id,
+          changed: changedInputNames(storedFixedInputs(recorded.fixedInputs), item.fixedInputs),
+        };
+      }
       existing.push(reported(recorded));
       continue;
+    }
+
+    // A path input is fixed by the identity of the file the checkout holds now, not by a claim.
+    for (const one of item.fixedInputs) {
+      if (one.kind !== "path") {
+        continue;
+      }
+      const foundIdentity = found.get(one.value) ?? null;
+      if (one.contentIdentity !== foundIdentity) {
+        return {
+          status: "fixed-input-mismatch",
+          sourceKey: item.key,
+          name: one.name,
+          path: one.value,
+          statedIdentity: one.contentIdentity,
+          foundIdentity,
+        };
+      }
     }
 
     const row = insertAssignment(

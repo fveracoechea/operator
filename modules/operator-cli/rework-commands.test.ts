@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { ContentIdentity } from "../content-identity/main.ts";
 import {
   acceptProduction,
   acceptReview,
@@ -51,9 +52,13 @@ const IMPROVEMENT = {
 /** One reviewed result with one blocker and one improvement, ready for a disposition. */
 async function reviewedResult(
   workspace: Workspace,
-  options: { standards?: (typeof BLOCKER)[]; spec?: (typeof BLOCKER)[] } = {},
+  options: {
+    standards?: (typeof BLOCKER)[];
+    spec?: (typeof BLOCKER)[];
+    fixedInputs?: unknown[];
+  } = {},
 ) {
-  const producer = await startProducer(workspace);
+  const producer = await startProducer(workspace, options.fixedInputs);
   const base = await headCommit(workspace);
   const artifact = await commitArtifact(workspace, producer, "# Result\n");
   const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
@@ -245,6 +250,54 @@ describe("operator work rework", () => {
 });
 
 describe("rework limits", () => {
+  test("launches a rework whose result changed a path fixed input of the producer", async () => {
+    const workspace = await makeReviewWorkspace(fixtures, {
+      files: { "docs/result.md": "# Draft\n" },
+    });
+    // The result rewrites the file the producer was given, as a result can.
+    const first = await reviewedResult(workspace, {
+      spec: [],
+      fixedInputs: [
+        {
+          name: "draft",
+          kind: "path",
+          value: "docs/result.md",
+          contentIdentity: ContentIdentity.ofText("# Draft\n"),
+        },
+      ],
+    });
+    const { producer, submitted, reviewer } = first;
+    await disposeFindings(workspace, producer, submitted.json.data.reviewId, [
+      {
+        findingId: findingId(first.reported, "missing-gate"),
+        disposition: "corrected",
+        reason: "The requirement names the gate, so the result must state it.",
+      },
+    ]);
+    await acceptReview(workspace, producer, {
+      reviewAssignmentId: submitted.json.data.reviewAssignmentId,
+      attemptId: reviewer.attemptId,
+      revision: reviewer.revision,
+    });
+    const delegated = await delegateRework(workspace, producer, {
+      revision: submitted.json.data.revision,
+      body: {
+        reason: "findings",
+        reviewId: submitted.json.data.reviewId,
+        instruction: "State the gate the result passed.",
+        conflicts: [],
+      },
+    });
+    expect(delegated.json.reason).toBe("rework_delegated");
+
+    const reworked = await startRework(workspace, producer, {
+      revision: delegated.json.data.revision,
+      commit: first.artifact.commit,
+      worktreePath: `${workspace.root}/rework`,
+    });
+    expect(reworked.dispatched.json.reason).toBe("acknowledgement_pending");
+  });
+
   test("a fourth correction cycle waits on the user and keeps its evidence", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     let current = await startProducer(workspace);

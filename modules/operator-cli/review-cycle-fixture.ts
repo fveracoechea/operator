@@ -23,16 +23,19 @@ const SKILL_PATH: Record<Host, string> = {
 
 export async function makeReviewWorkspace(
   fixtures: Workspaces,
-  options: { host?: Host; maxActiveAgents?: number; reviewSkill?: boolean } = {},
+  options: {
+    host?: Host;
+    maxActiveAgents?: number;
+    reviewSkill?: boolean;
+    files?: Record<string, string>;
+  } = {},
 ): Promise<Workspace> {
   const host = options.host ?? "claude-code";
   const crew: { host: Host; maxActiveAgents?: number } = { host };
   if (options.maxActiveAgents !== undefined) crew.maxActiveAgents = options.maxActiveAgents;
-  const fixture = await fixtures.make({
-    config: { crew },
-    files:
-      options.reviewSkill === false ? {} : { [SKILL_PATH[host]]: "---\nname: code-review\n---\n" },
-  });
+  const files: Record<string, string> = { ...options.files };
+  if (options.reviewSkill !== false) files[SKILL_PATH[host]] = "---\nname: code-review\n---\n";
+  const fixture = await fixtures.make({ config: { crew }, files });
 
   return { ...fixture, host };
 }
@@ -44,7 +47,12 @@ export async function writeInput(workspace: Workspace, value: unknown): Promise<
 }
 
 /** One production assignment, claimed, dispatched into its own worktree, and acknowledged. */
-export async function startProducer(workspace: Workspace) {
+export async function startProducer(
+  workspace: Workspace,
+  fixedInputs: unknown[] = [
+    { name: "brief", kind: "value", value: "the brief", contentIdentity: null },
+  ],
+) {
   const owned = await runJson(workspace, [
     "crew",
     "own",
@@ -66,7 +74,7 @@ export async function startProducer(workspace: Workspace) {
         approvedScope: "Build the reviewed result path.",
         acceptanceRequirements: REQUIREMENTS,
         permissions: { writePaths: ["modules/"], allowedCommands: ["bun test"], network: false },
-        fixedInputs: [{ name: "brief", kind: "value", value: "the brief", contentIdentity: null }],
+        fixedInputs,
         dependsOn: [],
       },
     ],

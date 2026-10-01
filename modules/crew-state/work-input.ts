@@ -17,18 +17,34 @@ const dependency = z.strictObject({
   key: z.string().min(1),
 });
 
-const fixedInput = z
-  .strictObject({
+// A large artifact stays outside the state, so a path input is only fixed by its content identity.
+const fixedInput = z.discriminatedUnion("kind", [
+  z.strictObject({
     name: z.string().min(1),
-    kind: z.enum(["value", "path"]),
+    kind: z.literal("value"),
     value: z.string().min(1),
     contentIdentity: z.string().min(1).nullable(),
-  })
-  // A large artifact stays outside the state, so its path is only fixed by its content identity.
-  .refine((input) => input.kind === "value" || input.contentIdentity !== null, {
-    error: "a path input requires its content identity",
-    path: ["contentIdentity"],
-  });
+  }),
+  z.strictObject({
+    name: z.string().min(1),
+    kind: z.literal("path"),
+    value: z.string().min(1),
+    contentIdentity: z.string({ error: "a path input requires its content identity" }).min(1),
+  }),
+]);
+
+// A registered path input names a file of the project in the one spelling Git reads at the base
+// commit of a launch, so an absolute path, an empty part, ".", and ".." are refused.
+const registeredFixedInput = fixedInput.refine(
+  (input) =>
+    input.kind === "value" ||
+    input.value.split("/").every((part) => part !== "" && part !== "." && part !== ".."),
+  {
+    error:
+      "a path input names a file inside the checkout, relative to its root, with no empty, '.', or '..' part",
+    path: ["value"],
+  },
+);
 
 const writePath = z.string().superRefine((path, context) => {
   const refusal = writePathRefusal(path);
@@ -56,7 +72,7 @@ const itemFields = {
   approvedScope: z.string().min(1),
   acceptanceRequirements: z.array(z.string().min(1)).min(1),
   permissions,
-  fixedInputs: z.array(fixedInput),
+  fixedInputs: z.array(registeredFixedInput),
   dependsOn: z.array(dependency),
 };
 

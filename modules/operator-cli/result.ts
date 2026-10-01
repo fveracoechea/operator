@@ -120,6 +120,8 @@ export type Reason =
   | "unknown_dependency"
   | "dependency_cycle"
   | "dependencies_changed"
+  | "fixed_inputs_changed"
+  | "fixed_input_mismatch"
   | "assignment_claimed"
   | "assignment_already_claimed"
   | "assignment_already_accepted"

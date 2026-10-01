@@ -34,6 +34,21 @@ async function readBytes(path: string): Promise<Uint8Array | null> {
   return (await file.exists()) ? new Uint8Array(await file.arrayBuffer()) : null;
 }
 
+/** The exact bytes one commit holds at one path, or null when it holds no such file. */
+async function committedBytes(
+  worktreePath: string,
+  commit: string,
+  path: string,
+): Promise<Uint8Array | null> {
+  const child = Bun.spawn(["git", "-C", worktreePath, "cat-file", "blob", `${commit}:${path}`], {
+    stdout: "pipe",
+    stderr: "ignore",
+    timeout: 30_000,
+  });
+  const [exitCode, bytes] = await Promise.all([child.exited, new Response(child.stdout).bytes()]);
+  return exitCode === 0 ? bytes : null;
+}
+
 /**
  * The exact files an Operative worktree receives.
  * Credentials are never in this list: the host credential store stays where it is, and no file
@@ -115,6 +130,25 @@ async function intendedWrites(request: {
       return {
         failure: "input_verification_failed",
         detail: `${input.path} already exists with different contents.`,
+      };
+    }
+  }
+
+  // A path fixed input is not copied: the Operative reads it at the base commit, so that commit
+  // must hold the exact bytes registration fixed. It is read from Git, not from the disk, because
+  // a replacement keeps the former worktree and the partial work in it. Nothing is repaired.
+  for (const input of plan.fixedPaths) {
+    const bytes = await committedBytes(plan.worktreePath, plan.baseCommit, input.path);
+    if (bytes === null) {
+      return {
+        failure: "input_verification_failed",
+        detail: `The fixed input ${input.path} is not in the base commit.`,
+      };
+    }
+    if (ContentIdentity.ofBytes(bytes) !== input.identity) {
+      return {
+        failure: "input_verification_failed",
+        detail: `The fixed input ${input.path} at the base commit no longer matches the identity registration fixed.`,
       };
     }
   }

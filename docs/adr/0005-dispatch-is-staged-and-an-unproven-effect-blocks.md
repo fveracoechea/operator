@@ -5,7 +5,7 @@ The recorded plan holds the attempt, the explicit base commit, the branch, the c
 Each of the four external effects then records its intent and its own identity before the call and its outcome after it.
 An interrupted dispatch therefore recomputes the same plan and resumes at the first unfinished effect.
 
-The four effects are the Herdr worktree, the copy of the fixed inputs, the agent start, and the prompt submission.
+The four effects are the Herdr worktree, the copy of the launch inputs, the agent start, and the prompt submission.
 Copying is verified and repeatable, so an unfinished copy is simply performed again.
 A Herdr effect that never answered is uncertain: it may have landed.
 `operator attempt dispatch` refuses to act again on such an attempt, and `operator attempt reconcile` settles it from what Herdr and the checkout actually show.
@@ -23,6 +23,9 @@ New work uses current settings; work already in progress does not.
 Each Operative worktree receives the project configuration, its schema, a release record, the frozen lock data, a control reference, the brief, and the skills of this release.
 No other file is copied out of the controlling checkout, so credentials stay in the host credential store.
 Every copy is read back and compared before any agent starts.
+A path fixed input is not copied.
+Registration fixes it by the content identity of the file, and a launch of production work reads it from Git at its base commit and blocks when that commit holds other bytes or no file.
+The launch repairs nothing, and a rework, which starts from a result that may change that file, and a review, which reads fixed copies, do not read it again.
 
 The brief is the contract of one attempt.
 It carries every rule that binds the Operative, every command the Operative runs, and the refusal each command can give, so a rule that a command enforces is stated once, beside that command.

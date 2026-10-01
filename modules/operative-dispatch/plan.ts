@@ -77,6 +77,8 @@ export type DispatchPlan = {
   snapshotIdentity: string;
   // The fixed copies this launch carries into the worktree, beyond the common release inputs.
   extraInputs: Array<{ path: string; sourcePath: string; identity: string }>;
+  // The path fixed inputs that the base commit must hold with the identity registration fixed.
+  fixedPaths: Array<{ path: string; identity: string }>;
   // A skill this launch needs the checkout to already hold, which Operator does not install.
   requiredSkill: string | null;
 };
@@ -302,7 +304,7 @@ function briefDocument(request: {
             }`,
         )),
     "",
-    "These inputs are fixed at dispatch. A later change to their source does not change them.",
+    "These inputs are fixed at registration. A later change to their source does not change them.",
     "",
     "## Effective configuration",
     "",
@@ -401,6 +403,17 @@ export function planDispatch(request: {
         ],
   );
 
+  // A launch reads each path input at its base commit. A rework starts from the submitted
+  // result, which can change that file inside its write paths, and a review reads fixed copies.
+  const fixedPaths =
+    review !== null || rework !== null
+      ? []
+      : request.brief.fixedInputs.flatMap((one) =>
+          one.kind === "path" && one.contentIdentity !== null
+            ? [{ path: one.value, identity: one.contentIdentity }]
+            : [],
+        );
+
   const plan: DispatchPlan = {
     assignmentId: request.brief.assignmentId,
     attemptId: request.brief.attemptId,
@@ -421,6 +434,7 @@ export function planDispatch(request: {
     promptIdentity: ContentIdentity.of({ promptText, briefIdentity }),
     snapshotIdentity: ContentIdentity.of(request.snapshot),
     extraInputs,
+    fixedPaths,
     // A reviewer that cannot load the review skill is blocked before any agent starts.
     requiredSkill: review === null ? null : REVIEW_SKILL,
   };

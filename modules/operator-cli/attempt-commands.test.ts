@@ -54,7 +54,14 @@ async function calls(workspace: Workspace): Promise<string[]> {
   return herdrCalls(workspace);
 }
 
-async function claimedAttempt(workspace: Workspace) {
+type FixedInput = { name: string; kind: string; value: string; contentIdentity: string | null };
+
+async function claimedAttempt(
+  workspace: Workspace,
+  fixedInputs: FixedInput[] = [
+    { name: "brief", kind: "value", value: "the brief", contentIdentity: null },
+  ],
+) {
   const owned = await runJson(workspace, [
     "crew",
     "own",
@@ -76,7 +83,7 @@ async function claimedAttempt(workspace: Workspace) {
         approvedScope: "Build the dispatch path.",
         acceptanceRequirements: ["The quality gate passes."],
         permissions: { writePaths: ["modules/"], allowedCommands: ["bun test"], network: false },
-        fixedInputs: [{ name: "brief", kind: "value", value: "the brief", contentIdentity: null }],
+        fixedInputs,
         dependsOn: [],
       },
     ],
@@ -707,6 +714,72 @@ describe("interrupted dispatch", () => {
     expect((await calls(workspace)).some((line) => line.startsWith("agent start"))).toBe(false);
   });
 
+  test("blocks a launch whose path fixed input changed at the base commit", async () => {
+    const workspace = await fixtures.make({
+      config: { crew: { host: "claude-code" } },
+      files: { "docs/spec.md": "# Spec\n" },
+    });
+    const crew = await claimedAttempt(workspace, [
+      {
+        name: "spec",
+        kind: "path",
+        value: "docs/spec.md",
+        contentIdentity: ContentIdentity.ofText("# Spec\n"),
+      },
+    ]);
+    await Bun.write(`${workspace.repo}/docs/spec.md`, "# Changed spec\n");
+    await Bun.$`git -C ${workspace.repo} -c user.email=t@example.com -c user.name=Test commit -qam change`.quiet();
+
+    const failed = await dispatch(workspace, crew);
+    expect(failed.exitCode).toBe(1);
+    expect(failed.json.reason).toBe("dispatch_stage_failed");
+    expect(failed.json.blockers[0].stage).toBe("input_preparation");
+    expect(failed.json.blockers[0].detail).toContain("docs/spec.md");
+    expect((await calls(workspace)).some((line) => line.startsWith("agent start"))).toBe(false);
+    // The launch repairs nothing and tears nothing down: the worktree and its branch stay.
+    expect(await Bun.file(`${workspace.root}/operative/docs/spec.md`).text()).toBe(
+      "# Changed spec\n",
+    );
+    const branches = await Bun.$`git -C ${workspace.repo} branch --list ${"operator/*"}`.text();
+    expect(branches.trim()).not.toBe("");
+  });
+
+  test("blocks a launch whose path fixed input is not committed at the base commit", async () => {
+    const workspace = await makeWorkspace();
+    await Bun.write(`${workspace.repo}/docs/spec.md`, "# Spec\n");
+    const crew = await claimedAttempt(workspace, [
+      {
+        name: "spec",
+        kind: "path",
+        value: "docs/spec.md",
+        contentIdentity: ContentIdentity.ofText("# Spec\n"),
+      },
+    ]);
+
+    const failed = await dispatch(workspace, crew);
+    expect(failed.exitCode).toBe(1);
+    expect(failed.json.blockers[0].stage).toBe("input_preparation");
+    expect(failed.json.blockers[0].detail).toContain("docs/spec.md");
+    expect((await calls(workspace)).some((line) => line.startsWith("agent start"))).toBe(false);
+  });
+
+  test("launches with a path fixed input that matches its identity at the base commit", async () => {
+    const workspace = await fixtures.make({
+      config: { crew: { host: "claude-code" } },
+      files: { "docs/spec.md": "# Spec\n" },
+    });
+    const identity = ContentIdentity.ofText("# Spec\n");
+    const crew = await claimedAttempt(workspace, [
+      { name: "spec", kind: "path", value: "docs/spec.md", contentIdentity: identity },
+    ]);
+
+    const dispatched = await dispatch(workspace, crew);
+    expect(dispatched.json.reason).toBe("acknowledgement_pending");
+    const brief = await Bun.file(`${workspace.root}/operative/.operator/local/brief.md`).text();
+    expect(brief).toContain(`- spec (path): docs/spec.md [${identity}]`);
+    expect(brief).toContain("These inputs are fixed at registration.");
+  });
+
   test("holds an unanswered launch open until it is reconciled", async () => {
     const workspace = await makeWorkspace();
     const crew = await claimedAttempt(workspace);
@@ -1037,6 +1110,60 @@ describe("replacement", () => {
 
     const brief = await Bun.file(`${workspace.root}/operative/.operator/local/brief.md`).text();
     expect(brief).toContain(replaced.json.data.attemptId);
+  });
+
+  test("relaunches a replacement whose former writer changed a path fixed input", async () => {
+    const workspace = await fixtures.make({
+      config: { crew: { host: "claude-code" } },
+      files: { "docs/spec.md": "# Spec\n" },
+    });
+    const crew = await claimedAttempt(workspace, [
+      {
+        name: "spec",
+        kind: "path",
+        value: "docs/spec.md",
+        contentIdentity: ContentIdentity.ofText("# Spec\n"),
+      },
+    ]);
+    await dispatch(workspace, crew);
+    await stopFakeAgents(workspace);
+    // The former writer edited and committed the input inside the kept worktree, as partial work can.
+    await Bun.write(`${workspace.root}/operative/docs/spec.md`, "# Edited spec\n");
+    await Bun.$`git -C ${workspace.root}/operative -c user.email=t@example.com -c user.name=Test commit -qam partial`.quiet();
+
+    const inspection = await runJson(workspace, [
+      "attempt",
+      "replace",
+      "--request",
+      request(),
+      "--owner-token",
+      crew.ownerToken,
+      "--attempt",
+      crew.attemptId,
+    ]);
+    const replaced = await runJson(workspace, [
+      "attempt",
+      "replace",
+      "--request",
+      request(),
+      "--owner-token",
+      crew.ownerToken,
+      "--attempt",
+      crew.attemptId,
+      "--inspection",
+      inspection.json.data.identity,
+    ]);
+    expect(replaced.exitCode).toBe(0);
+
+    const relaunched = await dispatch(workspace, {
+      ownerToken: crew.ownerToken,
+      attemptId: replaced.json.data.attemptId,
+    });
+    expect(relaunched.json.reason).toBe("acknowledgement_pending");
+    // The partial work stays in the kept worktree.
+    expect(await Bun.file(`${workspace.root}/operative/docs/spec.md`).text()).toBe(
+      "# Edited spec\n",
+    );
   });
 
   test("refuses a replacement whose recorded snapshot cannot be read", async () => {

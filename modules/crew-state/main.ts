@@ -26,7 +26,7 @@ import { approvalCheckSchema, approvalInputSchema } from "./approval-input.ts";
 import { raiseQuestion, reviseQuestion } from "./question-raise.ts";
 import { showQuestion } from "./question-report.ts";
 import { defectInputSchema, type InvalidateOutcome, invalidateResult } from "./invalidate.ts";
-import { registerWork, showOverlaps } from "./registration.ts";
+import { readPathIdentities, registerWork, showOverlaps } from "./registration.ts";
 import { openReworkCycle, type ReworkOutcome } from "./rework-open.ts";
 import { reworkInputSchema } from "./rework-input.ts";
 import { dispositionInputSchema } from "./review-input.ts";
@@ -110,6 +110,7 @@ export const CrewState = {
     }
 
     const input = parsed.value;
+    const found = await readPathIdentities(request.projectRoot, input);
     return mutate(
       {
         projectRoot: request.projectRoot,
@@ -119,7 +120,7 @@ export const CrewState = {
         operation: "work_register",
         input,
       },
-      ({ tx, now }) => commitOn(registerWork(tx, { input, now }), "registered"),
+      ({ tx, now }) => commitOn(registerWork(tx, { input, found, now }), "registered"),
     );
   },
 

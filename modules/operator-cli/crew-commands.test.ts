@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
+import { ContentIdentity } from "../content-identity/main.ts";
 
 // Crew tests spawn several CLI processes against the same project fixture.
 setDefaultTimeout(60_000);
@@ -66,10 +67,16 @@ type ItemOverrides = {
   wayfinderType?: "research" | "grilling" | "prototype" | "task";
   dependsOn?: Array<{ sourceId?: string; key: string }>;
   writePaths?: string[];
+  fixedInputs?: Array<{
+    name: string;
+    kind: string;
+    value: string;
+    contentIdentity: string | null;
+  }>;
 };
 
 function item(overrides: ItemOverrides) {
-  const { key, title, kind, wayfinderType, dependsOn, writePaths } = overrides;
+  const { key, title, kind, wayfinderType, dependsOn, writePaths, fixedInputs } = overrides;
   return {
     key,
     title: title ?? `Item ${key}`,
@@ -81,7 +88,9 @@ function item(overrides: ItemOverrides) {
       allowedCommands: ["bun test"],
       network: false,
     },
-    fixedInputs: [{ name: "brief", kind: "value", value: `brief ${key}`, contentIdentity: null }],
+    fixedInputs: fixedInputs ?? [
+      { name: "brief", kind: "value", value: `brief ${key}`, contentIdentity: null },
+    ],
     dependsOn: dependsOn ?? [],
   };
 }
@@ -435,6 +444,166 @@ describe("operator work register", () => {
     expect(
       frontier.json.data.dispatchable.map((one: { sourceKey: string }) => one.sourceKey),
     ).toEqual(["a", "b"]);
+  });
+
+  test("refuses a re-registration that states different fixed inputs", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+    const notes = { name: "notes", kind: "value", value: "the notes", contentIdentity: null };
+    const brief = { name: "brief", kind: "value", value: "the brief", contentIdentity: null };
+    const registered = await register(root, token, {
+      items: [item({ key: "a", fixedInputs: [brief, notes] })],
+    });
+
+    const changed = await register(root, token, {
+      items: [
+        item({ key: "a", fixedInputs: [{ ...brief, value: "another brief" }, notes] }),
+        item({ key: "b" }),
+      ],
+    });
+
+    expect(changed.exitCode).toBe(4);
+    expect(changed.json.reason).toBe("fixed_inputs_changed");
+    // The refusal names only the input that differs and carries no input text, so it stays short.
+    expect(changed.json.blockers).toEqual([
+      {
+        reason: "fixed_inputs_changed",
+        sourceKey: "a",
+        assignmentId: assignmentIdOf(registered.json, "a"),
+        changed: ["brief"],
+      },
+    ]);
+
+    // A refused registration records nothing, not even the new item beside the changed one.
+    const frontier = await runJson(root, ["work", "frontier"]);
+    expect(
+      frontier.json.data.dispatchable.map((one: { sourceKey: string }) => one.sourceKey),
+    ).toEqual(["a"]);
+  });
+
+  test("refuses a path fixed input whose file does not match its content identity", async () => {
+    const root = await makeProject({ "docs/spec.md": "# Spec\n" });
+    const token = await own(root);
+
+    const changed = await register(root, token, {
+      items: [
+        item({
+          key: "a",
+          fixedInputs: [
+            {
+              name: "spec",
+              kind: "path",
+              value: "docs/spec.md",
+              contentIdentity: ContentIdentity.ofText("# Old spec\n"),
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(changed.exitCode).toBe(2);
+    expect(changed.json.reason).toBe("fixed_input_mismatch");
+    expect(changed.json.blockers[0]).toMatchObject({
+      sourceKey: "a",
+      name: "spec",
+      path: "docs/spec.md",
+      statedIdentity: ContentIdentity.ofText("# Old spec\n"),
+      foundIdentity: ContentIdentity.ofText("# Spec\n"),
+    });
+
+    const frontier = await runJson(root, ["work", "frontier"]);
+    expect(frontier.json.data.dispatchable).toEqual([]);
+  });
+
+  test("refuses a path fixed input whose file is not in the checkout", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+
+    const missing = await register(root, token, {
+      items: [
+        item({
+          key: "a",
+          fixedInputs: [
+            { name: "spec", kind: "path", value: "docs/spec.md", contentIdentity: "f".repeat(64) },
+          ],
+        }),
+      ],
+    });
+
+    expect(missing.exitCode).toBe(2);
+    expect(missing.json.reason).toBe("fixed_input_mismatch");
+    expect(missing.json.blockers[0]).toMatchObject({ path: "docs/spec.md", foundIdentity: null });
+  });
+
+  test("refuses a path fixed input outside the checkout", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+
+    // Git reads one spelling of a path at the base commit, so every other spelling is refused.
+    for (const value of [
+      "/etc/hosts",
+      "../outside.md",
+      "docs/../../outside.md",
+      "docs//spec.md",
+      "docs/./spec.md",
+      "./docs/spec.md",
+      "docs/",
+    ]) {
+      const outside = await register(root, token, {
+        items: [
+          item({
+            key: "a",
+            fixedInputs: [{ name: "spec", kind: "path", value, contentIdentity: "f".repeat(64) }],
+          }),
+        ],
+      });
+
+      expect(outside.exitCode).toBe(2);
+      expect(outside.json.reason).toBe("invalid_work_input");
+    }
+  });
+
+  test("refuses a path fixed input with no content identity", async () => {
+    const root = await makeProject({ "docs/spec.md": "# Spec\n" });
+    const token = await own(root);
+
+    const unfixed = await register(root, token, {
+      items: [
+        item({
+          key: "a",
+          fixedInputs: [
+            { name: "spec", kind: "path", value: "docs/spec.md", contentIdentity: null },
+          ],
+        }),
+      ],
+    });
+
+    expect(unfixed.exitCode).toBe(2);
+    expect(unfixed.json.reason).toBe("invalid_work_input");
+    expect(JSON.stringify(unfixed.json)).toContain("a path input requires its content identity");
+  });
+
+  test("registers a path fixed input whose file matches its content identity", async () => {
+    const root = await makeProject({ "docs/spec.md": "# Spec\n" });
+    const token = await own(root);
+    const spec = {
+      name: "spec",
+      kind: "path",
+      value: "docs/spec.md",
+      contentIdentity: ContentIdentity.ofText("# Spec\n"),
+    };
+
+    const registered = await register(root, token, {
+      items: [item({ key: "a", fixedInputs: [spec] })],
+    });
+    expect(registered.json.reason).toBe("work_registered");
+
+    // A later edit of the file does not refuse the item that is already registered.
+    await Bun.write(`${root}/docs/spec.md`, "# Changed spec\n");
+    const again = await register(root, token, {
+      items: [item({ key: "a", fixedInputs: [spec] })],
+    });
+    expect(again.json.reason).toBe("work_registered");
   });
 
   test("registers a dependency that names another source", async () => {

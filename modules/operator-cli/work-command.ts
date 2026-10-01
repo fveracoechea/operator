@@ -100,6 +100,46 @@ async function runRegister(parsed: ParsedArguments): Promise<Handled> {
     });
   }
 
+  if (result.status === "fixed-inputs-changed") {
+    return refuse({
+      json: parsed.json,
+      operation: "work_register",
+      outcome: "conflict",
+      reason: "fixed_inputs_changed",
+      detail: {
+        sourceKey: result.sourceKey,
+        assignmentId: result.assignmentId,
+        changed: result.changed,
+      },
+      lines: [
+        `Item ${result.sourceKey} is registered with different fixed inputs: ${result.changed.join(", ")}.`,
+        "Assignment inputs stay fixed, so a changed fixed input needs your decision.",
+      ],
+    });
+  }
+
+  if (result.status === "fixed-input-mismatch") {
+    return refuse({
+      json: parsed.json,
+      operation: "work_register",
+      outcome: "invalid",
+      reason: "fixed_input_mismatch",
+      detail: {
+        sourceKey: result.sourceKey,
+        name: result.name,
+        path: result.path,
+        statedIdentity: result.statedIdentity,
+        foundIdentity: result.foundIdentity,
+      },
+      lines: [
+        result.foundIdentity === null
+          ? `Item ${result.sourceKey} names ${result.path}, which is not in this checkout.`
+          : `Item ${result.sourceKey} names ${result.path}, which does not match its content identity.`,
+        "Nothing was registered.",
+      ],
+    });
+  }
+
   if (result.status === "dependency-cycle") {
     report({
       json: parsed.json,
