@@ -14,6 +14,11 @@ export type FakeComment = {
 };
 
 export type FakeIssue = {
+  /** The database id. A source read needs it, and a tracker step reads by number alone. */
+  id?: number;
+  /** Where the issue lives, as `https://api.github.com/repos/<owner>/<repo>`. */
+  repository_url?: string;
+  labels?: Array<{ name: string }>;
   number: number;
   state: string;
   state_reason: string | null;

@@ -188,6 +188,7 @@ function registerReview(
       planningType: null,
       orderIndex: nextOrderIndex(held),
       approvedScope: `Review submission ${request.submissionId} of assignment ${request.producer.id} on the Standards and Spec axes.`,
+      scopeIdentity: null,
       acceptanceRequirements: [
         `Record one Standards report and one Spec report for submission ${request.submissionId}.`,
         "Run both axes as native sub-agents of this host, in parallel and in separate contexts.",

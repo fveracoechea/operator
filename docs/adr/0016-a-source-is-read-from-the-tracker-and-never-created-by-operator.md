@@ -39,9 +39,15 @@ Blocker sets are sorted, and a carriage return before a line feed is removed bef
 Every refusal is reported at once, in a fixed order, and the output holds no value that changes between runs.
 
 A registration is previewed first.
-The preview changes nothing, and it reports every item it would add, update, or keep, every satisfied blocker, every refusal, and a registration plan revision.
+The preview changes no crew state and no tracker, and it reports every item it would add, update, or keep, every satisfied blocker, every refusal, and a registration plan revision.
 That revision is the content identity of the canonical read and the input.
 The registration reads again and refuses if the revision differs, so what is recorded is exactly what was previewed.
+
+The Operator reads the report of the preview, and it keeps its own context low.
+So the report gives the counts, the revision, and the path of a local file that holds the full plan, and the crew or the person reads that file.
+The file is named by its revision, so the same plan always writes the same bytes, and a registration whose revision differs names the parts that changed against it: the source, an item, or an input entry.
+A registration that is refused writes its plan the same way.
+A registration that records its plan gives only counts and the command that lists each assignment.
 
 Only a new registration reads the tracker again.
 `operator crew next` never reads the tracker, because it runs on every turn and changes nothing.

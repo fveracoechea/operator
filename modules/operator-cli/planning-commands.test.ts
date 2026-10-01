@@ -3,6 +3,7 @@ import { Database } from "bun:sqlite";
 // Bun has no directory listing API.
 import { readdir } from "node:fs/promises";
 import { ContentIdentity } from "../content-identity/main.ts";
+import { type FixtureItem, registerSource, workspaceTarget } from "./source-fixture.ts";
 import { githubState, makeTrackerWorkspace, recordStep, TICKET } from "./tracker-fixture.ts";
 import {
   githubCalls,
@@ -30,17 +31,13 @@ type ItemSpec = {
   dependsOn?: string[];
 };
 
-function item(spec: ItemSpec) {
+function item(spec: ItemSpec): FixtureItem {
   return {
     key: spec.key,
     title: `Item ${spec.key}`,
-    ...(spec.wayfinderType === undefined
-      ? { kind: spec.kind ?? "production" }
-      : { wayfinderType: spec.wayfinderType }),
-    approvedScope: `The approved scope of item ${spec.key}. Keep the rollout behind a flag.`,
-    acceptanceRequirements: ["The quality gate passes."],
-    permissions: { writePaths: ["modules/"], allowedCommands: ["bun test"], network: false },
-    fixedInputs: [],
+    kind: spec.wayfinderType === undefined ? (spec.kind ?? "production") : undefined,
+    wayfinderType: spec.wayfinderType,
+    body: `The approved scope of item ${spec.key}. Keep the rollout behind a flag.`,
     dependsOn: (spec.dependsOn ?? []).map((key) => ({ key })),
   };
 }
@@ -56,26 +53,12 @@ async function register(
   ownerToken: string,
   source: { sourceKind: "wayfinder" | "specification"; items: ItemSpec[] },
 ): Promise<Map<string, string>> {
-  const registered = await runJson(workspace, [
-    "work",
-    "register",
-    "--request",
-    request(),
-    "--owner-token",
-    ownerToken,
-    "--input",
-    await writeJson(workspace, {
-      sourceKind: source.sourceKind,
-      source: { id: "github:operator#1", revision: "rev-1", tracker: "github" },
-      items: source.items.map(item),
-    }),
-  ]);
-  return new Map(
-    registered.json.data.registered.map((one: { sourceKey: string; assignmentId: string }) => [
-      one.sourceKey,
-      one.assignmentId,
-    ]),
-  );
+  const registered = await registerSource(workspaceTarget(workspace), ownerToken, {
+    sourceKind: source.sourceKind,
+    parent: 1,
+    items: source.items.map(item),
+  });
+  return registered.keys;
 }
 
 async function accept(

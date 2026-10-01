@@ -12,11 +12,6 @@ const kindByWayfinderType = {
   task: "production",
 } as const satisfies Record<string, AssignmentKind>;
 
-const dependency = z.strictObject({
-  sourceId: z.string().min(1).optional(),
-  key: z.string().min(1),
-});
-
 // A large artifact stays outside the state, so a path input is only fixed by its content identity.
 const fixedInput = z.discriminatedUnion("kind", [
   z.strictObject({
@@ -74,73 +69,49 @@ const permissionRecord = z.strictObject({
 
 const permissions = permissionRecord.extend({ writePaths: z.array(writePath) });
 
-const itemFields = {
-  key: z.string().min(1),
-  title: z.string().min(1),
-  // The ticket this item came from. Work registered without one records no tracker reference,
-  // and its tracker updates are refused rather than sent to a guessed ticket.
-  trackerIssue: z.int().positive().optional(),
-  approvedScope: z.string().min(1),
+/**
+ * One issue named as `<owner>/<repo>#<number>`. GitHub names are case-insensitive, so the key is
+ * lowercase and two spellings of one issue are one key.
+ */
+const issueKey = z
+  .string()
+  .regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+#[1-9][0-9]*$/, {
+    error: "an issue is named as <owner>/<repo>#<number>",
+  })
+  .transform((key) => key.toLowerCase());
+
+/**
+ * The fields the tracker does not hold. The tracker holds the structure, the order, the
+ * dependencies, and the approved text, so this input has no field for any of them.
+ */
+const executionFields = {
+  issue: issueKey,
   acceptanceRequirements: z.array(z.string().min(1)).min(1),
   permissions,
   fixedInputs: z.array(registeredFixedInput),
-  dependsOn: z.array(dependency),
 };
 
-/** The fields the write-path check reads. It runs only when each of them was read as valid. */
-function readsWritePaths(issue: z.core.$ZodRawIssue): boolean {
-  const [field, inner] = issue.path ?? [];
-  // An unknown key beside the write paths leaves the write paths themselves readable.
-  const whole = issue.code !== "unrecognized_keys";
-  if (field === undefined) {
-    return whole;
-  }
-  if (field !== "permissions") {
-    return false;
-  }
-  return inner === "writePaths" || (inner === undefined && whole);
-}
+// A specification or ticket item states its planning boundary. Review work is never registered,
+// because a submission starts it.
+const declaredItem = z.strictObject({
+  ...executionFields,
+  kind: z.enum(["production", "planning"]),
+});
 
-/**
- * Production work changes the repository, so it must name where. The check also runs when
- * another field of the item is refused, so one request reports every refusal at once.
- */
-const writePathsRequired = {
-  message: "a production item names at least one write path",
-  path: ["permissions", "writePaths"],
-  when: (payload: z.core.ParsePayload) => !payload.issues.some(readsWritePaths),
-};
-
-function hasWritePaths(item: KindedItem & { permissions: { writePaths: string[] } }): boolean {
-  return kindOf(item) !== "production" || item.permissions.writePaths.length > 0;
-}
-
-const declaredItem = z
-  .strictObject({
-    ...itemFields,
-    kind: z.enum(["production", "review", "planning"]),
-  })
-  .refine(hasWritePaths, writePathsRequired);
-
-const wayfinderItem = z
-  .strictObject({
-    ...itemFields,
-    wayfinderType: z.enum(["research", "grilling", "prototype", "task"]),
-  })
-  .refine(hasWritePaths, writePathsRequired);
+// A wayfinder item takes its planning boundary from its type label. A stated kind is only
+// checked against that label.
+const wayfinderItem = z.strictObject({
+  ...executionFields,
+  kind: z.enum(["production", "planning"]).optional(),
+});
 
 /** Where one source lives in its tracker. The map issue is what an amendment is written to. */
 const trackerLocation = z.strictObject({
   repository: z.string().min(1),
   mapIssue: z.int().positive().nullable(),
-});
-
-const source = z.strictObject({
-  id: z.string().min(1),
-  revision: z.string().min(1),
-  // GitHub is the only tracker this release supports.
-  tracker: z.literal("github"),
-  location: trackerLocation.optional(),
+  // The parent issue the source was read from. A source an earlier release registered from a
+  // hand-written structure has none, so a new read of it is refused.
+  parent: z.strictObject({ issue: z.int().positive(), issueId: z.int().positive() }).optional(),
 });
 
 export type TrackerSourceLocation = z.infer<typeof trackerLocation>;
@@ -150,38 +121,61 @@ export function storedTrackerLocation(stored: string): TrackerSourceLocation {
   return readStored("tracker location", trackerLocation, stored);
 }
 
+const trackerBinding = z.strictObject({
+  repository: z.string().min(1),
+  issue: z.int().positive(),
+  // An earlier release recorded no database id, so its bindings match by repository and number.
+  issueId: z.int().positive().optional(),
+});
+
+export type TrackerBindingRecord = z.infer<typeof trackerBinding>;
+
 /** The recorded binding of one assignment, read back through the schema that wrote it. */
-export function storedTrackerBinding(stored: string): { issue: number } {
-  return readStored("tracker binding", z.strictObject({ issue: z.int().positive() }), stored);
+export function storedTrackerBinding(stored: string): TrackerBindingRecord {
+  return readStored("tracker binding", trackerBinding, stored);
+}
+
+/** Refuses an input that names one issue twice, because it would state two sets of fields. */
+function namesEachIssueOnce(items: Array<{ issue: string }>, context: z.RefinementCtx): void {
+  const seen = new Set<string>();
+  items.forEach((one, index) => {
+    if (seen.has(one.issue)) {
+      context.addIssue({
+        code: "custom",
+        message: `${one.issue} is named more than once`,
+        path: [index, "issue"],
+      });
+    }
+    seen.add(one.issue);
+  });
 }
 
 export const workInputSchema = z.discriminatedUnion("sourceKind", [
   z.strictObject({
     sourceKind: z.literal("specification"),
-    source,
-    items: z.array(declaredItem).min(1),
+    source: issueKey,
+    items: z.array(declaredItem).superRefine(namesEachIssueOnce),
   }),
   z.strictObject({
     sourceKind: z.literal("ticket"),
-    source,
-    items: z.array(declaredItem).min(1),
+    source: issueKey,
+    items: z.array(declaredItem).superRefine(namesEachIssueOnce),
   }),
   z.strictObject({
     sourceKind: z.literal("wayfinder"),
-    source,
-    items: z.array(wayfinderItem).min(1),
+    source: issueKey,
+    items: z.array(wayfinderItem).superRefine(namesEachIssueOnce),
   }),
 ]);
 
 export type WorkInput = z.infer<typeof workInputSchema>;
 export type WorkItem = WorkInput["items"][number];
 
-// The item type is inferred from the schemas whose check calls kindOf, so it states its own shape.
-type KindedItem = { kind: AssignmentKind } | { wayfinderType: keyof typeof kindByWayfinderType };
-
-/** The planning boundary of one item, taken from the vocabulary its own source uses. */
-export function kindOf(item: KindedItem): AssignmentKind {
-  return "kind" in item ? item.kind : kindByWayfinderType[item.wayfinderType];
+/** The planning boundary a wayfinder type label gives, or null for a type this release does not know. */
+export function kindOfWayfinderType(type: string): AssignmentKind | null {
+  return Object.hasOwn(kindByWayfinderType, type)
+    ? kindByWayfinderType[type as keyof typeof kindByWayfinderType]
+    : null;
 }
 
 /** The wayfinder types whose work is planning. Only these record a planning type. */
@@ -193,12 +187,8 @@ export type PlanningType = (typeof PLANNING_TYPES)[number];
  * The wayfinder type of one planning item, or null. A planning item of a specification or a
  * ticket has no type, because its recorded kind does not say which side of a decision it is.
  */
-export function planningTypeOf(item: KindedItem): PlanningType | null {
-  if ("kind" in item) {
-    return null;
-  }
-  const type = item.wayfinderType;
-  return PLANNING_TYPES.find((one) => one === type) ?? null;
+export function planningTypeOf(wayfinderType: string | null): PlanningType | null {
+  return PLANNING_TYPES.find((one) => one === wayfinderType) ?? null;
 }
 
 /**

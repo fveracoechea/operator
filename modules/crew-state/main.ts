@@ -27,7 +27,15 @@ import { approvalCheckSchema, approvalInputSchema } from "./approval-input.ts";
 import { raiseQuestion, reviseQuestion } from "./question-raise.ts";
 import { showQuestion } from "./question-report.ts";
 import { type InvalidateOutcome, invalidateResult } from "./invalidate.ts";
-import { readPathIdentities, registerWork, showOverlaps } from "./registration.ts";
+import {
+  planRegistration,
+  readPathIdentities,
+  registerWork,
+  showOverlaps,
+} from "./registration.ts";
+import { planDifferences, storePlan } from "./registration-plans.ts";
+import { canonicalRead, readSource } from "./source-read.ts";
+import { identityOf } from "./identity.ts";
 import { openReworkCycle, type ReworkOutcome } from "./rework-open.ts";
 import { defectInputSchema, reworkInputSchema } from "./rework-input.ts";
 import { dispositionInputSchema } from "./review-input.ts";
@@ -103,28 +111,81 @@ export const CrewState = {
   },
 
   /**
-   * Registers approved work from one source, preserving its revision, scope, acceptance
-   * requirements, permissions, fixed inputs, dependencies, and planning boundary.
+   * Previews one registration. It reads the source from the tracker, changes no crew state and
+   * no tracker, and writes the full plan to a local file named by its revision, so its report
+   * stays a summary that points to the detail.
    */
-  async register(request: Mutation & { input: unknown }) {
+  async planRegistration(request: Located & { input: unknown }) {
     const parsed = parseInput(workInputSchema, request.input);
     if (parsed.status !== "parsed") {
       return reported(parsed);
     }
 
     const input = parsed.value;
+    const read = await readSource(input);
     const found = await readPathIdentities(request.projectRoot, input);
-    return mutate(
+    const plan = await readState(request.projectRoot, (db) =>
+      planRegistration(db, { input, read, found }),
+    );
+    if (!("planRevision" in plan)) {
+      return reported(plan);
+    }
+
+    const planPath = await storePlan(request.projectRoot, plan, {
+      read: canonicalRead(read),
+      input,
+    });
+    return reported({ status: "planned" as const, plan, planPath });
+  },
+
+  /**
+   * Registers exactly the plan that `planRegistration` previewed. It reads the tracker again
+   * and refuses, naming what differs, when the plan revision is not the one stated.
+   */
+  async register(request: Mutation & { input: unknown; planRevision: string }) {
+    const parsed = parseInput(workInputSchema, request.input);
+    if (parsed.status !== "parsed") {
+      return { ...reported(parsed), planPath: null };
+    }
+
+    const input = parsed.value;
+    const read = await readSource(input);
+    const found = await readPathIdentities(request.projectRoot, input);
+    const basis = { read: canonicalRead(read), input };
+    const differences =
+      identityOf(basis) === request.planRevision
+        ? []
+        : await planDifferences(request.projectRoot, request.planRevision, basis);
+    const outcome = await mutate(
       {
         projectRoot: request.projectRoot,
         requestId: request.requestId,
         ownerToken: request.ownerToken,
         now: new Date().toISOString(),
         operation: "work_register",
-        input,
+        input: { input, planRevision: request.planRevision },
       },
-      ({ tx, now }) => commitOn(registerWork(tx, { input, found, now }), "registered"),
+      ({ tx, now }) =>
+        commitOn(
+          registerWork(tx, {
+            input,
+            read,
+            found,
+            planRevision: request.planRevision,
+            differences,
+            now,
+          }),
+          "registered",
+        ),
     );
+    // A refused plan is written down too, so its reader finds every refusal in one place.
+    if (outcome.result.status === "refused") {
+      return {
+        ...outcome,
+        planPath: await storePlan(request.projectRoot, outcome.result.plan, basis),
+      };
+    }
+    return { ...outcome, planPath: null };
   },
 
   /**

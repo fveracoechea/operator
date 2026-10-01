@@ -9,13 +9,127 @@ import {
   reportInvalidInput,
   reportSharedFailure,
 } from "./crew-result.ts";
-import { type Handled, refuse, report } from "./result.ts";
+import { type Handled, type Reason, refuse, report } from "./result.ts";
 import { isSourceRefusal, reportSourceRefusal } from "./source-result.ts";
 
+type PlanReport = {
+  plan: {
+    source: { id: string; kind: string; revision: string | null; repository: string };
+    planRevision: string;
+    items: unknown[];
+    skipped: unknown[];
+    satisfiedBlockers: unknown[];
+    refusals: Array<{ reason: Reason; key: string }>;
+  };
+  planPath: string;
+};
+
+/** Each refusal reason once, in the order it first appears, with how many times it appears. */
+function refusalSummary(refusals: PlanReport["plan"]["refusals"]) {
+  const counts = new Map<Reason, number>();
+  for (const one of refusals) {
+    counts.set(one.reason, (counts.get(one.reason) ?? 0) + 1);
+  }
+  return [...counts].map(([reason, count]) => ({ reason, count }));
+}
+
+/**
+ * Reports one registration plan as a summary and the path of the full plan. The Operator reads
+ * this report, so it carries counts and the path, and the crew or the person opens the file.
+ */
+function reportPlan(
+  parsed: ParsedArguments,
+  operation: "work_register" | "work_register_plan",
+  report_: PlanReport,
+  inputPath: string,
+): Handled {
+  const { plan, planPath } = report_;
+  const summary = refusalSummary(plan.refusals);
+  const refused = plan.refusals.length > 0;
+  const command = `operator work register --request <id> --owner-token <token> --input ${inputPath} --plan-revision ${plan.planRevision}`;
+  report({
+    json: parsed.json,
+    result: {
+      outcome: refused ? "invalid" : "completed",
+      reason: refused ? "registration_refused" : "registration_planned",
+      blockers: summary,
+      operation,
+      data: {
+        source: plan.source,
+        planRevision: plan.planRevision,
+        counts: {
+          items: plan.items.length,
+          skipped: plan.skipped.length,
+          satisfiedBlockers: plan.satisfiedBlockers.length,
+          refusals: plan.refusals.length,
+        },
+        planPath,
+        command: refused ? null : command,
+      },
+    },
+    lines: [
+      `Plan ${plan.planRevision} for ${plan.source.id}:`,
+      `  ${plan.items.length} new item(s), ${plan.satisfiedBlockers.length} satisfied blocker(s), ${plan.skipped.length} closed sub-issue(s) not registered.`,
+      ...(refused
+        ? [
+            `  ${plan.refusals.length} refusal(s): ${summary.map((one) => `${one.reason} x${one.count}`).join(", ")}.`,
+            "Nothing can be registered until each refusal is settled.",
+          ]
+        : [`Register it with: ${command}`]),
+      `Every item, blocker, and refusal: ${planPath}`,
+    ],
+  });
+  return "reported";
+}
+
+async function runRegisterPlan(parsed: ParsedArguments, inputPath: string): Promise<Handled> {
+  // A preview changes nothing, so it carries no request identity, ownership, or revision.
+  const { inputPath: _input, ...otherCrewFlags } = parsed.crew;
+  if (Object.keys(otherCrewFlags).length > 0) {
+    return "invalid-arguments";
+  }
+
+  const read = await readStructuredInput({
+    parsed,
+    operation: "work_register_plan",
+    reason: "invalid_work_input",
+    path: inputPath,
+  });
+  if (read.status !== "read") {
+    return "reported";
+  }
+
+  const { result } = await CrewState.planRegistration({
+    projectRoot: process.cwd(),
+    input: read.value,
+  });
+  if (reportSharedFailure(parsed, "work_register_plan", result)) {
+    return "reported";
+  }
+  if (result.status === "invalid-input") {
+    return reportInvalidInput({
+      parsed,
+      operation: "work_register_plan",
+      reason: "invalid_work_input",
+      issues: result.issues,
+    });
+  }
+  return reportPlan(parsed, "work_register_plan", result, inputPath);
+}
+
 async function runRegister(parsed: ParsedArguments): Promise<Handled> {
-  const mutation = readMutation(parsed);
   const inputPath = parsed.crew.inputPath;
-  if (mutation === null || inputPath === undefined) {
+  if (inputPath === undefined) {
+    return "invalid-arguments";
+  }
+  if (parsed.plan) {
+    return runRegisterPlan(parsed, inputPath);
+  }
+
+  // A registration records only a plan that was previewed, so it names that plan's revision.
+  const mutation = readMutation(parsed);
+  const planRevision = parsed.crew.planRevision;
+  if (mutation === null || planRevision === undefined) {
     return "invalid-arguments";
   }
 
@@ -29,10 +143,11 @@ async function runRegister(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
-  const { repeated, result } = await CrewState.register({
+  const { repeated, result, planPath } = await CrewState.register({
     projectRoot: process.cwd(),
     ...mutation,
     input: read.value,
+    planRevision,
   });
 
   if (reportSharedFailure(parsed, "work_register", result)) {
@@ -48,115 +163,34 @@ async function runRegister(parsed: ParsedArguments): Promise<Handled> {
     });
   }
 
-  if (result.status === "source-revision-changed") {
+  if (result.status === "plan-revision-changed") {
     return refuse({
       json: parsed.json,
       operation: "work_register",
       outcome: "conflict",
-      reason: "source_revision_changed",
+      reason: "plan_revision_changed",
       detail: {
-        sourceId: result.sourceId,
-        recordedRevision: result.recordedRevision,
-        requestedRevision: result.requestedRevision,
-        fixedAssignments: result.fixedAssignments,
-      },
-      lines: [
-        `${result.sourceId} is registered at revision ${result.recordedRevision}.`,
-        "Assignment inputs stay fixed, so a changed source needs your decision.",
-      ],
-    });
-  }
-
-  if (result.status === "unknown-dependency") {
-    return refuse({
-      json: parsed.json,
-      operation: "work_register",
-      outcome: "invalid",
-      reason: "unknown_dependency",
-      detail: {
-        sourceKey: result.sourceKey,
-        dependency: result.dependency,
-      },
-      lines: [
-        `Item ${result.sourceKey} depends on ${result.dependency.key}, which is not registered.`,
-      ],
-    });
-  }
-
-  if (result.status === "dependencies-changed") {
-    return refuse({
-      json: parsed.json,
-      operation: "work_register",
-      outcome: "conflict",
-      reason: "dependencies_changed",
-      detail: {
-        sourceKey: result.sourceKey,
-        assignmentId: result.assignmentId,
-        recorded: result.recorded,
         requested: result.requested,
+        found: result.found,
+        differences: result.differences,
       },
       lines: [
-        `Item ${result.sourceKey} is registered with different dependencies.`,
-        "Assignment dependencies stay fixed, so a changed dependency needs your decision.",
+        `The tracker or the input changed since plan ${result.requested}, so nothing was registered.`,
+        ...(result.differences === null
+          ? ["This checkout holds no preview of that plan, so the change cannot be named."]
+          : result.differences.map((one) => `  ${one.part} ${one.key} ${one.change}`)),
+        "Preview it again with --plan, and register the new plan revision.",
       ],
     });
   }
 
-  if (result.status === "fixed-inputs-changed") {
-    return refuse({
-      json: parsed.json,
-      operation: "work_register",
-      outcome: "conflict",
-      reason: "fixed_inputs_changed",
-      detail: {
-        sourceKey: result.sourceKey,
-        assignmentId: result.assignmentId,
-        changed: result.changed,
-      },
-      lines: [
-        `Item ${result.sourceKey} is registered with different fixed inputs: ${result.changed.join(", ")}.`,
-        "Assignment inputs stay fixed, so a changed fixed input needs your decision.",
-      ],
-    });
-  }
-
-  if (result.status === "fixed-input-mismatch") {
-    return refuse({
-      json: parsed.json,
-      operation: "work_register",
-      outcome: "invalid",
-      reason: "fixed_input_mismatch",
-      detail: {
-        sourceKey: result.sourceKey,
-        name: result.name,
-        path: result.path,
-        statedIdentity: result.statedIdentity,
-        foundIdentity: result.foundIdentity,
-      },
-      lines: [
-        result.foundIdentity === null
-          ? `Item ${result.sourceKey} names ${result.path}, which is not in this checkout.`
-          : `Item ${result.sourceKey} names ${result.path}, which does not match its content identity.`,
-        "Nothing was registered.",
-      ],
-    });
-  }
-
-  if (result.status === "dependency-cycle") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "invalid",
-        reason: "dependency_cycle",
-        blockers: [{ reason: "dependency_cycle", cycle: result.cycle }],
-        operation: "work_register",
-      },
-      lines: [
-        "These dependencies form a cycle, so nothing was registered:",
-        `  ${result.cycle.join(" -> ")}`,
-      ],
-    });
-    return "reported";
+  if (result.status === "refused") {
+    return reportPlan(
+      parsed,
+      "work_register",
+      { plan: result.plan, planPath: planPath ?? "" },
+      inputPath,
+    );
   }
 
   report({
@@ -168,10 +202,12 @@ async function runRegister(parsed: ParsedArguments): Promise<Handled> {
       operation: "work_register",
       data: {
         source: result.source,
+        planRevision: result.planRevision,
+        counts: { registered: result.registered.length },
         registered: result.registered,
-        existing: result.existing,
         overlaps: result.overlaps,
         repeated,
+        frontier: "operator work frontier",
       },
     },
     lines: [
@@ -180,9 +216,7 @@ async function runRegister(parsed: ParsedArguments): Promise<Handled> {
         (one) =>
           `  ${one.assignmentId} ${one.kind}${one.executable ? "" : " (planning only)"} ${one.title}`,
       ),
-      ...(result.existing.length === 0
-        ? []
-        : [`${result.existing.length} item(s) were already registered and stay fixed.`]),
+      "List each assignment with: operator work frontier",
       ...(result.overlaps.pairCount === 0
         ? []
         : [

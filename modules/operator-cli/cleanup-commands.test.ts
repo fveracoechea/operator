@@ -1,3 +1,4 @@
+import { registerSource, workspaceTarget } from "./source-fixture.ts";
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 // Bun has no recursive directory removal API.
@@ -441,35 +442,11 @@ describe("cleanup identity", () => {
 
     // A second assignment claims the same checkout path. Its launch fails, but the plan it
     // recorded first makes it a live writer of that directory.
-    const registered = await runJson(workspace, [
-      "work",
-      "register",
-      "--request",
-      request(),
-      "--owner-token",
-      producer.ownerToken,
-      "--input",
-      await writeInput(workspace, {
-        sourceKind: "ticket",
-        source: { id: "github:operator#16", revision: "rev-1", tracker: "github" },
-        items: [
-          {
-            key: "16.1",
-            title: "Follow-on work",
-            kind: "production",
-            approvedScope: "Continue in the same checkout.",
-            acceptanceRequirements: ["The quality gate passes."],
-            permissions: {
-              writePaths: ["modules/"],
-              allowedCommands: ["bun test"],
-              network: false,
-            },
-            fixedInputs: [],
-            dependsOn: [],
-          },
-        ],
-      }),
-    ]);
+    const registered = await registerSource(workspaceTarget(workspace), producer.ownerToken, {
+      sourceKind: "ticket",
+      parent: 16,
+      items: [{ key: "16.1", title: "Follow-on work", body: "Continue in the same checkout." }],
+    });
     const claimed = await runJson(workspace, [
       "work",
       "claim",
@@ -753,7 +730,7 @@ describe("operator cleanup remove", () => {
       { field: "workspace", recorded: "w1", found: "none" },
       {
         field: "branch",
-        recorded: `operator/22-1-${producer.attemptId.slice(0, 8)}`,
+        recorded: `operator/operator-1501-${producer.attemptId.slice(0, 8)}`,
         found: "none",
       },
     ]);

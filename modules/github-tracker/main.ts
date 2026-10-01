@@ -35,6 +35,10 @@ type Comment = {
 };
 
 type Issue = {
+  /** The database id. It names the issue across a rename or a transfer of its repository. */
+  id: number | null;
+  /** The `<owner>/<repo>` that holds the issue, as GitHub spells it. */
+  repository: string | null;
   number: number;
   state: string;
   stateReason: string | null;
@@ -43,6 +47,7 @@ type Issue = {
   updatedAt: string;
   title: string;
   body: string;
+  labels: string[];
 };
 
 type IssueEvent = {
@@ -77,6 +82,19 @@ function readComment(source: unknown): Comment | null {
   };
 }
 
+/** The repository part of an issue's `repository_url`, which every issue answer carries. */
+function repositoryOf(url: string | null): string | null {
+  const match = /\/repos\/([^/]+\/[^/]+)$/.exec(url ?? "");
+  return match?.[1] ?? null;
+}
+
+function labelsOf(source: unknown): string[] {
+  return ToolInvocation.list(source, "labels").flatMap((one) => {
+    const name = typeof one === "string" ? one : ToolInvocation.text(one, "name");
+    return name === null ? [] : [name];
+  });
+}
+
 function readIssue(source: unknown): Issue | null {
   const number = ToolInvocation.number(source, "number");
   const state = ToolInvocation.text(source, "state");
@@ -85,6 +103,8 @@ function readIssue(source: unknown): Issue | null {
   }
 
   return {
+    id: ToolInvocation.number(source, "id"),
+    repository: repositoryOf(ToolInvocation.text(source, "repository_url")),
     number,
     state,
     stateReason: ToolInvocation.text(source, "state_reason"),
@@ -93,6 +113,7 @@ function readIssue(source: unknown): Issue | null {
     updatedAt: ToolInvocation.text(source, "updated_at") ?? "",
     title: ToolInvocation.text(source, "title") ?? "",
     body: ToolInvocation.text(source, "body") ?? "",
+    labels: labelsOf(source),
   };
 }
 

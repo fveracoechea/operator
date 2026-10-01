@@ -1,3 +1,4 @@
+import { registerSource, workspaceTarget } from "./source-fixture.ts";
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 // Bun has no recursive directory removal or directory listing API.
@@ -38,19 +39,10 @@ function item(overrides: ItemOverrides) {
   return {
     key: overrides.key,
     title: overrides.title ?? `Item ${overrides.key}`,
-    kind: "production",
-    approvedScope: `The approved scope of item ${overrides.key}.`,
-    acceptanceRequirements: ["The quality gate passes."],
-    // Each item writes its own folder, so the frontier hold never orders them.
-    permissions: {
-      writePaths: [`modules/${overrides.key}/`],
-      allowedCommands: ["bun test"],
-      network: false,
-    },
+    body: `The approved scope of item ${overrides.key}.`,
     fixedInputs: [
       { name: "brief", kind: "value", value: `brief ${overrides.key}`, contentIdentity: null },
     ],
-    dependsOn: [],
   };
 }
 
@@ -75,21 +67,11 @@ async function dispatchedCrew(workspace: Workspace, keys: string[] = ["21.1"]): 
   ]);
   const ownerToken = owned.json.data.ownerToken;
 
-  const inputPath = await writeInput(workspace, {
+  const registered = await registerSource(workspaceTarget(workspace), ownerToken, {
     sourceKind: "specification",
-    source: { id: "github:operator#21", revision: "rev-1", tracker: "github" },
+    parent: 21,
     items: keys.map((key) => item({ key })),
   });
-  const registered = await runJson(workspace, [
-    "work",
-    "register",
-    "--request",
-    request(),
-    "--owner-token",
-    ownerToken,
-    "--input",
-    inputPath,
-  ]);
 
   const first = registered.json.data.registered[0];
   const claimed = await runJson(workspace, [
@@ -604,21 +586,11 @@ describe("operator question answer", () => {
     const crew = await dispatchedCrew(workspace);
 
     // A second ticket states the opposite requirement, so no source settles the question.
-    const secondPath = await writeInput(workspace, {
+    const second = await registerSource(workspaceTarget(workspace), crew.ownerToken, {
       sourceKind: "ticket",
-      source: { id: "github:operator#22", revision: "rev-1", tracker: "github" },
-      items: [{ ...item({ key: "22.1", title: "Use the new column order" }) }],
+      parent: 22,
+      items: [item({ key: "22.1", title: "Use the new column order" })],
     });
-    const second = await runJson(workspace, [
-      "work",
-      "register",
-      "--request",
-      request(),
-      "--owner-token",
-      crew.ownerToken,
-      "--input",
-      secondPath,
-    ]);
 
     const raised = await raise(workspace, crew, {
       question: "Ticket 21 keeps the legacy column order and ticket 22 replaces it.",

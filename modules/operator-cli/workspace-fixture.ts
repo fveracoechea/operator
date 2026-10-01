@@ -155,6 +155,19 @@ function fixturePath(bin: string): string {
   return [bin, ...usable].join(":");
 }
 
+/**
+ * The environment that puts the GitHub fake on the path of one directory, for a test that
+ * builds its own project instead of a fixture repository. The fake keeps its state under
+ * `<directory>/github`.
+ */
+export async function githubFakeEnvironment(directory: string): Promise<Record<string, string>> {
+  const bin = `${directory}/bin`;
+  await Bun.$`mkdir -p ${bin} ${directory}/github`.quiet();
+  await Bun.write(`${bin}/gh`, `#!/bin/sh\nexec bun ${fakeGithubPath} "$@"\n`);
+  await Bun.$`chmod +x ${bin}/gh`.quiet();
+  return { PATH: fixturePath(bin), GH_FAKE_DIR: `${directory}/github` };
+}
+
 export async function runOperator(
   workspace: Workspace,
   args: string[],

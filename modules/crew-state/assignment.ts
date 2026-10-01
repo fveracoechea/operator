@@ -47,6 +47,7 @@ export type NewAssignment = {
   planningType: string | null;
   orderIndex: number;
   approvedScope: string;
+  scopeIdentity: string | null;
   acceptanceRequirements: string[];
   permissions: { writePaths: string[]; allowedCommands: string[]; network: boolean };
   fixedInputs: Array<{
@@ -83,6 +84,7 @@ export function insertAssignment(
     planningType: request.planningType,
     orderIndex: request.orderIndex,
     approvedScope: request.approvedScope,
+    scopeIdentity: request.scopeIdentity,
     acceptanceRequirements: JSON.stringify(request.acceptanceRequirements),
     permissions: JSON.stringify(request.permissions),
     fixedInputs: JSON.stringify(request.fixedInputs),

@@ -28,6 +28,7 @@ const crewFieldByFlag = {
   "--pr-head": "prHead",
   "--source": "sourceId",
   "--record": "recordId",
+  "--plan-revision": "planRevision",
 } as const;
 
 type CrewFlag = keyof typeof crewFieldByFlag;
@@ -52,6 +53,7 @@ export type ParsedArguments = {
   configUnsets: string[];
   overrides: SelectionOverrides;
   takeover: boolean;
+  plan: boolean;
   crew: CrewArguments;
   unsupported: string[];
 };
@@ -127,6 +129,7 @@ export function parseArguments(args: string[]): ParsedArguments {
     configUnsets: [],
     overrides: {},
     takeover: false,
+    plan: false,
     crew: {},
     unsupported: [],
   };
@@ -140,6 +143,8 @@ export function parseArguments(args: string[]): ParsedArguments {
       parsed.json = true;
     } else if (argument === "--takeover") {
       parsed.takeover = true;
+    } else if (argument === "--plan") {
+      parsed.plan = true;
     } else if (argument === "--stale-only") {
       parsed.staleOnly = true;
     } else if (argument === "--set" || argument === "--unset") {
@@ -249,7 +254,7 @@ export function hasSelectionOrProbeArguments(parsed: ParsedArguments): boolean {
 
 /** True when the request carries a crew-state flag the addressed command has no use for. */
 export function hasCrewArguments(parsed: ParsedArguments): boolean {
-  return parsed.takeover || Object.keys(parsed.crew).length > 0;
+  return parsed.takeover || parsed.plan || Object.keys(parsed.crew).length > 0;
 }
 
 export function hasConfigArguments(parsed: ParsedArguments): boolean {

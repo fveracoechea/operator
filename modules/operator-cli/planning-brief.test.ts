@@ -11,6 +11,7 @@ import {
   type Workspace,
   writeInput,
 } from "./review-cycle-fixture.ts";
+import { registerSource, workspaceTarget } from "./source-fixture.ts";
 import {
   headCommit,
   requestId as request,
@@ -58,41 +59,30 @@ async function ownCrew(workspace: Workspace): Promise<string> {
  * on 30.1. So 30.1 is two steps above the task.
  */
 async function registerChain(workspace: Workspace, ownerToken: string) {
-  const item = (key: string, kind: string, title: string, dependsOn: string[]) => ({
+  const item = (
+    key: string,
+    kind: "production" | "planning",
+    title: string,
+    dependsOn: string[],
+  ) => ({
     key,
     title,
+    body: title,
     kind,
-    approvedScope: title,
-    acceptanceRequirements: ["The quality gate passes."],
     permissions: { writePaths: ["docs/"], allowedCommands: ["bun test"], network: false },
-    fixedInputs: [],
     dependsOn: dependsOn.map((one) => ({ key: one })),
   });
-  const registered = await runJson(workspace, [
-    "work",
-    "register",
-    "--request",
-    request(),
-    "--owner-token",
-    ownerToken,
-    "--input",
-    await writeInput(workspace, {
-      sourceKind: "specification",
-      source: { id: "github:operator#30", revision: "rev-1", tracker: "github" },
-      items: [
-        item("30.1", "planning", "Decide the store", []),
-        item("30.2", "planning", "Decide the rollout", ["30.1"]),
-        item("30.3", "production", "Build the rollout", ["30.2"]),
-      ],
-    }),
-  ]);
+  const registered = await registerSource(workspaceTarget(workspace), ownerToken, {
+    sourceKind: "specification",
+    parent: 30,
+    items: [
+      item("30.1", "planning", "Decide the store", []),
+      item("30.2", "planning", "Decide the rollout", ["30.1"]),
+      item("30.3", "production", "Build the rollout", ["30.2"]),
+    ],
+  });
   expect(registered.exitCode).toBe(0);
-  return new Map<string, string>(
-    registered.json.data.registered.map((one: { sourceKey: string; assignmentId: string }) => [
-      one.sourceKey,
-      one.assignmentId,
-    ]),
-  );
+  return registered.keys;
 }
 
 /** Accepts one planning item with one human answer and one text artifact. */
@@ -187,7 +177,21 @@ async function launch(
     baseCommit,
     assignmentRevision: claimed.json.data.revision as number,
     dispatched: dispatched.json,
+    dependents: new Map<string, string>(),
+    sourceRevision: sourceRevisionOf(workspace, options.assignmentId),
   };
+}
+
+/** The source revision an assignment was registered under, which its submission states. */
+function sourceRevisionOf(workspace: Workspace, assignmentId: string): string {
+  const sqlite = new Database(`${workspace.repo}/.operator/local/crew-state.sqlite`, {
+    readonly: true,
+  });
+  const row = sqlite
+    .query("select source_revision from assignments where id = ?")
+    .get(assignmentId) as { source_revision: string };
+  sqlite.close();
+  return row.source_revision;
 }
 
 async function acknowledge(

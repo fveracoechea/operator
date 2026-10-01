@@ -1,4 +1,5 @@
 import { ContentIdentity } from "../content-identity/main.ts";
+import { registerSource } from "./source-fixture.ts";
 import {
   headCommit,
   requestId as request,
@@ -9,6 +10,15 @@ import {
 } from "./workspace-fixture.ts";
 
 export type Host = "claude-code" | "opencode";
+
+/** One more item of the producer's source. */
+export type Dependent = {
+  key: string;
+  kind: "production" | "planning";
+  title: string;
+  dependsOn?: string[];
+  writePaths?: string[];
+};
 
 export type Workspace = Fixture & { host: Host };
 
@@ -53,7 +63,13 @@ export async function startProducer(
   fixedInputs: unknown[] = [
     { name: "brief", kind: "value", value: "the brief", contentIdentity: null },
   ],
-  options: { acknowledge?: boolean; env?: Record<string, string> } = {},
+  options: {
+    acknowledge?: boolean;
+    env?: Record<string, string>;
+    // The items registered with it in the same source. Each depends on the producer unless it
+    // names its own dependencies.
+    dependents?: Dependent[];
+  } = {},
 ) {
   const env = options.env ?? {};
   const owned = await runJson(workspace, [
@@ -66,33 +82,38 @@ export async function startProducer(
   ]);
   const ownerToken = owned.json.data.ownerToken;
 
-  const inputPath = await writeInput(workspace, {
-    sourceKind: "specification",
-    source: { id: "github:operator#15", revision: "rev-1", tracker: "github" },
-    items: [
-      {
-        key: "22.1",
-        title: "Build the reviewed result path",
-        kind: "production",
-        approvedScope: "Build the reviewed result path.",
-        acceptanceRequirements: REQUIREMENTS,
-        permissions: { writePaths: ["docs/"], allowedCommands: ["bun test"], network: false },
-        fixedInputs,
-        dependsOn: [],
-      },
-    ],
-  });
-  const registered = await runJson(workspace, [
-    "work",
-    "register",
-    "--request",
-    request(),
-    "--owner-token",
+  const registered = await registerSource(
+    { root: workspace.root, github: workspace.github, run: (args) => runJson(workspace, args) },
     ownerToken,
-    "--input",
-    inputPath,
-  ]);
-  const assignmentId = registered.json.data.registered[0].assignmentId;
+    {
+      sourceKind: "specification",
+      parent: 15,
+      items: [
+        {
+          key: "22.1",
+          title: "Build the reviewed result path",
+          body: "Build the reviewed result path.",
+          acceptanceRequirements: REQUIREMENTS,
+          permissions: { writePaths: ["docs/"], allowedCommands: ["bun test"], network: false },
+          fixedInputs,
+        },
+        ...(options.dependents ?? []).map((item) => ({
+          key: item.key,
+          title: item.title,
+          body: item.title,
+          kind: item.kind,
+          acceptanceRequirements: REQUIREMENTS,
+          permissions: {
+            writePaths: item.writePaths ?? ["docs/"],
+            allowedCommands: ["bun test"],
+            network: false,
+          },
+          dependsOn: (item.dependsOn ?? ["22.1"]).map((key) => ({ key })),
+        })),
+      ],
+    },
+  );
+  const assignmentId = registered.keys.get("22.1") ?? "";
 
   const claimed = await runJson(workspace, [
     "work",
@@ -145,6 +166,9 @@ export async function startProducer(
     baseCommit,
     assignmentRevision: claimed.json.data.revision as number,
     dispatched: dispatched.json,
+    dependents: registered.keys,
+    // The source revision is the content identity of the parent issue text the CLI read.
+    sourceRevision: registered.json.data.source.revision as string,
   };
 }
 
@@ -196,7 +220,7 @@ export function submissionBody(
   return {
     resultKind: overrides.resultKind ?? "code",
     assignmentRevision: overrides.assignmentRevision ?? producer.assignmentRevision,
-    sourceRevision: overrides.sourceRevision ?? "rev-1",
+    sourceRevision: overrides.sourceRevision ?? producer.sourceRevision,
     requirementsIdentity: overrides.requirementsIdentity ?? REQUIREMENTS_IDENTITY,
     artifacts: [
       {
@@ -603,54 +627,6 @@ export async function grantDirection(
     "--input",
     await writeInput(workspace, { ...direction.approval, exactText, grantedBy: "human" }),
   ]);
-}
-
-/** Registers more items in the same source, each one naming the items it depends on. */
-export async function registerDependents(
-  workspace: Workspace,
-  producer: Producer,
-  items: Array<{
-    key: string;
-    kind: "production" | "planning";
-    title: string;
-    dependsOn?: string[];
-    writePaths?: string[];
-  }>,
-) {
-  const registered = await runJson(workspace, [
-    "work",
-    "register",
-    "--request",
-    request(),
-    "--owner-token",
-    producer.ownerToken,
-    "--input",
-    await writeInput(workspace, {
-      sourceKind: "specification",
-      source: { id: "github:operator#15", revision: "rev-1", tracker: "github" },
-      items: items.map((item) => ({
-        key: item.key,
-        title: item.title,
-        kind: item.kind,
-        approvedScope: item.title,
-        acceptanceRequirements: REQUIREMENTS,
-        permissions: {
-          writePaths: item.writePaths ?? ["docs/"],
-          allowedCommands: ["bun test"],
-          network: false,
-        },
-        fixedInputs: [],
-        dependsOn: (item.dependsOn ?? ["22.1"]).map((key) => ({ key })),
-      })),
-    }),
-  ]);
-
-  return new Map<string, string>(
-    registered.json.data.registered.map((one: { sourceKey: string; assignmentId: string }) => [
-      one.sourceKey,
-      one.assignmentId,
-    ]),
-  );
 }
 
 /** Records a defect found in one accepted result. */

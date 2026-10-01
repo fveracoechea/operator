@@ -1,3 +1,4 @@
+import { issueKey } from "./source-fixture.ts";
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import {
   acceptAssignment,
@@ -10,7 +11,6 @@ import {
   makeReviewWorkspace,
   PLANNING_RECORD,
   type Producer,
-  registerDependents,
   reportBody,
   reportReview,
   startProducer,
@@ -163,7 +163,10 @@ describe("operator work invalidate", () => {
 
   test("an invalidation with the correction budget spent waits for the direction of the user", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
-    let producer = await startProducer(workspace);
+    let producer = await startProducer(workspace, undefined, {
+      dependents: [{ key: "22.2", kind: "planning", title: "Decide the rollout order" }],
+    });
+    const dependents = producer.dependents;
     let result = await acceptedResult(workspace, producer, "# Result 0\n");
 
     // Each invalidation cycle changes the result, so three of them spend the budget of three.
@@ -183,9 +186,6 @@ describe("operator work invalidate", () => {
       expect(result.accepted.json.reason).toBe("assignment_accepted");
     }
 
-    const dependents = await registerDependents(workspace, producer, [
-      { key: "22.2", kind: "planning", title: "Decide the rollout order" },
-    ]);
     const consumer = dependents.get("22.2") ?? "";
     await acceptAssignment(workspace, producer, { assignmentId: consumer, revision: 1 });
 
@@ -239,14 +239,16 @@ describe("operator work invalidate", () => {
 
   test("pauses only the work that read the invalid result and keeps the history", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
-    const producer = await startProducer(workspace);
+    const producer = await startProducer(workspace, undefined, {
+      dependents: [
+        { key: "22.2", kind: "planning", title: "Decide the rollout order" },
+        { key: "22.3", kind: "production", title: "Build on the accepted result" },
+      ],
+    });
     const first = await acceptedResult(workspace, producer, "# Result\n");
     expect(first.accepted.json.reason).toBe("assignment_accepted");
 
-    const dependents = await registerDependents(workspace, producer, [
-      { key: "22.2", kind: "planning", title: "Decide the rollout order" },
-      { key: "22.3", kind: "production", title: "Build on the accepted result" },
-    ]);
+    const dependents = producer.dependents;
     const consumer = dependents.get("22.2") ?? "";
     const unstarted = dependents.get("22.3") ?? "";
 
@@ -330,18 +332,20 @@ describe("operator work invalidate", () => {
 
   test("a dependent of two invalid results waits for both corrections", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
-    const producer = await startProducer(workspace);
+    const producer = await startProducer(workspace, undefined, {
+      dependents: [
+        { key: "22.4", kind: "production", title: "The other input", dependsOn: [] },
+        {
+          key: "22.5",
+          kind: "planning",
+          title: "Decide from both inputs",
+          dependsOn: ["22.1", "22.4"],
+        },
+      ],
+    });
     const first = await acceptedResult(workspace, producer, "# First\n");
 
-    const registered = await registerDependents(workspace, producer, [
-      { key: "22.4", kind: "production", title: "The other input", dependsOn: [] },
-      {
-        key: "22.5",
-        kind: "planning",
-        title: "Decide from both inputs",
-        dependsOn: ["22.1", "22.4"],
-      },
-    ]);
+    const registered = producer.dependents;
     const other = registered.get("22.4") ?? "";
     const consumer = registered.get("22.5") ?? "";
 
@@ -424,14 +428,16 @@ describe("operator work invalidate", () => {
 
   test("an invalidated planning decision is accepted again and releases its dependents", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
-    const producer = await startProducer(workspace);
+    const producer = await startProducer(workspace, undefined, {
+      dependents: [
+        { key: "22.2", kind: "planning", title: "Decide the rollout order" },
+        { key: "22.3", kind: "production", title: "Roll out", dependsOn: ["22.2"] },
+      ],
+    });
     const first = await acceptedResult(workspace, producer, "# Result\n");
     expect(first.accepted.json.reason).toBe("assignment_accepted");
 
-    const registered = await registerDependents(workspace, producer, [
-      { key: "22.2", kind: "planning", title: "Decide the rollout order" },
-      { key: "22.3", kind: "production", title: "Roll out", dependsOn: ["22.2"] },
-    ]);
+    const registered = producer.dependents;
     const planning = registered.get("22.2") ?? "";
     const dependent = registered.get("22.3") ?? "";
 
@@ -529,18 +535,20 @@ describe("operator work invalidate", () => {
 
   test("an invalidated assignment holds its write paths again until it is accepted again", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
-    const producer = await startProducer(workspace);
+    const producer = await startProducer(workspace, undefined, {
+      dependents: [
+        {
+          key: "22.4",
+          kind: "production",
+          title: "Change a file the result also changed",
+          dependsOn: [],
+          writePaths: ["docs/result.md"],
+        },
+      ],
+    });
     const first = await acceptedResult(workspace, producer, "# Result\n");
 
-    const registered = await registerDependents(workspace, producer, [
-      {
-        key: "22.4",
-        kind: "production",
-        title: "Change a file the result also changed",
-        dependsOn: [],
-        writePaths: ["docs/result.md"],
-      },
-    ]);
+    const registered = producer.dependents;
     const overlapping = registered.get("22.4") ?? "";
 
     // Accepted work holds nothing, so the overlapping work is offered.
@@ -561,12 +569,12 @@ describe("operator work invalidate", () => {
         holders: [
           {
             assignmentId: producer.assignmentId,
-            sourceKey: "22.1",
+            sourceKey: issueKey(1501),
             hold: "started",
             pathPairCount: 1,
           },
         ],
-        command: "operator work overlaps --source github:operator#15",
+        command: `operator work overlaps --source ${issueKey(15)}`,
       },
     ]);
 
@@ -586,18 +594,20 @@ describe("operator work invalidate", () => {
 
   test("offers an invalidated assignment again past started work that overlaps it", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
-    const producer = await startProducer(workspace);
+    const producer = await startProducer(workspace, undefined, {
+      dependents: [
+        {
+          key: "22.4",
+          kind: "production",
+          title: "Change a file the result also changed",
+          dependsOn: [],
+          writePaths: ["docs/result.md"],
+        },
+      ],
+    });
     const first = await acceptedResult(workspace, producer, "# Result\n");
 
-    const registered = await registerDependents(workspace, producer, [
-      {
-        key: "22.4",
-        kind: "production",
-        title: "Change a file the result also changed",
-        dependsOn: [],
-        writePaths: ["docs/result.md"],
-      },
-    ]);
+    const registered = producer.dependents;
     const overlapping = registered.get("22.4") ?? "";
     const claimed = await runJson(workspace, [
       "work",

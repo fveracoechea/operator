@@ -181,20 +181,27 @@ function shortId(attemptId: string): string {
 }
 
 function slug(value: string): string {
-  return (
-    value
+  const cleaned = (text: string) =>
+    text
       .toLowerCase()
       .replaceAll(/[^a-z0-9]+/g, "-")
-      .replaceAll(/^-+|-+$/g, "")
-      .slice(0, 24) || "work"
-  );
+      .replaceAll(/^-+|-+$/g, "");
+  // An item key is `<owner>/<repo>#<number>`. The number names the item, so a long repository
+  // name is cut and the number is kept.
+  const issue = /^[^/]+\/([^#]+)#(\d+)$/.exec(value);
+  if (issue?.[1] !== undefined && issue[2] !== undefined) {
+    const number = issue[2];
+    return `${cleaned(issue[1]).slice(0, 23 - number.length)}-${number}`;
+  }
+  return cleaned(value).slice(0, 24) || "work";
 }
 
 /** Herdr keeps display text separate from the stable attempt and agent handles. */
 function displayLabels(projectRoot: string, brief: Brief) {
   const project = basename(projectRoot).replaceAll(/[-_]+/g, " ");
   const projectName = project.charAt(0).toUpperCase() + project.slice(1);
-  const ticket = /^\d+$/.test(brief.sourceKey) ? `#${brief.sourceKey}` : brief.sourceKey;
+  const issue = /^[^/]+\/([^#]+#\d+)$/.exec(brief.sourceKey)?.[1];
+  const ticket = /^\d+$/.test(brief.sourceKey) ? `#${brief.sourceKey}` : (issue ?? brief.sourceKey);
   const role =
     brief.review !== null ? "Reviewer" : brief.rework !== null ? "Rework Operative" : "Operative";
   const assignment = `${ticket} ${role}: ${brief.title}`;

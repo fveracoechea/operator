@@ -3,73 +3,77 @@
 Read this before you register anything.
 What you register is what every Operative receives, because the brief is built from it.
 
+Operator never creates an issue.
+A person, or a planning skill such as `to-tickets`, creates the issues and links them.
+The CLI reads the structure of the source from GitHub: the items, their order, their blocking links, and the text of each one.
+Your input holds only what the tracker does not hold.
+
+## Preview, then register
+
 ```sh
-bun run operator work register --request <id> --owner-token <token> --input work.json --json
+bun run operator work register --plan --input work.json --json
+bun run operator work register --request <id> --owner-token <token> --input work.json --plan-revision <revision> --json
 ```
 
 The input is a JSON file, or `-` to read standard input.
 
-## The source
+`--plan` reads the tracker and changes nothing.
+It reports a summary: the counts of items, satisfied blockers, closed sub-issues, and refusals, the `planRevision`, and the `planPath`.
+The full plan is the file at `planPath`: every item in item order, every satisfied blocker, and every refusal in item order and then by blocker key.
+Do not read the whole file yourself.
+Give the path to the crew or the person who settles the refusals.
+
+The registration names the `planRevision` that the preview reported.
+It reads the tracker again, and it records only that plan.
+`plan_revision_changed` means the tracker or the input changed after the preview.
+Its blocker names each part that differs: the source, an item, or an input entry.
+Preview again, and register the new revision.
+The same tracker content and the same input always give the same revision and the same bytes.
+The registration report gives only counts and the command `operator work frontier`, which lists each assignment.
+
+## The input
 
 ```json
 {
   "sourceKind": "specification",
-  "source": {
-    "id": "github:fveracoechea/operator#15",
-    "revision": "rev-1",
-    "tracker": "github",
-    "location": { "repository": "fveracoechea/operator", "mapIssue": 1 }
-  },
-  "items": []
+  "source": "fveracoechea/operator#93",
+  "items": [
+    {
+      "issue": "fveracoechea/operator#94",
+      "kind": "production",
+      "acceptanceRequirements": ["The quality gate passes."],
+      "permissions": {
+        "writePaths": ["modules/operative-dispatch/", ".changeset/dispatch-path.md"],
+        "allowedCommands": ["bun test"],
+        "network": false
+      },
+      "fixedInputs": [
+        { "name": "spec", "kind": "path", "value": "docs/spec.md", "contentIdentity": "<sha256>" }
+      ]
+    }
+  ]
 }
 ```
 
 `sourceKind` is `specification`, `ticket`, or `wayfinder`.
-These are the three approved origins, and each one keeps its own revision.
+A specification and a wayfinder map are a parent issue with its sub-issues.
+A ticket is one issue, and it is its own item.
 
-`revision` names the exact version of the source you read.
-A source is fixed at the revision it was registered with.
-Registering it again at another revision is a conflict, because assignment inputs stay fixed once they exist.
-`source_revision_changed` means exactly that, and it needs your decision, not a retry.
+`source` and each `issue` name an issue as `<owner>/<repo>#<number>`.
+The key is lowercase, because GitHub names are case-insensitive.
+The source id is the key of the parent issue, so one issue is only one source.
 
-`location` says where the source lives in its tracker.
-`mapIssue` is the wayfinder map an amendment is written to, or `null` when the source has none.
-A source registered with no location records none, and its assignments refuse tracker updates rather than writing to a guessed ticket.
+Name each open sub-issue once, and no other issue.
+`input_issue_missing` names a sub-issue that the input leaves out, and `input_issue_outside_source` names an issue that is not an open sub-issue of the source.
+A closed sub-issue is not registered.
+The input has no title, scope, key, order, or dependency field, and an input with one is refused as `invalid_work_input`.
 
-## The items
+`kind` is `production` or `planning` for a specification or ticket item.
+A wayfinder item takes its kind from its `wayfinder:<type>` label: `task` is production, and `research`, `grilling`, and `prototype` are planning.
+You can leave `kind` out of a wayfinder item.
+A stated kind that contradicts the label is refused as `item_kind_contradicted`, and an item with no single known label as `wayfinder_type_unreadable`.
 
-```json
-{
-  "key": "15.1",
-  "title": "Build the dispatch path",
-  "kind": "production",
-  "trackerIssue": 24,
-  "approvedScope": "Build the dispatch path and nothing else.",
-  "acceptanceRequirements": ["Dispatch records each stage before it acts."],
-  "permissions": {
-    "writePaths": ["modules/operative-dispatch/", ".changeset/dispatch-path.md"],
-    "allowedCommands": ["bun test"],
-    "network": false
-  },
-  "fixedInputs": [
-    { "name": "spec", "kind": "path", "value": "docs/spec.md", "contentIdentity": "<sha256>" }
-  ],
-  "dependsOn": [{ "key": "15.0" }]
-}
-```
-
-`key` names the item inside its source.
-Registering the same key twice names the existing assignment instead of creating a second one.
-
-`kind` is `production`, `review`, or `planning`.
-A wayfinder item states `wayfinderType` instead: `task` is production, and `research`, `grilling`, and `prototype` are planning.
-
-`trackerIssue` binds this assignment to its ticket.
-The binding is fixed at registration, so a later configuration change cannot redirect work that already exists.
-An item registered without one records no ticket, and its tracker updates are refused.
-
-`approvedScope` and `acceptanceRequirements` reach the Operative word for word.
-Write the scope as the limit it is, not as a summary of the goal.
+`acceptanceRequirements` reach the Operative word for word.
 Write each requirement as something a reviewer can check.
 
 `permissions` are the authority limits in the brief.
@@ -84,17 +88,39 @@ A `value` input carries its text.
 A `path` input carries its path and its content identity, because a large artifact stays outside the crew state.
 The path names a file inside the checkout, relative to its root, with no empty, `.`, or `..` part, because the launch reads that exact spelling from Git.
 A path input with no content identity, or one outside the checkout, is refused as `invalid_work_input`.
-Registration reads the file, and `fixed_input_mismatch` means the checkout does not hold it or holds other bytes.
+Registration reads the file, and `fixed_input_mismatch` means the checkout does not hold it, holds other bytes, or holds a link that leads out of the checkout.
 The Operative reads the file at the base commit of its launch, so the file must be committed before you dispatch.
 A launch whose base commit holds other bytes, or no file, fails at `input_preparation` and starts no agent.
 You do not edit or commit the file yourself: a change to it is crew work or the person's decision.
-An item you register again with different fixed inputs is refused as `fixed_inputs_changed`, a conflict for you to settle.
 
-`dependsOn` names the items this one waits for.
-Name a key in the same source, or add `sourceId` to name an item in another one.
+## What the tracker gives
+
+The title and body of each issue are its approved scope, exactly as read.
+Each assignment records the content identity of its own title and body, and the source revision is the content identity of the parent title and body.
+A carriage return before a line feed is removed before an identity is taken, and the issue state and the comments are outside both.
+
+The item order is the stored sub-issue order, and it only breaks ties in the frontier.
+A blocking link is a dependency:
+
+- A blocker that is an open sub-issue of the same source is a dependency inside it.
+- A closed blocker is satisfied, and the plan names it.
+- A blocker that is an item of another registered source is a dependency on that assignment.
+- `blocker_in_other_source` refuses a production item whose blocker is an open production item of another source, because that commit lands only on the integration branch of its own source. Put both items under one parent, or register this item after the other source merges.
+- `blocker_unregistered` refuses an open blocker that no registered source holds.
+- `dependency_cycle` refuses blocking links that form a cycle.
+
 A dependency is released only by accepted completion, never by a submitted result.
-A cycle is refused before anything is dispatched, and nothing is registered.
-An item you register again with different dependencies is a conflict for you to settle.
+
+The CLI also refuses:
+
+- `executable_item_in_other_repository`: a production item in another repository, because its commit cannot land on the integration branch of the source. A planning item there is allowed.
+- `source_without_items`: a specification or wayfinder parent with no open sub-issue. Ask the person to link them.
+- `tracker_read_incomplete`: a read that did not cover every sub-issue or every blocker set. An incomplete read is a gap, not a proof that nothing is there.
+- `source_not_found`: a source issue that GitHub does not hold.
+- `source_already_registered` and `issue_already_registered`: a source or an issue that the crew state already holds. A new read of a registered source is not built yet.
+- `source_recorded_without_parent`: a source that an earlier release registered from a hand-written structure. Finish its work, or register its parent issue as a new source.
+
+Every refusal is a decision for the person or the crew, never a reason to change the issues yourself.
 
 ## Write paths
 
@@ -104,8 +130,8 @@ The letter case counts, and there is no token for the whole repository.
 A write path can name a file that does not exist yet.
 
 Registration refuses a write path that is absolute, that has a backslash or a glob character, or that has an empty, `.`, or `..` segment.
-It refuses a production item with no write path.
-It reports every refusal at once, in item order, as `invalid_work_input`, and registers nothing.
+It reports every write path refusal at once, in item order, as `invalid_work_input`, and registers nothing.
+A production item with no write path is a plan refusal, `write_paths_required`.
 
 Work that an earlier release registered can hold a write path with no grammar.
 The CLI reads such a path in its canonical form: it removes each empty and `.` segment, and `..` removes the segment before it.
@@ -122,7 +148,7 @@ The registration report gives only a summary of the overlaps: in `overlaps`, the
 This is information, not a refusal, and the items stay registered.
 Do not list the pairs yourself.
 Tell the person the number of pairs and the command.
-A narrower path needs a new revision of the source, and that is the person's decision.
+A narrower path for a registered item is the person's decision.
 
 ## Planning work is registered too
 

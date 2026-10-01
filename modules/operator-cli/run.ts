@@ -75,6 +75,7 @@ async function runUpdateCommand(rest: string[]): Promise<void> {
     parsed.unsupported.length > 0 ||
     parsed.approvedPlan !== undefined ||
     parsed.takeover ||
+    parsed.plan ||
     Object.keys(otherCrewFlags).length > 0 ||
     hasSelectionOrProbeArguments(parsed) ||
     hasConfigArguments(parsed) ||
@@ -91,6 +92,7 @@ async function runInstallCommand(rest: string[]): Promise<void> {
       parsed.unsupported.length > 0 ||
       Object.keys(otherCrewFlags).length > 0 ||
       parsed.takeover ||
+      parsed.plan ||
       hasUpdateArguments(parsed) ||
       hasSelectionOrProbeArguments(parsed) ||
       hasConfigArguments(parsed) ||
@@ -239,6 +241,33 @@ async function releaseMismatch(
   return true;
 }
 
+/** True when a crew command carries a flag that only another command reads. */
+function refusesCrewFlags(
+  command: string | undefined,
+  words: string[],
+  parsed: ParsedArguments,
+): boolean {
+  // The next actions answer for one installation and one selection, so only that read
+  // carries the target and selection flags every other crew command refuses.
+  const selects = command === "crew" && words[0] === "next";
+  return (
+    parsed.unsupported.length > 0 ||
+    (!selects && parsed.targets.length > 0) ||
+    parsed.approvedPlan !== undefined ||
+    hasUpdateArguments(parsed) ||
+    hasConfigArguments(parsed) ||
+    // Only crew ownership can be taken over, so every other command refuses the flag.
+    (parsed.takeover && !(command === "crew" && words[0] === "own")) ||
+    // Only a registration has a preview.
+    (parsed.plan && !(command === "work" && words[0] === "register")) ||
+    // A dispatch fixes the selection it launches with, so only it reads a selection override.
+    parsed.approvedProbe !== undefined ||
+    (!(command === "attempt" && words[0] === "dispatch") &&
+      !selects &&
+      hasSelectionOrProbeArguments(parsed))
+  );
+}
+
 export async function run(args: string[]): Promise<void> {
   // The release reports its own version and supported runtime. A registry rewrites the package
   // manifest, so a published copy is never read through it.
@@ -282,23 +311,7 @@ export async function run(args: string[]): Promise<void> {
   const crewCommand = command === undefined ? undefined : crewCommands[command];
   if (crewCommand !== undefined) {
     const { words, parsed } = splitRequest(rest);
-    // The next actions answer for one installation and one selection, so only that read
-    // carries the target and selection flags every other crew command refuses.
-    const selects = command === "crew" && words[0] === "next";
-    if (
-      parsed.unsupported.length > 0 ||
-      (!selects && parsed.targets.length > 0) ||
-      parsed.approvedPlan !== undefined ||
-      hasUpdateArguments(parsed) ||
-      hasConfigArguments(parsed) ||
-      // Only crew ownership can be taken over, so every other command refuses the flag.
-      (parsed.takeover && !(command === "crew" && words[0] === "own")) ||
-      // A dispatch fixes the selection it launches with, so only it reads a selection override.
-      parsed.approvedProbe !== undefined ||
-      (!(command === "attempt" && words[0] === "dispatch") &&
-        !selects &&
-        hasSelectionOrProbeArguments(parsed))
-    ) {
+    if (refusesCrewFlags(command, words, parsed)) {
       rejectArguments(parsed.json);
       return;
     }

@@ -8,7 +8,7 @@ Read this before you launch, recover, or replace an Operative.
    Read [COORDINATION.md](COORDINATION.md) for that loop.
 2. If no session owns the crew, `bun run operator crew own --request <id> --owner-label <label> --json` gives you the owner token.
    Read [RECOVERY.md](RECOVERY.md) before you take over a crew another session owned.
-3. `bun run operator work register --request <id> --owner-token <token> --input <path> --json` records the approved work.
+3. `bun run operator work register --plan --input <path> --json` previews the approved work, and `bun run operator work register --request <id> --owner-token <token> --input <path> --plan-revision <revision> --json` records that plan.
    Read [REGISTRATION.md](REGISTRATION.md) for what that request carries.
 4. When `crew next` offers a claim, `bun run operator work claim --request <id> --owner-token <token> --assignment <id> --revision <n> --json` gives you one attempt.
 5. When `crew next` offers dispatch, `bun run operator attempt dispatch --request <id> --owner-token <token> --attempt <id> --commit <sha> --json` launches it.

@@ -1,7 +1,20 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
+import { Database } from "bun:sqlite";
 import { ContentIdentity } from "../content-identity/main.ts";
+import {
+  type FixtureItem,
+  type FixtureSource,
+  type FixtureTarget,
+  issueKey,
+  planSource,
+  registerSource,
+  seedSource,
+  sourceInput,
+  writeInput,
+} from "./source-fixture.ts";
+import { githubFakeEnvironment } from "./workspace-fixture.ts";
 
 // Crew tests spawn several CLI processes against the same project fixture.
 setDefaultTimeout(60_000);
@@ -15,21 +28,27 @@ afterEach(async () => {
   );
 });
 
+/** The GitHub fake each project reads its sources from, kept beside the project. */
+const fakes = new Map<string, Record<string, string>>();
+
 async function makeProject(files: Record<string, string> = {}): Promise<string> {
   const root = `${Bun.env.TMPDIR ?? "/tmp"}/operator-crew-${crypto.randomUUID()}`;
-  temporaryRoots.push(root);
+  temporaryRoots.push(root, `${root}.fake`);
   await Bun.$`mkdir -p ${root}`.quiet();
   for (const [path, content] of Object.entries(files)) {
     await Bun.write(`${root}/${path}`, content, { createPath: true });
   }
+  fakes.set(root, await githubFakeEnvironment(`${root}.fake`));
   return root;
 }
 
-async function runOperator(root: string, args: string[]) {
+async function runOperator(root: string, args: string[], stdin?: string) {
   const child = Bun.spawn(["bun", cliPath, ...args], {
     cwd: root,
     stderr: "pipe",
     stdout: "pipe",
+    stdin: stdin === undefined ? "ignore" : new TextEncoder().encode(stdin),
+    env: { ...process.env, ...fakes.get(root) },
   });
   const [exitCode, stderr, stdout] = await Promise.all([
     child.exited,
@@ -63,6 +82,8 @@ async function own(root: string, label = "operator-session"): Promise<string> {
 type ItemOverrides = {
   key: string;
   title?: string;
+  // A review is started by a submission and never registered. A test of the frontier order
+  // registers production work and records it as a review directly.
   kind?: "production" | "review" | "planning";
   wayfinderType?: "research" | "grilling" | "prototype" | "task";
   dependsOn?: Array<{ sourceId?: string; key: string }>;
@@ -75,14 +96,17 @@ type ItemOverrides = {
   }>;
 };
 
-function item(overrides: ItemOverrides) {
+type Item = FixtureItem & { review: boolean };
+
+function item(overrides: ItemOverrides): Item {
   const { key, title, kind, wayfinderType, dependsOn, writePaths, fixedInputs } = overrides;
   return {
     key,
     title: title ?? `Item ${key}`,
-    ...(wayfinderType === undefined ? { kind: kind ?? "production" } : { wayfinderType }),
-    approvedScope: `The approved scope of item ${key}.`,
-    acceptanceRequirements: ["The quality gate passes."],
+    kind:
+      wayfinderType === undefined ? (kind === "planning" ? "planning" : "production") : undefined,
+    wayfinderType,
+    review: kind === "review",
     permissions: {
       // Each item writes its own folder by default, so only a test that names a path overlaps.
       writePaths: writePaths ?? [`modules/${key}/`],
@@ -99,53 +123,92 @@ function item(overrides: ItemOverrides) {
 type SourceOverrides = {
   sourceKind?: "specification" | "ticket" | "wayfinder";
   id?: string;
-  revision?: string;
-  // A test can send an item that the schema refuses, so an item can be any value.
-  items: unknown[];
+  items: Item[];
 };
 
-async function writeSource(root: string, overrides: SourceOverrides): Promise<string> {
-  const body = {
+/** The item name each issue key stands for, so an assertion reads the names a test gave. */
+const names = new Map<string, string>();
+
+function nameOf(sourceKey: string): string {
+  return names.get(sourceKey) ?? sourceKey;
+}
+
+function namesOf(entries: Array<{ sourceKey: string }>): string[] {
+  return entries.map((one) => nameOf(one.sourceKey));
+}
+
+function parentOf(overrides: SourceOverrides): number {
+  return Number(/#(\d+)$/.exec(overrides.id ?? "github:operator#15")?.[1] ?? "15");
+}
+
+function sourceOf(overrides: SourceOverrides): FixtureSource {
+  return {
     sourceKind: overrides.sourceKind ?? "specification",
-    source: {
-      id: overrides.id ?? "github:operator#15",
-      revision: overrides.revision ?? "rev-1",
-      tracker: "github",
-    },
+    parent: parentOf(overrides),
     items: overrides.items,
   };
-  const path = `${root}/request-${crypto.randomUUID()}.json`;
-  await Bun.write(path, JSON.stringify(body));
-  return path;
+}
+
+function targetOf(root: string): FixtureTarget {
+  return { root, github: `${root}.fake/github`, run: (args) => runJson(root, args) };
 }
 
 async function overlaps(root: string, sourceId: string) {
   return runJson(root, ["work", "overlaps", "--source", sourceId]);
 }
 
-async function register(root: string, token: string, overrides: SourceOverrides) {
-  const path = await writeSource(root, overrides);
-  return runJson(root, [
-    "work",
-    "register",
-    "--request",
-    request(),
-    "--owner-token",
-    token,
-    "--input",
-    path,
-  ]);
+/** The id the CLI records for a source the test named by its old spelling. */
+function sourceIdOf(id = "github:operator#15"): string {
+  return issueKey(parentOf({ id, items: [] }));
 }
 
-type Registration = { data: { registered: Array<{ sourceKey: string; assignmentId: string }> } };
+async function register(root: string, token: string, overrides: SourceOverrides) {
+  const source = sourceOf(overrides);
+  const registered = await registerSource(targetOf(root), token, source);
+  for (const [key, number] of registered.numbers) {
+    names.set(issueKey(number), key);
+  }
+  const reviews = overrides.items.filter((one) => one.review);
+  if (reviews.length > 0) {
+    const sqlite = new Database(`${root}/.operator/local/crew-state.sqlite`);
+    for (const one of reviews) {
+      sqlite
+        .query("update assignments set kind = 'review' where id = ?")
+        .run(registered.keys.get(one.key) ?? "");
+    }
+    sqlite.close();
+  }
+  return registered;
+}
 
-function assignmentIdOf(registered: Registration, key: string): string {
-  const found = registered.data.registered.find((one) => one.sourceKey === key);
+/** Previews one source and reports the plan file, which holds every refusal in order. */
+async function preview(root: string, overrides: SourceOverrides) {
+  const source = sourceOf(overrides);
+  const numbers = await seedSource(`${root}.fake/github`, source);
+  for (const [key, number] of numbers) {
+    names.set(issueKey(number), key);
+  }
+  const inputPath = await writeInput(root, sourceInput(source, numbers));
+  const plan = await planSource(targetOf(root), inputPath);
+  const file =
+    plan.json.data?.planPath === undefined
+      ? null
+      : await Bun.file(`${root}/${plan.json.data.planPath}`).json();
+  return { plan, file, inputPath, input: sourceInput(source, numbers) };
+}
+
+/** Previews an input the schema reads, as a test wrote it. */
+async function previewRaw(root: string, input: unknown) {
+  return planSource(targetOf(root), await writeInput(root, input));
+}
+
+function assignmentIdOf(registered: { keys: Map<string, string> }, key: string): string {
+  const found = registered.keys.get(key);
   if (found === undefined) {
     throw new Error(`the registration reported no assignment for ${key}`);
   }
 
-  return found.assignmentId;
+  return found;
 }
 
 async function claim(root: string, token: string, assignmentId: string, revision: number) {
@@ -374,7 +437,7 @@ describe("operator work register", () => {
 
     expect(
       registered.json.data.registered.map((one: { sourceKey: string; executable: boolean }) => [
-        one.sourceKey,
+        nameOf(one.sourceKey),
         one.executable,
       ]),
     ).toEqual([
@@ -384,132 +447,20 @@ describe("operator work register", () => {
     ]);
 
     const frontier = await runJson(root, ["work", "frontier"]);
-    expect(
-      frontier.json.data.dispatchable.map((one: { sourceKey: string }) => one.sourceKey),
-    ).toEqual(["task-1"]);
-    expect(frontier.json.data.planning.map((one: { sourceKey: string }) => one.sourceKey)).toEqual([
-      "research-1",
-      "grilling-1",
-    ]);
+    expect(namesOf(frontier.json.data.dispatchable)).toEqual(["task-1"]);
+    expect(namesOf(frontier.json.data.planning)).toEqual(["research-1", "grilling-1"]);
 
-    const planningId = assignmentIdOf(registered.json, "research-1");
+    const planningId = assignmentIdOf(registered, "research-1");
     const refused = await claim(root, token, planningId, 1);
     expect(refused.exitCode).toBe(2);
     expect(refused.json.reason).toBe("planning_only");
   });
 
-  test("rejects a dependency cycle before anything is dispatched", async () => {
-    const root = await makeProject();
-    const token = await own(root);
-
-    const result = await register(root, token, {
-      items: [
-        item({ key: "a", dependsOn: [{ key: "b" }] }),
-        item({ key: "b", dependsOn: [{ key: "a" }] }),
-      ],
-    });
-
-    expect(result.exitCode).toBe(2);
-    expect(result.json.reason).toBe("dependency_cycle");
-
-    const frontier = await runJson(root, ["work", "frontier"]);
-    expect(frontier.json.data.dispatchable).toEqual([]);
-    expect(frontier.json.data.blocked).toEqual([]);
-  });
-
-  test("names an existing assignment instead of registering it twice", async () => {
-    const root = await makeProject();
-    const token = await own(root);
-
-    const first = await register(root, token, { items: [item({ key: "a" })] });
-    const second = await register(root, token, {
-      items: [item({ key: "a" }), item({ key: "b" })],
-    });
-
-    expect(
-      second.json.data.existing.map((one: { assignmentId: string }) => one.assignmentId),
-    ).toEqual([assignmentIdOf(first.json, "a")]);
-    expect(second.json.data.registered.map((one: { sourceKey: string }) => one.sourceKey)).toEqual([
-      "b",
-    ]);
-  });
-
-  test("refuses a changed source revision so fixed inputs stay fixed", async () => {
-    const root = await makeProject();
-    const token = await own(root);
-    await register(root, token, { items: [item({ key: "a" })] });
-
-    const result = await register(root, token, { revision: "rev-2", items: [item({ key: "a" })] });
-
-    expect(result.exitCode).toBe(4);
-    expect(result.json.reason).toBe("source_revision_changed");
-    expect(result.json.blockers[0]).toMatchObject({
-      recordedRevision: "rev-1",
-      requestedRevision: "rev-2",
-    });
-  });
-
-  test("refuses a re-registration that states different dependencies", async () => {
-    const root = await makeProject();
-    const token = await own(root);
-    await register(root, token, { items: [item({ key: "a" }), item({ key: "b" })] });
-
-    const changed = await register(root, token, {
-      items: [
-        item({ key: "a", dependsOn: [{ key: "b" }] }),
-        item({ key: "b", dependsOn: [{ key: "a" }] }),
-      ],
-    });
-
-    expect(changed.exitCode).toBe(4);
-    expect(changed.json.reason).toBe("dependencies_changed");
-
-    const frontier = await runJson(root, ["work", "frontier"]);
-    expect(
-      frontier.json.data.dispatchable.map((one: { sourceKey: string }) => one.sourceKey),
-    ).toEqual(["a", "b"]);
-  });
-
-  test("refuses a re-registration that states different fixed inputs", async () => {
-    const root = await makeProject();
-    const token = await own(root);
-    const notes = { name: "notes", kind: "value", value: "the notes", contentIdentity: null };
-    const brief = { name: "brief", kind: "value", value: "the brief", contentIdentity: null };
-    const registered = await register(root, token, {
-      items: [item({ key: "a", fixedInputs: [brief, notes] })],
-    });
-
-    const changed = await register(root, token, {
-      items: [
-        item({ key: "a", fixedInputs: [{ ...brief, value: "another brief" }, notes] }),
-        item({ key: "b" }),
-      ],
-    });
-
-    expect(changed.exitCode).toBe(4);
-    expect(changed.json.reason).toBe("fixed_inputs_changed");
-    // The refusal names only the input that differs and carries no input text, so it stays short.
-    expect(changed.json.blockers).toEqual([
-      {
-        reason: "fixed_inputs_changed",
-        sourceKey: "a",
-        assignmentId: assignmentIdOf(registered.json, "a"),
-        changed: ["brief"],
-      },
-    ]);
-
-    // A refused registration records nothing, not even the new item beside the changed one.
-    const frontier = await runJson(root, ["work", "frontier"]);
-    expect(
-      frontier.json.data.dispatchable.map((one: { sourceKey: string }) => one.sourceKey),
-    ).toEqual(["a"]);
-  });
-
   test("refuses a path fixed input whose file does not match its content identity", async () => {
     const root = await makeProject({ "docs/spec.md": "# Spec\n" });
-    const token = await own(root);
+    await own(root);
 
-    const changed = await register(root, token, {
+    const { plan, file } = await preview(root, {
       items: [
         item({
           key: "a",
@@ -525,10 +476,10 @@ describe("operator work register", () => {
       ],
     });
 
-    expect(changed.exitCode).toBe(2);
-    expect(changed.json.reason).toBe("fixed_input_mismatch");
-    expect(changed.json.blockers[0]).toMatchObject({
-      sourceKey: "a",
+    expect(plan.exitCode).toBe(2);
+    expect(plan.json.blockers).toEqual([{ reason: "fixed_input_mismatch", count: 1 }]);
+    expect(file.refusals[0]).toMatchObject({
+      key: issueKey(1501),
       name: "spec",
       path: "docs/spec.md",
       statedIdentity: ContentIdentity.ofText("# Old spec\n"),
@@ -539,29 +490,9 @@ describe("operator work register", () => {
     expect(frontier.json.data.dispatchable).toEqual([]);
   });
 
-  test("refuses a path fixed input whose file is not in the checkout", async () => {
-    const root = await makeProject();
-    const token = await own(root);
-
-    const missing = await register(root, token, {
-      items: [
-        item({
-          key: "a",
-          fixedInputs: [
-            { name: "spec", kind: "path", value: "docs/spec.md", contentIdentity: "f".repeat(64) },
-          ],
-        }),
-      ],
-    });
-
-    expect(missing.exitCode).toBe(2);
-    expect(missing.json.reason).toBe("fixed_input_mismatch");
-    expect(missing.json.blockers[0]).toMatchObject({ path: "docs/spec.md", foundIdentity: null });
-  });
-
   test("refuses a path fixed input outside the checkout", async () => {
     const root = await makeProject();
-    const token = await own(root);
+    await own(root);
 
     // Git reads one spelling of a path at the base commit, so every other spelling is refused.
     for (const value of [
@@ -573,7 +504,7 @@ describe("operator work register", () => {
       "./docs/spec.md",
       "docs/",
     ]) {
-      const outside = await register(root, token, {
+      const { plan } = await preview(root, {
         items: [
           item({
             key: "a",
@@ -582,16 +513,16 @@ describe("operator work register", () => {
         ],
       });
 
-      expect(outside.exitCode).toBe(2);
-      expect(outside.json.reason).toBe("invalid_work_input");
+      expect(plan.exitCode).toBe(2);
+      expect(plan.json.reason).toBe("invalid_work_input");
     }
   });
 
   test("refuses a path fixed input with no content identity", async () => {
     const root = await makeProject({ "docs/spec.md": "# Spec\n" });
-    const token = await own(root);
+    await own(root);
 
-    const unfixed = await register(root, token, {
+    const { plan } = await preview(root, {
       items: [
         item({
           key: "a",
@@ -602,9 +533,9 @@ describe("operator work register", () => {
       ],
     });
 
-    expect(unfixed.exitCode).toBe(2);
-    expect(unfixed.json.reason).toBe("invalid_work_input");
-    expect(JSON.stringify(unfixed.json)).toContain("a path input requires its content identity");
+    expect(plan.exitCode).toBe(2);
+    expect(plan.json.reason).toBe("invalid_work_input");
+    expect(JSON.stringify(plan.json)).toContain("a path input requires its content identity");
   });
 
   test("registers a path fixed input whose file matches its content identity", async () => {
@@ -621,19 +552,15 @@ describe("operator work register", () => {
       items: [item({ key: "a", fixedInputs: [spec] })],
     });
     expect(registered.json.reason).toBe("work_registered");
-
-    // A later edit of the file does not refuse the item that is already registered.
-    await Bun.write(`${root}/docs/spec.md`, "# Changed spec\n");
-    const again = await register(root, token, {
-      items: [item({ key: "a", fixedInputs: [spec] })],
-    });
-    expect(again.json.reason).toBe("work_registered");
   });
 
-  test("registers a dependency that names another source", async () => {
+  test("registers a dependency on planning work of another source", async () => {
     const root = await makeProject();
     const token = await own(root);
-    await register(root, token, { id: "github:operator#15", items: [item({ key: "a" })] });
+    await register(root, token, {
+      id: "github:operator#15",
+      items: [item({ key: "a", kind: "planning" })],
+    });
 
     const second = await register(root, token, {
       sourceKind: "ticket",
@@ -644,25 +571,11 @@ describe("operator work register", () => {
     expect(second.json.reason).toBe("work_registered");
 
     const frontier = await runJson(root, ["work", "frontier"]);
-    expect(
-      frontier.json.data.dispatchable.map((one: { sourceKey: string }) => one.sourceKey),
-    ).toEqual(["a"]);
+    expect(namesOf(frontier.json.data.planning)).toEqual(["a"]);
     expect(frontier.json.data.blocked[0]).toMatchObject({
-      sourceKey: "b",
+      sourceKey: issueKey(19),
       blockers: [{ reason: "dependency_pending" }],
     });
-  });
-
-  test("refuses a dependency on work that is not registered", async () => {
-    const root = await makeProject();
-    const token = await own(root);
-
-    const result = await register(root, token, {
-      items: [item({ key: "a", dependsOn: [{ key: "missing" }] })],
-    });
-
-    expect(result.exitCode).toBe(2);
-    expect(result.json.reason).toBe("unknown_dependency");
   });
 
   test("treats a wayfinder prototype as planning work", async () => {
@@ -684,16 +597,21 @@ describe("operator work register", () => {
   test("reads a registration request from standard input", async () => {
     const root = await makeProject();
     const token = await own(root);
-    const body = JSON.stringify({
+    const { plan, input } = await preview(root, {
       sourceKind: "ticket",
-      source: { id: "github:operator#19", revision: "rev-1", tracker: "github" },
+      id: "github:operator#19",
       items: [item({ key: "19" })],
     });
+    const body = JSON.stringify(input);
 
-    const child = Bun.spawn(
+    const previewed = await runOperator(
+      root,
+      ["work", "register", "--plan", "--input", "-", "--json"],
+      body,
+    );
+    const registered = await runOperator(
+      root,
       [
-        "bun",
-        cliPath,
         "work",
         "register",
         "--request",
@@ -702,39 +620,28 @@ describe("operator work register", () => {
         token,
         "--input",
         "-",
+        "--plan-revision",
+        plan.json.data.planRevision,
         "--json",
       ],
-      { cwd: root, stdin: new TextEncoder().encode(body), stdout: "pipe", stderr: "pipe" },
+      body,
     );
-    const [exitCode, stdout] = await Promise.all([child.exited, new Response(child.stdout).text()]);
 
-    expect(exitCode).toBe(0);
-    expect(JSON.parse(stdout).reason).toBe("work_registered");
+    expect(JSON.parse(previewed.stdout).data.planRevision).toBe(plan.json.data.planRevision);
+    expect(registered.exitCode).toBe(0);
+    expect(JSON.parse(registered.stdout).reason).toBe("work_registered");
   });
 
   test("reports every invalid field of a registration request", async () => {
     const root = await makeProject();
-    const token = await own(root);
-    const path = `${root}/broken.json`;
-    await Bun.write(
-      path,
-      JSON.stringify({
-        sourceKind: "ticket",
-        source: { id: "github:operator#19", revision: "rev-1", tracker: "gitlab" },
-        items: [{ ...item({ key: "a" }), surprise: true }],
-      }),
-    );
+    await own(root);
+    const { input } = await preview(root, { items: [item({ key: "a" })] });
 
-    const result = await runJson(root, [
-      "work",
-      "register",
-      "--request",
-      request(),
-      "--owner-token",
-      token,
-      "--input",
-      path,
-    ]);
+    const result = await previewRaw(root, {
+      ...input,
+      source: "not an issue",
+      items: [{ ...input.items[0], surprise: true }],
+    });
 
     expect(result.exitCode).toBe(2);
     expect(result.json.reason).toBe("invalid_work_input");
@@ -743,22 +650,37 @@ describe("operator work register", () => {
 
   test("refuses every write path that is not in its canonical form, in item order", async () => {
     const root = await makeProject();
-    const token = await own(root);
+    await own(root);
+    const { input } = await preview(root, {
+      items: ["a", "b", "c", "d", "e"].map((key) => item({ key })),
+    });
+    const [a, b, c, d, e] = input.items;
+    const permissions = (writePaths: string[], allowedCommands = ["bun test"]) => ({
+      writePaths,
+      allowedCommands,
+      network: false,
+    });
 
-    const result = await register(root, token, {
+    const result = await previewRaw(root, {
+      ...input,
       items: [
-        item({
-          key: "a",
-          writePaths: ["/etc/", "./modules/", "modules/../docs/", "modules//crew/", "modules/."],
-        }),
-        item({ key: "b", writePaths: ["modules\\crew/", "modules/*.ts", "docs/adr-?.md", ""] }),
-        item({ key: "c", writePaths: [] }),
-        item({ key: "d", kind: "planning", writePaths: [] }),
-        { ...item({ key: "e", writePaths: [] }), title: 5 },
         {
-          ...item({ key: "f" }),
-          permissions: { writePaths: [], allowedCommands: [""], network: false },
+          ...a,
+          permissions: permissions([
+            "/etc/",
+            "./modules/",
+            "modules/../docs/",
+            "modules//crew/",
+            "modules/.",
+          ]),
         },
+        {
+          ...b,
+          permissions: permissions(["modules\\crew/", "modules/*.ts", "docs/adr-?.md", ""]),
+        },
+        { ...c, kind: "planning", permissions: permissions([]) },
+        { ...d, acceptanceRequirements: 5, permissions: permissions(["/etc/"]) },
+        { ...e, permissions: permissions(["modules/"], [""]) },
       ],
     });
 
@@ -774,11 +696,9 @@ describe("operator work register", () => {
       "items.1.permissions.writePaths.1",
       "items.1.permissions.writePaths.2",
       "items.1.permissions.writePaths.3",
-      "items.2.permissions.writePaths",
-      "items.4.title",
-      "items.4.permissions.writePaths",
-      "items.5.permissions.allowedCommands.0",
-      "items.5.permissions.writePaths",
+      "items.3.acceptanceRequirements",
+      "items.3.permissions.writePaths.0",
+      "items.4.permissions.allowedCommands.0",
     ]);
     expect(result.json.blockers[0].issue).toContain("absolute");
 
@@ -786,18 +706,22 @@ describe("operator work register", () => {
     expect(frontier.json.data.dispatchable).toEqual([]);
   });
 
-  test("refuses a malformed item or permission record and checks only what it can read", async () => {
+  test("refuses a malformed item or permission record", async () => {
     const root = await makeProject();
-    const token = await own(root);
+    await own(root);
+    const { input } = await preview(root, { items: ["a", "b", "c"].map((key) => item({ key })) });
+    const [, , c] = input.items;
     const empty = { writePaths: [], allowedCommands: [], network: false };
 
-    const result = await register(root, token, {
+    const result = await previewRaw(root, {
+      ...input,
       items: [
         null,
         "an item",
-        { ...item({ key: "c" }), permissions: { ...empty, writePaths: null } },
-        { ...item({ key: "d" }), permissions: { ...empty, surprise: true } },
-        { ...item({ key: "e", writePaths: [] }), kind: "bogus" },
+        { ...c, permissions: { ...empty, writePaths: null } },
+        { ...c, permissions: { ...empty, surprise: true } },
+        { ...c, kind: "bogus" },
+        { ...c, kind: "review" },
       ],
     });
 
@@ -808,18 +732,18 @@ describe("operator work register", () => {
       "items.1",
       "items.2.permissions.writePaths",
       "items.3.permissions",
-      "items.3.permissions.writePaths",
       "items.4.kind",
+      "items.5.kind",
     ]);
   });
 
   test("refuses a malformed item of a wayfinder source", async () => {
     const root = await makeProject();
-    const token = await own(root);
+    await own(root);
 
-    const result = await register(root, token, {
+    const result = await previewRaw(root, {
       sourceKind: "wayfinder",
-      id: "github:operator#1",
+      source: issueKey(1),
       items: [null],
     });
 
@@ -829,9 +753,9 @@ describe("operator work register", () => {
 
   test("refuses a wayfinder task with no write path and keeps planning work without one", async () => {
     const root = await makeProject();
-    const token = await own(root);
+    await own(root);
 
-    const result = await register(root, token, {
+    const { plan, file } = await preview(root, {
       sourceKind: "wayfinder",
       id: "github:operator#1",
       items: [
@@ -840,10 +764,8 @@ describe("operator work register", () => {
       ],
     });
 
-    expect(result.exitCode).toBe(2);
-    expect(result.json.blockers.map((one: { issue: string }) => one.issue.split(":")[0])).toEqual([
-      "items.1.permissions.writePaths",
-    ]);
+    expect(plan.exitCode).toBe(2);
+    expect(file.refusals).toEqual([{ reason: "write_paths_required", key: issueKey(102) }]);
   });
 
   test("accepts a write path that names a file the repository does not hold yet", async () => {
@@ -873,10 +795,15 @@ describe("operator work register", () => {
       ],
     });
 
-    const result = await overlaps(root, "github:operator#15");
+    const result = await overlaps(root, sourceIdOf());
 
     expect(result.json.reason).toBe("overlaps_reported");
-    expect(result.json.data.overlaps).toEqual([
+    expect(
+      result.json.data.overlaps.map((one: { sourceKeys: string[]; paths: unknown }) => ({
+        sourceKeys: one.sourceKeys.map(nameOf),
+        paths: one.paths,
+      })),
+    ).toEqual([
       {
         sourceKeys: ["a", "c"],
         paths: [
@@ -907,7 +834,7 @@ describe("operator work register", () => {
       ],
     });
 
-    expect((await overlaps(root, "github:operator#15")).json.data.overlaps).toEqual([]);
+    expect((await overlaps(root, sourceIdOf())).json.data.overlaps).toEqual([]);
   });
 
   test("modules/ covers modules/crew-state/main.ts", async () => {
@@ -920,8 +847,11 @@ describe("operator work register", () => {
       ],
     });
 
-    expect((await overlaps(root, "github:operator#15")).json.data.overlaps).toEqual([
-      { sourceKeys: ["a", "b"], paths: [["modules/", "modules/crew-state/main.ts"]] },
+    expect((await overlaps(root, sourceIdOf())).json.data.overlaps).toEqual([
+      {
+        sourceKeys: [issueKey(1501), issueKey(1502)],
+        paths: [["modules/", "modules/crew-state/main.ts"]],
+      },
     ]);
   });
 
@@ -936,6 +866,15 @@ describe("operator work register", () => {
     ];
 
     const registered = await register(root, token, { items });
+    const otherSource = await register(root, token, {
+      sourceKind: "ticket",
+      id: "github:operator#19",
+      items: [item({ key: "e", writePaths: ["docs/"] })],
+    });
+    const { plan, inputPath } = await preview(root, {
+      id: "github:operator#20",
+      items: [item({ key: "f", writePaths: ["docs/"] }), item({ key: "g", writePaths: ["docs/"] })],
+    });
     const text = await runOperator(root, [
       "work",
       "register",
@@ -944,38 +883,23 @@ describe("operator work register", () => {
       "--owner-token",
       token,
       "--input",
-      await writeSource(root, { items }),
+      inputPath,
+      "--plan-revision",
+      plan.json.data.planRevision,
     ]);
 
     expect(registered.json.data.overlaps).toEqual({
       pairCount: 3,
-      sourceKeys: ["a", "c", "d"],
-      command: "operator work overlaps --source github:operator#15",
+      sourceKeys: [issueKey(1501), issueKey(1503), issueKey(1504)],
+      command: `operator work overlaps --source ${sourceIdOf()}`,
     });
-    expect(text.stdout).toContain("3 pair(s) of items write overlapping paths: a, c, d.");
-    expect(text.stdout).toContain("operator work overlaps --source github:operator#15");
-    expect(text.stdout).not.toContain("docs/adr/");
-  });
-
-  test("counts an overlap with an item of the same source that is already registered", async () => {
-    const root = await makeProject();
-    const token = await own(root);
-    await register(root, token, { items: [item({ key: "a", writePaths: ["docs/"] })] });
-
-    const second = await register(root, token, {
-      items: [
-        item({ key: "a", writePaths: ["docs/"] }),
-        item({ key: "b", writePaths: ["docs/adr/"] }),
-      ],
-    });
-    const otherSource = await register(root, token, {
-      sourceKind: "ticket",
-      id: "github:operator#19",
-      items: [item({ key: "c", writePaths: ["docs/"] })],
-    });
-
-    expect(second.json.data.overlaps).toMatchObject({ pairCount: 1, sourceKeys: ["a", "b"] });
+    // An item of another source never counts, because only one source shares a base.
     expect(otherSource.json.data.overlaps).toMatchObject({ pairCount: 0, sourceKeys: [] });
+    expect(text.stdout).toContain(
+      `1 pair(s) of items write overlapping paths: ${issueKey(2001)}, ${issueKey(2002)}.`,
+    );
+    expect(text.stdout).toContain(`operator work overlaps --source ${issueKey(20)}`);
+    expect(text.stdout).not.toContain("docs/");
   });
 
   test("refuses to list the overlaps of a source that is not registered", async () => {
@@ -991,17 +915,18 @@ describe("operator work register", () => {
   test("reads a write path that was stored before the grammar existed in its canonical form", async () => {
     const root = await makeProject();
     const token = await own(root);
-    await register(root, token, {
+    const registered = await register(root, token, {
       items: [item({ key: "a", writePaths: ["docs/"] }), item({ key: "b" })],
     });
-    await Bun.$`bun -e ${`
-      const { Database } = require("bun:sqlite");
-      const db = new Database(${JSON.stringify(`${root}/.operator/local/crew-state.sqlite`)});
-      db.exec(\`update assignments set permissions = '{"writePaths":["./docs/old"],"allowedCommands":[],"network":false}' where source_key = 'b'\`);
-      db.close();
-    `}`.quiet();
+    const sqlite = new Database(`${root}/.operator/local/crew-state.sqlite`);
+    sqlite
+      .query(
+        `update assignments set permissions = '{"writePaths":["./docs/old"],"allowedCommands":[],"network":false}' where id = ?`,
+      )
+      .run(assignmentIdOf(registered, "b"));
+    sqlite.close();
 
-    const result = await overlaps(root, "github:operator#15");
+    const result = await overlaps(root, sourceIdOf());
 
     expect(result.json.reason).toBe("overlaps_reported");
     expect(
@@ -1018,7 +943,7 @@ describe("operator work claim", () => {
     const root = await makeProject();
     const token = await own(root);
     const registered = await register(root, token, { items: [item({ key: "a" })] });
-    const id = assignmentIdOf(registered.json, "a");
+    const id = assignmentIdOf(registered, "a");
 
     const [first, second] = await Promise.all([
       claim(root, token, id, 1),
@@ -1043,7 +968,7 @@ describe("operator work claim", () => {
     const registered = await register(root, token, {
       items: [item({ key: "a" }), item({ key: "b" })],
     });
-    const id = assignmentIdOf(registered.json, "a");
+    const id = assignmentIdOf(registered, "a");
     await claim(root, token, id, 1);
 
     const stale = await claim(root, token, id, 1);
@@ -1061,7 +986,7 @@ describe("operator work claim", () => {
     const registered = await register(root, token, {
       items: [item({ key: "a", kind: "review" })],
     });
-    const id = assignmentIdOf(registered.json, "a");
+    const id = assignmentIdOf(registered, "a");
     const claimed = await claim(root, token, id, 1);
     await accept(root, token, id, claimed.json.data.attemptId, claimed.json.data.revision);
 
@@ -1075,7 +1000,7 @@ describe("operator work claim", () => {
     const root = await makeProject();
     const token = await own(root);
     const registered = await register(root, token, { items: [item({ key: "a" })] });
-    const id = assignmentIdOf(registered.json, "a");
+    const id = assignmentIdOf(registered, "a");
 
     const stale = await claim(root, token, id, 7);
 
@@ -1088,7 +1013,7 @@ describe("operator work claim", () => {
     const root = await makeProject();
     const token = await own(root);
     const registered = await register(root, token, { items: [item({ key: "a" })] });
-    const id = assignmentIdOf(registered.json, "a");
+    const id = assignmentIdOf(registered, "a");
     const requestId = request();
     const claimArguments = [
       "work",
@@ -1123,8 +1048,8 @@ describe("operator work claim", () => {
     const registered = await register(root, token, {
       items: [item({ key: "a", kind: "review" }), item({ key: "b" })],
     });
-    const first = assignmentIdOf(registered.json, "a");
-    const second = assignmentIdOf(registered.json, "b");
+    const first = assignmentIdOf(registered, "a");
+    const second = assignmentIdOf(registered, "b");
     const claimSecond = [
       "work",
       "claim",
@@ -1180,7 +1105,7 @@ describe("operator work claim", () => {
       "--owner-token",
       token,
       "--assignment",
-      assignmentIdOf(registered.json, "a"),
+      assignmentIdOf(registered, "a"),
       "--revision",
       "1",
     ]);
@@ -1203,7 +1128,7 @@ describe("operator work claim", () => {
       "--owner-token",
       token,
       "--assignment",
-      assignmentIdOf(registered.json, "a"),
+      assignmentIdOf(registered, "a"),
       "--revision",
       "1",
     ]);
@@ -1215,7 +1140,7 @@ describe("operator work claim", () => {
       "--owner-token",
       token,
       "--assignment",
-      assignmentIdOf(registered.json, "b"),
+      assignmentIdOf(registered, "b"),
       "--revision",
       "1",
     ]);
@@ -1237,8 +1162,8 @@ describe("operator work accept", () => {
         item({ key: "task-1", wayfinderType: "task", dependsOn: [{ key: "research-1" }] }),
       ],
     });
-    const research = assignmentIdOf(registered.json, "research-1");
-    const task = assignmentIdOf(registered.json, "task-1");
+    const research = assignmentIdOf(registered, "research-1");
+    const task = assignmentIdOf(registered, "task-1");
 
     const blocked = await runJson(root, ["work", "frontier"]);
     expect(blocked.json.data.dispatchable).toEqual([]);
@@ -1258,7 +1183,7 @@ describe("operator work accept", () => {
     const root = await makeProject();
     const token = await own(root);
     const registered = await register(root, token, { items: [item({ key: "a" })] });
-    const id = assignmentIdOf(registered.json, "a");
+    const id = assignmentIdOf(registered, "a");
     const claimed = await claim(root, token, id, 1);
 
     const result = await accept(root, token, id, null, claimed.json.data.revision);
@@ -1279,7 +1204,7 @@ describe("operator work accept", () => {
     const result = await accept(
       root,
       token,
-      assignmentIdOf(registered.json, "research-1"),
+      assignmentIdOf(registered, "research-1"),
       crypto.randomUUID(),
       1,
     );
@@ -1296,8 +1221,8 @@ describe("operator work frontier", () => {
     const registered = await register(root, token, {
       items: [item({ key: "a", kind: "review" }), item({ key: "b", dependsOn: [{ key: "a" }] })],
     });
-    const first = assignmentIdOf(registered.json, "a");
-    const second = assignmentIdOf(registered.json, "b");
+    const first = assignmentIdOf(registered, "a");
+    const second = assignmentIdOf(registered, "b");
 
     const blocked = await runJson(root, ["work", "frontier"]);
     expect(
@@ -1337,12 +1262,8 @@ describe("operator work frontier", () => {
 
     const frontier = await runJson(root, ["work", "frontier"]);
 
-    expect(
-      frontier.json.data.dispatchable.map((one: { sourceKey: string }) => one.sourceKey),
-    ).toEqual(["r", "a", "b"]);
-    expect(frontier.json.data.blocked.map((one: { sourceKey: string }) => one.sourceKey)).toEqual([
-      "c",
-    ]);
+    expect(namesOf(frontier.json.data.dispatchable)).toEqual(["r", "a", "b"]);
+    expect(namesOf(frontier.json.data.blocked)).toEqual(["c"]);
   });
 
   test("defaults to three crew agents and holds the last slot for review", async () => {
@@ -1361,19 +1282,19 @@ describe("operator work frontier", () => {
     });
     expect(empty.json.data.dispatchable.length).toBe(2);
     expect(empty.json.data.blocked[0]).toMatchObject({
-      sourceKey: "c",
+      sourceKey: issueKey(1503),
       blockers: [{ reason: "review_capacity_reserved" }],
     });
 
-    await claim(root, token, assignmentIdOf(registered.json, "a"), 1);
-    await claim(root, token, assignmentIdOf(registered.json, "b"), 1);
+    await claim(root, token, assignmentIdOf(registered, "a"), 1);
+    await claim(root, token, assignmentIdOf(registered, "b"), 1);
 
     const full = await runJson(root, ["work", "frontier"]);
     expect(full.exitCode).toBe(3);
     expect(full.json.reason).toBe("frontier_blocked");
     expect(full.json.data.capacity.active).toMatchObject({ total: 2, production: 2, review: 0 });
 
-    const refused = await claim(root, token, assignmentIdOf(registered.json, "c"), 1);
+    const refused = await claim(root, token, assignmentIdOf(registered, "c"), 1);
     expect(refused.exitCode).toBe(3);
     expect(refused.json.reason).toBe("assignment_not_dispatchable");
   });
@@ -1396,7 +1317,7 @@ describe("operator work frontier", () => {
     });
     expect(first.json.data.dispatchable.length).toBe(1);
 
-    await claim(root, token, assignmentIdOf(registered.json, "a"), 1);
+    await claim(root, token, assignmentIdOf(registered, "a"), 1);
 
     const second = await runJson(root, ["work", "frontier"]);
     expect(second.json.data.dispatchable).toEqual([]);
@@ -1417,9 +1338,7 @@ describe("operator work frontier", () => {
 
     const frontier = await runJson(root, ["work", "frontier"]);
 
-    expect(
-      frontier.json.data.dispatchable.map((one: { sourceKey: string }) => one.sourceKey),
-    ).toEqual(["review-a"]);
+    expect(namesOf(frontier.json.data.dispatchable)).toEqual(["review-a"]);
   });
 });
 
@@ -1432,11 +1351,28 @@ type FrontierReading = {
 };
 
 function offered(frontier: { json: { data: FrontierReading } }): string[] {
-  return frontier.json.data.dispatchable.map((one) => one.sourceKey);
+  return namesOf(frontier.json.data.dispatchable);
 }
 
 function blockersOf(frontier: { json: { data: FrontierReading } }, key: string) {
-  return frontier.json.data.blocked.find((one) => one.sourceKey === key)?.blockers ?? [];
+  return named(
+    frontier.json.data.blocked.find((one) => nameOf(one.sourceKey) === key)?.blockers ?? [],
+  );
+}
+
+/** The blockers with each holder named by the key the test gave it. */
+function named(blockers: Array<{ reason: string; [key: string]: unknown }>) {
+  return blockers.map((one) =>
+    Array.isArray(one.holders)
+      ? {
+          ...one,
+          holders: one.holders.map((holder: { sourceKey: string }) => ({
+            ...holder,
+            sourceKey: nameOf(holder.sourceKey),
+          })),
+        }
+      : one,
+  );
 }
 
 /** Writes the write paths of one assignment as an earlier release could have stored them. */
@@ -1450,7 +1386,7 @@ function storeWritePaths(root: string, assignmentId: string, writePaths: string[
 }
 
 describe("the frontier holds the write paths of unaccepted work", () => {
-  const command = "operator work overlaps --source github:operator#15";
+  const command = `operator work overlaps --source ${sourceIdOf()}`;
 
   test("withholds a production assignment that overlaps work offered earlier in the reading", async () => {
     const root = await makeProject();
@@ -1472,7 +1408,7 @@ describe("the frontier holds the write paths of unaccepted work", () => {
         reason: "write_paths_overlap",
         holders: [
           {
-            assignmentId: assignmentIdOf(registered.json, "a"),
+            assignmentId: assignmentIdOf(registered, "a"),
             sourceKey: "a",
             hold: "offered",
             pathPairCount: 1,
@@ -1492,7 +1428,7 @@ describe("the frontier holds the write paths of unaccepted work", () => {
         item({ key: "b", writePaths: ["modules/crew-state/frontier.ts"] }),
       ],
     });
-    const holder = assignmentIdOf(registered.json, "a");
+    const holder = assignmentIdOf(registered, "a");
     await claim(root, token, holder, 1);
 
     const frontier = await runJson(root, ["work", "frontier"]);
@@ -1506,14 +1442,19 @@ describe("the frontier holds the write paths of unaccepted work", () => {
     expect(offered(frontier)).toEqual([]);
     expect(blockersOf(frontier, "b")).toEqual(expected);
 
-    const refused = await claim(root, token, assignmentIdOf(registered.json, "b"), 1);
+    const refused = await claim(root, token, assignmentIdOf(registered, "b"), 1);
     expect(refused.exitCode).toBe(3);
     expect(refused.json.reason).toBe("assignment_not_dispatchable");
-    expect(refused.json.blockers).toEqual(expected);
+    expect(named(refused.json.blockers)).toEqual(expected);
 
     // The command that the blocker names lists the pair that withholds the work.
     const listed = await runJson(root, command.split(" ").slice(1));
-    expect(listed.json.data.overlaps).toEqual([
+    expect(
+      listed.json.data.overlaps.map((one: { sourceKeys: string[] }) => ({
+        ...one,
+        sourceKeys: one.sourceKeys.map(nameOf),
+      })),
+    ).toEqual([
       {
         sourceKeys: ["a", "b"],
         paths: [["modules/crew-state/", "modules/crew-state/frontier.ts"]],
@@ -1576,8 +1517,8 @@ describe("the frontier holds the write paths of unaccepted work", () => {
         item({ key: "c", writePaths: ["modules/x/", "docs/", "skills/"] }),
       ],
     });
-    const first = assignmentIdOf(registered.json, "a");
-    const second = assignmentIdOf(registered.json, "b");
+    const first = assignmentIdOf(registered, "a");
+    const second = assignmentIdOf(registered, "b");
     // The started holder is found before the holder this reading offers, so only the sort puts
     // the smaller assignment id first.
     expect(first < second).toBe(true);
@@ -1652,12 +1593,12 @@ describe("the frontier holds the write paths of unaccepted work", () => {
     const unstarted = await runJson(root, ["work", "frontier"]);
     expect(offered(unstarted)).toEqual(["r", "s", "a"]);
 
-    await claim(root, token, assignmentIdOf(registered.json, "r"), 1);
+    await claim(root, token, assignmentIdOf(registered, "r"), 1);
     const started = await runJson(root, ["work", "frontier"]);
     expect(offered(started)).toEqual(["s", "a"]);
 
     // Review work is never withheld either, also when started production work holds its paths.
-    await claim(root, token, assignmentIdOf(registered.json, "a"), 1);
+    await claim(root, token, assignmentIdOf(registered, "a"), 1);
     const held = await runJson(root, ["work", "frontier"]);
     expect(offered(held)).toEqual(["s"]);
   });
@@ -1678,7 +1619,7 @@ describe("the frontier holds the write paths of unaccepted work", () => {
     const unstarted = await runJson(root, ["work", "frontier"]);
     expect(offered(unstarted)).toEqual(["a", "b"]);
 
-    await claim(root, token, assignmentIdOf(first.json, "a"), 1);
+    await claim(root, token, assignmentIdOf(first, "a"), 1);
     const started = await runJson(root, ["work", "frontier"]);
     expect(offered(started)).toEqual(["b"]);
   });
@@ -1737,7 +1678,7 @@ async function grant(
 }
 
 describe("a person grants more write paths to an assignment", () => {
-  const command = "operator work overlaps --source github:operator#15";
+  const command = `operator work overlaps --source ${sourceIdOf()}`;
 
   test("the frontier hold reads the effective write paths of started work", async () => {
     const root = await makeProject();
@@ -1748,7 +1689,7 @@ describe("a person grants more write paths to an assignment", () => {
         item({ key: "b", writePaths: ["modules/b/"] }),
       ],
     });
-    const holder = assignmentIdOf(registered.json, "a");
+    const holder = assignmentIdOf(registered, "a");
     await claim(root, token, holder, 1);
     expect(offered(await runJson(root, ["work", "frontier"]))).toEqual(["b"]);
 
@@ -1795,10 +1736,10 @@ describe("a person grants more write paths to an assignment", () => {
         item({ key: "d", writePaths: ["skills/d.md"] }),
       ],
     });
-    const asker = assignmentIdOf(registered.json, "a");
-    const started = assignmentIdOf(registered.json, "b");
+    const asker = assignmentIdOf(registered, "a");
+    const started = assignmentIdOf(registered, "b");
     for (const key of ["a", "b"]) {
-      await claim(root, token, assignmentIdOf(registered.json, key), 1);
+      await claim(root, token, assignmentIdOf(registered, key), 1);
     }
 
     // `c` overlaps the grant too, but it has not started, so the frontier holds it instead.
@@ -1814,7 +1755,7 @@ describe("a person grants more write paths to an assignment", () => {
         scope: asker,
         requestRevision: ContentIdentity.of({ writePaths: ["modules/a/"] }),
       },
-      overlaps: [{ assignmentId: started, sourceKey: "b", pathPairCount: 2 }],
+      overlaps: [{ assignmentId: started, sourceKey: issueKey(1502), pathPairCount: 2 }],
     });
     expect(asked.stdout).not.toContain("--json");
 
@@ -1827,7 +1768,7 @@ describe("a person grants more write paths to an assignment", () => {
       await writeJson(root, { paths: ["modules/b/x.ts", "docs/"] }),
     ]);
     expect(text.stdout).toContain("Only the person grants more write paths.");
-    expect(text.stdout).toContain(`b (${started}): 2 pair(s) of paths`);
+    expect(text.stdout).toContain(`${issueKey(1502)} (${started}): 2 pair(s) of paths`);
     // The Operator reads this report, so it gives the count and never the path pairs.
     expect(text.stdout).not.toContain("docs/b.md");
     expect(text.stdout).toContain(`After the grant, list each pair with: ${command}`);
@@ -1836,10 +1777,7 @@ describe("a person grants more write paths to an assignment", () => {
 
     // Started work keeps its base, so the grant changes only what the frontier offers next.
     const frontier = await runJson(root, ["work", "frontier"]);
-    expect(frontier.json.data.active.map((one: { sourceKey: string }) => one.sourceKey)).toEqual([
-      "a",
-      "b",
-    ]);
+    expect(namesOf(frontier.json.data.active)).toEqual(["a", "b"]);
     expect(blockersOf(frontier, "c").map((one) => one.reason)).toEqual(["write_paths_overlap"]);
     expect(blockersOf(frontier, "d").map((one) => one.reason)).toEqual([
       "review_capacity_reserved",
@@ -1850,7 +1788,7 @@ describe("a person grants more write paths to an assignment", () => {
     const root = await makeProject();
     const token = await own(root);
     const registered = await register(root, token, { items: [item({ key: "a" })] });
-    const assignmentId = assignmentIdOf(registered.json, "a");
+    const assignmentId = assignmentIdOf(registered, "a");
 
     const asked = await writePaths(root, assignmentId, ["./docs/", "notes/*.md"]);
     expect(asked.exitCode).toBe(2);
@@ -1898,7 +1836,7 @@ describe("a person grants more write paths to an assignment", () => {
       items: [item({ key: "r", kind: "review", writePaths: ["docs/"] })],
     });
 
-    const refused = await writePaths(root, assignmentIdOf(registered.json, "r"), ["notes/"]);
+    const refused = await writePaths(root, assignmentIdOf(registered, "r"), ["notes/"]);
 
     expect(refused.json.reason).toBe("not_production_work");
     expect((await writePaths(root, "no-such-assignment")).json.reason).toBe("unknown_assignment");

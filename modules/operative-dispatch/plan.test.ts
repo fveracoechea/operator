@@ -100,6 +100,16 @@ test("an Operative has readable project, ticket, purpose and role labels while i
   expect(plan(brief)).toEqual(first);
 });
 
+test("an item read from the tracker keeps its repository and number in its branch and labels", () => {
+  const planned = plan({ ...brief, sourceKey: "fveracoechea/operator-workspace#1501" });
+
+  expect(planned.branch).toBe("operator/operator-workspace-1501-abcdef12");
+  expect(planned.tabLabel).toContain("operator-workspace#1501 Operative: Migrate customer records");
+  expect(
+    plan({ ...brief, sourceKey: "fveracoechea/a-very-long-repository-name#1501" }).branch,
+  ).toBe("operator/a-very-long-reposit-1501-abcdef12");
+});
+
 test("review and rework labels identify their roles on the same ticket", () => {
   const review = plan({
     ...brief,

@@ -1,3 +1,4 @@
+import { registerSource, workspaceTarget, writeInput } from "./source-fixture.ts";
 import { afterAll, beforeEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { ProjectReadiness } from "../project-readiness/main.ts";
@@ -13,7 +14,6 @@ import {
   commitArtifact,
   delegateRework,
   makeReviewWorkspace,
-  registerDependents,
   startRework,
   startProducer,
   submissionBody,
@@ -45,12 +45,55 @@ function makeStateOutdated(): void {
   const sqlite = new Database(statePath(), { create: false, readwrite: true });
   sqlite.exec("alter table state_meta drop column release_identity");
   sqlite.exec("alter table answers drop column source_kind");
+  dropVersionNine(sqlite);
   dropVersionEight(sqlite);
   dropVersionSeven(sqlite);
   dropVersionSix(sqlite);
   dropVersionFive(sqlite);
   sqlite.query("update state_meta set state_version = 1").run();
   sqlite.close();
+}
+
+/**
+ * Puts one registered source back in the shape version 8 wrote: a location with no parent
+ * issue, and bindings that name only an issue number.
+ */
+function makeSourceEarlier(options: { location: boolean }): void {
+  const sqlite = new Database(statePath(), { create: false, readwrite: true });
+  dropVersionNine(sqlite);
+  // An earlier release named a source by the id its input stated, not by its parent issue.
+  sqlite.exec("update work_sources set id = 'github:operator#28'");
+  sqlite.exec("update assignments set source_id = 'github:operator#28'");
+  sqlite
+    .query("update work_sources set tracker_location = ?")
+    .run(
+      options.location
+        ? JSON.stringify({ repository: "fveracoechea/operator", mapIssue: 28 })
+        : null,
+    );
+  sqlite.exec(
+    "update assignments set tracker_binding = json_object('issue', json_extract(tracker_binding, '$.issue'))",
+  );
+  sqlite.query("update state_meta set state_version = 8").run();
+  sqlite.close();
+}
+
+function recordedRows(): {
+  sources: Array<{ id: string; tracker_location: string | null }>;
+  bindings: Array<string | null>;
+} {
+  const sqlite = new Database(statePath(), { create: false, readonly: true });
+  const sources = sqlite.query("select id, tracker_location from work_sources").all() as Array<{
+    id: string;
+    tracker_location: string | null;
+  }>;
+  const bindings = (
+    sqlite.query("select tracker_binding from assignments").all() as Array<{
+      tracker_binding: string | null;
+    }>
+  ).map((one) => one.tracker_binding);
+  sqlite.close();
+  return { sources, bindings };
 }
 
 /** Writes one requirement answer the way an earlier release recorded it, with no checked quote. */
@@ -113,9 +156,17 @@ function dropVersionEight(sqlite: Database): void {
   sqlite.exec("alter table attempt_dispatch drop column planning_record_ids");
 }
 
+/** Removes what version 9 added, so a later migration step can add it again. */
+function dropVersionNine(sqlite: Database): void {
+  sqlite.exec("alter table assignments drop column scope_identity");
+}
+
 /** Moves the recorded version back, and removes what each later version added. */
 function setStateVersion(version: number): void {
   const sqlite = new Database(statePath(), { create: false, readwrite: true });
+  if (version < 9) {
+    dropVersionNine(sqlite);
+  }
   if (version < 8) {
     dropVersionEight(sqlite);
   }
@@ -318,39 +369,11 @@ describe("operator update apply", () => {
 
   test("refuses while an assignment is still in flight", async () => {
     const ownerToken = await ownCrew(workspace);
-    await Bun.write(
-      `${workspace.root}/work.json`,
-      JSON.stringify({
-        sourceKind: "ticket",
-        source: { id: "github:operator#28", revision: "rev-1", tracker: "github" },
-        items: [
-          {
-            key: "one",
-            title: "One",
-            kind: "production",
-            approvedScope: "One",
-            acceptanceRequirements: ["The tests pass."],
-            permissions: {
-              writePaths: ["modules/"],
-              allowedCommands: ["bun test"],
-              network: false,
-            },
-            fixedInputs: [],
-            dependsOn: [],
-          },
-        ],
-      }),
-    );
-    const registered = await runJson(workspace, [
-      "work",
-      "register",
-      "--request",
-      requestId(),
-      "--owner-token",
-      ownerToken,
-      "--input",
-      `${workspace.root}/work.json`,
-    ]);
+    const registered = await registerSource(workspaceTarget(workspace), ownerToken, {
+      sourceKind: "ticket",
+      parent: 28,
+      items: [{ key: "one", title: "One", body: "One" }],
+    });
     const assignmentId = registered.json.data.registered[0].assignmentId;
     await runJson(workspace, [
       "work",
@@ -393,7 +416,7 @@ describe("recorded formats", () => {
 
     expect(applied.exitCode).toBe(0);
     expect(applied.json.data.migration.status).toBe("migrated");
-    expect(stateVersion()).toBe(8);
+    expect(stateVersion()).toBe(9);
     expect(recordedRelease()).toBe(applied.json.data.selection.releaseIdentity);
     expect((await runJson(workspace, ["work", "frontier"])).exitCode).toBe(0);
   });
@@ -429,6 +452,7 @@ describe("recorded formats", () => {
       expect.objectContaining({ from: 5, to: 6 }),
       expect.objectContaining({ from: 6, to: 7 }),
       expect.objectContaining({ from: 7, to: 8 }),
+      expect.objectContaining({ from: 8, to: 9 }),
     ]);
     const sqlite = new Database(statePath(), { create: false, readonly: true });
     const columns = sqlite.query("pragma table_info(submissions)").all() as Array<{
@@ -436,7 +460,7 @@ describe("recorded formats", () => {
     }>;
     sqlite.close();
     expect(columns.map((one) => one.name)).toContain("behavior_changes");
-    expect(stateVersion()).toBe(8);
+    expect(stateVersion()).toBe(9);
   });
 
   test("adds the planning record list of each launch and fixes none for an earlier launch", async () => {
@@ -456,8 +480,9 @@ describe("recorded formats", () => {
 
     expect(applied.json.data.migration.steps).toEqual([
       expect.objectContaining({ from: 7, to: 8 }),
+      expect.objectContaining({ from: 8, to: 9 }),
     ]);
-    expect(stateVersion()).toBe(8);
+    expect(stateVersion()).toBe(9);
     const sqlite = new Database(statePath(), { create: false, readonly: true });
     const row = sqlite
       .query("select planning_record_ids from attempt_dispatch where attempt_id = ?")
@@ -498,6 +523,57 @@ describe("recorded formats", () => {
     sqlite.close();
     expect(records.count).toBe(0);
     expect(planning.planning_type).toBeNull();
+  });
+
+  test("keeps an earlier source and adds its repository to each binding", async () => {
+    const ownerToken = await ownCrew(workspace);
+    await registerSource(workspaceTarget(workspace), ownerToken, {
+      sourceKind: "ticket",
+      parent: 28,
+      items: [{ key: "one" }],
+    });
+    makeSourceEarlier({ location: true });
+    const before = recordedRows();
+
+    const { applied } = await apply();
+
+    expect(applied.exitCode).toBe(0);
+    expect(stateVersion()).toBe(9);
+    const after = recordedRows();
+    expect(after.sources).toEqual(before.sources);
+    expect(after.bindings.map((one) => JSON.parse(one ?? "null"))).toEqual([
+      { repository: "fveracoechea/operator", issue: 28 },
+    ]);
+
+    // The source has no parent issue, so a new read of it is refused.
+    const plan = await runJson(workspace, [
+      "work",
+      "register",
+      "--plan",
+      "--input",
+      await writeInput(workspace.root, {
+        sourceKind: "wayfinder",
+        source: "fveracoechea/operator#28",
+        items: [],
+      }),
+    ]);
+    expect(plan.json.blockers[0]).toEqual({ reason: "source_recorded_without_parent", count: 1 });
+  });
+
+  test("keeps a binding unbound when its earlier source records no location", async () => {
+    const ownerToken = await ownCrew(workspace);
+    await registerSource(workspaceTarget(workspace), ownerToken, {
+      sourceKind: "ticket",
+      parent: 28,
+      items: [{ key: "one" }],
+    });
+    makeSourceEarlier({ location: false });
+
+    const { applied } = await apply();
+
+    // An earlier release refused every tracker update of such an item, and it still does.
+    expect(applied.exitCode).toBe(0);
+    expect(recordedRows().bindings).toEqual([null]);
   });
 
   test("puts the backed-up records back when a migration step cannot finish", async () => {
@@ -543,7 +619,17 @@ describe("recorded formats", () => {
   test("names every waiting code submission, and not the one a rework replaced", async () => {
     const reviewing = await makeReviewWorkspace(fixtures);
     workspace = reviewing;
-    const producer = await startProducer(reviewing);
+    const producer = await startProducer(reviewing, undefined, {
+      dependents: [
+        {
+          key: "22.4",
+          kind: "production",
+          title: "The other result",
+          dependsOn: [],
+          writePaths: ["notes/"],
+        },
+      ],
+    });
     // A gate command must pass at submit, so the flaky check is another one.
     const flaky = [
       { name: "quality", command: "bun run quality", outcome: "passed", detail: "" },
@@ -574,15 +660,7 @@ describe("recorded formats", () => {
       reworked,
       submissionBody(reworked, revision, { assignmentRevision: reworked.assignmentRevision }),
     );
-    const registered = await registerDependents(reviewing, producer, [
-      {
-        key: "22.4",
-        kind: "production",
-        title: "The other result",
-        dependsOn: [],
-        writePaths: ["notes/"],
-      },
-    ]);
+    const registered = producer.dependents;
     const other = await startRework(reviewing, producer, {
       revision: 1,
       commit: producer.baseCommit,
@@ -670,7 +748,7 @@ describe("recorded formats", () => {
     const { applied } = await apply();
 
     expect(applied.json.data.migration.status).toBe("migrated");
-    expect(stateVersion()).toBe(8);
+    expect(stateVersion()).toBe(9);
     const stored = new Database(statePath(), { create: false, readonly: true });
     const kept = stored.query("select code from submissions where id = ?").get(submissionId) as {
       code: string;

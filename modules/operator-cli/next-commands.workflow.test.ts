@@ -1,3 +1,9 @@
+import {
+  type FixtureItem,
+  type FixtureKind,
+  registerSource,
+  workspaceTarget,
+} from "./source-fixture.ts";
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import {
   commitArtifact,
@@ -42,58 +48,30 @@ type ItemOverrides = {
   dependsOn?: string[];
 };
 
-function item(overrides: ItemOverrides) {
+function item(overrides: ItemOverrides): FixtureItem {
   const { key, kind, wayfinderType, dependsOn, trackerIssue } = overrides;
-  const entry = {
+  return {
     key,
+    issue: trackerIssue,
     title: overrides.title ?? `Item ${key}`,
-    ...(wayfinderType === undefined ? { kind: kind ?? "production" } : { wayfinderType }),
-    approvedScope: `The approved scope of item ${key}.`,
-    acceptanceRequirements: ["The quality gate passes."],
-    // Each item writes its own folder, so the frontier hold never orders them.
-    permissions: {
-      writePaths: [`modules/${key}/`],
-      allowedCommands: ["bun test"],
-      network: false,
-    },
-    fixedInputs: [],
+    kind: wayfinderType === undefined ? (kind ?? "production") : undefined,
+    wayfinderType,
     dependsOn: (dependsOn ?? []).map((one) => ({ key: one })),
   };
-  return trackerIssue === undefined ? entry : { ...entry, trackerIssue };
 }
 
+/** Registers one source through the tracker and maps each item key to its assignment. */
 async function register(
   workspace: Workspace,
   ownerToken: string,
-  source: {
-    sourceKind: "specification" | "ticket" | "wayfinder";
-    id: string;
-    location?: { repository: string; mapIssue: number | null };
-    items: ReturnType<typeof item>[];
-  },
+  source: { sourceKind: FixtureKind; id: string; items: FixtureItem[] },
 ) {
-  const sourceData = { id: source.id, revision: "rev-1", tracker: "github" };
-  const registered = await runJson(workspace, [
-    "work",
-    "register",
-    "--request",
-    request(),
-    "--owner-token",
-    ownerToken,
-    "--input",
-    await writeInput(workspace, {
-      sourceKind: source.sourceKind,
-      source:
-        source.location === undefined ? sourceData : { ...sourceData, location: source.location },
-      items: source.items,
-    }),
-  ]);
-  return new Map<string, string>(
-    registered.json.data.registered.map((one: { sourceKey: string; assignmentId: string }) => [
-      one.sourceKey,
-      one.assignmentId,
-    ]),
-  );
+  const registered = await registerSource(workspaceTarget(workspace), ownerToken, {
+    sourceKind: source.sourceKind,
+    parent: Number(/#(\d+)$/.exec(source.id)?.[1] ?? "0"),
+    items: source.items,
+  });
+  return registered.keys;
 }
 
 async function claim(workspace: Workspace, ownerToken: string, assignmentId: string) {
@@ -229,7 +207,6 @@ describe("the three entry points", () => {
     const registered = await register(workspace, ownerToken, {
       sourceKind: "wayfinder",
       id: "github:fveracoechea/operator#1",
-      location: { repository: "fveracoechea/operator", mapIssue: 1 },
       items: [item({ key: "24", wayfinderType: "research", trackerIssue: 24 })],
     });
     const assignmentId = String(registered.get("24"));
@@ -488,7 +465,6 @@ describe("a fresh Operator after session loss", () => {
     const registered = await register(workspace, ownerToken, {
       sourceKind: "wayfinder",
       id: "github:fveracoechea/operator#1",
-      location: { repository: "fveracoechea/operator", mapIssue: 1 },
       items: [item({ key: "24", wayfinderType: "research", trackerIssue: 24 })],
     });
     const assignmentId = String(registered.get("24"));

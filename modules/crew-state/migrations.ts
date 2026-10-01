@@ -129,6 +129,34 @@ export const MIGRATIONS: MigrationStep[] = [
       sqlite.exec("alter table attempt_dispatch add column planning_record_ids text");
     },
   },
+  {
+    from: 8,
+    to: 9,
+    summary:
+      "Record the issue text identity of each assignment and the repository of each tracker binding.",
+    apply: (sqlite) => {
+      sqlite.exec("alter table assignments add column scope_identity text");
+      // An earlier source held one repository for all its items, so each binding takes it. A
+      // binding whose source has no location already refused every tracker update, and it keeps
+      // refusing as a binding with no ticket.
+      sqlite.exec(
+        `update assignments set tracker_binding = case
+           when (select tracker_location from work_sources where id = assignments.source_id) is null
+             then null
+           else json_object(
+             'repository',
+             json_extract(
+               (select tracker_location from work_sources where id = assignments.source_id),
+               '$.repository'
+             ),
+             'issue',
+             json_extract(tracker_binding, '$.issue')
+           )
+         end
+         where tracker_binding is not null`,
+      );
+    },
+  },
 ];
 
 /** The steps that carry one recorded version up to the version this release reads. */

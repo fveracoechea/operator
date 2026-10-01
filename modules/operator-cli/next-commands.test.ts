@@ -1,3 +1,4 @@
+import { registerSource, workspaceTarget } from "./source-fixture.ts";
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import {
   acceptProduction,
@@ -5,7 +6,6 @@ import {
   disposeFindings,
   invalidateResult,
   makeReviewWorkspace,
-  registerDependents,
   reportBody,
   reportReview,
   startProducer,
@@ -140,10 +140,10 @@ describe("the next actions", () => {
 
   test("offers the frontier order and withholds work its dependency gates", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
-    const producer = await startProducer(workspace);
-    const registered = await registerDependents(workspace, producer, [
-      { key: "26.2", kind: "production", title: "Depends on the first item" },
-    ]);
+    const producer = await startProducer(workspace, undefined, {
+      dependents: [{ key: "26.2", kind: "production", title: "Depends on the first item" }],
+    });
+    const registered = producer.dependents;
 
     const reported = await nextActions(workspace);
 
@@ -157,16 +157,18 @@ describe("the next actions", () => {
 
   test("reports the crew limit that decides what a one-agent crew may start", async () => {
     const workspace = await makeReviewWorkspace(fixtures, { maxActiveAgents: 1 });
-    const producer = await startProducer(workspace);
-    const registered = await registerDependents(workspace, producer, [
-      {
-        key: "26.2",
-        kind: "production",
-        title: "Independent work",
-        dependsOn: [],
-        writePaths: ["notes/independent.md"],
-      },
-    ]);
+    const producer = await startProducer(workspace, undefined, {
+      dependents: [
+        {
+          key: "26.2",
+          kind: "production",
+          title: "Independent work",
+          dependsOn: [],
+          writePaths: ["notes/independent.md"],
+        },
+      ],
+    });
+    const registered = producer.dependents;
 
     const reported = await nextActions(workspace);
 
@@ -190,40 +192,11 @@ describe("the next actions", () => {
       "operator-session",
     ]);
     const ownerToken = owned.json.data.ownerToken;
-    const path = `${workspace.root}/work.json`;
-    await Bun.write(
-      path,
-      JSON.stringify({
-        sourceKind: "specification",
-        source: { id: "github:operator#26", revision: "rev-1", tracker: "github" },
-        items: [
-          {
-            key: "26.1",
-            title: "Coordinate the workflow",
-            kind: "production",
-            approvedScope: "Coordinate the workflow.",
-            acceptanceRequirements: ["The quality gate passes."],
-            permissions: {
-              writePaths: ["modules/"],
-              allowedCommands: ["bun test"],
-              network: false,
-            },
-            fixedInputs: [],
-            dependsOn: [],
-          },
-        ],
-      }),
-    );
-    const registered = await runJson(workspace, [
-      "work",
-      "register",
-      "--request",
-      request(),
-      "--owner-token",
-      ownerToken,
-      "--input",
-      path,
-    ]);
+    const registered = await registerSource(workspaceTarget(workspace), ownerToken, {
+      sourceKind: "specification",
+      parent: 26,
+      items: [{ key: "26.1", title: "Coordinate the workflow", body: "Coordinate the workflow." }],
+    });
     const assignmentId = registered.json.data.registered[0].assignmentId;
 
     const offered = await nextActions(workspace);
@@ -368,16 +341,18 @@ describe("the next actions", () => {
 
   test("offers the queued review before new production work", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
-    const producer = await startProducer(workspace);
-    const registered = await registerDependents(workspace, producer, [
-      {
-        key: "26.2",
-        kind: "production",
-        title: "Independent work",
-        dependsOn: [],
-        writePaths: ["notes/independent.md"],
-      },
-    ]);
+    const producer = await startProducer(workspace, undefined, {
+      dependents: [
+        {
+          key: "26.2",
+          kind: "production",
+          title: "Independent work",
+          dependsOn: [],
+          writePaths: ["notes/independent.md"],
+        },
+      ],
+    });
+    const registered = producer.dependents;
     const artifact = await commitArtifact(workspace, producer, "the result\n");
     const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
 
@@ -489,40 +464,11 @@ describe("adoption", () => {
       "operator-session",
     ]);
     const ownerToken = owned.json.data.ownerToken;
-    const path = `${workspace.root}/work.json`;
-    await Bun.write(
-      path,
-      JSON.stringify({
-        sourceKind: "ticket",
-        source: { id: "github:operator#26", revision: "rev-1", tracker: "github" },
-        items: [
-          {
-            key: "26.1",
-            title: "Coordinate the workflow",
-            kind: "production",
-            approvedScope: "Coordinate the workflow.",
-            acceptanceRequirements: ["The quality gate passes."],
-            permissions: {
-              writePaths: ["modules/"],
-              allowedCommands: ["bun test"],
-              network: false,
-            },
-            fixedInputs: [],
-            dependsOn: [],
-          },
-        ],
-      }),
-    );
-    const registered = await runJson(workspace, [
-      "work",
-      "register",
-      "--request",
-      request(),
-      "--owner-token",
-      ownerToken,
-      "--input",
-      path,
-    ]);
+    const registered = await registerSource(workspaceTarget(workspace), ownerToken, {
+      sourceKind: "ticket",
+      parent: 26,
+      items: [{ key: "26.1", title: "Coordinate the workflow", body: "Coordinate the workflow." }],
+    });
     const claimed = await runJson(workspace, [
       "work",
       "claim",
@@ -632,10 +578,10 @@ describe("the next-actions contract", () => {
 
   test("reports work that a defect paused rather than answering that nothing waits", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
-    const producer = await startProducer(workspace);
-    const registered = await registerDependents(workspace, producer, [
-      { key: "26.2", kind: "production", title: "Reads the first result" },
-    ]);
+    const producer = await startProducer(workspace, undefined, {
+      dependents: [{ key: "26.2", kind: "production", title: "Reads the first result" }],
+    });
+    const registered = producer.dependents;
     const artifact = await commitArtifact(workspace, producer, "the result\n");
     const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);

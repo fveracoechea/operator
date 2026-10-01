@@ -1,3 +1,4 @@
+import { registerSource, workspaceTarget } from "./source-fixture.ts";
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
@@ -72,34 +73,19 @@ async function claimedAttempt(
   ]);
   const ownerToken = owned.json.data.ownerToken;
 
-  const input = {
+  const registered = await registerSource(workspaceTarget(workspace), ownerToken, {
     sourceKind: "specification",
-    source: { id: "github:operator#20", revision: "rev-1", tracker: "github" },
+    parent: 20,
     items: [
       {
         key: "20.1",
         title: "Dispatch one Operative",
-        kind: "production",
-        approvedScope: "Build the dispatch path.",
-        acceptanceRequirements: ["The quality gate passes."],
+        body: "Build the dispatch path.",
         permissions: { writePaths: ["modules/"], allowedCommands: ["bun test"], network: false },
         fixedInputs,
-        dependsOn: [],
       },
     ],
-  };
-  const inputPath = `${workspace.root}/work.json`;
-  await Bun.write(inputPath, JSON.stringify(input));
-  const registered = await runJson(workspace, [
-    "work",
-    "register",
-    "--request",
-    request(),
-    "--owner-token",
-    ownerToken,
-    "--input",
-    inputPath,
-  ]);
+  });
   const assignmentId = registered.json.data.registered[0].assignmentId;
 
   const claimed = await runJson(workspace, [

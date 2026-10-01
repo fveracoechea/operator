@@ -149,6 +149,7 @@ It is finished when every integrated pull request of its last stack publication 
 **Registration plan**:
 The preview of what one registration would record, read from the tracker together with the Operator's input.
 It carries a revision, and the registration refuses when a fresh read gives a different one, so an approval covers exactly what gets recorded.
+Its full text is a local file named by that revision, and a command that reports it gives only a summary and the path.
 
 **Integration branch**:
 The one branch that collects the accepted commits of one work source, in the order they land.
@@ -370,7 +371,8 @@ It is fixed at registration, so a later configuration change cannot redirect wor
 
 **Tracker location**:
 Where one work source lives in its tracker: its repository and its parent issue, if it has one.
-An assignment reads its binding from the source it was registered under.
+Each tracker binding names its own repository.
+The source location gives the parent and map issue.
 
 **Tracker step**:
 One of the three outcomes of completing work on a tracker: the recorded resolution, the ticket completion, and the map amendment.
