@@ -1,5 +1,12 @@
 # @fveracoechea/operator
 
+## 0.6.0
+
+### Minor Changes
+
+- 2847a13: The Herdr plugin installs the dependencies of each new worktree from its bun or npm lockfile, so agent hooks that run a package bin work in the checkout.
+  Relink the plugin from this release to get the new hook.
+
 ## 0.5.1
 
 ### Patch Changes
