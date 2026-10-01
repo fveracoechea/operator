@@ -3,6 +3,12 @@ import { type ApprovalRow, approvalCovers, readApproval } from "./approvals.ts";
 import type { CrewReader } from "./database.ts";
 import { identityOf } from "./identity.ts";
 import { parseInput } from "./input.ts";
+import {
+  latestPlanningRecord,
+  type PlanningRecord,
+  renderPlanningResolution,
+  type RenderOutcome,
+} from "./planning-record.ts";
 import { readState, record, type RequestFailure, type StateFailure } from "./operations.ts";
 import {
   observationsOf,
@@ -37,6 +43,7 @@ import {
   type TrackerStepInput,
   trackerStepInputSchema,
 } from "./tracker-input.ts";
+import { isExecutable } from "./work-input.ts";
 
 type Shared = StateFailure | RequestFailure;
 
@@ -109,6 +116,11 @@ export type TrackerResult =
   | { status: "content-changed"; operationId: string; recorded: string; stated: string }
   | { status: "write-blocked"; report: TrackerStepReport; approval: ApprovalBlocker }
   | { status: "unknown-operation"; operationId: string }
+  | { status: "planning-body-not-allowed"; assignmentId: string }
+  | { status: "planning-record-missing"; assignmentId: string }
+  | { status: "resolution-body-required"; assignmentId: string }
+  | { status: "comment-too-long"; size: number; limit: number }
+  | Exclude<RenderOutcome, { status: "rendered" }>
   | Shared;
 
 function reportOf(request: {
@@ -257,6 +269,8 @@ function gateBeforeWriting(request: {
 type Context = {
   binding: TrackerBinding;
   assignmentRevision: number;
+  /** The record a planning resolution is rendered from, or null for executable work. */
+  planning: { record: PlanningRecord | null } | null;
   target: TrackerTarget;
   operation: TrackerOperationRow | null;
   attempts: TrackerWriteRow[];
@@ -294,6 +308,9 @@ function readContext(
     context: {
       binding: bound.binding,
       assignmentRevision: bound.assignment.revision,
+      planning: isExecutable(bound.assignment.kind)
+        ? null
+        : { record: latestPlanningRecord(db, request.assignmentId) },
       target,
       operation,
       attempts: operation === null ? [] : writeAttemptsOf(db, operation.id),
@@ -480,6 +497,47 @@ async function finalReport(projectRoot: string, operationId: string): Promise<Tr
     : { status: "reported", report: read };
 }
 
+type ResolvedStep = Exclude<TrackerStepInput, { step: "resolution" }> | ResolutionStep;
+type ResolutionStep = Extract<TrackerStepInput, { step: "resolution" }> & { body: string };
+
+/**
+ * The step with the body it writes. The resolution of planning work is a rendering of its
+ * planning record and takes no free text, so the tracker and the brief of a dependent carry the
+ * same words. A production resolution keeps its own body.
+ */
+async function resolvedIntent(request: {
+  projectRoot: string;
+  assignmentId: string;
+  input: TrackerStepInput;
+  planning: Context["planning"];
+}): Promise<{ status: "resolved"; input: ResolvedStep } | TrackerResult> {
+  const { input, planning } = request;
+  if (input.step !== "resolution") {
+    return { status: "resolved", input };
+  }
+
+  if (planning === null) {
+    return input.body === undefined
+      ? { status: "resolution-body-required", assignmentId: request.assignmentId }
+      : { status: "resolved", input: { ...input, body: input.body } };
+  }
+  if (input.body !== undefined) {
+    return { status: "planning-body-not-allowed", assignmentId: request.assignmentId };
+  }
+  // Planning work that an earlier release accepted keeps no record, so nothing can be rendered.
+  if (planning.record === null) {
+    return { status: "planning-record-missing", assignmentId: request.assignmentId };
+  }
+
+  const rendered = await renderPlanningResolution({
+    projectRoot: request.projectRoot,
+    record: planning.record,
+  });
+  return rendered.status === "rendered"
+    ? { status: "resolved", input: { ...input, body: rendered.body } }
+    : rendered;
+}
+
 /**
  * Records one step of one assignment's tracker update.
  * The intent is written before the effect, the write carries its own attempt record, and the
@@ -538,8 +596,19 @@ export async function recordTrackerStep(request: {
     return read;
   }
 
+  const resolved = await resolvedIntent({
+    projectRoot: request.projectRoot,
+    assignmentId: request.assignmentId,
+    input,
+    planning: read.context.planning,
+  });
+  if (resolved.status !== "resolved") {
+    return resolved;
+  }
+
   const { target } = read.context;
-  const intentIdentity = identityOf({ ...input, target });
+  const intent = resolved.input;
+  const intentIdentity = identityOf({ ...intent, target });
   let attempts = read.context.attempts;
   let operation = read.context.operation;
 
@@ -576,12 +645,16 @@ export async function recordTrackerStep(request: {
     const planned = await TrackerUpdate.plan({
       provider: read.context.binding.provider,
       operationId,
-      intent: { ...input, target },
+      intent: { ...intent, target },
     });
     if (planned.status === "unsupported-provider") {
       return { status: "unsupported-provider", provider: planned.provider };
     }
-    if (planned.status === "capability-unavailable" || planned.status === "actor-unknown") {
+    if (
+      planned.status === "capability-unavailable" ||
+      planned.status === "actor-unknown" ||
+      planned.status === "comment-too-long"
+    ) {
       return planned;
     }
 
@@ -592,17 +665,17 @@ export async function recordTrackerStep(request: {
         requestId: `${request.requestId}#plan`,
         ownerToken: request.ownerToken,
         operation: "tracker_plan",
-        input: { assignmentId: request.assignmentId, step: input.step, intentIdentity },
+        input: { assignmentId: request.assignmentId, step: intent.step, intentIdentity },
       },
       ({ tx, now }) => {
         openTrackerOperation(tx, {
           operationId,
           assignmentId: request.assignmentId,
-          step: input.step,
+          step: intent.step,
           provider: read.context.binding.provider,
           target,
           expectedActor: planned.expectedActor,
-          intent: { ...input, target },
+          intent: { ...intent, target },
           intentIdentity,
           content: planned.content,
           contentIdentity: planned.contentIdentity,

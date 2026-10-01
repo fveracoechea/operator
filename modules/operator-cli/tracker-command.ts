@@ -267,6 +267,83 @@ function reportStepFailure(request: {
   return null;
 }
 
+/** The refusals of a resolution body: who writes it, and whether the tracker accepts its size. */
+function reportResolutionRefusal(parsed: ParsedArguments, result: StepResult): Handled | null {
+  const operation = "tracker_record";
+  if (result.status === "planning-body-not-allowed") {
+    return refuse({
+      json: parsed.json,
+      operation,
+      outcome: "invalid",
+      reason: "planning_body_not_allowed",
+      detail: { assignmentId: result.assignmentId },
+      lines: [
+        `Assignment ${result.assignmentId} is planning work, so its resolution is rendered from its planning record.`,
+        "Send the resolution step with no body. Prose belongs in a text artifact of the record.",
+      ],
+    });
+  }
+
+  if (result.status === "planning-record-missing") {
+    return refuse({
+      json: parsed.json,
+      operation,
+      outcome: "missing-condition",
+      reason: "planning_record_missing",
+      detail: { assignmentId: result.assignmentId },
+      lines: [
+        `Assignment ${result.assignmentId} was accepted with no planning record, so no resolution can be rendered.`,
+      ],
+    });
+  }
+
+  if (result.status === "resolution-body-required") {
+    return refuse({
+      json: parsed.json,
+      operation,
+      outcome: "invalid",
+      reason: "resolution_body_required",
+      detail: { assignmentId: result.assignmentId },
+      lines: [`The resolution of ${result.assignmentId} states its body.`],
+    });
+  }
+
+  if (result.status === "comment-too-long") {
+    return refuse({
+      json: parsed.json,
+      operation,
+      outcome: "invalid",
+      reason: "comment_too_long",
+      detail: { size: result.size, limit: result.limit },
+      lines: [
+        `The comment is ${result.size} characters, and the tracker accepts at most ${result.limit}.`,
+        "Nothing was written.",
+      ],
+    });
+  }
+
+  if (result.status === "artifact-unreadable" || result.status === "artifact-identity-changed") {
+    const unreadable = result.status === "artifact-unreadable";
+    return refuse({
+      json: parsed.json,
+      operation,
+      outcome: unreadable ? "missing-condition" : "conflict",
+      reason: unreadable ? "artifact_unreadable" : "artifact_identity_changed",
+      detail: unreadable
+        ? { name: result.name, path: result.path }
+        : { name: result.name, path: result.path, found: result.found },
+      lines: [
+        unreadable
+          ? `The stored artifact ${result.name} is missing at ${result.path}.`
+          : `The stored artifact ${result.name} at ${result.path} no longer matches its record.`,
+        "Nothing was written.",
+      ],
+    });
+  }
+
+  return null;
+}
+
 async function runRecord(parsed: ParsedArguments): Promise<Handled> {
   const { requestId, ownerToken, assignmentId, inputPath } = parsed.crew;
   const revision = readRevision(parsed);
@@ -313,7 +390,9 @@ async function runRecord(parsed: ParsedArguments): Promise<Handled> {
     });
   }
 
-  const refused = reportStepFailure({ parsed, operation: "tracker_record", result });
+  const refused =
+    reportStepFailure({ parsed, operation: "tracker_record", result }) ??
+    reportResolutionRefusal(parsed, result);
   if (refused !== null) {
     return refused;
   }

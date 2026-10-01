@@ -127,14 +127,75 @@ A narrower path needs a new revision of the source, and that is the person's dec
 ## Planning work is registered too
 
 Planning work is registered so dependencies resolve, and it is never dispatched to an Operative.
-You resolve it yourself and accept it with no attempt.
+It reaches acceptance with no attempt, and its acceptance records a planning record.
+`work accept` refuses planning work with no record as `planning_record_required`, and it refuses planning work whose own dependencies are not accepted as `dependency_pending`.
+
+`bun run operator crew next` offers it as `resolve_planning` once its own dependencies are accepted.
+That action carries `planningRecords`: a pointer to the record of each planning item it depends on directly.
+Without it, a task blocked by a research item could never start, because the research item could never be claimed.
+
+You do not resolve planning work yourself.
+Give the reading, the research, and the draft of the record to a sub-agent of the crew, and give it the `resolve_planning` action.
+That action names each planning record it depends on by id, identity, and entry count, and the command that prints it in full: `bun run operator work record --assignment <id>`.
+Do not run that command yourself. The sub-agent reads the records, writes the record file and each artifact, and reports where they are.
+Preparing the record is not a dispatch, and the sub-agent holds no assignment.
+The sub-agent never talks to the user: when a decision needs the user, it gives you the question, and you bring it to the user and give the answer back word for word.
+Read only its short report, then accept with the record:
 
 ```sh
-bun run operator work accept --request <id> --owner-token <token> --assignment <id> --revision <n> --json
+bun run operator work accept --request <id> --owner-token <token> --assignment <id> --revision <n> --input record.json --json
 ```
 
-`bun run operator crew next` offers this as `resolve_planning` once its own dependencies are accepted.
-Without it, a task blocked by a research item could never start, because the research item could never be claimed.
+```json
+{
+  "entries": [
+    {
+      "question": "Do we keep the old export path?",
+      "escalationTriggers": ["scope"],
+      "authority": "human-answer",
+      "exactText": "No, remove it.",
+      "interpretation": {
+        "summary": "The old export path is removed.",
+        "directives": ["Delete the old export path and its tests."],
+        "appliesTo": ["The export work of this source."]
+      }
+    }
+  ],
+  "artifacts": [
+    { "name": "rejected-options", "path": "/tmp/plan/rejected.md", "contentIdentity": "<sha256>" }
+  ]
+}
+```
+
+Each entry is one decision, in order.
+`question` is the question as it was asked, and `escalationTriggers` are the subjects it names.
+`authority` is the answer authority of the decision, in the shape of a question answer:
+
+- `human-answer` quotes the user in `exactText`.
+- `requirement` quotes an approved source in `exactText` and names it in `source`: `{ "kind": "copy", "path": "<file>" }` for a file from any path, `{ "kind": "approved-scope", "assignmentId": "<id>" }`, or `{ "kind": "source-revision", "sourceId": "<id>", "revision": "<revision>" }` for the recorded revision of a work source.
+  The words must be an exact substring of the source, or the record is refused as `quote_not_in_source` with the entry number.
+  A requirement cannot settle `ambiguity` or `conflicting-requirements`, so such a decision goes to the user.
+- `operator-decision` quotes nobody. Only a `research` item may record one.
+  A `grilling`, a `prototype`, and the planning item of a specification or a ticket refuse it as `operator_decision_not_allowed`.
+
+A general delegation such as "decide from my opinions" is not a human answer.
+It makes the named file an approved source, so each decision quotes it as a requirement.
+
+`interpretation.appliesTo` describes the scope a decision covers.
+Never list the assignments that receive it: the dependency edges decide that.
+A planning item that turns out not to be needed records one entry that says so.
+
+An artifact is a longer text, such as a resolution document or a proposed ADR text.
+This is where the prose of a decision goes, such as the rejected options and the consequences for other work.
+The sub-agent writes it outside the project, because you never change the project yourself.
+State the content identity of each file; Operator stores a copy under `.operator/local/planning/` and refuses a file that does not match as `artifact_identity_changed`.
+
+The record is fixed once it is accepted.
+A changed decision is an invalidation of the planning work, as [INVALIDATION.md](INVALIDATION.md) shows.
+
+The tracker resolution of planning work is rendered from its record: each entry in order, then the content of each text artifact.
+Send the resolution step with no body.
+A body is refused as `planning_body_not_allowed`, and a rendered body over the GitHub comment limit is refused as `comment_too_long` with its size, before anything is written.
 
 ## After registration
 

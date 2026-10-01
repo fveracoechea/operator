@@ -45,6 +45,7 @@ function makeStateOutdated(): void {
   const sqlite = new Database(statePath(), { create: false, readwrite: true });
   sqlite.exec("alter table state_meta drop column release_identity");
   sqlite.exec("alter table answers drop column source_kind");
+  dropVersionSeven(sqlite);
   dropVersionSix(sqlite);
   dropVersionFive(sqlite);
   sqlite.query("update state_meta set state_version = 1").run();
@@ -59,6 +60,23 @@ function recordEarlierRequirement(): void {
      exact_text, interpretation, source_id, source_revision, recorded_at)
      values ('earlier', 'q1', 1, 't', 'requirement', 'words', '{}', 'github:operator#21',
      'rev-1', 'now')`,
+  );
+  sqlite.close();
+}
+
+/** Writes one planning acceptance the way an earlier release recorded it, with no record. */
+function recordEarlierPlanning(): void {
+  const sqlite = new Database(statePath(), { create: false, readwrite: true });
+  sqlite.exec(
+    `insert into work_sources (id, kind, revision, tracker, order_index, registered_at)
+     values ('github:operator#1', 'wayfinder', 'rev-1', 'github', 0, 'now')`,
+  );
+  sqlite.exec(
+    `insert into assignments (id, source_id, source_key, source_revision, title, kind,
+     order_index, approved_scope, acceptance_requirements, permissions, fixed_inputs,
+     fixed_inputs_identity, state, revision, registered_at, updated_at)
+     values ('earlier-plan', 'github:operator#1', '1', 'rev-1', 'Decide', 'planning', 0,
+     'Decide.', '[]', '{}', '[]', 'i', 'accepted', 2, 'now', 'now')`,
   );
   sqlite.close();
 }
@@ -83,9 +101,18 @@ function dropVersionSix(sqlite: Database): void {
   sqlite.exec("alter table submissions drop column behavior_changes");
 }
 
+/** Removes what version 7 added, so a later migration step can add it again. */
+function dropVersionSeven(sqlite: Database): void {
+  sqlite.exec("drop table planning_records");
+  sqlite.exec("alter table assignments drop column planning_type");
+}
+
 /** Moves the recorded version back, and removes what each later version added. */
 function setStateVersion(version: number): void {
   const sqlite = new Database(statePath(), { create: false, readwrite: true });
+  if (version < 7) {
+    dropVersionSeven(sqlite);
+  }
   if (version < 6) {
     dropVersionSix(sqlite);
   }
@@ -357,7 +384,7 @@ describe("recorded formats", () => {
 
     expect(applied.exitCode).toBe(0);
     expect(applied.json.data.migration.status).toBe("migrated");
-    expect(stateVersion()).toBe(6);
+    expect(stateVersion()).toBe(7);
     expect(recordedRelease()).toBe(applied.json.data.selection.releaseIdentity);
     expect((await runJson(workspace, ["work", "frontier"])).exitCode).toBe(0);
   });
@@ -391,6 +418,7 @@ describe("recorded formats", () => {
 
     expect(applied.json.data.migration.steps).toEqual([
       expect.objectContaining({ from: 5, to: 6 }),
+      expect.objectContaining({ from: 6, to: 7 }),
     ]);
     const sqlite = new Database(statePath(), { create: false, readonly: true });
     const columns = sqlite.query("pragma table_info(submissions)").all() as Array<{
@@ -398,7 +426,7 @@ describe("recorded formats", () => {
     }>;
     sqlite.close();
     expect(columns.map((one) => one.name)).toContain("behavior_changes");
-    expect(stateVersion()).toBe(6);
+    expect(stateVersion()).toBe(7);
   });
 
   test("marks a requirement that an earlier release recorded as unchecked", async () => {
@@ -411,6 +439,27 @@ describe("recorded formats", () => {
     // No copy stands behind that quote, so the record must not claim a check it never had.
     expect(applied.exitCode).toBe(0);
     expect(sourceKindOf("earlier")).toBe("unchecked");
+  });
+
+  test("keeps an earlier planning acceptance with no record and no planning type", async () => {
+    await ownCrew(workspace);
+    makeStateOutdated();
+    recordEarlierPlanning();
+
+    const { applied } = await apply();
+
+    // Nobody made the claim that a record would state, so the migration adds none.
+    expect(applied.exitCode).toBe(0);
+    const sqlite = new Database(statePath(), { create: false, readonly: true });
+    const records = sqlite.query("select count(*) as count from planning_records").get() as {
+      count: number;
+    };
+    const planning = sqlite
+      .query("select planning_type from assignments where id = 'earlier-plan'")
+      .get() as { planning_type: string | null };
+    sqlite.close();
+    expect(records.count).toBe(0);
+    expect(planning.planning_type).toBeNull();
   });
 
   test("puts the backed-up records back when a migration step cannot finish", async () => {
@@ -577,7 +626,7 @@ describe("recorded formats", () => {
     const { applied } = await apply();
 
     expect(applied.json.data.migration.status).toBe("migrated");
-    expect(stateVersion()).toBe(6);
+    expect(stateVersion()).toBe(7);
     const stored = new Database(statePath(), { create: false, readonly: true });
     const kept = stored.query("select code from submissions where id = ?").get(submissionId) as {
       code: string;

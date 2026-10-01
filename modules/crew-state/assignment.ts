@@ -44,6 +44,7 @@ export type NewAssignment = {
   trackerBinding: string | null;
   title: string;
   kind: string;
+  planningType: string | null;
   orderIndex: number;
   approvedScope: string;
   acceptanceRequirements: string[];
@@ -79,6 +80,7 @@ export function insertAssignment(
     trackerBinding: request.trackerBinding,
     title: request.title,
     kind: request.kind,
+    planningType: request.planningType,
     orderIndex: request.orderIndex,
     approvedScope: request.approvedScope,
     acceptanceRequirements: JSON.stringify(request.acceptanceRequirements),

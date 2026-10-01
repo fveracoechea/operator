@@ -7,6 +7,7 @@ import type { SubmittedArtifact } from "./submission-input.ts";
 import type { AssignmentRow } from "./assignment.ts";
 import { identityOf } from "./identity.ts";
 import { storedFixedInputs, storedRequirements } from "./work-input.ts";
+import { readVerified } from "./verified-copy.ts";
 
 export const SUBMISSION_STORE = ".operator/local/submissions";
 
@@ -126,22 +127,23 @@ export async function storeArtifacts(request: {
       continue;
     }
 
-    const source = `${request.worktreePath}/${artifact.value}`;
-    const file = Bun.file(source);
-    if (!(await file.exists())) {
+    const read = await readVerified(
+      `${request.worktreePath}/${artifact.value}`,
+      artifact.contentIdentity,
+    );
+    if (read.status === "unreadable") {
       return { status: "artifact-unreadable", name: artifact.name, path: artifact.value };
     }
-
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const found = ContentIdentity.ofBytes(bytes);
-    if (found !== artifact.contentIdentity) {
+    if (read.status === "identity-changed") {
       return {
         status: "artifact-identity-changed",
         name: artifact.name,
         path: artifact.value,
-        found,
+        found: read.found,
       };
     }
+    const { bytes } = read;
+    const found = artifact.contentIdentity;
 
     const storedPath = `${SUBMISSION_STORE}/${request.submissionId}/${fileName(index, artifact)}`;
     await Bun.write(`${request.projectRoot}/${storedPath}`, bytes, { createPath: true });

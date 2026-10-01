@@ -24,7 +24,9 @@ export const trackerStepInputSchema = z.discriminatedUnion("step", [
   z.strictObject({
     step: z.literal("resolution"),
     target: target.optional(),
-    body: z.string().min(1),
+    // Production work states its body. The resolution of planning work is rendered from its
+    // planning record, so it takes none.
+    body: z.string().min(1).optional(),
   }),
   z.strictObject({
     step: z.literal("completion"),

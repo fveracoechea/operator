@@ -7,6 +7,7 @@ import {
   frontierEntry,
   invalidateResult,
   makeReviewWorkspace,
+  PLANNING_RECORD,
   type Producer,
   registerDependents,
   reportBody,
@@ -301,12 +302,51 @@ describe("operator work invalidate", () => {
     expect(resolve?.revision).toBe(invalidated.json.data.revision);
     expect(resolve?.detail).toContain("invalidated");
 
+    // The record gate covers the decision taken again, so a bare acceptance still refuses.
+    const bare = await runJson(workspace, [
+      "work",
+      "accept",
+      "--request",
+      request(),
+      "--owner-token",
+      producer.ownerToken,
+      "--assignment",
+      planning,
+      "--revision",
+      String(invalidated.json.data.revision),
+    ]);
+    expect(bare.json.reason).toBe("planning_record_required");
+    expect((await frontierEntry(workspace, dependent)).entry.state).toBe("paused");
+
     const again = await acceptAssignment(workspace, producer, {
       assignmentId: planning,
       revision: invalidated.json.data.revision,
+      record: {
+        ...PLANNING_RECORD,
+        entries: [{ ...PLANNING_RECORD.entries[0], exactText: "Roll out the other order." }],
+      },
     });
     expect(again.exitCode).toBe(0);
     expect(again.json.reason).toBe("assignment_accepted");
+    // The changed decision is a new record. The first one stays as it was accepted.
+    expect(again.json.data.planningRecordId).toEqual(expect.any(String));
+    expect(again.json.data.planningRecordId).not.toBe(decided.json.data.planningRecordId);
+    const latest = await runJson(workspace, ["work", "record", "--assignment", planning]);
+    expect(latest.json.data.record.recordId).toBe(again.json.data.planningRecordId);
+    expect(latest.json.data.record.entries[0].exactText).toBe("Roll out the other order.");
+    expect(latest.json.data.recordIds).toEqual([
+      decided.json.data.planningRecordId,
+      again.json.data.planningRecordId,
+    ]);
+    const earlier = await runJson(workspace, [
+      "work",
+      "record",
+      "--assignment",
+      planning,
+      "--record",
+      decided.json.data.planningRecordId,
+    ]);
+    expect(earlier.json.data.record.entries[0].exactText).toBe("Yes.");
 
     const resumed = await frontierEntry(workspace, dependent);
     expect(resumed.group).toBe("active");

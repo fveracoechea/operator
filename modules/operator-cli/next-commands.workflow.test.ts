@@ -4,6 +4,7 @@ import {
   delegateRework,
   disposeFindings,
   makeReviewWorkspace,
+  PLANNING_RECORD,
   reportBody,
   reportReview,
   startProducer,
@@ -213,6 +214,8 @@ describe("the three entry points", () => {
       String(registered.get("1.1")),
       "--revision",
       "1",
+      "--input",
+      await writeInput(workspace, PLANNING_RECORD),
     ]);
 
     const resolved = await nextActions(workspace);
@@ -242,6 +245,8 @@ describe("the three entry points", () => {
       assignmentId,
       "--revision",
       "1",
+      "--input",
+      await writeInput(workspace, PLANNING_RECORD),
     ]);
     expect(accepted.exitCode).toBe(0);
 
@@ -499,6 +504,8 @@ describe("a fresh Operator after session loss", () => {
       assignmentId,
       "--revision",
       "1",
+      "--input",
+      await writeInput(workspace, PLANNING_RECORD),
     ]);
     await ownCrew(workspace, { label: "second-session", takeoverFrom: 1 });
 

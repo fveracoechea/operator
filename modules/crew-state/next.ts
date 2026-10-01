@@ -15,6 +15,7 @@ import { directionRecordOf, openDirectionsOf } from "./direction.ts";
 import { calculateFrontier, type Frontier, unmetDependencies } from "./frontier.ts";
 import { openPauses } from "./invalidate.ts";
 import { outsideChangesOfSubmission, undisposedOutside } from "./outside-changes.ts";
+import { type DependencyRecord, dependencyRecords } from "./planning-record.ts";
 import { currentOwnership } from "./ownership.ts";
 import { blockingQuestions, triggersOf } from "./questions.ts";
 import {
@@ -113,6 +114,11 @@ export type NextAction = {
   revision: number | null;
   /** What a person must settle first, or null when this session can act alone. */
   blocker: NextBlocker | null;
+  /**
+   * The records of the direct planning dependencies of planning work to resolve. Planning work
+   * has no brief, so this action carries them. It is null for every other action.
+   */
+  planningRecords: DependencyRecord[] | null;
   detail: string;
   command: string;
 };
@@ -153,6 +159,7 @@ type Draft = {
   reviewId?: string;
   revision?: number;
   blocker?: NextBlocker;
+  planningRecords?: DependencyRecord[];
 };
 
 /**
@@ -175,6 +182,7 @@ function collector() {
           reviewId: null,
           revision: null,
           blocker: null,
+          planningRecords: null,
           ...draft,
         },
         order: held.length,
@@ -695,7 +703,8 @@ export function calculateNext(
     }
   }
 
-  // Planning work is never dispatched, so the Operator resolves it once its dependencies land.
+  // Planning work is never dispatched. Once its dependencies land, the crew prepares its record
+  // and the Operator records the acceptance.
   for (const entry of frontier.planning) {
     if (paused.has(entry.assignmentId) || unmetDependencies(db, entry.assignmentId).length > 0) {
       continue;
@@ -705,10 +714,11 @@ export function calculateNext(
       action: "resolve_planning",
       assignmentId: entry.assignmentId,
       revision: entry.revision,
+      planningRecords: dependencyRecords(db, entry.assignmentId),
       detail:
         entry.state === "invalidated"
-          ? "The planning decision was invalidated, and the Operator decides it again."
-          : "Planning work is registered so dependencies resolve, and the Operator answers it.",
+          ? "The planning decision was invalidated, so the crew prepares it again with a new planning record."
+          : "Planning work is registered so dependencies resolve. The crew prepares its planning record.",
       command: "operator work accept",
     });
   }

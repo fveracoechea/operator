@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
-// Bun has no recursive directory removal API.
-import { rm } from "node:fs/promises";
+// Bun has no recursive directory removal or directory listing API.
+import { readdir, rm } from "node:fs/promises";
 // Bun has no path manipulation API.
 import { resolve } from "node:path";
 import {
@@ -217,7 +217,21 @@ async function revise(
 
 type RequirementSource =
   | { kind: "copy"; path: string }
-  | { kind: "approved-scope"; assignmentId: string };
+  | { kind: "approved-scope"; assignmentId: string }
+  | { kind: "source-revision"; sourceId: string; revision: string };
+
+/** The one work source of the crew, as the crew state records it. */
+function recordedSource(workspace: Workspace): { id: string; revision: string } {
+  const sqlite = new Database(`${workspace.repo}/.operator/local/crew-state.sqlite`, {
+    readonly: true,
+  });
+  const row = sqlite.query("select id, revision from work_sources").get() as {
+    id: string;
+    revision: string;
+  };
+  sqlite.close();
+  return row;
+}
 
 type AnswerOverrides = {
   authority?: "requirement" | "human-answer" | "operator-decision";
@@ -706,6 +720,9 @@ describe("the quote check of a requirement", () => {
     const workspace = await makeWorkspace();
     const crew = await dispatchedCrew(workspace);
     const raised = await raise(workspace, crew);
+    const store = `${workspace.repo}/.operator/local/sources`;
+    // Registration stores the text of its own source before the question.
+    const before = await readdir(store).catch(() => []);
 
     const refused = await answer(
       workspace,
@@ -720,6 +737,9 @@ describe("the quote check of a requirement", () => {
     expect(refused.exitCode).toBe(2);
     expect(refused.json.reason).toBe("quote_not_in_source");
     expect(refused.json.blockers[0].source.id).toEndWith(".md");
+    // A refused quote stores no copy, so nothing is left in the crew state for nobody to remove.
+    expect(refused.json.blockers[0].source.storedPath).toBeNull();
+    expect(await readdir(store).catch(() => [])).toEqual(before);
     const shown = await runJson(workspace, [
       "question",
       "show",
@@ -748,7 +768,7 @@ describe("the quote check of a requirement", () => {
     expect(refused.json.reason).toBe("quote_not_in_source");
   });
 
-  test("a refusal points to the stored copy and never prints the source", async () => {
+  test("a refusal points to the source it read and never prints it", async () => {
     const workspace = await makeWorkspace();
     const crew = await dispatchedCrew(workspace);
     const raised = await raise(workspace, crew);
@@ -779,11 +799,10 @@ describe("the quote check of a requirement", () => {
 
     // The Operator reads a short summary and a pointer, so a long source costs it no context.
     const refused = await runJson(workspace, args);
-    const storedPath = refused.json.blockers[0].source.storedPath;
-    expect(await Bun.file(`${workspace.repo}/${storedPath}`).text()).toContain(marker);
+    expect(refused.json.blockers[0].source.id).toBe(resolve(sourcePath));
     expect(refused.stdout).not.toContain(marker);
     const text = await runOperator(workspace, args);
-    expect(text.stdout).toContain(storedPath);
+    expect(text.stdout).toContain(resolve(sourcePath));
     expect(text.stdout).not.toContain(marker);
   });
 
@@ -901,6 +920,75 @@ describe("the quote check of a requirement", () => {
 
     expect(refused.exitCode).toBe(2);
     expect(refused.json.reason).toBe("unknown_assignment");
+  });
+
+  test("quotes the stored copy of the recorded revision of a work source with no new copy", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+    const source = recordedSource(workspace);
+    const storedPath = `.operator/local/sources/${source.revision}`;
+    // The source store holds the copy of the recorded revision.
+    await Bun.write(`${workspace.repo}/${storedPath}`, REQUIREMENTS_TEXT);
+    const named = { kind: "source-revision" as const, sourceId: source.id };
+
+    const missing = await answer(
+      workspace,
+      crew,
+      { questionId: raised.json.data.questionId, revision: 1 },
+      { authority: "requirement", source: { ...named, revision: "not-recorded" } },
+    );
+    expect(missing.json.reason).toBe("source_unreadable");
+    await Bun.write(`${workspace.repo}/.operator/local/sources/older`, REQUIREMENTS_TEXT);
+    const older = await answer(
+      workspace,
+      crew,
+      { questionId: raised.json.data.questionId, revision: 1 },
+      { authority: "requirement", source: { ...named, revision: "older" } },
+    );
+    expect(older.json.reason).toBe("source_revision_changed");
+    expect(older.json.blockers[0]).toMatchObject({ revision: "older", recorded: source.revision });
+    const outside = await answer(
+      workspace,
+      crew,
+      { questionId: raised.json.data.questionId, revision: 1 },
+      { authority: "requirement", source: { ...named, revision: "../crew-state.sqlite" } },
+    );
+    expect(outside.json.reason).toBe("invalid_answer_input");
+    const unquoted = await answer(
+      workspace,
+      crew,
+      { questionId: raised.json.data.questionId, revision: 1 },
+      {
+        authority: "requirement",
+        exactText: "It sorts.",
+        source: { ...named, revision: source.revision },
+      },
+    );
+    expect(unquoted.json.reason).toBe("quote_not_in_source");
+
+    const recorded = await answer(
+      workspace,
+      crew,
+      { questionId: raised.json.data.questionId, revision: 1 },
+      { authority: "requirement", source: { ...named, revision: source.revision } },
+    );
+
+    expect(recorded.exitCode).toBe(0);
+    const shown = await runJson(workspace, [
+      "question",
+      "show",
+      "--question",
+      raised.json.data.questionId,
+    ]);
+    expect(shown.json.data.answer.source).toEqual({
+      kind: "source-revision",
+      id: source.id,
+      revision: source.revision,
+      storedPath,
+    });
+    const store = await readdir(`${workspace.repo}/.operator/local/sources`);
+    expect(store.toSorted()).toEqual(["older", source.revision].toSorted());
   });
 
   test("never puts the copy of a source into a worktree", async () => {

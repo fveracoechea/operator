@@ -79,6 +79,7 @@ You then record the answer with the authority it really has.
 - `requirement` when an approved source already states it, with the source in `source`.
   Name a file as `{ "kind": "copy", "path": "<any readable path>" }`, which can be outside the checkout.
   Name the approved scope of a registered item as `{ "kind": "approved-scope", "assignmentId": "<id>" }`.
+  Name the recorded revision of a work source as `{ "kind": "source-revision", "sourceId": "<id>", "revision": "<revision>" }`, which quotes the copy that the source store holds for it.
 - `operator-decision` when it is inside your delegated authority, which carries no human text because nobody spoke.
 
 A question that names visible behavior, scope, security permissions, unresolved ambiguity, or conflicting requirements refuses an Operator decision.

@@ -27,6 +27,22 @@ export const HUMAN_ONLY_TRIGGERS = [
   "conflicting-requirements",
 ] as const satisfies EscalationTrigger[];
 
+/**
+ * The subjects one authority cannot close, of those a question or a planning decision names.
+ * A person's own answer closes anything. An Operator decision closes none of them. A recorded
+ * requirement closes the three an approved source can state, and neither of the other two.
+ */
+export function unclosedBy(authority: string, triggers: EscalationTrigger[]): EscalationTrigger[] {
+  if (authority === "human-answer") {
+    return [];
+  }
+  if (authority === "operator-decision") {
+    return triggers;
+  }
+
+  return triggers.filter((one) => HUMAN_ONLY_TRIGGERS.some((human) => human === one));
+}
+
 const text = z.string().min(1);
 
 /**

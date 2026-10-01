@@ -7,6 +7,7 @@ import { assignmentDependencies, assignments, workSources } from "./schema.ts";
 import {
   isExecutable,
   kindOf,
+  planningTypeOf,
   storedFixedInputs,
   storedPermissions,
   type WorkInput,
@@ -343,6 +344,7 @@ export function registerWork(
           item.trackerIssue === undefined ? null : JSON.stringify({ issue: item.trackerIssue }),
         title: item.title,
         kind: kindOf(item),
+        planningType: planningTypeOf(item),
         orderIndex: nextOrder,
         approvedScope: item.approvedScope,
         acceptanceRequirements: item.acceptanceRequirements,

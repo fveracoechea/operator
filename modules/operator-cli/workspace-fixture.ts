@@ -249,6 +249,7 @@ export type NextAction = {
   reviewId: string | null;
   revision: number | null;
   blocker: string | null;
+  planningRecords: Array<Record<string, unknown>> | null;
   detail: string;
   command: string;
 };

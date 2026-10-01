@@ -1,7 +1,9 @@
 # A planning decision is recorded at acceptance and reaches its direct dependents
 
-Planning work reaches accepted completion with no attempt, because the Operator resolves it itself, as ADR 0004 records.
-That acceptance records a planning record, and `operator work accept` refuses planning work without one.
+Planning work reaches accepted completion with no attempt, as ADR 0004 records.
+The Operator is read-only and keeps its own context low, so the crew does the reading and prepares the decision, and the Operator brings each question to the user and records the acceptance.
+That acceptance records a planning record, and `operator work accept` refuses planning work without one, also when the planning work was invalidated and is decided again.
+It also refuses planning work whose own dependencies are not accepted, because a decision on inputs that can still change is not a decision.
 The planning record is what the planning work gives to the work that waits on it.
 
 A planning record is an ordered list of decision entries, and a list of artifacts.
@@ -23,7 +25,9 @@ A decision that no approved source states goes back to the user.
 
 A requirement names its source by a stored copy, and the revision of the source is the content identity of that copy.
 The exact words of a requirement must appear, byte for byte, in that copy, after a carriage return before a line feed is removed, and Operator refuses a requirement whose words do not.
-A text that the crew state already holds, such as the approved scope of a registered item, is a source with no copy.
+The check runs before the copy is stored, so a refused quote leaves no copy, and the refusal names the source file it read.
+A text that the crew state already holds, such as the approved scope of a registered item or a work source revision, is a source with no copy.
+A work source revision is quoted from the copy that the source store holds for it, and the requirement names the revision, so a quote of a revision that the crew state no longer records refuses as `source_revision_changed`.
 A source outside the checkout, such as a file that only the user keeps, is valid, because the copy fixes what the quote was checked against, and a later edit of the file does not make the record false.
 The copy of a source stays with the crew state and never enters a worktree: the quoted words reach the crew through the record, and the rest of the file does not.
 
@@ -33,7 +37,9 @@ The record is derived from the dependency, so the Operator input names no receiv
 The brief identity covers the record, so a recovery restores the same words.
 Only a direct dependent receives a record.
 A task that needs a decision gets a blocking link to the planning work on the tracker, and a task further down the chain receives the effect of the decision through the commit that it builds on.
-Planning work has no brief, so the next-actions read carries the records of its direct planning dependencies in the action that resolves it.
+Planning work has no brief, so the action that resolves it in the next-actions read names the record of each direct planning dependency.
+The Operator reads that action and keeps its own context low, so the action carries only the record identity, its content identity, its entry count, and the command that prints the full record: `operator work record`.
+The crew that prepares the decision reads the full record with that command, and the Operator does not.
 The fixed copy of the requirements that a result review reads, as ADR 0007 records, also holds the planning records that the brief of the producer carried, so the Spec axis checks the result against the decisions it followed.
 
 A planning record is fixed once it is accepted.
@@ -42,7 +48,9 @@ A dependent that was already running keeps the brief it was launched with, as it
 
 The tracker resolution of planning work is a rendering of its record: every entry in order, then the content of each text artifact in order.
 It takes no free text, so the tracker and the brief of a dependent carry the same words.
-The Operator writes its prose, such as the rejected options and the consequences for other work, as a text artifact of the record.
+The prose of a decision, such as the rejected options and the consequences for other work, is a text artifact of the record, and the crew writes it, because the Operator writes no content of its own.
+A rendered body that the tracker would refuse is refused before the write, with its size.
+The GitHub documentation states no limit for a comment body, so the limit is the one the GitHub API states when it refuses a body: 65536 characters.
 
 A planning item makes no commit, as ADR 0016 records.
 A doc change that a decision needs is production work that depends on the planning work.

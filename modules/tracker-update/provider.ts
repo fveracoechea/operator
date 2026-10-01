@@ -17,6 +17,8 @@ export type Capabilities = {
   completion: boolean;
   /** The provider accepts a caller key that makes one creation apply at most once. */
   exactlyOnceWrites: boolean;
+  /** The longest comment body the provider accepts, in characters. */
+  commentLimit: number;
 };
 
 /**
@@ -32,6 +34,10 @@ const providers: Record<string, Capabilities | undefined> = {
     comments: true,
     completion: true,
     exactlyOnceWrites: false,
+    // The GitHub documentation states no limit for a comment body: the REST reference of issue
+    // comments gives none. The API refuses a longer body with "Body is too long (maximum is
+    // 65536 characters)", so this is the limit of the server, not of the documentation.
+    commentLimit: 65_536,
   },
 };
 

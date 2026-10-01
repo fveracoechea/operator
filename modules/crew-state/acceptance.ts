@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { type AssignmentRow, moveAssignment, readAssignment } from "./assignment.ts";
 import { endAttempt, readAttempt } from "./attempt.ts";
 import type { CrewWriter } from "./database.ts";
-import { activeAttempt } from "./frontier.ts";
+import { activeAttempt, unmetDependencies } from "./frontier.ts";
 import {
   corrections,
   findingsOf,
@@ -16,6 +16,12 @@ import {
 import { type DirectionRecord, directionRecordOf, openDirectionsOf } from "./direction.ts";
 import { openPauses, resolveInvalidations } from "./invalidate.ts";
 import { outsideChangesOfSubmission, undisposedOutside } from "./outside-changes.ts";
+import {
+  checkPlanningRecord,
+  insertPlanningRecord,
+  type PreparedRecord,
+  type RecordRefusal,
+} from "./planning-record.ts";
 import { blockingQuestionOf } from "./questions.ts";
 import { submissions } from "./schema.ts";
 import { type ReviewBlocker, storedBlocker, storedObservedChecks } from "./review-input.ts";
@@ -24,7 +30,13 @@ import { latestSubmission, type SubmissionRow } from "./submission.ts";
 import { isExecutable, isReview } from "./work-input.ts";
 
 export type AcceptResult =
-  | { status: "accepted"; assignmentId: string; attemptId: string | null; revision: number }
+  | {
+      status: "accepted";
+      assignmentId: string;
+      attemptId: string | null;
+      revision: number;
+      planningRecordId: string | null;
+    }
   | { status: "unknown-assignment"; assignmentId: string }
   | { status: "stale-revision"; assignmentId: string; recordedRevision: number }
   | { status: "not-claimed"; assignmentId: string; state: string }
@@ -32,6 +44,14 @@ export type AcceptResult =
   | { status: "input-invalidated"; assignmentId: string; invalidated: string[] }
   | { status: "attempt-required"; assignmentId: string }
   | { status: "attempt-not-expected"; assignmentId: string }
+  | {
+      status: "dependency-pending";
+      assignmentId: string;
+      dependencies: Array<{ assignmentId: string; state: string }>;
+    }
+  | { status: "planning-record-required"; assignmentId: string }
+  | { status: "planning-record-not-expected"; assignmentId: string }
+  | RecordRefusal
   | { status: "attempt-mismatch"; assignmentId: string; attemptId: string | null }
   | { status: "question-open"; assignmentId: string; questionId: string; state: string }
   | { status: "submission-required"; assignmentId: string }
@@ -74,6 +94,7 @@ type AcceptRequest = {
   revision: number;
   submissionId: string | null;
   prHead: string | null;
+  record: PreparedRecord | null;
   now: string;
 };
 
@@ -238,6 +259,57 @@ function reviewGate(
 }
 
 /**
+ * Accepts planning work with no attempt. Its record is checked and written in the same
+ * transaction as the acceptance, so an accepted decision always carries what it decided.
+ */
+function acceptPlanning(
+  db: CrewWriter,
+  request: AcceptRequest & { row: AssignmentRow },
+): AcceptResult {
+  const { row } = request;
+  if (request.attemptId !== null) {
+    return { status: "attempt-not-expected", assignmentId: row.id };
+  }
+  // An invalidated decision is answered by deciding again, and only that new acceptance
+  // releases the dependents the invalidation paused.
+  if (row.state !== "registered" && row.state !== "invalidated") {
+    return { status: "not-claimed", assignmentId: row.id, state: row.state };
+  }
+
+  // A decision taken before its own inputs are accepted is a decision on inputs that may still
+  // change, so planning work waits on its dependencies as dispatched work does.
+  const unmet = unmetDependencies(db, row.id);
+  if (unmet.length > 0) {
+    return { status: "dependency-pending", assignmentId: row.id, dependencies: unmet };
+  }
+
+  // The record is what the planning work gives to the work that waits on it, so an acceptance
+  // that records nothing would unblock a dependent that then receives nothing.
+  if (request.record === null) {
+    return { status: "planning-record-required", assignmentId: row.id };
+  }
+  const checked = checkPlanningRecord(db, { row, record: request.record });
+  if (checked.status !== "checked") {
+    return checked;
+  }
+
+  const revision = acceptRow(db, { row, now: request.now });
+  return {
+    status: "accepted",
+    assignmentId: row.id,
+    attemptId: null,
+    revision,
+    planningRecordId: insertPlanningRecord(db, {
+      assignmentId: row.id,
+      assignmentRevision: revision,
+      entries: checked.entries,
+      artifacts: request.record.artifacts,
+      now: request.now,
+    }),
+  };
+}
+
+/**
  * Records accepted completion, the only state that unblocks a dependent assignment.
  * Planning work is resolved by the Operator with no attempt. Review work is accepted once its
  * own reports exist. Production work is accepted only from its reviewed submission.
@@ -269,21 +341,12 @@ export function acceptAssignment(db: CrewWriter, request: AcceptRequest): Accept
   }
 
   if (!isExecutable(row.kind)) {
-    if (request.attemptId !== null) {
-      return { status: "attempt-not-expected", assignmentId: row.id };
-    }
-    // An invalidated decision is answered by deciding again, and only that new acceptance
-    // releases the dependents the invalidation paused.
-    if (row.state !== "registered" && row.state !== "invalidated") {
-      return { status: "not-claimed", assignmentId: row.id, state: row.state };
-    }
+    return acceptPlanning(db, { ...request, row });
+  }
 
-    return {
-      status: "accepted",
-      assignmentId: row.id,
-      attemptId: null,
-      revision: acceptRow(db, { row, now: request.now }),
-    };
+  // Only planning work records a decision. Executable work hands over its result instead.
+  if (request.record !== null) {
+    return { status: "planning-record-not-expected", assignmentId: row.id };
   }
 
   if (request.attemptId === null) {
@@ -329,6 +392,7 @@ export function acceptAssignment(db: CrewWriter, request: AcceptRequest): Accept
       assignmentId: row.id,
       attemptId: live.id,
       revision: acceptRow(db, { row, now: request.now }),
+      planningRecordId: null,
     };
   }
 
@@ -384,5 +448,6 @@ export function acceptAssignment(db: CrewWriter, request: AcceptRequest): Accept
     assignmentId: row.id,
     attemptId: submission.attemptId,
     revision: acceptRow(db, { row, now: request.now }),
+    planningRecordId: null,
   };
 }

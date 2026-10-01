@@ -46,7 +46,7 @@ Planning work is registered so dependencies resolve, and it is never dispatched.
 A specification or a ticket states the planning boundary of each item.
 A wayfinder ticket states it through its own type, where `research`, `grilling`, and `prototype` are planning and `task` is production.
 
-The Operator resolves planning work itself, so planning work reaches accepted completion with no attempt.
+Planning work reaches accepted completion with no attempt: the crew prepares the decision, the Operator brings each question to the user, and the Operator records the acceptance through the CLI.
 What that acceptance records, and how it reaches the dependents, is in ADR 0019.
 Executable work reaches it only from the attempt that holds the assignment.
 Without that, a task blocked by a research ticket could never start, because the research ticket could never be claimed.

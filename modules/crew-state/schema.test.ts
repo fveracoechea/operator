@@ -73,7 +73,7 @@ test("the database refuses a second active attempt on one assignment", async () 
   );
   opened.db.run(
     sql.raw(
-      `insert into assignments values ('a1', 's1', 'k1', 'r1', null, 'One', 'production', 0,
+      `insert into assignments values ('a1', 's1', 'k1', 'r1', null, 'One', 'production', null, 0,
        'scope', '[]', '{}', '[]', 'fi', 'claimed', 1, 'now', 'now')`,
     ),
   );
@@ -95,7 +95,7 @@ test("the database refuses two assignments for one source key", async () => {
   opened.db.run(
     sql.raw(`insert into work_sources values ('s1', 'ticket', 'r1', 'github', null, 0, 'now')`),
   );
-  const values = `'s1', 'k1', 'r1', null, 'One', 'production', 0, 'scope', '[]', '{}', '[]', 'fi',
+  const values = `'s1', 'k1', 'r1', null, 'One', 'production', null, 0, 'scope', '[]', '{}', '[]', 'fi',
     'registered', 1, 'now', 'now'`;
   opened.db.run(sql.raw(`insert into assignments values ('a1', ${values})`));
 
@@ -112,7 +112,7 @@ test("the database refuses a second open question on one attempt", async () => {
   );
   opened.db.run(
     sql.raw(
-      `insert into assignments values ('a1', 's1', 'k1', 'r1', null, 'One', 'production', 0,
+      `insert into assignments values ('a1', 's1', 'k1', 'r1', null, 'One', 'production', null, 0,
        'scope', '[]', '{}', '[]', 'fi', 'claimed', 1, 'now', 'now')`,
     ),
   );
@@ -135,7 +135,7 @@ test("the database refuses two tracker operations for one step of one assignment
   );
   opened.db.run(
     sql.raw(
-      `insert into assignments values ('a1', 's1', 'k1', 'r1', null, 'One', 'production', 0,
+      `insert into assignments values ('a1', 's1', 'k1', 'r1', null, 'One', 'production', null, 0,
        'scope', '[]', '{}', '[]', 'fi', 'accepted', 1, 'now', 'now')`,
     ),
   );

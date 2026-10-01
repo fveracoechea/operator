@@ -180,6 +180,7 @@ function registerReview(
       trackerBinding: null,
       title: `Review ${request.producer.title}`,
       kind: "review",
+      planningType: null,
       orderIndex: nextOrderIndex(held),
       approvedScope: `Review submission ${request.submissionId} of assignment ${request.producer.id} on the Standards and Spec axes.`,
       acceptanceRequirements: [

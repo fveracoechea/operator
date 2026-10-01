@@ -18,6 +18,7 @@ import { claimAssignment } from "./claims.ts";
 import { calculateFrontier } from "./frontier.ts";
 import { calculateNext, calculateUnowned, isStandingAction } from "./next.ts";
 import { parseInput } from "./input.ts";
+import { preparePlanningRecord, showPlanningRecord } from "./planning-record.ts";
 import { mutate, readState } from "./operations.ts";
 import { claimOwnership, currentOwnership } from "./ownership.ts";
 import { answerQuestion, escalateQuestion, reapplyAnswer } from "./question-answer.ts";
@@ -158,6 +159,17 @@ export const CrewState = {
     return { repeated: false, result };
   },
 
+  /**
+   * Reads one planning record in full. The crew reads it to prepare dependent planning work, so
+   * the next-actions read carries only a pointer to it.
+   */
+  async planningRecord(request: Located & { assignmentId: string; recordId: string | null }) {
+    const result = await readState(request.projectRoot, (db) =>
+      showPlanningRecord(db, { assignmentId: request.assignmentId, recordId: request.recordId }),
+    );
+    return { repeated: false, result };
+  },
+
   /** Claims one dispatchable assignment. Exactly one concurrent claim wins. */
   async claim(request: Mutation & { assignmentId: string; revision: number }) {
     const capacity = await readCapacity(request.projectRoot);
@@ -201,8 +213,23 @@ export const CrewState = {
       revision: number;
       submissionId: string | null;
       prHead: string | null;
+      /** The planning record of planning work, or null for every other acceptance. */
+      planningRecord: unknown;
     },
   ) {
+    // The sources and artifacts of a record are read and stored before the transaction, as a
+    // submission stores its artifacts, so the transaction holds no file read.
+    const prepared =
+      request.planningRecord === null
+        ? null
+        : await preparePlanningRecord({
+            projectRoot: request.projectRoot,
+            input: request.planningRecord,
+          });
+    if (prepared !== null && prepared.status !== "prepared") {
+      return { repeated: false, result: prepared };
+    }
+
     return mutate(
       {
         projectRoot: request.projectRoot,
@@ -216,6 +243,7 @@ export const CrewState = {
           revision: request.revision,
           submissionId: request.submissionId,
           prHead: request.prHead,
+          planningRecord: request.planningRecord,
         },
       },
       ({ tx, now }) =>
@@ -226,6 +254,7 @@ export const CrewState = {
             revision: request.revision,
             submissionId: request.submissionId,
             prHead: request.prHead,
+            record: prepared === null ? null : prepared.record,
             now,
           }),
           "accepted",

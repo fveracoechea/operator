@@ -92,6 +92,19 @@ export async function openState(projectRoot: string): Promise<OpenResult> {
     return { status: "unreadable", path, detail: String(error) };
   }
 
+  if (stateVersion > STATE_VERSION) {
+    opened.sqlite.close();
+    return { status: "unsupported", path, found: stateVersion, supported: STATE_VERSION };
+  }
+
+  // An older file is left exactly as it is. Only an approved update migrates it, so a command
+  // that happened to run first never rewrites a format the user has not backed up. The version
+  // is read before the tables, because an older file lacks the tables a later version added.
+  if (stateVersion < STATE_VERSION) {
+    opened.sqlite.close();
+    return { status: "outdated", path, found: stateVersion, supported: STATE_VERSION };
+  }
+
   const present = new Set(
     tables.flatMap((row) =>
       row !== null && typeof row === "object" && "name" in row && typeof row.name === "string"

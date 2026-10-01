@@ -673,11 +673,29 @@ export async function invalidateResult(
   ]);
 }
 
-/** Accepts one assignment by identity, which is how planning work is resolved. */
+/** A planning record with one human answer, which is the least a planning acceptance records. */
+export const PLANNING_RECORD = {
+  entries: [
+    {
+      question: "Do we go ahead as planned?",
+      escalationTriggers: [],
+      authority: "human-answer",
+      exactText: "Yes.",
+      interpretation: {
+        summary: "Go ahead as planned.",
+        directives: ["Build the planned work."],
+        appliesTo: ["The work that depends on this decision."],
+      },
+    },
+  ],
+  artifacts: [],
+};
+
+/** Accepts planning work with its planning record, which is how planning work is resolved. */
 export async function acceptAssignment(
   workspace: Workspace,
   producer: Producer,
-  options: { assignmentId: string; revision: number },
+  options: { assignmentId: string; revision: number; record?: unknown },
 ) {
   return runJson(workspace, [
     "work",
@@ -690,6 +708,8 @@ export async function acceptAssignment(
     options.assignmentId,
     "--revision",
     String(options.revision),
+    "--input",
+    await writeInput(workspace, options.record ?? PLANNING_RECORD),
   ]);
 }
 

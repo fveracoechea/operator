@@ -218,9 +218,11 @@ _Avoid_: integration review, final review, whole-branch review, and "branch revi
 **Planning boundary**:
 The recorded statement of whether an assignment is executable or planning only.
 Planning-only work is registered so dependencies resolve, and it is never dispatched to an Operative.
+A sub-agent of the crew that prepares its planning record works for the Operator and holds no assignment, so preparing the record is not a dispatch.
 
 **Planning record**:
 What the Operator records when it accepts planning work: each decision with the question as it was asked, its answer authority, the exact words, and the reading of them, and the longer texts that the decision names.
+The crew prepares it, and the prose of a decision is one of its text artifacts, never free text of the Operator.
 Each direct dependent receives it in its brief, and the resolution on the tracker is a rendering of it.
 It is fixed once it is accepted, so a changed decision invalidates the planning work.
 _Avoid_: decision record, Decision section

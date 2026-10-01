@@ -71,7 +71,11 @@ export async function writeInput(workspace: Workspace, value: unknown): Promise<
  */
 export async function makeTrackerWorkspace(
   fixtures: Workspaces,
-  options: { mapIssue?: number | null; trackerIssue?: number | null } = {},
+  options: {
+    mapIssue?: number | null;
+    trackerIssue?: number | null;
+    wayfinderType?: "task" | "research" | "grilling" | "prototype";
+  } = {},
 ): Promise<TrackerWorkspace> {
   const workspace = await fixtures.make();
   const mapIssue = options.mapIssue === undefined ? MAP_ISSUE : options.mapIssue;
@@ -101,7 +105,7 @@ export async function makeTrackerWorkspace(
   const item = {
     key: String(TICKET),
     title: "Complete and recover GitHub tracker updates",
-    wayfinderType: "task",
+    wayfinderType: options.wayfinderType ?? "task",
     approvedScope: "Build the tracker completion path.",
     acceptanceRequirements: ["The quality gate passes."],
     permissions: { writePaths: ["modules/"], allowedCommands: ["bun test"], network: false },

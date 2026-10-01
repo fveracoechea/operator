@@ -10,6 +10,7 @@ import {
   reportSharedFailure,
 } from "./crew-result.ts";
 import { type Handled, refuse, report } from "./result.ts";
+import { isSourceRefusal, reportSourceRefusal } from "./source-result.ts";
 
 async function runRegister(parsed: ParsedArguments): Promise<Handled> {
   const mutation = readMutation(parsed);
@@ -408,28 +409,179 @@ function reportAcceptancePrerequisite(
     });
     return "reported";
   }
+  // A planning acceptance has prerequisites of its own: its dependencies and its record.
+  return reportPlanningRefusal(parsed, result);
+}
+
+/** Planning work names its planning record with --input. Other work names none. */
+async function readPlanningRecord(
+  parsed: ParsedArguments,
+): Promise<{ status: "read"; value: unknown } | { status: "reported" }> {
+  const inputPath = parsed.crew.inputPath;
+  return inputPath === undefined
+    ? { status: "read", value: null }
+    : readStructuredInput({
+        parsed,
+        operation: "work_accept",
+        reason: "invalid_planning_record",
+        path: inputPath,
+      });
+}
+
+/** The refusals of a planning acceptance: its dependencies, its record, and its authority. */
+function reportPlanningRefusal(parsed: ParsedArguments, result: AcceptanceResult): Handled | null {
+  if (result.status === "invalid-input") {
+    return reportInvalidInput({
+      parsed,
+      operation: "work_accept",
+      reason: "invalid_planning_record",
+      issues: result.issues,
+    });
+  }
+  if (isSourceRefusal(result)) {
+    return reportSourceRefusal(parsed, "work_accept", result);
+  }
+  if (result.status === "artifact-unreadable" || result.status === "artifact-identity-changed") {
+    const unreadable = result.status === "artifact-unreadable";
+    return refuse({
+      json: parsed.json,
+      operation: "work_accept",
+      outcome: unreadable ? "missing-condition" : "conflict",
+      reason: unreadable ? "artifact_unreadable" : "artifact_identity_changed",
+      detail: unreadable
+        ? { name: result.name, path: result.path }
+        : { name: result.name, path: result.path, found: result.found },
+      lines: [
+        unreadable
+          ? `Artifact ${result.name} cannot be read at ${result.path}.`
+          : `Artifact ${result.name} at ${result.path} does not match the identity you stated.`,
+        "A planning record holds fixed texts, so nothing was accepted.",
+      ],
+    });
+  }
+
+  if (result.status === "dependency-pending") {
+    return refuse({
+      json: parsed.json,
+      operation: "work_accept",
+      outcome: "missing-condition",
+      reason: "dependency_pending",
+      detail: { assignmentId: result.assignmentId, dependencies: result.dependencies },
+      lines: [
+        `Assignment ${result.assignmentId} waits on work that is not accepted:`,
+        ...result.dependencies.map((one) => `  ${one.assignmentId} (${one.state})`),
+        "A decision is taken only on accepted inputs.",
+      ],
+    });
+  }
+
+  if (result.status === "planning-record-required") {
+    return refuse({
+      json: parsed.json,
+      operation: "work_accept",
+      outcome: "missing-condition",
+      reason: "planning_record_required",
+      detail: { assignmentId: result.assignmentId },
+      lines: [
+        `Assignment ${result.assignmentId} is planning work, so its acceptance records a planning record.`,
+        "Name the record with --input. Its dependents receive it.",
+      ],
+    });
+  }
+
+  if (result.status === "planning-record-not-expected") {
+    return refuse({
+      json: parsed.json,
+      operation: "work_accept",
+      outcome: "invalid",
+      reason: "planning_record_not_expected",
+      detail: { assignmentId: result.assignmentId },
+      lines: [`Assignment ${result.assignmentId} is not planning work, so it records no decision.`],
+    });
+  }
+
+  if (result.status === "operator-decision-not-allowed") {
+    return refuse({
+      json: parsed.json,
+      operation: "work_accept",
+      outcome: "missing-condition",
+      reason: "operator_decision_not_allowed",
+      detail: {
+        assignmentId: result.assignmentId,
+        entry: result.entry,
+        planningType: result.planningType,
+      },
+      lines: [
+        `Entry ${result.entry}: ${result.planningType ?? "this planning work"} is the user's side of a decision, so no entry is an Operator decision.`,
+        "Record the user's answer as a human answer, or quote an approved source as a requirement.",
+      ],
+    });
+  }
+
+  if (result.status === "escalation-required") {
+    return refuse({
+      json: parsed.json,
+      operation: "work_accept",
+      outcome: "missing-condition",
+      reason: "escalation_required",
+      detail: {
+        assignmentId: result.assignmentId,
+        entry: result.entry,
+        authority: result.authority,
+        escalationTriggers: result.escalationTriggers,
+      },
+      lines: [
+        `Entry ${result.entry} names subjects a ${result.authority} cannot settle:`,
+        ...result.escalationTriggers.map((one) => `  ${one}`),
+        "Bring it to the user and record their answer as a human answer.",
+      ],
+    });
+  }
+
   return null;
 }
 
-async function runAccept(parsed: ParsedArguments): Promise<Handled> {
+type AcceptRequest = Parameters<typeof CrewState.accept>[0];
+
+/** Reads every argument of one acceptance, with the planning record that planning work names. */
+async function readAcceptRequest(
+  parsed: ParsedArguments,
+): Promise<{ status: "read"; request: AcceptRequest } | Handled> {
   const mutation = readMutation(parsed);
   const assignmentId = parsed.crew.assignmentId;
-  // Planning work carries no attempt, so the attempt is optional here and checked by kind.
-  const attemptId = parsed.crew.attemptId ?? null;
   const revision = readRevision(parsed);
   if (mutation === null || assignmentId === undefined || revision === null) {
     return "invalid-arguments";
   }
 
-  const { repeated, result } = await CrewState.accept({
-    projectRoot: process.cwd(),
-    ...mutation,
-    assignmentId,
-    attemptId,
-    revision,
-    submissionId: parsed.crew.submissionId ?? null,
-    prHead: parsed.crew.prHead ?? null,
-  });
+  const record = await readPlanningRecord(parsed);
+  if (record.status !== "read") {
+    return "reported";
+  }
+
+  return {
+    status: "read",
+    request: {
+      projectRoot: process.cwd(),
+      ...mutation,
+      assignmentId,
+      // Planning work carries no attempt, so the attempt is optional here and checked by kind.
+      attemptId: parsed.crew.attemptId ?? null,
+      revision,
+      submissionId: parsed.crew.submissionId ?? null,
+      prHead: parsed.crew.prHead ?? null,
+      planningRecord: record.value,
+    },
+  };
+}
+
+async function runAccept(parsed: ParsedArguments): Promise<Handled> {
+  const read = await readAcceptRequest(parsed);
+  if (typeof read === "string") {
+    return read;
+  }
+
+  const { repeated, result } = await CrewState.accept(read.request);
 
   if (
     reportSharedFailure(parsed, "work_accept", result) ||
@@ -653,7 +805,16 @@ async function runAccept(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
-  if (result.status !== "accepted") return "invalid-arguments";
+  return result.status === "accepted"
+    ? reportAccepted(parsed, result, repeated)
+    : "invalid-arguments";
+}
+
+function reportAccepted(
+  parsed: ParsedArguments,
+  result: Extract<AcceptanceResult, { status: "accepted" }>,
+  repeated: boolean,
+): Handled {
   report({
     json: parsed.json,
     result: {
@@ -665,10 +826,16 @@ async function runAccept(parsed: ParsedArguments): Promise<Handled> {
         assignmentId: result.assignmentId,
         attemptId: result.attemptId,
         revision: result.revision,
+        planningRecordId: result.planningRecordId,
         repeated,
       },
     },
-    lines: [`Accepted ${result.assignmentId}. Its dependents can now start.`],
+    lines: [
+      `Accepted ${result.assignmentId}. Its dependents can now start.`,
+      ...(result.planningRecordId === null
+        ? []
+        : [`Recorded planning record ${result.planningRecordId}.`]),
+    ],
   });
   return "reported";
 }
@@ -870,6 +1037,69 @@ async function runWritePaths(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
+/** Prints one planning record in full, for the crew. The Operator reads only its pointer. */
+async function runRecord(parsed: ParsedArguments): Promise<Handled> {
+  const assignmentId = parsed.crew.assignmentId;
+  if (assignmentId === undefined) {
+    return "invalid-arguments";
+  }
+
+  const { result } = await CrewState.planningRecord({
+    projectRoot: process.cwd(),
+    assignmentId,
+    recordId: parsed.crew.recordId ?? null,
+  });
+  if (reportSharedFailure(parsed, "work_record", result)) {
+    return "reported";
+  }
+
+  if (result.status === "unknown-assignment") {
+    return refuse({
+      json: parsed.json,
+      operation: "work_record",
+      outcome: "invalid",
+      reason: "unknown_assignment",
+      detail: { assignmentId: result.assignmentId },
+      lines: [`No assignment is registered as ${result.assignmentId}.`],
+    });
+  }
+
+  if (result.status === "planning-record-missing") {
+    return refuse({
+      json: parsed.json,
+      operation: "work_record",
+      outcome: "missing-condition",
+      reason: "planning_record_missing",
+      detail: { assignmentId: result.assignmentId, recordId: result.recordId },
+      lines: [
+        result.recordId === null
+          ? `Assignment ${result.assignmentId} holds no planning record.`
+          : `Assignment ${result.assignmentId} holds no planning record ${result.recordId}.`,
+      ],
+    });
+  }
+
+  const { record } = result;
+  report({
+    json: parsed.json,
+    result: {
+      outcome: "completed",
+      reason: "planning_record_reported",
+      blockers: [],
+      operation: "work_record",
+      data: { record, recordIds: result.recordIds },
+    },
+    lines: [
+      `Planning record ${record.recordId} of ${record.assignmentId}, identity ${record.identity}.`,
+      ...record.entries.map(
+        (entry, index) => `  ${index + 1}. ${entry.question} (${entry.authority})`,
+      ),
+      ...record.artifacts.map((artifact) => `  Artifact ${artifact.name}: ${artifact.storedPath}`),
+    ],
+  });
+  return "reported";
+}
+
 export async function runWork(words: string[], parsed: ParsedArguments): Promise<Handled> {
   if (words.length !== 1) {
     return "invalid-arguments";
@@ -902,6 +1132,9 @@ export async function runWork(words: string[], parsed: ParsedArguments): Promise
   }
   if (subcommand === "write-paths") {
     return runWritePaths(parsed);
+  }
+  if (subcommand === "record") {
+    return runRecord(parsed);
   }
 
   return "invalid-arguments";

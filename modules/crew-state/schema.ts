@@ -5,7 +5,7 @@ import { integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqli
  * The durable shape of the crew state. A reader that finds a higher version refuses the file,
  * so this number changes only when an older Operator release can no longer read the tables.
  */
-export const STATE_VERSION = 6;
+export const STATE_VERSION = 7;
 
 export const stateMeta = sqliteTable("state_meta", {
   id: integer("id").primaryKey(),
@@ -48,6 +48,9 @@ export const assignments = sqliteTable("assignments", {
   trackerBinding: text("tracker_binding"),
   title: text("title").notNull(),
   kind: text("kind").notNull(),
+  // The wayfinder type of planning work, which decides the authority its decisions may have.
+  // Planning work with no type follows the stricter rule of a grilling.
+  planningType: text("planning_type"),
   orderIndex: integer("order_index").notNull(),
   approvedScope: text("approved_scope").notNull(),
   acceptanceRequirements: text("acceptance_requirements").notNull(),
@@ -429,6 +432,23 @@ export const answers = sqliteTable("answers", {
 });
 
 /**
+ * One planning record, recorded when planning work is accepted.
+ * It is fixed once it is written. A new acceptance after an invalidation adds a new record, and
+ * the latest one is the decision the dependents receive.
+ */
+export const planningRecords = sqliteTable("planning_records", {
+  id: text("id").primaryKey(),
+  assignmentId: text("assignment_id")
+    .notNull()
+    .references(() => assignments.id),
+  assignmentRevision: integer("assignment_revision").notNull(),
+  entries: text("entries").notNull(),
+  artifacts: text("artifacts").notNull(),
+  identity: text("identity").notNull(),
+  recordedAt: text("recorded_at").notNull(),
+});
+
+/**
  * One approval of one exact action. It binds the action, its targets, its scope, and the
  * revision of the request it was granted against, and a revocation ends it.
  */
@@ -532,6 +552,7 @@ export const crewStateSchema = {
   requestRecords,
   questions,
   answers,
+  planningRecords,
   approvals,
   trackerOperations,
   trackerWriteAttempts,
@@ -575,6 +596,7 @@ export const CREATE_STATEMENTS = [
     tracker_binding text,
     title text not null,
     kind text not null,
+    planning_type text,
     order_index integer not null,
     approved_scope text not null,
     acceptance_requirements text not null,
@@ -791,6 +813,15 @@ export const CREATE_STATEMENTS = [
     source_revision text,
     reused_from_id text,
     approval_id text,
+    recorded_at text not null
+  ) strict`,
+  sql`create table planning_records (
+    id text primary key,
+    assignment_id text not null references assignments(id),
+    assignment_revision integer not null,
+    entries text not null,
+    artifacts text not null,
+    identity text not null,
     recorded_at text not null
   ) strict`,
   sql`create table approvals (

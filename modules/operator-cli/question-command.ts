@@ -2,6 +2,7 @@ import { CrewState } from "../crew-state/main.ts";
 import { type ParsedArguments, readRevision } from "./arguments.ts";
 import { readStructuredInput, reportInvalidInput, reportSharedFailure } from "./crew-result.ts";
 import { requireReference } from "./reference.ts";
+import { isSourceRefusal, reportSourceRefusal } from "./source-result.ts";
 import { type Handled, type Operation, type Reason, refuse, report } from "./result.ts";
 
 type QuestionOutcome = {
@@ -429,15 +430,8 @@ async function runAnswer(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
-  if (result.status === "source-unreadable") {
-    return refuse({
-      json: parsed.json,
-      operation: "question_answer",
-      outcome: "invalid",
-      reason: "source_unreadable",
-      detail: { path: result.path },
-      lines: [`The requirement source ${result.path} cannot be read.`],
-    });
+  if (isSourceRefusal(result)) {
+    return reportSourceRefusal(parsed, "question_answer", result);
   }
 
   if (result.status === "unknown-assignment") {
@@ -449,35 +443,6 @@ async function runAnswer(parsed: ParsedArguments): Promise<Handled> {
       detail: { assignmentId: result.assignmentId },
       lines: [
         `No assignment is registered as ${result.assignmentId}, so it holds no approved scope.`,
-      ],
-    });
-  }
-
-  if (result.status === "source-not-text") {
-    return refuse({
-      json: parsed.json,
-      operation: "question_answer",
-      outcome: "invalid",
-      reason: "source_not_text",
-      detail: { path: result.path },
-      lines: [`The requirement source ${result.path} is not UTF-8 text, so no quote can match it.`],
-    });
-  }
-
-  if (result.status === "quote-not-in-source") {
-    const { source } = result;
-    return refuse({
-      json: parsed.json,
-      operation: "question_answer",
-      outcome: "invalid",
-      reason: "quote_not_in_source",
-      detail: { source },
-      // The refusal names where the source is and never prints it, so a long source costs the
-      // Operator no context.
-      lines: [
-        `The exact words do not appear in ${source.id} at revision ${source.revision}.`,
-        ...(source.storedPath === null ? [] : [`The checked copy is ${source.storedPath}.`]),
-        "Quote the exact bytes of the source. Do not wrap the lines again or shorten the words.",
       ],
     });
   }

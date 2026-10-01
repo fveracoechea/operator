@@ -113,7 +113,8 @@ function recordedSourceOf(row: AnswerRow): RecordedSource | null {
     kind,
     id: row.sourceId,
     revision: row.sourceRevision,
-    storedPath: kind === "copy" ? storedPathOf(row.sourceRevision) : null,
+    storedPath:
+      kind === "copy" || kind === "source-revision" ? storedPathOf(row.sourceRevision) : null,
   };
 }
 

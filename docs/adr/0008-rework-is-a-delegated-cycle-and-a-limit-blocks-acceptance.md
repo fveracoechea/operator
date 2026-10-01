@@ -69,7 +69,7 @@ A limit reached again after a direction was spent opens the request at the next 
 `operator work invalidate` records a defect found after acceptance.
 Review work is refused, because a review holds no result of its own and a review that read the work wrongly is answered by reviewing that work again.
 The assignment moves to invalidated and returns to the frontier, because the fix is work on that assignment, and the invalidation cycle that the same change opens carries that fix.
-Planning work opens no cycle, because it is never dispatched, and the Operator resolves it again, as ADR 0019 records.
+Planning work opens no cycle, because it is never dispatched, and it is decided again with a new planning record, as ADR 0019 records.
 Its acceptance, submission, review, findings, and attempts stay exactly as they were recorded, because that history is what names the dependents that read the invalid result.
 Only work that consumed the result is paused.
 A dependent that never started has read nothing, and the dependency gate already holds it.

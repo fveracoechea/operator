@@ -188,6 +188,7 @@ export const TrackerUpdate = {
     | { status: "unsupported-provider"; provider: string }
     | { status: "capability-unavailable"; capability: string; detail: string }
     | { status: "actor-unknown"; detail: string }
+    | { status: "comment-too-long"; size: number; limit: number }
   > {
     const capabilities = capabilitiesOf(request.provider);
     if (capabilities === null) {
@@ -209,6 +210,16 @@ export const TrackerUpdate = {
         capability: "completion",
         detail: `${request.provider} cannot complete a ticket with an explicit reason.`,
       };
+    }
+
+    // A body the provider would refuse is refused here, before the write and before any read,
+    // with its size, so the caller can shorten it. The provider counts characters, which are
+    // code points and not UTF-16 units.
+    if (intent.step !== "completion") {
+      const size = [...renderComment({ operationId: request.operationId, intent })].length;
+      if (size > capabilities.commentLimit) {
+        return { status: "comment-too-long", size, limit: capabilities.commentLimit };
+      }
     }
 
     // The account this machine writes as is recorded for every step, so a later reading compares
@@ -234,6 +245,8 @@ export const TrackerUpdate = {
       };
     }
 
+    // The rendering is fixed by the operation identity and the intent, so it is the same bytes
+    // that were measured above.
     const content = renderComment({ operationId: request.operationId, intent });
     return {
       status: "planned",

@@ -169,7 +169,12 @@ async function accept(
   assignmentId: string,
   attemptId: string | null,
   revision: number,
+  planningRecord?: unknown,
 ) {
+  const recordPath = `${root}/record-${crypto.randomUUID()}.json`;
+  if (planningRecord !== undefined) {
+    await Bun.write(recordPath, JSON.stringify(planningRecord));
+  }
   return runJson(root, [
     "work",
     "accept",
@@ -182,8 +187,26 @@ async function accept(
     ...(attemptId === null ? [] : ["--attempt", attemptId]),
     "--revision",
     String(revision),
+    ...(planningRecord === undefined ? [] : ["--input", recordPath]),
   ]);
 }
+
+/** The least a planning acceptance records: one decision. */
+const PLANNING_RECORD = {
+  entries: [
+    {
+      question: "Which library parses the feed?",
+      escalationTriggers: [],
+      authority: "operator-decision",
+      interpretation: {
+        summary: "Use the standard parser.",
+        directives: ["Parse the feed with the standard parser."],
+        appliesTo: ["The feed reader."],
+      },
+    },
+  ],
+  artifacts: [],
+};
 
 describe("operator crew own", () => {
   test("creates crew state and reports one owner token", async () => {
@@ -1220,7 +1243,7 @@ describe("operator work accept", () => {
     const blocked = await runJson(root, ["work", "frontier"]);
     expect(blocked.json.data.dispatchable).toEqual([]);
 
-    const accepted = await accept(root, token, research, null, 1);
+    const accepted = await accept(root, token, research, null, 1, PLANNING_RECORD);
     expect(accepted.exitCode).toBe(0);
     expect(accepted.json.reason).toBe("assignment_accepted");
     expect(accepted.json.data.attemptId).toBe(null);

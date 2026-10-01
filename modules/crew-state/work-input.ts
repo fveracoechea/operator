@@ -184,6 +184,23 @@ export function kindOf(item: KindedItem): AssignmentKind {
   return "kind" in item ? item.kind : kindByWayfinderType[item.wayfinderType];
 }
 
+/** The wayfinder types whose work is planning. Only these record a planning type. */
+export const PLANNING_TYPES = ["research", "grilling", "prototype"] as const;
+
+export type PlanningType = (typeof PLANNING_TYPES)[number];
+
+/**
+ * The wayfinder type of one planning item, or null. A planning item of a specification or a
+ * ticket has no type, because its recorded kind does not say which side of a decision it is.
+ */
+export function planningTypeOf(item: KindedItem): PlanningType | null {
+  if ("kind" in item) {
+    return null;
+  }
+  const type = item.wayfinderType;
+  return PLANNING_TYPES.find((one) => one === type) ?? null;
+}
+
 /**
  * The two questions a recorded kind answers. Each is an allowlist, so a value this release does
  * not know is neither dispatched nor given review priority.

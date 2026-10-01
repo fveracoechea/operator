@@ -98,6 +98,27 @@ export const MIGRATIONS: MigrationStep[] = [
       sqlite.exec("alter table submissions add column behavior_changes text");
     },
   },
+  {
+    from: 6,
+    to: 7,
+    summary:
+      "Record the planning record of each planning acceptance and the type of planning work.",
+    apply: (sqlite) => {
+      // Planning work that an earlier release registered keeps no type, so its decisions follow
+      // the stricter rule of a grilling. Planning work it accepted keeps no record: nobody made
+      // the claim that a record would state.
+      sqlite.exec("alter table assignments add column planning_type text");
+      sqlite.exec(`create table planning_records (
+        id text primary key,
+        assignment_id text not null references assignments(id),
+        assignment_revision integer not null,
+        entries text not null,
+        artifacts text not null,
+        identity text not null,
+        recorded_at text not null
+      ) strict`);
+    },
+  },
 ];
 
 /** The steps that carry one recorded version up to the version this release reads. */
