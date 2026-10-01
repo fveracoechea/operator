@@ -270,7 +270,9 @@ export function acceptAssignment(db: CrewWriter, request: AcceptRequest): Accept
     if (request.attemptId !== null) {
       return { status: "attempt-not-expected", assignmentId: row.id };
     }
-    if (row.state !== "registered") {
+    // An invalidated decision is answered by deciding again, and only that new acceptance
+    // releases the dependents the invalidation paused.
+    if (row.state !== "registered" && row.state !== "invalidated") {
       return { status: "not-claimed", assignmentId: row.id, state: row.state };
     }
 

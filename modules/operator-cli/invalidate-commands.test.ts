@@ -18,7 +18,13 @@ import {
   submit,
   type Workspace,
 } from "./review-cycle-fixture.ts";
-import { headCommit, requestId as request, runJson, workspaces } from "./workspace-fixture.ts";
+import {
+  headCommit,
+  nextActions,
+  requestId as request,
+  runJson,
+  workspaces,
+} from "./workspace-fixture.ts";
 
 // Invalidation tests run complete review cycles through separate CLI processes.
 setDefaultTimeout(60_000);
@@ -257,6 +263,70 @@ describe("operator work invalidate", () => {
     });
     expect(again.json.reason).toBe("assignment_accepted");
   }, 120_000);
+
+  test("an invalidated planning decision is accepted again and releases its dependents", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const producer = await startProducer(workspace);
+    const base = await headCommit(workspace);
+    const first = await acceptedResult(workspace, producer, base, "# Result\n");
+    expect(first.accepted.json.reason).toBe("assignment_accepted");
+
+    const registered = await registerDependents(workspace, producer, [
+      { key: "22.2", kind: "planning", title: "Decide the rollout order" },
+      { key: "22.3", kind: "production", title: "Roll out", dependsOn: ["22.2"] },
+    ]);
+    const planning = registered.get("22.2") ?? "";
+    const dependent = registered.get("22.3") ?? "";
+
+    const decided = await acceptAssignment(workspace, producer, {
+      assignmentId: planning,
+      revision: 1,
+    });
+    expect(decided.json.reason).toBe("assignment_accepted");
+
+    await startRework(workspace, producer, {
+      revision: 1,
+      commit: first.artifact.commit,
+      worktreePath: `${workspace.root}/rollout`,
+      assignmentId: dependent,
+    });
+
+    const invalidated = await invalidateResult(workspace, producer, {
+      assignmentId: planning,
+      revision: decided.json.data.revision,
+      defect: DEFECT,
+    });
+    expect(invalidated.json.reason).toBe("result_invalidated");
+    expect(invalidated.json.data.dependents).toEqual([
+      { assignmentId: dependent, title: "Roll out", consumedState: "claimed", paused: true },
+    ]);
+
+    const held = await frontierEntry(workspace, dependent);
+    expect(held.group).toBe("blocked");
+    expect(held.entry.state).toBe("paused");
+    expect(held.entry.blockers[0]).toEqual({
+      reason: "input_invalidated",
+      invalidated: [planning],
+    });
+
+    // The changed decision is the fix, so the Operator resolves the planning work again.
+    const next = await nextActions(workspace);
+    const resolve = next.forAction("resolve_planning").find((one) => one.assignmentId === planning);
+    expect(resolve?.revision).toBe(invalidated.json.data.revision);
+    expect(resolve?.detail).toContain("invalidated");
+
+    const again = await acceptAssignment(workspace, producer, {
+      assignmentId: planning,
+      revision: invalidated.json.data.revision,
+    });
+    expect(again.exitCode).toBe(0);
+    expect(again.json.reason).toBe("assignment_accepted");
+
+    const resumed = await frontierEntry(workspace, dependent);
+    expect(resumed.group).toBe("active");
+    expect(resumed.entry.state).toBe("claimed");
+    expect(resumed.entry.blockers ?? []).toEqual([]);
+  }, 60_000);
 
   test("refuses a defect against a review, which holds no result of its own", async () => {
     const workspace = await makeReviewWorkspace(fixtures);

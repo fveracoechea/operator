@@ -686,7 +686,10 @@ export function calculateNext(
       action: "resolve_planning",
       assignmentId: entry.assignmentId,
       revision: entry.revision,
-      detail: "Planning work is registered so dependencies resolve, and the Operator answers it.",
+      detail:
+        entry.state === "invalidated"
+          ? "The planning decision was invalidated, and the Operator decides it again."
+          : "Planning work is registered so dependencies resolve, and the Operator answers it.",
       command: "operator work accept",
     });
   }

@@ -10,6 +10,8 @@ The defect states its summary, its evidence, and who found it.
 Review work is refused, because a review holds no result of its own.
 The acceptance, the submission, the review, and every finding stay recorded.
 The assignment returns to the frontier as `invalidated`, and you fix it as work on that assignment.
+Planning work that is invalidated is fixed when you decide it again.
+`bun run operator crew next` offers it as `resolve_planning`, and you accept it with no attempt, as [REGISTRATION.md](REGISTRATION.md) shows.
 
 Only the dependents that read the result are paused.
 `input_invalidated` at acceptance or in the frontier names the invalid result a paused assignment read.
