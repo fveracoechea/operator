@@ -73,6 +73,8 @@ export type DispatchPlan = {
   agentHost: string;
   agentModel: string | null;
   agentReasoningEffort: string | null;
+  // The only tools the host runs with no prompt, because it refuses the rest and never asks.
+  allowedTools: string[];
   briefPath: string;
   briefText: string;
   briefIdentity: string;
@@ -99,6 +101,8 @@ export const REVIEW_SKILL = "code-review";
 export const BRIEF_PATH = ".operator/local/brief.md";
 export const REFERENCE_PATH = ".operator/local/attempt.json";
 export const RELEASE_PATH = ".operator/local/release.json";
+/** Where a launched agent writes each file it passes to `--input`. */
+export const OUTBOX_PATH = ".operator/local/outbox/";
 export const OPENCODE_AGENT_PATH = ".opencode/agents/operator-crew.md";
 export const OPENCODE_EFFORT_PLUGIN_PATH = ".opencode/plugins/operator-crew-effort.ts";
 
@@ -120,6 +124,39 @@ export function opencodeEffortPluginText(effort: string): string {
   };
 }
 `;
+}
+
+/** The Operator CLI operations a brief tells its agent to run. */
+function briefOperations(brief: Brief): string[] {
+  return [
+    "attempt acknowledge",
+    brief.review === null ? "attempt submit" : "review report",
+    "question raise",
+    "question acknowledge",
+  ];
+}
+
+/**
+ * The host refuses each tool outside this list and never asks the person (ADR 0006).
+ * It is built from the same brief data and invocation that the brief text names.
+ */
+function allowedTools(brief: Brief, invocation: string): string[] {
+  const { writePaths, allowedCommands, network } = brief.permissions;
+  return [
+    ...(invocation === "bun run operator" ? ["Bash(bun install --frozen-lockfile)"] : []),
+    ...briefOperations(brief).map((operation) => `Bash(${invocation} ${operation}:*)`),
+    ...allowedCommands.map((command) => `Bash(${command}:*)`),
+    // A producer makes the one commit of its code result. A reviewer changes nothing.
+    ...(brief.review === null ? ["Bash(git status:*)", "Bash(git add:*)", "Bash(git commit:*)"] : []),
+    `Edit(./${OUTBOX_PATH}**)`,
+    ...writePaths.flatMap((path) => {
+      const root = path.replace(/^\.\//, "").replace(/\/+$/, "");
+      return path.endsWith("/")
+        ? [`Edit(./${root}/**)`]
+        : [`Edit(./${root})`, `Edit(./${root}/**)`];
+    }),
+    ...(network ? ["WebFetch", "WebSearch"] : []),
+  ];
 }
 
 /** True when this release knows which executable Herdr starts for that host. */
@@ -301,6 +338,7 @@ function briefDocument(request: {
     `Network access: ${brief.permissions.network ? "permitted" : "not permitted"}.`,
     "",
     "Work outside these limits needs a question to the Operator, never your own decision.",
+    `Write each file you pass with \`--input\` under \`${OUTBOX_PATH}\`.`,
     "",
     ...role.result,
     "## Fixed inputs",
@@ -445,6 +483,10 @@ export function planDispatch(request: {
     agentHost: request.agentHost,
     agentModel: request.snapshot.selection.crew.model,
     agentReasoningEffort: request.snapshot.selection.crew.reasoningEffort ?? null,
+    allowedTools: allowedTools(
+      request.brief,
+      ReleaseInstall.invocation(request.snapshot.installation ?? {}),
+    ),
     briefPath: BRIEF_PATH,
     briefText,
     briefIdentity,

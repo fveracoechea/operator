@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { planDispatch, type Brief, type Snapshot } from "./plan.ts";
+import type { ReviewBrief } from "./review-brief.ts";
 
 const snapshot: Snapshot = {
   parentWorkspaceId: "w-renabler",
@@ -166,4 +167,44 @@ test("source Operative instructions use the selected commit", () => {
   expect(plan.briefText).toContain(`${command} attempt acknowledge --request`);
   expect(plan.promptText).toContain(`${command} attempt acknowledge --request`);
   expect(plan.promptText).not.toContain("bun install --frozen-lockfile");
+});
+
+// A host that never asks refuses each tool outside the list, so a producer could not make the
+// one commit of its code result (ADR 0006).
+const GIT_WRITE_RULES = ["Bash(git status:*)", "Bash(git add:*)", "Bash(git commit:*)"];
+
+test("a producer may stage and commit its result", () => {
+  expect(plan(protocolBrief).allowedTools).toEqual(expect.arrayContaining(GIT_WRITE_RULES));
+});
+
+test("a reviewer may not stage or commit", () => {
+  const review = {
+    reviewId: "review-1",
+    attemptId: "attempt-1",
+    submissionId: "submission-1",
+    submissionIdentity: "identity",
+    resultKind: "code",
+    axes: ["standards", "spec"],
+    requiredCoverage: ["diff"],
+    producerAssignmentId: "assignment-1",
+    producerTitle: "Produce a result",
+    assignmentRevision: 1,
+    sourceRevision: "revision-1",
+    requirementsIdentity: "requirements-1",
+    reviewBase: null,
+    code: null,
+    checks: [],
+    concerns: [],
+    decisions: [],
+    behaviorChanges: [],
+    artifacts: [],
+    spec: null,
+    fixedPoint: null,
+    readCommands: [],
+    integration: null,
+    priorRounds: [],
+    publishes: false,
+  } satisfies ReviewBrief;
+  const tools = plan({ ...protocolBrief, kind: "review", review }).allowedTools;
+  for (const rule of GIT_WRITE_RULES) expect(tools).not.toContain(rule);
 });

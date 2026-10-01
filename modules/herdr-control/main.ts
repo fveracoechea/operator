@@ -337,21 +337,31 @@ export const HerdrControl = {
       : { status: "succeeded", value: { paneId } };
   },
 
-  /** Starts the agent host in a prepared pane. Success means that host owns that terminal. */
+  /** Starts the agent host in a prepared pane. An allow list makes Claude Code never ask (ADR 0006). */
   async startAgent(request: {
     name: string;
     kind: string;
     paneId: string;
     model?: string | null;
     reasoningEffort?: string | null;
+    allowedTools?: string[] | null;
   }): Promise<HerdrOutcome<Agent>> {
+    const effort = request.reasoningEffort ?? null;
+    const allowed = request.allowedTools ?? null;
+    // `--allowedTools` takes every argument after it, so it closes the list.
+    const hostArgs =
+      request.kind === "claude"
+        ? [
+            ...(effort === null ? [] : ["--effort", effort]),
+            ...(allowed === null ? [] : ["--permission-mode", "dontAsk"]),
+            ...(allowed === null || allowed.length === 0 ? [] : ["--allowedTools", ...allowed]),
+          ]
+        : effort === null
+          ? []
+          : ["--agent", "operator-crew"];
     const agentArgs = [
       ...(request.model === null || request.model === undefined ? [] : ["--model", request.model]),
-      ...(request.reasoningEffort === null || request.reasoningEffort === undefined
-        ? []
-        : request.kind === "claude"
-          ? ["--effort", request.reasoningEffort]
-          : ["--agent", "operator-crew"]),
+      ...hostArgs,
     ];
     const outcome = await invokeHerdr({
       args: [

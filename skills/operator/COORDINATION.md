@@ -83,6 +83,8 @@ The next actions already leave out what waits, so every action you are offered i
 
 A question holds the assignment that raised it.
 Its `independentWork` field says what continues without the answer.
+A tool that the host of an Operative refused reaches you as such a question, with the refusal quoted.
+Decide from the question, and do not read the Operative's pane to find the cause.
 
 Work stops for exactly four things, and the CLI names each one:
 

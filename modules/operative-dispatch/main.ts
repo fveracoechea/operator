@@ -266,6 +266,7 @@ export const OperativeDispatch = {
       paneId: pane.value.paneId,
       model: request.plan.agentModel,
       reasoningEffort: request.plan.agentReasoningEffort,
+      allowedTools: request.plan.allowedTools,
     });
     if (started.status !== "succeeded") {
       return started.status === "failed"

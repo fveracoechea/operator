@@ -287,6 +287,7 @@ Herdr acknowledges a submission, not a turn, so this is the only proof that the 
 **Blocked report**:
 The Operative's statement that it cannot continue, with the question, its evidence, its options, the recommendation, the scope that waits, and the work that continues without the answer.
 It carries no authority of its own.
+A tool that the Claude Code host of an Operative refuses becomes a blocked report, because that host never asks the person.
 
 **Question revision**:
 The recorded number of one question as asked.

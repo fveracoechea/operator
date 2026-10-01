@@ -39,6 +39,14 @@ Treat the assignment as started only after that acknowledgement.
 When `crew next` reports a wait for it, report the wait and yield as [COORDINATION.md](COORDINATION.md) describes.
 Do not start a second writer.
 
+## An Operative never asks the person
+
+Dispatch starts a Claude Code Operative with `--permission-mode dontAsk` and an allow list built from its brief.
+A producer may also run `git status`, `git add`, and `git commit`, so it can make the one commit of its result.
+A reviewer may not.
+Its host refuses every other tool and never shows a permission prompt.
+A refusal reaches you as a question, as [COORDINATION.md](COORDINATION.md) describes.
+
 ## Uncertain is not failure
 
 Exit 5 means a call did not answer.

@@ -134,3 +134,57 @@ test("the visible agent name does not change the handle used for prompts", async
     ],
   ]);
 });
+
+test("a Claude Code agent with an allow list never asks, and the list closes its arguments", async () => {
+  const calls: string[][] = [];
+  spyOn(ToolInvocation, "run").mockImplementation(async ({ args }) => {
+    calls.push(args);
+    const agent = { name: args[2], pane_id: "w1:p1", agent_status: "idle" };
+    return {
+      status: "completed",
+      exitCode: 0,
+      stdout: JSON.stringify({ result: { agent } }),
+      stderr: "",
+    };
+  });
+
+  await HerdrControl.startAgent({
+    name: "operative-1",
+    kind: "claude",
+    paneId: "w1:p1",
+    model: "claude-sonnet-5",
+    reasoningEffort: "high",
+    allowedTools: ["Bash(operator attempt acknowledge:*)", "Edit(./modules/**)"],
+  });
+  await HerdrControl.startAgent({ name: "probe-1", kind: "claude", paneId: "w1:p1" });
+  await HerdrControl.startAgent({
+    name: "operative-2",
+    kind: "opencode",
+    paneId: "w1:p1",
+    allowedTools: ["Bash(operator attempt acknowledge:*)"],
+  });
+
+  expect(calls).toEqual([
+    [
+      "agent",
+      "start",
+      "operative-1",
+      "--kind",
+      "claude",
+      "--pane",
+      "w1:p1",
+      "--",
+      "--model",
+      "claude-sonnet-5",
+      "--effort",
+      "high",
+      "--permission-mode",
+      "dontAsk",
+      "--allowedTools",
+      "Bash(operator attempt acknowledge:*)",
+      "Edit(./modules/**)",
+    ],
+    ["agent", "start", "probe-1", "--kind", "claude", "--pane", "w1:p1"],
+    ["agent", "start", "operative-2", "--kind", "opencode", "--pane", "w1:p1"],
+  ]);
+});

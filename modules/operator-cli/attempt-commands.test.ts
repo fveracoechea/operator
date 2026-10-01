@@ -552,6 +552,48 @@ describe("operator attempt dispatch", () => {
     );
   });
 
+  // A permission prompt waits for the person, and an Operative never addresses the person.
+  test("starts a Claude Code Operative that never asks and may run what its brief names", async () => {
+    const workspace = await makeWorkspace({
+      crew: { host: "claude-code", model: "claude-sonnet-5", reasoningEffort: "high" },
+    });
+    const crew = await claimedAttempt(workspace);
+
+    const dispatched = await dispatch(workspace, crew);
+    expect(dispatched.json.reason).toBe("acknowledgement_pending");
+    const start = (await calls(workspace)).find((line) => line.startsWith("agent start")) ?? "";
+    expect(start).toContain(
+      "--kind claude --pane w1:p1 -- --model claude-sonnet-5 --effort high --permission-mode dontAsk --allowedTools ",
+    );
+
+    const brief = await Bun.file(`${workspace.root}/operative/.operator/local/brief.md`).text();
+    const commands = [...brief.matchAll(/^(.+? (?:attempt|question|review) [a-z]+) --/gm)].map(
+      (match) => match[1],
+    );
+    expect(commands).toContain("operator attempt acknowledge");
+    expect(commands).toContain("operator attempt submit");
+    expect(commands).toContain("operator question raise");
+    for (const command of commands) expect(start).toContain(`Bash(${command}:*)`);
+    expect(start).toContain("Bash(bun test:*)");
+    expect(start).toContain("Edit(./modules/**)");
+    expect(brief).toContain("under `.operator/local/outbox/`");
+    expect(start).toContain("Edit(./.operator/local/outbox/**)");
+    expect(start).not.toContain("WebFetch");
+  });
+
+  test("gives an OpenCode Operative no Claude Code permission mode", async () => {
+    const workspace = await makeWorkspace({
+      crew: { host: "opencode", model: "openai/gpt-5.6-terra" },
+    });
+    const crew = await claimedAttempt(workspace);
+
+    const dispatched = await dispatch(workspace, crew);
+    expect(dispatched.json.reason).toBe("acknowledgement_pending");
+    expect((await calls(workspace)).find((line) => line.startsWith("agent start"))).not.toContain(
+      "--permission-mode",
+    );
+  });
+
   test("refuses OpenCode effort without an explicit supported model before creating a worktree", async () => {
     const workspace = await makeWorkspace({
       crew: { host: "opencode", reasoningEffort: "medium" },

@@ -21,6 +21,9 @@ The project instructions in this worktree hold the rules of the project, so read
 Make the smallest change that meets every requirement.
 Run the project checks early and often, and note each failure and each flaky run when it happens, so the result states what really happened.
 When a choice is not yours to make, use the question protocol of the brief, and keep the work that does not depend on the answer moving.
+Your agent host may refuse a tool you need, and it never asks the person.
+Report each refusal with the question protocol of the brief, and quote the refusal in one line.
+Never address a person in your terminal output, because only the Operator talks to the person.
 
 ## Rework
 
