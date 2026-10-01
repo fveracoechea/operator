@@ -77,6 +77,9 @@ Name the paths the Operative may write, the commands it may run, and whether it 
 Work outside them is a question to you, never the Operative's own decision, so a limit that is too narrow costs a question and a limit that is too wide costs control.
 
 `fixedInputs` are fixed at registration, so a later change to their source does not change the work.
+A fixed input is an artifact of one item, such as a design note that this item needs.
+It is not a shared rule block: a rule for every item is a check, or a line in the committed project instructions.
+The reviewer reads the fixed inputs as part of the spec, so a rule registered there is reviewed as a requirement of the work.
 A `value` input carries its text.
 A `path` input carries its path and its content identity, because a large artifact stays outside the crew state.
 The path names a file inside the checkout, relative to its root, with no empty, `.`, or `..` part, because the launch reads that exact spelling from Git.

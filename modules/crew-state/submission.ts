@@ -13,12 +13,28 @@ import { REVIEW_AXES } from "./review.ts";
 import { closeCycle, openCycleOf } from "./rework.ts";
 import { storedRequirements } from "./work-input.ts";
 import type { SubmissionInput } from "./submission-input.ts";
-import type { StoredArtifact } from "./submission-store.ts";
+import type { StoredArtifact, StoredCopy } from "./submission-store.ts";
 
 export type SubmissionRow = typeof submissions.$inferSelect;
 
 /** The Operator commands every reviewer runs, whatever the result it reads. */
 const REVIEWER_COMMANDS = ["operator attempt acknowledge", "operator review report"];
+
+/**
+ * The read-only `git` commands that `code-review` runs from its fixed point.
+ * A result review diffs from the base commit, so the diff is exactly the one submitted commit.
+ * Only these are named, because any other `git` command lets a reviewer write, and only the
+ * checkout reading after the review would see it (ADR 0007).
+ */
+export function reviewReadCommands(fixedPoint: string | null): string[] {
+  return fixedPoint === null
+    ? []
+    : [
+        `git rev-parse ${fixedPoint}`,
+        `git diff ${fixedPoint}...HEAD`,
+        `git log ${fixedPoint}..HEAD --oneline`,
+      ];
+}
 
 export type SubmitOutcome =
   | {
@@ -65,6 +81,25 @@ export function latestSubmission(db: CrewReader, assignmentId: string): Submissi
   return submissionsOf(db, assignmentId).at(-1) ?? null;
 }
 
+/**
+ * The rules submit refuses here, in the order it checks them, each with the refusal name the CLI
+ * reports for it. The brief places these lines beside the submit command and words none itself.
+ */
+export const SUBMIT_RULES = [
+  {
+    refusal: "stale_revision",
+    rule: "`assignmentRevision` is the assignment revision in the Identity section.",
+  },
+  {
+    refusal: "source_revision_changed",
+    rule: "`sourceRevision` is the source revision in the Identity section.",
+  },
+  {
+    refusal: "requirements_changed",
+    rule: "`requirementsIdentity` is the requirements identity under Acceptance requirements.",
+  },
+];
+
 /** The identity of the acceptance requirements one assignment holds. */
 function requirementsIdentityOf(assignment: AssignmentRow): string {
   return identityOf(storedRequirements(assignment.acceptanceRequirements));
@@ -84,6 +119,7 @@ function registerReview(
     reviewId: string;
     input: SubmissionInput;
     artifacts: StoredArtifact[];
+    spec: StoredCopy;
     now: string;
   },
 ): { assignmentId: string; sourceKey: string } {
@@ -100,6 +136,7 @@ function registerReview(
   // checks it may re-run. A result that recorded no check still leaves the reviewer able to report.
   const commands = [
     ...REVIEWER_COMMANDS,
+    ...reviewReadCommands(request.input.code?.baseCommit ?? null),
     ...new Set(request.input.checks.map((one) => one.command)),
   ];
 
@@ -122,6 +159,12 @@ function registerReview(
       value: artifact.storedPath ?? artifact.value,
       contentIdentity: artifact.contentIdentity,
     })),
+    {
+      name: "spec",
+      kind: "path",
+      value: request.spec.storedPath,
+      contentIdentity: request.spec.contentIdentity,
+    },
   ];
 
   const row = insertAssignment(
@@ -184,6 +227,7 @@ export function submitResult(
     assignment: AssignmentRow;
     input: SubmissionInput;
     artifacts: StoredArtifact[];
+    spec: StoredCopy;
     submissionId: string;
     reviewId: string;
     now: string;
@@ -291,6 +335,7 @@ export function submitResult(
     reviewId: request.reviewId,
     input,
     artifacts,
+    spec: request.spec,
     now: request.now,
   });
 

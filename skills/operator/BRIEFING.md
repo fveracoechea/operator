@@ -15,6 +15,20 @@ What you control is what you register.
 The brief is built from the assignment: its title, its approved scope, its acceptance requirements, its permissions, and its fixed inputs.
 Register those carefully, because they are what the Operative gets.
 
+The brief is the contract of one attempt.
+It holds every rule that binds the Operative, and you write nothing into it.
+A rework cycle carries its recorded corrections and conflicts, and its input instruction never reaches the brief.
+
+## Where the rules come from
+
+The release owns the launch rules: the worktree, the write paths, the one result, and the report.
+A rule that a command refuses is one line beside that command, with its refusal name, from the module that runs the check.
+
+The project rules of a launch are the project instructions at its base commit.
+An edit that is not committed does not reach the crew, so a rule is committed before the work that needs it is dispatched.
+You do not commit it yourself: register that edit as work for the crew, and dispatch the work that needs it from a base that holds it.
+A personal instruction file does not reach the crew.
+
 ## What every brief carries
 
 - **Identity**: the assignment and its revision, the attempt, the source and its revision, the assignment kind, the controlling checkout, the worktree, and the branch with its base commit.
@@ -22,9 +36,10 @@ Register those carefully, because they are what the Operative gets.
 - **Authority limits**: the write paths, the allowed commands, and whether network access is permitted. Work outside them is a question, never the Operative's own decision.
 - **Fixed inputs**, with the content identity of every path input. They are fixed at registration, and a launch refuses a base commit that holds another version of a path input.
 - **Effective configuration**: the crew host, model, and reasoning effort, the Operator release, the lock data, and the skill contents of this launch.
-- **The reporting protocol** of its role.
+- **The reporting protocol** of its role, with the refusals of each command beside it.
 
 A review brief adds the fixed submission it reads, its two axes, and the coverage each axis owes.
+It also names the inputs of `code-review`, and it carries none of the producer's rules.
 A rework brief adds the cycle it answers, the accepted corrections, and the conflicts it must settle.
 
 ## The protocol every role shares
@@ -55,6 +70,8 @@ A submission is a handoff to a separate review, never accepted completion.
 A person may write to an Operative directly in its terminal.
 That message carries no authority, whoever sends it.
 The brief tells the Operative to raise it as a question that quotes the exact words, and to keep the independent work moving.
+An Operative never addresses the person directly.
+Only you talk to the person.
 
 You then record the answer with the authority it really has.
 

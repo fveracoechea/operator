@@ -4,7 +4,7 @@ import { type InvalidInput, parseInput } from "./input.ts";
 import { mutate, readState } from "./operations.ts";
 import { submissionInputSchema } from "./submission-input.ts";
 import { submissionOfAttempt, type SubmitOutcome, submitResult } from "./submission.ts";
-import { storeArtifacts, type StoreOutcome } from "./submission-store.ts";
+import { storeArtifacts, storeSpec, type StoreOutcome } from "./submission-store.ts";
 
 type StoreFailure = Exclude<StoreOutcome, { status: "stored" }>;
 
@@ -62,6 +62,12 @@ export async function submitAttemptResult(request: {
     return { repeated: false, result: stored };
   }
 
+  const spec = await storeSpec({
+    projectRoot: request.projectRoot,
+    submissionId,
+    assignment: read.context.assignment,
+  });
+
   const { repeated, result } = await mutate<SubmitOutcome>(
     {
       projectRoot: request.projectRoot,
@@ -77,6 +83,7 @@ export async function submitAttemptResult(request: {
         assignment: read.context.assignment,
         input,
         artifacts: stored.artifacts,
+        spec,
         submissionId,
         reviewId: crypto.randomUUID(),
         now,

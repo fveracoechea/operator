@@ -141,7 +141,6 @@ function priorRoundsOf(db: CrewReader, submission: SubmissionRow) {
                     cycleId: cycle.id,
                     reason: cycle.reason,
                     cycleIndex: cycle.cycleIndex,
-                    instruction: brief.instruction,
                     conflicts: brief.conflicts,
                   };
                 }),

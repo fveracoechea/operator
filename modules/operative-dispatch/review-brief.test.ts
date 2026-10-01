@@ -20,18 +20,21 @@ const review: ReviewBrief = {
   concerns: [],
   decisions: [],
   artifacts: [],
+  spec: null,
+  fixedPoint: null,
+  readCommands: [],
   priorRounds: [],
 };
 
 test("reviewer protocol uses the selected JSR invocation", () => {
-  const protocol = reviewProtocolSection(review, "bun run operator").join("\n");
+  const protocol = reviewProtocolSection(review, [], "bun run operator").join("\n");
   expect(protocol).toContain("bun run operator attempt acknowledge --request");
   expect(protocol).toContain("bun run operator review report --request");
 });
 
 test("reviewer protocol uses the pinned source invocation", () => {
   const command = `bunx "github:fveracoechea/operator#${"f".repeat(40)}"`;
-  const protocol = reviewProtocolSection(review, command).join("\n");
+  const protocol = reviewProtocolSection(review, [], command).join("\n");
   expect(protocol).toContain(`${command} attempt acknowledge --request`);
   expect(protocol).toContain(`${command} review report --request`);
 });

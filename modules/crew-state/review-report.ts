@@ -78,6 +78,43 @@ function coverageGaps(
 }
 
 /**
+ * The rules this report refuses, in the order it checks them, each with the refusal name the CLI
+ * reports for it. The brief places these lines beside the report command and words none itself.
+ */
+export const REPORT_RULES = [
+  // `recordReview` reads the reviewer checkout before it records anything.
+  {
+    refusal: "review_worktree_changed",
+    rule: "Never edit a file or commit in this checkout.",
+  },
+  {
+    refusal: "submission_drift",
+    rule: "`submissionIdentity` is the identity of the submission above.",
+  },
+  {
+    refusal: "review_host_mismatch",
+    rule: "`host` is the crew host under Effective configuration.",
+  },
+  {
+    refusal: "review_axes_incomplete",
+    rule: "`reports` and `subAgents` each name every axis exactly once.",
+  },
+  { refusal: "review_sub_agent_host_mismatch", rule: "Every sub-agent runs on that same host." },
+  {
+    refusal: "review_sub_agent_failed",
+    rule: "Every sub-agent completed. If one could not, record the blocker below instead.",
+  },
+  {
+    refusal: "review_axes_not_parallel",
+    rule: "The two sub-agent windows overlap, because the two axes run at the same time.",
+  },
+  {
+    refusal: "review_coverage_incomplete",
+    rule: "Each axis states in `checked` every reading that this result kind requires.",
+  },
+];
+
+/**
  * Records the two axis reports of one review, or the blocker that stopped it.
  * A review report is the end of the review chain: it is never a submitted result, so it never
  * starts another review.

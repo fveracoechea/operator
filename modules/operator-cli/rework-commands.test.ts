@@ -185,7 +185,11 @@ describe("operator work rework", () => {
     expect(brief).toContain("## The result you rework");
     expect(brief).toContain("findings cycle 1 of 3");
     expect(brief).toContain(gate);
-    expect(brief).toContain("State the gate the result passed");
+    // The Operator writes nothing into a brief, so its instruction is recorded and never rendered.
+    expect(brief).not.toContain("State the gate the result passed");
+    expect(brief).toContain("Answer every accepted correction below in one revision.");
+    // A rework Operative never addresses the person either.
+    expect(brief).toContain("Never address the person yourself.");
     expect(brief).toContain("The Operator accepted it because:");
     // The deferred finding was answered already, so it is not delegated work.
     expect(brief).not.toContain("The summary could name the module.");
@@ -226,6 +230,7 @@ describe("operator work rework", () => {
     expect(secondBrief).toContain(`${gate} (standards, blocker) corrected`);
     expect(secondBrief).toContain(`${wording} (spec, improvement) deferred`);
     expect(secondBrief).toContain("Rework cycle");
+    expect(secondBrief).not.toContain("State the gate the result passed");
     expect(secondBrief).toContain("report a finding that");
 
     const secondReport = await reportReview(
@@ -504,6 +509,9 @@ describe("rework limits", () => {
         commit: artifact.commit,
         worktreePath: `${workspace.root}/diagnostic-${round}`,
       });
+      const brief = await Bun.file(`${current.worktreePath}/.operator/local/brief.md`).text();
+      expect(brief).toContain("Run the checks below again and record what you observe.");
+      expect(brief).not.toContain(`Run the quality gate again, round ${round}.`);
       artifact = await commitArtifact(workspace, current, `# Result ${round}\n`);
       submitted = await submit(
         workspace,
@@ -572,6 +580,10 @@ describe("conflicts and combined revisions", () => {
     const brief = await Bun.file(`${reworked.worktreePath}/.operator/local/brief.md`).text();
     expect(brief).toContain("- Review: none");
     expect(brief).toContain("- accepted helper: rev-helper-1");
+    expect(brief).toContain(
+      "Combine every revision below with the submitted result in one revision.",
+    );
+    expect(brief).not.toContain("Combine this result with the accepted helper");
   });
 
   test("a conflict may not name a finding the cycle does not carry", async () => {

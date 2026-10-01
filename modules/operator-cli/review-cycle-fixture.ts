@@ -52,6 +52,7 @@ export async function startProducer(
   fixedInputs: unknown[] = [
     { name: "brief", kind: "value", value: "the brief", contentIdentity: null },
   ],
+  options: { acknowledge?: boolean } = {},
 ) {
   const owned = await runJson(workspace, [
     "crew",
@@ -120,11 +121,13 @@ export async function startProducer(
     "--worktree",
     worktreePath,
   ]);
-  await runJson(
-    workspace,
-    ["attempt", "acknowledge", "--request", request(), "--attempt", attemptId],
-    worktreePath,
-  );
+  if (options.acknowledge !== false) {
+    await runJson(
+      workspace,
+      ["attempt", "acknowledge", "--request", request(), "--attempt", attemptId],
+      worktreePath,
+    );
+  }
 
   return {
     ownerToken,
@@ -237,7 +240,7 @@ export async function startReviewer(
   producer: Producer,
   submitted: { data: { reviewAssignmentId: string; reviewId: string } },
   commit: string,
-  options: { revision?: number; worktreePath?: string } = {},
+  options: { revision?: number; worktreePath?: string; acknowledge?: boolean } = {},
 ) {
   const claimed = await runJson(workspace, [
     "work",
@@ -271,11 +274,13 @@ export async function startReviewer(
     "--worktree",
     worktreePath,
   ]);
-  await runJson(
-    workspace,
-    ["attempt", "acknowledge", "--request", request(), "--attempt", attemptId],
-    worktreePath,
-  );
+  if (options.acknowledge !== false) {
+    await runJson(
+      workspace,
+      ["attempt", "acknowledge", "--request", request(), "--attempt", attemptId],
+      worktreePath,
+    );
+  }
 
   return {
     attemptId,

@@ -1,3 +1,4 @@
+import { type CommandRule, REFERENCE_RULE, ruleLines } from "./command-rules.ts";
 import {
   copiedInputPath,
   type FixedArtifact,
@@ -28,7 +29,6 @@ export type PriorRound = {
     cycleId: string;
     reason: string;
     cycleIndex: number;
-    instruction: string;
     conflicts: Array<{ summary: string; between: string[] }>;
   }>;
 };
@@ -56,11 +56,20 @@ export type ReviewBrief = {
     reason: string;
   }>;
   artifacts: FixedArtifact[];
+  // The fixed copy of the producer's scope, requirements, and inputs, taken at submission.
+  // A review registered before that copy existed carries none.
+  spec: { storedPath: string; contentIdentity: string } | null;
+  // The commit `code-review` diffs from, and the read-only `git` commands it runs from there.
+  fixedPoint: string | null;
+  readCommands: string[];
   priorRounds: PriorRound[];
 };
 
 /** The directory a review worktree receives its fixed copies of the submitted artifacts in. */
 export const REVIEW_INPUT_DIR = ".operator/local/review";
+
+/** Where the reviewer reads the fixed spec copy, which `code-review` takes as its spec path. */
+export const REVIEW_SPEC_PATH = `${REVIEW_INPUT_DIR}/spec.md`;
 
 export function reviewInputPath(artifact: FixedArtifact): string | null {
   return copiedInputPath(REVIEW_INPUT_DIR, artifact);
@@ -140,7 +149,7 @@ function priorRoundsSection(review: ReviewBrief): string[] {
           (one.reason === null ? "" : ` [${one.reason}]`),
       ),
       ...round.cycles.flatMap((cycle) => [
-        `  - Rework cycle ${cycle.cycleId} (${cycle.reason} ${cycle.cycleIndex}): ${cycle.instruction}`,
+        `  - Rework cycle ${cycle.cycleId} (${cycle.reason} ${cycle.cycleIndex})`,
         ...cycle.conflicts.map(
           (one) =>
             `    - Conflict settled by the Operative: ${one.summary} (${one.between.join(" and ")})`,
@@ -155,11 +164,34 @@ function priorRoundsSection(review: ReviewBrief): string[] {
 }
 
 /**
+ * The three inputs `code-review` takes: a spec path, a fixed point, and the commands that read
+ * the diff from it. The spec is a copy fixed at submission, because the issue can change after
+ * registration and the reviewer has no network.
+ */
+function readingLines(review: ReviewBrief): string[] {
+  return [
+    review.spec === null
+      ? "- Spec: no copy was recorded for this submission. Read the approved scope and acceptance requirements above."
+      : `- Spec: ${REVIEW_SPEC_PATH} (requirements ${review.requirementsIdentity}). Read this copy, never the live issue.`,
+    review.fixedPoint === null
+      ? "- Fixed point: none, because this result is not code."
+      : `- Fixed point: ${review.fixedPoint}`,
+    ...(review.readCommands.length === 0
+      ? []
+      : ["- Read commands:", ...review.readCommands.map((one) => `  - ${one}`)]),
+  ];
+}
+
+/**
  * The review protocol of one reviewer.
  * Both axes run as native sub-agents of this host, in parallel and in separate contexts, and
  * neither one may change the work it reads.
  */
-export function reviewProtocolSection(review: ReviewBrief, invocation = "operator"): string[] {
+export function reviewProtocolSection(
+  review: ReviewBrief,
+  rules: CommandRule[],
+  invocation = "operator",
+): string[] {
   const research =
     review.resultKind === "code"
       ? []
@@ -175,14 +207,16 @@ export function reviewProtocolSection(review: ReviewBrief, invocation = "operato
   return [
     "## Review protocol",
     "",
-    "Load the `code-review` skill from this worktree and follow it.",
+    "Load the `code-review` skill from this worktree and follow it with these inputs:",
+    "",
+    ...readingLines(review),
     "",
     `Run the ${review.axes.join(" and ")} axes as native sub-agents of your own host.`,
     "Start them in parallel, in separate contexts, and give each one the fixed inputs above.",
     "Never start a Herdr agent, create a Herdr worktree, or ask the Operator for another crew slot.",
     "",
-    "Your sub-agents may read files and run the recorded check commands.",
-    "They must never edit a file, commit, push, or perform rework.",
+    "Your sub-agents may read files, run the read commands above, and run the recorded check commands.",
+    "Never push, and never perform rework.",
     "Rework is a separate assignment that a fresh Operative receives.",
     "",
     ...research,
@@ -194,12 +228,14 @@ export function reviewProtocolSection(review: ReviewBrief, invocation = "operato
     `${invocation} attempt acknowledge --request <a new identity you generate> --attempt ${review.attemptId} --json`,
     "```",
     "",
+    ...ruleLines([REFERENCE_RULE]),
     "Write your result to a JSON file, then record it:",
     "",
     "```",
     `${invocation} review report --request <a new identity you generate> --review ${review.reviewId} --input <path> --json`,
     "```",
     "",
+    ...ruleLines(rules),
     "A complete report carries this shape:",
     "",
     "```json",
@@ -236,14 +272,13 @@ export function reviewProtocolSection(review: ReviewBrief, invocation = "operato
     ),
     "```",
     "",
-    `Each axis states in \`checked\` what it read. This result kind requires ${review.requiredCoverage.join(", ")}.`,
+    `This result kind requires ${review.requiredCoverage.join(", ")} in \`checked\`.`,
     ...(review.priorRounds.length === 0
       ? []
       : [
           "Read the earlier rounds above as well. Both axes check the revised result against the",
           "prior dispositions, the corrections that were delegated, and any regression.",
         ]),
-    "The two sub-agent windows must overlap, because the two axes run at the same time.",
     "",
     "Record in `observedChecks` every recorded check you ran for yourself, with what you saw.",
     "That reading outranks the producer's own word, so an outcome that differs blocks acceptance.",

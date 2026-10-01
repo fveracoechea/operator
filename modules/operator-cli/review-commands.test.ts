@@ -62,12 +62,14 @@ describe("operator review report", () => {
     expect(brief).toContain(submitted.json.data.identity);
     expect(brief).toContain("standards and spec");
     expect(brief).toContain("Never start a Herdr agent");
-    expect(brief).toContain("They must never edit a file, commit, push, or perform rework.");
+    expect(brief).toContain(
+      "- `review_worktree_changed`: Never edit a file or commit in this checkout.",
+    );
     // The reviewer writes its own report and nothing else, so rework cannot hide inside a review.
     expect(brief).toContain("Write only inside these paths:\n- .operator/local/");
     // The brief authorizes the commands the reviewer must run, not only the checks it may re-run.
     expect(brief).toContain(
-      "Run only these commands:\n- operator attempt acknowledge\n- operator review report\n- bun run quality",
+      `Run only these commands:\n- operator attempt acknowledge\n- operator review report\n- git rev-parse ${base}\n- git diff ${base}...HEAD\n- git log ${base}..HEAD --oneline\n- bun run quality`,
     );
 
     const copied = await Bun.file(

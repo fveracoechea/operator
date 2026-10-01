@@ -8,7 +8,9 @@ import {
   storedDecisions,
   storedResultKind,
 } from "./submission-input.ts";
-import { storedArtifacts } from "./submission-store.ts";
+import { ARTIFACT_RULES, specPathOf, storedArtifacts } from "./submission-store.ts";
+import { reviewReadCommands, SUBMIT_RULES } from "./submission.ts";
+import { REPORT_RULES } from "./review-report.ts";
 import { storedFixedInputs, storedPermissions, storedRequirements } from "./work-input.ts";
 import { REVIEW_AXES } from "./review.ts";
 import {
@@ -70,13 +72,25 @@ export type ContextRead =
 type ReviewBrief = NonNullable<Brief["review"]>;
 type ReworkBrief = NonNullable<Brief["rework"]>;
 
+/**
+ * A writer command reads only an acknowledged attempt, so this line stands beside every command
+ * that `readWriterContext` guards.
+ */
+const ACKNOWLEDGED_RULE = {
+  refusal: "attempt_not_acknowledged",
+  rule: "Run this only after the acknowledgement above succeeded.",
+};
+
 /** The fixed result one review reads, taken from the submission that started it. */
 function reviewBriefOf(
   context: ReviewContext,
-  request: { attemptId: string; producerTitle: string },
+  request: { attemptId: string; producerTitle: string; fixedInputs: Brief["fixedInputs"] },
 ): ReviewBrief {
   const { review, submission } = context;
   const resultKind = storedResultKind(submission.resultKind);
+  const code = submission.code === null ? null : storedCode(submission.code);
+  const specPath = specPathOf(submission.id);
+  const spec = request.fixedInputs.find((one) => one.kind === "path" && one.value === specPath);
   return {
     reviewId: review.id,
     attemptId: request.attemptId,
@@ -91,18 +105,26 @@ function reviewBriefOf(
     sourceRevision: submission.sourceRevision,
     requirementsIdentity: submission.requirementsIdentity,
     reviewBase: submission.reviewBase,
-    code: submission.code === null ? null : storedCode(submission.code),
+    code,
     checks: storedChecks(submission.checks),
     concerns: storedConcerns(submission.concerns),
     decisions: storedDecisions(submission.decisions),
     artifacts: storedArtifacts(submission.artifacts),
+    spec:
+      spec?.contentIdentity == null
+        ? null
+        : { storedPath: spec.value, contentIdentity: spec.contentIdentity },
+    fixedPoint: code?.baseCommit ?? null,
+    readCommands: reviewReadCommands(code?.baseCommit ?? null),
     priorRounds: context.priorRounds,
   };
 }
 
 /** The fixed cycle one rework attempt answers, as it was recorded when it was delegated. */
 function reworkBriefOf(context: ReworkContext): ReworkBrief {
-  return { cycleId: context.cycle.id, ...context.brief };
+  // The recorded instruction is Operator text, and the Operator writes nothing into a brief.
+  const { instruction: _instruction, ...recorded } = context.brief;
+  return { cycleId: context.cycle.id, ...recorded };
 }
 
 /** The fixed brief of one assignment, as the attempt that holds it receives it. */
@@ -110,6 +132,7 @@ export function briefOf(context: AttemptContext, attemptId: string): Brief {
   const assignment = context.assignment;
   const review = context.review;
   const acceptanceRequirements = storedRequirements(assignment.acceptanceRequirements);
+  const fixedInputs = storedFixedInputs(assignment.fixedInputs);
   return {
     assignmentId: assignment.id,
     assignmentRevision: assignment.revision,
@@ -123,11 +146,16 @@ export function briefOf(context: AttemptContext, attemptId: string): Brief {
     requirementsIdentity: identityOf(acceptanceRequirements),
     approvedScope: assignment.approvedScope,
     permissions: storedPermissions(assignment.permissions),
-    fixedInputs: storedFixedInputs(assignment.fixedInputs),
+    fixedInputs,
+    // A reviewer reports and never submits, so it receives none of the producer's rules.
+    rules:
+      review === null
+        ? { submit: [ACKNOWLEDGED_RULE, ...ARTIFACT_RULES, ...SUBMIT_RULES], report: [] }
+        : { submit: [], report: [ACKNOWLEDGED_RULE, ...REPORT_RULES] },
     review:
       review === null
         ? null
-        : reviewBriefOf(review, { attemptId, producerTitle: assignment.title }),
+        : reviewBriefOf(review, { attemptId, producerTitle: assignment.title, fixedInputs }),
     rework: context.rework === null ? null : reworkBriefOf(context.rework),
   };
 }

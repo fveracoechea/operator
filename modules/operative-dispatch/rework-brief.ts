@@ -24,7 +24,6 @@ export type ReworkBrief = {
   cycleIndex: number;
   limit: number;
   approvalId: string | null;
-  instruction: string;
   reviewId: string | null;
   submissionId: string;
   submissionIdentity: string;
@@ -35,6 +34,14 @@ export type ReworkBrief = {
   checks: FixedCheck[];
   code: FixedCode | null;
   artifacts: FixedArtifact[];
+};
+
+// The Operator writes no instruction of its own into a cycle (ADR 0008), so each reason renders
+// one fixed sentence that the release owns, and the recorded content below is the work.
+const REASON_SENTENCE: Record<ReworkBrief["reason"], string> = {
+  findings: "Answer every accepted correction below in one revision.",
+  integration: "Combine every revision below with the submitted result in one revision.",
+  diagnostic: "Run the checks below again and record what you observe.",
 };
 
 /** The directory a rework worktree receives its fixed copies of the submitted artifacts in. */
@@ -68,7 +75,7 @@ export function reworkResultSection(rework: ReworkBrief): string[] {
           pullRequestLine(rework.code.pullRequest),
         ]),
     "",
-    `The Operator asks for this: ${rework.instruction}`,
+    REASON_SENTENCE[rework.reason],
     "",
     "### Accepted corrections",
     "",

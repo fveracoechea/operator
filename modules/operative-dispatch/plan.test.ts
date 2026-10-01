@@ -23,6 +23,7 @@ const brief: Brief = {
   requirementsIdentity: "requirements",
   permissions: { writePaths: [], allowedCommands: [], network: false },
   fixedInputs: [],
+  rules: { submit: [], report: [] },
   review: null,
   rework: null,
 };
@@ -41,6 +42,7 @@ const protocolBrief: Brief = {
   requirementsIdentity: "requirements-1",
   permissions: { writePaths: ["modules/"], allowedCommands: ["bun test"], network: false },
   fixedInputs: [],
+  rules: { submit: [], report: [] },
   review: null,
   rework: null,
 };
@@ -115,6 +117,9 @@ test("review and rework labels identify their roles on the same ticket", () => {
       concerns: [],
       decisions: [],
       artifacts: [],
+      spec: null,
+      fixedPoint: null,
+      readCommands: [],
       priorRounds: [],
     },
   });
@@ -126,7 +131,6 @@ test("review and rework labels identify their roles on the same ticket", () => {
       cycleIndex: 1,
       limit: 2,
       approvalId: null,
-      instruction: "Fix the result.",
       reviewId: "review",
       submissionId: "submission",
       submissionIdentity: "result",

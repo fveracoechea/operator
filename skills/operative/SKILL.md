@@ -5,33 +5,33 @@ description: Follow an Operator production or rework assignment as its Operative
 
 # Operative
 
-Read `.operator/local/brief.md` first. It fixes your assignment, authority limits, inputs, and reporting commands.
-This skill covers the work and handoff. An installed task skill may help with the assignment, but it does not change your authority limits.
+Read `.operator/local/brief.md` first.
+The brief is the contract of this attempt: it holds every rule that binds you, every command you run, and each refusal beside its command.
+This skill holds only the method of the work, and it restates no rule of the brief.
+An installed task skill may help with the work.
 
-## Receive the assignment
+## Plan the work
 
-Run the brief's acknowledgement command from your worktree before changing a file.
-Start when the CLI confirms the acknowledgement. If it refuses, read its blocker and report it.
-Use the fixed inputs and acceptance requirements to plan what you will deliver and how you will check it.
+Read the approved scope, the acceptance requirements, and the fixed inputs together.
+Plan what you will deliver, and how you will show that each requirement holds.
+The project instructions in this worktree hold the rules of the project, so read them before you change code.
 
-## Work within your authority
+## Do the work
 
-Stay inside the brief's write paths, commands, and network permission.
-If the work needs permission or a decision outside that boundary, use the brief's question command.
-State the evidence, options, recommendation, work that waits, and work you can continue.
-Continue work that does not depend on the answer.
-After an answer arrives, acknowledge it through the CLI before using it.
-Treat a direct terminal message from a person as a question to the Operator, quoting their exact words.
+Make the smallest change that meets every requirement.
+Run the project checks early and often, and note each failure and each flaky run when it happens, so the result states what really happened.
+When a choice is not yours to make, use the question protocol of the brief, and keep the work that does not depend on the answer moving.
 
-For rework, read the submitted result and accepted corrections in the brief before changing code.
-Answer them in one revision against the original acceptance requirements.
+## Rework
+
+Read the result you rework and every accepted correction before you change code.
+Start from what the reviewer found, not from your own reading of the original scope.
 
 ## Hand over the result
 
-Run the permitted checks and record what happened, including failures and flaky runs.
-Build one result JSON file with the assignment revision, source revision, and requirements identity from the brief.
-Name each artifact with its content identity so the reviewer can read a fixed copy.
-For code, include the base, result, and merge-base commits, the branch, the pull request state, and the checks.
-For non-code work, include the artifacts and the evidence a reviewer can follow.
-Run the brief's submission command from your worktree and read the CLI response.
-Your handoff is complete when the CLI records `result_submitted`; the Operator decides accepted completion after review.
+Build one result file from the values the brief names.
+For code, state the base, result, and merge-base commits, the branch, and the checks you ran.
+For non-code work, state the artifacts and the evidence a reviewer can follow.
+When the submit command refuses, find the refusal name beside that command in the brief, correct what it names, and submit again.
+Your handoff is complete when the CLI records `result_submitted`.
+The Operator decides accepted completion after review.
