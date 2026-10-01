@@ -59,12 +59,21 @@ The brief tells the Operative to raise it as a question that quotes the exact wo
 You then record the answer with the authority it really has.
 
 - `human-answer` when the user confirmed it, with their exact words in `exactText`.
-- `requirement` when an approved source already states it, with the source and its revision.
+- `requirement` when an approved source already states it, with the source in `source`.
+  Name a file as `{ "kind": "copy", "path": "<any readable path>" }`, which can be outside the checkout.
+  Name the approved scope of a registered item as `{ "kind": "approved-scope", "assignmentId": "<id>" }`.
 - `operator-decision` when it is inside your delegated authority, which carries no human text because nobody spoke.
 
 A question that names visible behavior, scope, security permissions, unresolved ambiguity, or conflicting requirements refuses an Operator decision.
 `escalation_required` means exactly that, and the answer has to come from a person.
 Ambiguity and conflicting requirements refuse a recorded requirement too, because quoting one source there decides the question by choosing a side.
+
+**Quote the exact bytes of the source.**
+Operator stores a copy of a file source with the crew state, and the content identity of that copy is the revision of the source.
+`quote_not_in_source` refuses words that are not in the copy, so do not wrap the lines again, shorten the words, or fix the spelling.
+The refusal names the checked copy and does not print it.
+Only a carriage return before a line feed is read as a line feed, and a file source must be UTF-8 text.
+A later edit of the file does not change the record, and the copy never enters a worktree.
 
 ## What an Operative never receives
 

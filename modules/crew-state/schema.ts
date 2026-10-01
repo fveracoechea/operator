@@ -5,7 +5,7 @@ import { integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqli
  * The durable shape of the crew state. A reader that finds a higher version refuses the file,
  * so this number changes only when an older Operator release can no longer read the tables.
  */
-export const STATE_VERSION = 2;
+export const STATE_VERSION = 3;
 
 export const stateMeta = sqliteTable("state_meta", {
   id: integer("id").primaryKey(),
@@ -385,6 +385,9 @@ export const answers = sqliteTable("answers", {
   authority: text("authority").notNull(),
   exactText: text("exact_text"),
   interpretation: text("interpretation").notNull(),
+  // How the quote of a requirement was checked. A requirement recorded before the check
+  // existed holds "unchecked", and the other authorities quote no source.
+  sourceKind: text("source_kind"),
   sourceId: text("source_id"),
   sourceRevision: text("source_revision"),
   reusedFromId: text("reused_from_id"),
@@ -730,6 +733,7 @@ export const CREATE_STATEMENTS = [
     authority text not null,
     exact_text text,
     interpretation text not null,
+    source_kind text,
     source_id text,
     source_revision text,
     reused_from_id text,

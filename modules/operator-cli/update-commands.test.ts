@@ -34,8 +34,30 @@ function statePath(): string {
 function makeStateOutdated(): void {
   const sqlite = new Database(statePath(), { create: false, readwrite: true });
   sqlite.exec("alter table state_meta drop column release_identity");
+  sqlite.exec("alter table answers drop column source_kind");
   sqlite.query("update state_meta set state_version = 1").run();
   sqlite.close();
+}
+
+/** Writes one requirement answer the way an earlier release recorded it, with no checked quote. */
+function recordEarlierRequirement(): void {
+  const sqlite = new Database(statePath(), { create: false, readwrite: true });
+  sqlite.exec(
+    `insert into answers (id, question_id, question_revision, target_identity, authority,
+     exact_text, interpretation, source_id, source_revision, recorded_at)
+     values ('earlier', 'q1', 1, 't', 'requirement', 'words', '{}', 'github:operator#21',
+     'rev-1', 'now')`,
+  );
+  sqlite.close();
+}
+
+function sourceKindOf(answerId: string): string | null {
+  const sqlite = new Database(statePath(), { create: false, readonly: true });
+  const row = sqlite.query("select source_kind from answers where id = ?").get(answerId) as {
+    source_kind: string | null;
+  };
+  sqlite.close();
+  return row.source_kind;
 }
 
 function stateVersion(): number {
@@ -299,9 +321,21 @@ describe("recorded formats", () => {
 
     expect(applied.exitCode).toBe(0);
     expect(applied.json.data.migration.status).toBe("migrated");
-    expect(stateVersion()).toBe(2);
+    expect(stateVersion()).toBe(3);
     expect(recordedRelease()).toBe(applied.json.data.selection.releaseIdentity);
     expect((await runJson(workspace, ["work", "frontier"])).exitCode).toBe(0);
+  });
+
+  test("marks a requirement that an earlier release recorded as unchecked", async () => {
+    await ownCrew(workspace);
+    makeStateOutdated();
+    recordEarlierRequirement();
+
+    const { applied } = await apply();
+
+    // No copy stands behind that quote, so the record must not claim a check it never had.
+    expect(applied.exitCode).toBe(0);
+    expect(sourceKindOf("earlier")).toBe("unchecked");
   });
 
   test("puts the backed-up records back when a migration step cannot finish", async () => {

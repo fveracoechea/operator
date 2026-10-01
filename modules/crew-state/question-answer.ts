@@ -19,6 +19,13 @@ import {
   recordEscalation,
   triggersOf,
 } from "./questions.ts";
+import {
+  prepareSource,
+  type PrepareOutcome,
+  type QuoteOutcome,
+  quoteSource,
+  type RecordedSource,
+} from "./requirement-source.ts";
 
 type Shared = StateFailure | RequestFailure;
 
@@ -67,7 +74,15 @@ function unclosedBy(authority: string, triggers: EscalationTrigger[]): Escalatio
   return triggers.filter((one) => HUMAN_ONLY_TRIGGERS.some((human) => human === one));
 }
 
-export type AnswerResult = (Recorded & { repeated: boolean }) | Refusal | InvalidInput | Shared;
+type QuoteRefusal = Exclude<QuoteOutcome, { status: "quoted" }>;
+
+export type AnswerResult =
+  | (Recorded & { repeated: boolean })
+  | Refusal
+  | QuoteRefusal
+  | Exclude<PrepareOutcome, { status: "prepared" }>
+  | InvalidInput
+  | Shared;
 
 /**
  * Records the authoritative answer to one question revision.
@@ -89,7 +104,21 @@ export async function answerQuestion(request: {
   }
 
   const input = parsed.value;
-  const { repeated, result } = await mutate<Recorded | Refusal>(
+  // The copy is stored before the transaction, as a submission stores its artifacts. It is named
+  // by its content, so a repeated request writes the same bytes again. A refused quote leaves its
+  // copy behind, which is crew state and changes no tracked file of the project.
+  const requirement =
+    input.authority === "requirement"
+      ? {
+          exactText: input.exactText,
+          prepared: await prepareSource({ projectRoot: request.projectRoot, source: input.source }),
+        }
+      : null;
+  if (requirement !== null && requirement.prepared.status !== "prepared") {
+    return requirement.prepared;
+  }
+
+  const { repeated, result } = await mutate<Recorded | Refusal | QuoteRefusal>(
     {
       projectRoot: request.projectRoot,
       requestId: request.requestId,
@@ -123,10 +152,23 @@ export async function answerQuestion(request: {
         };
       }
 
+      let source: RecordedSource | null = null;
+      if (requirement !== null && requirement.prepared.status === "prepared") {
+        const quoted = quoteSource(tx, {
+          source: requirement.prepared.source,
+          exactText: requirement.exactText,
+        });
+        if (quoted.status !== "quoted") {
+          return { commit: false, outcome: quoted };
+        }
+        source = quoted.source;
+      }
+
       insertAnswer(tx, {
         answerId: request.answerId,
         question: row,
         input,
+        source,
         reusedFromId: null,
         approvalId: null,
         now,

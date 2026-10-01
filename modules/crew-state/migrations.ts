@@ -22,6 +22,16 @@ export const MIGRATIONS: MigrationStep[] = [
       sqlite.exec("alter table state_meta add column release_identity text");
     },
   },
+  {
+    from: 2,
+    to: 3,
+    summary: "Record how the quote of each requirement answer was checked against its source.",
+    apply: (sqlite) => {
+      sqlite.exec("alter table answers add column source_kind text");
+      // An earlier release checked no quote, so its requirements say so rather than claim a copy.
+      sqlite.exec("update answers set source_kind = 'unchecked' where authority = 'requirement'");
+    },
+  },
 ];
 
 /** The steps that carry one recorded version up to the version this release reads. */
