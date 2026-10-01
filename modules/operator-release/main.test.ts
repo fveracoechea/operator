@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
-// Bun has no recursive directory removal API.
-import { rm, symlink } from "node:fs/promises";
+// Bun has no realpath, recursive directory removal, or symlink API.
+import { realpath, rm, symlink } from "node:fs/promises";
 import { OperatorRelease } from "./main.ts";
 
 // Most of these tests build a real artifact, which compiles the whole release. That takes far
@@ -70,7 +70,8 @@ describe("the release artifact", () => {
       discovery.exited,
     ]);
     expect(discoveryCode).toBe(0);
-    expect(discoveryOutput.data.path).toBe(`${artifactRoot}/herdr`);
+    // Bun resolves the CLI's own path through symlinks, such as the macOS temporary directory.
+    expect(discoveryOutput.data.path).toBe(`${await realpath(artifactRoot)}/herdr`);
     expect(await Bun.file(`${artifactRoot}/config.schema.json`).exists()).toBe(true);
     expect(await Bun.file(`${artifactRoot}/jsr.json`).exists()).toBe(true);
     expect(await Bun.file(`${artifactRoot}/README.md`).text()).toBe(
@@ -100,6 +101,7 @@ describe("the release artifact", () => {
       ),
     ).toEqual([]);
     expect(paths).toContain("herdr/wake.ts");
+    expect(paths).toContain("herdr/worktree.ts");
     expect(paths.filter((path) => path.includes(".test."))).toEqual([]);
   });
 

@@ -213,6 +213,8 @@ export async function buildArtifact(request: {
 
   for (const directory of [SKILLS_DIRECTORY, HERDR_DIRECTORY]) {
     for (const path of await scanFiles(`${sourceRoot}/${directory}`)) {
+      // A test beside a plugin script checks the source and never ships.
+      if (path.endsWith(".test.ts")) continue;
       await Bun.write(
         `${artifactRoot}/${directory}/${path}`,
         Bun.file(`${sourceRoot}/${directory}/${path}`),
