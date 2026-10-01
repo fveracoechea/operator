@@ -14,6 +14,15 @@ The brief, the control reference, the release record, and every artifact the sub
 The list is explicit, so a credential the host keeps in its own store is never archived beside the evidence.
 Removal verifies those copies again, because deletion is the last moment at which the record could still be repaired from the worktree.
 
+Removal also proves that no commit is lost with the checkout.
+Git, read in the checkout, must show it on its recorded branch at the commit its handoff names: the submitted commit of a result, or the base of a review.
+Any other head is work nobody handed over, and it retains the checkout.
+When that commit is the accepted result of its assignment, the integration branch must still hold it.
+The crew state names the commit on the branch that carries each accepted result, and removal reads the branch once: it must be at the recorded tip, with that commit in its history.
+A branch at another tip, a missing branch, and a landing whose outcome is not recorded yet each retain the checkout, as ADR 0020 stops every other step on them.
+A submitted commit that a later accepted result of the same assignment replaced needs no such proof, and neither does a commit of an assignment that was withdrawn, because its record and its review reports stay, and its branch survives the removal.
+No part of this proof reads a remote, so a removal never waits for publish.
+
 Removal needs one more thing that acceptance does not grant: permission.
 A per-cleanup approval names this checkout at the cleanup request revision.
 A workflow approval names the repository at the workflow revision.
@@ -41,10 +50,20 @@ Herdr owns these resources; an unsafe checkout is Herdr's refusal to report, not
 Reading only `git status` was rejected.
 It hides ignored files, which is exactly where work nobody registered would sit unnoticed until it was gone.
 
-Widening remote preservation beyond the commits this attempt produced was rejected.
-`git worktree remove` deletes the checkout directory and its administrative entry.
-Branch references, their commits, and the stash stack live in the shared repository and survive it, so they are not what a removal puts at risk.
-Reading the whole history of `HEAD` instead would refuse every removal in a project that has not published its main branch, which is the controlling checkout's business and not this cleanup's.
+A remote copy of every commit of the attempt was rejected.
+Nothing pushes the integration branch before publish, a merge landing and a rewrite give an accepted result a new commit, and a replaced result never reaches a remote, so that proof would refuse almost every removal.
+Pushing each attempt branch was rejected, because ADR 0020 keeps one push path, at publish.
+
+A search for a commit with an equal patch on the integration branch was rejected.
+Acceptance already proves the patch, and a second proof of the same policy in a second place drifts from the first.
+It would also pass a branch that a person rebased, which ADR 0020 treats as a moved branch.
+
+Dropping the commit proof was rejected.
+`git worktree remove` deletes the checkout directory and its administrative entry, and branch references, their commits, and the stash stack survive it.
+But while a checkout holds its branch, Git refuses to delete that branch, so the checkout is the last guard of the attempt branch, and the proof shows that the accepted work has its own home before that guard goes.
+
+Proving the whole history of `HEAD` was rejected.
+It would refuse every removal in a project that has not published its main branch, which is the controlling checkout's business and not this cleanup's.
 
 Sending the stop keys before reading Herdr was rejected.
 A stop whose answer was lost would then be sent a second time, and the recorded operation could never be settled from evidence.
@@ -61,6 +80,10 @@ It stays because a later tracker or amendment step may move them, and it is the 
 
 Removal requires the project to ignore what Operator writes into a checkout.
 An unforced Herdr removal refuses a checkout with untracked files, and the launch inputs and installed skills are untracked in a project whose ignore rules do not name them.
+
+Removal reads the integration branch and never moves it.
+A checkout that outlives its integration branch, for example after a person deletes the branch when its pull request merges, is refused, and a person removes it.
+After removal, a replaced commit survives only while nobody deletes its attempt branch.
 
 The state version stays at 1.
 The two new tables are added to the schema this release creates, and a state file that predates them is reported as unreadable rather than repaired in silence.

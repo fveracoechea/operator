@@ -66,8 +66,8 @@ change to the registration and frontier contract of
 An approved correction is not implemented here.
 A step whose content must change is refused with the reason, and the new operation that supersedes an earlier result is follow-up work.
 
-Acceptance still compares the pull request head a caller states against the head the submission recorded.
-This boundary reads issues, comments, and closure events; reading a live pull request head is a separate gate and is not part of this decision.
+Acceptance compares the reviewed patch with the integration branch of its source, as ADR 0015 records.
+This boundary reads issues, comments, and closure events; reading a pull request is not part of this decision.
 
 The state version stays at 1.
 The new tables are added to a file no release has shipped yet, and a state file that predates them is reported as unreadable rather than repaired in silence.

@@ -1,7 +1,7 @@
 # Review is ordinary crew work, and acceptance reads only recorded evidence
 
 `operator attempt submit` is the durable handoff of one result.
-It fixes the assignment revision, the requirement revision, the acceptance requirements it was produced against, every artifact with its content identity, every check with its outcome, the known concerns, the decisions the Operative made, and the code revisions where there are any.
+It fixes the assignment revision, the requirement revision, the acceptance requirements it was produced against, every artifact with its content identity, every check with its outcome, the known concerns, the decisions the Operative made, the behavior changes with their basis, the outside changes the launch scan found, and the code revisions where there are any.
 A path artifact is copied into a durable store at submission and verified against the identity the Operative stated, so the reviewer reads a fixed copy instead of a worktree another attempt may still change.
 
 A submission moves the assignment to awaiting review and ends its attempt.
@@ -10,17 +10,18 @@ The ended attempt frees the crew slot it held, so a one-agent crew hands its onl
 
 The submission registers its own review assignment.
 Review is therefore ordinary crew work: the frontier offers it first, it is claimed and dispatched like any other assignment, and it holds one Herdr slot and its own worktree.
-Its brief carries the fixed result, tells the reviewer to load the existing `code-review` skill, and requires both axes to run as native sub-agents of that reviewer's own host.
+A review reads one fixed subject: a submission, or the branch snapshot of a work source that ADR 0017 records.
+Its brief carries the fixed result and a fixed copy of the approved scope, the acceptance requirements, and the fixed inputs the result was produced against, tells the reviewer to load the existing `code-review` skill, names that copy as the spec it reads, and requires both axes to run as native sub-agents of that reviewer's own host.
 Those sub-agents read files and run the recorded check commands.
 They never edit, commit, push, or rework, and they never take a Herdr slot or worktree of their own.
 
 `operator review report` records the two axis reports, or the blocker that stopped the review.
-The report names the submission identity it read, names the host the launch recorded, carries both axes exactly once, records a window for each sub-agent that overlaps the other, and states what each axis read.
+The report names the identity of the subject it read, names the host the launch recorded, carries both axes exactly once, records a window for each sub-agent that overlaps the other, and states what each axis read.
 Each axis also records the outcome of every recorded check it ran for itself.
 That reading outranks the producer's own word about its own work, so acceptance refuses when the two differ.
 A reviewer that edited or committed in its own checkout is refused before any of that, because repairing a finding is rework and rework belongs to a fresh Operative.
-A code result requires the diff, the requirements, and the checks.
-A non-code result requires the artifacts, the requirements, the citations, and the provenance of each recorded answer.
+A code result requires the diff, the requirements, the checks, and the behavior changes.
+A non-code result requires the artifacts, the requirements, the citations, the provenance of each recorded answer, and the behavior changes.
 
 A review report ends the review chain.
 It is not a submitted result, so `operator attempt submit` refuses a review attempt and no review triggers another review.
@@ -34,8 +35,8 @@ A finding is corrected, rejected with a reason, or deferred with a reason and a 
 A blocker is never deferred, because deferring one would waive an approved requirement through technical judgment alone.
 
 `operator work accept` is the only path to accepted completion, and it now reads the recorded evidence of production work.
-It verifies the current ownership, the assignment revision, the exact submission, both axis reports, a disposition on every finding, no correction still waiting for rework, a passing outcome on every recorded check, no check outcome the review observed differently, and the pull request head the caller read against the head the submission recorded.
-A stopped reviewer, a missing input, an unavailable review capability, a missing credential, a missing pull-request authority, a failed check, and a flaky check are each a recorded fact that blocks, never an absence that passes.
+It verifies the current ownership, the assignment revision, the exact submission, both axis reports, a disposition on every finding, a disposition on every outside change, no correction still waiting for rework, a passing outcome on every recorded check, no check outcome the review observed differently, and, for a code result, a passing gate run on the commit it lands as (ADR 0021) and the reviewed commit as the same patch on the integration branch of its source.
+A stopped reviewer, a missing input, an unavailable review capability, a missing credential, a failed check, and a flaky check are each a recorded fact that blocks, never an absence that passes.
 
 ## Considered options
 
@@ -57,6 +58,9 @@ Operator cannot stop another host from writing, but it can read the checkout aft
 Letting the reviewer read the producer worktree was rejected.
 That checkout keeps changing, and evidence that can change is not fixed evidence.
 
+Letting the Spec axis read the live issue as its spec was rejected.
+The reviewer has no network access, the issue can change after registration, and the acceptance requirements come from the Operator input rather than from the issue.
+
 Copying the `code-review` skill into the review worktree was rejected.
 Operator installs only the skills it owns, so a checkout with no review skill blocks the launch instead of receiving a copy Operator does not maintain.
 
@@ -70,13 +74,12 @@ A finding disposed as corrected blocks acceptance with `rework_pending` until th
 
 The sub-agent records are the reviewer's own report, as an acknowledgement is.
 Operator does not run the other host's sub-agents, so it cannot observe them.
-It records what the reviewer states, refuses a report that contradicts itself, and binds every report to the submission identity it read.
+It records what the reviewer states, refuses a report that contradicts itself, and binds every report to the identity of the subject it read.
 A live probe of the selected hosts is what proves the capability itself.
 
-The pull request head is the head the Operator read, not a head Operator fetched.
-There is no tracker boundary in this release, so acceptance compares the stated head against the head the submission recorded, and nothing else.
-The command output says so, because a message that claims more than the check performs is the way a gate becomes trusted for what it does not do.
-Reading the live head is follow-up work for [Complete and recover GitHub tracker updates](https://github.com/fveracoechea/operator/issues/24), which owns the tracker boundary.
+Acceptance compares patches, not commit identities, because integration can move a reviewed commit to a new base with no change to its patch.
+A submission names no pull request, and ADR 0015 records why a source delivers one integration branch instead of a pull request for each assignment.
+The command output states what the check compared, because a message that claims more than the check performs is the way a gate becomes trusted for what it does not do.
 
 A blocker may be rejected with a stated reason.
 That is the Operator's delegated authority, and the reason is recorded beside the finding.
@@ -87,3 +90,5 @@ Only a review this workflow created holds a review record, and only that record 
 
 The state version stays at 1.
 The new tables are added to a file no release has shipped yet, and a state file that predates them is reported as unreadable rather than repaired in silence.
+
+ADR 0018 records what a result must pass at submission, before any review reads it.

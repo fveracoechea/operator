@@ -24,6 +24,17 @@ Each Operative worktree receives the project configuration, its schema, a releas
 No other file is copied out of the controlling checkout, so credentials stay in the host credential store.
 Every copy is read back and compared before any agent starts.
 
+The brief is the contract of one attempt.
+It carries every rule that binds the Operative, every command the Operative runs, and the refusal each command can give, so a rule that a command enforces is stated once, beside that command.
+The owned skill that the Operative loads carries the method of the work and restates no rule of the brief.
+The Operator writes nothing into a brief: the work of one assignment is its approved scope, anything the Operative must learn after launch arrives as a recorded answer, and a correction carries only the recorded dispositions and conflicts of its cycle, as ADR 0008 records.
+
+The rules that are the same for every launch belong to the release, so the launch snapshot fixes them together with the code that enforces them.
+The rules of one project belong to its committed project instructions, which the host loads by its own mechanism and which the reviewer reads as the standards of the project.
+The project gate is the one project rule that the CLI runs, so it is a committed declaration that ADR 0021 records, not prose in the instructions, and the brief states its commands.
+The base commit fixes them for a launch, so an edit that is not committed does not reach the crew, and each rule has one copy that the producer and the reviewer both read.
+A personal instruction file is outside the launch: Operator neither copies it nor records it, so a rule the crew must follow lives in the project.
+
 `operator attempt replace` starts a new attempt on the same assignment.
 It runs only when every effect is settled, the former writer is proven stopped, and the caller states the identity of the partial-work inspection it read.
 It keeps the inspected checkout and branch, so one assignment never holds two writers and no partial work is discarded.
@@ -48,6 +59,27 @@ Each stage carries its own derived identity, so a replay returns the recorded ou
 Copying the controlling checkout's `.operator` directory into the worktree was rejected.
 That directory holds the crew state and whatever else the user keeps there, and a launch must copy an explicit list.
 
+
+One shared rule block, registered as a fixed input on every item, was rejected.
+It needs no new code, and the hand-run flow that this crew automates used one.
+The reviewer would read the block as a requirement of the work, every item holds its own copy, and an item that an attempt already read keeps the old copy after the block changes.
+
+A field in the project configuration, copied into every brief, was rejected.
+It gives each project one place for its rules.
+That configuration is local to one checkout and nobody reviews it, so another checkout launches with other rules, and the reviewer never reads them.
+
+Every rule of the block in the project instructions, the launch rules included, was rejected.
+It puts the whole block in one file that the project controls.
+The project would then restate a protocol that the release owns and enforces, and one file would disagree with every release but one.
+
+A recorded identity for each instruction file in the launch snapshot was rejected.
+It would make a changed instruction file visible to recovery.
+The base commit already fixes every committed file, and the record would need a list of the file names that each host loads, which drifts when a host adds one.
+
+Copying or recording a personal instruction file was rejected.
+It would let a rule that lives on one machine reach the crew.
+Another machine cannot reproduce it, it can hold private content, and a launch copies an explicit list and nothing else.
+
 ## Consequences
 
 Takeover blocks every existing attempt.
@@ -60,3 +92,8 @@ A closed workspace blocks the launch of the replacement rather than creating a s
 The state version stays at 1.
 It changes when a released Operator can no longer read the tables, and no release has shipped yet.
 A state file that predates a table this release reads is reported as unreadable and is never repaired in silence.
+
+A rule that the crew must follow and that no check enforces is committed to the project instructions before the work that needs it is dispatched.
+
+The reviewer works in the submitted commit, so a result that edits the project instructions is reviewed under the rules it wrote.
+The write paths that the user approved are the authority for that edit, and the edit is visible in the diff.

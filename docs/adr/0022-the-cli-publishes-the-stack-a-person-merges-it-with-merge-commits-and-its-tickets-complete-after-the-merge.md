@@ -1,0 +1,122 @@
+# The CLI publishes the stack, a person merges it with merge commits, and its tickets complete after the merge
+
+Operator could land, gate, and review an integration branch, but nothing pushed it, opened its pull requests, or wrote their bodies.
+In a flow run by hand, the main agent pushed a new branch, opened the pull request, wrote one line for each commit with its issue, and wrote a "Done in" link on each issue last, because a rebuilt history changes every commit.
+The tracker resolution of a code result was written at acceptance, before any commit had a final place, and a branch finding could then reopen a ticket that was already closed.
+A squash merge of the lowest pull request of a stack also rewrites what the higher ones are based on.
+
+The CLI publishes.
+`operator publish plan` changes nothing: it reads the recorded branch snapshot, the gate runs, the reviews, and the Operator's input, and it prints every pull request of the stack in full with a plan revision.
+`operator publish apply` plans again, refuses when the revision differs, and then writes, behind one approval of that revision.
+The plan refuses unless the branch review of ADR 0017 reported on the exact head, the gate runs of ADR 0021 pass at the base and at every commit, and no invalidation, withdrawal, or direction request is open.
+The revision covers everything that ships: the head, the cut points with their reasons, the titles, every body, the remote, the remote branch names, the target branch, and the integration base.
+It does not cover the tip of the target branch, because a new commit on the target does not change what ships, and the apply still refuses when the integration base is not an ancestor of that tip.
+The whole stack publishes at once; the cut points divide the review, not the timing.
+A source whose branch holds no commit above its base has nothing to publish, and it is finished when its other work is.
+
+The target branch is the default branch of the source repository, read at the plan.
+Closing keywords work only in a pull request to the default branch, and a code ticket is completed when its commit reaches the target (ADR 0016), so a second target would need a second close path.
+
+Each stack publication has its own number, and each of its pull requests has a new remote branch of its own.
+One atomic push creates every remote branch with no force option, and the plan refuses when a name already exists.
+So a push never replaces a remote ref, and the rule of ADR 0020 that nothing is pushed with force has no exception.
+The pull requests are created from the bottom up, ready for review: the lowest one targets the target branch, and each higher one targets the remote branch below it.
+Each write is a staged effect under ADR 0005.
+Recovery reads GitHub: the remote names at their planned commits, and the pull request whose head is a new remote name, which the server allows only once.
+
+Each body is rendered by the CLI from the records, with a closed set of sections that the Operator writes, and the approval covers the exact text.
+The rendered sections are the commit list, with each subject linked to its commit and a closing keyword for its issue; the behavior changes of each commit with their basis (ADR 0018); the project gate commands and the runs that passed; the reviews by their identity; each rejected finding as what looks wrong and is not; each deferred finding with its follow-up as what is not in this pull request; the concerns the producers recorded; the stack position; and how to merge.
+The Operator writes the title, a summary, where to start reading, and the merge danger, because no record holds that judgment.
+The Operator text goes to people and not to the crew, and the user approves it word for word, so it opens no channel into a brief.
+A body is final at its create: it links each commit by its identity, and it names only the pull request below it, whose number is recorded by then.
+
+A person merges.
+Merging follows the human review on GitHub, and the person who merges is often not the user of the Operator.
+Each pull request merges with a merge commit, from the bottom up, because only a merge commit brings each commit to the target with the identity and the tree that were reviewed and gated.
+The plan refuses when the repository or a rule of the target branch does not allow a merge commit, and when a rule requires signed commits, because Operator pushes the unsigned commits of ADR 0020 and signing is not decided.
+A rule that the plan cannot read is shown as unverified, never as a pass, and a push that GitHub rejects lands nothing.
+
+`operator crew next` never reads the tracker, and no event reaches the crew when a pull request merges.
+So the next actions show a wait on a person that names `operator publish status`, and the Operator runs that read when the user reports a merge or asks for the state.
+The read records what GitHub shows, and the next actions then offer what follows.
+After a merge commit of one part, the CLI changes the base of the next part to the target branch, under the same approval, and it reads first, so a base that GitHub already changed is satisfied with no write.
+
+The three tracker steps of a code result run only after the pull request that carries its commit merged into the target branch.
+The resolution is a rendering with no free text: the commit on the target, the pull request, and the behavior changes with their basis.
+The completion step observes the close that the closing keyword made, or closes the ticket itself, as ADR 0009 allows.
+A planning resolution is still rendered at acceptance (ADR 0019).
+
+A merge that is not a merge commit, a merge into a base that is not the target, a commit that no review read on a pushed branch, and a close with no merge are each a stack fault that waits on a person.
+Operator adopts nothing from a stack fault, as it adopts no moved integration branch (ADR 0020).
+The items of a pull request that reached the target by another method still complete, and the resolution names the commit that landed.
+A fault on one part stops every part above it.
+
+A defect found in an open published range, or a withdrawal of an item whose commit is in one, first recalls that range: with an approval, each open pull request from that part up becomes a draft, which cannot be merged, and gets one comment with the reason.
+The correction or the take-out then runs on the local branch, and a new stack publication closes each recalled pull request with a pointer to its replacement.
+A merged commit is never corrected or taken out; a defect found after the merge is new work.
+
+The integration base changes only through a rebase that a person approves, before publish or after a recall or a stack fault.
+The CLI gates the new base, then rebuilds the branch on it under the tests of the ADR 0020 rewrite, and a commit that already merged into the target leaves the branch.
+A patch that the rebase changes becomes an integration cycle, and the new head needs a new branch review.
+The preview reports whether the head merges cleanly onto the fetched target, as information, so a conflict with another source can be settled by this rebase before anyone reviews on GitHub.
+
+A source is finished when every pull request of its last stack publication merged with a merge commit and every tracker step of its items is verified.
+Its gate checkout is removed then, and Operator deletes no branch (ADR 0010).
+
+## Considered options
+
+The Operator agent pushing and opening the pull requests by hand, and the user doing it, were rejected.
+A hand step leaves no record to recover from, and no command could refuse a publish that the branch review or the gate does not permit.
+
+A merge by the CLI, behind a second approval, was rejected.
+It takes the merge from the person who read the pull request, and on a team it asks the wrong person.
+A push of the head to the target branch was rejected, because GitHub then marks the pull request merged even when its branch protection was not satisfied.
+
+A rebase merge was rejected, because it gives every commit a new identity and, on a moved target, a tree that no gate run covers.
+A squash merge was rejected, because the target then holds one commit for several results, and the higher pull requests of a stack keep commits that the target no longer holds.
+Any merge method that the project allows was rejected for the same reasons.
+
+The stacked pull requests of GitHub were rejected for now.
+They are a preview, and after each merge they rebase the next pull request, which can rewrite a published commit.
+They are the option to take again when they leave the preview and keep the commits of a merge commit.
+
+A partial publish of the lower part of a stack was rejected.
+ADR 0017 reviews the whole branch once, and a finding against a published part would need a new publication.
+
+A plan revision that also covers the tip of the target branch was rejected.
+Each merge by anyone to the target would then refuse a stack that did not change.
+
+The tracker resolution at acceptance was rejected, because it names no final commit, a branch finding could reopen the ticket, and ADR 0016 would then refuse every production dependency across sources.
+The resolution at publish was rejected, because a correction after publish still changes every commit, and a written comment is never corrected (ADR 0009).
+
+A body that the Operator writes freely was rejected, because it repeats recorded facts that can drift.
+A body with no Operator text was rejected, because where to start reading and the merge danger need judgment that no record holds.
+
+A next action that always offers the read while a pull request is open was rejected.
+It is a loop that polls GitHub on every turn, and as an action that waits on a person it would hide every other wait (ADR 0011).
+A readiness check of the merge settings was rejected, because readiness static checks read no network, and the plan already reads GitHub.
+
+Signing at publish was rejected for now.
+It gives every published commit an identity that differs from the reviewed head, and a signature that is not deterministic leaves recovery with no commit to expect.
+
+A correction commit on top of a published branch was rejected, as ADR 0017 and ADR 0020 rejected it on the integration branch.
+A correction with the published pull requests left open was rejected, because the defect stays one merge away while it is corrected.
+Adopting a commit that a person pushed onto a published branch was rejected, because no result review read it.
+
+A base that always follows the target at publish was rejected, because it gates every commit and reviews the branch again when nothing conflicts.
+
+Deleting the remote branch of a merged part, so that GitHub changes the next base, was rejected, because Operator deletes no branch (ADR 0010).
+
+## Consequences
+
+A project that requires a linear history, or signed commits, cannot publish through Operator.
+
+The trigger of the read after a merge is the user's word, which the Operator skill states, because no event reaches the crew when a pull request merges.
+
+An accepted code result stays open on the tracker until its pull request merges, so a dependent in another source waits for that merge (ADR 0016).
+
+A defect found after a merge, and an unwanted change that merged, are new work in a new item.
+
+A source that must follow a moved target spends a gate run for each commit and a branch review, which counts against the limit of three (ADR 0017).
+
+Each stack publication leaves its remote branches in place, and a person deletes them.
