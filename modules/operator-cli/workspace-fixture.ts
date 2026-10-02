@@ -46,7 +46,9 @@ export function workspaces() {
         github: `${root}/github`,
         bin: `${root}/bin`,
       };
-      await Bun.$`mkdir -p ${workspace.repo} ${workspace.herdr} ${workspace.github} ${workspace.bin}`.quiet();
+      // Request files go in their own folder, because a file written next to an Operative
+      // worktree during an attempt is an outside change (ADR 0018).
+      await Bun.$`mkdir -p ${workspace.repo} ${workspace.herdr} ${workspace.github} ${workspace.bin} ${root}/inputs`.quiet();
       await Bun.$`cp ${fakeHerdrPath} ${workspace.bin}/herdr`.quiet();
       await Bun.$`chmod +x ${workspace.bin}/herdr`.quiet();
       // The GitHub fake answers as `gh` on the same path, so tracker commands reach it through

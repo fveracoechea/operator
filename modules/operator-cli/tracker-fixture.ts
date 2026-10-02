@@ -60,7 +60,7 @@ export async function setFault(
 }
 
 export async function writeInput(workspace: Workspace, value: unknown): Promise<string> {
-  const path = `${workspace.root}/tracker-input-${crypto.randomUUID()}.json`;
+  const path = `${workspace.root}/inputs/tracker-input-${crypto.randomUUID()}.json`;
   await Bun.write(path, JSON.stringify(value));
   return path;
 }

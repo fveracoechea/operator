@@ -27,7 +27,7 @@ async function makeWorkspace(): Promise<Workspace> {
 }
 
 async function writeInput(workspace: Workspace, body: unknown): Promise<string> {
-  const path = `${workspace.root}/input-${crypto.randomUUID()}.json`;
+  const path = `${workspace.root}/inputs/input-${crypto.randomUUID()}.json`;
   await Bun.write(path, JSON.stringify(body));
   return path;
 }

@@ -33,6 +33,7 @@ import { dispositionInputSchema } from "./review-input.ts";
 import { disposeFindings, type DisposeOutcome } from "./review-dispose.ts";
 import { recordReview } from "./review-record.ts";
 import { showReview } from "./review-show.ts";
+import { disposeOutside } from "./outside-dispose.ts";
 import { readReview } from "./review.ts";
 import { submitAttemptResult } from "./submit.ts";
 import { recordTrackerStep, recoverTrackerStep } from "./tracker-apply.ts";
@@ -293,6 +294,15 @@ export const CrewState = {
         return commitOn(disposeFindings(tx, { review, input, now }), "disposed");
       },
     );
+  },
+
+  /**
+   * Records what the Operator decided about each outside change of one submission.
+   * Operator never deletes one. A removal passes only when a new scan proves it, and a change
+   * that touches a security permission is kept only under an approval of the user.
+   */
+  async disposeOutside(request: Mutation & { submissionId: string; input: unknown }) {
+    return disposeOutside(request);
   },
 
   /**

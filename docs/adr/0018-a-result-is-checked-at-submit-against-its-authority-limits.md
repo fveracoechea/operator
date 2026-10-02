@@ -43,7 +43,10 @@ Before the agent starts, dispatch records a snapshot of the folder that holds th
 Each difference is an outside change, and it is recorded on the submission.
 Submit does not refuse for it, because the scan cannot name the writer, and the Operative cannot undo a write that the user or another Operative made.
 Acceptance blocks until the Operator disposes each outside change: explained, with a reason and the evidence, or removed, which a new scan proves.
-Operator never deletes an outside change by itself, and one that touches a security permission goes to the user.
+Only a person deletes an outside change, and the CLI only proves the delete with a new scan, because the scan cannot name the writer and the Operator changes nothing itself.
+An outside change that touches a security permission, such as a changed hook or config of the checkout, is kept only under an approval of the user (ADR 0006).
+The scan runs Git with the file system monitor off and with no optional lock, so a planted command in the checkout config never runs before the user decides on it.
+A part of the scan that could not run is recorded as an outside change too, because a check that did not run never reports a pass.
 
 ## Considered options
 
@@ -68,6 +71,9 @@ A recorded pass would then describe files that do not land.
 A refusal at submit for an outside change was rejected, and so was an outside change that blocks nothing.
 The first punishes the Operative for writes it did not make, and the second lets a recorded fact pass by silence, which ADR 0007 refuses.
 
+An Operator delete of an outside change, on evidence or after an approval, was rejected.
+The scan cannot name the writer, and the Operator never makes a change itself.
+
 The producer's own statement as the release of an outside change was rejected, for the reason ADR 0007 rejects the producer's word about its own checks.
 
 An optional behavior change list was rejected, because silence would then mean "none".
@@ -84,6 +90,8 @@ That revision moves at every change of state, so a rework Operative would be ref
 ## Consequences
 
 A file that is written and deleted before submit is not seen.
+A file that was already uncommitted in the checkout and changes again shows the same Git status, so it is not seen either.
+An outside change stays until a person removes or explains it.
 Only a guard at write time catches it, and the host launch settings that could give one are not part of this decision.
 
 The crew frontier reads the effective write paths, because a grant can make two running assignments overlap.

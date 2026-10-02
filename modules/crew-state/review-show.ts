@@ -8,6 +8,7 @@ import {
   storedSubAgents,
 } from "./review-input.ts";
 import { storedChecks, storedCode, storedConcerns, storedDecisions } from "./submission-input.ts";
+import { outsideChangesOfSubmission, outsideRecordOf } from "./outside-changes.ts";
 import { readSubmission } from "./submission.ts";
 import { storedArtifacts } from "./submission-store.ts";
 
@@ -40,6 +41,8 @@ export type ReviewReport = {
     concerns: unknown;
     decisions: unknown;
     code: unknown;
+    // Each change found outside the worktree, which acceptance waits on until it is disposed.
+    outsideChanges: Array<ReturnType<typeof outsideRecordOf>>;
   };
   reports: Array<{
     axis: string;
@@ -125,6 +128,7 @@ export async function showReview(request: {
         concerns: storedConcerns(submission.concerns),
         decisions: storedDecisions(submission.decisions),
         code: submission.code === null ? null : storedCode(submission.code),
+        outsideChanges: outsideChangesOfSubmission(db, submission.id).map(outsideRecordOf),
       },
       reports: reports.map((one) => ({
         axis: one.axis,

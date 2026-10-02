@@ -12,6 +12,7 @@ import { assignments, reviews, submissions } from "./schema.ts";
 import { REVIEW_AXES } from "./review.ts";
 import { closeCycle, openCycleOf } from "./rework.ts";
 import { storedRequirements } from "./work-input.ts";
+import { type outsideChangesOf, recordOutsideChanges } from "./outside-changes.ts";
 import type { SubmissionInput } from "./submission-input.ts";
 import type { StoredArtifact, StoredCopy } from "./submission-store.ts";
 
@@ -49,6 +50,8 @@ export type SubmitOutcome =
       reviewSourceKey: string;
       // The delegated cycle this result answers, when the assignment was in rework.
       reworkCycleId: string | null;
+      // How many outside changes wait for a disposition before acceptance.
+      outsideChanges: number;
     }
   | { status: "review-result-not-submitted"; assignmentId: string }
   | { status: "planning-only"; assignmentId: string; kind: string }
@@ -228,6 +231,8 @@ export function submitResult(
     input: SubmissionInput;
     artifacts: StoredArtifact[];
     spec: StoredCopy;
+    // What the scans around the worktree found. Submit records them and never refuses for them.
+    outside: ReturnType<typeof outsideChangesOf>;
     submissionId: string;
     reviewId: string;
     now: string;
@@ -287,6 +292,7 @@ export function submitResult(
     concerns: input.concerns,
     decisions: input.decisions,
     code: input.code ?? null,
+    outsideChanges: request.outside,
   });
 
   db.insert(submissions)
@@ -313,6 +319,11 @@ export function submitResult(
       updatedAt: request.now,
     })
     .run();
+  recordOutsideChanges(db, {
+    submissionId: request.submissionId,
+    changes: request.outside,
+    now: request.now,
+  });
 
   // A combined revision closes the cycle it answers, and names the fresh Operative that did it.
   const cycle = openCycleOf(db, assignment.id);
@@ -350,5 +361,6 @@ export function submitResult(
     reviewAssignmentId: registered.assignmentId,
     reviewSourceKey: registered.sourceKey,
     reworkCycleId: cycle?.id ?? null,
+    outsideChanges: request.outside.length,
   };
 }

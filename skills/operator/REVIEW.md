@@ -13,7 +13,8 @@ Read this before you review a submitted result or accept an assignment.
    For a source selection, it uses the pinned source invocation in [SKILL.md](SKILL.md).
 5. `bun run operator review show --review <id> --json` gives you both reports and every finding.
 6. `bun run operator review dispose --request <id> --owner-token <token> --review <id> --input <path> --json` records your judgment.
-7. `bun run operator work accept ... --submission <id> --pr-head <sha> --json` records accepted completion.
+7. `bun run operator work dispose --request <id> --owner-token <token> --submission <id> --input <path> --json` records a disposition on each outside change.
+8. `bun run operator work accept ... --submission <id> --pr-head <sha> --json` records accepted completion.
 
 ## A submission is not completion
 
@@ -86,6 +87,35 @@ You may not waive an approved requirement through technical judgment.
 Never edit the result yourself, and never ask the reviewer to repair what it found.
 Read [REWORK.md](REWORK.md) before you delegate a correction, a combined revision, or a diagnostic rerun.
 
+## Outside changes wait for a disposition
+
+Dispatch scans the folder that holds the worktree and the controlling checkout before the Operative starts.
+Submit scans them again, and it records each difference on the submission as an outside change.
+Submit never refuses for one, because the scan cannot name the writer.
+
+`operator review show` lists each outside change with its id, its place, and its path.
+`operator crew next` offers `dispose_outside_changes` after the findings are disposed.
+Give each change one disposition:
+
+```json
+{
+  "dispositions": [
+    { "changeId": "<id>", "disposition": "explained", "reason": "<why>", "evidence": "<what shows it>" },
+    { "changeId": "<id>", "disposition": "removed" }
+  ]
+}
+```
+
+Never delete an outside change yourself, and never ask an Operative to delete it.
+Only the user deletes it.
+`removed` passes only when a new scan finds the entry as it was before the attempt.
+`outside_change_not_removed` means the scan still finds it.
+
+A change in `.git/hooks/` or `.git/config` of the checkout touches a security permission, so the user decides it.
+Its action carries the `approval_required` blocker.
+`outside_change_approval_missing` gives the exact approval to bring to the user: the action `outside-change-keep`, the path, the submission, and the change id.
+A change marked `unscanned` is a scan that could not run, which is never a pass.
+
 ## Acceptance reads recorded evidence
 
 Never accept a result you reviewed yourself.
@@ -105,6 +135,7 @@ Acceptance refuses on:
 - `review_incomplete`: the review reported nothing, or it is blocked.
 - `findings_undisposed`: a finding carries no disposition.
 - `rework_pending`: an accepted correction is still waiting for its delegated cycle.
+- `outside_changes_undisposed`: an outside change carries no disposition.
 - `direction_required`: this assignment reached a limit and waits on the user.
   Read [LIMITS.md](LIMITS.md).
 - `input_invalidated`: this work read a result a defect was later found in.

@@ -78,7 +78,7 @@ A submitted result, a reported review, and an accepted assignment are records, n
 After the adoptions, `bun run operator crew next` reports the rest of the recovery in its order:
 
 - `answer_question` and `deliver_answer` for a question the former session left open,
-- `dispose_findings` and `accept_assignment` for a review that already reported,
+- `dispose_findings`, `dispose_outside_changes`, and `accept_assignment` for a review that already reported,
 - `record_tracker` and `recover_tracker` for the tracker steps of accepted work,
 - `close_process` and `remove_worktree` for the resources an Operative left behind,
 - `direct_limit` for a limit that reached the user and was never answered.

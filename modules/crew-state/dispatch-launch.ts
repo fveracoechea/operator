@@ -18,6 +18,7 @@ import {
   type DispatchStage,
   type OperationRow,
   openOperation,
+  recordOutsideScan,
   recordPlan,
   settleOperation,
 } from "./dispatch.ts";
@@ -325,6 +326,15 @@ export async function dispatchAttempt(request: {
     // repeated dispatch is never mistaken for a replay of the stage it is about to perform.
     const pass = crypto.randomUUID();
     const operationId = existing?.id ?? pass;
+    // The "before" scan of a production attempt is taken after the worktree exists, so the new
+    // checkout is not an outside change, and it is recorded with the intent of the start.
+    const outsideScan =
+      existing === null && stage === "agent_start" && read.context.assignment.kind === "production"
+        ? await OperativeDispatch.scanOutside({
+            projectRoot: request.projectRoot,
+            worktreePath: plan.worktreePath,
+          })
+        : null;
     if (existing === null) {
       const opened = await record(
         {
@@ -343,6 +353,9 @@ export async function dispatchAttempt(request: {
             intent: { stage, plan: plan.promptIdentity },
             now,
           });
+          if (outsideScan !== null) {
+            recordOutsideScan(tx, { attemptId, scan: outsideScan, now });
+          }
           return { commit: true, outcome: { status: "recorded" as const } };
         },
       );

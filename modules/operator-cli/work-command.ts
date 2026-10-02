@@ -1,5 +1,6 @@
 import { CrewState } from "../crew-state/main.ts";
 import { runInvalidate } from "./invalidate-command.ts";
+import { runDispose } from "./outside-command.ts";
 import { runRework } from "./rework-command.ts";
 import { type ParsedArguments, readMutation, readRevision } from "./arguments.ts";
 import {
@@ -499,6 +500,34 @@ async function runAccept(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
+  if (result.status === "outside-changes-undisposed") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "missing-condition",
+        reason: "outside_changes_undisposed",
+        blockers: [
+          {
+            reason: "outside_changes_undisposed",
+            submissionId: result.submissionId,
+            count: result.changeIds.length,
+            security: result.security,
+          },
+        ],
+        operation: "work_accept",
+      },
+      // The Operator reads a summary here, and the review shows each change.
+      lines: [
+        `${result.changeIds.length} outside change(s) of submission ${result.submissionId} carry no disposition.`,
+        ...(result.security === 0
+          ? []
+          : [`${result.security} of them touch a security permission, so the user decides them.`]),
+        "Read them with `operator review show`, then record each one with `operator work dispose`.",
+      ],
+    });
+    return "reported";
+  }
+
   if (result.status === "checks-unproven") {
     report({
       json: parsed.json,
@@ -861,6 +890,9 @@ export async function runWork(words: string[], parsed: ParsedArguments): Promise
   }
   if (subcommand === "invalidate") {
     return runInvalidate(parsed);
+  }
+  if (subcommand === "dispose") {
+    return runDispose(parsed);
   }
   if (subcommand === "frontier") {
     return runFrontier(parsed);

@@ -17,6 +17,7 @@ import {
   RELEASE_PATH,
 } from "./plan.ts";
 import { readSnapshot } from "./snapshot.ts";
+import { scanOutside } from "./scan.ts";
 import {
   agentKindFor,
   type Brief,
@@ -322,6 +323,15 @@ export const OperativeDispatch = {
       baseCommit: request.baseCommit,
       writtenPrefixes: OperativeDispatch.writtenPrefixes({ agentHost: request.agentHost }),
     });
+  },
+
+  /**
+   * Scans the folder that holds one Operative worktree and the controlling checkout, as one
+   * snapshot of ADR 0018. It only reads, and it never names a writer: two scans of one attempt
+   * show what changed outside the worktree, whoever changed it.
+   */
+  async scanOutside(request: { projectRoot: string; worktreePath: string }) {
+    return scanOutside(request);
   },
 
   /**

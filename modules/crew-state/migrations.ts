@@ -62,6 +62,33 @@ export const MIGRATIONS: MigrationStep[] = [
         ),
     apply: () => {},
   },
+  {
+    from: 4,
+    to: 5,
+    summary: "Record the scan around each Operative worktree and each change found outside it.",
+    // An attempt launched before this step has no "before" scan, so its submission records the
+    // scan as not run and acceptance waits for a disposition, as it does for any outside change.
+    apply: (sqlite) => {
+      sqlite.exec("alter table attempt_dispatch add column outside_scan text");
+      sqlite.exec(`create table outside_changes (
+        id text primary key,
+        submission_id text not null references submissions(id),
+        place text not null,
+        path text not null,
+        change text not null,
+        before text,
+        after text,
+        security integer not null,
+        disposition text,
+        reason text,
+        evidence text,
+        approval_id text,
+        disposed_at text,
+        recorded_at text not null,
+        unique (submission_id, place, path)
+      ) strict`);
+    },
+  },
 ];
 
 /** The steps that carry one recorded version up to the version this release reads. */

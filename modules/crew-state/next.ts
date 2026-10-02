@@ -14,6 +14,7 @@ import { liveOperations, readDispatchRow, unsettledOperations } from "./dispatch
 import { directionRecordOf, openDirectionsOf } from "./direction.ts";
 import { calculateFrontier, type Frontier, unmetDependencies } from "./frontier.ts";
 import { openPauses } from "./invalidate.ts";
+import { outsideChangesOfSubmission, undisposedOutside } from "./outside-changes.ts";
 import { currentOwnership } from "./ownership.ts";
 import { blockingQuestions, triggersOf } from "./questions.ts";
 import {
@@ -48,6 +49,7 @@ export const NEXT_ACTIONS = [
   "deliver_answer",
   "dispose_findings",
   "delegate_rework",
+  "dispose_outside_changes",
   "accept_assignment",
   "resolve_planning",
   "record_tracker",
@@ -369,6 +371,23 @@ function readReview(
       detail: `${corrections(findings).length} accepted correction(s) wait for a fresh Operative.`,
       command: "operator work rework",
     });
+    return;
+  }
+
+  const outside = undisposedOutside(outsideChangesOfSubmission(db, review.submissionId));
+  if (outside.length > 0 && openCycleOf(db, request.assignmentId) === null) {
+    const security = outside.filter((one) => one.security === 1).length;
+    const draft: Draft = {
+      ...subject,
+      action: "dispose_outside_changes",
+      detail: `${outside.length} outside change(s) carry no disposition${security > 0 ? `, and ${security} touch a security permission` : ""}. Read them with \`operator review show\`.`,
+      command: "operator work dispose",
+    };
+    // A change to a hook or the checkout config is a security permission, so the user decides.
+    if (security > 0) {
+      draft.blocker = "approval_required";
+    }
+    into.add(draft);
     return;
   }
 

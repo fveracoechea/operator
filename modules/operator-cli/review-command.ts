@@ -496,6 +496,15 @@ async function runShow(parsed: ParsedArguments): Promise<Handled> {
         (one) =>
           `  ${one.findingId} ${one.axis} ${one.severity} ${one.disposition ?? "undisposed"} ${one.summary}`,
       ),
+      ...(result.submission.outsideChanges.length === 0
+        ? []
+        : [
+            `Outside changes of submission ${result.submission.id}:`,
+            ...result.submission.outsideChanges.map(
+              (one) =>
+                `  ${one.changeId} ${one.place} ${one.change}${one.security ? " security" : ""} ${one.disposition ?? "undisposed"} ${one.path}`,
+            ),
+          ]),
     ],
   });
   return "reported";

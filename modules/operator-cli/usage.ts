@@ -29,6 +29,7 @@ export const usage = [
   "  operator work claim --request <id> --owner-token <token> --assignment <id> --revision <n> [--json]",
   "  operator work accept --request <id> --owner-token <token> --assignment <id> --revision <n> [--attempt <id>] [--submission <id>] [--pr-head <sha>] [--json]",
   "  operator work rework --request <id> --owner-token <token> --assignment <id> --revision <n> --input <path|-> [--json]",
+  "  operator work dispose --request <id> --owner-token <token> --submission <id> --input <path|-> [--json]",
   "  operator work invalidate --request <id> --owner-token <token> --assignment <id> --revision <n> --input <path|-> [--json]",
   "  operator work frontier [--json]",
   "  operator work overlaps --source <id> [--json]",

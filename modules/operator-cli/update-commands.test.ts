@@ -45,6 +45,7 @@ function makeStateOutdated(): void {
   const sqlite = new Database(statePath(), { create: false, readwrite: true });
   sqlite.exec("alter table state_meta drop column release_identity");
   sqlite.exec("alter table answers drop column source_kind");
+  dropVersionFive(sqlite);
   sqlite.query("update state_meta set state_version = 1").run();
   sqlite.close();
 }
@@ -70,8 +71,17 @@ function sourceKindOf(answerId: string): string | null {
   return row.source_kind;
 }
 
+/** Removes what version 5 added, so a later migration step can add it again. */
+function dropVersionFive(sqlite: Database): void {
+  sqlite.exec("alter table attempt_dispatch drop column outside_scan");
+  sqlite.exec("drop table outside_changes");
+}
+
 function setStateVersion(version: number): void {
   const sqlite = new Database(statePath(), { create: false, readwrite: true });
+  if (version < 5) {
+    dropVersionFive(sqlite);
+  }
   sqlite.query("update state_meta set state_version = ?").run(version);
   sqlite.close();
 }
@@ -337,9 +347,30 @@ describe("recorded formats", () => {
 
     expect(applied.exitCode).toBe(0);
     expect(applied.json.data.migration.status).toBe("migrated");
-    expect(stateVersion()).toBe(4);
+    expect(stateVersion()).toBe(5);
     expect(recordedRelease()).toBe(applied.json.data.selection.releaseIdentity);
     expect((await runJson(workspace, ["work", "frontier"])).exitCode).toBe(0);
+  });
+
+  test("adds the scan of each attempt and the record of each outside change", async () => {
+    await ownCrew(workspace);
+    setStateVersion(4);
+
+    const { applied } = await apply();
+
+    expect(applied.json.data.migration.steps).toContainEqual(
+      expect.objectContaining({ from: 4, to: 5 }),
+    );
+    const sqlite = new Database(statePath(), { create: false, readonly: true });
+    const columns = sqlite.query("pragma table_info(attempt_dispatch)").all() as Array<{
+      name: string;
+    }>;
+    const table = sqlite
+      .query("select name from sqlite_master where type = 'table' and name = 'outside_changes'")
+      .all();
+    sqlite.close();
+    expect(columns.map((one) => one.name)).toContain("outside_scan");
+    expect(table).toHaveLength(1);
   });
 
   test("marks a requirement that an earlier release recorded as unchecked", async () => {
@@ -518,7 +549,7 @@ describe("recorded formats", () => {
     const { applied } = await apply();
 
     expect(applied.json.data.migration.status).toBe("migrated");
-    expect(stateVersion()).toBe(4);
+    expect(stateVersion()).toBe(5);
     const stored = new Database(statePath(), { create: false, readonly: true });
     const kept = stored.query("select code from submissions where id = ?").get(submissionId) as {
       code: string;

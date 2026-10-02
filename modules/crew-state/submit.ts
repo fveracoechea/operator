@@ -3,6 +3,7 @@ import { readWriterContext, type WriterFailure } from "./dispatch-context.ts";
 import { identityOf } from "./identity.ts";
 import { type InvalidInput, parseInput } from "./input.ts";
 import { mutate, readState } from "./operations.ts";
+import { outsideChangesOf } from "./outside-changes.ts";
 import { refuseResult, type ResultRefusal } from "./result-checks.ts";
 import { submissionInputSchema } from "./submission-input.ts";
 import { submissionOfAttempt, type SubmitOutcome, submitResult } from "./submission.ts";
@@ -66,6 +67,7 @@ export async function submitAttemptResult(request: {
   const dispatch = read.dispatch;
 
   const input = parsed.value;
+  let outside: ReturnType<typeof outsideChangesOf> = [];
   // Only production work submits a result, and the transaction below refuses any other kind.
   if (read.context.assignment.kind === "production") {
     const refusals = refuseResult({
@@ -89,6 +91,18 @@ export async function submitAttemptResult(request: {
         },
       };
     }
+
+    // The "after" scan runs only on a result that passed every check, and it never refuses one,
+    // because the scan cannot name the writer of what it finds (ADR 0018).
+    outside = outsideChangesOf({
+      before: dispatch.outsideScan,
+      after: await OperativeDispatch.scanOutside({
+        projectRoot: request.projectRoot,
+        worktreePath: dispatch.worktreePath,
+      }),
+      worktreePath: dispatch.worktreePath,
+      projectRoot: request.projectRoot,
+    });
   }
 
   const submissionId = identityOf({ attemptId: request.attemptId, input }).slice(0, 32);
@@ -124,6 +138,7 @@ export async function submitAttemptResult(request: {
         input,
         artifacts: stored.artifacts,
         spec,
+        outside,
         submissionId,
         reviewId: crypto.randomUUID(),
         now,

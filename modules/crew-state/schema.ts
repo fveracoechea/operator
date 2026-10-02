@@ -5,7 +5,7 @@ import { integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqli
  * The durable shape of the crew state. A reader that finds a higher version refuses the file,
  * so this number changes only when an older Operator release can no longer read the tables.
  */
-export const STATE_VERSION = 4;
+export const STATE_VERSION = 5;
 
 export const stateMeta = sqliteTable("state_meta", {
   id: integer("id").primaryKey(),
@@ -111,6 +111,8 @@ export const attemptDispatch = sqliteTable("attempt_dispatch", {
   acknowledgedAt: text("acknowledged_at"),
   inspection: text("inspection"),
   inspectionIdentity: text("inspection_identity"),
+  // The "before" scan of ADR 0018, recorded with the agent start intent of a production attempt.
+  outsideScan: text("outside_scan"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
@@ -164,6 +166,35 @@ export const submissions = sqliteTable("submissions", {
   submittedAt: text("submitted_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
+
+/**
+ * One difference that submit found outside an Operative worktree (ADR 0018).
+ * Its writer is not known, so it never refuses the result, and acceptance waits until the
+ * Operator explains it or a new scan proves it removed.
+ */
+export const outsideChanges = sqliteTable(
+  "outside_changes",
+  {
+    id: text("id").primaryKey(),
+    submissionId: text("submission_id")
+      .notNull()
+      .references(() => submissions.id),
+    place: text("place").notNull(),
+    path: text("path").notNull(),
+    change: text("change").notNull(),
+    before: text("before"),
+    after: text("after"),
+    // A change to a hook or the config of the checkout touches a security permission.
+    security: integer("security").notNull(),
+    disposition: text("disposition"),
+    reason: text("reason"),
+    evidence: text("evidence"),
+    approvalId: text("approval_id"),
+    disposedAt: text("disposed_at"),
+    recordedAt: text("recorded_at").notNull(),
+  },
+  (table) => [unique().on(table.submissionId, table.place, table.path)],
+);
 
 /**
  * One separate review of one submission, held by its own review assignment.
@@ -489,6 +520,7 @@ export const crewStateSchema = {
   attemptDispatch,
   externalOperations,
   submissions,
+  outsideChanges,
   reviews,
   reviewReports,
   reviewFindings,
@@ -585,6 +617,7 @@ export const CREATE_STATEMENTS = [
     acknowledged_at text,
     inspection text,
     inspection_identity text,
+    outside_scan text,
     created_at text not null,
     updated_at text not null
   ) strict`,
@@ -620,6 +653,23 @@ export const CREATE_STATEMENTS = [
     submitted_at text not null,
     updated_at text not null,
     unique (attempt_id)
+  ) strict`,
+  sql`create table outside_changes (
+    id text primary key,
+    submission_id text not null references submissions(id),
+    place text not null,
+    path text not null,
+    change text not null,
+    before text,
+    after text,
+    security integer not null,
+    disposition text,
+    reason text,
+    evidence text,
+    approval_id text,
+    disposed_at text,
+    recorded_at text not null,
+    unique (submission_id, place, path)
   ) strict`,
   sql`create table reviews (
     id text primary key,

@@ -604,6 +604,7 @@ The submission fixes these items:
 - Every check, with its outcome.
 - The known concerns and the decisions the Operative made.
 - The code revisions, if there are any.
+- Each outside change: a difference that the scans around the worktree found.
 
 Submit reads the worktree with Git before it records anything, and it refuses a result that breaks its authority limits:
 
@@ -615,6 +616,13 @@ Submit reads the worktree with Git before it records anything, and it refuses a 
 It reports every refusal at once, in that order, and the first one is the reason of the result.
 A refusal records nothing, so the attempt keeps running and its Operative fixes the result.
 A code result names no pull request.
+
+Dispatch records a scan of the folder that holds the worktree and of the controlling checkout before the agent starts.
+After the checks pass, submit scans them again and records each difference as an outside change.
+It never refuses for one.
+`operator work accept` refuses with `outside_changes_undisposed` until `operator work dispose` records each one as `explained` or `removed`.
+Operator never deletes an outside change. The user deletes it, and a new scan proves `removed`.
+A change in `.git/hooks/` or `.git/config` is kept only under an approval of the user.
 See [ADR 0018](docs/adr/0018-a-result-is-checked-at-submit-against-its-authority-limits.md).
 
 The CLI copies each path artifact into a durable store and verifies it, so the reviewer reads a fixed copy and not a worktree that keeps changing.

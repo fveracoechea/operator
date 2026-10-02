@@ -248,6 +248,7 @@ export function recordPlan(
       acknowledgedAt: null,
       inspection: null,
       inspectionIdentity: null,
+      outsideScan: null,
       createdAt: request.now,
       updatedAt: request.now,
     })
@@ -340,6 +341,17 @@ export function recordInspection(
       inspectionIdentity: request.identity,
       updatedAt: request.now,
     })
+    .where(eq(attemptDispatch.attemptId, request.attemptId))
+    .run();
+}
+
+/** Records the "before" scan of one production attempt (ADR 0018). Submit compares it again. */
+export function recordOutsideScan(
+  db: CrewWriter,
+  request: { attemptId: string; scan: unknown; now: string },
+): void {
+  db.update(attemptDispatch)
+    .set({ outsideScan: JSON.stringify(request.scan), updatedAt: request.now })
     .where(eq(attemptDispatch.attemptId, request.attemptId))
     .run();
 }

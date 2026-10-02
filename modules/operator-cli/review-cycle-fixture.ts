@@ -41,7 +41,7 @@ export async function makeReviewWorkspace(
 }
 
 export async function writeInput(workspace: Workspace, value: unknown): Promise<string> {
-  const path = `${workspace.root}/input-${crypto.randomUUID()}.json`;
+  const path = `${workspace.root}/inputs/input-${crypto.randomUUID()}.json`;
   await Bun.write(path, JSON.stringify(value));
   return path;
 }
@@ -52,8 +52,9 @@ export async function startProducer(
   fixedInputs: unknown[] = [
     { name: "brief", kind: "value", value: "the brief", contentIdentity: null },
   ],
-  options: { acknowledge?: boolean } = {},
+  options: { acknowledge?: boolean; env?: Record<string, string> } = {},
 ) {
+  const env = options.env ?? {};
   const owned = await runJson(workspace, [
     "crew",
     "own",
@@ -108,20 +109,25 @@ export async function startProducer(
   const worktreePath = `${workspace.root}/operative`;
   const baseCommit = await headCommit(workspace);
 
-  await runJson(workspace, [
-    "attempt",
-    "dispatch",
-    "--request",
-    request(),
-    "--owner-token",
-    ownerToken,
-    "--attempt",
-    attemptId,
-    "--commit",
-    baseCommit,
-    "--worktree",
-    worktreePath,
-  ]);
+  await runJson(
+    workspace,
+    [
+      "attempt",
+      "dispatch",
+      "--request",
+      request(),
+      "--owner-token",
+      ownerToken,
+      "--attempt",
+      attemptId,
+      "--commit",
+      baseCommit,
+      "--worktree",
+      worktreePath,
+    ],
+    workspace.repo,
+    env,
+  );
   if (options.acknowledge !== false) {
     await runJson(
       workspace,
@@ -217,6 +223,7 @@ export async function submit(
   producer: Producer,
   body: unknown,
   attemptId = producer.attemptId,
+  env: Record<string, string> = {},
 ) {
   return runJson(
     workspace,
@@ -231,6 +238,7 @@ export async function submit(
       await writeInput(workspace, body),
     ],
     producer.worktreePath,
+    env,
   );
 }
 

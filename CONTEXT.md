@@ -45,6 +45,7 @@ _Avoid_: side effect, "no functional change"
 **Outside change**:
 A change found outside an Operative worktree between the launch of one attempt and its submission.
 Its writer is not known, so it is never proof of a fault, and it is explained or removed before the result is accepted.
+Only a person deletes one; the CLI proves the removal with a new scan.
 _Avoid_: stray write, out-of-worktree write, violation
 
 **Accepted completion**:

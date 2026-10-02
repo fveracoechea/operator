@@ -15,6 +15,7 @@ import {
 } from "./review.ts";
 import { type DirectionRecord, directionRecordOf, openDirectionsOf } from "./direction.ts";
 import { openPauses, resolveInvalidations } from "./invalidate.ts";
+import { outsideChangesOfSubmission, undisposedOutside } from "./outside-changes.ts";
 import { blockingQuestionOf } from "./questions.ts";
 import { submissions } from "./schema.ts";
 import { type ReviewBlocker, storedBlocker, storedObservedChecks } from "./review-input.ts";
@@ -55,6 +56,14 @@ export type AcceptResult =
       assignmentId: string;
       reviewId: string;
       checks: Array<{ name: string; axis: string; recorded: string; observed: string }>;
+    }
+  | {
+      status: "outside-changes-undisposed";
+      assignmentId: string;
+      submissionId: string;
+      changeIds: string[];
+      // How many of them touch a security permission, which only the user releases.
+      security: number;
     }
   | { status: "pr-head-required"; assignmentId: string; headCommit: string }
   | { status: "pr-head-changed"; assignmentId: string; recorded: string; stated: string };
@@ -347,6 +356,18 @@ export function acceptAssignment(db: CrewWriter, request: AcceptRequest): Accept
   const blocked = reviewGate(db, { submission, prHead: request.prHead });
   if (blocked !== null) {
     return blocked;
+  }
+
+  // A recorded fact never passes by silence (ADR 0007), so each outside change is answered.
+  const outside = undisposedOutside(outsideChangesOfSubmission(db, submission.id));
+  if (outside.length > 0) {
+    return {
+      status: "outside-changes-undisposed",
+      assignmentId: row.id,
+      submissionId: submission.id,
+      changeIds: outside.map((one) => one.id),
+      security: outside.filter((one) => one.security === 1).length,
+    };
   }
 
   const submitted = readAttempt(db, submission.attemptId);

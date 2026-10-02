@@ -888,11 +888,18 @@ async function runSubmit(parsed: ParsedArguments): Promise<Handled> {
         reviewAssignmentId: result.reviewAssignmentId,
         reviewSourceKey: result.reviewSourceKey,
         reworkCycleId: result.reworkCycleId,
+        outsideChanges: result.outsideChanges,
         repeated,
       },
     },
     lines: [
       `Submitted result ${result.submissionId} for assignment ${result.assignmentId}.`,
+      // The scan cannot name a writer, so this is a record for the Operator, never a refusal.
+      ...(result.outsideChanges === 0
+        ? []
+        : [
+            `The scan found ${result.outsideChanges} change(s) outside this worktree. The Operator disposes them before acceptance.`,
+          ]),
       `Review ${result.reviewId} waits on assignment ${result.reviewAssignmentId}.`,
       ...(result.reworkCycleId === null
         ? []
