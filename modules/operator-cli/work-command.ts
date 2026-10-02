@@ -14,9 +14,16 @@ import { isSourceRefusal, reportSourceRefusal } from "./source-result.ts";
 
 type PlanReport = {
   plan: {
-    source: { id: string; kind: string; revision: string | null; repository: string };
+    source: {
+      id: string;
+      kind: string;
+      revision: string | null;
+      repository: string;
+      change: string;
+    };
     planRevision: string;
-    items: unknown[];
+    approval: { action: string; targets: string[]; scope: string; requestRevision: string } | null;
+    items: Array<{ change: "new" | "updated" | "unchanged" }>;
     skipped: unknown[];
     satisfiedBlockers: unknown[];
     refusals: Array<{ reason: Reason; key: string }>;
@@ -47,6 +54,8 @@ function reportPlan(
   const summary = refusalSummary(plan.refusals);
   const refused = plan.refusals.length > 0;
   const command = `operator work register --request <id> --owner-token <token> --input ${inputPath} --plan-revision ${plan.planRevision}`;
+  const count = (change: string) => plan.items.filter((one) => one.change === change).length;
+  const counts = { new: count("new"), updated: count("updated"), unchanged: count("unchanged") };
   report({
     json: parsed.json,
     result: {
@@ -58,24 +67,35 @@ function reportPlan(
         source: plan.source,
         planRevision: plan.planRevision,
         counts: {
-          items: plan.items.length,
+          ...counts,
           skipped: plan.skipped.length,
           satisfiedBlockers: plan.satisfiedBlockers.length,
           refusals: plan.refusals.length,
         },
         planPath,
+        approval: plan.approval,
         command: refused ? null : command,
       },
     },
     lines: [
       `Plan ${plan.planRevision} for ${plan.source.id}:`,
-      `  ${plan.items.length} new item(s), ${plan.satisfiedBlockers.length} satisfied blocker(s), ${plan.skipped.length} closed sub-issue(s) not registered.`,
+      `  ${counts.new} new, ${counts.updated} updated, ${counts.unchanged} unchanged item(s), ${plan.satisfiedBlockers.length} satisfied blocker(s), ${plan.skipped.length} closed sub-issue(s) not registered.`,
+      ...(plan.source.change === "changed"
+        ? ["  The parent issue changed, so this plan records a new source revision."]
+        : []),
       ...(refused
         ? [
             `  ${plan.refusals.length} refusal(s): ${summary.map((one) => `${one.reason} x${one.count}`).join(", ")}.`,
             "Nothing can be registered until each refusal is settled.",
           ]
-        : [`Register it with: ${command}`]),
+        : [
+            ...(plan.approval === null
+              ? []
+              : [
+                  "Ask the person to approve this plan revision first. Only their approval of this exact revision records a changed source or item.",
+                ]),
+            `Register it with: ${command}`,
+          ]),
       `Every item, blocker, and refusal: ${planPath}`,
     ],
   });
@@ -184,6 +204,23 @@ async function runRegister(parsed: ParsedArguments): Promise<Handled> {
     });
   }
 
+  if (result.status === "approval-required") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "missing-condition",
+        reason: "approval_required",
+        blockers: [{ reason: "approval_required", approval: result.approval }],
+        operation: "work_register",
+      },
+      lines: [
+        `Plan ${result.approval.requestRevision} records a changed source or item, so nothing was registered.`,
+        "Ask the person to approve this exact plan revision, then register it again.",
+      ],
+    });
+    return "reported";
+  }
+
   if (result.status === "refused") {
     return reportPlan(
       parsed,
@@ -203,16 +240,17 @@ async function runRegister(parsed: ParsedArguments): Promise<Handled> {
       data: {
         source: result.source,
         planRevision: result.planRevision,
-        counts: { registered: result.registered.length },
+        counts: { registered: result.registered.length, updated: result.updated.length },
         registered: result.registered,
+        updated: result.updated,
         overlaps: result.overlaps,
         repeated,
         frontier: "operator work frontier",
       },
     },
     lines: [
-      `Registered ${result.registered.length} assignment(s) from ${result.source.id}.`,
-      ...result.registered.map(
+      `Registered ${result.registered.length} new and ${result.updated.length} updated assignment(s) from ${result.source.id}.`,
+      ...[...result.registered, ...result.updated].map(
         (one) =>
           `  ${one.assignmentId} ${one.kind}${one.executable ? "" : " (planning only)"} ${one.title}`,
       ),

@@ -150,6 +150,7 @@ It is finished when every integrated pull request of its last stack publication 
 The preview of what one registration would record, read from the tracker together with the Operator's input.
 It carries a revision, and the registration refuses when a fresh read gives a different one, so an approval covers exactly what gets recorded.
 Its full text is a local file named by that revision, and a command that reports it gives only a summary and the path.
+On a new read of a registered source, it names each item as new, updated, or unchanged, and it records a new source revision or an updated item only under the person's approval of its revision.
 
 **Integration branch**:
 The one branch that collects the accepted commits of one work source, in the order they land.

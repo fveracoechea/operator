@@ -122,7 +122,9 @@ describe("operator work register", () => {
     expect(plan.exitCode).toBe(0);
     expect(plan.json.reason).toBe("registration_planned");
     expect(plan.json.data.counts).toEqual({
-      items: 4,
+      new: 4,
+      updated: 0,
+      unchanged: 0,
       skipped: 0,
       satisfiedBlockers: 0,
       refusals: 0,
@@ -319,6 +321,7 @@ describe("operator work register", () => {
 
     // The Operator reads this report, so it lists no item and points to the plan file.
     expect(Object.keys(plan.json.data).toSorted()).toEqual([
+      "approval",
       "command",
       "counts",
       "planPath",
@@ -363,7 +366,7 @@ describe("operator work register", () => {
     ]);
 
     // The Operator reads this report, so it gives counts and points to the frontier.
-    expect(registered.json.data.counts).toEqual({ registered: 2 });
+    expect(registered.json.data.counts).toEqual({ registered: 2, updated: 0 });
     expect(registered.json.data.frontier).toBe("operator work frontier");
     expect(readable.stdout).toContain("List each assignment with: operator work frontier");
   });
@@ -619,7 +622,9 @@ describe("work register refusals", () => {
 
     const plan = await planSource(target, inputPath);
     expect(plan.json.data.counts).toEqual({
-      items: 1,
+      new: 1,
+      updated: 0,
+      unchanged: 0,
       skipped: 1,
       satisfiedBlockers: 2,
       refusals: 0,
@@ -769,7 +774,7 @@ describe("work register refusals", () => {
     ]);
   });
 
-  test("refuses a source that is already registered", async () => {
+  test("refuses a source whose key is registered from another parent issue", async () => {
     const { workspace, token, target } = await owned();
     const source: FixtureSource = {
       sourceKind: "specification",
@@ -777,8 +782,16 @@ describe("work register refusals", () => {
       items: [{ key: "a" }],
     };
     expect((await registerSource(target, token, source)).exitCode).toBe(0);
+    // A new read matches a registered source by the database id of its parent issue.
+    const state = await readFake(workspace.github);
+    state.issues["93"] = { ...fakeIssue({ number: 93 }), id: 1 };
+    await writeFake(workspace.github, state);
 
-    const { plan } = await preview(target, source);
+    const numbers = new Map([["a", 9301]]);
+    const plan = await planSource(
+      target,
+      await writeInput(target.root, sourceInput(source, numbers)),
+    );
 
     expect(await refusalsOf(workspace, plan)).toEqual([
       { reason: "source_already_registered", key: key(93) },

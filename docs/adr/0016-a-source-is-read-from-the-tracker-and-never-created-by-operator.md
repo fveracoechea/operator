@@ -56,6 +56,10 @@ A changed parent body is a new source revision, and a changed item that has no a
 Both need an approval bound to the registration plan revision.
 Each recorded assignment keeps the source revision it was registered under, so work that already started is not changed.
 A changed item that has an attempt or is accepted is refused, because its writer read the old text, and the change goes in a new sub-issue.
+A changed item is a changed title or body, kind, blocking link, or input entry, or an item that moved to another repository than its source.
+A renamed repository moves the source and its items together, so it is not a change, and a recorded item keeps its key.
+A closed blocker keeps a dependency that its item already recorded, because work that Operator completes and closes is not a change of the blocking links.
+A new position of a recorded item needs no approval, because the order only breaks ties in the frontier.
 A recorded item that the read no longer finds is a withdrawal, because the person who removed its issue from the parent changed the structure that the tracker owns.
 A withdrawal is recorded only behind the approval bound to the registration plan revision, like every other change that a new read finds.
 A recorded item that the read finds closed, while it is not in accepted completion, is refused, and the person removes it from the parent to withdraw it.

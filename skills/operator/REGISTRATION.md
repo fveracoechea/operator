@@ -18,7 +18,7 @@ bun run operator work register --request <id> --owner-token <token> --input work
 The input is a JSON file, or `-` to read standard input.
 
 `--plan` reads the tracker and changes nothing.
-It reports a summary: the counts of items, satisfied blockers, closed sub-issues, and refusals, the `planRevision`, and the `planPath`.
+It reports a summary: the counts of new, updated, and unchanged items, satisfied blockers, closed sub-issues, and refusals, the `planRevision`, and the `planPath`.
 The full plan is the file at `planPath`: every item in item order, every satisfied blocker, and every refusal in item order and then by blocker key.
 Do not read the whole file yourself.
 Give the path to the crew or the person who settles the refusals.
@@ -117,10 +117,44 @@ The CLI also refuses:
 - `source_without_items`: a specification or wayfinder parent with no open sub-issue. Ask the person to link them.
 - `tracker_read_incomplete`: a read that did not cover every sub-issue or every blocker set. An incomplete read is a gap, not a proof that nothing is there.
 - `source_not_found`: a source issue that GitHub does not hold.
-- `source_already_registered` and `issue_already_registered`: a source or an issue that the crew state already holds. A new read of a registered source is not built yet.
+- `source_already_registered`: a source key that the crew state holds for another parent issue.
+- `issue_already_registered`: an issue that another source already holds.
 - `source_recorded_without_parent`: a source that an earlier release registered from a hand-written structure. Finish its work, or register its parent issue as a new source.
 
 Every refusal is a decision for the person or the crew, never a reason to change the issues yourself.
+
+## A new read of a registered source
+
+After the first registration, a person can add sub-issues or change an issue.
+Only a new `work register` of the same source reads the tracker again, with the same preview and registration commands.
+`crew next` never reads the tracker.
+
+The new read matches each recorded item by its issue database id, so a renamed repository does not make a second item, and the source keeps its id.
+The preview names each item as `new`, `updated`, or `unchanged` in the plan file, and the report gives the three counts.
+Name only the new items and the changed items in the input.
+An entry that repeats the recorded fields of an item changes nothing.
+
+- A new open sub-issue is added at its stored position, with no approval.
+- A changed parent title or body is a new source revision. Each recorded assignment keeps the revision it was registered under, and the new and updated items take the new one.
+- A changed item that has no attempt and is not accepted takes its new content: its text, its kind, its blocking links, or its input entry. Its dependencies are checked for a cycle again, and `dependency_cycle` refuses a new cycle. Its input entry is required, so `input_issue_missing` names a changed item that the input leaves out.
+- `recorded_item_changed` names a changed item that has an attempt or is accepted. The writer read the old text, so the person puts the change in a new sub-issue.
+- `recorded_item_closed` names a recorded item that the read finds closed while it is not accepted. Its hint tells the person to remove it from its parent to withdraw it, or to reopen it.
+- `recorded_item_missing` names a recorded item that the read does not find. Withdrawal of a registered assignment is not built yet.
+- `source_kind_changed` refuses an input that states another source kind than the one recorded.
+
+A new source revision or an updated item needs the person's approval of this exact plan revision.
+The preview then reports `approval`: the exact `registration-change` approval, which names the source and the plan revision.
+Tell the person the counts and the `planPath`, and give the file to the crew or the person who checks the changes.
+Do not decide the change yourself, because a change of approved scope is the person's decision.
+When the person approves, record their exact words as that approval, and then register the plan revision:
+
+```sh
+bun run operator approval grant --request <id> --owner-token <token> --input approval.json --json
+```
+
+The input is the reported `approval` with `exactText`, the words of the person, and `"grantedBy": "human"`.
+A registration with no approval of that plan revision is refused as `approval_required`, and nothing is recorded.
+A new preview gives a new revision, so an approval of an earlier revision covers nothing.
 
 ## Write paths
 
