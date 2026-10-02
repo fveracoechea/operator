@@ -175,6 +175,17 @@ describe("the brief states each refusal beside its command", () => {
           breaks: () =>
             submit(workspace, producer, { ...body, requirementsIdentity: "0".repeat(64) }),
         },
+        {
+          refusal: "behavior_change_basis_missing",
+          rule: 'Each entry of `behaviorChanges` names its basis: `{ "kind": "approved-scope" }`, `{ "kind": "requirement", "position": <n> }` for acceptance requirement n above, or `{ "kind": "question", "questionId": "<id>" }` for a question of this assignment whose answer is a requirement or a human answer. An Operator decision is never a basis. `[]` states that there is no behavior change.',
+          breaks: () =>
+            submit(workspace, producer, {
+              ...body,
+              behaviorChanges: [
+                { statement: "The gate changes.", basis: { kind: "requirement", position: 2 } },
+              ],
+            }),
+        },
       ],
       "review report": [],
     });

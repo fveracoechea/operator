@@ -1,5 +1,5 @@
 import type { OperativeDispatch } from "../operative-dispatch/main.ts";
-import type { SubmissionInput } from "./submission-input.ts";
+import type { BehaviorChangeBasis, SubmissionInput } from "./submission-input.ts";
 import { outsideWritePaths } from "./write-paths.ts";
 
 export type CheckoutInspection = Awaited<ReturnType<typeof OperativeDispatch.inspectCheckout>>;
@@ -12,6 +12,32 @@ export const ONE_COMMIT_RULE = {
   refusal: "result_not_one_commit",
   rule: "A code result is exactly one commit, its parent is the base commit in the Identity section, and `code.baseCommit` and `code.resultCommit` name those two commits.",
 } as const;
+
+/**
+ * The basis rule of ADR 0018, as the brief states it beside the submit command.
+ * The check below owns this line and its refusal name, so the brief and the refusal cannot drift.
+ */
+export const BEHAVIOR_CHANGE_RULE = {
+  refusal: "behavior_change_basis_missing",
+  rule: 'Each entry of `behaviorChanges` names its basis: `{ "kind": "approved-scope" }`, `{ "kind": "requirement", "position": <n> }` for acceptance requirement n above, or `{ "kind": "question", "questionId": "<id>" }` for a question of this assignment whose answer is a requirement or a human answer. An Operator decision is never a basis. `[]` states that there is no behavior change.',
+} as const;
+
+/**
+ * What the crew state holds that a basis can name: the count of acceptance requirements, and
+ * for each question of the assignment the authority of its applicable answer, or null.
+ */
+export type RecordedBases = {
+  requirementCount: number;
+  questions: Map<string, string | null>;
+};
+
+export type BasisGap = {
+  // The place of the entry in `behaviorChanges`, counted from 1.
+  position: number;
+  statement: string;
+  basis: BehaviorChangeBasis;
+  detail: string;
+};
 
 export type ResultCheck = "commit-shape" | "working-tree" | "write-paths";
 
@@ -27,20 +53,47 @@ export type ResultRefusal =
     }
   | { reason: "uncommitted_work"; paths: string[] }
   | { reason: "outside_write_paths"; paths: string[]; writePaths: string[] }
-  | { reason: "result_check_not_run"; check: ResultCheck; detail: string };
+  | { reason: "result_check_not_run"; check: ResultCheck; detail: string }
+  | { reason: typeof BEHAVIOR_CHANGE_RULE.refusal; entries: BasisGap[] };
+
+function basisGap(basis: BehaviorChangeBasis, bases: RecordedBases): string | null {
+  switch (basis.kind) {
+    case "approved-scope":
+      return null;
+    case "requirement":
+      return basis.position <= bases.requirementCount
+        ? null
+        : `This assignment holds ${bases.requirementCount} acceptance requirement(s).`;
+    case "question": {
+      if (!bases.questions.has(basis.questionId)) {
+        return "No question of this assignment has this id.";
+      }
+      const authority = bases.questions.get(basis.questionId) ?? null;
+      if (authority === null) {
+        return "This question has no answer that applies to it.";
+      }
+      return authority === "requirement" || authority === "human-answer"
+        ? null
+        : "The answer of this question is an Operator decision, which is never a basis.";
+    }
+  }
+}
 
 /**
  * Applies the authority limits of ADR 0018 to one inspection of the Operative checkout.
- * Every refusal is reported at once, in a fixed order: the commit shape, the working tree, and
- * the write paths. A check that could not run says so and never reports a pass.
+ * Every refusal is reported at once, in a fixed order: the commit shape, the working tree, the
+ * write paths, and the behavior change basis. A check that could not run says so and never
+ * reports a pass. Operator checks only that a basis exists, and the review checks that it covers
+ * the change.
  */
 export function refuseResult(request: {
   inspection: CheckoutInspection;
   input: SubmissionInput;
   baseCommit: string;
   writePaths: string[];
+  bases: RecordedBases;
 }): ResultRefusal[] {
-  const { inspection, input, baseCommit, writePaths } = request;
+  const { inspection, input, baseCommit, writePaths, bases } = request;
   const refusals: ResultRefusal[] = [];
 
   // A result with code revisions is one commit. Without them, nothing names a result commit,
@@ -117,6 +170,16 @@ export function refuseResult(request: {
     if (paths.length > 0) {
       refusals.push({ reason: "outside_write_paths", paths, writePaths });
     }
+  }
+
+  const entries = input.behaviorChanges.flatMap((entry, index) => {
+    const detail = basisGap(entry.basis, bases);
+    return detail === null
+      ? []
+      : [{ position: index + 1, statement: entry.statement, basis: entry.basis, detail }];
+  });
+  if (entries.length > 0) {
+    refusals.push({ reason: BEHAVIOR_CHANGE_RULE.refusal, entries });
   }
 
   return refusals;

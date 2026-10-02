@@ -603,6 +603,7 @@ The submission fixes these items:
 - Every artifact, with its content identity.
 - Every check, with its outcome.
 - The known concerns and the decisions the Operative made.
+- The behavior changes, each with its basis. `[]` states that there is none.
 - The code revisions, if there are any.
 - Each outside change: a difference that the scans around the worktree found.
 
@@ -612,6 +613,7 @@ Submit reads the worktree with Git before it records anything, and it refuses a 
 - `uncommitted_work`: a file that is not committed, outside the files Operator wrote. A path artifact of a non-code result inside the write paths is the one exception.
 - `outside_write_paths`: a commit since the base adds, changes, or deletes a file outside the write paths. A rename touches both paths.
 - `result_check_not_run`: a check that could not run, which is never a pass.
+- `behavior_change_basis_missing`: a behavior change names a basis that does not exist. A basis is the approved scope, one acceptance requirement by its position, or one answered question of the assignment whose answer is a requirement or a human answer. An Operator decision is never a basis.
 
 It reports every refusal at once, in that order, and the first one is the reason of the result.
 A refusal records nothing, so the attempt keeps running and its Operative fixes the result.
@@ -643,8 +645,9 @@ bun run operator review show --review <id> --json
 ```
 
 A complete report names the submission identity it read, carries both axes exactly once, records a window for each sub-agent, and states what each axis checked.
-A code result requires the diff, the requirements, and the checks.
-A non-code result requires the artifacts, the requirements, the citations, and the provenance of each recorded answer.
+A code result requires the diff, the requirements, the checks, and the behavior changes.
+A non-code result requires the artifacts, the requirements, the citations, the provenance of each recorded answer, and the behavior changes.
+Each axis states `behavior-changes` in `checked` to show that it read the list, and a missing or wrong entry is a blocker finding.
 The CLI refuses two axes that ran one after the other, and a sub-agent that ran outside the reviewer host.
 A host that cannot run the axes records a blocker, not a partial review.
 A blocked review is a stopped review.

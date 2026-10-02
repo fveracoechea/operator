@@ -291,6 +291,7 @@ export function submitResult(
     checks: input.checks,
     concerns: input.concerns,
     decisions: input.decisions,
+    behaviorChanges: input.behaviorChanges,
     code: input.code ?? null,
     outsideChanges: request.outside,
   });
@@ -309,6 +310,7 @@ export function submitResult(
       checks: JSON.stringify(input.checks),
       concerns: JSON.stringify(input.concerns),
       decisions: JSON.stringify(input.decisions),
+      behaviorChanges: JSON.stringify(input.behaviorChanges),
       code: input.code === null ? null : JSON.stringify(input.code),
       // A code review starts from the exact commit the result lives on, never a moving branch.
       reviewBase: input.code?.resultCommit ?? null,

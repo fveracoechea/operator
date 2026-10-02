@@ -175,6 +175,7 @@ export type SubmissionOverrides = {
   artifactPath?: string;
   checks?: Array<{ name: string; command: string; outcome: string; detail: string }>;
   code?: unknown;
+  behaviorChanges?: unknown[];
 };
 
 /** A result body that states the dispatch base of its producer, as a real Operative does. */
@@ -214,6 +215,7 @@ export function submissionBody(
         reason: "A moving branch is not fixed evidence.",
       },
     ],
+    behaviorChanges: overrides.behaviorChanges ?? [],
     ...(overrides.code === undefined ? { code } : { code: overrides.code }),
   };
 }
@@ -322,7 +324,7 @@ export function reportBody(options: {
   failedAxis?: string;
   observedChecks?: Array<{ name: string; outcome: string }>;
 }) {
-  const checked = options.checked ?? ["diff", "requirements", "checks"];
+  const checked = options.checked ?? ["diff", "requirements", "checks", "behavior-changes"];
   const axes = ["standards", "spec"] as const;
 
   return {

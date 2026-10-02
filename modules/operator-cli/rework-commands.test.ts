@@ -194,7 +194,7 @@ describe("operator work rework", () => {
     expect(brief).not.toContain("The summary could name the module.");
     expect(brief).toContain("The acceptance requirements above still stand.");
     // The original requirements reach the rework unchanged.
-    expect(brief).toContain("- The quality gate passes.");
+    expect(brief).toContain("1. The quality gate passes.");
 
     const copied = await Bun.file(
       `${reworked.worktreePath}/.operator/local/rework/0-result.md`,

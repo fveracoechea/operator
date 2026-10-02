@@ -663,6 +663,10 @@ function refusalLine(refusal: ResultRefusal): string {
       return `  outside_write_paths: ${refusal.paths.join(", ")}. Only a person grants more write paths, so undo these changes or raise a question that names each path.`;
     case "result_check_not_run":
       return `  result_check_not_run: the ${refusal.check} check did not run. ${refusal.detail}`;
+    case "behavior_change_basis_missing":
+      return `  behavior_change_basis_missing: ${refusal.entries
+        .map((one) => `entry ${one.position} (${one.detail})`)
+        .join(", ")}`;
   }
 }
 

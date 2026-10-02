@@ -35,6 +35,14 @@ Start from what the reviewer found, not from your own reading of the original sc
 Build one result file from the values the brief names.
 For code, state the base, result, and merge-base commits, the branch, and the checks you ran.
 For non-code work, state the artifacts and the evidence a reviewer can follow.
+
+List every behavior change, for code and non-code work.
+A behavior change is a difference, compared with the base, in what changed code does for some input: an output, an error, a record that is dropped or skipped, or a boundary value that falls in another class.
+A change to a comment, a private name, or a test is not one.
+Compare each changed function with its base version, and list each difference you find, not only the differences a user can see.
+Give each one the basis that permits it, as the brief describes beside the submit command.
+When nothing permits a change, ask a question before you make it.
+State `[]` only when you compared the change and found no behavior change.
 When the submit command refuses, find the refusal name beside that command in the brief, correct what it names, and submit again.
 Your handoff is complete when the CLI records `result_submitted`.
 The Operator decides accepted completion after review.

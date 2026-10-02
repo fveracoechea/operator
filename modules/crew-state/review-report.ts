@@ -3,7 +3,12 @@ import { identityOf } from "./identity.ts";
 import type { AxisReport, ReviewReportInput, SubAgentRecord } from "./review-input.ts";
 import { findingId, REVIEW_AXES, type ReviewRow, updateReview } from "./review.ts";
 import { reviewFindings, reviewReports } from "./schema.ts";
-import { type ResultKind, requiredCoverage, storedResultKind } from "./submission-input.ts";
+import {
+  type ResultKind,
+  requiredCoverage,
+  storedBehaviorChanges,
+  storedResultKind,
+} from "./submission-input.ts";
 import type { SubmissionRow } from "./submission.ts";
 
 export type ReportedFinding = {
@@ -69,8 +74,9 @@ function ranInParallel(subAgents: SubAgentRecord[]): boolean {
 function coverageGaps(
   reports: AxisReport[],
   resultKind: ResultKind,
+  listed: boolean,
 ): Array<{ axis: string; missing: string[] }> {
-  const required = requiredCoverage(resultKind);
+  const required = requiredCoverage(resultKind, listed);
   return reports.flatMap((report) => {
     const missing = required.filter((token) => !report.checked.includes(token));
     return missing.length === 0 ? [] : [{ axis: report.axis, missing }];
@@ -210,7 +216,11 @@ export function recordReviewReport(
     };
   }
 
-  const gaps = coverageGaps(input.reports, storedResultKind(submission.resultKind));
+  const gaps = coverageGaps(
+    input.reports,
+    storedResultKind(submission.resultKind),
+    storedBehaviorChanges(submission.behaviorChanges) !== null,
+  );
   if (gaps.length > 0) {
     return { status: "coverage-incomplete", reviewId: review.id, gaps };
   }

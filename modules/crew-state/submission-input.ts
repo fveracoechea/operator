@@ -35,6 +35,22 @@ const decision = z.strictObject({
   reason: z.string().min(1),
 });
 
+/**
+ * What permits one behavior change (ADR 0018). An Operator decision is never a basis, because
+ * ADR 0006 puts visible behavior outside delegated authority, so it has no kind here.
+ */
+const behaviorChangeBasis = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("approved-scope") }),
+  // An acceptance requirement is named by its position in the brief, counted from 1.
+  z.strictObject({ kind: z.literal("requirement"), position: z.int().positive() }),
+  z.strictObject({ kind: z.literal("question"), questionId: z.string().min(1) }),
+]);
+
+const behaviorChange = z.strictObject({
+  statement: z.string().min(1),
+  basis: behaviorChangeBasis,
+});
+
 // A code result is one commit on its dispatch base, so it names no pull request (ADR 0015).
 export const codeRevisionsSchema = z.strictObject({
   baseCommit: z.string().min(1),
@@ -54,6 +70,8 @@ const fixedFields = {
   artifacts: z.array(artifact).min(1),
   concerns: z.array(z.string().min(1)),
   decisions: z.array(decision),
+  // Required for every result kind, because silence would then mean "none". `[]` is "none".
+  behaviorChanges: z.array(behaviorChange),
 };
 
 export const submissionInputSchema = z.discriminatedUnion("resultKind", [
@@ -78,16 +96,24 @@ export type SubmittedArtifact = SubmissionInput["artifacts"][number];
 export type SubmittedCheck = z.infer<typeof submittedCheckSchema>;
 export type SubmittedCode = z.infer<typeof codeRevisionsSchema>;
 export type SubmittedDecision = z.infer<typeof decision>;
+export type BehaviorChange = z.infer<typeof behaviorChange>;
+export type BehaviorChangeBasis = z.infer<typeof behaviorChangeBasis>;
 
 export const resultKindSchema = z.enum(["code", "non-code"]);
 
 export type ResultKind = z.infer<typeof resultKindSchema>;
 
-/** The tokens each axis report must state for this result kind, so coverage is checkable. */
-export function requiredCoverage(resultKind: ResultKind): string[] {
-  return resultKind === "code"
-    ? ["diff", "requirements", "checks"]
-    : ["artifacts", "requirements", "citations", "provenance"];
+/**
+ * The tokens each axis report must state for this result kind, so coverage is checkable.
+ * A submission recorded before the behavior change list existed has no list to read, so its
+ * review does not require that token.
+ */
+export function requiredCoverage(resultKind: ResultKind, listed = true): string[] {
+  const kind =
+    resultKind === "code"
+      ? ["diff", "requirements", "checks"]
+      : ["artifacts", "requirements", "citations", "provenance"];
+  return listed ? [...kind, "behavior-changes"] : kind;
 }
 
 // A submission row stores these columns, and every reader takes them back through the schema
@@ -115,4 +141,11 @@ export function storedConcerns(stored: string): string[] {
 
 export function storedDecisions(stored: string): SubmittedDecision[] {
   return readStored("decision list", z.array(decision), stored);
+}
+
+// A submission recorded before the list existed holds no list, which is not the same as "none".
+export function storedBehaviorChanges(stored: string | null): BehaviorChange[] | null {
+  return stored === null
+    ? null
+    : readStored("behavior change list", z.array(behaviorChange), stored);
 }

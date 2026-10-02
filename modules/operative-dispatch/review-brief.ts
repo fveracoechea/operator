@@ -54,6 +54,14 @@ export type ReviewBrief = {
     authority: "requirement" | "human-answer" | "operator-decision";
     reason: string;
   }>;
+  // Each behavior change with its basis. A submission recorded before the list existed holds null.
+  behaviorChanges: Array<{
+    statement: string;
+    basis:
+      | { kind: "approved-scope" }
+      | { kind: "requirement"; position: number }
+      | { kind: "question"; questionId: string };
+  }> | null;
   artifacts: FixedArtifact[];
   // The fixed copy of the producer's scope, requirements, and inputs, taken at submission.
   // A review registered before that copy existed carries none.
@@ -72,6 +80,33 @@ export const REVIEW_SPEC_PATH = `${REVIEW_INPUT_DIR}/spec.md`;
 
 export function reviewInputPath(artifact: FixedArtifact): string | null {
   return copiedInputPath(REVIEW_INPUT_DIR, artifact);
+}
+
+/** What a behavior change is, in the words of `CONTEXT.md`. */
+export const BEHAVIOR_CHANGE_LINES = [
+  "A behavior change is a difference, compared with the base, in what changed code does for some",
+  "input: an output, an error, a record that is dropped or skipped, or a boundary value that falls",
+  "in another class. A change to a comment, a private name, or a test is not one.",
+];
+
+function basisText(basis: NonNullable<ReviewBrief["behaviorChanges"]>[number]["basis"]): string {
+  switch (basis.kind) {
+    case "approved-scope":
+      return "the approved scope";
+    case "requirement":
+      return `acceptance requirement ${basis.position}`;
+    case "question":
+      return `question ${basis.questionId}`;
+  }
+}
+
+function behaviorChangeLines(review: ReviewBrief): string[] {
+  if (review.behaviorChanges === null) {
+    return ["This submission was recorded before the behavior change list existed."];
+  }
+  return review.behaviorChanges.length === 0
+    ? ["The producer states that this result has no behavior change."]
+    : review.behaviorChanges.map((one) => `- ${one.statement} (basis: ${basisText(one.basis)})`);
 }
 
 /** The fixed result the two axes read. Every line here is pinned at submission. */
@@ -122,6 +157,10 @@ export function submittedResultSection(review: ReviewBrief): string[] {
     ...(review.decisions.length === 0
       ? ["None recorded."]
       : review.decisions.map((one) => `- ${one.statement} (${one.authority}): ${one.reason}`)),
+    "",
+    "### Behavior changes",
+    "",
+    ...behaviorChangeLines(review),
     "",
     ...priorRoundsSection(review),
   ];
@@ -271,6 +310,16 @@ export function reviewProtocolSection(
     "```",
     "",
     `This result kind requires ${review.requiredCoverage.join(", ")} in \`checked\`.`,
+    ...(review.behaviorChanges === null
+      ? []
+      : [
+          "",
+          ...BEHAVIOR_CHANGE_LINES,
+          "Both axes read the behavior changes above against the diff and the spec, and state",
+          "`behavior-changes` in `checked`. A behavior change that the list leaves out, or an entry",
+          "whose basis does not permit it, is a blocker finding. An empty list states that there is",
+          "none, so check that statement too.",
+        ]),
     ...(review.priorRounds.length === 0
       ? []
       : [

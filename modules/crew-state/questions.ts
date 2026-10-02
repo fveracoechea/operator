@@ -154,6 +154,24 @@ export function answersOf(db: CrewReader, questionId: string): AnswerRow[] {
 }
 
 /**
+ * Every question of one assignment, from every attempt, with the authority of the answer that
+ * applies to it now, or null when none applies. A behavior change names its basis from these.
+ */
+export function answerAuthoritiesOf(
+  db: CrewReader,
+  assignmentId: string,
+): Map<string, string | null> {
+  const rows = db.select().from(questions).where(eq(questions.assignmentId, assignmentId)).all();
+  return new Map(
+    rows.map((row) => {
+      const answer = row.answerId === null ? null : readAnswer(db, row.answerId);
+      const applies = answer !== null && answerRecordOf(answer, row).applicable;
+      return [row.id, applies ? answer.authority : null];
+    }),
+  );
+}
+
+/**
  * The states in which a question still holds its Operative.
  * An acknowledged answer resolves it, and the end of an attempt withdraws it.
  */

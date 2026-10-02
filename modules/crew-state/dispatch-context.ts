@@ -2,6 +2,7 @@ import { OperativeDispatch } from "../operative-dispatch/main.ts";
 import { ProjectReadiness } from "../project-readiness/main.ts";
 import {
   requiredCoverage,
+  storedBehaviorChanges,
   storedChecks,
   storedCode,
   storedConcerns,
@@ -29,7 +30,7 @@ import {
 import { readState, type RequestFailure, type StateFailure } from "./operations.ts";
 import { requireOwnership } from "./ownership.ts";
 import { identityOf } from "./identity.ts";
-import { ONE_COMMIT_RULE } from "./result-checks.ts";
+import { BEHAVIOR_CHANGE_RULE, ONE_COMMIT_RULE } from "./result-checks.ts";
 
 export type Overrides = Parameters<typeof ProjectReadiness.snapshot>[0]["overrides"];
 
@@ -89,6 +90,7 @@ function reviewBriefOf(
 ): ReviewBrief {
   const { review, submission } = context;
   const resultKind = storedResultKind(submission.resultKind);
+  const behaviorChanges = storedBehaviorChanges(submission.behaviorChanges);
   const code = submission.code === null ? null : storedCode(submission.code);
   const specPath = specPathOf(submission.id);
   const spec = request.fixedInputs.find((one) => one.kind === "path" && one.value === specPath);
@@ -99,7 +101,7 @@ function reviewBriefOf(
     submissionIdentity: submission.identity,
     resultKind,
     axes: [...REVIEW_AXES],
-    requiredCoverage: requiredCoverage(resultKind),
+    requiredCoverage: requiredCoverage(resultKind, behaviorChanges !== null),
     producerAssignmentId: submission.assignmentId,
     producerTitle: request.producerTitle,
     assignmentRevision: submission.assignmentRevision,
@@ -110,6 +112,7 @@ function reviewBriefOf(
     checks: storedChecks(submission.checks),
     concerns: storedConcerns(submission.concerns),
     decisions: storedDecisions(submission.decisions),
+    behaviorChanges,
     artifacts: storedArtifacts(submission.artifacts),
     spec:
       spec?.contentIdentity == null
@@ -152,7 +155,13 @@ export function briefOf(context: AttemptContext, attemptId: string): Brief {
     rules:
       review === null
         ? {
-            submit: [ACKNOWLEDGED_RULE, ONE_COMMIT_RULE, ...ARTIFACT_RULES, ...SUBMIT_RULES],
+            submit: [
+              ACKNOWLEDGED_RULE,
+              ONE_COMMIT_RULE,
+              ...ARTIFACT_RULES,
+              ...SUBMIT_RULES,
+              BEHAVIOR_CHANGE_RULE,
+            ],
             report: [],
           }
         : { submit: [], report: [ACKNOWLEDGED_RULE, ...REPORT_RULES] },

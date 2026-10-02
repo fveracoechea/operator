@@ -19,8 +19,13 @@ Read this before you review a submitted result or accept an assignment.
 ## A submission is not completion
 
 Submit reads the Operative checkout and refuses a result that breaks its authority limits, for example with `result_not_one_commit`.
+It also refuses with `behavior_change_basis_missing` when a behavior change names a basis that does not exist.
 The attempt then keeps running, and its Operative fixes the result and submits again.
 You do nothing for that refusal.
+
+Every submission lists its behavior changes, and `[]` states that there is none.
+Submit checks only that each basis exists.
+The reviewer checks that the list is complete and that each basis permits its change.
 
 Exit 6 with `result_submitted` means the result is handed over, not accepted.
 The assignment is now awaiting review, and its attempt has ended.
@@ -52,8 +57,10 @@ Do not copy it by hand into the worktree.
 - `review_axes_not_parallel`: the two sub-agent windows do not overlap, so the axes did not run at the same time.
 - `review_sub_agent_host_mismatch`: an axis ran outside the reviewer host.
 - `review_coverage_incomplete`: an axis did not state what it read.
-  A code result needs the diff, the requirements, and the checks.
-  A non-code result needs the artifacts, the requirements, the citations, and the provenance.
+  A code result needs the diff, the requirements, the checks, and the behavior changes.
+  A non-code result needs the artifacts, the requirements, the citations, the provenance, and the behavior changes.
+  The token `behavior-changes` states that the axis read the list.
+  A missing or wrong entry is a blocker finding, and the usual disposition and rework path handles it.
 - `review_blocked`: the host could not run the axes, or a credential or input is missing.
 - `review_host_mismatch`: the report names a host the launch did not use.
 - `review_worktree_changed`: the reviewer edited or committed in its own checkout.

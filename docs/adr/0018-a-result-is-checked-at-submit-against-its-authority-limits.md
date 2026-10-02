@@ -99,4 +99,7 @@ A grant that the person gives during an attempt does not reach the brief that th
 
 A behavior change that nothing asked for now costs one question to the user before the Operative makes it.
 
+A submission recorded before the list existed keeps no list, which is not the statement "none".
+Its review has no list to read, so it needs no `behavior-changes` token.
+
 Nothing checks the allowed commands or the network permission yet.

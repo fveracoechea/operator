@@ -45,6 +45,7 @@ function makeStateOutdated(): void {
   const sqlite = new Database(statePath(), { create: false, readwrite: true });
   sqlite.exec("alter table state_meta drop column release_identity");
   sqlite.exec("alter table answers drop column source_kind");
+  dropVersionSix(sqlite);
   dropVersionFive(sqlite);
   sqlite.query("update state_meta set state_version = 1").run();
   sqlite.close();
@@ -77,8 +78,17 @@ function dropVersionFive(sqlite: Database): void {
   sqlite.exec("drop table outside_changes");
 }
 
+/** Removes what version 6 added, so a later migration step can add it again. */
+function dropVersionSix(sqlite: Database): void {
+  sqlite.exec("alter table submissions drop column behavior_changes");
+}
+
+/** Moves the recorded version back, and removes what each later version added. */
 function setStateVersion(version: number): void {
   const sqlite = new Database(statePath(), { create: false, readwrite: true });
+  if (version < 6) {
+    dropVersionSix(sqlite);
+  }
   if (version < 5) {
     dropVersionFive(sqlite);
   }
@@ -347,7 +357,7 @@ describe("recorded formats", () => {
 
     expect(applied.exitCode).toBe(0);
     expect(applied.json.data.migration.status).toBe("migrated");
-    expect(stateVersion()).toBe(5);
+    expect(stateVersion()).toBe(6);
     expect(recordedRelease()).toBe(applied.json.data.selection.releaseIdentity);
     expect((await runJson(workspace, ["work", "frontier"])).exitCode).toBe(0);
   });
@@ -371,6 +381,24 @@ describe("recorded formats", () => {
     sqlite.close();
     expect(columns.map((one) => one.name)).toContain("outside_scan");
     expect(table).toHaveLength(1);
+  });
+
+  test("adds the behavior change list of each submission", async () => {
+    await ownCrew(workspace);
+    setStateVersion(5);
+
+    const { applied } = await apply();
+
+    expect(applied.json.data.migration.steps).toEqual([
+      expect.objectContaining({ from: 5, to: 6 }),
+    ]);
+    const sqlite = new Database(statePath(), { create: false, readonly: true });
+    const columns = sqlite.query("pragma table_info(submissions)").all() as Array<{
+      name: string;
+    }>;
+    sqlite.close();
+    expect(columns.map((one) => one.name)).toContain("behavior_changes");
+    expect(stateVersion()).toBe(6);
   });
 
   test("marks a requirement that an earlier release recorded as unchecked", async () => {
@@ -549,7 +577,7 @@ describe("recorded formats", () => {
     const { applied } = await apply();
 
     expect(applied.json.data.migration.status).toBe("migrated");
-    expect(stateVersion()).toBe(5);
+    expect(stateVersion()).toBe(6);
     const stored = new Database(statePath(), { create: false, readonly: true });
     const kept = stored.query("select code from submissions where id = ?").get(submissionId) as {
       code: string;
@@ -563,5 +591,7 @@ describe("recorded formats", () => {
       submitted.json.data.reviewId,
     ]);
     expect(shown.exitCode).toBe(0);
+    // An earlier release listed no behavior change, so the record keeps no list, not "none".
+    expect(shown.json.data.submission.behaviorChanges).toBeNull();
   });
 });

@@ -38,7 +38,8 @@ _Avoid_: per-assignment review
 
 **Behavior change**:
 A difference, compared with the base, in what changed code does for some input: an output, an error, a record that is dropped or skipped, or a boundary value that falls in another class.
-Every result submission lists each one with the requirement or human answer that permits it, or states that there is none.
+Every result submission lists each one with its basis: the approved scope, one acceptance requirement, or one answered question whose answer is a requirement or a human answer. An empty list states that there is none.
+An Operator decision is never a basis.
 A change to a comment, a private name, or a test is not one.
 _Avoid_: side effect, "no functional change"
 

@@ -4,10 +4,12 @@ import { identityOf } from "./identity.ts";
 import { type InvalidInput, parseInput } from "./input.ts";
 import { mutate, readState } from "./operations.ts";
 import { outsideChangesOf } from "./outside-changes.ts";
+import { answerAuthoritiesOf } from "./questions.ts";
 import { refuseResult, type ResultRefusal } from "./result-checks.ts";
 import { submissionInputSchema } from "./submission-input.ts";
 import { submissionOfAttempt, type SubmitOutcome, submitResult } from "./submission.ts";
 import { storeArtifacts, storeSpec, type StoreOutcome } from "./submission-store.ts";
+import { storedRequirements } from "./work-input.ts";
 
 type StoreFailure = Exclude<StoreOutcome, { status: "stored" }>;
 
@@ -70,6 +72,13 @@ export async function submitAttemptResult(request: {
   let outside: ReturnType<typeof outsideChangesOf> = [];
   // Only production work submits a result, and the transaction below refuses any other kind.
   if (read.context.assignment.kind === "production") {
+    const assignment = read.context.assignment;
+    const questions = await readState(request.projectRoot, (db) =>
+      answerAuthoritiesOf(db, assignment.id),
+    );
+    if (!(questions instanceof Map)) {
+      return { repeated: false, result: questions };
+    }
     const refusals = refuseResult({
       inspection: await OperativeDispatch.inspectCheckout({
         worktreePath: dispatch.worktreePath,
@@ -79,6 +88,10 @@ export async function submitAttemptResult(request: {
       input,
       baseCommit: dispatch.baseCommit,
       writePaths: read.context.writePaths,
+      bases: {
+        requirementCount: storedRequirements(assignment.acceptanceRequirements).length,
+        questions,
+      },
     });
     const [first, ...rest] = refusals;
     if (first !== undefined) {

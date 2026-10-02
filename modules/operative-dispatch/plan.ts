@@ -322,7 +322,8 @@ function briefDocument(request: {
     "",
     "## Acceptance requirements",
     "",
-    ...brief.acceptanceRequirements.map((one) => `- ${one}`),
+    // A behavior change names an acceptance requirement by this position.
+    ...brief.acceptanceRequirements.map((one, index) => `${index + 1}. ${one}`),
     `- Requirements identity: ${brief.requirementsIdentity}`,
     "",
     "## Authority limits",

@@ -7,7 +7,13 @@ import {
   storedObservedChecks,
   storedSubAgents,
 } from "./review-input.ts";
-import { storedChecks, storedCode, storedConcerns, storedDecisions } from "./submission-input.ts";
+import {
+  storedBehaviorChanges,
+  storedChecks,
+  storedCode,
+  storedConcerns,
+  storedDecisions,
+} from "./submission-input.ts";
 import { outsideChangesOfSubmission, outsideRecordOf } from "./outside-changes.ts";
 import { readSubmission } from "./submission.ts";
 import { storedArtifacts } from "./submission-store.ts";
@@ -127,6 +133,7 @@ export async function showReview(request: {
         checks: storedChecks(submission.checks),
         concerns: storedConcerns(submission.concerns),
         decisions: storedDecisions(submission.decisions),
+        behaviorChanges: storedBehaviorChanges(submission.behaviorChanges),
         code: submission.code === null ? null : storedCode(submission.code),
         outsideChanges: outsideChangesOfSubmission(db, submission.id).map(outsideRecordOf),
       },

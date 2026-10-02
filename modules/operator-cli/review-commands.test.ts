@@ -160,7 +160,7 @@ describe("operator review report", () => {
     const brief = await Bun.file(`${reviewer.worktreePath}/.operator/local/brief.md`).text();
     expect(brief).toContain("This result is not code.");
     expect(brief).toContain("supported by a citation you can follow");
-    expect(brief).toContain("artifacts, requirements, citations, provenance");
+    expect(brief).toContain("artifacts, requirements, citations, provenance, behavior-changes");
     // A non-code result records no check, and the reviewer can still report what it read.
     expect(brief).toContain(
       "Run only these commands:\n- operator attempt acknowledge\n- operator review report\n",
@@ -173,7 +173,7 @@ describe("operator review report", () => {
       reportBody({
         submissionIdentity: submitted.json.data.identity,
         host: "opencode",
-        checked: ["diff", "requirements", "checks"],
+        checked: ["diff", "requirements", "checks", "behavior-changes"],
       }),
     );
     expect(codeCoverage.exitCode).toBe(3);
@@ -187,7 +187,7 @@ describe("operator review report", () => {
       reportBody({
         submissionIdentity: submitted.json.data.identity,
         host: "opencode",
-        checked: ["artifacts", "requirements", "citations", "provenance"],
+        checked: ["artifacts", "requirements", "citations", "provenance", "behavior-changes"],
       }),
     );
     expect(reported.exitCode).toBe(0);

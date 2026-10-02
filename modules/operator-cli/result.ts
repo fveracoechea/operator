@@ -225,6 +225,7 @@ export type Reason =
   | "uncommitted_work"
   | "outside_write_paths"
   | "result_check_not_run"
+  | "behavior_change_basis_missing"
   | "attempt_not_acknowledged"
   | "review_result_not_submitted"
   | "requirements_changed"

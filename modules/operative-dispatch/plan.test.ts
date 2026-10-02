@@ -117,6 +117,7 @@ test("review and rework labels identify their roles on the same ticket", () => {
       checks: [],
       concerns: [],
       decisions: [],
+      behaviorChanges: [],
       artifacts: [],
       spec: null,
       fixedPoint: null,

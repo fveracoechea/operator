@@ -89,6 +89,15 @@ export const MIGRATIONS: MigrationStep[] = [
       ) strict`);
     },
   },
+  {
+    from: 5,
+    to: 6,
+    summary: "Record the behavior changes of each result submission, each with its basis.",
+    // An earlier submission listed none, so it keeps no list rather than claim "none".
+    apply: (sqlite) => {
+      sqlite.exec("alter table submissions add column behavior_changes text");
+    },
+  },
 ];
 
 /** The steps that carry one recorded version up to the version this release reads. */
