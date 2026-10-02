@@ -45,6 +45,7 @@ function makeStateOutdated(): void {
   const sqlite = new Database(statePath(), { create: false, readwrite: true });
   sqlite.exec("alter table state_meta drop column release_identity");
   sqlite.exec("alter table answers drop column source_kind");
+  dropVersionFourteen(sqlite);
   dropVersionThirteen(sqlite);
   dropVersionTwelve(sqlite);
   dropVersionEleven(sqlite);
@@ -64,6 +65,7 @@ function makeStateOutdated(): void {
  */
 function makeSourceEarlier(options: { location: boolean }): void {
   const sqlite = new Database(statePath(), { create: false, readwrite: true });
+  dropVersionFourteen(sqlite);
   dropVersionThirteen(sqlite);
   dropVersionTwelve(sqlite);
   dropVersionEleven(sqlite);
@@ -153,6 +155,35 @@ function dropVersionSix(sqlite: Database): void {
   sqlite.exec("alter table submissions drop column behavior_changes");
 }
 
+/**
+ * Removes what version 14 added, so a later migration step can add it again. The review table
+ * goes back to the shape where every review names a submission.
+ */
+function dropVersionFourteen(sqlite: Database): void {
+  sqlite.exec("alter table review_findings drop column targets");
+  sqlite.exec("alter table review_findings drop column correction_target");
+  sqlite.exec(`create table reviews_earlier (
+    id text primary key,
+    submission_id text not null references submissions(id),
+    assignment_id text not null references assignments(id),
+    axes text not null,
+    state text not null,
+    host text,
+    sub_agents text,
+    blocker text,
+    reported_at text,
+    revision integer not null,
+    created_at text not null,
+    updated_at text not null,
+    unique (assignment_id)
+  ) strict`);
+  sqlite.exec(`insert into reviews_earlier select id, submission_id, assignment_id, axes, state,
+    host, sub_agents, blocker, reported_at, revision, created_at, updated_at from reviews`);
+  sqlite.exec("drop table reviews");
+  sqlite.exec("alter table reviews_earlier rename to reviews");
+  sqlite.exec("drop table branch_snapshots");
+}
+
 /** Removes what version 13 added, so a later migration step can add it again. */
 function dropVersionThirteen(sqlite: Database): void {
   sqlite.exec("drop table landings");
@@ -194,6 +225,9 @@ function dropVersionNine(sqlite: Database): void {
 /** Moves the recorded version back, and removes what each later version added. */
 function setStateVersion(version: number): void {
   const sqlite = new Database(statePath(), { create: false, readwrite: true });
+  if (version < 14) {
+    dropVersionFourteen(sqlite);
+  }
   if (version < 13) {
     dropVersionThirteen(sqlite);
   }
@@ -458,7 +492,7 @@ describe("recorded formats", () => {
 
     expect(applied.exitCode).toBe(0);
     expect(applied.json.data.migration.status).toBe("migrated");
-    expect(stateVersion()).toBe(13);
+    expect(stateVersion()).toBe(14);
     expect(recordedRelease()).toBe(applied.json.data.selection.releaseIdentity);
     expect((await runJson(workspace, ["work", "frontier"])).exitCode).toBe(0);
   });
@@ -494,12 +528,13 @@ describe("recorded formats", () => {
       expect.objectContaining({ from: 10, to: 11 }),
       expect.objectContaining({ from: 11, to: 12 }),
       expect.objectContaining({ from: 12, to: 13 }),
+      expect.objectContaining({ from: 13, to: 14 }),
     ]);
     const sqlite = new Database(statePath(), { create: false, readonly: true });
     const columns = sqlite.query("pragma table_info(assignments)").all() as Array<{ name: string }>;
     sqlite.close();
     expect(columns.map((one) => one.name)).toContain("withdrawn_under");
-    expect(stateVersion()).toBe(13);
+    expect(stateVersion()).toBe(14);
   });
 
   test("adds the gate run tables and the gate checkout of each source", async () => {
@@ -513,6 +548,7 @@ describe("recorded formats", () => {
       expect.objectContaining({ from: 10, to: 11 }),
       expect.objectContaining({ from: 11, to: 12 }),
       expect.objectContaining({ from: 12, to: 13 }),
+      expect.objectContaining({ from: 13, to: 14 }),
     ]);
     const sqlite = new Database(statePath(), { create: false, readonly: true });
     const tables = sqlite
@@ -524,7 +560,7 @@ describe("recorded formats", () => {
       "gate_run_commands",
       "gate_runs",
     ]);
-    expect(stateVersion()).toBe(13);
+    expect(stateVersion()).toBe(14);
   });
 
   test("adds the integration branch of each source and gives none to an earlier source", async () => {
@@ -536,6 +572,7 @@ describe("recorded formats", () => {
     expect(applied.json.data.migration.steps).toEqual([
       expect.objectContaining({ from: 11, to: 12 }),
       expect.objectContaining({ from: 12, to: 13 }),
+      expect.objectContaining({ from: 13, to: 14 }),
     ]);
     const sqlite = new Database(statePath(), { create: false, readonly: true });
     const rows = sqlite.query("select count(*) as count from integration_branches").get() as {
@@ -543,7 +580,7 @@ describe("recorded formats", () => {
     };
     sqlite.close();
     expect(rows.count).toBe(0);
-    expect(stateVersion()).toBe(13);
+    expect(stateVersion()).toBe(14);
   });
 
   test("adds the landing record and records no landing for an earlier result", async () => {
@@ -554,6 +591,7 @@ describe("recorded formats", () => {
 
     expect(applied.json.data.migration.steps).toEqual([
       expect.objectContaining({ from: 12, to: 13 }),
+      expect.objectContaining({ from: 13, to: 14 }),
     ]);
     const sqlite = new Database(statePath(), { create: false, readonly: true });
     const rows = sqlite.query("select count(*) as count from landings").get() as {
@@ -561,7 +599,44 @@ describe("recorded formats", () => {
     };
     sqlite.close();
     expect(rows.count).toBe(0);
-    expect(stateVersion()).toBe(13);
+    expect(stateVersion()).toBe(14);
+  });
+
+  test("keeps each earlier review on its submission and adds the branch snapshot of a review", async () => {
+    await ownCrew(workspace);
+    setStateVersion(13);
+    // The connection of this test checks no foreign key, so the review needs no other row.
+    const earlier = new Database(statePath(), { create: false, readwrite: true });
+    earlier.exec(
+      `insert into reviews values ('r1', 's1', 'a1', '["standards","spec"]', 'reported', 'claude-code',
+       null, null, 'now', 2, 'now', 'now')`,
+    );
+    earlier.exec(
+      `insert into review_findings (id, review_id, axis, finding_key, severity, summary, evidence,
+       recorded_at) values ('f1', 'r1', 'spec', 'k', 'blocker', 'It is wrong.', 'here', 'now')`,
+    );
+    earlier.close();
+
+    const { applied } = await apply();
+
+    expect(applied.json.data.migration.steps).toEqual([
+      expect.objectContaining({ from: 13, to: 14 }),
+    ]);
+    const sqlite = new Database(statePath(), { create: false, readonly: true });
+    const reviews = sqlite.query("select id, submission_id, snapshot_id, state from reviews").all();
+    const findings = sqlite
+      .query("select id, targets, correction_target from review_findings")
+      .all();
+    const snapshots = sqlite.query("select count(*) as count from branch_snapshots").get() as {
+      count: number;
+    };
+    sqlite.close();
+    expect(reviews).toEqual([
+      { id: "r1", submission_id: "s1", snapshot_id: null, state: "reported" },
+    ]);
+    expect(findings).toEqual([{ id: "f1", targets: null, correction_target: null }]);
+    expect(snapshots.count).toBe(0);
+    expect(stateVersion()).toBe(14);
   });
 
   test("adds the behavior change list of each submission", async () => {
@@ -579,6 +654,7 @@ describe("recorded formats", () => {
       expect.objectContaining({ from: 10, to: 11 }),
       expect.objectContaining({ from: 11, to: 12 }),
       expect.objectContaining({ from: 12, to: 13 }),
+      expect.objectContaining({ from: 13, to: 14 }),
     ]);
     const sqlite = new Database(statePath(), { create: false, readonly: true });
     const columns = sqlite.query("pragma table_info(submissions)").all() as Array<{
@@ -586,7 +662,7 @@ describe("recorded formats", () => {
     }>;
     sqlite.close();
     expect(columns.map((one) => one.name)).toContain("behavior_changes");
-    expect(stateVersion()).toBe(13);
+    expect(stateVersion()).toBe(14);
   });
 
   test("adds the planning record list of each launch and fixes none for an earlier launch", async () => {
@@ -611,8 +687,9 @@ describe("recorded formats", () => {
       expect.objectContaining({ from: 10, to: 11 }),
       expect.objectContaining({ from: 11, to: 12 }),
       expect.objectContaining({ from: 12, to: 13 }),
+      expect.objectContaining({ from: 13, to: 14 }),
     ]);
-    expect(stateVersion()).toBe(13);
+    expect(stateVersion()).toBe(14);
     const sqlite = new Database(statePath(), { create: false, readonly: true });
     const row = sqlite
       .query("select planning_record_ids from attempt_dispatch where attempt_id = ?")
@@ -668,7 +745,7 @@ describe("recorded formats", () => {
     const { applied } = await apply();
 
     expect(applied.exitCode).toBe(0);
-    expect(stateVersion()).toBe(13);
+    expect(stateVersion()).toBe(14);
     const after = recordedRows();
     expect(after.sources).toEqual(before.sources);
     expect(after.bindings.map((one) => JSON.parse(one ?? "null"))).toEqual([
@@ -878,7 +955,7 @@ describe("recorded formats", () => {
     const { applied } = await apply();
 
     expect(applied.json.data.migration.status).toBe("migrated");
-    expect(stateVersion()).toBe(13);
+    expect(stateVersion()).toBe(14);
     const stored = new Database(statePath(), { create: false, readonly: true });
     const kept = stored.query("select code from submissions where id = ?").get(submissionId) as {
       code: string;

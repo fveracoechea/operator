@@ -221,7 +221,7 @@ _Avoid_: delivery fault
 
 **Branch snapshot**:
 The recorded integration branch of one work source at one head: its base, its head, and its ordered commits with the accepted result of each.
-It is what a branch review reads, and a different head is a different snapshot.
+It is what a branch review reads, and a different head, or a different accepted result of one commit, is a different snapshot.
 _Avoid_: branch state
 
 **Branch review**:
@@ -354,7 +354,7 @@ _Avoid_: send-back, same agent
 
 **Direction request**:
 The recorded statement that one assignment, or the branch review of one work source, reached a limit and now waits on the user.
-It keeps the evidence of what was tried, blocks acceptance while it is open, and is passed only by an approval that names the assignment and the revision of the request it answers.
+It keeps the evidence of what was tried, blocks acceptance, or the dispatch of a branch review, while it is open, and is passed only by an approval that names the assignment and the revision of the request it answers.
 
 **Invalidated result**:
 An accepted result a defect was found in afterwards.

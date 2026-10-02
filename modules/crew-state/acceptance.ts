@@ -37,6 +37,7 @@ import { type ReviewBlocker, storedBlocker, storedObservedChecks } from "./revie
 import { storedChecks, storedCode } from "./submission-input.ts";
 import { latestSubmission, reviewedBaseOf, type SubmissionRow } from "./submission.ts";
 import { isExecutable, isReview } from "./work-input.ts";
+import { registerBranchReview, type RegisteredBranchReview } from "./branch-review.ts";
 
 export type AcceptResult =
   | {
@@ -47,6 +48,8 @@ export type AcceptResult =
       planningRecordId: string | null;
       // The landing of a code result, or null for every other acceptance.
       landing: AcceptedLanding | null;
+      // The branch review this acceptance registered, because it made the branch final.
+      branchReview: RegisteredBranchReview | null;
     }
   | { status: "unknown-assignment"; assignmentId: string }
   | { status: "stale-revision"; assignmentId: string; recordedRevision: number }
@@ -328,6 +331,7 @@ function acceptPlanning(
       now: request.now,
     }),
     landing: null,
+    branchReview: null,
   };
 }
 
@@ -489,6 +493,7 @@ export function acceptAssignment(db: CrewWriter, request: AcceptRequest): Accept
       revision: acceptRow(db, { row, now: request.now }),
       planningRecordId: null,
       landing: null,
+      branchReview: null,
     };
   }
 
@@ -549,12 +554,16 @@ export function acceptAssignment(db: CrewWriter, request: AcceptRequest): Accept
     .where(eq(submissions.id, submission.id))
     .run();
 
+  const revision = acceptRow(db, { row, now: request.now });
   return {
     status: "accepted",
     assignmentId: row.id,
     attemptId: submission.attemptId,
-    revision: acceptRow(db, { row, now: request.now }),
+    revision,
     planningRecordId: null,
     landing,
+    // The acceptance that makes the integration branch final registers its branch review in the
+    // same change, as a submission registers its result review (ADR 0017).
+    branchReview: registerBranchReview(db, { sourceId: row.sourceId, now: request.now }),
   };
 }

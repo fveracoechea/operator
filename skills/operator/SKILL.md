@@ -50,7 +50,7 @@ Read [DISPATCH.md](DISPATCH.md) before you claim, launch, or recover an Operativ
 Read [GATE.md](GATE.md) before you run the project gate or act on `run_gate`, `gate_running`, or a `gate_` refusal.
 
 Result submission, separate two-axis review, finding dispositions, and accepted completion.
-Read [REVIEW.md](REVIEW.md) before you review a result, accept an assignment, or act on `settle_landing`.
+Read [REVIEW.md](REVIEW.md) before you review a result, act on a branch review, accept an assignment, or act on `settle_landing`.
 
 Delegated rework, the limits that bound it, and a defect found after acceptance.
 Read [REWORK.md](REWORK.md), [LIMITS.md](LIMITS.md), and [INVALIDATION.md](INVALIDATION.md) before you act on any of them.

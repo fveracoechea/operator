@@ -5,7 +5,7 @@ import { integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqli
  * The durable shape of the crew state. A reader that finds a higher version refuses the file,
  * so this number changes only when an older Operator release can no longer read the tables.
  */
-export const STATE_VERSION = 13;
+export const STATE_VERSION = 14;
 
 export const stateMeta = sqliteTable("state_meta", {
   id: integer("id").primaryKey(),
@@ -210,15 +210,32 @@ export const outsideChanges = sqliteTable(
 );
 
 /**
- * One separate review of one submission, held by its own review assignment.
+ * One recorded state of the integration branch of a source, which a branch review reads: the
+ * base, one head, and the ordered commits with the accepted submission of each (ADR 0017).
+ * Its identity covers all of them, so a report on another head or another commit list refuses.
+ */
+export const branchSnapshots = sqliteTable("branch_snapshots", {
+  id: text("id").primaryKey(),
+  sourceId: text("source_id")
+    .notNull()
+    .references(() => workSources.id),
+  baseCommit: text("base_commit").notNull(),
+  headCommit: text("head_commit").notNull(),
+  commits: text("commits").notNull(),
+  identity: text("identity").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
+/**
+ * One separate review of one fixed subject, held by its own review assignment: a submission for
+ * a result review, or a branch snapshot for a branch review. Exactly one of the two is set.
  * The two axis reports live beside it, so an incomplete review is visible as a missing axis
  * rather than as an absent record.
  */
 export const reviews = sqliteTable("reviews", {
   id: text("id").primaryKey(),
-  submissionId: text("submission_id")
-    .notNull()
-    .references(() => submissions.id),
+  submissionId: text("submission_id").references(() => submissions.id),
+  snapshotId: text("snapshot_id").references(() => branchSnapshots.id),
   assignmentId: text("assignment_id")
     .notNull()
     .references(() => assignments.id),
@@ -268,6 +285,10 @@ export const reviewFindings = sqliteTable("review_findings", {
   followUp: text("follow_up"),
   disposedAt: text("disposed_at"),
   recordedAt: text("recorded_at").notNull(),
+  // The commits a branch finding targets, and the one assignment a correction of it names.
+  // A finding of a result review targets its one submission, so it records neither.
+  targets: text("targets"),
+  correctionTarget: text("correction_target"),
 });
 
 /**
@@ -662,6 +683,7 @@ export const crewStateSchema = {
   externalOperations,
   submissions,
   outsideChanges,
+  branchSnapshots,
   reviews,
   reviewReports,
   reviewFindings,
@@ -764,6 +786,39 @@ export const LANDING_TABLES = [
   ) strict`,
   // One landing of a source waits at a time, so two intents never race for one tip.
   `create unique index landings_one_intended on landings (source_id) where state = 'intended'`,
+];
+
+/**
+ * The branch snapshot table and the review table that reads either subject, written once for a
+ * new state and its migration step. A review names a submission or a snapshot, never both.
+ */
+export const BRANCH_REVIEW_TABLES = [
+  `create table branch_snapshots (
+    id text primary key,
+    source_id text not null references work_sources(id),
+    base_commit text not null,
+    head_commit text not null,
+    commits text not null,
+    identity text not null,
+    created_at text not null
+  ) strict`,
+  `create table reviews (
+    id text primary key,
+    submission_id text references submissions(id),
+    assignment_id text not null references assignments(id),
+    axes text not null,
+    state text not null,
+    host text,
+    sub_agents text,
+    blocker text,
+    reported_at text,
+    revision integer not null,
+    created_at text not null,
+    updated_at text not null,
+    snapshot_id text references branch_snapshots(id),
+    unique (assignment_id),
+    check ((submission_id is null) <> (snapshot_id is null))
+  ) strict`,
 ];
 
 /**
@@ -905,21 +960,7 @@ export const CREATE_STATEMENTS = [
     recorded_at text not null,
     unique (submission_id, place, path)
   ) strict`,
-  sql`create table reviews (
-    id text primary key,
-    submission_id text not null references submissions(id),
-    assignment_id text not null references assignments(id),
-    axes text not null,
-    state text not null,
-    host text,
-    sub_agents text,
-    blocker text,
-    reported_at text,
-    revision integer not null,
-    created_at text not null,
-    updated_at text not null,
-    unique (assignment_id)
-  ) strict`,
+  ...BRANCH_REVIEW_TABLES.map((statement) => sql.raw(statement)),
   sql`create table review_reports (
     id text primary key,
     review_id text not null references reviews(id),
@@ -946,6 +987,9 @@ export const CREATE_STATEMENTS = [
     follow_up text,
     disposed_at text,
     recorded_at text not null,
+    -- Last, because the migration that added them appends them to an earlier file.
+    targets text,
+    correction_target text,
     unique (review_id, axis, finding_key)
   ) strict`,
   sql`create table rework_cycles (

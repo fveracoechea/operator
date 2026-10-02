@@ -25,6 +25,7 @@ The review binds to one head, because a correction or a rebase changes what ship
 
 A branch finding is answered with the three dispositions of ADR 0007.
 A correction names exactly one target assignment and invalidates it through the path of ADR 0008, because a defect in accepted work already has one path and a second one would drift.
+The target holds one of the commits that the finding targets, and the invalidation is recorded in the same change as the disposition, so a corrected finding never waits for a second step that nothing owes.
 The corrected result is a new submission with its own result review.
 When the corrected assignment and every dependent it paused are accepted again, that acceptance registers the next branch review, on the new head, with every earlier branch round as context.
 

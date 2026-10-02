@@ -243,6 +243,7 @@ async function runRegister(parsed: ParsedArguments): Promise<Handled> {
           withdrawn: result.withdrawn.length,
         },
         overlaps: result.overlaps,
+        branchReview: result.branchReview,
         repeated,
         frontier: "operator work frontier",
       },
@@ -256,6 +257,7 @@ async function runRegister(parsed: ParsedArguments): Promise<Handled> {
             `${result.overlaps.pairCount} pair(s) of items write overlapping paths: ${result.overlaps.sourceKeys.join(", ")}.`,
             `List them with: ${result.overlaps.command}`,
           ]),
+      ...branchReviewLines(result.branchReview),
     ],
   });
   return "reported";
@@ -1014,6 +1016,7 @@ function reportAccepted(
         revision: result.revision,
         planningRecordId: result.planningRecordId,
         landing: result.landing,
+        branchReview: result.branchReview,
         repeated,
       },
     },
@@ -1029,9 +1032,27 @@ function reportAccepted(
       ...(result.planningRecordId === null
         ? []
         : [`Recorded planning record ${result.planningRecordId}.`]),
+      ...branchReviewLines(result.branchReview),
     ],
   });
   return "reported";
+}
+
+/** What one registered branch review owes, in one line or two. */
+export function branchReviewLines(
+  registered: Extract<AcceptanceResult, { status: "accepted" }>["branchReview"],
+): string[] {
+  if (registered === null) {
+    return [];
+  }
+  return [
+    `The integration branch is final, so branch review ${registered.reviewId} is registered as ${registered.assignmentId} at head ${registered.headCommit}.`,
+    ...(registered.direction === null
+      ? []
+      : [
+          `This source already holds ${registered.direction.evidence.used} branch reviews that reported, so this one waits on direction request ${registered.direction.directionRequestId}.`,
+        ]),
+  ];
 }
 
 async function runFrontier(parsed: ParsedArguments): Promise<Handled> {

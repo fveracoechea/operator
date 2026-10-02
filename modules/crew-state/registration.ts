@@ -41,6 +41,7 @@ import { writePathsReader } from "./write-path-grants.ts";
 import { overlappingPaths, overlapsCommand } from "./write-paths.ts";
 import { recordedLanding } from "./submission.ts";
 import { type WithdrawalRefusal, withdrawAssignment, withdrawalRefusals } from "./withdrawal.ts";
+import { registerBranchReview, type RegisteredBranchReview } from "./branch-review.ts";
 
 export type RegisteredAssignment = {
   assignmentId: string;
@@ -205,6 +206,8 @@ export type RegisterResult =
       updated: RegisteredAssignment[];
       withdrawn: RegisteredAssignment[];
       overlaps: OverlapSummary;
+      // The branch review a withdrawal registered, because it made the branch final.
+      branchReview: RegisteredBranchReview | null;
     }
   | { status: "refused"; plan: RegistrationPlan }
   | { status: "approval-required"; approval: RegistrationApproval }
@@ -1352,6 +1355,13 @@ export function registerWork(
     }
   }
 
+  // The withdrawal that makes the integration branch final registers its branch review in the
+  // same change (ADR 0017). A withdrawn commit that the branch still holds waits for its take-out.
+  const branchReview =
+    plan.withdrawals.length === 0
+      ? null
+      : registerBranchReview(db, { sourceId: plan.source.id, now });
+
   const all = db
     .select()
     .from(assignments)
@@ -1366,6 +1376,7 @@ export function registerWork(
     updated,
     withdrawn,
     overlaps: summarize(plan.source.id, findOverlaps(db, plan.source.id), all),
+    branchReview,
   };
 }
 

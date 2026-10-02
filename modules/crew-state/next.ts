@@ -34,6 +34,7 @@ import {
   reviewOfSubmission,
   undisposed,
 } from "./review.ts";
+import { readSnapshot } from "./branch-review.ts";
 import { openCycleOf } from "./rework.ts";
 import { assignments, attempts } from "./schema.ts";
 import { latestSubmission, submissionOfAttempt, submittedCommit } from "./submission.ts";
@@ -276,6 +277,14 @@ function readBaseGate(
   }
 }
 
+/** The head one branch review reads, or null when the assignment is not a branch review. */
+function branchHeadOf(db: CrewReader, assignmentId: string): string | null {
+  const review = reviewOfAssignment(db, assignmentId);
+  return review?.snapshotId == null
+    ? null
+    : (readSnapshot(db, review.snapshotId)?.headCommit ?? null);
+}
+
 /**
  * The integration branch that a new launch of one assignment starts from: a production
  * assignment with no open cycle, of a source that recorded its branch (ADR 0020).
@@ -303,6 +312,8 @@ function readActiveAttempt(
     baseGate: { sourceId: string; gate: BaseGate; reported: Set<string> } | null;
     /** The integration branch a new production launch starts from, or null. */
     integration: { name: string; recordedTip: string } | null;
+    /** The head a branch review reads, or null for every other assignment. */
+    branchHead: string | null;
   },
   into: Collector,
 ): void {
@@ -351,7 +362,9 @@ function readActiveAttempt(
             ? `This assignment is claimed and has no Operative yet. The integration base passed the gate at commit ${base.commit} in gate run ${base.run.id}, so dispatch from that commit.`
             : request.integration !== null
               ? `This assignment is claimed and has no Operative yet. It starts from ${request.integration.recordedTip}, the recorded tip of ${request.integration.name}, so dispatch with no --commit.`
-              : "This assignment is claimed and has no Operative yet.",
+              : request.branchHead !== null
+                ? `This branch review is claimed and has no reviewer yet. It reads the branch snapshot at head ${request.branchHead}, so dispatch with no --commit.`
+                : "This assignment is claimed and has no Operative yet.",
       command: "operator attempt dispatch",
     });
     return;
@@ -428,7 +441,7 @@ function readReview(
 ): void {
   const submission = latestSubmission(db, request.assignmentId);
   const review = submission === null ? null : reviewOfSubmission(db, submission.id);
-  if (review === null) {
+  if (submission === null || review === null) {
     return;
   }
 
@@ -472,7 +485,7 @@ function readReview(
     return;
   }
 
-  const outside = undisposedOutside(outsideChangesOfSubmission(db, review.submissionId));
+  const outside = undisposedOutside(outsideChangesOfSubmission(db, submission.id));
   if (outside.length > 0 && openCycleOf(db, request.assignmentId) === null) {
     const security = outside.filter((one) => one.security === 1).length;
     const draft: Draft = {
@@ -490,7 +503,7 @@ function readReview(
   }
 
   if (openCycleOf(db, request.assignmentId) === null) {
-    if (submission !== null && submittedCommit(submission) !== null) {
+    if (submittedCommit(submission) !== null) {
       readLanding(
         db,
         { ...subject, sourceId: request.sourceId, submissionId: submission.id },
@@ -843,6 +856,7 @@ export function calculateNext(
               }
             : null,
           integration: tipStartOf(db, assignment),
+          branchHead: branchHeadOf(db, assignment.id),
         },
         into,
       );
@@ -906,6 +920,23 @@ export function calculateNext(
         { assignmentId: row.id, revision: row.revision, sourceId: row.sourceId },
         into,
       );
+    }
+
+    // A branch review gates the publish, so each of its findings is answered whatever state its
+    // own assignment is in. A corrected one invalidates its target in the same answer.
+    if (isReview(row.kind)) {
+      const branch = reviewOfAssignment(db, row.id);
+      const open = branch === null ? [] : undisposed(findingsOf(db, branch.id));
+      if (branch !== null && branch.snapshotId !== null && open.length > 0) {
+        into.add({
+          action: "dispose_findings",
+          assignmentId: row.id,
+          reviewId: branch.id,
+          revision: row.revision,
+          detail: `${open.length} branch finding(s) carry no disposition. A corrected one names its one target assignment.`,
+          command: "operator review dispose",
+        });
+      }
     }
 
     // A review assignment holds no result of its own, so it is accepted once it reported.

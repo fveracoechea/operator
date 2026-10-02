@@ -136,7 +136,16 @@ export async function replaceAttempt(request: {
 
   // A stopped or blocked review may be tried again, and a bounded number of times, so a failing
   // review host escalates to the user instead of consuming the crew.
-  const context = read.context.review;
+  // A branch review has no producer, so its own assignment carries the direction it waits on.
+  const context =
+    read.context.review !== null
+      ? {
+          review: read.context.review.review,
+          holderId: read.context.review.submission.assignmentId,
+        }
+      : read.context.branchReview === null
+        ? null
+        : { review: read.context.branchReview.review, holderId: read.context.assignment.id };
   // The replacement inspects the stopped writer before it records anything, so whether it may
   // run at all is read here and the direction it runs under is spent inside that write.
   let producerAtLimit: string | null = null;
@@ -146,7 +155,7 @@ export async function replaceAttempt(request: {
     context.review.state !== "reported" &&
     read.context.attemptsHeld >= REVIEW_ATTEMPT_LIMIT
   ) {
-    const producerId = context.submission.assignmentId;
+    const producerId = context.holderId;
     const direction = await readState(request.projectRoot, (db) =>
       readDirection(db, { assignmentId: producerId, limitKind: "review_attempts" }),
     );

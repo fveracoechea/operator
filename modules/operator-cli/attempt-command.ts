@@ -316,8 +316,8 @@ async function runDispatch(parsed: ParsedArguments): Promise<Handled> {
         requested: result.requested,
       },
       lines: [
-        `This review reads submitted commit ${result.recorded}, not ${result.requested}.`,
-        "Review inputs stay fixed, so the reviewer starts from the commit the result lives on.",
+        `This review reads commit ${result.recorded}, not ${result.requested}.`,
+        "Review inputs stay fixed, so the reviewer starts from the submitted commit, or from the head of the branch snapshot.",
       ],
     });
   }

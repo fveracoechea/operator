@@ -2,6 +2,12 @@
 import { basename, dirname } from "node:path";
 import { ContentIdentity } from "../content-identity/main.ts";
 import { ReleaseInstall } from "../release-install/main.ts";
+import {
+  type BranchReviewBrief,
+  branchReviewProtocolSection,
+  branchSnapshotSection,
+  branchSpecPath,
+} from "./branch-review-brief.ts";
 import { type CommandRule, REFERENCE_RULE, ruleLines } from "./command-rules.ts";
 import {
   REVIEW_SPEC_PATH,
@@ -50,6 +56,8 @@ export type Brief = {
   } | null;
   // Present only on a review assignment, which reads a fixed result instead of producing one.
   review: ReviewBrief | null;
+  // Present only on a branch review, which reads the integration branch of a source as a whole.
+  branchReview: BranchReviewBrief | null;
   // Present only while a delegated rework cycle is open on this assignment.
   rework: ReworkBrief | null;
 };
@@ -137,10 +145,15 @@ export function opencodeEffortPluginText(effort: string): string {
 }
 
 /** The Operator CLI operations a brief tells its agent to run. */
+/** True when this brief reads a fixed subject and reports on it, rather than producing a result. */
+function isReviewer(brief: Brief): boolean {
+  return brief.review !== null || brief.branchReview !== null;
+}
+
 function briefOperations(brief: Brief): string[] {
   return [
     "attempt acknowledge",
-    brief.review === null ? "attempt submit" : "review report",
+    isReviewer(brief) ? "review report" : "attempt submit",
     "question raise",
     "question acknowledge",
   ];
@@ -158,7 +171,7 @@ function allowedTools(brief: Brief, invocation: string): string[] {
     ...allowedCommands.map((command) => `Bash(${command}:*)`),
     ...(brief.gate?.commands ?? []).map((one) => `Bash(${one.line}:*)`),
     // A producer makes the one commit of its code result. A reviewer changes nothing.
-    ...(brief.review === null ? ["Bash(git status:*)", "Bash(git add:*)", "Bash(git commit:*)"] : []),
+    ...(isReviewer(brief) ? [] : ["Bash(git status:*)", "Bash(git add:*)", "Bash(git commit:*)"]),
     `Edit(./${OUTBOX_PATH}**)`,
     ...writePaths.flatMap((path) => {
       const root = path.replace(/^\.\//, "").replace(/\/+$/, "");
@@ -203,7 +216,13 @@ function displayLabels(projectRoot: string, brief: Brief) {
   const issue = /^[^/]+\/([^#]+#\d+)$/.exec(brief.sourceKey)?.[1];
   const ticket = /^\d+$/.test(brief.sourceKey) ? `#${brief.sourceKey}` : (issue ?? brief.sourceKey);
   const role =
-    brief.review !== null ? "Reviewer" : brief.rework !== null ? "Rework Operative" : "Operative";
+    brief.branchReview !== null
+      ? "Branch reviewer"
+      : brief.review !== null
+        ? "Reviewer"
+        : brief.rework !== null
+          ? "Rework Operative"
+          : "Operative";
   const assignment = `${ticket} ${role}: ${brief.title}`;
   return {
     workspaceLabel: `${projectName} ${assignment}`.slice(0, 80),
@@ -305,6 +324,15 @@ function productionProtocolSection(brief: Brief, invocation: string): string[] {
 
 /** The sections that differ between producing a result, reworking one, and reviewing one. */
 function roleSections(brief: Brief, invocation: string): { result: string[]; protocol: string[] } {
+  if (brief.branchReview !== null) {
+    return {
+      result: branchSnapshotSection(brief.branchReview),
+      protocol: [
+        ...branchReviewProtocolSection(brief.branchReview, brief.rules.report, invocation),
+        ...questionSection(brief, invocation),
+      ],
+    };
+  }
   if (brief.review !== null) {
     return {
       result: submittedResultSection(brief.review),
@@ -381,7 +409,7 @@ function briefDocument(request: {
     `Write each file you pass with \`--input\` under \`${OUTBOX_PATH}\`.`,
     "",
     ...role.result,
-    ...(brief.review === null ? planningRecordsSection(brief.planningRecords) : []),
+    ...(isReviewer(brief) ? [] : planningRecordsSection(brief.planningRecords)),
     "## Fixed inputs",
     "",
     ...(brief.fixedInputs.length === 0
@@ -417,8 +445,9 @@ function promptDocument(brief: Brief, snapshot: Snapshot): string {
       ? ["First run `bun install --frozen-lockfile` from this worktree root."]
       : [];
 
+  const reviewId = brief.branchReview?.reviewId ?? brief.review?.reviewId ?? null;
   return (
-    brief.review === null
+    reviewId === null
       ? [
           brief.rework === null
             ? `You are the Operative on Operator attempt ${brief.attemptId} for assignment ${brief.assignmentId}.`
@@ -429,7 +458,7 @@ function promptDocument(brief: Brief, snapshot: Snapshot): string {
           acknowledge,
         ]
       : [
-          `You are the reviewer on Operator attempt ${brief.attemptId} for review ${brief.review.reviewId}.`,
+          `You are the reviewer on Operator attempt ${brief.attemptId} for review ${reviewId}.`,
           read,
           "Load the `code-review` skill and run its Standards and Spec axes as parallel sub-agents of this host.",
           ...install,
@@ -512,12 +541,18 @@ export function planDispatch(request: {
             identity: review.spec.contentIdentity,
           },
         ]),
+    // A branch reviewer reads the spec copy of every item, each fixed when it was submitted.
+    ...(request.brief.branchReview?.specs ?? []).map((one, index) => ({
+      path: branchSpecPath(index),
+      sourcePath: `${request.projectRoot}/${one.storedPath}`,
+      identity: one.contentIdentity,
+    })),
   ];
 
   // A launch reads each path input at its base commit. A rework starts from the submitted
   // result, which can change that file inside its write paths, and a review reads fixed copies.
   const fixedPaths =
-    review !== null || rework !== null
+    isReviewer(request.brief) || rework !== null
       ? []
       : request.brief.fixedInputs.flatMap((one) =>
           one.kind === "path" && one.contentIdentity !== null
@@ -551,7 +586,7 @@ export function planDispatch(request: {
     extraInputs,
     fixedPaths,
     // A reviewer that cannot load the review skill is blocked before any agent starts.
-    requiredSkill: review === null ? null : REVIEW_SKILL,
+    requiredSkill: isReviewer(request.brief) ? REVIEW_SKILL : null,
   };
   if (request.snapshot.parentWorkspaceId !== undefined) {
     plan.parentWorkspaceId = request.snapshot.parentWorkspaceId;

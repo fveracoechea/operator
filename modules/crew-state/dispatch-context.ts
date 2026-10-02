@@ -12,11 +12,12 @@ import {
 } from "./submission-input.ts";
 import { ARTIFACT_RULES, specPathOf, storedArtifacts } from "./submission-store.ts";
 import { reviewReadCommands, SUBMIT_RULES } from "./submission.ts";
-import { REPORT_RULES } from "./review-report.ts";
+import { BRANCH_REPORT_RULES, branchCoverage, REPORT_RULES } from "./review-report.ts";
 import { storedFixedInputs, storedPermissions, storedRequirements } from "./work-input.ts";
 import { REVIEW_AXES } from "./review.ts";
 import {
   type AttemptContext,
+  type BranchReviewContext,
   type ReviewContext,
   type ReworkContext,
   type AttemptLookup,
@@ -79,6 +80,7 @@ export type ContextRead =
   | RequestFailure;
 
 type ReviewBrief = NonNullable<Brief["review"]>;
+type BranchReviewBrief = NonNullable<Brief["branchReview"]>;
 type ReworkBrief = NonNullable<Brief["rework"]>;
 
 /**
@@ -131,6 +133,63 @@ function reviewBriefOf(
   };
 }
 
+/**
+ * The fixed snapshot one branch review reads, taken from its registration. The spec copies and
+ * the commands are its registered fixed inputs and permissions, so the brief adds none.
+ */
+function branchReviewBriefOf(
+  context: BranchReviewContext,
+  request: {
+    attemptId: string;
+    fixedInputs: Brief["fixedInputs"];
+    allowedCommands: string[];
+  },
+): BranchReviewBrief {
+  const { review, snapshot } = context;
+  const readCommands = reviewReadCommands(snapshot.baseCommit);
+  return {
+    reviewId: review.id,
+    attemptId: request.attemptId,
+    sourceId: snapshot.sourceId,
+    snapshotId: snapshot.id,
+    snapshotIdentity: snapshot.identity,
+    baseCommit: snapshot.baseCommit,
+    headCommit: snapshot.headCommit,
+    commits: context.commits,
+    axes: [...REVIEW_AXES],
+    requiredCoverage: branchCoverage(),
+    specs: request.fixedInputs.flatMap((one) =>
+      one.kind === "path" && one.name.startsWith("spec ") && one.contentIdentity !== null
+        ? [{ name: one.name, storedPath: one.value, contentIdentity: one.contentIdentity }]
+        : [],
+    ),
+    fixedPoint: snapshot.baseCommit,
+    readCommands,
+    // The registered commands that are neither a reviewer command nor a read command are the
+    // project gate commands fixed on the integration branch.
+    gateCommands: request.allowedCommands.filter(
+      (one) => !readCommands.includes(one) && !one.startsWith("operator "),
+    ),
+    earlierReviews: context.earlierReviews,
+  };
+}
+
+/**
+ * The rules a branch review report refuses. They are the rules of every report, with the
+ * snapshot in place of the submission, and the rules of finding targets.
+ */
+const BRANCH_RULES = [
+  ...REPORT_RULES.map((one) =>
+    one.refusal === "submission_drift"
+      ? {
+          refusal: "snapshot_drift",
+          rule: "`snapshotIdentity` is the identity of the branch snapshot above.",
+        }
+      : one,
+  ),
+  ...BRANCH_REPORT_RULES,
+];
+
 /** The fixed cycle one rework attempt answers, as it was recorded when it was delegated. */
 export function reworkBriefOf(context: ReworkContext): ReworkBrief {
   // An earlier release recorded an instruction, which is Operator text, and the Operator writes
@@ -157,7 +216,7 @@ export async function briefGate(request: {
   attemptId: string;
   baseCommit: string;
 }): Promise<{ status: "ok"; gate: Brief["gate"] } | GateUnusable> {
-  if (request.context.review !== null) {
+  if (request.context.review !== null || request.context.branchReview !== null) {
     return { status: "ok", gate: null };
   }
   const gate = await gateOfAttempt({
@@ -186,6 +245,7 @@ export function briefOf(context: AttemptContext, attemptId: string, gate: Brief[
   const review = context.review;
   const acceptanceRequirements = storedRequirements(assignment.acceptanceRequirements);
   const fixedInputs = storedFixedInputs(assignment.fixedInputs);
+  const permissions = storedPermissions(assignment.permissions);
   return {
     assignmentId: assignment.id,
     assignmentRevision: assignment.revision,
@@ -198,31 +258,41 @@ export function briefOf(context: AttemptContext, attemptId: string, gate: Brief[
     acceptanceRequirements,
     requirementsIdentity: identityOf(acceptanceRequirements),
     approvedScope: assignment.approvedScope,
-    permissions: { ...storedPermissions(assignment.permissions), writePaths: context.writePaths },
+    permissions: { ...permissions, writePaths: context.writePaths },
     fixedInputs,
     // The records that the launch plan of this attempt fixed, so a recovery and a replacement
     // attempt restore the same words. A first launch carries the latest record of each one.
     planningRecords: context.planning.launched ?? context.planning.latest,
     // A reviewer reports and never submits, so it receives none of the producer's rules.
     rules:
-      review === null
-        ? {
-            submit: [
-              ACKNOWLEDGED_RULE,
-              ONE_COMMIT_RULE,
-              ...ARTIFACT_RULES,
-              ...SUBMIT_RULES,
-              BEHAVIOR_CHANGE_RULE,
-              PROJECT_GATE_RULE,
-            ],
-            report: [],
-          }
-        : { submit: [], report: [ACKNOWLEDGED_RULE, ...REPORT_RULES] },
+      context.branchReview !== null
+        ? { submit: [], report: [ACKNOWLEDGED_RULE, ...BRANCH_RULES] }
+        : review === null
+          ? {
+              submit: [
+                ACKNOWLEDGED_RULE,
+                ONE_COMMIT_RULE,
+                ...ARTIFACT_RULES,
+                ...SUBMIT_RULES,
+                BEHAVIOR_CHANGE_RULE,
+                PROJECT_GATE_RULE,
+              ],
+              report: [],
+            }
+          : { submit: [], report: [ACKNOWLEDGED_RULE, ...REPORT_RULES] },
     gate,
     review:
       review === null
         ? null
         : reviewBriefOf(review, { attemptId, producerTitle: assignment.title, fixedInputs }),
+    branchReview:
+      context.branchReview === null
+        ? null
+        : branchReviewBriefOf(context.branchReview, {
+            attemptId,
+            fixedInputs,
+            allowedCommands: permissions.allowedCommands,
+          }),
     rework: context.rework === null ? null : reworkBriefOf(context.rework),
   };
 }

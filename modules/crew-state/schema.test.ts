@@ -172,3 +172,39 @@ test("the database refuses text where the schema declares a whole number", async
   expect(refusal).toContain("cannot store TEXT value in INTEGER column");
   opened.close();
 });
+
+test("the database refuses a review that names both subjects, or neither", async () => {
+  const opened = await openNewState();
+  opened.db.run(
+    sql.raw(`insert into work_sources values ('s1', 'ticket', 'r1', 'github', null, 0, 'now')`),
+  );
+  opened.db.run(
+    sql.raw(
+      `insert into assignments values ('a1', 's1', 'k1', 'r1', null, 'Review', 'review', null, 0,
+       'scope', '[]', '{}', '[]', 'fi', 'registered', 1, 'now', 'now', null, null)`,
+    ),
+  );
+  opened.db.run(
+    sql.raw(
+      `insert into branch_snapshots values ('b1', 's1', 'base', 'head', '[]', 'identity', 'now')`,
+    ),
+  );
+  const columns = `(id, submission_id, snapshot_id, assignment_id, axes, state, revision,
+    created_at, updated_at)`;
+  const rest = `'a1', '[]', 'registered', 1, 'now', 'now'`;
+
+  const neither = refuses(
+    opened,
+    `insert into reviews ${columns} values ('r1', null, null, ${rest})`,
+  );
+  // Foreign keys are checked too, so a submission that exists is not needed to prove the rule.
+  opened.db.run(sql.raw("pragma foreign_keys = off"));
+  const both = refuses(opened, `insert into reviews ${columns} values ('r2', 'x', 'b1', ${rest})`);
+
+  expect(neither).toContain("CHECK");
+  expect(both).toContain("CHECK");
+  expect(refuses(opened, `insert into reviews ${columns} values ('r3', null, 'b1', ${rest})`)).toBe(
+    "",
+  );
+  opened.close();
+});

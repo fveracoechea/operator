@@ -5,7 +5,22 @@ import type { AssignmentRow } from "./assignment.ts";
 import { attemptCount, type AttemptRow } from "./attempt.ts";
 import { currentOwnership } from "./ownership.ts";
 import { findingsOf, reviewOfAssignment, reviewOfSubmission, type ReviewRow } from "./review.ts";
-import { assignments, attemptDispatch, attempts, externalOperations, questions } from "./schema.ts";
+import {
+  type BranchSnapshotRow,
+  readSnapshot,
+  type SnapshotCommit,
+  storedSnapshotCommits,
+} from "./branch-review.ts";
+import { storedTargets } from "./review-input.ts";
+import { readAssignment } from "./assignment.ts";
+import {
+  assignments,
+  attemptDispatch,
+  attempts,
+  externalOperations,
+  questions,
+  reviews as reviewsTable,
+} from "./schema.ts";
 import { answerRecordOf, questionReportOf, readAnswer } from "./questions.ts";
 import { storedBehaviorChanges, storedConcerns, storedDecisions } from "./submission-input.ts";
 import { cyclesOf, openCycleOf, type ReworkCycleRow } from "./rework.ts";
@@ -53,6 +68,15 @@ export type ReviewContext = {
   priorRounds: ReturnType<typeof priorRoundsOf>;
 };
 
+/** The branch snapshot a branch review attempt reads. Present only on a branch review. */
+export type BranchReviewContext = {
+  review: ReviewRow;
+  snapshot: BranchSnapshotRow;
+  commits: SnapshotCommit[];
+  // Every earlier review of the source, which the branch reviewer reads as context.
+  earlierReviews: ReturnType<typeof earlierReviewsOf>;
+};
+
 /** The delegated cycle a rework attempt answers. Present only while one is open. */
 export type ReworkContext = {
   cycle: ReworkCycleRow;
@@ -67,6 +91,7 @@ export type AttemptContext = {
   dispatch: DispatchRow | null;
   operations: OperationRow[];
   review: ReviewContext | null;
+  branchReview: BranchReviewContext | null;
   rework: ReworkContext | null;
   // The planning records this attempt's launch carried, or null when its launch fixed none, and
   // the latest records, which a new launch carries. A review reads the producer's records.
@@ -198,10 +223,81 @@ function readReviewContext(db: CrewReader, assignmentId: string): ReviewContext 
     return null;
   }
 
-  const submission = readSubmission(db, review.submissionId);
+  const submission = review.submissionId === null ? null : readSubmission(db, review.submissionId);
   return submission === null
     ? null
     : { review, submission, priorRounds: priorRoundsOf(db, submission) };
+}
+
+/**
+ * Every review of one source that reported before this one, with each finding and its answer.
+ * A branch reviewer reads them, so a disposition is visible and a returned defect is reported as
+ * a regression. Their records are fixed once written, so a recovery reads the same list.
+ */
+function earlierReviewsOf(db: CrewReader, review: ReviewRow, sourceId: string) {
+  const held = new Map(
+    db
+      .select()
+      .from(assignments)
+      .where(eq(assignments.sourceId, sourceId))
+      .all()
+      .map((row) => [row.id, row]),
+  );
+  return db
+    .select()
+    .from(reviewsTable)
+    .all()
+    .filter(
+      (one) =>
+        one.id !== review.id &&
+        held.has(one.assignmentId) &&
+        one.state === "reported" &&
+        one.createdAt <= review.createdAt,
+    )
+    .toSorted(
+      (left, right) =>
+        left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+    )
+    .map((one) => {
+      const snapshot = one.snapshotId === null ? null : readSnapshot(db, one.snapshotId);
+      const submission = one.submissionId === null ? null : readSubmission(db, one.submissionId);
+      const producer = submission === null ? null : readAssignment(db, submission.assignmentId);
+      return {
+        reviewId: one.id,
+        kind: snapshot === null ? ("result" as const) : ("branch" as const),
+        subject:
+          snapshot === null
+            ? `submission ${one.submissionId ?? "unknown"} of ${producer?.sourceKey ?? "unknown"}`
+            : `snapshot ${snapshot.id} at head ${snapshot.headCommit}`,
+        findings: findingsOf(db, one.id).map((finding) => ({
+          findingId: finding.id,
+          axis: finding.axis,
+          key: finding.findingKey,
+          severity: finding.severity,
+          summary: finding.summary,
+          disposition: finding.disposition,
+          reason: finding.reason,
+          targets: finding.targets === null ? null : storedTargets(finding.targets),
+        })),
+      };
+    });
+}
+
+/** The branch snapshot one branch review assignment reads, if it is one. */
+function readBranchReviewContext(
+  db: CrewReader,
+  assignment: AssignmentRow,
+): BranchReviewContext | null {
+  const review = reviewOfAssignment(db, assignment.id);
+  const snapshot = review?.snapshotId == null ? null : readSnapshot(db, review.snapshotId);
+  return review === null || snapshot === null
+    ? null
+    : {
+        review,
+        snapshot,
+        commits: storedSnapshotCommits(snapshot.commits),
+        earlierReviews: earlierReviewsOf(db, review, assignment.sourceId),
+      };
 }
 
 /**
@@ -333,6 +429,7 @@ export function lookupAttempt(db: CrewReader, attemptId: string): AttemptLookup 
       dispatch,
       operations: liveOperations(db, attempt.id),
       review,
+      branchReview: readBranchReviewContext(db, assignment),
       rework: readReworkContext(db, assignment.id),
       planning: planningOf(db, { assignmentId: assignment.id, dispatch, review }),
       writePaths: effectiveWritePaths(db, assignment),

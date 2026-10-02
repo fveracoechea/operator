@@ -5,6 +5,8 @@ import { z } from "zod";
 import { ContentIdentity } from "../content-identity/main.ts";
 import type { CrewReader } from "./database.ts";
 import { assignments, workSources } from "./schema.ts";
+import { issueText, textIdentity } from "./source-read.ts";
+import type { StoredCopy } from "./submission-store.ts";
 
 /** The copies of requirement sources. They stay with the crew state and never enter a worktree. */
 const SOURCE_STORE = ".operator/local/sources";
@@ -186,6 +188,34 @@ export async function storeSource(request: {
     request.source.text,
     { createPath: true },
   );
+}
+
+/**
+ * Stores the fixed text of one source under its revision, which is the content identity of that
+ * text. It runs before the transaction that records the revision, so a branch review never names
+ * a missing copy, and a later edit of the parent issue never changes what the review reads.
+ */
+export async function storeSourceText(request: {
+  projectRoot: string;
+  parent: { title: string; body: string };
+}): Promise<void> {
+  await Bun.write(
+    `${request.projectRoot}/${storedPathOf(textIdentity(request.parent))}`,
+    issueText(request.parent),
+    { createPath: true },
+  );
+}
+
+/** The stored fixed text of one source at its recorded revision, or null for no such source. */
+export function sourceTextOf(db: CrewReader, sourceId: string): StoredCopy | null {
+  const row = db
+    .select({ revision: workSources.revision })
+    .from(workSources)
+    .where(eq(workSources.id, sourceId))
+    .all()[0];
+  return row === undefined
+    ? null
+    : { storedPath: storedPathOf(row.revision), contentIdentity: row.revision };
 }
 
 /** Checks that the exact words appear in the source, byte for byte after the CRLF rule. */

@@ -165,6 +165,8 @@ There is no withdrawal command, and you never remove a sub-issue yourself.
 A closed issue is not a withdrawal, because Operator also closes the issues it completes.
 
 Tell the person to wait until no attempt of the item runs.
+A branch review attempt whose snapshot holds the commit of the item is such an attempt too: `withdrawal_attempt_active` names it, with the branch review as its `holder`.
+A withdrawal closes a registered branch review with no attempt whose snapshot holds the commit, in the same change. The next branch review is registered when the branch is final again, after the take-out.
 The plan refuses, and names what it waits for:
 
 - `withdrawal_attempt_active` names an active attempt of the item, or of a review of its result. The attempt runs to its handoff, and nothing stops it.

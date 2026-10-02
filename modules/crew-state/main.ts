@@ -44,6 +44,7 @@ import {
 } from "./registration.ts";
 import { planDifferences, storePlan } from "./registration-plans.ts";
 import { canonicalRead, readSource } from "./source-read.ts";
+import { storeSourceText } from "./requirement-source.ts";
 import { identityOf } from "./identity.ts";
 import { openReworkCycle, type ReworkOutcome } from "./rework-open.ts";
 import { defectInputSchema, reworkInputSchema } from "./rework-input.ts";
@@ -159,6 +160,10 @@ export const CrewState = {
 
     const input = parsed.value;
     const read = await readSource(input);
+    // The fixed text of the parent is stored before a record names its revision (ADR 0017).
+    if (read.status === "read") {
+      await storeSourceText({ projectRoot: request.projectRoot, parent: read.parent });
+    }
     const found = await readPathIdentities(request.projectRoot, input);
     const basis = { read: canonicalRead(read), input };
     const differences =

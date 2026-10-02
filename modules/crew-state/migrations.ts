@@ -1,5 +1,11 @@
 import { Database } from "bun:sqlite";
-import { GATE_TABLES, INTEGRATION_TABLES, LANDING_TABLES, STATE_VERSION } from "./schema.ts";
+import {
+  BRANCH_REVIEW_TABLES,
+  GATE_TABLES,
+  INTEGRATION_TABLES,
+  LANDING_TABLES,
+  STATE_VERSION,
+} from "./schema.ts";
 
 /**
  * One step from one recorded state version to the next.
@@ -200,6 +206,30 @@ export const MIGRATIONS: MigrationStep[] = [
       for (const statement of LANDING_TABLES) {
         sqlite.exec(statement);
       }
+    },
+  },
+  {
+    from: 13,
+    to: 14,
+    summary:
+      "Record each branch snapshot, the subject of each review, and the targets of each finding.",
+    // Every earlier review read one submission, so each keeps it and names no snapshot. SQLite
+    // cannot drop a not-null rule in place, so the review table is built again with its rows.
+    // The migration connection runs with foreign keys off, so the rows that name a review stay.
+    apply: (sqlite) => {
+      const [snapshots, reviewTable] = BRANCH_REVIEW_TABLES;
+      if (snapshots === undefined || reviewTable === undefined) {
+        throw new Error("the branch review tables are not declared");
+      }
+      sqlite.exec(snapshots);
+      sqlite.exec(reviewTable.replace("create table reviews", "create table reviews_next"));
+      const columns = `id, submission_id, assignment_id, axes, state, host, sub_agents, blocker,
+        reported_at, revision, created_at, updated_at`;
+      sqlite.exec(`insert into reviews_next (${columns}) select ${columns} from reviews`);
+      sqlite.exec("drop table reviews");
+      sqlite.exec("alter table reviews_next rename to reviews");
+      sqlite.exec("alter table review_findings add column targets text");
+      sqlite.exec("alter table review_findings add column correction_target text");
     },
   },
 ];

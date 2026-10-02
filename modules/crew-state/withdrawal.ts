@@ -5,6 +5,7 @@ import { activeAttempt } from "./frontier.ts";
 import { assignments, directionRequests, invalidations, reviews, reworkCycles } from "./schema.ts";
 import { submissionsOf } from "./submission.ts";
 import { trackerOperationsOf } from "./tracker.ts";
+import { branchReviewHoldersOf, closeBranchReviewsOf } from "./branch-review.ts";
 
 /**
  * Why one withdrawal waits. A withdrawal never stops work that nobody handed over, and recovery
@@ -16,7 +17,8 @@ export type WithdrawalRefusal =
       key: string;
       assignmentId: string;
       attemptId: string;
-      // The assignment that holds the attempt: the item itself, or a review of its result.
+      // The assignment that holds the attempt: the item itself, a review of its result, or a
+      // branch review whose snapshot holds its commit.
       holder: string;
     }
   | {
@@ -50,7 +52,13 @@ function reviewsOfWork(db: CrewReader, assignmentId: string) {
  * recorded attempts, not a list of assignment states.
  */
 export function withdrawalRefusals(db: CrewReader, row: AssignmentRow): WithdrawalRefusal[] {
-  const holders = [row.id, ...reviewsOfWork(db, row.id).map((one) => one.assignmentId)];
+  // A branch review in flight would report on a head that can never be published, and it would
+  // use one of the three rounds of the source, so it holds the withdrawal too.
+  const holders = [
+    row.id,
+    ...reviewsOfWork(db, row.id).map((one) => one.assignmentId),
+    ...branchReviewHoldersOf(db, row),
+  ];
   const attempts = [...new Set(holders)].flatMap((holder): WithdrawalRefusal[] => {
     const live = activeAttempt(db, holder);
     return live === null
@@ -126,6 +134,20 @@ export function withdrawAssignment(
     const holder = readAssignment(db, review.assignmentId);
     if (holder !== null && holder.state !== "accepted" && holder.state !== "withdrawn") {
       markWithdrawn(db, { row: holder, planRevision: request.planRevision, now });
+    }
+  }
+
+  // A registered branch review whose snapshot holds this commit closes too, and it is not a
+  // reported round. Its direction request, when it waited on one, closes with it.
+  for (const holder of closeBranchReviewsOf(db, { row, now })) {
+    if (holder.state !== "accepted" && holder.state !== "withdrawn") {
+      markWithdrawn(db, { row: holder, planRevision: request.planRevision, now });
+      db.update(directionRequests)
+        .set({ state: "withdrawn", updatedAt: now })
+        .where(
+          and(eq(directionRequests.assignmentId, holder.id), eq(directionRequests.state, "open")),
+        )
+        .run();
     }
   }
 }

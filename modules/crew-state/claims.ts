@@ -3,7 +3,9 @@ import type { CrewWriter } from "./database.ts";
 import { moveAssignment, readAssignment } from "./assignment.ts";
 import { activeAttempt, calculateFrontier, type FrontierBlocker } from "./frontier.ts";
 import { openDirectedCorrection } from "./invalidate.ts";
+import { spendDirection } from "./direction.ts";
 import { attempts } from "./schema.ts";
+import { isReview } from "./work-input.ts";
 
 export type ClaimResult =
   | {
@@ -101,6 +103,12 @@ export function claimAssignment(
         ],
       };
     }
+  }
+
+  // A fourth branch review waits on the user, and the frontier offers it only once the user
+  // directed it, so this claim spends that direction (ADR 0008, ADR 0017).
+  if (isReview(row.kind)) {
+    spendDirection(db, { assignmentId: row.id, limitKind: "branch_reviews", now: request.now });
   }
 
   db.insert(attempts)

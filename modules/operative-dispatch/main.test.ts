@@ -37,6 +37,7 @@ test("dispatch groups the worktree under the Operator and labels the launched ag
     gate: null,
     review: null,
     rework: null,
+    branchReview: null,
   };
   const plan = planDispatch({
     projectRoot: "/projects/renabler",

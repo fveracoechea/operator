@@ -19,7 +19,7 @@ import type { StoredArtifact, StoredCopy } from "./submission-store.ts";
 export type SubmissionRow = typeof submissions.$inferSelect;
 
 /** The Operator commands every reviewer runs, whatever the result it reads. */
-const REVIEWER_COMMANDS = ["operator attempt acknowledge", "operator review report"];
+export const REVIEWER_COMMANDS = ["operator attempt acknowledge", "operator review report"];
 
 /**
  * The read-only `git` commands that `code-review` runs from its fixed point.
@@ -270,6 +270,7 @@ function registerReview(
     .values({
       id: request.reviewId,
       submissionId: request.submissionId,
+      snapshotId: null,
       assignmentId: row.id,
       axes: JSON.stringify(REVIEW_AXES),
       state: "registered",

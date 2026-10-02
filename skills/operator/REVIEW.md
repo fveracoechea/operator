@@ -1,6 +1,6 @@
 # Reviewing and accepting a result
 
-Read this before you review a submitted result or accept an assignment.
+Read this before you review a submitted result, act on a branch review, or accept an assignment.
 
 ## Order of work
 
@@ -190,3 +190,56 @@ A passing rerun does not erase a failure.
 Acceptance does not authorize merge, publication, process closure, or worktree deletion.
 
 Read [INVALIDATION.md](INVALIDATION.md) when accepted work later turns out to be wrong.
+
+## The branch review
+
+A result review reads one commit from the base of its own dispatch.
+A defect that shows only as a relation between two commits is invisible to it.
+One branch review reads the integration branch of the source as a whole, and it gates the publish of that exact head.
+
+You never register it.
+The acceptance or the withdrawal that leaves every code assignment of the source accepted or withdrawn registers it in the same change.
+`work accept` and `work register` report it under `branchReview`.
+An invalidated, paused, or reworked assignment holds it, and so does a withdrawn commit that the branch still holds.
+A source with one code commit, whose spec is the spec of that one item, has no branch review.
+
+Its subject is a branch snapshot: the source, the base, the head, and the ordered commits with the accepted submission of each one.
+Claim it when `crew next` offers it, and dispatch it with no `--commit`.
+The reviewer starts from the head of the snapshot and no other.
+`review_base_changed` means you named another commit.
+
+The brief gives the fixed text of the source as `spec source`. The CLI stores the text of the parent issue each time it registers the source, so a later edit of the issue never changes what the review reads.
+The brief carries the spec copy of every item, the base of the integration branch as the fixed point, the commit list, and every earlier review of the source with its findings and dispositions.
+The reviewer may run the project gate commands at the head, and records what it saw in `observedChecks`.
+It states `diff`, `requirements`, and `checks` in `checked`. It reads no behavior change list.
+
+Its report refuses on these, in addition to the rules of every report:
+
+- `snapshot_drift`: the report names another snapshot identity.
+- `review_finding_untargeted`: a finding names no target commit.
+- `review_finding_target_unknown`: a target is not a commit of the snapshot.
+
+`crew next` offers `dispose_findings` for a branch review, whatever state its own assignment is in.
+A branch finding takes the same three dispositions, and a blocker is never deferred.
+A corrected branch finding names in `target` exactly one assignment whose commit the finding targets:
+
+```json
+{
+  "dispositions": [
+    { "findingId": "<id>", "disposition": "corrected", "reason": "<why this target>", "target": "<assignment id>" }
+  ]
+}
+```
+
+`correction_target_required` means a corrected branch finding names no target.
+`correction_target_unknown` means the target holds none of the commits that the finding targets.
+`correction_target_not_expected` means you named a target on a finding of a result review.
+
+The disposition invalidates that target in the same change, and its correction runs in an invalidation cycle.
+Read [INVALIDATION.md](INVALIDATION.md) for that cycle.
+When a finding joins two commits, you choose the target and state the reason.
+Prefer the later commit, because it usually has fewer dependents, but this is guidance and not a rule.
+
+When the corrected assignment and every dependent it paused are accepted again, that acceptance registers the next branch review on the new snapshot.
+One source holds three branch reviews that reported.
+Read [LIMITS.md](LIMITS.md) for the fourth.

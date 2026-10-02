@@ -29,6 +29,7 @@ const brief: Brief = {
   gate: null,
   review: null,
   rework: null,
+  branchReview: null,
 };
 
 const protocolBrief: Brief = {
@@ -50,6 +51,7 @@ const protocolBrief: Brief = {
   gate: null,
   review: null,
   rework: null,
+  branchReview: null,
 };
 
 function plan(input: Brief) {

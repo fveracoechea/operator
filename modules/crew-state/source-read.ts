@@ -1,5 +1,5 @@
+import { ContentIdentity } from "../content-identity/main.ts";
 import { GithubTracker } from "../github-tracker/main.ts";
-import { identityOf } from "./identity.ts";
 import type { WorkInput } from "./work-input.ts";
 
 /** One issue as a registration reads it, with its key in the one canonical spelling. */
@@ -41,9 +41,18 @@ function normalized(text: string): string {
   return text.replaceAll("\r\n", "\n");
 }
 
+/**
+ * The fixed text of one issue: its title and body as one JSON value with its keys in canonical
+ * order. A source stores the text of its parent issue in this form, so the identity of the
+ * stored copy is the recorded source revision.
+ */
+export function issueText(issue: { title: string; body: string }): string {
+  return JSON.stringify({ body: normalized(issue.body), title: normalized(issue.title) });
+}
+
 /** The content identity of one issue's title and body. Its state and comments are outside it. */
 export function textIdentity(issue: { title: string; body: string }): string {
-  return identityOf({ title: normalized(issue.title), body: normalized(issue.body) });
+  return ContentIdentity.ofText(issueText(issue));
 }
 
 export function keyOf(repository: string, number: number): string {

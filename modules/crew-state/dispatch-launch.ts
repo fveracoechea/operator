@@ -227,8 +227,11 @@ export async function dispatchAttempt(request: {
   // A correction of a landed commit takes the place of that commit, so it starts on the parent
   // that the invalidation recorded, and a dispatch that names no commit starts there.
   const correctionBase = read.context.rework?.brief.invalidation?.startCommit ?? null;
+  // A branch review reads one recorded head and no other, so a dispatch that names no commit
+  // starts there (ADR 0017).
+  const branchHead = read.context.branchReview?.snapshot.headCommit ?? null;
   const baseCommit =
-    recorded?.baseCommit ?? integration.start ?? request.baseCommit ?? correctionBase;
+    recorded?.baseCommit ?? integration.start ?? request.baseCommit ?? correctionBase ?? branchHead;
   if (baseCommit === null) {
     return { status: "commit-required", attemptId };
   }
@@ -242,7 +245,7 @@ export async function dispatchAttempt(request: {
   }
 
   // A review reads the exact commit the result was submitted on, never a later one.
-  const reviewBase = read.context.review?.submission.reviewBase ?? null;
+  const reviewBase = read.context.review?.submission.reviewBase ?? branchHead;
   if (reviewBase !== null && baseCommit !== reviewBase) {
     return {
       status: "review-base-changed",

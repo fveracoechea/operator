@@ -7,6 +7,8 @@ bun run operator work invalidate --request <id> --owner-token <token> --assignme
 ```
 
 The defect states its summary, its evidence, and who found it.
+A corrected branch finding invalidates its target through this same path, inside `review dispose`, so you do not run `work invalidate` for it.
+Its defect carries the finding, its target commits, and your reason, as [REVIEW.md](REVIEW.md) shows.
 Review work is refused, because a review holds no result of its own.
 The acceptance, the submission, the review, and every finding stay recorded.
 The assignment returns to the frontier as `invalidated`, and the invalidation opens its correction cycle in the same change.

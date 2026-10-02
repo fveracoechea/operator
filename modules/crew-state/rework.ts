@@ -16,7 +16,13 @@ export const REWORK_CYCLE_LIMIT = 3;
 export const DIAGNOSTIC_RERUN_LIMIT = 2;
 
 /** The limit one reason is counted against. Correction work shares a single budget. */
-export const limitKindSchema = z.enum(["rework_cycles", "diagnostic_reruns", "review_attempts"]);
+export const limitKindSchema = z.enum([
+  "rework_cycles",
+  "diagnostic_reruns",
+  "review_attempts",
+  // The branch reviews of one source that reported (ADR 0017).
+  "branch_reviews",
+]);
 
 export type LimitKind = z.infer<typeof limitKindSchema>;
 

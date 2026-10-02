@@ -1,14 +1,15 @@
 import type { CrewWriter } from "./database.ts";
 import { identityOf } from "./identity.ts";
-import type { AxisReport, ReviewReportInput, SubAgentRecord } from "./review-input.ts";
+import type { BranchSnapshotRow, SnapshotCommit } from "./branch-review.ts";
+import type {
+  AxisReport,
+  BranchReportInput,
+  ReviewReportInput,
+  SubAgentRecord,
+} from "./review-input.ts";
 import { findingId, REVIEW_AXES, type ReviewRow, updateReview } from "./review.ts";
 import { reviewFindings, reviewReports } from "./schema.ts";
-import {
-  type ResultKind,
-  requiredCoverage,
-  storedBehaviorChanges,
-  storedResultKind,
-} from "./submission-input.ts";
+import { requiredCoverage, storedBehaviorChanges, storedResultKind } from "./submission-input.ts";
 import type { SubmissionRow } from "./submission.ts";
 
 export type ReportedFinding = {
@@ -24,7 +25,8 @@ export type ReportOutcome =
       status: "reported";
       reviewId: string;
       assignmentId: string;
-      submissionId: string;
+      submissionId: string | null;
+      snapshotId: string | null;
       findings: ReportedFinding[];
     }
   | {
@@ -36,6 +38,17 @@ export type ReportOutcome =
     }
   | { status: "review-settled"; reviewId: string; state: string }
   | { status: "submission-drift"; reviewId: string; recorded: string; stated: string }
+  | { status: "snapshot-drift"; reviewId: string; recorded: string; stated: string }
+  | {
+      status: "finding-untargeted";
+      reviewId: string;
+      findings: Array<{ axis: string; key: string }>;
+    }
+  | {
+      status: "finding-target-unknown";
+      reviewId: string;
+      findings: Array<{ axis: string; key: string; targets: string[] }>;
+    }
   | { status: "axes-incomplete"; reviewId: string; missing: string[] }
   | {
       status: "axes-not-parallel";
@@ -72,11 +85,9 @@ function ranInParallel(subAgents: SubAgentRecord[]): boolean {
 }
 
 function coverageGaps(
-  reports: AxisReport[],
-  resultKind: ResultKind,
-  listed: boolean,
+  reports: Array<Pick<AxisReport, "axis" | "checked">>,
+  required: string[],
 ): Array<{ axis: string; missing: string[] }> {
-  const required = requiredCoverage(resultKind, listed);
   return reports.flatMap((report) => {
     const missing = required.filter((token) => !report.checked.includes(token));
     return missing.length === 0 ? [] : [{ axis: report.axis, missing }];
@@ -121,6 +132,100 @@ export const REPORT_RULES = [
 ];
 
 /**
+ * The rules a branch review report refuses beyond the shared ones, each with its refusal name.
+ * A branch finding is corrected by invalidating the assignment of one target commit, so a
+ * finding with no target, or with a commit outside the snapshot, could never be answered.
+ */
+export const BRANCH_REPORT_RULES = [
+  {
+    refusal: "review_finding_untargeted",
+    rule: "Every finding names at least one commit of the snapshot in `targets`.",
+  },
+  {
+    refusal: "review_finding_target_unknown",
+    rule: "Every target is the full SHA of one commit listed in the branch snapshot above.",
+  },
+];
+
+/** The coverage a branch review states. It reads the whole range and names no behavior changes. */
+export function branchCoverage(): string[] {
+  return requiredCoverage("code", false);
+}
+
+/** The fixed subject one report names: a submission, or a branch snapshot. */
+export type ReportSubject =
+  | { kind: "submission"; submission: SubmissionRow; input: ReviewReportInput }
+  | {
+      kind: "branch";
+      snapshot: BranchSnapshotRow;
+      commits: SnapshotCommit[];
+      input: BranchReportInput;
+    };
+
+/** The finding of a branch report whose targets are missing or outside its snapshot. */
+function targetRefusal(
+  reviewId: string,
+  subject: Extract<ReportSubject, { kind: "branch" }>,
+): ReportOutcome | null {
+  if (subject.input.kind !== "reported") {
+    return null;
+  }
+  const findings = subject.input.reports.flatMap((report) =>
+    report.findings.map((one) => ({ axis: report.axis, key: one.key, targets: one.targets })),
+  );
+  const untargeted = findings.filter((one) => one.targets.length === 0);
+  if (untargeted.length > 0) {
+    return {
+      status: "finding-untargeted",
+      reviewId,
+      findings: untargeted.map((one) => ({ axis: one.axis, key: one.key })),
+    };
+  }
+  const held = new Set(subject.commits.map((one) => one.commit));
+  const unknown = findings
+    .map((one) => ({ ...one, targets: one.targets.filter((target) => !held.has(target)) }))
+    .filter((one) => one.targets.length > 0);
+  return unknown.length === 0
+    ? null
+    : { status: "finding-target-unknown", reviewId, findings: unknown };
+}
+
+/** The identity a report states against the identity its subject records. */
+function subjectDrift(reviewId: string, subject: ReportSubject): ReportOutcome | null {
+  if (subject.kind === "submission") {
+    // The report names the exact submission it read, so a moved result cannot pass as reviewed.
+    return subject.input.submissionIdentity === subject.submission.identity
+      ? null
+      : {
+          status: "submission-drift",
+          reviewId,
+          recorded: subject.submission.identity,
+          stated: subject.input.submissionIdentity,
+        };
+  }
+  // The report names the exact snapshot it read, so a review of another head or another commit
+  // list cannot pass as the review of this one (ADR 0017).
+  return subject.input.snapshotIdentity === subject.snapshot.identity
+    ? null
+    : {
+        status: "snapshot-drift",
+        reviewId,
+        recorded: subject.snapshot.identity,
+        stated: subject.input.snapshotIdentity,
+      };
+}
+
+/** The coverage each axis of this subject must state. */
+function coverageOf(subject: ReportSubject): string[] {
+  return subject.kind === "branch"
+    ? branchCoverage()
+    : requiredCoverage(
+        storedResultKind(subject.submission.resultKind),
+        storedBehaviorChanges(subject.submission.behaviorChanges) !== null,
+      );
+}
+
+/**
  * Records the two axis reports of one review, or the blocker that stopped it.
  * A review report is the end of the review chain: it is never a submitted result, so it never
  * starts another review.
@@ -129,25 +234,20 @@ export function recordReviewReport(
   db: CrewWriter,
   request: {
     review: ReviewRow;
-    submission: SubmissionRow;
+    subject: ReportSubject;
     agentHost: string;
-    input: ReviewReportInput;
     now: string;
   },
 ): ReportOutcome {
-  const { review, submission, input } = request;
+  const { review, subject } = request;
+  const input = subject.input;
 
   if (review.state !== "registered") {
     return { status: "review-settled", reviewId: review.id, state: review.state };
   }
-  // The report names the exact submission it read, so a moved result cannot pass as reviewed.
-  if (input.submissionIdentity !== submission.identity) {
-    return {
-      status: "submission-drift",
-      reviewId: review.id,
-      recorded: submission.identity,
-      stated: input.submissionIdentity,
-    };
+  const drift = subjectDrift(review.id, subject);
+  if (drift !== null) {
+    return drift;
   }
 
   // The stated host is what `review show` reports, so it must be the host the launch recorded.
@@ -216,17 +316,18 @@ export function recordReviewReport(
     };
   }
 
-  const gaps = coverageGaps(
-    input.reports,
-    storedResultKind(submission.resultKind),
-    storedBehaviorChanges(submission.behaviorChanges) !== null,
-  );
+  const gaps = coverageGaps(input.reports, coverageOf(subject));
   if (gaps.length > 0) {
     return { status: "coverage-incomplete", reviewId: review.id, gaps };
   }
+  const untargeted = subject.kind === "branch" ? targetRefusal(review.id, subject) : null;
+  if (untargeted !== null) {
+    return untargeted;
+  }
 
   const findings: ReportedFinding[] = [];
-  for (const report of input.reports) {
+  const reports: Array<AxisReport & { findings: Array<{ targets?: string[] }> }> = input.reports;
+  for (const report of reports) {
     db.insert(reviewReports)
       .values({
         id: identityOf({ reviewId: review.id, axis: report.axis }).slice(0, 32),
@@ -257,6 +358,8 @@ export function recordReviewReport(
           followUp: null,
           disposedAt: null,
           recordedAt: request.now,
+          targets: finding.targets === undefined ? null : JSON.stringify(finding.targets),
+          correctionTarget: null,
         })
         .run();
       findings.push({
@@ -283,7 +386,8 @@ export function recordReviewReport(
     status: "reported",
     reviewId: review.id,
     assignmentId: review.assignmentId,
-    submissionId: submission.id,
+    submissionId: subject.kind === "submission" ? subject.submission.id : null,
+    snapshotId: subject.kind === "branch" ? subject.snapshot.id : null,
     findings,
   };
 }
