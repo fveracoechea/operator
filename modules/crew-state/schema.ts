@@ -5,7 +5,7 @@ import { integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqli
  * The durable shape of the crew state. A reader that finds a higher version refuses the file,
  * so this number changes only when an older Operator release can no longer read the tables.
  */
-export const STATE_VERSION = 12;
+export const STATE_VERSION = 13;
 
 export const stateMeta = sqliteTable("state_meta", {
   id: integer("id").primaryKey(),
@@ -540,6 +540,34 @@ export const integrationBranches = sqliteTable("integration_branches", {
 });
 
 /**
+ * One landing of one accepted code result on the integration branch of its source (ADR 0020).
+ * The intent names the tip the branch moves from and the commit it moves to before the move, so
+ * recovery reads the branch once. `landed` is the commit on the branch that carries the result.
+ */
+export const landings = sqliteTable("landings", {
+  id: text("id").primaryKey(),
+  sourceId: text("source_id")
+    .notNull()
+    .references(() => workSources.id),
+  assignmentId: text("assignment_id")
+    .notNull()
+    .references(() => assignments.id),
+  submissionId: text("submission_id")
+    .notNull()
+    .references(() => submissions.id),
+  branch: text("branch").notNull(),
+  kind: text("kind").notNull(),
+  fromCommit: text("from_commit").notNull(),
+  toCommit: text("to_commit").notNull(),
+  landedCommit: text("landed_commit").notNull(),
+  landedParent: text("landed_parent").notNull(),
+  patch: text("patch").notNull(),
+  state: text("state").notNull(),
+  createdAt: text("created_at").notNull(),
+  landedAt: text("landed_at"),
+});
+
+/**
  * One approval of one exact action. It binds the action, its targets, its scope, and the
  * revision of the request it was granted against, and a revocation ends it.
  */
@@ -714,6 +742,28 @@ export const INTEGRATION_TABLES = [
     fixed_at text not null,
     updated_at text not null
   ) strict`,
+];
+
+/** The landing table, written once for a new state and its migration step. */
+export const LANDING_TABLES = [
+  `create table landings (
+    id text primary key,
+    source_id text not null references work_sources(id),
+    assignment_id text not null references assignments(id),
+    submission_id text not null references submissions(id),
+    branch text not null,
+    kind text not null,
+    from_commit text not null,
+    to_commit text not null,
+    landed_commit text not null,
+    landed_parent text not null,
+    patch text not null,
+    state text not null,
+    created_at text not null,
+    landed_at text
+  ) strict`,
+  // One landing of a source waits at a time, so two intents never race for one tip.
+  `create unique index landings_one_intended on landings (source_id) where state = 'intended'`,
 ];
 
 /**
@@ -985,6 +1035,7 @@ export const CREATE_STATEMENTS = [
   ) strict`,
   ...GATE_TABLES.map((statement) => sql.raw(statement)),
   ...INTEGRATION_TABLES.map((statement) => sql.raw(statement)),
+  ...LANDING_TABLES.map((statement) => sql.raw(statement)),
   sql`create table approvals (
     id text primary key,
     action text not null,

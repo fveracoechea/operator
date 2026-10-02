@@ -6,6 +6,7 @@ import {
   disposeFindings,
   invalidateResult,
   makeReviewWorkspace,
+  passCandidateGate,
   reportBody,
   reportReview,
   startProducer,
@@ -413,8 +414,17 @@ describe("the next actions", () => {
       },
     ]);
 
+    // A code result lands only after its planned commit passed the project gate.
     const disposed = await nextActions(workspace);
-    const accept = disposed.actions.filter((one) => one.action === "accept_assignment");
+    const gate = disposed.actions.filter((one) => one.action === "run_gate");
+    expect(gate.map((one) => one.assignmentId)).toContain(producer.assignmentId);
+    expect(disposed.forAction("accept_assignment").map((one) => one.assignmentId)).not.toContain(
+      producer.assignmentId,
+    );
+
+    await passCandidateGate(workspace, producer);
+    const gated = await nextActions(workspace);
+    const accept = gated.actions.filter((one) => one.action === "accept_assignment");
     expect(accept.map((one) => one.assignmentId)).toContain(producer.assignmentId);
   });
 });
@@ -610,7 +620,6 @@ describe("the next-actions contract", () => {
     const accepted = await acceptProduction(workspace, producer, {
       submissionId: submitted.json.data.submissionId,
       revision: submitted.json.data.revision,
-      prHead: artifact.commit,
     });
     expect(accepted.json.reason).toBe("assignment_accepted");
     const dependent = String(registered.get("26.2"));

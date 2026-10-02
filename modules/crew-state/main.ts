@@ -20,8 +20,9 @@ import {
   stopGateRun,
 } from "./gate-record.ts";
 import { checkoutOf, gateRunRecordOf, readGateRun } from "./gate-runs.ts";
+import { startCandidateGateRun } from "./gate-candidate.ts";
 import { startGateRun } from "./gate-start.ts";
-import { acceptAssignment } from "./acceptance.ts";
+import { acceptWithLanding } from "./accept-landing.ts";
 import { claimAssignment } from "./claims.ts";
 import { calculateFrontier } from "./frontier.ts";
 import { calculateNext, calculateUnowned, isStandingAction } from "./next.ts";
@@ -274,7 +275,8 @@ export const CrewState = {
   /**
    * Records accepted completion, which is the only result that unblocks a dependent.
    * Production work reaches it only through a reviewed submission, so every review gate is
-   * checked here rather than on a second path to acceptance.
+   * checked here rather than on a second path to acceptance. A code result lands on the
+   * integration branch of its source as the last step (ADR 0020).
    */
   async accept(
     request: Mutation & {
@@ -282,7 +284,6 @@ export const CrewState = {
       attemptId: string | null;
       revision: number;
       submissionId: string | null;
-      prHead: string | null;
       /** The planning record of planning work, or null for every other acceptance. */
       planningRecord: unknown;
     },
@@ -300,36 +301,10 @@ export const CrewState = {
       return { repeated: false, result: prepared };
     }
 
-    return mutate(
-      {
-        projectRoot: request.projectRoot,
-        requestId: request.requestId,
-        ownerToken: request.ownerToken,
-        now: new Date().toISOString(),
-        operation: "work_accept",
-        input: {
-          assignmentId: request.assignmentId,
-          attemptId: request.attemptId,
-          revision: request.revision,
-          submissionId: request.submissionId,
-          prHead: request.prHead,
-          planningRecord: request.planningRecord,
-        },
-      },
-      ({ tx, now }) =>
-        commitOn(
-          acceptAssignment(tx, {
-            assignmentId: request.assignmentId,
-            attemptId: request.attemptId,
-            revision: request.revision,
-            submissionId: request.submissionId,
-            prHead: request.prHead,
-            record: prepared === null ? null : prepared.record,
-            now,
-          }),
-          "accepted",
-        ),
-    );
+    return acceptWithLanding({
+      ...request,
+      record: prepared === null ? null : prepared.record,
+    });
   },
 
   /**
@@ -516,6 +491,20 @@ export const CrewState = {
     },
   ) {
     return startGateRun(request);
+  },
+
+  /**
+   * Starts one gate run on the candidate of one code result: the planned commit of its landing on
+   * the recorded tip. `operator work accept` lands only after the key of that commit passed.
+   */
+  async startCandidateGateRun(
+    request: Mutation & {
+      assignmentId: string;
+      approvalId: string | null;
+      runnerLine: (runId: string) => string;
+    },
+  ) {
+    return startCandidateGateRun(request);
   },
 
   /**

@@ -22,11 +22,20 @@ import {
   type PreparedRecord,
   type RecordRefusal,
 } from "./planning-record.ts";
+import {
+  insertLandingIntent,
+  intendedLandingOf,
+  landedEarlier,
+  type LandingPlan,
+  type LandingRefusal,
+  recordedTipOf,
+  recordLanding,
+} from "./landing.ts";
 import { blockingQuestionOf } from "./questions.ts";
 import { submissions } from "./schema.ts";
 import { type ReviewBlocker, storedBlocker, storedObservedChecks } from "./review-input.ts";
 import { storedChecks, storedCode } from "./submission-input.ts";
-import { latestSubmission, type SubmissionRow } from "./submission.ts";
+import { latestSubmission, reviewedBaseOf, type SubmissionRow } from "./submission.ts";
 import { isExecutable, isReview } from "./work-input.ts";
 
 export type AcceptResult =
@@ -36,6 +45,8 @@ export type AcceptResult =
       attemptId: string | null;
       revision: number;
       planningRecordId: string | null;
+      // The landing of a code result, or null for every other acceptance.
+      landing: AcceptedLanding | null;
     }
   | { status: "unknown-assignment"; assignmentId: string }
   | { status: "stale-revision"; assignmentId: string; recordedRevision: number }
@@ -85,15 +96,51 @@ export type AcceptResult =
       // How many of them touch a security permission, which only the user releases.
       security: number;
     }
-  | { status: "pr-head-required"; assignmentId: string; headCommit: string }
-  | { status: "pr-head-changed"; assignmentId: string; recorded: string; stated: string };
+  | {
+      // Every other gate passed, so a code result now plans its landing (ADR 0020).
+      status: "landing-required";
+      assignmentId: string;
+      sourceId: string;
+      submissionId: string;
+      commit: string;
+      reviewedBase: string;
+    }
+  | { status: "landing-intended"; assignmentId: string; landingId: string }
+  | {
+      status: "landing-tip-changed";
+      assignmentId: string;
+      planned: string;
+      recordedTip: string | null;
+    }
+  | LandingRefusal;
+
+/** The landing of one accepted code result, as acceptance reports it. */
+export type AcceptedLanding = {
+  landingId: string;
+  branch: string;
+  kind: string;
+  from: string;
+  to: string;
+  // The commit on the branch that carries the accepted result.
+  landed: string;
+};
+
+/**
+ * What one acceptance does at the landing step, the last gate of a code result. A probe stops
+ * there and records nothing, an intent records the planned move before the branch moves, and a
+ * record completes the acceptance after the move (ADR 0005, ADR 0020).
+ */
+export type LandingStep =
+  | { kind: "probe" }
+  | { kind: "intend"; landingId: string; plan: LandingPlan }
+  | { kind: "record"; landingId: string; intended: boolean; plan: LandingPlan };
 
 type AcceptRequest = {
   assignmentId: string;
   attemptId: string | null;
   revision: number;
   submissionId: string | null;
-  prHead: string | null;
+  landing: LandingStep;
   record: PreparedRecord | null;
   now: string;
 };
@@ -159,12 +206,9 @@ function contradictedChecks(
 /**
  * The review gates of one code or non-code submission.
  * Every gate is a recorded fact, so a process that exited, a missing input, an unavailable
- * review capability, a failed check, or a stated commit that is not the reviewed one can never read as acceptance.
+ * review capability, or a failed check can never read as acceptance.
  */
-function reviewGate(
-  db: CrewWriter,
-  request: { submission: SubmissionRow; prHead: string | null },
-): AcceptResult | null {
+function reviewGate(db: CrewWriter, request: { submission: SubmissionRow }): AcceptResult | null {
   const { submission } = request;
   const review = reviewOfSubmission(db, submission.id);
   if (review === null || review.state !== "reported") {
@@ -232,29 +276,6 @@ function reviewGate(
     };
   }
 
-  if (submission.code === null) {
-    return null;
-  }
-
-  // The Operator states the commit it read. Until acceptance lands that commit itself (ADR 0015),
-  // a stated commit that is not the reviewed one is refused.
-  const code = storedCode(submission.code);
-  if (request.prHead === null) {
-    return {
-      status: "pr-head-required",
-      assignmentId: submission.assignmentId,
-      headCommit: code.resultCommit,
-    };
-  }
-  if (request.prHead !== code.resultCommit) {
-    return {
-      status: "pr-head-changed",
-      assignmentId: submission.assignmentId,
-      recorded: code.resultCommit,
-      stated: request.prHead,
-    };
-  }
-
   return null;
 }
 
@@ -306,6 +327,80 @@ function acceptPlanning(
       artifacts: request.record.artifacts,
       now: request.now,
     }),
+    landing: null,
+  };
+}
+
+/**
+ * The landing step of one code result. Its plan and its move are Git effects outside this
+ * transaction, so the caller plans first, records the intent here, moves the branch, and then
+ * records the outcome here with the acceptance. The recorded tip is read again here, so a plan
+ * made on a tip that another acceptance moved is never recorded.
+ */
+function landingStep(
+  db: CrewWriter,
+  request: { row: AssignmentRow; submission: SubmissionRow; step: LandingStep; now: string },
+): { status: "landed"; landing: AcceptedLanding | null } | AcceptResult {
+  const { row, submission, step } = request;
+  // A correction of a landed commit takes its place through the rewrite of ADR 0020, which is not
+  // built yet, so until then it is accepted with no move and the branch keeps the landed commit.
+  if (landedEarlier(db, { assignmentId: row.id, submissionId: submission.id })) {
+    return { status: "landed", landing: null };
+  }
+  if (step.kind === "probe") {
+    return {
+      status: "landing-required",
+      assignmentId: row.id,
+      sourceId: row.sourceId,
+      submissionId: submission.id,
+      commit: storedCode(submission.code ?? "").resultCommit,
+      reviewedBase: reviewedBaseOf(db, submission) ?? "",
+    };
+  }
+
+  const intended = intendedLandingOf(db, row.sourceId);
+  const own = intended !== null && intended.id === step.landingId;
+  if (intended !== null && !own) {
+    return {
+      status: "landing-pending",
+      assignmentId: row.id,
+      landingId: intended.id,
+      pendingAssignmentId: intended.assignmentId,
+    };
+  }
+  const recordedTip = recordedTipOf(db, row.sourceId);
+  if (!own && recordedTip !== step.plan.from) {
+    return {
+      status: "landing-tip-changed",
+      assignmentId: row.id,
+      planned: step.plan.from,
+      recordedTip,
+    };
+  }
+
+  const fields = {
+    landingId: step.landingId,
+    sourceId: row.sourceId,
+    assignmentId: row.id,
+    submissionId: submission.id,
+    plan: step.plan,
+    now: request.now,
+  };
+  if (step.kind === "intend") {
+    insertLandingIntent(db, fields);
+    return { status: "landing-intended", assignmentId: row.id, landingId: step.landingId };
+  }
+  recordLanding(db, { ...fields, intended: own });
+  return {
+    status: "landed",
+    landing: {
+      landingId: step.landingId,
+      branch: step.plan.name,
+      kind: step.plan.kind,
+      from: step.plan.from,
+      to: step.plan.to,
+      landed: step.plan.landed,
+    },
   };
 }
 
@@ -393,6 +488,7 @@ export function acceptAssignment(db: CrewWriter, request: AcceptRequest): Accept
       attemptId: live.id,
       revision: acceptRow(db, { row, now: request.now }),
       planningRecordId: null,
+      landing: null,
     };
   }
 
@@ -417,7 +513,7 @@ export function acceptAssignment(db: CrewWriter, request: AcceptRequest): Accept
     return { status: "attempt-mismatch", assignmentId: row.id, attemptId: submission.attemptId };
   }
 
-  const blocked = reviewGate(db, { submission, prHead: request.prHead });
+  const blocked = reviewGate(db, { submission });
   if (blocked !== null) {
     return blocked;
   }
@@ -432,6 +528,16 @@ export function acceptAssignment(db: CrewWriter, request: AcceptRequest): Accept
       changeIds: outside.map((one) => one.id),
       security: outside.filter((one) => one.security === 1).length,
     };
+  }
+
+  // The landing is the last gate and the last effect, so nothing lands that another gate refuses.
+  let landing: AcceptedLanding | null = null;
+  if (submission.code !== null) {
+    const step = landingStep(db, { row, submission, step: request.landing, now: request.now });
+    if (step.status !== "landed") {
+      return step;
+    }
+    landing = step.landing;
   }
 
   const submitted = readAttempt(db, submission.attemptId);
@@ -449,5 +555,6 @@ export function acceptAssignment(db: CrewWriter, request: AcceptRequest): Accept
     attemptId: submission.attemptId,
     revision: acceptRow(db, { row, now: request.now }),
     planningRecordId: null,
+    landing,
   };
 }

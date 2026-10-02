@@ -693,7 +693,7 @@ The Operator gives each finding one disposition:
 A blocker is never deferred.
 
 ```sh
-bun run operator work accept --request <id> --owner-token <token> --assignment <id> --attempt <id> --revision <n> --submission <id> --pr-head <sha> --json
+bun run operator work accept --request <id> --owner-token <token> --assignment <id> --attempt <id> --revision <n> --submission <id> --json
 ```
 
 Acceptance verifies these items:
@@ -702,7 +702,9 @@ Acceptance verifies these items:
 - The exact submission and both axis reports.
 - A disposition on every finding, and no correction still waiting for rework.
 - A passing outcome on every recorded check.
-- The commit you name with `--pr-head`, against the result commit the submission recorded.
+- For a code result, a passing gate run on the planned commit of its landing (`operator gate run --assignment <id>`).
+
+The last step lands a code result on the integration branch of its source, as ADR 0020 records.
 
 A check outcome that a review observed for itself outranks the producer's own word, so a contradiction blocks.
 A stopped reviewer, a missing input, an unavailable review capability, a failed check, and a flaky check each block acceptance.

@@ -14,7 +14,9 @@ Read this before you review a submitted result or accept an assignment.
 5. `bun run operator review show --review <id> --json` gives you both reports and every finding.
 6. `bun run operator review dispose --request <id> --owner-token <token> --review <id> --input <path> --json` records your judgment.
 7. `bun run operator work dispose --request <id> --owner-token <token> --submission <id> --input <path> --json` records a disposition on each outside change.
-8. `bun run operator work accept ... --submission <id> --pr-head <sha> --json` records accepted completion.
+8. For a code result, `crew next` offers `run_gate` with `operator gate run --assignment <id>`.
+   It gates the planned commit of the landing, and the runner wakes you at the end.
+9. `bun run operator work accept ... --submission <id> --json` lands the result and records accepted completion.
 
 ## A submission is not completion
 
@@ -154,7 +156,34 @@ Acceptance refuses on:
 - `checks_unproven`: a recorded check failed, was flaky, or did not run.
 - `checks_contradicted`: a review ran a recorded check itself and saw a different outcome.
   What a reviewer ran outranks what the producer wrote about its own work.
-- `pr_head_required` or `pr_head_changed`: name the submitted commit that the review read with `--pr-head`.
+- `gate_pending`, `gate_running`, `gate_failed`, or `gate_flaky`: the planned commit of the landing has not passed the project gate.
+  Run `operator gate run --assignment <id>` for `gate_pending`, and wait for `gate_running`.
+  Read [GATE.md](GATE.md) for a failed or flaky key.
+- `integration_branch_moved`: the branch holds a commit that was not recorded. The refusal names both tips.
+- `integration_branch_checked_out`: a worktree has the branch checked out. The refusal names the worktree.
+- `landing_tip_changed`: another acceptance moved the recorded tip after this landing was planned. Accept again, and the CLI plans the landing on the new tip.
+- `landing_conflict` or `landing_patch_changed`: the commit does not land on the tip as the reviewed patch.
+- `landing_pending`: another landing of the source has no recorded outcome. Settle it first.
+
+Each of these refusals lands nothing and records nothing.
+A moved or checked-out branch is put back by the person, never by you or the CLI.
+
+## The landing
+
+`work accept` lands a code result on the integration branch of its source as its last step.
+Every other gate of acceptance passes first, then the gate run at the planned commit, then the branch moves, then acceptance is recorded.
+The CLI builds the move only from the reviewed patch, with Git plumbing and no worktree, and it writes no file.
+
+- When the parent of the reviewed commit is the recorded tip, the branch moves to that commit, and the commit keeps the identity of the Operative.
+- Otherwise the CLI merges the change onto the tip and makes one new commit with the author, the committer, both dates, and the message of the reviewed commit, and no signature.
+  Every plan gives the same commit, so the gate run and the landing read the same commit.
+- A commit whose equal patch the branch already holds lands nothing, and it is only accepted.
+
+The accepted result names the landing: its kind, the tip it moved from, and the commit on the branch that carries the result.
+
+When `crew next` offers `settle_landing`, a move has no recorded outcome.
+Repeat `work accept` for that assignment.
+It reads the branch once: the old tip lands again, the planned commit records the outcome, and any other commit is a moved branch.
 
 A stopped reviewer process is not a review.
 A passing rerun does not erase a failure.

@@ -1,6 +1,6 @@
 # Gate runs
 
-Read this when `bun run operator crew next` offers `run_gate`, shows the wait `gate_running`, or a dispatch refuses with a `gate_` reason.
+Read this when `bun run operator crew next` offers `run_gate`, shows the wait `gate_running`, or a dispatch or an acceptance refuses with a `gate_` reason.
 
 A gate run is one run of the project gate on one tree.
 The CLI runs it, because an exit status that Operator code reads is a fact, and a pass that an agent reports is a claim.
@@ -26,6 +26,26 @@ When the base passes, `crew next` offers `dispatch_attempt` and names the commit
 That dispatch creates the integration branch at the commit and fixes the gate declaration on the source, as [DISPATCH.md](DISPATCH.md) describes.
 Dispatch from that commit.
 A dispatch from a commit with no passing run refuses with `gate_pending`, `gate_running`, `gate_failed`, or `gate_flaky`, launches nothing, and fixes no base.
+
+## Each landing passes before it lands
+
+A code result lands on the integration branch only after the commit it lands as passed the project gate.
+That planned commit is the candidate.
+When every other gate of acceptance passed, `crew next` offers `run_gate` for the assignment:
+
+```
+bun run operator gate run --request <id> --owner-token <token> --assignment <id> --json
+```
+
+The CLI plans the landing on the recorded tip and gates the planned commit.
+No ref names the candidate, because the plan gives the same commit again.
+Its key is its tree and the gate declaration fixed on the source.
+The plan refuses as `work accept` does, for a moved or checked-out branch, a conflict, or a changed patch, and then no run starts.
+A commit whose equal patch the branch already holds gates nothing, and `gate run` answers `gate_passed`, so accept it.
+
+When the candidate passes, `crew next` offers `accept_assignment`, and a landing that has a passing run comes before a new `run_gate` of the same source.
+`work accept` refuses with `gate_pending`, `gate_running`, `gate_failed`, or `gate_flaky` until then, and changes nothing.
+After a landing moves the tip, every other candidate of the source is a new commit, so it is gated again.
 
 ## Where the run happens
 
@@ -54,7 +74,7 @@ A key passes only with a passing run and no failed run.
 A failed run blocks, and a later pass at the same key makes the key flaky, which also blocks.
 Nothing reruns a gate by itself.
 
-A failed or flaky base reaches you as `run_gate` with the blocker `gate_failed` or `gate_flaky`, and it names the commit and each failed run.
+A failed or flaky base or candidate reaches you as `run_gate` with the blocker `gate_failed` or `gate_flaky`, and it names the commit and each failed run.
 Bring it to the user.
 Only the user clears it:
 

@@ -25,7 +25,6 @@ const crewFieldByFlag = {
   "--submission": "submissionId",
   "--review": "reviewId",
   "--operation": "operationId",
-  "--pr-head": "prHead",
   "--source": "sourceId",
   "--record": "recordId",
   "--plan-revision": "planRevision",

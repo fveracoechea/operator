@@ -402,3 +402,38 @@ export async function passBaseGate(
   }
   return ran;
 }
+
+/**
+ * A Git on the fixture path that stops one CLI process at its first patch identity, which a landing
+ * plan reads after the branch tip. Only a process run with `env` stops, so a test can change the
+ * crew state between the plan and the transaction that checks it.
+ */
+export async function pausedGit(workspace: Workspace) {
+  const real = Bun.which("git");
+  const directory = `${workspace.root}/git-pause`;
+  await Bun.$`mkdir -p ${directory}`.quiet();
+  await Bun.write(
+    `${workspace.bin}/git`,
+    [
+      "#!/bin/sh",
+      'if [ -n "$GIT_PAUSE_DIR" ] && [ "$3" = "patch-id" ]; then',
+      '  : > "$GIT_PAUSE_DIR/reached"',
+      '  while [ ! -f "$GIT_PAUSE_DIR/release" ]; do sleep 0.05; done',
+      "fi",
+      `exec ${real} "$@"`,
+      "",
+    ].join("\n"),
+  );
+  await Bun.$`chmod +x ${workspace.bin}/git`.quiet();
+  return {
+    env: { GIT_PAUSE_DIR: directory },
+    async reached() {
+      while (!(await Bun.file(`${directory}/reached`).exists())) {
+        await Bun.sleep(50);
+      }
+    },
+    async release() {
+      await Bun.write(`${directory}/release`, "");
+    },
+  };
+}

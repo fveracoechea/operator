@@ -407,8 +407,9 @@ describe("a fresh Operator after session loss", () => {
       ],
     );
 
+    // The resumed review reaches the landing, which waits for its candidate gate first.
     const disposed = await nextActions(workspace);
-    expect(disposed.forAction("accept_assignment").map((one) => one.assignmentId)).toContain(
+    expect(disposed.forAction("run_gate").map((one) => one.assignmentId)).toContain(
       producer.assignmentId,
     );
   });

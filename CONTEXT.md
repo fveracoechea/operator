@@ -173,6 +173,8 @@ It is fixed only after it passes the project gate, so a failure it already holds
 **Landing**:
 The move of an integration branch that adds one reviewed commit with its patch unchanged.
 It is the last step of accepting that commit, after the commit it lands as passed the project gate, so the branch never holds a commit that failed another gate.
+A commit whose parent is the tip lands as itself; any other lands as one new commit that copies its author, committer, dates, and message, so every plan of it names the same commit.
+A commit whose equal patch the branch already holds lands nothing.
 _Avoid_: integrate, cherry-pick, merge, for this act
 
 **Project gate**:

@@ -24,28 +24,144 @@ function runLines(run: RunRecord): string[] {
   ];
 }
 
+type CandidateResult = Awaited<ReturnType<typeof CrewState.startCandidateGateRun>>;
+
+/** Reports a candidate that has no run to start. Nothing was recorded. */
+// oxlint-disable-next-line complexity -- Each refusal of a candidate keeps its own reason.
+function reportCandidateRefusal(parsed: ParsedArguments, result: CandidateResult): Handled | null {
+  const operation = "gate_run";
+  switch (result.status) {
+    case "unknown-assignment":
+      return refuse({
+        json: parsed.json,
+        operation,
+        outcome: "invalid",
+        reason: "unknown_assignment",
+        detail: { assignmentId: result.assignmentId },
+        lines: [`No assignment ${result.assignmentId} is recorded.`],
+      });
+    case "candidate-missing":
+      return refuse({
+        json: parsed.json,
+        operation,
+        outcome: "invalid",
+        reason: "assignment_not_awaiting_review",
+        detail: { assignmentId: result.assignmentId, state: result.state },
+        lines: [
+          `Assignment ${result.assignmentId} is ${result.state} and holds no code result to land, so it has no candidate.`,
+        ],
+      });
+    case "landing-lands-nothing":
+      return refuse({
+        json: parsed.json,
+        operation,
+        outcome: "conflict",
+        reason: "gate_passed",
+        detail: { assignmentId: result.assignmentId, branch: result.branch, landed: result.landed },
+        lines: [
+          `The branch ${result.branch} already holds the reviewed patch in ${result.landed}, so nothing lands and nothing is gated. Accept it.`,
+        ],
+      });
+    case "integration-branch-missing":
+      return refuse({
+        json: parsed.json,
+        operation,
+        outcome: "missing-condition",
+        reason: "integration_branch_missing",
+        detail: { assignmentId: result.assignmentId, sourceId: result.sourceId },
+        lines: [
+          `Source ${result.sourceId} records no integration branch, so there is no candidate.`,
+        ],
+      });
+    case "integration-branch-moved":
+      return refuse({
+        json: parsed.json,
+        operation,
+        outcome: "conflict",
+        reason: "integration_branch_moved",
+        detail: { ...result },
+        lines: [
+          `The branch ${result.branch} holds ${result.found ?? "no commit"}, and the recorded tip is ${result.recordedTip}. The person puts it back.`,
+        ],
+      });
+    case "integration-branch-checked-out":
+      return refuse({
+        json: parsed.json,
+        operation,
+        outcome: "conflict",
+        reason: "integration_branch_checked_out",
+        detail: { ...result },
+        lines: [`The branch ${result.branch} is checked out in ${result.worktrees.join(", ")}.`],
+      });
+    case "integration-branch-unread":
+      return refuse({
+        json: parsed.json,
+        operation,
+        outcome: "uncertain",
+        reason: "integration_branch_unread",
+        detail: { ...result },
+        lines: [`Git cannot read the branch ${result.branch}: ${result.detail}`],
+      });
+    case "landing-conflict":
+      return refuse({
+        json: parsed.json,
+        operation,
+        outcome: "conflict",
+        reason: "landing_conflict",
+        detail: { ...result },
+        lines: [
+          `Commit ${result.commit} conflicts with the tip ${result.tip} in ${result.paths.join(", ")}, so there is no candidate to gate.`,
+        ],
+      });
+    case "landing-patch-changed":
+      return refuse({
+        json: parsed.json,
+        operation,
+        outcome: "conflict",
+        reason: "landing_patch_changed",
+        detail: { ...result },
+        lines: [
+          `Commit ${result.commit} would land on ${result.tip} as another patch, so there is no candidate to gate.`,
+        ],
+      });
+    default:
+      return null;
+  }
+}
+
 // oxlint-disable-next-line complexity -- Each refusal of a gate start keeps its own reason.
 async function runStart(parsed: ParsedArguments): Promise<Handled> {
   const mutation = readMutation(parsed);
-  const { sourceId, baseCommit } = parsed.crew;
-  if (mutation === null || sourceId === undefined || baseCommit === undefined) {
+  const { sourceId, baseCommit, assignmentId } = parsed.crew;
+  if (mutation === null) {
     return "invalid-arguments";
   }
   const projectRoot = process.cwd();
-  const result = await CrewState.startGateRun({
+  const shared = {
     projectRoot,
     ...mutation,
-    sourceId,
-    commit: baseCommit,
     approvalId: parsed.crew.approvalId ?? null,
     // The typed line holds no gate text and no token: only the runner, its run, and the root.
-    runnerLine: (runId) =>
+    runnerLine: (runId: string) =>
       ProjectGate.commandLine(
         operatorCommand("gate", "runner", "--run", runId, "--root", projectRoot),
       ),
-  });
+  };
+  // A run gates the integration base of a source, or the candidate of one code result.
+  let result: Awaited<ReturnType<typeof CrewState.startCandidateGateRun>>;
+  if (assignmentId !== undefined && sourceId === undefined && baseCommit === undefined) {
+    result = await CrewState.startCandidateGateRun({ ...shared, assignmentId });
+  } else if (assignmentId === undefined && sourceId !== undefined && baseCommit !== undefined) {
+    result = await CrewState.startGateRun({ ...shared, sourceId, commit: baseCommit });
+  } else {
+    return "invalid-arguments";
+  }
   if (reportSharedFailure(parsed, "gate_run", result)) {
     return "reported";
+  }
+  const candidate = reportCandidateRefusal(parsed, result);
+  if (candidate !== null) {
+    return candidate;
   }
   const operation = "gate_run";
 
@@ -202,6 +318,8 @@ async function runStart(parsed: ParsedArguments): Promise<Handled> {
           "No run was recorded.",
         ],
       });
+    default:
+      return "invalid-arguments";
   }
 }
 

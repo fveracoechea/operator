@@ -86,7 +86,6 @@ async function acceptedCycle(workspace: Workspace) {
   const accepted = await acceptProduction(workspace, producer, {
     submissionId: submitted.json.data.submissionId,
     revision: submitted.json.data.revision,
-    prHead: artifact.commit,
   });
   expect(accepted.json.reason).toBe("assignment_accepted");
 

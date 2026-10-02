@@ -1596,7 +1596,6 @@ describe("operator attempt replace for a review", () => {
     const accepted = await acceptProduction(workspace, producer, {
       submissionId: submitted.json.data.submissionId,
       revision: submitted.json.data.revision,
-      prHead: artifact.commit,
     });
     expect(accepted.json.reason).toBe("direction_required");
     expect(accepted.exitCode).toBe(3);
@@ -1615,7 +1614,6 @@ describe("operator attempt replace for a review", () => {
     const waiting = await acceptProduction(workspace, producer, {
       submissionId: submitted.json.data.submissionId,
       revision: submitted.json.data.revision,
-      prHead: artifact.commit,
     });
     expect(waiting.json.reason).toBe("review_incomplete");
   });

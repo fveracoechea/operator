@@ -191,13 +191,12 @@ describe("operator work accept waits for a disposition of each outside change", 
     const producer = await startProducer(workspace);
     await Bun.write(`${workspace.root}/stray.txt`, "written during the attempt\n");
     const result = await submitResult(workspace, producer);
-    const { artifact, submitted, changes } = result;
+    const { submitted, changes } = result;
     await reviewClean(workspace, producer, result);
     const accept = () =>
       acceptProduction(workspace, producer, {
         submissionId: submitted.json.data.submissionId,
         revision: submitted.json.data.revision,
-        prHead: artifact.commit,
       });
 
     const refused = await accept();
@@ -240,7 +239,7 @@ describe("operator work accept waits for a disposition of each outside change", 
       await Bun.write(`${workspace.root}/${name}-stray.txt`, `${name}\n`);
     }
     const result = await submitResult(workspace, producer);
-    const { artifact, submitted } = result;
+    const { submitted } = result;
     await reviewClean(workspace, producer, result);
 
     const refused = await runOperator(workspace, [
@@ -258,8 +257,6 @@ describe("operator work accept waits for a disposition of each outside change", 
       String(submitted.json.data.revision),
       "--submission",
       submitted.json.data.submissionId,
-      "--pr-head",
-      artifact.commit,
     ]);
 
     expect(refused.stdout).toContain("3 outside change(s)");

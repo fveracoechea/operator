@@ -8,7 +8,7 @@ import {
   nextOrderIndex,
 } from "./assignment.ts";
 import { identityOf } from "./identity.ts";
-import { assignments, reviews, submissions } from "./schema.ts";
+import { assignments, landings, reviews, submissions } from "./schema.ts";
 import { REVIEW_AXES } from "./review.ts";
 import { closeCycle, openCycleOf } from "./rework.ts";
 import { storedRequirements } from "./work-input.ts";
@@ -90,13 +90,59 @@ export function submittedCommit(row: SubmissionRow): string | null {
 }
 
 /**
- * The commit that carries the accepted code result of one assignment, or null. Until a landing
- * records a commit of its own, the accepted commit is the landed one.
+ * The commit on the integration branch that carries the accepted code result of one assignment,
+ * and its parent there, or null. A result that an earlier release accepted recorded no landing,
+ * so its reviewed commit is the commit that carries it.
  */
+export function landedCommitOf(
+  db: CrewReader,
+  submission: SubmissionRow,
+): { commit: string; parent: string | null } | null {
+  const landed = db
+    .select()
+    .from(landings)
+    .where(eq(landings.submissionId, submission.id))
+    .all()
+    .find((one) => one.state === "landed");
+  if (landed !== undefined) {
+    return { commit: landed.landedCommit, parent: landed.landedParent };
+  }
+  const commit = submittedCommit(submission);
+  return commit === null
+    ? null
+    : { commit, parent: submission.code === null ? null : storedCode(submission.code).baseCommit };
+}
+
+/**
+ * The commit the reviewed change of one code submission starts from. A findings cycle or a
+ * diagnostic rerun starts on the commit an earlier submission handed over, so its change runs
+ * from the base of the first submission of that chain, as an amended commit would.
+ */
+export function reviewedBaseOf(db: CrewReader, submission: SubmissionRow): string | null {
+  if (submission.code === null) {
+    return null;
+  }
+  const earlier = new Map<string, string>();
+  for (const one of submissionsOf(db, submission.assignmentId)) {
+    if (one.id !== submission.id && one.code !== null) {
+      const code = storedCode(one.code);
+      earlier.set(code.resultCommit, code.baseCommit);
+    }
+  }
+  let base = storedCode(submission.code).baseCommit;
+  const seen = new Set<string>();
+  while (earlier.has(base) && !seen.has(base)) {
+    seen.add(base);
+    base = earlier.get(base) ?? base;
+  }
+  return base;
+}
+
+/** The commit that carries the accepted code result of one assignment, or null. */
 export function recordedLanding(db: CrewReader, assignmentId: string): string | null {
   const accepted = submissionsOf(db, assignmentId).filter((one) => one.state === "accepted");
   const last = accepted.at(-1);
-  return last === undefined ? null : submittedCommit(last);
+  return last === undefined ? null : (landedCommitOf(db, last)?.commit ?? null);
 }
 
 /**

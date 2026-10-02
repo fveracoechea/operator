@@ -96,7 +96,6 @@ describe("operator review report", () => {
     const blockedByFinding = await acceptProduction(workspace, producer, {
       submissionId: submitted.json.data.submissionId,
       revision: submitted.json.data.revision,
-      prHead: artifact.commit,
     });
     expect(blockedByFinding.exitCode).toBe(3);
     expect(blockedByFinding.json.reason).toBe("findings_undisposed");
@@ -128,7 +127,6 @@ describe("operator review report", () => {
     const accepted = await acceptProduction(workspace, producer, {
       submissionId: submitted.json.data.submissionId,
       revision: submitted.json.data.revision,
-      prHead: artifact.commit,
     });
     expect(accepted.exitCode).toBe(0);
     expect(accepted.json.reason).toBe("assignment_accepted");
@@ -316,7 +314,6 @@ describe("operator review report", () => {
     const accepted = await acceptProduction(workspace, producer, {
       submissionId: submitted.json.data.submissionId,
       revision: submitted.json.data.revision,
-      prHead: artifact.commit,
     });
     expect(accepted.json.reason).toBe("review_incomplete");
     expect(accepted.json.blockers[0].blocker.reason).toBe("inputs_missing");
@@ -471,7 +468,6 @@ describe("operator review dispose", () => {
     const accepted = await acceptProduction(workspace, producer, {
       submissionId: submitted.json.data.submissionId,
       revision: submitted.json.data.revision,
-      prHead: artifact.commit,
     });
     expect(accepted.json.reason).toBe("assignment_accepted");
   });

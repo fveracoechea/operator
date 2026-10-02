@@ -2,6 +2,7 @@ import { ContentIdentity } from "../content-identity/main.ts";
 import { registerSource } from "./source-fixture.ts";
 import {
   headCommit,
+  nextActions,
   requestId as request,
   passBaseGate,
   runJson,
@@ -400,11 +401,46 @@ export async function reportReview(
   );
 }
 
+/**
+ * Runs the project gate on the candidate of one code result, as the Operator does when
+ * `crew next` offers `run_gate` for it. Any other state is left as it is.
+ */
+export async function passCandidateGate(workspace: Workspace, producer: Producer) {
+  const next = await nextActions(workspace);
+  const owed = next.actions.find(
+    (one) =>
+      one.action === "run_gate" &&
+      one.assignmentId === producer.assignmentId &&
+      one.attemptId === null &&
+      one.blocker === null,
+  );
+  if (owed === undefined) {
+    return null;
+  }
+  return runJson(workspace, [
+    "gate",
+    "run",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--assignment",
+    producer.assignmentId,
+  ]);
+}
+
+/**
+ * Accepts one code result through the real CLI. The candidate gate passes first unless a test
+ * reads the refusal of a candidate that was never gated.
+ */
 export async function acceptProduction(
   workspace: Workspace,
   producer: Producer,
-  options: { submissionId: string; revision: number; prHead?: string },
+  options: { submissionId: string; revision: number; gate?: boolean },
 ) {
+  if (options.gate !== false) {
+    await passCandidateGate(workspace, producer);
+  }
   return runJson(workspace, [
     "work",
     "accept",
@@ -420,7 +456,6 @@ export async function acceptProduction(
     String(options.revision),
     "--submission",
     options.submissionId,
-    ...(options.prHead === undefined ? [] : ["--pr-head", options.prHead]),
   ]);
 }
 

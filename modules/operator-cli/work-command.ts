@@ -650,10 +650,144 @@ async function readAcceptRequest(
       attemptId: parsed.crew.attemptId ?? null,
       revision,
       submissionId: parsed.crew.submissionId ?? null,
-      prHead: parsed.crew.prHead ?? null,
       planningRecord: record.value,
     },
   };
+}
+
+type LandingRefusalResult = Extract<
+  AcceptanceResult,
+  {
+    status:
+      | "integration-branch-missing"
+      | "integration-branch-moved"
+      | "integration-branch-checked-out"
+      | "integration-branch-unread"
+      | "landing-conflict"
+      | "landing-patch-changed"
+      | "landing-gate-not-passed"
+      | "landing-pending"
+      | "landing-tip-changed";
+  }
+>;
+
+/** The lines and the outcome of one refusal of a landing. Each one landed and recorded nothing. */
+function landingRefusalOf(result: LandingRefusalResult): {
+  outcome: "missing-condition" | "conflict" | "pending" | "uncertain";
+  reason: Parameters<typeof refuse>[0]["reason"];
+  lines: string[];
+} {
+  switch (result.status) {
+    case "integration-branch-missing":
+      return {
+        outcome: "missing-condition",
+        reason: "integration_branch_missing",
+        lines: [
+          `Source ${result.sourceId} records no integration branch, so its code result has nowhere to land.`,
+        ],
+      };
+    case "integration-branch-moved":
+      return {
+        outcome: "conflict",
+        reason: "integration_branch_moved",
+        lines: [
+          `The branch ${result.branch} holds ${result.found ?? "no commit"}, and the recorded tip is ${result.recordedTip}.`,
+          ...(result.checkedOut.length === 0
+            ? []
+            : [`It is checked out in ${result.checkedOut.join(", ")}.`]),
+          "Operator never resets or adopts a moved branch. The person puts it back at the recorded tip, then accept again.",
+        ],
+      };
+    case "integration-branch-checked-out":
+      return {
+        outcome: "conflict",
+        reason: "integration_branch_checked_out",
+        lines: [
+          `The branch ${result.branch} is checked out in ${result.worktrees.join(", ")}, so it is not moved under that worktree.`,
+          "The person switches that worktree off the branch, then accept again.",
+        ],
+      };
+    case "integration-branch-unread":
+      return {
+        outcome: "uncertain",
+        reason: "integration_branch_unread",
+        lines: [`Git cannot read the branch ${result.branch}: ${result.detail}`],
+      };
+    case "landing-conflict":
+      return {
+        outcome: "conflict",
+        reason: "landing_conflict",
+        lines: [
+          `Commit ${result.commit} conflicts with the tip ${result.tip} of ${result.branch} in ${result.paths.join(", ")}.`,
+        ],
+      };
+    case "landing-patch-changed":
+      return {
+        outcome: "conflict",
+        reason: "landing_patch_changed",
+        lines: [
+          `Commit ${result.commit} would land on ${result.tip} of ${result.branch} as another patch, so it is not the reviewed result.`,
+        ],
+      };
+    case "landing-gate-not-passed":
+      return {
+        outcome:
+          result.gate === "gate_pending" || result.gate === "gate_running" ? "pending" : "conflict",
+        reason: result.gate,
+        lines: [
+          `The planned commit ${result.commit} on tip ${result.tip} has not passed the project gate.`,
+          result.gate === "gate_pending"
+            ? "No gate run is recorded at its key. Run `operator gate run --assignment <id>` first."
+            : result.gate === "gate_running"
+              ? `Gate run ${result.runIds.join(", ")} still runs at its key. Wait for its outcome.`
+              : `The key is ${result.gate === "gate_flaky" ? "flaky" : "failed"} in gate run ${result.runIds.join(", ")}. Read it with \`operator gate show --run <id>\`.`,
+        ],
+      };
+    case "landing-pending":
+      return {
+        outcome: "pending",
+        reason: "landing_pending",
+        lines: [
+          `Landing ${result.landingId} of assignment ${result.pendingAssignmentId} has no recorded outcome. Settle it first with \`operator work accept\` on that assignment.`,
+        ],
+      };
+    default:
+      return {
+        outcome: "conflict",
+        reason: "landing_tip_changed",
+        lines: [
+          `The landing was planned on ${result.planned}, and the recorded tip is now ${result.recordedTip ?? "none"}. Accept again to plan it on the new tip.`,
+        ],
+      };
+  }
+}
+
+/** Reports a landing that stopped. Nothing landed and nothing was recorded, except an open intent. */
+function reportLandingRefusal(parsed: ParsedArguments, result: AcceptanceResult): Handled | null {
+  switch (result.status) {
+    case "integration-branch-missing":
+    case "integration-branch-moved":
+    case "integration-branch-checked-out":
+    case "integration-branch-unread":
+    case "landing-conflict":
+    case "landing-patch-changed":
+    case "landing-gate-not-passed":
+    case "landing-pending":
+    case "landing-tip-changed": {
+      const { outcome, reason, lines } = landingRefusalOf(result);
+      const { status: _status, ...detail } = result;
+      return refuse({
+        json: parsed.json,
+        operation: "work_accept",
+        outcome,
+        reason,
+        detail,
+        lines: [...lines, "Nothing was accepted."],
+      });
+    }
+    default:
+      return null;
+  }
 }
 
 async function runAccept(parsed: ParsedArguments): Promise<Handled> {
@@ -854,37 +988,8 @@ async function runAccept(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
-  if (result.status === "pr-head-required" || result.status === "pr-head-changed") {
-    const required = result.status === "pr-head-required";
-    const blocker = required
-      ? {
-          reason: "pr_head_required" as const,
-          assignmentId: result.assignmentId,
-          recorded: result.headCommit,
-        }
-      : {
-          reason: "pr_head_changed" as const,
-          assignmentId: result.assignmentId,
-          recorded: result.recorded,
-          stated: result.stated,
-        };
-    report({
-      json: parsed.json,
-      result: {
-        outcome: required ? "missing-condition" : "conflict",
-        reason: required ? "pr_head_required" : "pr_head_changed",
-        blockers: [blocker],
-        operation: "work_accept",
-      },
-      lines: [
-        required
-          ? `Name the reviewed commit you read with --pr-head. The submission recorded ${result.headCommit}.`
-          : `You read commit ${result.stated}. The submission recorded ${result.recorded}.`,
-        "Evidence binds to the revision it was proven against.",
-      ],
-    });
-    return "reported";
-  }
+  const landing = reportLandingRefusal(parsed, result);
+  if (landing !== null) return landing;
 
   return result.status === "accepted"
     ? reportAccepted(parsed, result, repeated)
@@ -908,11 +1013,19 @@ function reportAccepted(
         attemptId: result.attemptId,
         revision: result.revision,
         planningRecordId: result.planningRecordId,
+        landing: result.landing,
         repeated,
       },
     },
     lines: [
       `Accepted ${result.assignmentId}. Its dependents can now start.`,
+      ...(result.landing === null
+        ? []
+        : [
+            result.landing.from === result.landing.to
+              ? `The branch ${result.landing.branch} already holds the reviewed patch in ${result.landing.landed}, so nothing landed.`
+              : `Landed ${result.landing.landed} on ${result.landing.branch} (${result.landing.kind}).`,
+          ]),
       ...(result.planningRecordId === null
         ? []
         : [`Recorded planning record ${result.planningRecordId}.`]),

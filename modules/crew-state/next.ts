@@ -11,7 +11,14 @@ import {
 import type { CrewReader } from "./database.ts";
 import { everyStageSucceeded } from "./dispatch-context.ts";
 import { liveOperations, readDispatchRow, unsettledOperations } from "./dispatch.ts";
-import { type BaseGate, baseGateOf, isFirstCodeDispatch } from "./gate-runs.ts";
+import {
+  type BaseGate,
+  baseGateOf,
+  candidateGateOf,
+  isFirstCodeDispatch,
+  runningRunOf,
+} from "./gate-runs.ts";
+import { intendedLandingOf, landedEarlier } from "./landing.ts";
 import { integrationBranchOf } from "./integration.ts";
 import { directionRecordOf } from "./direction.ts";
 import { calculateFrontier, type Frontier, undirected, unmetDependencies } from "./frontier.ts";
@@ -44,6 +51,7 @@ export const NEXT_ACTIONS = [
   "prove_readiness",
   "own_crew",
   "reconcile_attempt",
+  "settle_landing",
   "adopt_attempt",
   "recover_tracker",
   "settle_cleanup",
@@ -415,7 +423,7 @@ function readQuestions(db: CrewReader, unsettled: Set<string>, into: Collector):
 /** The review of one submitted result, and the step it now owes. */
 function readReview(
   db: CrewReader,
-  request: { assignmentId: string; revision: number },
+  request: { assignmentId: string; revision: number; sourceId: string },
   into: Collector,
 ): void {
   const submission = latestSubmission(db, request.assignmentId);
@@ -482,12 +490,109 @@ function readReview(
   }
 
   if (openCycleOf(db, request.assignmentId) === null) {
+    if (submission !== null && submittedCommit(submission) !== null) {
+      readLanding(
+        db,
+        { ...subject, sourceId: request.sourceId, submissionId: submission.id },
+        into,
+      );
+      return;
+    }
     into.add({
       ...subject,
       action: "accept_assignment",
       detail: "The review reported and every finding carries a disposition.",
       command: "operator work accept",
     });
+  }
+}
+
+/**
+ * The landing of one code result whose every other gate of acceptance passed (ADR 0020). An
+ * intent with no recorded outcome is settled first, by a repeat of the acceptance. Otherwise its
+ * planned commit on the recorded tip passes the project gate, and only then is it accepted. This
+ * reads no Git, so the candidate is the one a gate run of this submission on this tip recorded.
+ */
+function readLanding(
+  db: CrewReader,
+  request: {
+    assignmentId: string;
+    reviewId: string;
+    revision: number;
+    sourceId: string;
+    submissionId: string;
+  },
+  into: Collector,
+): void {
+  const { sourceId, submissionId, ...subject } = request;
+  const intended = intendedLandingOf(db, sourceId);
+  if (intended !== null && intended.submissionId === submissionId) {
+    into.add({
+      ...subject,
+      action: "settle_landing",
+      detail: `Landing ${intended.id} moves ${intended.branch} from ${intended.fromCommit} to ${intended.toCommit}, and its outcome is not recorded. Repeat the acceptance: it reads the branch once and lands again, records the outcome, or names a moved branch.`,
+      command: "operator work accept",
+    });
+    return;
+  }
+  const row = integrationBranchOf(db, sourceId);
+  // A correction of a landed commit waits for the rewrite, so it is accepted with no landing yet.
+  if (row === null || landedEarlier(db, { assignmentId: request.assignmentId, submissionId })) {
+    into.add({
+      ...subject,
+      action: "accept_assignment",
+      detail: "The review reported and every finding carries a disposition.",
+      command: "operator work accept",
+    });
+    return;
+  }
+
+  const gate = candidateGateOf(db, { sourceId, submissionId, tip: row.recordedTip });
+  const command = `operator gate run --assignment ${request.assignmentId}`;
+  switch (gate.status) {
+    case "passed":
+      into.add({
+        ...subject,
+        action: "accept_assignment",
+        detail: `The review reported, and the planned commit ${gate.commit ?? ""} on ${row.recordedTip} passed the project gate. Acceptance lands it on ${row.name}.`,
+        command: "operator work accept",
+      });
+      return;
+    case "running":
+      into.wait({
+        wait: "gate_running",
+        assignmentId: request.assignmentId,
+        detail: `Gate run ${gate.run.id} runs on the planned commit ${gate.run.commit}. Its runner wakes the Operator at the end.`,
+      });
+      return;
+    case "failed":
+    case "flaky":
+      into.add({
+        ...subject,
+        action: "run_gate",
+        blocker: gate.status === "failed" ? "gate_failed" : "gate_flaky",
+        detail: `The planned commit ${gate.commit ?? ""} on ${row.recordedTip} is ${gate.status} in gate run ${gate.failed.map((one) => one.id).join(", ")}, so it does not land. Read a run with \`operator gate show --run <id>\`.`,
+        command,
+      });
+      return;
+    default: {
+      // One gate run of a source runs at a time, so a candidate waits for the run in progress.
+      const running = runningRunOf(db, sourceId);
+      if (running !== null) {
+        into.wait({
+          wait: "gate_running",
+          assignmentId: request.assignmentId,
+          detail: `Gate run ${running.id} of source ${sourceId} runs first. One gate run of a source runs at a time.`,
+        });
+        return;
+      }
+      into.add({
+        ...subject,
+        action: "run_gate",
+        detail: `The review reported. Acceptance lands the result on ${row.name} only after its planned commit on ${row.recordedTip} passes the project gate.`,
+        command,
+      });
+    }
   }
 }
 
@@ -796,7 +901,11 @@ export function calculateNext(
     }
 
     if (row.state === "awaiting-review") {
-      readReview(db, { assignmentId: row.id, revision: row.revision }, into);
+      readReview(
+        db,
+        { assignmentId: row.id, revision: row.revision, sourceId: row.sourceId },
+        into,
+      );
     }
 
     // A review assignment holds no result of its own, so it is accepted once it reported.

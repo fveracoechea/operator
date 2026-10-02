@@ -296,6 +296,38 @@ describe("operator setup readiness", () => {
     });
   });
 
+  test("blocks a Git older than the floor that a landing needs", async () => {
+    // The fake answers an old version, and every other Git call reaches the real Git.
+    const real = Bun.which("git");
+    const path = await makeFullPath({
+      git: `if [ "$1" = "--version" ]; then echo "git version 2.39.5"; else exec ${real} "$@"; fi`,
+    });
+    const root = await makeProject();
+    await configure(root, path, ["--claude"]);
+
+    const result = await runJson(root, path, ["setup", "readiness", "--claude"]);
+
+    expect(result.json.reason).toBe("readiness_blocked");
+    expect(checkNamed(result.json, "git")).toMatchObject({
+      state: "failed",
+      reason: "git_too_old",
+      nextAction: "Install Git 2.40.0 or later, then check again.",
+    });
+  });
+
+  test("accepts a Git at the floor", async () => {
+    const real = Bun.which("git");
+    const path = await makeFullPath({
+      git: `if [ "$1" = "--version" ]; then echo "git version 2.40.0"; else exec ${real} "$@"; fi`,
+    });
+    const root = await makeProject();
+    await configure(root, path, ["--claude"]);
+
+    const result = await runJson(root, path, ["setup", "readiness", "--claude"]);
+
+    expect(checkNamed(result.json, "git")).toMatchObject({ state: "passed" });
+  });
+
   test("refuses an unavailable explicit host instead of substituting another", async () => {
     const path = await makeFullPath({ opencode: null });
     const root = await makeProject();

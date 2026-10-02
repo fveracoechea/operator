@@ -118,7 +118,6 @@ describe("operator work rework", () => {
     const undisposed = await acceptProduction(workspace, producer, {
       submissionId: submitted.json.data.submissionId,
       revision: submitted.json.data.revision,
-      prHead: first.artifact.commit,
     });
     expect(undisposed.json.reason).toBe("findings_undisposed");
 
@@ -139,7 +138,6 @@ describe("operator work rework", () => {
     const pending = await acceptProduction(workspace, producer, {
       submissionId: submitted.json.data.submissionId,
       revision: submitted.json.data.revision,
-      prHead: first.artifact.commit,
     });
     expect(pending.exitCode).toBe(6);
     expect(pending.json.reason).toBe("rework_pending");
@@ -248,7 +246,6 @@ describe("operator work rework", () => {
     const accepted = await acceptProduction(workspace, reworked, {
       submissionId: second.submitted.json.data.submissionId,
       revision: second.submitted.json.data.revision,
-      prHead: second.artifact.commit,
     });
     expect(accepted.exitCode).toBe(0);
     expect(accepted.json.reason).toBe("assignment_accepted");
@@ -385,7 +382,6 @@ describe("rework limits", () => {
     const blocked = await acceptProduction(workspace, current, {
       submissionId: submitted.json.data.submissionId,
       revision: submitted.json.data.revision,
-      prHead: artifact.commit,
     });
     expect(blocked.exitCode).toBe(3);
     expect(blocked.json.reason).toBe("direction_required");
@@ -732,7 +728,6 @@ describe("conflicts and combined revisions", () => {
     const intermediate = await acceptProduction(workspace, reworked, {
       submissionId: submitted.json.data.submissionId,
       revision: reworked.assignmentRevision,
-      prHead: first.artifact.commit,
     });
     expect(intermediate.json.reason).toBe("assignment_not_claimed");
 
@@ -767,7 +762,6 @@ describe("conflicts and combined revisions", () => {
     const accepted = await acceptProduction(workspace, reworked, {
       submissionId: second.submitted.json.data.submissionId,
       revision: second.submitted.json.data.revision,
-      prHead: second.artifact.commit,
     });
     expect(accepted.exitCode).toBe(0);
     expect(accepted.json.reason).toBe("assignment_accepted");

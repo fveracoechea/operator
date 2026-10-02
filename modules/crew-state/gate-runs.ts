@@ -14,8 +14,19 @@ export type GateRunRow = typeof gateRuns.$inferSelect;
 export type GateCommandRow = typeof gateRunCommands.$inferSelect;
 export type GateCheckoutRow = typeof gateCheckouts.$inferSelect;
 
-/** What one run gates. Only the integration base exists yet; a candidate is a later subject. */
-export const gateSubjectSchema = z.strictObject({ kind: z.literal("base") });
+/**
+ * What one run gates: the integration base, or the candidate of one submission on one recorded
+ * tip, which is the planned commit of its landing (ADR 0021).
+ */
+export const gateSubjectSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("base") }),
+  z.strictObject({
+    kind: z.literal("candidate"),
+    assignmentId: z.string(),
+    submissionId: z.string(),
+    tip: z.string(),
+  }),
+]);
 
 export type GateSubject = z.infer<typeof gateSubjectSchema>;
 
@@ -151,6 +162,35 @@ export type BaseGate =
   | { status: "running"; run: GateRunRow }
   | { status: "passed"; commit: string; run: GateRunRow }
   | { status: "failed" | "flaky"; commit: string; failed: GateRunRow[] };
+
+/**
+ * Where the candidate of one submission on one tip stands. A run at another tip gated another
+ * candidate, so it proves nothing here. The verdict is the verdict of the key of the latest run.
+ */
+export function candidateGateOf(
+  db: CrewReader,
+  request: { sourceId: string; submissionId: string; tip: string },
+): KeyStatus & { commit: string | null } {
+  const runs = db
+    .select()
+    .from(gateRuns)
+    .where(eq(gateRuns.sourceId, request.sourceId))
+    .all()
+    .filter((one) => {
+      const subject = readStored("gate subject", gateSubjectSchema, one.subject);
+      return (
+        subject.kind === "candidate" &&
+        subject.submissionId === request.submissionId &&
+        subject.tip === request.tip
+      );
+    })
+    .toSorted(byStart);
+  const latest = runs.at(-1);
+  if (latest === undefined) {
+    return { status: "pending", commit: null };
+  }
+  return { ...keyStatus(db, latest), commit: latest.commit };
+}
 
 export function baseGateOf(db: CrewReader, sourceId: string): BaseGate {
   const runs = db

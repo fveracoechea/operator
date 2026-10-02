@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { GATE_TABLES, INTEGRATION_TABLES, STATE_VERSION } from "./schema.ts";
+import { GATE_TABLES, INTEGRATION_TABLES, LANDING_TABLES, STATE_VERSION } from "./schema.ts";
 
 /**
  * One step from one recorded state version to the next.
@@ -186,6 +186,18 @@ export const MIGRATIONS: MigrationStep[] = [
     // commit the caller names. Only a source with no production dispatch gets a branch.
     apply: (sqlite) => {
       for (const statement of INTEGRATION_TABLES) {
+        sqlite.exec(statement);
+      }
+    },
+  },
+  {
+    from: 12,
+    to: 13,
+    summary: "Record each landing of an accepted code result on its integration branch.",
+    // An earlier release landed nothing, so no landing is recorded, and an accepted result keeps
+    // its reviewed commit as the commit that carries it.
+    apply: (sqlite) => {
+      for (const statement of LANDING_TABLES) {
         sqlite.exec(statement);
       }
     },

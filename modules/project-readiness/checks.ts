@@ -98,6 +98,9 @@ function toolCheck(
   });
 }
 
+/** The oldest Git that can land a commit with no worktree. */
+const GIT_FLOOR = "2.40.0";
+
 function gitCheck(observation: Observation): Check {
   const observed = toolState(observation, "git");
   if (observed?.state !== "installed") {
@@ -114,6 +117,17 @@ function gitCheck(observation: Observation): Check {
       reason: "git_unavailable",
       detail: unavailable.detail,
       nextAction: "Make the Git index readable in this project, then check again.",
+    });
+  }
+
+  // A landing merges with `merge-tree --merge-base` and proves its patch with
+  // `patch-id --verbatim`, and Git 2.40.0 is the first release that has both (ADR 0020).
+  const version = observed.version ?? "";
+  if (!Bun.semver.satisfies(version, `>=${GIT_FLOOR}`)) {
+    return check("git", null, "", {
+      reason: "git_too_old",
+      detail: `Operator lands commits with no worktree and needs Git ${GIT_FLOOR} or later, and observed ${version || "no version"}.`,
+      nextAction: `Install Git ${GIT_FLOOR} or later, then check again.`,
     });
   }
 

@@ -130,3 +130,7 @@ Removal of the gate checkout needs no approval, because it holds no work, as ADR
 The branch that Herdr creates for it never moves and stays after the checkout is gone.
 
 ADR 0005, 0007, 0008, 0015, 0017, 0018, and 0020 are amended to refer to this record.
+
+`operator gate run --assignment <id>` starts the run on the candidate of one code result: it plans the landing on the recorded tip and gates the planned commit, keyed by its tree and the gate declaration fixed on the source.
+The run records the submission and the tip as its subject, so `crew next` reads the candidate with no Git read, and a run at an earlier tip proves nothing for a later one.
+A landing that lands nothing gates nothing, because the tip already passed at its own landing.

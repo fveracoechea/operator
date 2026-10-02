@@ -10,8 +10,10 @@ import {
   checkoutOf,
   FRESH_SERIES_ACTION,
   failedRunsAtKey,
+  type DeclaredCommand,
   type GateCheckoutRow,
   type GateKey,
+  type GateSubject,
   type GateRunRecord,
   gateRunRecordOf,
   insertGateRun,
@@ -204,28 +206,61 @@ async function ensureCheckout(request: {
   return { status: "ready", checkout, created };
 }
 
+/** What one gate run gates, with the key, the commit, and the commands it runs. */
+export type GateTarget = {
+  sourceId: string;
+  commit: string;
+  key: GateKey;
+  commands: DeclaredCommand[];
+  subject: GateSubject;
+  /** Where Herdr makes the gate checkout of the source when none is recorded yet. */
+  checkoutBase: string;
+};
+
+type StartRequest = {
+  projectRoot: string;
+  requestId: string;
+  ownerToken: string;
+  approvalId: string | null;
+  runnerLine: (runId: string) => string;
+};
+
 /**
  * Starts one gate run on the integration base of one source (ADR 0021). The run is recorded
  * before the runner line is typed, and the line holds only the runner command, the run id, and
  * the project root. One run of a source runs at a time, and a run with no outcome is replaced
  * only after its pane shows that the runner stopped.
  */
-// oxlint-disable-next-line complexity -- Each refusal is one recorded rule of the gate start.
-export async function startGateRun(request: {
-  projectRoot: string;
-  requestId: string;
-  ownerToken: string;
-  sourceId: string;
-  commit: string;
-  approvalId: string | null;
-  runnerLine: (runId: string) => string;
-}): Promise<GateStartResult> {
+export async function startGateRun(
+  request: StartRequest & { sourceId: string; commit: string },
+): Promise<GateStartResult> {
   const keyed = await readGateKey({ projectRoot: request.projectRoot, commit: request.commit });
   if (keyed.status !== "read") {
     return keyed;
   }
-  const { gate, key } = keyed;
+  return startRun({
+    ...request,
+    target: {
+      sourceId: request.sourceId,
+      commit: keyed.gate.commit,
+      key: keyed.key,
+      commands: keyed.gate.commands,
+      subject: { kind: "base" },
+      checkoutBase: keyed.gate.commit,
+    },
+  });
+}
+
+/** Starts one run on one target, under the rules every gate run shares. */
+// oxlint-disable-next-line complexity -- Each refusal is one recorded rule of the gate start.
+export async function startRun(
+  request: StartRequest & { target: GateTarget },
+): Promise<GateStartResult> {
+  const { target } = request;
+  const { key } = target;
   const keyName = keyText(key);
+  const gate = { commit: target.commit, commands: target.commands };
+  const sourceId = target.sourceId;
 
   const read = await readState(request.projectRoot, (db) => {
     const owned = requireOwnership(db, request.ownerToken);
@@ -233,18 +268,18 @@ export async function startGateRun(request: {
     if (owned.status === "stale") {
       return { status: "ownership-stale" as const, ownership: owned.ownership };
     }
-    const source = db.select().from(workSources).where(eq(workSources.id, request.sourceId)).all();
+    const source = db.select().from(workSources).where(eq(workSources.id, sourceId)).all();
     if (source.length === 0) {
-      return { status: "unknown-source" as const, sourceId: request.sourceId };
+      return { status: "unknown-source" as const, sourceId };
     }
     const approval = request.approvalId === null ? null : readApproval(db, request.approvalId);
     return {
       status: "read" as const,
-      running: runningRunOf(db, request.sourceId),
+      running: runningRunOf(db, sourceId),
       verdict: keyStatus(db, key),
       failed: failedRunsAtKey(db, key).map((one) => one.id),
       approval,
-      checkout: checkoutOf(db, request.sourceId),
+      checkout: checkoutOf(db, sourceId),
     };
   });
   if (read.status !== "read") {
@@ -285,7 +320,7 @@ export async function startGateRun(request: {
     const check = {
       action: FRESH_SERIES_ACTION,
       targets: [keyName, ...read.failed],
-      scope: request.sourceId,
+      scope: sourceId,
       requestRevision: keyName,
     };
     const coverage = read.approval === null ? null : approvalCovers(read.approval, check);
@@ -307,8 +342,8 @@ export async function startGateRun(request: {
 
   const checkout = await ensureCheckout({
     projectRoot: request.projectRoot,
-    sourceId: request.sourceId,
-    commit: gate.commit,
+    sourceId,
+    commit: target.checkoutBase,
     recorded: read.checkout,
   });
   if (checkout.status !== "ready") {
@@ -327,14 +362,15 @@ export async function startGateRun(request: {
       now: new Date().toISOString(),
       operation: "gate_run",
       input: {
-        sourceId: request.sourceId,
+        sourceId,
         commit: gate.commit,
         key,
+        subject: target.subject,
         approvalId: request.approvalId,
       },
     },
     ({ tx, now }) => {
-      const running = runningRunOf(tx, request.sourceId);
+      const running = runningRunOf(tx, sourceId);
       if (running !== null && running.id !== replaces) {
         return {
           commit: false,
@@ -345,15 +381,15 @@ export async function startGateRun(request: {
           },
         };
       }
-      if (checkoutOf(tx, request.sourceId) === null) {
+      if (checkoutOf(tx, sourceId) === null) {
         tx.insert(gateCheckouts)
           .values({ ...checkout.checkout, createdAt: now })
           .run();
       }
       insertGateRun(tx, {
         runId,
-        sourceId: request.sourceId,
-        subject: { kind: "base" },
+        sourceId,
+        subject: target.subject,
         key,
         commit: gate.commit,
         commands: gate.commands,

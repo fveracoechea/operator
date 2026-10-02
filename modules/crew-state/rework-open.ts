@@ -32,7 +32,12 @@ import {
   openCycleOf,
 } from "./rework.ts";
 import { storedChecks, storedCode, storedResultKind } from "./submission-input.ts";
-import { latestSubmission, type SubmissionRow, submissionsOf } from "./submission.ts";
+import {
+  landedCommitOf,
+  latestSubmission,
+  type SubmissionRow,
+  submissionsOf,
+} from "./submission.ts";
 import { storedArtifacts } from "./submission-store.ts";
 
 export type ReworkOutcome =
@@ -470,13 +475,14 @@ export function openInvalidationCycle(
   }
 
   const result = resultOf(request.submission);
-  // The submit check proves a code result is one commit on its base, so the base is its parent.
-  // Until acceptance lands a commit of its own, the reviewed commit is the landed one.
+  // The correction takes the place of the commit on the branch that carries the result, so it
+  // starts on the parent of that commit there (ADR 0020).
+  const landed = landedCommitOf(db, request.submission);
   const invalidation: ReworkInvalidation = {
     invalidationId: request.invalidationId,
     defect: request.defect,
-    landedCommit: result.code?.resultCommit ?? null,
-    startCommit: result.code?.baseCommit ?? null,
+    landedCommit: landed?.commit ?? null,
+    startCommit: landed?.parent ?? null,
   };
   const brief: ReworkBriefRecord = {
     reason: "invalidation",

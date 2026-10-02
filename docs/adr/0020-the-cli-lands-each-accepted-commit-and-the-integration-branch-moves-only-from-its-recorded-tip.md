@@ -136,3 +136,13 @@ A source that an earlier release dispatched records no branch, and its later dis
 
 The module `integration-branch` is the only Operator code that writes a Git ref itself, and `lint:modules` refuses the plumbing command that writes a ref in every other production module.
 Herdr still creates the branch of each checkout that it creates.
+
+`operator work accept` has no option that names a commit, and the former `--pr-head` option is refused as unknown.
+A landing refusal names its cause: `integration_branch_moved` with both tips, `integration_branch_checked_out` with the worktree, `landing_conflict` with the paths, `landing_patch_changed`, `landing_tip_changed` when another acceptance moved the recorded tip after the plan was made, `landing_pending` while another landing of the source has no recorded outcome, and `integration_branch_missing` for a source that records no branch.
+Each one lands nothing and records nothing.
+The patch identity hashes the plumbing diff with three lines of context, no rename detection, and full binary content, so no user setting changes it.
+A landing whose outcome was not recorded is offered as `settle_landing`, right after `reconcile_attempt`, and its command is a repeat of `work accept`.
+A findings cycle and a diagnostic rerun start on the earlier submitted commit, so the patch of their result runs from the base of the first submission of that chain, and it lands as one commit, as an amended commit would.
+A correction of a landed commit starts on the parent that its landing recorded.
+Until the rewrite is built, a correction of a landed commit is accepted with no move, and the branch keeps the commit it corrects.
+Readiness refuses a Git older than 2.40.0 with `git_too_old`, because Git 2.40.0 is the first release that has both `merge-tree --merge-base` and `patch-id --verbatim`.

@@ -45,7 +45,6 @@ describe("operator work accept", () => {
     const accepted = await acceptProduction(workspace, producer, {
       submissionId: submitted.json.data.submissionId,
       revision: submitted.json.data.revision,
-      prHead: artifact.commit,
     });
 
     expect(accepted.exitCode).toBe(3);
@@ -75,7 +74,6 @@ describe("operator work accept", () => {
     const accepted = await acceptProduction(workspace, producer, {
       submissionId: submitted.json.data.submissionId,
       revision: submitted.json.data.revision,
-      prHead: artifact.commit,
     });
     expect(accepted.exitCode).toBe(3);
     expect(accepted.json.reason).toBe("review_incomplete");
@@ -122,7 +120,6 @@ describe("operator work accept", () => {
     const accepted = await acceptProduction(workspace, producer, {
       submissionId: submitted.json.data.submissionId,
       revision: submitted.json.data.revision,
-      prHead: artifact.commit,
     });
 
     expect(accepted.json.reason).toBe("checks_contradicted");
@@ -155,7 +152,6 @@ describe("operator work accept", () => {
     const accepted = await acceptProduction(workspace, producer, {
       submissionId: submitted.json.data.submissionId,
       revision: submitted.json.data.revision,
-      prHead: artifact.commit,
     });
 
     expect(accepted.json.reason).toBe("assignment_accepted");
@@ -187,41 +183,11 @@ describe("operator work accept", () => {
     const accepted = await acceptProduction(workspace, producer, {
       submissionId: submitted.json.data.submissionId,
       revision: submitted.json.data.revision,
-      prHead: artifact.commit,
     });
 
     expect(accepted.exitCode).toBe(3);
     expect(accepted.json.reason).toBe("checks_unproven");
     expect(accepted.json.blockers[0]).toMatchObject({ name: "integration", outcome: "flaky" });
-  });
-
-  test("refuses acceptance when the stated commit is not the reviewed one", async () => {
-    const workspace = await makeWorkspace();
-    const producer = await startProducer(workspace);
-    const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
-    const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
-    await reportReview(
-      workspace,
-      reviewer,
-      submitted.json.data.reviewId,
-      reportBody({ submissionIdentity: submitted.json.data.identity, host: workspace.host }),
-    );
-
-    const missing = await acceptProduction(workspace, producer, {
-      submissionId: submitted.json.data.submissionId,
-      revision: submitted.json.data.revision,
-    });
-    expect(missing.exitCode).toBe(3);
-    expect(missing.json.reason).toBe("pr_head_required");
-
-    const moved = await acceptProduction(workspace, producer, {
-      submissionId: submitted.json.data.submissionId,
-      revision: submitted.json.data.revision,
-      prHead: "0".repeat(40),
-    });
-    expect(moved.exitCode).toBe(4);
-    expect(moved.json.reason).toBe("pr_head_changed");
   });
 
   test("holds acceptance while an accepted correction waits for a fresh Operative", async () => {
@@ -288,7 +254,6 @@ describe("operator work accept", () => {
     const accepted = await acceptProduction(workspace, producer, {
       submissionId: submitted.json.data.submissionId,
       revision: submitted.json.data.revision,
-      prHead: artifact.commit,
     });
     expect(accepted.exitCode).toBe(6);
     expect(accepted.json.reason).toBe("rework_pending");
