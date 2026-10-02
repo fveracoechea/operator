@@ -4,6 +4,7 @@ import { PullRequestStack } from "../pull-request-stack/main.ts";
 import { matchApproval } from "./approvals.ts";
 import type { CrewReader, CrewWriter } from "./database.ts";
 import { identityOf } from "./identity.ts";
+import { mapIssueOf } from "./map-amendment.ts";
 import { mutate, readState, type RequestFailure, type StateFailure } from "./operations.ts";
 import { publishRecordsOf, type RecordRefusal } from "./publish-gate.ts";
 import { publishEffects, stackPublications, stackPullRequests } from "./schema.ts";
@@ -102,7 +103,18 @@ export function openPublicationOf(
   return null;
 }
 
-/** The approval request one plan revision needs. It names each new remote name and the target. */
+/** The approval target of one tracker step after the merge, named in the publish approval. */
+export function trackerStepTarget(
+  closes: string,
+  step: "resolution" | "completion" | "map_amendment",
+): string {
+  return `github:${closes}:${step}`;
+}
+
+/**
+ * The approval request one plan revision needs. It names each new remote name, the target, and
+ * each tracker step after the merge, whose text the plan already rendered (D2).
+ */
 export function approvalRequestOf(
   sourceId: string,
   revision: string,
@@ -110,7 +122,14 @@ export function approvalRequestOf(
 ): ApprovalRequest {
   return {
     action: PUBLISH_ACTION,
-    targets: [...ships.parts.map((one) => one.name), ships.target],
+    targets: [
+      ...ships.parts.map((one) => one.name),
+      ships.target,
+      ...ships.trackerSteps.flatMap((one) => [
+        trackerStepTarget(one.closes, "resolution"),
+        trackerStepTarget(one.closes, "completion"),
+      ]),
+    ],
     scope: sourceId,
     requestRevision: revision,
   };
@@ -152,6 +171,33 @@ function previewText(preview: Omit<PublishPreview, "planPath">): string {
       ? ["None."]
       : preview.refusals.map((one) => `- ${one.reason}: ${one.detail}`)),
     "",
+    ...(ships === null || ships.trackerSteps.length === 0
+      ? []
+      : [
+          "## Tracker steps after the merge",
+          "",
+          "Each step runs only after its pull request merged into the target, under this approval.",
+          `The completion step closes the ticket as completed, or observes the close that its closing keyword made.`,
+          "The resolution is this text, with the number GitHub gives the pull request.",
+          "After a merge that is not a merge commit, it names the commit that landed and the method instead.",
+          "",
+          ...ships.trackerSteps.flatMap((step) => [
+            `### ${trackerStepTarget(step.closes, "resolution")} and ${trackerStepTarget(step.closes, "completion")}`,
+            "",
+            "<!-- resolution start -->",
+            step.resolution.trimEnd(),
+            "<!-- resolution end -->",
+            "",
+            ...(preview.approval?.targets.includes(trackerStepTarget(step.closes, "map_amendment"))
+              ? [
+                  `### ${trackerStepTarget(step.closes, "map_amendment")}`,
+                  "",
+                  "The map amendment of this item runs after the merge, and only after a second approval, `map-amendment`, binds the exact text that the CLI renders then.",
+                  "",
+                ]
+              : []),
+          ]),
+        ]),
     ...(ships?.parts ?? []).flatMap((part, index) => [
       `## Pull request ${index + 1} of ${ships?.parts.length ?? 1}: ${part.name} into ${part.base}`,
       "",
@@ -183,6 +229,7 @@ export async function planPublish(request: {
   const read = await readState(request.projectRoot, (db) => ({
     records: publishRecordsOf(db, request.sourceId),
     publication: publicationsOf(db, request.sourceId).length + 1,
+    mapIssue: mapIssueOf(db, request.sourceId) !== null,
   }));
   if ("status" in read) {
     return read;
@@ -242,12 +289,35 @@ export async function planPublish(request: {
         ? null
         : approvalRequestOf(request.sourceId, planRevision, ships),
   };
-  const name = planRevision ?? `refused-${identityOf(preview).slice(0, 16)}`;
+  const shown = read.mapIssue ? withMapAmendments(preview) : preview;
+  const name = planRevision ?? `refused-${identityOf(shown).slice(0, 16)}`;
   const planPath = `${PLAN_STORE}/${name}.md`;
-  await Bun.write(`${request.projectRoot}/${planPath}`, `${previewText(preview)}\n`, {
+  await Bun.write(`${request.projectRoot}/${planPath}`, `${previewText(shown)}\n`, {
     createPath: true,
   });
-  return { ...preview, planPath };
+  return { ...shown, planPath };
+}
+
+/**
+ * The preview of a source that has a map issue. Its approval also names the map amendment of
+ * each item, which waits after the merge for a second approval of its own text (D2).
+ */
+function withMapAmendments<Preview extends Omit<PublishPreview, "planPath">>(
+  preview: Preview,
+): Preview {
+  const { approval, ships } = preview;
+  return approval === null || ships === null
+    ? preview
+    : {
+        ...preview,
+        approval: {
+          ...approval,
+          targets: [
+            ...approval.targets,
+            ...ships.trackerSteps.map((one) => trackerStepTarget(one.closes, "map_amendment")),
+          ],
+        },
+      };
 }
 
 /** Records the publication and every write of it as an intent, before the first write. */
@@ -274,6 +344,7 @@ function recordPublication(
       baseCommit: preview.ships.base,
       headCommit: preview.ships.head,
       createdAt: request.now,
+      trackerSteps: JSON.stringify(preview.ships.trackerSteps),
     })
     .run();
   const effects: Effect[] = [

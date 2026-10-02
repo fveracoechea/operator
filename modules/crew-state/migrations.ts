@@ -4,6 +4,7 @@ import {
   GATE_TABLES,
   INTEGRATION_TABLES,
   LANDING_TABLES,
+  OBSERVATION_TABLES,
   PUBLISH_TABLES,
   STATE_VERSION,
 } from "./schema.ts";
@@ -241,6 +242,19 @@ export const MIGRATIONS: MigrationStep[] = [
     // An earlier release published nothing, and no review wrote a published text.
     apply: (sqlite) => {
       for (const statement of PUBLISH_TABLES) {
+        sqlite.exec(statement);
+      }
+    },
+  },
+  {
+    from: 15,
+    to: 16,
+    summary:
+      "Record each reading of a published pull request, and the tracker steps each publish approval names.",
+    // An earlier publication named no tracker step, so its approval covers none, and its items
+    // complete only under a new publication.
+    apply: (sqlite) => {
+      for (const statement of OBSERVATION_TABLES) {
         sqlite.exec(statement);
       }
     },

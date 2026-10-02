@@ -56,7 +56,7 @@ Delegated rework, the limits that bound it, and a defect found after acceptance.
 Read [REWORK.md](REWORK.md), [LIMITS.md](LIMITS.md), and [INVALIDATION.md](INVALIDATION.md) before you act on any of them.
 
 The integrated pull request of a source.
-Read [PUBLISH.md](PUBLISH.md) before you act on `publish_stack` or `settle_publish`.
+Read [PUBLISH.md](PUBLISH.md) before you act on `publish_stack`, `settle_publish`, `stack_open`, or `stack_fault`, and when the user reports a merge or a close of a pull request.
 
 Question routing, answers, and approvals.
 `bun run operator question` and `bun run operator approval` carry them, and the brief tells each Operative how to raise one.
@@ -70,6 +70,7 @@ Removal reads no remote. It proves the handed-over commit from the local integra
 Tracker completion and recovery.
 `bun run operator tracker` carries the resolution, the ticket completion, and the map amendment as three
 separate outcomes, and it reports what it could not establish rather than writing again.
+The steps of a code result run only after its pull request merged; [PUBLISH.md](PUBLISH.md) covers them.
 
 ## Rules
 

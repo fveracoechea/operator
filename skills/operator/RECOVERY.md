@@ -79,7 +79,8 @@ After the adoptions, `bun run operator crew next` reports the rest of the recove
 
 - `answer_question` and `deliver_answer` for a question the former session left open,
 - `dispose_findings`, `dispose_outside_changes`, and `accept_assignment` for a review that already reported,
-- `record_tracker` and `recover_tracker` for the tracker steps of accepted work,
+- `record_tracker` and `recover_tracker` for the tracker steps of accepted work, which for a code result come only after the recorded merge of its pull request,
+- `settle_publish` and the wait `stack_open` for a published source, as [PUBLISH.md](PUBLISH.md) describes,
 - `close_process` and `remove_worktree` for the resources an Operative left behind, except a checkout of withdrawn work that holds its commit, which `cleanup show` lists under `unlanded` and only the person removes,
 - `direct_limit` for a limit that reached the user and was never answered.
 

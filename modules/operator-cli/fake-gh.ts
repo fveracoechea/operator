@@ -144,6 +144,8 @@ const blockedByMatch = /^repos\/[^/]+\/[^/]+\/issues\/(\d+)\/dependencies\/block
 const repositoryMatch = /^repos\/([^/]+\/[^/]+)$/.exec(path);
 const rulesMatch = /^repos\/([^/]+\/[^/]+)\/rules\/branches\/(.+)$/.exec(path);
 const pullsMatch = /^repos\/([^/]+\/[^/]+)\/pulls$/.exec(path);
+const pullMatch = /^repos\/([^/]+\/[^/]+)\/pulls\/(\d+)$/.exec(path);
+const commitMatch = /^repos\/([^/]+\/[^/]+)\/commits\/([0-9a-f]{40})$/.exec(path);
 
 /** Answers with the fault this call was given, or null when it should run normally. */
 /**
@@ -228,6 +230,26 @@ if (repositoryMatch?.[1] !== undefined) {
           (wanted === "all" || one.state === wanted) && (head === null || one.head.label === head),
       ),
     );
+  }
+} else if (pullMatch?.[1] !== undefined && method === "GET") {
+  if ((await faulted("readPull")) === "none") {
+    const found = (state.pulls?.[pullMatch[1]] ?? []).find(
+      (one) => one.number === Number(pullMatch[2]),
+    );
+    if (found === undefined) {
+      answer(404, { message: "Not Found" });
+    } else {
+      answer(200, { merged: false, merge_commit_sha: null, ...found });
+    }
+  }
+} else if (commitMatch?.[2] !== undefined) {
+  if ((await faulted("readCommit")) === "none") {
+    const found = state.commits?.[commitMatch[2]];
+    if (found === undefined) {
+      answer(404, { message: "No commit found for SHA" });
+    } else {
+      answer(200, found);
+    }
   }
 } else if (path === "user") {
   if ((await faulted("viewer")) === "none") {

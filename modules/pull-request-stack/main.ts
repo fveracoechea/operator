@@ -1,10 +1,12 @@
 import {
   BODY_LIMIT,
   type DeferredFinding,
+  type Landed,
   type PublishCommit,
   type PublishedText,
   type RejectedFinding,
   renderBody,
+  renderResolution,
   type Verified,
 } from "./body.ts";
 import {
@@ -18,7 +20,14 @@ import {
   remoteOf,
   subjectOf,
 } from "./git.ts";
-import { createPull, pullsByHead, readRepository, readRules } from "./github.ts";
+import {
+  createPull,
+  pullsByHead,
+  readParents,
+  readPullState,
+  readRepository,
+  readRules,
+} from "./github.ts";
 
 /** Why one plan cannot publish, in the fixed order of decision 10 that this module checks. */
 type Refusal = { reason: PlanRefusal; detail: string };
@@ -38,6 +47,19 @@ type PlanRefusal =
 /** One pull request of the stack, exactly as it is pushed and created. */
 type Part = { name: string; commit: string; base: string; title: string; body: string };
 
+/**
+ * The tracker steps of one item after its pull request merged, with the resolution already
+ * rendered but for the pull request slot. The publish approval names each one as a target, so no
+ * tracker write after the merge happens without it (D2).
+ */
+type TrackerStep = {
+  part: number;
+  commit: string;
+  closes: string;
+  resolution: string;
+  behaviorChanges: PublishCommit["behaviorChanges"];
+};
+
 /** Everything that ships, which is what the plan revision names (decision 8). */
 type Ships = {
   remote: Remote;
@@ -45,6 +67,24 @@ type Ships = {
   base: string;
   head: string;
   parts: Part[];
+  trackerSteps: TrackerStep[];
+};
+
+/** A GitHub outcome that no stack publication planned (decision 21). Operator adopts nothing. */
+type StackFault = "closed_unmerged" | "base_not_target" | "head_moved" | "not_merge_commit";
+
+/** What GitHub shows of one published pull request, read when a person reports a merge. */
+type Seen = {
+  part: number;
+  number: number;
+  state: "open" | "merged" | "closed";
+  head: string;
+  base: string;
+  draft: boolean;
+  mergeCommit: string | null;
+  method: "merge" | "squash or rebase" | null;
+  fault: StackFault | null;
+  detail: string | null;
 };
 
 /** What the preview reports and the revision does not cover (decision 8). */
@@ -272,6 +312,26 @@ export const PullRequestStack = {
               title: request.text?.title ?? "",
               body: body ?? "",
             })),
+            trackerSteps: commits.flatMap((one) =>
+              one.closes === null
+                ? []
+                : [
+                    {
+                      part: 1,
+                      commit: one.commit,
+                      closes: one.closes,
+                      behaviorChanges: one.behaviorChanges,
+                      resolution: renderResolution({
+                        repository: request.repository,
+                        target: settings.value.target,
+                        commit: one.commit,
+                        behaviorChanges: one.behaviorChanges,
+                        pullRequest: null,
+                        landed: null,
+                      }),
+                    },
+                  ],
+            ),
           }
         : null;
     return { status: "planned", ships, info, refusals };
@@ -288,7 +348,122 @@ export const PullRequestStack = {
     }
     return writeCreate(effect);
   },
+
+  /**
+   * Renders the resolution of one code item from what the merge observation recorded. With no
+   * pull request number it is the text the plan shows and the publish approval binds.
+   */
+  resolution(request: {
+    repository: string;
+    target: string;
+    commit: string;
+    behaviorChanges: PublishCommit["behaviorChanges"];
+    pullRequest: number | null;
+    landed: Landed | null;
+  }): string {
+    return renderResolution(request);
+  },
+
+  /**
+   * Reads each published pull request from GitHub and writes nothing. It records its state,
+   * head, base, merge commit, and merge method, and names a fault when the head, the base, or
+   * the method is not what the publication planned (decisions 19 to 21).
+   */
+  async observe(request: {
+    repository: string;
+    target: string;
+    pullRequests: Array<{ part: number; number: number; publishedCommit: string }>;
+  }): Promise<{ status: "read"; seen: Seen[] } | { status: "unread"; detail: string }> {
+    const seen: Seen[] = [];
+    for (const one of request.pullRequests) {
+      const read = await observeOne(request.repository, request.target, one);
+      if (read.status !== "read") {
+        return read;
+      }
+      seen.push(read.value);
+    }
+    return { status: "read", seen };
+  },
 };
+
+/** The one fault of a pull request, in the order a person settles them, or none. */
+function faultOf(
+  pull: { state: string; merged: boolean; head: string; base: string },
+  planned: { publishedCommit: string; target: string },
+  method: Seen["method"],
+): { fault: StackFault; detail: string } | null {
+  if (pull.state === "closed" && !pull.merged) {
+    return { fault: "closed_unmerged", detail: "It was closed with no merge." };
+  }
+  if (pull.merged && pull.base !== planned.target) {
+    return {
+      fault: "base_not_target",
+      detail: `It merged into ${pull.base}, not into the target ${planned.target}.`,
+    };
+  }
+  if (pull.head !== planned.publishedCommit) {
+    return {
+      fault: "head_moved",
+      detail: `Its head is ${pull.head}, not the published commit ${planned.publishedCommit}, so it holds a commit that no review read.`,
+    };
+  }
+  if (pull.merged && method !== "merge") {
+    return {
+      fault: "not_merge_commit",
+      detail: `It merged by a ${method ?? "unknown"} merge, not by a merge commit.`,
+    };
+  }
+  return null;
+}
+
+/**
+ * Reads one pull request. A merge commit has two parents, and its second parent is the
+ * published head, so the reviewed commits reach the target with their identity. One parent is a
+ * squash or a rebase merge, which GitHub does not tell apart.
+ */
+async function observeOne(
+  repository: string,
+  target: string,
+  planned: { part: number; number: number; publishedCommit: string },
+): Promise<{ status: "read"; value: Seen } | { status: "unread"; detail: string }> {
+  const pull = await readPullState(repository, planned.number);
+  if (pull.status !== "read") {
+    return pull;
+  }
+  let method: Seen["method"] = null;
+  if (pull.value.merged) {
+    if (pull.value.mergeCommit === null) {
+      return {
+        status: "unread",
+        detail: `GitHub shows pull request #${planned.number} merged with no merge commit.`,
+      };
+    }
+    const parents = await readParents(repository, pull.value.mergeCommit);
+    if (parents.status !== "read") {
+      return parents;
+    }
+    method =
+      parents.value.length === 2 && parents.value[1] === pull.value.head
+        ? "merge"
+        : "squash or rebase";
+  }
+  const found = faultOf(pull.value, { publishedCommit: planned.publishedCommit, target }, method);
+  return {
+    status: "read",
+    value: {
+      part: planned.part,
+      number: planned.number,
+      state: pull.value.merged ? "merged" : pull.value.state === "closed" ? "closed" : "open",
+      head: pull.value.head,
+      base: pull.value.base,
+      draft: pull.value.draft,
+      mergeCommit: pull.value.merged ? pull.value.mergeCommit : null,
+      method,
+      fault: found?.fault ?? null,
+      detail: found?.detail ?? null,
+    },
+  };
+}
 
 /** What the remote holds against the planned names: all, none, or a mix a person settles. */
 async function readPushed(

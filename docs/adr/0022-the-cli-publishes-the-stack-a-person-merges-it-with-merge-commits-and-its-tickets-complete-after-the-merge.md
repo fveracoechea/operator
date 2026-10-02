@@ -40,16 +40,24 @@ The plan refuses when the repository or a rule of the target branch does not all
 A rule that the plan cannot read is shown as unverified, never as a pass, and a push that GitHub rejects lands nothing.
 
 `operator crew next` never reads the tracker, and no event reaches the crew when a pull request merges.
-So the next actions show a wait on a person that names `operator publish status`, and the Operator runs that read when the user reports a merge or asks for the state.
-The read records what GitHub shows, and the next actions then offer what follows.
+So while a pull request is open, the next actions show the wait `stack_open` that names `operator publish status --source <id>`, and the Operator runs that read when the user reports a merge or a close, or asks for the state.
+The read records what GitHub shows of each pull request: its state, its head, its base, its merge commit, and its merge method, which the parents of the merge commit tell.
+The next actions then offer what follows, from the recorded readings only.
 After a merge commit of one part, the CLI changes the base of the next part to the target branch, under the same approval, and it reads first, so a base that GitHub already changed is satisfied with no write.
 
-The three tracker steps of a code result run only after the pull request that carries its commit merged into the target branch.
-The resolution is a rendering with no free text: the commit on the target, the pull request, and the behavior changes with their basis.
-The completion step observes the close that the closing keyword made, or closes the ticket itself, as ADR 0009 allows.
+The three tracker steps of a code result run only after the recorded merge of the pull request that carries its commit into the target branch.
+The resolution is a rendering with no free text: the commit on the target, the pull request, and the behavior changes with their basis, and a free body refuses.
+The `publish` approval names the resolution and the completion of each item as targets, and the plan shows each resolution already rendered, with the number of its pull request as its one slot, so no tracker write after the merge happens without that approval.
+When the source has a map issue, the `publish` approval also names the map amendment of each item as `github:<owner>/<repo>#<n>:map_amendment`.
+The map amendment keeps the input the Operator states (decision 18), so the plan cannot render its text.
+After the merge, its first `operator tracker record` renders the exact comment to a local file, writes nothing, and refuses with `map_amendment_approval_required`.
+`crew next` then offers `record_tracker` with `approval_required` and names that file and the request: action `map-amendment`, the map issue as `github:<owner>/<repo>#<n>:map_amendment`, the assignment as scope, and the content identity of the rendered comment as request revision.
+The write runs only when such an approval binds that exact text, and an approval of other text covers nothing.
+Before any write, a person may reject the text, and the Operator states other text, which replaces the unsent intent.
+The completion step closes the ticket as completed, or observes the close that the closing keyword made, as ADR 0009 allows.
 A planning resolution is still rendered at acceptance (ADR 0019).
 
-A merge that is not a merge commit, a merge into a base that is not the target, a commit that no review read on a pushed branch, and a close with no merge are each a stack fault that waits on a person.
+A merge that is not a merge commit, a merge into a base that is not the target, a commit that no review read on a pushed branch, and a close with no merge are each a stack fault that waits on a person with the blocker `stack_fault`.
 Operator adopts nothing from a stack fault, as it adopts no moved integration branch (ADR 0020).
 The items of a pull request that reached the target by another method still complete, and the resolution names the commit that landed.
 A fault on one part stops every part above it.
@@ -64,7 +72,7 @@ A patch that the rebase changes becomes an integration cycle, and the new head n
 The preview reports whether the head merges cleanly onto the fetched target, as information, so a conflict with another source can be settled by this rebase before anyone reviews on GitHub.
 
 A source is finished when every pull request of its last stack publication merged with a merge commit and every tracker step of its items is verified.
-Its gate checkout is removed then, and Operator deletes no branch (ADR 0010).
+Its gate checkout is removed then, by an unforced Herdr removal with no approval, so a checkout that holds a change stays, and Operator deletes no branch (ADR 0010).
 
 ## Considered options
 

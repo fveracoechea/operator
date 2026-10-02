@@ -29,6 +29,7 @@ import { calculateNext, calculateUnowned, isStandingAction } from "./next.ts";
 import { readBrokenLandings } from "./next-landings.ts";
 import { parseInput } from "./input.ts";
 import { applyPublish, planPublish } from "./publish.ts";
+import { finishAfterStep, observePublish } from "./publish-status.ts";
 import { preparePlanningRecord, showPlanningRecord } from "./planning-record.ts";
 import { mutate, readState } from "./operations.ts";
 import { claimOwnership, currentOwnership } from "./ownership.ts";
@@ -265,6 +266,15 @@ export const CrewState = {
    */
   async publish(request: Mutation & { sourceId: string; planRevision: string }) {
     return { repeated: false, result: await applyPublish(request) };
+  },
+
+  /**
+   * Reads each pull request of the last stack publication of one source from GitHub and records
+   * its state, head, base, merge commit, and merge method, and each stack fault. It writes
+   * nothing to GitHub. A finished source then has its gate checkout removed, unforced.
+   */
+  async publishStatus(request: Mutation & { sourceId: string }) {
+    return { repeated: false, result: await observePublish(request) };
   },
 
   /** Claims one dispatchable assignment. Exactly one concurrent claim wins. */
@@ -757,7 +767,13 @@ export const CrewState = {
       input: unknown;
     },
   ) {
-    return reported(await recordTrackerStep(request));
+    const result = await recordTrackerStep(request);
+    if (result.status !== "reported") {
+      return reported(result);
+    }
+    // The last verified step of a published source finishes it, so its gate checkout goes then.
+    const finish = result.report.state === "verified" ? await finishAfterStep(request) : null;
+    return reported({ ...result, finish });
   },
 
   /**
@@ -766,7 +782,15 @@ export const CrewState = {
    * did not apply.
    */
   async recoverTracker(request: Mutation & { operationId: string }) {
-    return reported(await recoverTrackerStep(request));
+    const result = await recoverTrackerStep(request);
+    if (result.status !== "reported") {
+      return reported(result);
+    }
+    const finish =
+      result.report.state === "verified"
+        ? await finishAfterStep({ ...request, assignmentId: result.report.assignmentId })
+        : null;
+    return reported({ ...result, finish });
   },
 
   /** Reports every tracker step of one assignment and what may follow it. Writes nothing. */

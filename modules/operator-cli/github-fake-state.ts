@@ -44,9 +44,15 @@ export type FakePull = {
   draft: boolean;
   title: string;
   body: string;
-  head: { ref: string; label: string };
+  head: { ref: string; label: string; sha?: string };
   base: { ref: string };
+  /** Set when a person merged it on GitHub, with the commit GitHub made. */
+  merged?: boolean;
+  merge_commit_sha?: string | null;
 };
+
+/** One commit as the commits endpoint answers it, in the fields the merge observation reads. */
+export type FakeCommit = { sha: string; parents: Array<{ sha: string }> };
 
 /** The settings of one repository that the publish reads. */
 export type FakeRepository = {
@@ -75,6 +81,8 @@ export type GithubFakeState = {
   rules?: Record<string, unknown[]>;
   /** The pull requests of each repository, by `<owner>/<repo>`. */
   pulls?: Record<string, FakePull[]>;
+  /** The commits GitHub made on a merge, by their identity. */
+  commits?: Record<string, FakeCommit>;
 };
 
 /** One injected fault, and how many more calls of its operation it applies to. */

@@ -152,3 +152,44 @@ export function renderBody(input: BodyInput): string {
   ];
   return `${lines.join("\n").trimEnd()}\n`;
 }
+
+/** The slot of a resolution that the plan cannot fill: the number GitHub gives the pull request. */
+export const PULL_REQUEST_SLOT = "<the number of its pull request>";
+
+/** How the commit of one item reached the target, when it was not by a merge commit. */
+export type Landed = { commit: string; method: string };
+
+/**
+ * Renders the resolution of one code item after its pull request merged (decision 18). It has no
+ * free text: the commit on the target, the pull request, and the behavior changes with their
+ * basis. After another merge method it names the commit that landed and the method. The plan
+ * renders it with the pull request slot, and the publish approval binds that text (D2).
+ */
+export function renderResolution(input: {
+  repository: string;
+  target: string;
+  commit: string;
+  behaviorChanges: PublishCommit["behaviorChanges"];
+  pullRequest: number | null;
+  landed: Landed | null;
+}): string {
+  const link = (commit: string) =>
+    `[\`${short(commit)}\`](https://github.com/${input.repository}/commit/${commit})`;
+  const pull = `${input.repository}#${input.pullRequest ?? PULL_REQUEST_SLOT}`;
+  const done =
+    input.landed === null
+      ? `Done in ${link(input.commit)} in ${pull}, merged into \`${input.target}\` by a merge commit.`
+      : `Done in ${link(input.landed.commit)} in ${pull}, merged into \`${input.target}\` by a ${input.landed.method} merge, not a merge commit. The reviewed commit was ${link(input.commit)}.`;
+  const lines = [
+    done,
+    "",
+    "Behavior changes:",
+    "",
+    ...listOrNone(
+      input.behaviorChanges.map(
+        (change) => `- ${change.statement} (basis: ${basisText(change.basis)})`,
+      ),
+    ),
+  ];
+  return `${lines.join("\n")}\n`;
+}

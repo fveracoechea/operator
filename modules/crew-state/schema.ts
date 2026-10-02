@@ -5,7 +5,7 @@ import { integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqli
  * The durable shape of the crew state. A reader that finds a higher version refuses the file,
  * so this number changes only when an older Operator release can no longer read the tables.
  */
-export const STATE_VERSION = 15;
+export const STATE_VERSION = 16;
 
 export const stateMeta = sqliteTable("state_meta", {
   id: integer("id").primaryKey(),
@@ -613,6 +613,8 @@ export const stackPublications = sqliteTable(
     baseCommit: text("base_commit").notNull(),
     headCommit: text("head_commit").notNull(),
     createdAt: text("created_at").notNull(),
+    // The tracker steps after the merge that the approval names, each with its rendered text.
+    trackerSteps: text("tracker_steps").notNull().default("[]"),
   },
   (table) => [unique().on(table.sourceId, table.number)],
 );
@@ -655,6 +657,28 @@ export const stackPullRequests = sqliteTable(
   },
   (table) => [primaryKey({ columns: [table.publicationId, table.part] })],
 );
+
+/**
+ * One reading of one published pull request on GitHub, taken when a person reports a merge or a
+ * close. The latest reading of each part is what the next actions read (ADR 0022).
+ */
+export const stackObservations = sqliteTable("stack_observations", {
+  id: text("id").primaryKey(),
+  publicationId: text("publication_id")
+    .notNull()
+    .references(() => stackPublications.id),
+  part: integer("part").notNull(),
+  number: integer("number").notNull(),
+  state: text("state").notNull(),
+  headCommit: text("head_commit").notNull(),
+  base: text("base").notNull(),
+  draft: integer("draft").notNull(),
+  mergeCommit: text("merge_commit"),
+  method: text("method"),
+  fault: text("fault"),
+  detail: text("detail"),
+  observedAt: text("observed_at").notNull(),
+});
 
 /**
  * One approval of one exact action. It binds the action, its targets, its scope, and the
@@ -770,6 +794,7 @@ export const crewStateSchema = {
   stackPublications,
   publishEffects,
   stackPullRequests,
+  stackObservations,
   trackerOperations,
   trackerWriteAttempts,
   trackerObservations,
@@ -933,6 +958,26 @@ export const PUBLISH_TABLES = [
     number integer,
     url text,
     primary key (publication_id, part)
+  ) strict`,
+];
+
+/** The merge observation tables, written once for a new state and for the migration step. */
+export const OBSERVATION_TABLES = [
+  `alter table stack_publications add column tracker_steps text not null default '[]'`,
+  `create table stack_observations (
+    id text primary key,
+    publication_id text not null references stack_publications(id),
+    part integer not null,
+    number integer not null,
+    state text not null,
+    head_commit text not null,
+    base text not null,
+    draft integer not null,
+    merge_commit text,
+    method text,
+    fault text,
+    detail text,
+    observed_at text not null
   ) strict`,
 ];
 
@@ -1196,6 +1241,7 @@ export const CREATE_STATEMENTS = [
   ...INTEGRATION_TABLES.map((statement) => sql.raw(statement)),
   ...LANDING_TABLES.map((statement) => sql.raw(statement)),
   ...PUBLISH_TABLES.map((statement) => sql.raw(statement)),
+  ...OBSERVATION_TABLES.map((statement) => sql.raw(statement)),
   sql`create table approvals (
     id text primary key,
     action text not null,

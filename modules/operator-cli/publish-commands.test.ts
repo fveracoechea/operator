@@ -7,7 +7,6 @@ import {
   setDefaultTimeout,
   test,
 } from "bun:test";
-import { Database } from "bun:sqlite";
 import {
   branchReport,
   finalBranch,
@@ -19,10 +18,8 @@ import {
   acceptReview,
   commitArtifact,
   disposeFindings,
-  grantDirection,
   makeReviewWorkspace,
   PUBLISHED_TEXT,
-  type Producer,
   reportBody,
   reportReview,
   startProducer,
@@ -31,15 +28,23 @@ import {
   submit,
   type Workspace,
 } from "./review-cycle-fixture.ts";
-import { issueKey, readFake, writeFake } from "./source-fixture.ts";
 import {
-  githubCalls,
-  nextActions,
-  requestId as request,
-  runJson,
-  runOperator,
-  workspaces,
-} from "./workspace-fixture.ts";
+  addRemote,
+  apply,
+  editState,
+  grant,
+  NAME,
+  normalized,
+  plan,
+  planAndApprove,
+  plannedBody,
+  pullsOf,
+  reasons,
+  remoteRefs,
+  SOURCE,
+} from "./publish-fixture.ts";
+import { readFake, writeFake } from "./source-fixture.ts";
+import { githubCalls, nextActions, runJson, runOperator, workspaces } from "./workspace-fixture.ts";
 
 // Each test runs producers, reviewers, a branch reviewer, and gate runs through the CLI.
 setDefaultTimeout(300_000);
@@ -50,43 +55,10 @@ afterEach(async () => {
   await fixtures.removeAll();
 });
 
-const SOURCE = issueKey(15);
-const NAME = "operator/fveracoechea-operator-15/1/1";
 const BEHAVIOR_CHANGE = {
   statement: "The result page now names the notes it reads.",
   basis: { kind: "requirement", position: 1 },
 };
-
-type ApprovalRequest = {
-  action: string;
-  targets: string[];
-  scope: string;
-  requestRevision: string;
-};
-
-/**
- * Gives the fixture a remote whose URL names the source repository. Git rewrites that URL to a
- * bare repository on disk, so a push reaches a real remote while the configured URL still names
- * the repository.
- */
-async function addRemote(workspace: Workspace): Promise<string> {
-  const remotes = `${workspace.root}/remotes`;
-  const bare = `${remotes}/fveracoechea/operator.git`;
-  await Bun.$`mkdir -p ${remotes}/fveracoechea`.quiet();
-  await Bun.$`git init -q --bare ${bare}`.quiet();
-  await Bun.$`git -C ${workspace.repo} remote add origin https://github.com/fveracoechea/operator.git`.quiet();
-  await Bun.$`git -C ${workspace.repo} config url.${remotes}/.insteadOf https://github.com/`.quiet();
-  await Bun.$`git -C ${workspace.repo} push -q origin main`.quiet();
-  return bare;
-}
-
-async function remoteRefs(bare: string): Promise<string> {
-  return (
-    await Bun.$`git -C ${bare} for-each-ref --format=${"%(refname) %(objectname)"}`.quiet()
-  ).stdout
-    .toString()
-    .trim();
-}
 
 /**
  * A source of two reviewed commits whose branch review reported on the head, with one rejected
@@ -145,75 +117,6 @@ async function reviewedBranch(workspace: Workspace) {
   return { ...final, bare, registered, firstCommit, secondCommit, idOf };
 }
 
-async function plan(workspace: Workspace) {
-  return runJson(workspace, ["publish", "plan", "--source", SOURCE]);
-}
-
-async function grant(workspace: Workspace, producer: Producer, approval: ApprovalRequest) {
-  return grantDirection(workspace, producer, { approval }, "Publish exactly this plan.");
-}
-
-async function apply(workspace: Workspace, producer: Producer, planRevision: string) {
-  return runJson(workspace, [
-    "publish",
-    "apply",
-    "--request",
-    request(),
-    "--owner-token",
-    producer.ownerToken,
-    "--source",
-    SOURCE,
-    "--plan-revision",
-    planRevision,
-  ]);
-}
-
-/** Plans, grants the approval the plan names, and applies it. */
-async function planAndApprove(workspace: Workspace, producer: Producer) {
-  const planned = await plan(workspace);
-  expect(planned.json.reason).toBe("publish_planned");
-  const granted = await grant(workspace, producer, planned.json.data.approval);
-  expect(granted.json.reason).toBe("approval_granted");
-  return planned.json.data as { planRevision: string; planPath: string };
-}
-
-/** The body of the one pull request, read back from the plan file the person approves. */
-async function plannedBody(workspace: Workspace, planPath: string): Promise<string> {
-  const text = await Bun.file(`${workspace.repo}/${planPath}`).text();
-  const marker = "<!-- body start -->\n";
-  return `${text.slice(text.indexOf(marker) + marker.length, text.indexOf("\n<!-- body end -->"))}\n`;
-}
-
-/** A body with every identity that changes from run to run replaced by its kind. */
-function normalized(body: string): string {
-  return body
-    .replaceAll(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, "<id>")
-    .replaceAll(/\b[0-9a-f]{40}\b/g, "<commit>")
-    .replaceAll(/\b[0-9a-f]{12}\b/g, "<short>");
-}
-
-async function pullsOf(workspace: Workspace) {
-  return (await readFake(workspace.github)).pulls?.["fveracoechea/operator"] ?? [];
-}
-
-/** Runs statements against the crew state, as an earlier release or a recorded failure left it. */
-function editState(workspace: Workspace, statements: string[]): void {
-  const sqlite = new Database(`${workspace.repo}/.operator/local/crew-state.sqlite`, {
-    readwrite: true,
-  });
-  try {
-    for (const statement of statements) {
-      sqlite.exec(statement);
-    }
-  } finally {
-    sqlite.close();
-  }
-}
-
-function reasons(result: { json: { blockers: Array<{ reason: string }> } }): string[] {
-  return result.json.blockers.map((one) => one.reason);
-}
-
 describe("the publish of a stack of one", () => {
   test("publishes one pull request with each commit linked and a closing keyword for each item", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
@@ -237,7 +140,14 @@ describe("the publish of a stack of one", () => {
     const { planRevision, planPath, approval } = planned.json.data;
     expect(approval).toEqual({
       action: "publish",
-      targets: [NAME, "main"],
+      targets: [
+        NAME,
+        "main",
+        "github:fveracoechea/operator#1501:resolution",
+        "github:fveracoechea/operator#1501:completion",
+        "github:fveracoechea/operator#1502:resolution",
+        "github:fveracoechea/operator#1502:completion",
+      ],
       scope: SOURCE,
       requestRevision: planRevision,
     });

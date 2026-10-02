@@ -1,6 +1,6 @@
 # Publish
 
-Read this when `bun run operator crew next` offers `publish_stack` or `settle_publish`.
+Read this when `bun run operator crew next` offers `publish_stack` or `settle_publish`, or shows `stack_open` or `stack_fault`, and when the user reports a merge or a close of a pull request.
 
 The CLI publishes the integration branch of a source as one integrated pull request, behind one approval of the person (ADR 0022).
 A person merges it on GitHub.
@@ -53,7 +53,14 @@ The new remote branch is `operator/<source slug>/<publication>/1`.
 ## Approval
 
 Ask the person to read the file and to approve the exact request the plan names:
-action `publish`, the new remote branch name and the target branch as targets, the source as scope, and the plan revision as request revision.
+action `publish`, the source as scope, the plan revision as request revision, and these targets:
+
+- the new remote branch name and the target branch;
+- `github:<owner>/<repo>#<n>:resolution` and `github:<owner>/<repo>#<n>:completion` for each item that closes a ticket.
+
+The tracker steps run after the merge, and the plan file holds the text of each resolution under "Tracker steps after the merge".
+When the source has a map issue, the request also names `github:<owner>/<repo>#<n>:map_amendment` for each item that closes a ticket. That step also waits for a second approval of its text after the merge.
+No tracker write after the merge happens without this approval.
 Record it with `bun run operator approval grant`, as [QUESTIONS.md](QUESTIONS.md) describes.
 The approval binds the exact text, because the revision names every title and body.
 
@@ -76,3 +83,47 @@ Each write reads GitHub first: names that are already at their commits push noth
 `publish_uncertain` means the answer was lost, so run it again.
 `publish_conflict` and `publish_failed` wait on the person: a remote name at another commit, more than one pull request for one head, or a write GitHub refused.
 Operator writes nothing over them.
+
+## Merge and status
+
+A person merges the pull request on GitHub with a merge commit.
+No event reaches the crew when it merges, and `crew next` never reads GitHub.
+While a pull request is open, `crew next` shows the wait `stack_open` with the read to run.
+
+Run `bun run operator publish status` when the user reports a merge or a close, or asks for the state:
+
+```
+bun run operator publish status --request <id> --owner-token <token> --source <source id> --json
+```
+
+Do not run it on every turn.
+It reads each pull request from GitHub, records its state, head, base, merge commit, and merge method, and writes nothing to GitHub.
+Its report is one line for each pull request.
+Then run `crew next` for what follows.
+
+After a merge commit, `crew next` offers `record_tracker` for each item of the pull request:
+
+- The resolution takes no body: `{ "step": "resolution" }`. The CLI renders it from the merge, and a body refuses with `code_resolution_body_not_allowed`.
+- The completion is `{ "step": "completion", "reason": "completed" }`. It observes the close that the closing keyword made, or closes the ticket. Another reason refuses with `completion_reason_not_approved`.
+- Before the recorded merge, a step refuses with `merge_not_observed`, and nothing is written.
+- The map amendment keeps its stated input. Its first record renders the exact comment to a local file, writes nothing, and refuses with `map_amendment_approval_required`. `crew next` then offers `record_tracker` with `approval_required` and names the file and the request: action `map-amendment`, the map issue as target, the assignment as scope, and the content identity as request revision. Show the person the file. After they grant that request, run the same record again. An approval of other text covers nothing. If the person rejects the text, state other text before any write, and it replaces the unsent one.
+- A revoked publish approval refuses with `publish_approval_missing`, and the step carries `approval_required`.
+
+## Stack faults
+
+`publish status` answers `stack_fault`, and `crew next` offers `settle_publish` with the blocker `stack_fault`, when GitHub shows an outcome that no publication planned:
+
+- `not_merge_commit`: a squash or rebase merge. The tracker steps of its items still run, and the resolution names the commit that landed and the method.
+- `base_not_target`: a merge into a base that is not the target. It completes nothing.
+- `head_moved`: the head is not the published commit, so it holds a commit that no review read.
+- `closed_unmerged`: a close with no merge.
+
+Operator adopts nothing from a fault.
+Bring it to the user, and run the read again when the user reports it settled.
+
+## Finished source
+
+A source is finished when every pull request of its last publication merged with a merge commit and every tracker step of its items is verified.
+The read or the tracker step that finishes it removes its gate checkout by an unforced Herdr removal, with no approval.
+Herdr refuses a checkout that holds a change, so it stays, and the report says so.
+Operator deletes no branch, and a person deletes the remote branches.

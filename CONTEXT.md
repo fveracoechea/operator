@@ -211,7 +211,7 @@ It is published at once and merged from the bottom up, and after each merge the 
 _Avoid_: delivery group
 
 **Stack publication**:
-One numbered push and opening of the pull request stack of one work source, at one reviewed head, with the cut points, titles, and bodies that one approval covers.
+One numbered push and opening of the pull request stack of one work source, at one reviewed head, with the cut points, titles, bodies, and tracker steps after the merge that one approval covers.
 A work source can have several, because a change to a published range needs a new one and a pushed branch is never pushed again.
 _Avoid_: release publication, and "publication" alone, for this act
 
@@ -223,6 +223,8 @@ _Avoid_: withdraw, retract, for this act
 **Stack fault**:
 An outcome on GitHub that no stack publication planned: a merge that is not a merge commit, a merge into another base, a commit that no review read on a pushed branch, or a close with no merge.
 Operator adopts nothing from it, and it waits on a person.
+`operator publish status` records it when the user reports a merge or a close, because `operator crew next` never reads GitHub.
+The items of a pull request that reached the target by another merge method still complete.
 _Avoid_: delivery fault
 
 **Branch snapshot**:
@@ -398,7 +400,8 @@ The source location gives the parent and map issue.
 **Tracker step**:
 One of the three outcomes of completing work on a tracker: the recorded resolution, the ticket completion, and the map amendment.
 Each one has its own intent, evidence, outcome, and recovery action.
-For a code result, the three run only after the pull request that carries its commit merged into the target branch, and its resolution is a rendering of the records.
+For a code result, the three run only after the recorded merge of the pull request that carries its commit into the target branch, under the publish approval that named them, and its resolution is a rendering of the records with no free body.
+Its map amendment keeps its stated input, and it also waits for a `map-amendment` approval that binds the exact text the CLI rendered after the merge.
 
 **Logical operation**:
 The name of one intended tracker effect, fixed before the first write and kept through every recovery attempt.

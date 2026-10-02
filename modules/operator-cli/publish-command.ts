@@ -201,13 +201,120 @@ async function runApply(parsed: ParsedArguments): Promise<Handled> {
   return reportPlanned(parsed, operation, result);
 }
 
-/** `operator publish`: the plan, and the apply that also settles an unfinished publication. */
+type Status = Awaited<ReturnType<typeof CrewState.publishStatus>>["result"];
+type Finish = Extract<Status, { status: "observed" }>["finish"];
+
+function finishLine(finish: Finish): string {
+  if (finish.status === "not-finished") {
+    return `The source is not finished: ${finish.detail}`;
+  }
+  return finish.gateCheckout === "kept"
+    ? `The source is finished. Its gate checkout stays: ${finish.detail ?? "Herdr did not remove it."}`
+    : "The source is finished, and its gate checkout is removed. Every branch stays.";
+}
+
+/**
+ * Reports one merge observation as one line for each pull request. The Operator reads this, so
+ * it names states and faults and points to `crew next` for what follows (R5).
+ */
+async function runStatus(parsed: ParsedArguments): Promise<Handled> {
+  const mutation = readMutation(parsed);
+  const { sourceId, requestId: _request, ownerToken: _owner, ...otherCrewFlags } = parsed.crew;
+  if (mutation === null || sourceId === undefined || Object.keys(otherCrewFlags).length > 0) {
+    return "invalid-arguments";
+  }
+  const operation = "publish_status";
+  const { result } = await CrewState.publishStatus({
+    projectRoot: process.cwd(),
+    ...mutation,
+    sourceId,
+  });
+  if (reportSharedFailure(parsed, operation, result)) {
+    return "reported";
+  }
+  if (result.status === "unknown-source") {
+    return refuse({
+      json: parsed.json,
+      operation,
+      outcome: "invalid",
+      reason: "unknown_source",
+      detail: { sourceId: result.sourceId },
+      lines: [`No source ${result.sourceId} is recorded.`],
+    });
+  }
+  if (result.status === "nothing-published") {
+    return refuse({
+      json: parsed.json,
+      operation,
+      outcome: "missing-condition",
+      reason: "nothing_published",
+      detail: { sourceId: result.sourceId },
+      lines: [`Source ${result.sourceId} has no stack publication to read.`],
+    });
+  }
+  if (result.status === "publish-unsettled") {
+    return refuse({
+      json: parsed.json,
+      operation,
+      outcome: "missing-condition",
+      reason: "publish_unsettled",
+      detail: { sourceId: result.sourceId, publication: result.publication },
+      lines: [
+        `Stack publication ${result.publication} has a write with no done outcome. Settle it first, as \`crew next\` names.`,
+      ],
+    });
+  }
+  if (result.status === "unread") {
+    return refuse({
+      json: parsed.json,
+      operation,
+      outcome: "uncertain",
+      reason: "publish_unread",
+      detail: { detail: result.detail },
+      lines: [`GitHub could not be read, so nothing was recorded: ${result.detail}`],
+    });
+  }
+  const faults = result.seen.filter((one) => one.fault !== null);
+  report({
+    json: parsed.json,
+    result: {
+      outcome: faults.length > 0 ? "conflict" : "completed",
+      reason: faults.length > 0 ? "stack_fault" : "publish_observed",
+      blockers: faults.map((one) => ({
+        reason: "stack_fault",
+        fault: one.fault,
+        number: one.number,
+        detail: one.detail,
+      })),
+      operation,
+      data: { publication: result.publication, seen: result.seen, finish: result.finish },
+    },
+    lines: [
+      `Stack publication ${result.publication} as GitHub shows it now:`,
+      ...result.seen.map(
+        (one) =>
+          `  part ${one.part}: #${one.number} is ${one.state}${one.method === null ? "" : ` by a ${one.method === "merge" ? "merge commit" : `${one.method} merge`}`}${one.fault === null ? "" : `, stack fault ${one.fault}: ${one.detail ?? ""}`}`,
+      ),
+      ...(faults.length > 0
+        ? ["A person settles each stack fault on GitHub. Operator adopts nothing from it."]
+        : []),
+      finishLine(result.finish),
+      "Run `operator crew next` for what follows.",
+    ],
+  });
+  return "reported";
+}
+
+/** `operator publish`: the plan, the apply that also settles a publication, and the status. */
 export async function runPublish(words: string[], parsed: ParsedArguments): Promise<Handled> {
   if (words.length !== 1) {
     return "invalid-arguments";
   }
   if (words[0] === "plan") {
     return runPlan(parsed);
+  }
+  if (words[0] === "status") {
+    return runStatus(parsed);
   }
   return words[0] === "apply" ? runApply(parsed) : "invalid-arguments";
 }

@@ -29,6 +29,7 @@ const reasonOfBlocker = {
   gate_flaky: "gate_flaky",
   publish_conflict: "publish_conflict",
   publish_failed: "publish_failed",
+  stack_fault: "stack_fault",
 } as const satisfies Record<NextBlocker, Reason>;
 
 function actionLines(actions: NextAction[]): string[] {
@@ -52,7 +53,8 @@ function waitLines(waits: Next["waits"]): string[] {
         "Waiting:",
         ...waits.map(
           (one) =>
-            `  ${one.detail}${one.agentName === null ? "" : `\n    Agent: ${one.agentName}`}`,
+            `  ${one.detail}${one.agentName === null ? "" : `\n    Agent: ${one.agentName}`}` +
+            `${one.command === null ? "" : `\n    Run when the user reports it: ${one.command}`}`,
         ),
       ];
 }

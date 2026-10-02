@@ -173,3 +173,72 @@ export async function createPull(
     ? { status: "uncertain", detail: "GitHub accepted a pull request it did not describe." }
     : { status: "created", value: created };
 }
+
+/** What GitHub shows of one pull request, in the fields the merge observation reads. */
+export type PullState = {
+  number: number;
+  state: string;
+  draft: boolean;
+  merged: boolean;
+  head: string;
+  base: string;
+  mergeCommit: string | null;
+};
+
+/** Reads one pull request by its number. It writes nothing. */
+export async function readPullState(
+  repository: string,
+  number: number,
+): Promise<{ status: "read"; value: PullState } | { status: "unread"; detail: string }> {
+  const outcome = await GithubApi.call({
+    args: [`repos/${repository}/pulls/${number}`],
+    timeoutMs: READ_TIMEOUT_MS,
+  });
+  if (outcome.status !== "succeeded") {
+    return { status: "unread", detail: detailOf(outcome) };
+  }
+  const body = outcome.value.body;
+  const state = ToolInvocation.text(body, "state");
+  const head = ToolInvocation.text(ToolInvocation.record(body, "head"), "sha");
+  const base = ToolInvocation.text(ToolInvocation.record(body, "base"), "ref");
+  const merged = ToolInvocation.record(body, "merged");
+  if (state === null || head === null || base === null || typeof merged !== "boolean") {
+    return {
+      status: "unread",
+      detail: `GitHub answered pull request #${number} with no state, head, base, or merge flag.`,
+    };
+  }
+  return {
+    status: "read",
+    value: {
+      number,
+      state,
+      draft: ToolInvocation.record(body, "draft") === true,
+      merged,
+      head,
+      base,
+      mergeCommit: ToolInvocation.text(body, "merge_commit_sha"),
+    },
+  };
+}
+
+/** The parents of one commit GitHub holds, which tell a merge commit from a squash or rebase. */
+export async function readParents(
+  repository: string,
+  commit: string,
+): Promise<{ status: "read"; value: string[] } | { status: "unread"; detail: string }> {
+  const outcome = await GithubApi.call({
+    args: [`repos/${repository}/commits/${commit}`],
+    timeoutMs: READ_TIMEOUT_MS,
+  });
+  if (outcome.status !== "succeeded") {
+    return { status: "unread", detail: detailOf(outcome) };
+  }
+  const parents = ToolInvocation.list(outcome.value.body, "parents").map((one) =>
+    ToolInvocation.text(one, "sha"),
+  );
+  if (parents.length === 0 || parents.some((one) => one === null)) {
+    return { status: "unread", detail: `GitHub answered commit ${commit} with no parents.` };
+  }
+  return { status: "read", value: parents.filter((one) => one !== null) };
+}

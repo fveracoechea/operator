@@ -41,10 +41,12 @@ import { approvals, assignments, attempts, workSources } from "./schema.ts";
 import type { BrokenLanding } from "./next-landings.ts";
 import { openPublicationOf, PUBLISH_ACTION, publicationsOf } from "./publish.ts";
 import { publishRecordsOf } from "./publish-gate.ts";
+import { mergeGateOf, stackStateOf } from "./publish-status.ts";
 import { eq } from "drizzle-orm";
 import { latestSubmission, submittedCommit } from "./submission.ts";
 import { readBinding, TRACKER_STEPS, targetOf, trackerOperationsOf } from "./tracker.ts";
 import { trackerStepActions } from "./tracker-show.ts";
+import { mapAmendmentOffer } from "./map-amendment.ts";
 import { isReview } from "./work-input.ts";
 
 /**
@@ -111,6 +113,7 @@ export const NEXT_BLOCKERS = [
   "gate_flaky",
   "publish_conflict",
   "publish_failed",
+  "stack_fault",
 ] as const;
 
 export type NextBlocker = (typeof NEXT_BLOCKERS)[number];
@@ -123,6 +126,7 @@ export const NEXT_WAITS = [
   "cleanup_held",
   "input_invalidated",
   "gate_running",
+  "stack_open",
 ] as const;
 
 export type NextWaitName = (typeof NEXT_WAITS)[number];
@@ -151,10 +155,15 @@ export type NextAction = {
 
 export type NextWait = {
   wait: NextWaitName;
-  assignmentId: string;
+  /** The work this wait holds, or null for a wait that names its source instead. */
+  assignmentId: string | null;
+  /** The source a publish wait names. Every other wait names its assignment instead. */
+  sourceId: string | null;
   attemptId: string | null;
   /** The Herdr agent a bounded wait watches, when this wait has one. */
   agentName: string | null;
+  /** The read a person's report triggers, when this wait names one. */
+  command: string | null;
   detail: string;
 };
 
@@ -216,8 +225,19 @@ function collector() {
         order: held.length,
       });
     },
-    wait(entry: Omit<NextWait, "attemptId" | "agentName"> & Partial<NextWait>): void {
-      waiting.push({ attemptId: null, agentName: null, ...entry });
+    wait(
+      entry: Pick<NextWait, "wait" | "detail"> &
+        Partial<Omit<NextWait, "wait" | "detail">> &
+        ({ assignmentId: string } | { sourceId: string }),
+    ): void {
+      waiting.push({
+        assignmentId: null,
+        sourceId: null,
+        attemptId: null,
+        agentName: null,
+        command: null,
+        ...entry,
+      });
     },
     actions(): NextAction[] {
       return held
@@ -261,6 +281,26 @@ function readPublish(db: CrewReader, into: Collector): void {
       }
       into.add(settle);
       continue;
+    }
+    // No event reaches the crew when a pull request merges, so the wait names the read that the
+    // user's report of a merge or a close triggers. This reads only what that read recorded.
+    const stack = stackStateOf(db, source.id);
+    const status = `operator publish status --source ${source.id}`;
+    if (stack.state === "faulted") {
+      into.add({
+        action: "settle_publish",
+        sourceId: source.id,
+        blocker: "stack_fault",
+        detail: `Stack publication ${stack.publication} has a stack fault that a person settles on GitHub. Operator adopts nothing from it: ${stack.faults.map((one) => `#${one.number} ${one.fault}: ${one.detail}`).join(" ")} Run the read again when the person reports it settled.`,
+        command: status,
+      });
+    } else if (stack.state === "open") {
+      into.wait({
+        wait: "stack_open",
+        sourceId: source.id,
+        command: status,
+        detail: `Stack publication ${stack.publication} has open pull request(s) ${stack.open.map((one) => `#${one}`).join(", ")}. A person merges them on GitHub with a merge commit. Run \`${status}\` when the user reports a merge or a close, or asks for the state.`,
+      });
     }
     const publications = publicationsOf(db, source.id);
     if (publications.some((one) => one.headCommit === branch.recordedTip)) {
@@ -726,6 +766,12 @@ function readTracker(
   if (bound.status !== "bound") {
     return;
   }
+  // The steps of a code result wait for the recorded merge of the pull request that carries
+  // its commit, so a ticket never closes before its commit reaches the target (ADR 0022).
+  const code = mergeGateOf(db, assignmentId);
+  if (code.status === "waiting") {
+    return;
+  }
 
   const held = trackerOperationsOf(db, assignmentId);
   for (const step of TRACKER_STEPS) {
@@ -736,17 +782,26 @@ function readTracker(
       continue;
     }
 
-    const recovers = settles.includes("recover");
+    // A step after the merge runs only under the publish approval that named it (D2).
+    const unapproved =
+      code.status === "merged" && !code.approved[step] && operation?.state !== "verified";
+    // The map amendment of a code result also waits for an approval of its rendered text.
+    const map =
+      code.status === "merged" && step === "map_amendment" && operation !== null
+        ? mapAmendmentOffer(db, operation)
+        : { unsent: false, text: null };
+    const text = unapproved ? null : map.text;
+    const recovers = !map.unsent && settles.includes("recover");
     // A conflict and another write after an uncertain one are both a person's call.
     const person = settles.includes("user") || settles.includes("approved-write");
     const action: Draft = {
       action: recovers ? "recover_tracker" : "record_tracker",
       assignmentId,
       revision,
-      detail: `The ${step} step is ${operation?.state ?? "unrecorded"}.`,
+      detail: text ?? `The ${step} step is ${operation?.state ?? "unrecorded"}.`,
       command: recovers ? "operator tracker recover" : "operator tracker record",
     };
-    if (person) action.blocker = "approval_required";
+    if (person || unapproved || text !== null) action.blocker = "approval_required";
     into.add(action);
   }
 }

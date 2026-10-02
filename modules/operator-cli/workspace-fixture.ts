@@ -286,9 +286,11 @@ export type NextAction = {
 /** One wait of the next-actions contract. */
 export type NextWait = {
   wait: string;
-  assignmentId: string;
+  assignmentId: string | null;
+  sourceId: string | null;
   attemptId: string | null;
   agentName: string | null;
+  command: string | null;
   detail: string;
 };
 
