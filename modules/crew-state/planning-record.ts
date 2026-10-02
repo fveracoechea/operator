@@ -1,6 +1,7 @@
 // Bun has no path manipulation API.
 import { basename, resolve } from "node:path";
 import { asc, eq } from "drizzle-orm";
+import { OperativeDispatch } from "../operative-dispatch/main.ts";
 import { z } from "zod";
 import type { AssignmentRow } from "./assignment.ts";
 import { readAssignment } from "./assignment.ts";
@@ -321,7 +322,12 @@ export type DependencyRecord = {
   command: string;
 };
 
-export function dependencyRecords(db: CrewReader, assignmentId: string): DependencyRecord[] {
+/**
+ * The planning work one assignment directly depends on, in a fixed order.
+ * Only a direct dependency counts: a task further down the chain receives the effect of a
+ * decision through the commit it builds on.
+ */
+function planningDependencies(db: CrewReader, assignmentId: string): AssignmentRow[] {
   return db
     .select()
     .from(assignmentDependencies)
@@ -329,22 +335,73 @@ export function dependencyRecords(db: CrewReader, assignmentId: string): Depende
     .all()
     .flatMap((edge) => {
       const row = readAssignment(db, edge.dependsOnId);
-      if (row === null || isExecutable(row.kind)) {
-        return [];
-      }
-      const record = latestPlanningRecord(db, row.id);
-      return [
-        {
-          assignmentId: row.id,
-          title: row.title,
-          recordId: record?.recordId ?? null,
-          identity: record?.identity ?? null,
-          entryCount: record?.entries.length ?? 0,
-          command: `operator work record --assignment ${row.id}`,
-        },
-      ];
+      return row === null || isExecutable(row.kind) ? [] : [row];
     })
-    .toSorted((left, right) => left.assignmentId.localeCompare(right.assignmentId));
+    .toSorted((left, right) => left.id.localeCompare(right.id));
+}
+
+export function dependencyRecords(db: CrewReader, assignmentId: string): DependencyRecord[] {
+  return planningDependencies(db, assignmentId).map((row) => {
+    const record = latestPlanningRecord(db, row.id);
+    return {
+      assignmentId: row.id,
+      title: row.title,
+      recordId: record?.recordId ?? null,
+      identity: record?.identity ?? null,
+      entryCount: record?.entries.length ?? 0,
+      command: `operator work record --assignment ${row.id}`,
+    };
+  });
+}
+
+/** One planning record as a brief carries it. The launch contract owns this shape. */
+export type BriefRecord = Parameters<
+  typeof OperativeDispatch.plan
+>[0]["brief"]["planningRecords"][number];
+
+/**
+ * The planning records that a brief of one assignment carries, derived from its dependency
+ * edges, so the Operator input names no receiver.
+ * A launch fixes the record ids it carried. With those ids, this reads the same records again,
+ * so the spec copy of its result holds the decisions it followed after a later acceptance. With
+ * no ids, it reads the latest record of each dependency, which is what a new launch receives.
+ */
+export function briefRecords(
+  db: CrewReader,
+  request: { assignmentId: string; launched: string[] | null },
+): BriefRecord[] {
+  return planningDependencies(db, request.assignmentId).map((row) => {
+    const record =
+      request.launched === null
+        ? latestPlanningRecord(db, row.id)
+        : (planningRecordsOf(db, row.id).find((one) => request.launched?.includes(one.recordId)) ??
+          null);
+    return {
+      assignmentId: row.id,
+      title: row.title,
+      record:
+        record === null
+          ? null
+          : {
+              recordId: record.recordId,
+              identity: record.identity,
+              decisions: record.entries.flatMap((entry, index) => [
+                ...(index === 0 ? [] : [""]),
+                ...renderEntry(entry, index + 1, "####"),
+              ]),
+              artifacts: record.artifacts.map(({ name, contentIdentity, storedPath }) => ({
+                name,
+                contentIdentity,
+                storedPath,
+              })),
+            },
+    };
+  });
+}
+
+/** The record ids one launch carries, which its launch plan fixes. */
+export function launchedRecordIds(records: BriefRecord[]): string[] {
+  return records.flatMap((one) => (one.record === null ? [] : [one.record.recordId]));
 }
 
 export type ShowRecordResult =
@@ -399,13 +456,17 @@ function sourceLabel(source: RecordedSource): string {
     : `\`${basename(source.id)}\` at revision \`${source.revision}\``;
 }
 
-function renderEntry(entry: StoredEntry, place: number): string[] {
+/**
+ * One decision of a record. The tracker resolution and the brief of a dependent both render it
+ * here, so both carry the same words. Only the heading level differs.
+ */
+function renderEntry(entry: StoredEntry, place: number, heading = "###"): string[] {
   const authority =
     entry.source === null
       ? AUTHORITY_LABELS[entry.authority]
       : `${AUTHORITY_LABELS[entry.authority]}, quoted from ${sourceLabel(entry.source)}`;
   return [
-    `### Decision ${place}`,
+    `${heading} Decision ${place}`,
     "",
     `**Question:** ${entry.question}`,
     "",

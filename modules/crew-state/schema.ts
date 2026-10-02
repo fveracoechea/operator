@@ -5,7 +5,7 @@ import { integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqli
  * The durable shape of the crew state. A reader that finds a higher version refuses the file,
  * so this number changes only when an older Operator release can no longer read the tables.
  */
-export const STATE_VERSION = 7;
+export const STATE_VERSION = 8;
 
 export const stateMeta = sqliteTable("state_meta", {
   id: integer("id").primaryKey(),
@@ -116,6 +116,9 @@ export const attemptDispatch = sqliteTable("attempt_dispatch", {
   inspectionIdentity: text("inspection_identity"),
   // The "before" scan of ADR 0018, recorded with the agent start intent of a production attempt.
   outsideScan: text("outside_scan"),
+  // The planning record ids the brief carried, so the spec copy of its result holds them. A
+  // launch recorded before this column existed holds null.
+  planningRecordIds: text("planning_record_ids"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
@@ -642,6 +645,7 @@ export const CREATE_STATEMENTS = [
     inspection text,
     inspection_identity text,
     outside_scan text,
+    planning_record_ids text,
     created_at text not null,
     updated_at text not null
   ) strict`,

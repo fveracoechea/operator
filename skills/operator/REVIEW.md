@@ -47,6 +47,7 @@ Those sub-agents take no Herdr slot and no worktree.
 Never start a second Herdr agent for an axis.
 
 The review brief gives `code-review` its inputs: a spec copy fixed at submission, the base commit as the fixed point, and the read-only `git` commands it may run.
+The spec copy also holds the planning records that the producer brief carried, so the Spec axis checks the result against the decisions it followed.
 You do not pass the reviewer any of these yourself.
 
 The reviewer needs the `code-review` skill in the checkout.

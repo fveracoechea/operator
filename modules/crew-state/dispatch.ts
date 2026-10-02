@@ -1,4 +1,5 @@
 import { and, eq, ne } from "drizzle-orm";
+import { z } from "zod";
 import type { CrewReader, CrewWriter } from "./database.ts";
 import type { AssignmentRow } from "./assignment.ts";
 import { attemptCount, type AttemptRow } from "./attempt.ts";
@@ -9,6 +10,8 @@ import { cyclesOf, openCycleOf, type ReworkCycleRow } from "./rework.ts";
 import { type ReworkBriefRecord, storedReworkBrief } from "./rework-input.ts";
 import { readSubmission, submissionsOf, type SubmissionRow } from "./submission.ts";
 import { effectiveWritePaths } from "./write-path-grants.ts";
+import { type BriefRecord, briefRecords } from "./planning-record.ts";
+import { readStored } from "./stored.ts";
 
 /** The external effects one launch performs, in the order a dispatch performs them. */
 export const DISPATCH_STAGES = [
@@ -58,6 +61,9 @@ export type AttemptContext = {
   operations: OperationRow[];
   review: ReviewContext | null;
   rework: ReworkContext | null;
+  // The planning records this attempt's launch carried, or null when its launch fixed none, and
+  // the latest records, which a new launch carries. A review reads the producer's records.
+  planning: { launched: BriefRecord[] | null; latest: BriefRecord[] };
   // The registered write paths plus every current grant, which the brief and submit read.
   writePaths: string[];
   // How many attempts this assignment has held, which bounds a replacement.
@@ -171,6 +177,39 @@ function readReworkContext(db: CrewReader, assignmentId: string): ReworkContext 
   return cycle === null ? null : { cycle, brief: storedReworkBrief(cycle.brief) };
 }
 
+/** The planning record ids one launch fixed, or null when it fixed none. */
+function launchedRecordIdsOf(row: DispatchRow | null): string[] | null {
+  return row?.planningRecordIds == null
+    ? null
+    : readStored("planning record id list", z.array(z.string()), row.planningRecordIds);
+}
+
+/**
+ * The planning records a brief of this attempt carries.
+ * A review reads the records of the producer brief, which the producer launch fixed, so the
+ * Spec axis checks the result against the decisions that it followed.
+ */
+function planningOf(
+  db: CrewReader,
+  request: { assignmentId: string; dispatch: DispatchRow | null; review: ReviewContext | null },
+): AttemptContext["planning"] {
+  if (request.review !== null) {
+    const { submission } = request.review;
+    const records = briefRecords(db, {
+      assignmentId: submission.assignmentId,
+      launched: launchedRecordIdsOf(readDispatchRow(db, submission.attemptId)),
+    });
+    return { launched: records, latest: records };
+  }
+
+  const launched = launchedRecordIdsOf(request.dispatch);
+  return {
+    launched:
+      launched === null ? null : briefRecords(db, { assignmentId: request.assignmentId, launched }),
+    latest: briefRecords(db, { assignmentId: request.assignmentId, launched: null }),
+  };
+}
+
 /**
  * Reads one attempt with everything a change to it needs, and whether it is still the current
  * writer. An attempt that a replaced Operator claimed stays readable and stays blocked until
@@ -194,15 +233,18 @@ export function lookupAttempt(db: CrewReader, attemptId: string): AttemptLookup 
     return { status: "unknown-attempt", attemptId: attempt.id };
   }
 
+  const dispatch = readDispatchRow(db, attempt.id);
+  const review = readReviewContext(db, assignment.id);
   return {
     status: "ok",
     context: {
       attempt,
       assignment,
-      dispatch: readDispatchRow(db, attempt.id),
+      dispatch,
       operations: liveOperations(db, attempt.id),
-      review: readReviewContext(db, assignment.id),
+      review,
       rework: readReworkContext(db, assignment.id),
+      planning: planningOf(db, { assignmentId: assignment.id, dispatch, review }),
       writePaths: effectiveWritePaths(db, assignment),
       attemptsHeld: attemptCount(db, assignment.id),
       current: currentOwnership(db)?.token === attempt.ownerToken,
@@ -226,6 +268,7 @@ export function recordPlan(
     agentKind: string;
     agentHost: string;
     workspaceId: string | null;
+    planningRecordIds: string[];
     now: string;
   },
 ): void {
@@ -249,6 +292,7 @@ export function recordPlan(
       inspection: null,
       inspectionIdentity: null,
       outsideScan: null,
+      planningRecordIds: JSON.stringify(request.planningRecordIds),
       createdAt: request.now,
       updatedAt: request.now,
     })

@@ -196,6 +196,9 @@ export function briefOf(context: AttemptContext, attemptId: string, gate: Brief[
     approvedScope: assignment.approvedScope,
     permissions: { ...storedPermissions(assignment.permissions), writePaths: context.writePaths },
     fixedInputs,
+    // The records that the launch plan of this attempt fixed, so a recovery and a replacement
+    // attempt restore the same words. A first launch carries the latest record of each one.
+    planningRecords: context.planning.launched ?? context.planning.latest,
     // A reviewer reports and never submits, so it receives none of the producer's rules.
     rules:
       review === null

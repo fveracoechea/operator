@@ -35,6 +35,7 @@ A personal instruction file does not reach the crew.
 - **Approved scope** and **acceptance requirements**, with the requirements identity needed to submit the result.
 - **Authority limits**: the effective write paths (the registered paths plus every grant of a person), the allowed commands, and whether network access is permitted. Work outside them is a question, never the Operative's own decision.
 - **Fixed inputs**, with the content identity of every path input. They are fixed at registration, and a launch refuses a base commit that holds another version of a path input.
+- **Planning records**: the record of each accepted planning assignment that this assignment depends on directly, with its record id and identity, and each decision in the words of the tracker resolution. See [Planning records](#planning-records).
 - **Effective configuration**: the crew host, model, and reasoning effort, the Operator release, the lock data, and the skill contents of this launch.
 - **The reporting protocol** of its role, with the refusals of each command beside it.
   A producer brief also lists each project gate command from `operator-gate.json` at the base commit, beside the submit command. The brief permits those commands, and a producer that cannot make one pass raises a question.
@@ -42,6 +43,21 @@ A personal instruction file does not reach the crew.
 A review brief adds the fixed submission it reads, its two axes, and the coverage each axis owes.
 It also names the inputs of `code-review`, and it carries none of the producer's rules.
 A rework brief adds the cycle it answers, the accepted corrections, and the conflicts it must settle.
+
+## Planning records
+
+Dispatch derives the planning records of a brief from the dependency edges, so you name no receiver and you write none of the words.
+Only a direct dependent receives a record.
+A task two steps below a planning item gets the effect of the decision through the commit it builds on, so a task that needs a decision needs a blocking link to that planning item.
+A brief with no planning dependency has no planning records section.
+
+The artifacts of each record are copied into the worktree under `.operator/local/planning/`, by the same step that copies review artifacts, and each copy is checked against its content identity.
+Planning work that an earlier release accepted has no record, and the brief says that it has no recorded decision.
+
+The brief identity covers the records.
+The launch plan records the ids of the records that its brief carried.
+A recovery and a replacement attempt carry the records by those ids, so they restore the same words, also after a later acceptance.
+The spec copy that the review of the result reads holds the same planning records section as the producer brief, also after a later acceptance, and the reviewer receives the same artifact copies.
 
 ## The protocol every role shares
 
@@ -96,7 +112,7 @@ A later edit of the file does not change the record, and the copy never enters a
 
 ## What an Operative never receives
 
-Operator copies an explicit list into a worktree: the project configuration, its schema, a release record, the frozen lock data, a control reference, the brief, and the skills of this release.
+Operator copies an explicit list into a worktree: the project configuration, its schema, a release record, the frozen lock data, a control reference, the brief, the artifacts of the planning records the brief carries, and the skills of this release.
 No credential is copied, and no other file leaves the controlling checkout.
 
 An Operative reads the crew state through the control reference at `.operator/local/attempt.json`.

@@ -2,6 +2,8 @@
 import { basename } from "node:path";
 import { z } from "zod";
 import { ContentIdentity } from "../content-identity/main.ts";
+import { OperativeDispatch } from "../operative-dispatch/main.ts";
+import type { BriefRecord } from "./planning-record.ts";
 import { readStored } from "./stored.ts";
 import type { SubmittedArtifact } from "./submission-input.ts";
 import type { AssignmentRow } from "./assignment.ts";
@@ -60,11 +62,14 @@ export function specPathOf(submissionId: string): string {
  * Copies the work one result was produced against into the store, as the spec its review reads.
  * The reviewer has no network and the issue can change after registration, so the review reads
  * this fixed copy, bound by the requirements identity that the submission records (ADR 0007).
+ * It also holds the planning records that the producer brief carried, in the same rendering, so
+ * the Spec axis checks the result against the decisions that it followed (ADR 0019).
  */
 export async function storeSpec(request: {
   projectRoot: string;
   submissionId: string;
   assignment: AssignmentRow;
+  planningRecords: BriefRecord[];
 }): Promise<StoredCopy> {
   const { assignment } = request;
   const requirements = storedRequirements(assignment.acceptanceRequirements);
@@ -95,6 +100,7 @@ export async function storeSpec(request: {
             }`,
         )),
     "",
+    ...OperativeDispatch.planningRecordsSection({ inputs: request.planningRecords }),
   ].join("\n");
 
   const storedPath = specPathOf(request.submissionId);

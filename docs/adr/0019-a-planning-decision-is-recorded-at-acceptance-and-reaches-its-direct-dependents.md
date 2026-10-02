@@ -35,12 +35,14 @@ At dispatch, the brief of each direct dependent carries the planning record of e
 The artifacts of those records are copied into the worktree, in the same way that a reviewer receives the artifacts of a submission.
 The record is derived from the dependency, so the Operator input names no receiver, and the Operator cannot forget a dependent or copy the words wrong.
 The brief identity covers the record, so a recovery restores the same words.
+The launch plan records the ids of the records that the brief carried, and a recovery and a replacement attempt read the records by those ids, so a later acceptance does not change them.
 Only a direct dependent receives a record.
 A task that needs a decision gets a blocking link to the planning work on the tracker, and a task further down the chain receives the effect of the decision through the commit that it builds on.
 Planning work has no brief, so the action that resolves it in the next-actions read names the record of each direct planning dependency.
 The Operator reads that action and keeps its own context low, so the action carries only the record identity, its content identity, its entry count, and the command that prints the full record: `operator work record`.
 The crew that prepares the decision reads the full record with that command, and the Operator does not.
 The fixed copy of the requirements that a result review reads, as ADR 0007 records, also holds the planning records that the brief of the producer carried, so the Spec axis checks the result against the decisions it followed.
+It reads them by the ids that the launch plan of the producer recorded, so a later acceptance does not change them, and the reviewer receives the same artifact copies.
 
 A planning record is fixed once it is accepted.
 A decision that changes after acceptance is an invalidation of the planning work: the dependents that consumed it pause, and a new acceptance with a new record releases them.

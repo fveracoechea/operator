@@ -119,6 +119,16 @@ export const MIGRATIONS: MigrationStep[] = [
       ) strict`);
     },
   },
+  {
+    from: 7,
+    to: 8,
+    summary: "Record the planning records that each launch carried in its brief.",
+    // A launch recorded before this step carried no planning records, so it keeps no list. A
+    // recovery of it reads the latest record of each dependency, as a new launch does.
+    apply: (sqlite) => {
+      sqlite.exec("alter table attempt_dispatch add column planning_record_ids text");
+    },
+  },
 ];
 
 /** The steps that carry one recorded version up to the version this release reads. */

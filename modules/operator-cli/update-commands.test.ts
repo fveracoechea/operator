@@ -45,6 +45,7 @@ function makeStateOutdated(): void {
   const sqlite = new Database(statePath(), { create: false, readwrite: true });
   sqlite.exec("alter table state_meta drop column release_identity");
   sqlite.exec("alter table answers drop column source_kind");
+  dropVersionEight(sqlite);
   dropVersionSeven(sqlite);
   dropVersionSix(sqlite);
   dropVersionFive(sqlite);
@@ -107,9 +108,17 @@ function dropVersionSeven(sqlite: Database): void {
   sqlite.exec("alter table assignments drop column planning_type");
 }
 
+/** Removes what version 8 added, so a later migration step can add it again. */
+function dropVersionEight(sqlite: Database): void {
+  sqlite.exec("alter table attempt_dispatch drop column planning_record_ids");
+}
+
 /** Moves the recorded version back, and removes what each later version added. */
 function setStateVersion(version: number): void {
   const sqlite = new Database(statePath(), { create: false, readwrite: true });
+  if (version < 8) {
+    dropVersionEight(sqlite);
+  }
   if (version < 7) {
     dropVersionSeven(sqlite);
   }
@@ -384,7 +393,7 @@ describe("recorded formats", () => {
 
     expect(applied.exitCode).toBe(0);
     expect(applied.json.data.migration.status).toBe("migrated");
-    expect(stateVersion()).toBe(7);
+    expect(stateVersion()).toBe(8);
     expect(recordedRelease()).toBe(applied.json.data.selection.releaseIdentity);
     expect((await runJson(workspace, ["work", "frontier"])).exitCode).toBe(0);
   });
@@ -419,6 +428,7 @@ describe("recorded formats", () => {
     expect(applied.json.data.migration.steps).toEqual([
       expect.objectContaining({ from: 5, to: 6 }),
       expect.objectContaining({ from: 6, to: 7 }),
+      expect.objectContaining({ from: 7, to: 8 }),
     ]);
     const sqlite = new Database(statePath(), { create: false, readonly: true });
     const columns = sqlite.query("pragma table_info(submissions)").all() as Array<{
@@ -426,7 +436,35 @@ describe("recorded formats", () => {
     }>;
     sqlite.close();
     expect(columns.map((one) => one.name)).toContain("behavior_changes");
-    expect(stateVersion()).toBe(7);
+    expect(stateVersion()).toBe(8);
+  });
+
+  test("adds the planning record list of each launch and fixes none for an earlier launch", async () => {
+    const reviewing = await makeReviewWorkspace(fixtures);
+    workspace = reviewing;
+    const producer = await startProducer(reviewing);
+    const artifact = await commitArtifact(reviewing, producer, "# Result\n");
+    await submit(reviewing, producer, submissionBody(producer, artifact));
+    // An update waits for the work in flight, so that launch has finished before the update.
+    const accepted = new Database(statePath(), { create: false, readwrite: true });
+    accepted.query("update assignments set state = 'accepted' where kind = 'production'").run();
+    accepted.query("update assignments set state = 'invalidated' where kind = 'review'").run();
+    accepted.close();
+    setStateVersion(7);
+
+    const { applied } = await apply();
+
+    expect(applied.json.data.migration.steps).toEqual([
+      expect.objectContaining({ from: 7, to: 8 }),
+    ]);
+    expect(stateVersion()).toBe(8);
+    const sqlite = new Database(statePath(), { create: false, readonly: true });
+    const row = sqlite
+      .query("select planning_record_ids from attempt_dispatch where attempt_id = ?")
+      .get(producer.attemptId) as { planning_record_ids: string | null };
+    sqlite.close();
+    // That launch carried no planning records, so the migration claims no list for it.
+    expect(row.planning_record_ids).toBeNull();
   });
 
   test("marks a requirement that an earlier release recorded as unchecked", async () => {
@@ -634,7 +672,7 @@ describe("recorded formats", () => {
     const { applied } = await apply();
 
     expect(applied.json.data.migration.status).toBe("migrated");
-    expect(stateVersion()).toBe(7);
+    expect(stateVersion()).toBe(8);
     const stored = new Database(statePath(), { create: false, readonly: true });
     const kept = stored.query("select code from submissions where id = ?").get(submissionId) as {
       code: string;

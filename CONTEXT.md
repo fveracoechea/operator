@@ -264,6 +264,7 @@ Planning work is not executable, so it carries no kind of its own beyond the pla
 **Dispatch**:
 The staged launch of one claimed assignment into an isolated Operative worktree.
 It fixes the plan first, then records the intent and outcome of each external effect.
+The plan also records the ids of the planning records that its brief carries.
 
 **Launch snapshot**:
 The effective crew host, model, Operator release, lock data, and skill contents that one attempt was launched with.

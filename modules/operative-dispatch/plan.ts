@@ -10,6 +10,7 @@ import {
   reviewProtocolSection,
   submittedResultSection,
 } from "./review-brief.ts";
+import { type PlanningInput, planningInputPath, planningRecordsSection } from "./planning-brief.ts";
 import {
   type ReworkBrief,
   reworkInputPath,
@@ -36,6 +37,9 @@ export type Brief = {
     value: string;
     contentIdentity: string | null;
   }>;
+  // The planning records of each accepted planning assignment this one directly depends on.
+  // A review carries the records of the producer brief, which its spec copy already renders.
+  planningRecords: PlanningInput[];
   // The module that runs each check owns its line, so the brief only places it beside its command.
   rules: { submit: CommandRule[]; report: CommandRule[] };
   // The project gate at the base commit, which a producer runs before it submits a code result.
@@ -370,6 +374,7 @@ function briefDocument(request: {
     `Write each file you pass with \`--input\` under \`${OUTBOX_PATH}\`.`,
     "",
     ...role.result,
+    ...(brief.review === null ? planningRecordsSection(brief.planningRecords) : []),
     "## Fixed inputs",
     "",
     ...(brief.fixedInputs.length === 0
@@ -478,6 +483,19 @@ export function planDispatch(request: {
             },
           ],
     ),
+    // The artifacts of a planning record are copied by the same step, so a dependent reads the
+    // fixed text and never the planning store of the controlling checkout.
+    ...request.brief.planningRecords
+      .flatMap((input) => input.record?.artifacts ?? [])
+      .filter(
+        (artifact, index, all) =>
+          all.findIndex((one) => one.contentIdentity === artifact.contentIdentity) === index,
+      )
+      .map((artifact) => ({
+        path: planningInputPath(artifact),
+        sourcePath: `${request.projectRoot}/${artifact.storedPath}`,
+        identity: artifact.contentIdentity,
+      })),
     ...(review?.spec == null
       ? []
       : [

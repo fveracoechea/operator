@@ -5,6 +5,7 @@ import { ReleaseInstall } from "../release-install/main.ts";
 import { type AnswerDelivery, answerDocument } from "./answer.ts";
 import { type PrepareOutcome, prepareInputs } from "./inputs.ts";
 import { inspectCheckout, inspectWork, type WorkInspection } from "./inspect.ts";
+import { type PlanningInput, planningRecordsSection } from "./planning-brief.ts";
 import { readReference } from "./reference.ts";
 import {
   BRIEF_PATH,
@@ -116,6 +117,15 @@ export const OperativeDispatch = {
     if (request.agentHost === "opencode")
       prefixes.push(OPENCODE_AGENT_PATH, OPENCODE_EFFORT_PLUGIN_PATH);
     return prefixes;
+  },
+
+  /**
+   * Renders the planning records one brief carries.
+   * The spec copy that a result review reads renders the same section, so the Spec axis reads
+   * the decisions in the words that the producer received.
+   */
+  planningRecordsSection(request: { inputs: PlanningInput[] }): string[] {
+    return planningRecordsSection(request.inputs);
   },
 
   /** Names the branch, checkout, agent, brief, and prompt of one launch before any effect. */

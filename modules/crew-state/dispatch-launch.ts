@@ -1,4 +1,5 @@
 import { OperativeDispatch } from "../operative-dispatch/main.ts";
+import { launchedRecordIds } from "./planning-record.ts";
 import { ProjectReadiness } from "../project-readiness/main.ts";
 import {
   type AttemptFailure,
@@ -235,9 +236,10 @@ export async function dispatchAttempt(request: {
     return gate;
   }
 
+  const brief = briefOf(read.context, attemptId, gate.gate);
   const launch = OperativeDispatch.plan({
     projectRoot: request.projectRoot,
-    brief: briefOf(read.context, attemptId, gate.gate),
+    brief,
     snapshot,
     baseCommit,
     branch: recorded?.branch ?? request.branch,
@@ -284,6 +286,7 @@ export async function dispatchAttempt(request: {
           agentName: plan.agentName,
           agentKind: plan.agentKind,
           agentHost: plan.agentHost,
+          planningRecordIds: launchedRecordIds(brief.planningRecords),
           workspaceId: null,
           now,
         });

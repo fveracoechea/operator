@@ -140,6 +140,9 @@ export async function submitAttemptResult(request: {
     projectRoot: request.projectRoot,
     submissionId,
     assignment: read.context.assignment,
+    // The producer brief carried the records its launch fixed. A launch recorded before that
+    // list existed carried the latest records.
+    planningRecords: read.context.planning.launched ?? read.context.planning.latest,
   });
 
   const { repeated, result } = await mutate<SubmitOutcome>(

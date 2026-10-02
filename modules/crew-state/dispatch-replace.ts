@@ -1,4 +1,5 @@
 import { OperativeDispatch } from "../operative-dispatch/main.ts";
+import { launchedRecordIds } from "./planning-record.ts";
 import {
   type AttemptFailure,
   briefGate,
@@ -227,9 +228,10 @@ export async function replaceAttempt(request: {
   if (gate.status !== "ok") {
     return gate;
   }
+  const brief = briefOf(read.context, attemptId, gate.gate);
   const launch = OperativeDispatch.plan({
     projectRoot: request.projectRoot,
-    brief: briefOf(read.context, attemptId, gate.gate),
+    brief,
     snapshot,
     baseCommit: dispatch.baseCommit,
     branch: dispatch.branch,
@@ -291,6 +293,7 @@ export async function replaceAttempt(request: {
         agentName: plan.agentName,
         agentKind: plan.agentKind,
         agentHost: plan.agentHost,
+        planningRecordIds: launchedRecordIds(brief.planningRecords),
         // The inspected checkout is retained, so the replacement never creates a second one.
         workspaceId: dispatch.workspaceId,
         now,
