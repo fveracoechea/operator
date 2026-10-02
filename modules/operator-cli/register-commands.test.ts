@@ -2,6 +2,7 @@ import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { ContentIdentity } from "../content-identity/main.ts";
 import {
+  assignmentsOf,
   type FixtureSource,
   type FixtureTarget,
   fakeIssue,
@@ -125,6 +126,7 @@ describe("operator work register", () => {
       new: 4,
       updated: 0,
       unchanged: 0,
+      withdrawn: 0,
       skipped: 0,
       satisfiedBlockers: 0,
       refusals: 0,
@@ -133,9 +135,12 @@ describe("operator work register", () => {
     const registered = await register(workspace, token, inputPath, plan.json.data.planRevision);
     expect(registered.exitCode).toBe(0);
     expect(registered.json.data.source.id).toBe(key(93));
-    expect(
-      registered.json.data.registered.map((one: { sourceKey: string }) => one.sourceKey),
-    ).toEqual([key(30), key(10), key(20), key(40)]);
+    expect((await assignmentsOf(target, key(93))).map((one) => one.sourceKey)).toEqual([
+      key(30),
+      key(10),
+      key(20),
+      key(40),
+    ]);
 
     // Two production slots are free under the default crew limit, and the review slot is held.
     expect(await frontierKeys(workspace)).toEqual({
@@ -214,9 +219,7 @@ describe("operator work register", () => {
 
     expect(registered.exitCode).toBe(0);
     expect(registered.json.data.source).toMatchObject({ id: key(28), kind: "ticket" });
-    expect(
-      registered.json.data.registered.map((one: { sourceKey: string }) => one.sourceKey),
-    ).toEqual([key(28)]);
+    expect(registered.assignments.map((one) => one.sourceKey)).toEqual([key(28)]);
     expect((await frontierKeys(workspace)).dispatchable).toEqual([key(28)]);
   });
 
@@ -232,10 +235,7 @@ describe("operator work register", () => {
     });
 
     expect(registered.exitCode).toBe(0);
-    expect(registered.json.data.registered.map((one: { kind: string }) => one.kind)).toEqual([
-      "planning",
-      "production",
-    ]);
+    expect(registered.assignments.map((one) => one.kind)).toEqual(["planning", "production"]);
     expect(await frontierKeys(workspace)).toEqual({
       dispatchable: [],
       blocked: [key(102)],
@@ -366,9 +366,15 @@ describe("operator work register", () => {
     ]);
 
     // The Operator reads this report, so it gives counts and points to the frontier.
-    expect(registered.json.data.counts).toEqual({ registered: 2, updated: 0 });
+    expect(registered.json.data.counts).toEqual({ registered: 2, updated: 0, withdrawn: 0 });
     expect(registered.json.data.frontier).toBe("operator work frontier");
     expect(readable.stdout).toContain("List each assignment with: operator work frontier");
+    const listed = await assignmentsOf(target, key(93));
+    expect(listed).toHaveLength(2);
+    for (const one of listed) {
+      expect(readable.stdout).not.toContain(one.assignmentId);
+      expect(registered.stdout).not.toContain(one.assignmentId);
+    }
   });
 
   test("refuses a changed tracker between the preview and the registration and names it", async () => {
@@ -625,6 +631,7 @@ describe("work register refusals", () => {
       new: 1,
       updated: 0,
       unchanged: 0,
+      withdrawn: 0,
       skipped: 1,
       satisfiedBlockers: 2,
       refusals: 0,

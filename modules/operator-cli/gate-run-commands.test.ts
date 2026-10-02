@@ -60,7 +60,7 @@ async function claimFirst(workspace: Workspace) {
     "--owner-token",
     ownerToken,
     "--assignment",
-    registered.json.data.registered[0].assignmentId,
+    registered.assignments[0]?.assignmentId ?? "",
     "--revision",
     "1",
   ]);

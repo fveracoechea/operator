@@ -257,6 +257,7 @@ describe("a new read of a registered source", () => {
       new: 1,
       updated: 0,
       unchanged: 2,
+      withdrawn: 0,
       skipped: 0,
       satisfiedBlockers: 0,
       refusals: 0,
@@ -274,11 +275,7 @@ describe("a new read of a registered source", () => {
 
     const registered = await register(workspace, token, inputPath, plan.json.data.planRevision);
     expect(registered.exitCode).toBe(0);
-    expect(
-      registered.json.data.registered.map((one: { sourceKey: string }) => one.sourceKey),
-    ).toEqual([key(50)]);
-    expect(registered.json.data.updated).toEqual([]);
-    expect(registered.json.data.counts).toEqual({ registered: 1, updated: 0 });
+    expect(registered.json.data.counts).toEqual({ registered: 1, updated: 0, withdrawn: 0 });
     expect(recorded(workspace).assignments.map((one) => [one.source_key, one.order_index])).toEqual(
       [
         [key(30), 0],
@@ -360,10 +357,7 @@ describe("a new read of a registered source", () => {
     await grant(workspace, token, plan.json.data.approval);
     const registered = await register(workspace, token, inputPath, plan.json.data.planRevision);
     expect(registered.exitCode).toBe(0);
-    expect(registered.json.data.updated.map((one: { sourceKey: string }) => one.sourceKey)).toEqual(
-      [key(10)],
-    );
-    expect(registered.json.data.counts).toEqual({ registered: 0, updated: 1 });
+    expect(registered.json.data.counts).toEqual({ registered: 0, updated: 1, withdrawn: 0 });
     const b = recorded(workspace).assignments.find((one) => one.source_key === key(10));
     expect(b?.title).toBe("A sharper title");
     expect(b?.approved_scope).toBe("A sharper scope.");
@@ -497,23 +491,6 @@ describe("a new read of a registered source", () => {
         state: "registered",
         hint: "remove it from its parent to withdraw it, or reopen it",
       },
-    ]);
-  });
-
-  test("refuses a recorded item that the read does not find", async () => {
-    const { workspace, token, target } = await owned();
-    const first = await registerSource(target, token, FIRST);
-
-    const state = await readFake(workspace.github);
-    state.subIssues = {
-      ...state.subIssues,
-      "93": (state.subIssues?.["93"] ?? []).filter((one) => one.number !== 10),
-    };
-    await writeFake(workspace.github, state);
-    const { plan } = await previewOnly(target, FIRST, [], { seed: false });
-
-    expect(await refusalsOf(workspace, plan)).toEqual([
-      { reason: "recorded_item_missing", key: key(10), assignmentId: first.keys.get("b") },
     ]);
   });
 

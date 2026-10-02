@@ -169,6 +169,15 @@ export const MIGRATIONS: MigrationStep[] = [
       }
     },
   },
+  {
+    from: 10,
+    to: 11,
+    summary: "Record the registration plan revision under which each assignment was withdrawn.",
+    // An earlier release could not withdraw an assignment, so every row keeps no revision.
+    apply: (sqlite) => {
+      sqlite.exec("alter table assignments add column withdrawn_under text");
+    },
+  },
 ];
 
 /** The steps that carry one recorded version up to the version this release reads. */

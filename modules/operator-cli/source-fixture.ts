@@ -265,11 +265,11 @@ export async function registerSource(
   ]);
   // The reads of a registration are setup, so a test of a later step sees only its own calls.
   await Bun.write(`${target.github}/calls.log`, "");
-  const byIssue = new Map<string, string>(
-    (registered.json.data?.registered ?? []).map(
-      (one: { sourceKey: string; assignmentId: string }) => [one.sourceKey, one.assignmentId],
-    ),
-  );
+  const assignments =
+    registered.exitCode === 0
+      ? await assignmentsOf(target, sourceIdOf(source.parent, source.repository))
+      : [];
+  const byIssue = new Map(assignments.map((one) => [one.sourceKey, one.assignmentId]));
   const keys = new Map<string, string>();
   for (const item of source.items) {
     const assignment = byIssue.get(
@@ -279,7 +279,34 @@ export async function registerSource(
       keys.set(item.key, assignment);
     }
   }
-  return { ...registered, plan, keys, numbers, inputPath };
+  return { ...registered, plan, keys, numbers, inputPath, assignments };
+}
+
+/** One assignment as `work frontier` lists it. */
+export type FixtureAssignment = {
+  assignmentId: string;
+  sourceId: string;
+  sourceKey: string;
+  kind: string;
+  title: string;
+  orderIndex: number;
+};
+
+/**
+ * Every assignment of one source, in item order. The registration report gives only counts, so
+ * a test reads each assignment from the frontier, as the crew does.
+ */
+export async function assignmentsOf(
+  target: FixtureTarget,
+  sourceId: string,
+): Promise<FixtureAssignment[]> {
+  const frontier = await target.run(["work", "frontier"]);
+  const listed = Object.values(frontier.json.data as Record<string, unknown>)
+    .filter((one): one is FixtureAssignment[] => Array.isArray(one))
+    .flat()
+    .filter((one) => one.sourceId === sourceId);
+  const byId = new Map(listed.map((one) => [one.assignmentId, one]));
+  return [...byId.values()].toSorted((left, right) => left.orderIndex - right.orderIndex);
 }
 
 /** The source id the CLI records for one fixture source. */
@@ -294,4 +321,61 @@ export function workspaceTarget(workspace: Workspace): FixtureTarget {
     github: workspace.github,
     run: (args) => runJson(workspace, args),
   };
+}
+
+/**
+ * Removes the given sub-issues from their parent, as a person does on GitHub, previews the new
+ * read with an input that names no item, and records it under the approval the plan asks for.
+ */
+export async function withdrawIssues(
+  target: FixtureTarget,
+  ownerToken: string,
+  request: { sourceKind: FixtureKind; parent: number; numbers: number[] },
+) {
+  const state = await readFake(target.github);
+  const parent = String(request.parent);
+  state.subIssues = {
+    ...state.subIssues,
+    [parent]: (state.subIssues?.[parent] ?? []).filter(
+      (one) => !request.numbers.includes(one.number),
+    ),
+  };
+  await writeFake(target.github, state);
+
+  const inputPath = await writeInput(target.root, {
+    sourceKind: request.sourceKind,
+    source: issueKey(request.parent),
+    items: [],
+  });
+  const plan = await planSource(target, inputPath);
+  const approval = plan.json.data?.approval;
+  if (approval !== null && approval !== undefined) {
+    await target.run([
+      "approval",
+      "grant",
+      "--request",
+      crypto.randomUUID(),
+      "--owner-token",
+      ownerToken,
+      "--input",
+      await writeInput(target.root, {
+        ...approval,
+        exactText: "Yes, withdraw those items.",
+        grantedBy: "human",
+      }),
+    ]);
+  }
+  const registered = await target.run([
+    "work",
+    "register",
+    "--request",
+    crypto.randomUUID(),
+    "--owner-token",
+    ownerToken,
+    "--input",
+    inputPath,
+    "--plan-revision",
+    String(plan.json.data?.planRevision ?? "none"),
+  ]);
+  return { plan, registered };
 }

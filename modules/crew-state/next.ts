@@ -28,7 +28,7 @@ import {
 } from "./review.ts";
 import { openCycleOf } from "./rework.ts";
 import { assignments, attempts } from "./schema.ts";
-import { latestSubmission } from "./submission.ts";
+import { latestSubmission, submissionOfAttempt, submittedCommit } from "./submission.ts";
 import { readBinding, TRACKER_STEPS, targetOf, trackerOperationsOf } from "./tracker.ts";
 import { trackerStepActions } from "./tracker-show.ts";
 import { isReview } from "./work-input.ts";
@@ -516,10 +516,28 @@ const cleanupBlockers = {
   done: null,
 } as const satisfies Record<CleanupState, NextBlocker | null>;
 
+/**
+ * Whether a removal of the checkout of one ended attempt may be offered. Accepted work may go. A
+ * checkout of withdrawn work that holds a submitted commit holds unlanded work, so only the
+ * person removes it, and `operator cleanup show` lists it.
+ */
+function removableAfterClosure(
+  db: CrewReader,
+  request: { attemptId: string; state: string },
+): boolean {
+  if (request.state === "accepted") {
+    return true;
+  }
+  const submission = submissionOfAttempt(db, request.attemptId);
+  return (
+    request.state === "withdrawn" && (submission === null || submittedCommit(submission) === null)
+  );
+}
+
 /** The disposal one ended attempt still owes, and the hold that keeps its resources. */
 function readCleanupOf(
   db: CrewReader,
-  request: { attemptId: string; assignmentId: string; accepted: boolean },
+  request: { attemptId: string; assignmentId: string; removable: boolean },
   into: Collector,
 ): void {
   const dispatch = readDispatchRow(db, request.attemptId);
@@ -575,7 +593,7 @@ function readCleanupOf(
     return;
   }
 
-  if (recorded.get("worktree_removal") === "done" || !request.accepted) {
+  if (recorded.get("worktree_removal") === "done" || !request.removable) {
     return;
   }
 
@@ -622,6 +640,7 @@ function emptyFrontier(capacity: Capacity): Frontier {
     active: [],
     planning: [],
     accepted: [],
+    withdrawn: [],
     questions: [],
   };
 }
@@ -712,7 +731,7 @@ export function calculateNext(
         {
           attemptId: attempt.id,
           assignmentId: attempt.assignmentId,
-          accepted: assignment.state === "accepted",
+          removable: removableAfterClosure(db, { attemptId: attempt.id, state: assignment.state }),
         },
         into,
       );
@@ -727,6 +746,10 @@ export function calculateNext(
     .from(assignments)
     .all()
     .toSorted((left, right) => left.id.localeCompare(right.id))) {
+    // A withdrawal is terminal and closed every open record of its work, so it owes nothing.
+    if (row.state === "withdrawn") {
+      continue;
+    }
     for (const direction of undirected(db, row.id)) {
       const record = directionRecordOf(direction);
       into.add({

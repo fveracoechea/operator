@@ -415,10 +415,7 @@ describe("operator work register", () => {
     expect(specification.json.reason).toBe("work_registered");
     expect(ticket.json.reason).toBe("work_registered");
     expect(wayfinder.json.reason).toBe("work_registered");
-    expect(wayfinder.json.data.registered[0]).toMatchObject({
-      kind: "production",
-      executable: true,
-    });
+    expect(wayfinder.assignments[0]).toMatchObject({ kind: "production" });
   });
 
   test("keeps planning-only work out of dispatch", async () => {
@@ -435,15 +432,10 @@ describe("operator work register", () => {
       ],
     });
 
-    expect(
-      registered.json.data.registered.map((one: { sourceKey: string; executable: boolean }) => [
-        nameOf(one.sourceKey),
-        one.executable,
-      ]),
-    ).toEqual([
-      ["research-1", false],
-      ["grilling-1", false],
-      ["task-1", true],
+    expect(registered.assignments.map((one) => [nameOf(one.sourceKey), one.kind])).toEqual([
+      ["research-1", "planning"],
+      ["grilling-1", "planning"],
+      ["task-1", "production"],
     ]);
 
     const frontier = await runJson(root, ["work", "frontier"]);
@@ -588,10 +580,7 @@ describe("operator work register", () => {
       items: [item({ key: "prototype-1", wayfinderType: "prototype" })],
     });
 
-    expect(registered.json.data.registered[0]).toMatchObject({
-      kind: "planning",
-      executable: false,
-    });
+    expect(registered.assignments[0]).toMatchObject({ kind: "planning" });
   });
 
   test("reads a registration request from standard input", async () => {

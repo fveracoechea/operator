@@ -74,7 +74,7 @@ async function dispatchedCrew(workspace: Workspace, keys: string[] = ["21.1"]): 
     items: keys.map((key) => item({ key })),
   });
 
-  const first = registered.json.data.registered[0];
+  const first = registered.assignments[0] ?? { assignmentId: "" };
   const claimed = await runJson(workspace, [
     "work",
     "claim",
@@ -123,7 +123,7 @@ async function dispatchedCrew(workspace: Workspace, keys: string[] = ["21.1"]): 
     assignmentId: first.assignmentId,
     assignmentRevision: claimed.json.data.revision,
     attemptId: claimed.json.data.attemptId,
-    registered: registered.json.data.registered,
+    registered: registered.assignments,
   };
 }
 
@@ -600,7 +600,7 @@ describe("operator question answer", () => {
 
     const raised = await raise(workspace, crew, {
       question: "Ticket 21 keeps the legacy column order and ticket 22 replaces it.",
-      affectedScope: [crew.assignmentId, second.json.data.registered[0].assignmentId],
+      affectedScope: [crew.assignmentId, second.assignments[0]?.assignmentId ?? ""],
       escalationTriggers: ["conflicting-requirements", "visible-behavior"],
     });
 

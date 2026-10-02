@@ -1,4 +1,4 @@
-import { registerSource, workspaceTarget } from "./source-fixture.ts";
+import { registerSource, withdrawIssues, workspaceTarget } from "./source-fixture.ts";
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 // Bun has no recursive directory removal API.
@@ -19,6 +19,7 @@ import {
 import {
   headCommit,
   herdrCalls,
+  nextActions,
   requestId as request,
   runJson,
   runOperator,
@@ -455,7 +456,7 @@ describe("cleanup identity", () => {
       "--owner-token",
       producer.ownerToken,
       "--assignment",
-      registered.json.data.registered[0].assignmentId,
+      registered.assignments[0]?.assignmentId ?? "",
       "--revision",
       "1",
     ]);
@@ -520,6 +521,56 @@ describe("cleanup identity", () => {
 });
 
 describe("operator cleanup remove", () => {
+  test("refuses a withdrawn checkout that holds its commit, and lists it as unlanded", async () => {
+    const workspace = await makeWorkspace();
+    const producer = await startProducer(workspace, undefined, {
+      dependents: [
+        {
+          key: "22.2",
+          kind: "production",
+          title: "Other work",
+          dependsOn: [],
+          writePaths: ["src/"],
+        },
+      ],
+    });
+    const artifact = await commitArtifact(workspace, producer, "# Result\n");
+    await submit(workspace, producer, submissionBody(producer, artifact));
+    const { registered } = await withdrawIssues(workspaceTarget(workspace), producer.ownerToken, {
+      sourceKind: "specification",
+      parent: 15,
+      numbers: [1501],
+    });
+    expect(registered.exitCode).toBe(0);
+
+    const closed = await close(workspace, producer.ownerToken, producer.attemptId);
+    expect(closed.json.reason).toBe("process_closed");
+    // A remote copy is not a landing, so the commit still has no integration branch.
+    await pushWork(producer.worktreePath);
+
+    // Only the person removes a checkout that holds unlanded work, so none is offered.
+    const next = await nextActions(workspace);
+    expect(
+      next.forAction("remove_worktree").filter((one) => one.attemptId === producer.attemptId),
+    ).toEqual([]);
+    const blocked = await remove(workspace, producer.ownerToken, producer.attemptId);
+    expect(blocked.exitCode).toBe(3);
+    expect(blocked.json.blockers).toEqual([
+      { reason: "unlanded_work", assignmentId: producer.assignmentId, commits: [artifact.commit] },
+    ]);
+
+    const shown = await runJson(workspace, ["cleanup", "show"]);
+    expect(shown.json.data.unlanded).toEqual([
+      {
+        attemptId: producer.attemptId,
+        assignmentId: producer.assignmentId,
+        worktreePath: producer.worktreePath,
+        branch: producer.dispatched.data.branch,
+        commit: artifact.commit,
+      },
+    ]);
+  });
+
   test("removes an approved checkout and keeps its evidence, branch, and remote work", async () => {
     const workspace = await makeWorkspace();
     const { producer } = await acceptedCycle(workspace);

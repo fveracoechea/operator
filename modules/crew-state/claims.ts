@@ -19,6 +19,7 @@ export type ClaimResult =
   | { status: "stale-revision"; assignmentId: string; recordedRevision: number }
   | { status: "planning-only"; assignmentId: string; kind: string }
   | { status: "already-accepted"; assignmentId: string }
+  | { status: "withdrawn"; assignmentId: string }
   | { status: "already-claimed"; assignmentId: string; attemptId: string }
   | { status: "not-dispatchable"; assignmentId: string; blockers: FrontierBlocker[] };
 
@@ -41,6 +42,10 @@ export function claimAssignment(
 
   if (row.state === "accepted") {
     return { status: "already-accepted", assignmentId: row.id };
+  }
+  // A withdrawal is terminal, so no attempt of withdrawn work ever starts again.
+  if (row.state === "withdrawn") {
+    return { status: "withdrawn", assignmentId: row.id };
   }
 
   // A duplicate claim names the attempt that already holds this assignment, before it reports

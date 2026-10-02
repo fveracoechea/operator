@@ -89,8 +89,9 @@ async function readApproval(
 /**
  * Removes one approved Operative checkout through Herdr.
  * Acceptance is not disposal authority, so the removal runs only behind a closed process, an
- * accepted result, preserved evidence, remote copies of every commit, and an approval granted
- * against these exact inputs.
+ * accepted or withdrawn assignment, preserved evidence, remote copies of every commit, and an
+ * approval granted against these exact inputs. A checkout of withdrawn work that holds a commit
+ * holds unlanded work, so it is refused whatever approval exists, and only the person removes it.
  */
 // oxlint-disable-next-line complexity -- Removal gates and recovery run in one ordered operation.
 export async function removeWorktree(request: {
@@ -153,20 +154,30 @@ export async function removeWorktree(request: {
     return refuse([unknownHost]);
   }
 
+  const state = storedAssignmentState(context.assignment.state);
   const gates: CleanupBlocker[] = [
     holdBlocker(context),
     ...(closure === null || closure.state !== "done"
       ? [{ reason: "process_live" as const, state: closure?.state ?? "none" }]
       : []),
-    ...(storedAssignmentState(context.assignment.state) === "accepted"
+    ...(state === "accepted" || state === "withdrawn"
       ? []
       : [
           {
             reason: "assignment_not_accepted" as const,
             assignmentId: context.assignment.id,
-            state: storedAssignmentState(context.assignment.state),
+            state,
           },
         ]),
+    ...(state === "withdrawn" && inspection.commits.length > 0
+      ? [
+          {
+            reason: "unlanded_work" as const,
+            assignmentId: context.assignment.id,
+            commits: inspection.commits,
+          },
+        ]
+      : []),
     ...checkoutBlockers(inspection, { requireRemote: true }),
   ].flatMap((one) => (one === null ? [] : [one]));
   if (gates.length > 0) {

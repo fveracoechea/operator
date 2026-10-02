@@ -359,6 +359,7 @@ Its correction is a rework cycle that counts against the same limit as every oth
 The end of one registered assignment that a person took out of its work source, by removing its issue from the parent issue.
 It is recorded behind the approval of a registration plan, only when no attempt of it is running and each dependent is withdrawn with it or no longer depends on it.
 A withdrawn assignment never unblocks a dependent, and its history stays.
+It records the registration plan revision whose approval recorded it.
 A commit of it that the integration branch holds is taken out of that branch.
 _Avoid_: cancel, drop, descope, abandon, revert, for this act
 
@@ -413,7 +414,8 @@ It never touches the checkout.
 **Worktree removal**:
 The disposal of one approved Herdr-managed checkout.
 Accepted completion is not disposal authority, so it also needs a closed process, preserved evidence, a checkout that holds only the commit its handoff names, and an approval granted against these exact inputs.
-When that commit is the accepted result of its assignment, the integration branch must still hold it; a commit that a later accepted result replaced, or a commit of a withdrawn assignment, needs no such proof, because its record stays.
+When that commit is the accepted result of its assignment, the integration branch must still hold it; a commit that a later accepted result replaced needs no such proof, because its record stays.
+A checkout that holds a commit of a withdrawn assignment holds unlanded work, so it is refused, and only the person removes it.
 _Avoid_: remote copy, pushed, for this proof
 
 **Cleanup request revision**:

@@ -4,6 +4,7 @@ import { approvalRecordOf } from "./approvals.ts";
 import type { CrewReader } from "./database.ts";
 import { identityOf } from "./identity.ts";
 import { assignments, attempts, approvals } from "./schema.ts";
+import { recordedLanding } from "./submission.ts";
 import { storedPermissions } from "./work-input.ts";
 import {
   overlappingPaths,
@@ -21,6 +22,26 @@ type AssignmentRow = typeof assignments.$inferSelect;
  */
 function writePathsRevision(registered: string[]): string {
   return identityOf({ writePaths: registered });
+}
+
+/**
+ * Which production assignments hold their write paths now. Work holds them from its first claim
+ * until it reaches accepted completion, and again after it leaves accepted completion. A
+ * withdrawal ends the hold, unless a commit of the work is still landed (ADR 0004).
+ */
+export function writePathHolders(db: CrewReader): (row: AssignmentRow) => boolean {
+  const started = new Set(
+    db
+      .select()
+      .from(attempts)
+      .all()
+      .map((one) => one.assignmentId),
+  );
+  return (row) =>
+    row.kind === "production" &&
+    started.has(row.id) &&
+    row.state !== "accepted" &&
+    (row.state !== "withdrawn" || recordedLanding(db, row.id) !== null);
 }
 
 /**
@@ -122,24 +143,10 @@ export function showWritePaths(
     return { status: "reported", ...report, grant: null };
   }
 
-  // Production work holds its write paths from its first claim until accepted completion.
-  const started = new Set(
-    db
-      .select()
-      .from(attempts)
-      .all()
-      .map((one) => one.assignmentId),
-  );
+  const holds = writePathHolders(db);
   const paths = request.paths;
   const overlaps = rows
-    .filter(
-      (one) =>
-        one.id !== row.id &&
-        one.sourceId === row.sourceId &&
-        one.kind === "production" &&
-        one.state !== "accepted" &&
-        started.has(one.id),
-    )
+    .filter((one) => one.id !== row.id && one.sourceId === row.sourceId && holds(one))
     .map((one) => ({
       assignmentId: one.id,
       sourceKey: one.sourceKey,

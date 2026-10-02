@@ -20,7 +20,11 @@ Any other head is work nobody handed over, and it retains the checkout.
 When that commit is the accepted result of its assignment, the integration branch must still hold it.
 The crew state names the commit on the branch that carries each accepted result, and removal reads the branch once: it must be at the recorded tip, with that commit in its history.
 A branch at another tip, a missing branch, and a landing whose outcome is not recorded yet each retain the checkout, as ADR 0020 stops every other step on them.
-A submitted commit that a later accepted result of the same assignment replaced needs no such proof, and neither does a commit of an assignment that was withdrawn, because its record and its review reports stay, and its branch survives the removal.
+A submitted commit that a later accepted result of the same assignment replaced needs no such proof, because its record and its review reports stay, and its branch survives the removal.
+A checkout that holds a commit of an assignment that was withdrawn holds unlanded work, because no integration branch carries that commit.
+Removal refuses it as `unlanded_work`, whatever approval exists, and `operator cleanup show` lists it under `unlanded`.
+Only the person removes it.
+A withdrawn attempt whose checkout holds no commit is removed like an accepted one, because nothing in it is lost.
 No part of this proof reads a remote, so a removal never waits for publish.
 
 Removal needs one more thing that acceptance does not grant: permission.
@@ -84,6 +88,8 @@ An unforced Herdr removal refuses a checkout with untracked files, and the launc
 Removal reads the integration branch and never moves it.
 A checkout that outlives its integration branch, for example after a person deletes the branch when its pull request merges, is refused, and a person removes it.
 After removal, a replaced commit survives only while nobody deletes its attempt branch.
+A checkout of withdrawn work that holds its commit stays until a person removes it.
+That cost is accepted, because Operator never tears down work that did not land.
 
 The state version stays at 1.
 The two new tables are added to the schema this release creates, and a state file that predates them is reported as unreadable rather than repaired in silence.

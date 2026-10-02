@@ -88,7 +88,7 @@ async function claimedAttempt(
       },
     ],
   });
-  const assignmentId = registered.json.data.registered[0].assignmentId;
+  const assignmentId = registered.assignments[0]?.assignmentId ?? "";
 
   const claimed = await runJson(workspace, [
     "work",

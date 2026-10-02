@@ -1,6 +1,7 @@
 import {
   allCleanups,
   allRetentionHolds,
+  readCleanup,
   type CleanupKind,
   type CleanupRow,
   cleanupRecordOf,
@@ -10,8 +11,11 @@ import {
 import type { AssignmentState } from "./assignment.ts";
 import type { CleanupContext } from "./cleanup-context.ts";
 import type { IdentityMismatch } from "./cleanup-identity.ts";
+import { eq } from "drizzle-orm";
+import type { CrewReader } from "./database.ts";
 import { readState, type StateFailure } from "./operations.ts";
-import { STATE_VERSION } from "./schema.ts";
+import { assignments, attemptDispatch, attempts, STATE_VERSION } from "./schema.ts";
+import { submissionOfAttempt, submittedCommit } from "./submission.ts";
 
 /** One reason a cleanup retained its resources. Every blocker names what a person must settle. */
 export type CleanupBlocker =
@@ -35,6 +39,8 @@ export type CleanupBlocker =
   | { reason: "writer_active"; state: string; checkout: string }
   | { reason: "host_unsupported"; host: string }
   | { reason: "assignment_not_accepted"; assignmentId: string; state: AssignmentState }
+  // A commit of withdrawn work is on no integration branch, so only the person removes it.
+  | { reason: "unlanded_work"; assignmentId: string; commits: string[] }
   | { reason: "process_live"; state: string }
   | {
       reason: "approval_required";
@@ -93,10 +99,20 @@ export function reportOf(request: {
   };
 }
 
+/** One checkout that holds a commit no integration branch carries. Only the person removes it. */
+export type UnlandedCheckout = {
+  attemptId: string;
+  assignmentId: string;
+  worktreePath: string;
+  branch: string;
+  commit: string;
+};
+
 export type CleanupOverview = {
   status: "reported";
   stateVersion: number;
   cleanups: ReturnType<typeof cleanupRecordOf>[];
+  unlanded: UnlandedCheckout[];
   holds: Array<{
     holdId: string;
     attemptId: string;
@@ -108,6 +124,37 @@ export type CleanupOverview = {
     releasedAt: string | null;
   }>;
 };
+
+/**
+ * Each checkout of withdrawn work that still holds the commit its attempt submitted. It reads the
+ * crew state alone, so it writes nothing and runs no Git. The removal reads the checkout itself.
+ */
+function unlandedCheckouts(db: CrewReader): UnlandedCheckout[] {
+  return db
+    .select()
+    .from(attempts)
+    .innerJoin(assignments, eq(assignments.id, attempts.assignmentId))
+    .innerJoin(attemptDispatch, eq(attemptDispatch.attemptId, attempts.id))
+    .where(eq(assignments.state, "withdrawn"))
+    .all()
+    .toSorted((left, right) => left.attempts.id.localeCompare(right.attempts.id))
+    .flatMap(({ attempts: attempt, attempt_dispatch: dispatch }): UnlandedCheckout[] => {
+      const submission = submissionOfAttempt(db, attempt.id);
+      const commit = submission === null ? null : submittedCommit(submission);
+      const removed = readCleanup(db, { attemptId: attempt.id, kind: "worktree_removal" });
+      return commit === null || removed?.state === "done"
+        ? []
+        : [
+            {
+              attemptId: attempt.id,
+              assignmentId: attempt.assignmentId,
+              worktreePath: dispatch.worktreePath,
+              branch: dispatch.branch,
+              commit,
+            },
+          ];
+    });
+}
 
 /**
  * Reports every cleanup this crew recorded and every retention hold it still holds.
@@ -128,6 +175,7 @@ export async function showCleanups(request: {
       cleanups: allCleanups(db)
         .filter((row) => matches(row.attemptId))
         .map(cleanupRecordOf),
+      unlanded: unlandedCheckouts(db).filter((one) => matches(one.attemptId)),
       holds: allRetentionHolds(db)
         .filter((row) => matches(row.attemptId))
         .map((row) => ({

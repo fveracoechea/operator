@@ -5,7 +5,7 @@ import { integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqli
  * The durable shape of the crew state. A reader that finds a higher version refuses the file,
  * so this number changes only when an older Operator release can no longer read the tables.
  */
-export const STATE_VERSION = 10;
+export const STATE_VERSION = 11;
 
 export const stateMeta = sqliteTable("state_meta", {
   id: integer("id").primaryKey(),
@@ -64,6 +64,8 @@ export const assignments = sqliteTable("assignments", {
   revision: integer("revision").notNull(),
   registeredAt: text("registered_at").notNull(),
   updatedAt: text("updated_at").notNull(),
+  // The registration plan revision whose approval recorded the withdrawal, or null.
+  withdrawnUnder: text("withdrawn_under"),
 });
 
 export const assignmentDependencies = sqliteTable(
@@ -726,8 +728,9 @@ export const CREATE_STATEMENTS = [
     revision integer not null,
     registered_at text not null,
     updated_at text not null,
-    -- Last, because the migration that added it appends it to an earlier file.
+    -- Last, because the migrations that added them append them to an earlier file.
     scope_identity text,
+    withdrawn_under text,
     unique (source_id, source_key)
   ) strict`,
   sql`create table assignment_dependencies (

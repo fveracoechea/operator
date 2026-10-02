@@ -12,24 +12,11 @@ import {
 import { type Handled, type Reason, refuse, report } from "./result.ts";
 import { isSourceRefusal, reportSourceRefusal } from "./source-result.ts";
 
-type PlanReport = {
-  plan: {
-    source: {
-      id: string;
-      kind: string;
-      revision: string | null;
-      repository: string;
-      change: string;
-    };
-    planRevision: string;
-    approval: { action: string; targets: string[]; scope: string; requestRevision: string } | null;
-    items: Array<{ change: "new" | "updated" | "unchanged" }>;
-    skipped: unknown[];
-    satisfiedBlockers: unknown[];
-    refusals: Array<{ reason: Reason; key: string }>;
-  };
-  planPath: string;
-};
+/** The plan and its file, as the preview returns them. The refusal of a registration gives both. */
+type PlanReport = Pick<
+  Extract<Awaited<ReturnType<typeof CrewState.planRegistration>>["result"], { status: "planned" }>,
+  "plan" | "planPath"
+>;
 
 /** Each refusal reason once, in the order it first appears, with how many times it appears. */
 function refusalSummary(refusals: PlanReport["plan"]["refusals"]) {
@@ -55,7 +42,12 @@ function reportPlan(
   const refused = plan.refusals.length > 0;
   const command = `operator work register --request <id> --owner-token <token> --input ${inputPath} --plan-revision ${plan.planRevision}`;
   const count = (change: string) => plan.items.filter((one) => one.change === change).length;
-  const counts = { new: count("new"), updated: count("updated"), unchanged: count("unchanged") };
+  const counts = {
+    new: count("new"),
+    updated: count("updated"),
+    unchanged: count("unchanged"),
+    withdrawn: plan.withdrawals.length,
+  };
   report({
     json: parsed.json,
     result: {
@@ -83,6 +75,11 @@ function reportPlan(
       ...(plan.source.change === "changed"
         ? ["  The parent issue changed, so this plan records a new source revision."]
         : []),
+      ...(counts.withdrawn === 0
+        ? []
+        : [
+            `  ${counts.withdrawn} item(s) were removed from the parent, so this plan withdraws them.`,
+          ]),
       ...(refused
         ? [
             `  ${plan.refusals.length} refusal(s): ${summary.map((one) => `${one.reason} x${one.count}`).join(", ")}.`,
@@ -92,7 +89,7 @@ function reportPlan(
             ...(plan.approval === null
               ? []
               : [
-                  "Ask the person to approve this plan revision first. Only their approval of this exact revision records a changed source or item.",
+                  "Ask the person to approve this plan revision first. Only their approval of this exact revision records a changed source, a changed item, or a withdrawal.",
                 ]),
             `Register it with: ${command}`,
           ]),
@@ -214,7 +211,7 @@ async function runRegister(parsed: ParsedArguments): Promise<Handled> {
         operation: "work_register",
       },
       lines: [
-        `Plan ${result.approval.requestRevision} records a changed source or item, so nothing was registered.`,
+        `Plan ${result.approval.requestRevision} records a changed source, a changed item, or a withdrawal, so nothing was registered.`,
         "Ask the person to approve this exact plan revision, then register it again.",
       ],
     });
@@ -240,20 +237,18 @@ async function runRegister(parsed: ParsedArguments): Promise<Handled> {
       data: {
         source: result.source,
         planRevision: result.planRevision,
-        counts: { registered: result.registered.length, updated: result.updated.length },
-        registered: result.registered,
-        updated: result.updated,
+        counts: {
+          registered: result.registered.length,
+          updated: result.updated.length,
+          withdrawn: result.withdrawn.length,
+        },
         overlaps: result.overlaps,
         repeated,
         frontier: "operator work frontier",
       },
     },
     lines: [
-      `Registered ${result.registered.length} new and ${result.updated.length} updated assignment(s) from ${result.source.id}.`,
-      ...[...result.registered, ...result.updated].map(
-        (one) =>
-          `  ${one.assignmentId} ${one.kind}${one.executable ? "" : " (planning only)"} ${one.title}`,
-      ),
+      `Registered ${result.registered.length} new, ${result.updated.length} updated, and ${result.withdrawn.length} withdrawn assignment(s) from ${result.source.id}.`,
       "List each assignment with: operator work frontier",
       ...(result.overlaps.pairCount === 0
         ? []
@@ -314,6 +309,20 @@ async function runClaim(parsed: ParsedArguments): Promise<Handled> {
         operation: "work_claim",
       },
       lines: [`Assignment ${result.assignmentId} is already accepted.`],
+    });
+    return "reported";
+  }
+
+  if (result.status === "withdrawn") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "conflict",
+        reason: "assignment_withdrawn",
+        blockers: [{ reason: "assignment_withdrawn", assignmentId: result.assignmentId }],
+        operation: "work_claim",
+      },
+      lines: [`Assignment ${result.assignmentId} was withdrawn, so it never starts again.`],
     });
     return "reported";
   }

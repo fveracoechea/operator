@@ -198,7 +198,7 @@ describe("the next actions", () => {
       parent: 26,
       items: [{ key: "26.1", title: "Coordinate the workflow", body: "Coordinate the workflow." }],
     });
-    const assignmentId = registered.json.data.registered[0].assignmentId;
+    const assignmentId = registered.assignments[0]?.assignmentId ?? "";
 
     const offered = await nextActions(workspace);
     expect(offered.of("claim_assignment").assignmentId).toBe(assignmentId);
@@ -488,7 +488,7 @@ describe("adoption", () => {
       "--owner-token",
       ownerToken,
       "--assignment",
-      registered.json.data.registered[0].assignmentId,
+      registered.assignments[0]?.assignmentId ?? "",
       "--revision",
       "1",
     ]);

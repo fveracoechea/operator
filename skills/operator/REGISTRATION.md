@@ -18,8 +18,8 @@ bun run operator work register --request <id> --owner-token <token> --input work
 The input is a JSON file, or `-` to read standard input.
 
 `--plan` reads the tracker and changes nothing.
-It reports a summary: the counts of new, updated, and unchanged items, satisfied blockers, closed sub-issues, and refusals, the `planRevision`, and the `planPath`.
-The full plan is the file at `planPath`: every item in item order, every satisfied blocker, and every refusal in item order and then by blocker key.
+It reports a summary: the counts of new, updated, unchanged, and withdrawn items, satisfied blockers, closed sub-issues, and refusals, the `planRevision`, and the `planPath`.
+The full plan is the file at `planPath`: every item in item order, every withdrawal, every satisfied blocker, and every refusal in item order and then by blocker key.
 Do not read the whole file yourself.
 Give the path to the crew or the person who settles the refusals.
 
@@ -139,10 +139,10 @@ An entry that repeats the recorded fields of an item changes nothing.
 - A changed item that has no attempt and is not accepted takes its new content: its text, its kind, its blocking links, or its input entry. Its dependencies are checked for a cycle again, and `dependency_cycle` refuses a new cycle. Its input entry is required, so `input_issue_missing` names a changed item that the input leaves out.
 - `recorded_item_changed` names a changed item that has an attempt or is accepted. The writer read the old text, so the person puts the change in a new sub-issue.
 - `recorded_item_closed` names a recorded item that the read finds closed while it is not accepted. Its hint tells the person to remove it from its parent to withdraw it, or to reopen it.
-- `recorded_item_missing` names a recorded item that the read does not find. Withdrawal of a registered assignment is not built yet.
+- A recorded item that the read does not find is a withdrawal, as the next section shows.
 - `source_kind_changed` refuses an input that states another source kind than the one recorded.
 
-A new source revision or an updated item needs the person's approval of this exact plan revision.
+A new source revision, an updated item, or a withdrawal needs the person's approval of this exact plan revision.
 The preview then reports `approval`: the exact `registration-change` approval, which names the source and the plan revision.
 Tell the person the counts and the `planPath`, and give the file to the crew or the person who checks the changes.
 Do not decide the change yourself, because a change of approved scope is the person's decision.
@@ -155,6 +155,38 @@ bun run operator approval grant --request <id> --owner-token <token> --input app
 The input is the reported `approval` with `exactText`, the words of the person, and `"grantedBy": "human"`.
 A registration with no approval of that plan revision is refused as `approval_required`, and nothing is recorded.
 A new preview gives a new revision, so an approval of an earlier revision covers nothing.
+
+## Withdraw an item
+
+Only a person withdraws an item, because scope is outside delegated authority.
+The person removes its sub-issue from the parent on GitHub, and the next `work register` of the source records the withdrawal.
+There is no withdrawal command, and you never remove a sub-issue yourself.
+A closed issue is not a withdrawal, because Operator also closes the issues it completes.
+
+Tell the person to wait until no attempt of the item runs.
+The plan refuses, and names what it waits for:
+
+- `withdrawal_attempt_active` names an active attempt of the item, or of a review of its result. The attempt runs to its handoff, and nothing stops it.
+- `withdrawal_effect_unsettled` names a tracker step of the item that has no recorded outcome. Recover the step first.
+- `withdrawal_dependent_pending` names each recorded dependent, in any source, that still names the item as a blocker. The person removes that dependent from its parent in the same read, or drops the blocking link. Dropping the link is a changed item, so a dependent that has an attempt is refused as `recorded_item_changed`, and it is withdrawn with the item. Settle a dependent in another source with a registration of its own source first.
+
+The plan file lists each withdrawal under `withdrawals`, with its recorded state and its recorded `landing`, the commit that carries its accepted code result.
+The preview reports the `registration-change` approval of the plan revision, as for any other change, and a withdrawal is recorded only under it.
+Give the counts and the `planPath` to the person, and record their exact words as the approval.
+
+A withdrawn assignment is terminal.
+It never satisfies a dependency, the frontier lists it under `withdrawn`, and a claim of it is refused as `assignment_withdrawn`.
+Its attempts, submissions, reviews, findings, and planning record stay as history.
+Its open cycle, its open invalidation, its open direction request, and each review of it that no attempt holds close in the same change.
+Operator writes nothing to the tracker for a withdrawal, because the removal that the person made is already there.
+A withdrawn item with no landed commit releases its write paths.
+
+- `withdrawn_item_readded` refuses a withdrawn issue that a person adds to its parent again. A new sub-issue carries the work.
+- `blocker_withdrawn` refuses an item that names a withdrawn item as a new blocker, because that dependency would wait for ever.
+
+A checkout of withdrawn work that holds its commit holds unlanded work.
+`crew next` offers no removal of it, `bun run operator cleanup show` lists it under `unlanded`, and `cleanup remove` refuses it as `unlanded_work`.
+Only the person removes that checkout.
 
 ## Write paths
 

@@ -11,7 +11,7 @@ import { reviewOfSubmission } from "./review.ts";
 import { assignmentDependencies, assignments, attempts, workSources } from "./schema.ts";
 import { latestSubmission } from "./submission.ts";
 import { isExecutable, isReview } from "./work-input.ts";
-import { writePathsReader } from "./write-path-grants.ts";
+import { writePathHolders, writePathsReader } from "./write-path-grants.ts";
 import { overlappingPaths, overlapsCommand } from "./write-paths.ts";
 
 export type FrontierEntry = {
@@ -74,6 +74,8 @@ export type Frontier = {
   active: Array<FrontierEntry & { attemptId: string }>;
   planning: FrontierEntry[];
   accepted: FrontierEntry[];
+  // Terminal work that a person removed from its parent. It never satisfies a dependency.
+  withdrawn: FrontierEntry[];
   questions: WaitingQuestion[];
 };
 
@@ -98,13 +100,16 @@ export function unmetDependencies(
     .where(eq(assignmentDependencies.assignmentId, id))
     .all();
 
-  return edges
-    .map((edge) => {
-      const row = readAssignment(db, edge.dependsOnId);
-      return { assignmentId: edge.dependsOnId, state: row?.state ?? "unknown" };
-    })
-    .filter((dependency) => dependency.state !== "accepted")
-    .toSorted((left, right) => left.assignmentId.localeCompare(right.assignmentId));
+  return (
+    edges
+      .map((edge) => {
+        const row = readAssignment(db, edge.dependsOnId);
+        return { assignmentId: edge.dependsOnId, state: row?.state ?? "unknown" };
+      })
+      // Only accepted work satisfies a dependency. A withdrawn result never reaches the base.
+      .filter((dependency) => dependency.state !== "accepted")
+      .toSorted((left, right) => left.assignmentId.localeCompare(right.assignmentId))
+  );
 }
 
 /** The review assignment that holds the latest submission of one producer assignment. */
@@ -166,20 +171,18 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
     };
   }
 
-  // Production work holds its write paths from its first claim until it reaches accepted
-  // completion, and again after it leaves accepted completion, so this reads no list of states.
+  // The hold rule reads no list of states. It lives with the grants, which read the same rule.
   const started = new Set(recordedAttempts.map((attempt) => attempt.assignmentId));
+  const holds = writePathHolders(db);
   // The effective write paths: a grant widens what an assignment holds and what it asks for.
   const effectiveOf = writePathsReader(db);
   const writePathsOf = new Map(rows.map((row) => [row.id, effectiveOf(row)]));
-  const held: WritePathHold[] = rows
-    .filter((row) => row.kind === "production" && row.state !== "accepted" && started.has(row.id))
-    .map((row) => ({
-      assignmentId: row.id,
-      sourceId: row.sourceId,
-      sourceKey: row.sourceKey,
-      hold: "started",
-    }));
+  const held: WritePathHold[] = rows.filter(holds).map((row) => ({
+    assignmentId: row.id,
+    sourceId: row.sourceId,
+    sourceKey: row.sourceKey,
+    hold: "started",
+  }));
 
   function holdersOf(one: FrontierEntry): WritePathHolder[] {
     const paths = writePathsOf.get(one.assignmentId) ?? [];
@@ -217,10 +220,15 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
   const blocked: Array<FrontierEntry & { blockers: FrontierBlocker[] }> = [];
   const planning: FrontierEntry[] = [];
   const accepted: FrontierEntry[] = [];
+  const withdrawn: FrontierEntry[] = [];
 
   for (const one of entries) {
     if (one.state === "accepted") {
       accepted.push(one);
+      continue;
+    }
+    if (one.state === "withdrawn") {
+      withdrawn.push(one);
       continue;
     }
     // Work that read an invalidated result waits for the corrected one, whatever kind it is
@@ -349,6 +357,7 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
     active: activeEntries,
     planning,
     accepted,
+    withdrawn,
     questions: waiting,
   };
 }

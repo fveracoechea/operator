@@ -2,7 +2,7 @@
 import { realpath } from "node:fs/promises";
 import { eq } from "drizzle-orm";
 import type { CrewReader, CrewWriter } from "./database.ts";
-import { type AssignmentRow, insertAssignment } from "./assignment.ts";
+import { type AssignmentRow, insertAssignment, readAssignment } from "./assignment.ts";
 import { matchApproval } from "./approvals.ts";
 import { ContentIdentity } from "../content-identity/main.ts";
 import { assignmentId, identityOf } from "./identity.ts";
@@ -32,6 +32,8 @@ import {
 } from "./work-input.ts";
 import { writePathsReader } from "./write-path-grants.ts";
 import { overlappingPaths, overlapsCommand } from "./write-paths.ts";
+import { recordedLanding } from "./submission.ts";
+import { type WithdrawalRefusal, withdrawAssignment, withdrawalRefusals } from "./withdrawal.ts";
 
 export type RegisteredAssignment = {
   assignmentId: string;
@@ -72,8 +74,21 @@ export type PlannedItem = {
 };
 
 /**
- * The action of the approval a new read needs before it records a new source revision or a
- * changed item. It binds the registration plan revision, so it covers exactly what was previewed.
+ * One recorded item that the read no longer finds, because a person removed its issue from the
+ * parent. The plan records it as withdrawn behind the approval of this plan revision.
+ */
+export type PlannedWithdrawal = {
+  key: string;
+  assignmentId: string;
+  state: string;
+  // The commit that carries its accepted code result, or null when none landed.
+  landing: string | null;
+};
+
+/**
+ * The action of the approval a new read needs before it records a new source revision, a changed
+ * item, or a withdrawal. It binds the registration plan revision, so it covers exactly what was
+ * previewed.
  */
 export const REGISTRATION_CHANGE_APPROVAL = "registration-change";
 
@@ -132,7 +147,16 @@ export type Refusal =
       state: string;
       hint: string;
     }
-  | { reason: "recorded_item_missing"; key: string; assignmentId: string }
+  | { reason: "withdrawn_item_readded"; key: string; assignmentId: string }
+  | { reason: "blocker_withdrawn"; key: string; blocker: string; assignmentId: string }
+  | WithdrawalRefusal
+  | {
+      reason: "withdrawal_dependent_pending";
+      key: string;
+      assignmentId: string;
+      dependent: string;
+      dependentKey: string;
+    }
   | { reason: "dependency_cycle"; key: string; cycle: string[] };
 
 export type RegistrationPlan = {
@@ -147,6 +171,7 @@ export type RegistrationPlan = {
   planRevision: string;
   approval: RegistrationApproval | null;
   items: PlannedItem[];
+  withdrawals: PlannedWithdrawal[];
   skipped: Array<{ key: string; position: number }>;
   satisfiedBlockers: SatisfiedBlocker[];
   refusals: Refusal[];
@@ -162,6 +187,7 @@ export type RegisterResult =
       planRevision: string;
       registered: RegisteredAssignment[];
       updated: RegisteredAssignment[];
+      withdrawn: RegisteredAssignment[];
       overlaps: OverlapSummary;
     }
   | { status: "refused"; plan: RegistrationPlan }
@@ -313,7 +339,8 @@ function findOverlaps(db: CrewReader, sourceId: string): WritePathOverlap[] {
     .from(assignments)
     .where(eq(assignments.sourceId, sourceId))
     .all()
-    .filter((row) => row.kind === "production")
+    // Withdrawn work never runs again, so it orders nothing and overlaps nothing.
+    .filter((row) => row.kind === "production" && row.state !== "withdrawn")
     .toSorted((one, other) => one.orderIndex - other.orderIndex)
     .map((row) => ({ row, writePaths: effectiveOf(row) }));
 
@@ -370,6 +397,10 @@ type Recorded = {
   // The key of every assignment, so a cycle is named by its items.
   keyById: Map<string, string>;
   edges: Map<string, string[]>;
+  // The assignments that wait on each one, in any source.
+  dependents: Map<string, string[]>;
+  // Every assignment a person withdrew earlier.
+  withdrawn: Set<string>;
   attempted: Set<string>;
 };
 
@@ -381,6 +412,8 @@ function recordedIssues(db: CrewReader): Recorded {
     byKey: new Map(),
     keyById: new Map(),
     edges: dependencyEdges(db),
+    dependents: new Map(),
+    withdrawn: new Set(),
     attempted: new Set(
       db
         .select()
@@ -404,8 +437,16 @@ function recordedIssues(db: CrewReader): Recorded {
       recorded.sourcesWithoutParent.set(keyOf(location.repository, location.mapIssue), source.id);
     }
   }
+  for (const [waiting, blockers] of recorded.edges) {
+    for (const blocker of blockers) {
+      recorded.dependents.set(blocker, [...(recorded.dependents.get(blocker) ?? []), waiting]);
+    }
+  }
   for (const row of db.select().from(assignments).orderBy(assignments.orderIndex).all()) {
     recorded.keyById.set(row.id, row.sourceKey);
+    if (row.state === "withdrawn") {
+      recorded.withdrawn.add(row.id);
+    }
     if (row.trackerBinding === null) {
       continue;
     }
@@ -502,6 +543,8 @@ type PlanContext = {
   // The recorded items of this source by issue database id, and their keys by the read key.
   held: Map<number, AssignmentRow>;
   heldKeys: Map<string, string>;
+  // Every assignment that is withdrawn, earlier or by this plan.
+  withdrawn: Set<string>;
 };
 
 /**
@@ -520,6 +563,21 @@ function planBlockers(
   const dependsOn: PlannedItem["dependsOn"] = [];
   for (const blocker of item.blockers) {
     const registered = matchRecorded(context.recorded, blocker);
+    // A withdrawn item never satisfies a dependency. A link the dependent recorded stays, so the
+    // withdrawal names that dependent, and a new link to it would wait for ever.
+    if (registered !== null && context.withdrawn.has(registered.assignmentId)) {
+      if (kept.has(registered.assignmentId)) {
+        dependsOn.push({ sourceId: registered.sourceId, key: registered.sourceKey });
+      } else {
+        refusals.push({
+          reason: "blocker_withdrawn",
+          key: item.key,
+          blocker: blocker.key,
+          assignmentId: registered.assignmentId,
+        });
+      }
+      continue;
+    }
     if (blocker.state === "closed") {
       if (registered !== null && kept.has(registered.assignmentId)) {
         dependsOn.push({ sourceId: registered.sourceId, key: registered.sourceKey });
@@ -850,6 +908,37 @@ function cycleOf(recorded: Recorded, sourceId: string, items: PlannedItem[]): st
 }
 
 /**
+ * Each recorded dependent, in any source, that still waits on one withdrawn item. A dependent
+ * settles it only by its own withdrawal, or by a new read that drops the link. Dropping it is a
+ * changed item, so only a dependent that no work has read can do it.
+ */
+function dependentRefusals(
+  context: PlanContext,
+  items: PlannedItem[],
+  row: AssignmentRow,
+): Refusal[] {
+  const planned = new Map(items.map((one) => [assignmentId(context.sourceKey, one.key), one]));
+  return (context.recorded.dependents.get(row.id) ?? []).toSorted().flatMap((dependent) => {
+    const item = planned.get(dependent);
+    const dropped =
+      item !== undefined &&
+      item.change === "updated" &&
+      !item.dependsOn.some((one) => assignmentId(one.sourceId, one.key) === row.id);
+    return context.withdrawn.has(dependent) || dropped
+      ? []
+      : [
+          {
+            reason: "withdrawal_dependent_pending" as const,
+            key: row.sourceKey,
+            assignmentId: row.id,
+            dependent,
+            dependentKey: context.recorded.keyById.get(dependent) ?? dependent,
+          },
+        ];
+  });
+}
+
+/**
  * The registration plan of one read and one input. It changes nothing, so a preview and a
  * registration compute the same plan from the same read, the same input, and the same state.
  */
@@ -871,6 +960,7 @@ export function planRegistration(
     planRevision: identityOf({ read: canonicalRead(read), input } satisfies PlanBasis),
     approval: null,
     items: [],
+    withdrawals: [],
     skipped: [],
     satisfiedBlockers: [],
     refusals,
@@ -903,6 +993,11 @@ export function planRegistration(
   }
 
   const held = heldItems(db, existing?.id ?? null);
+  // A person withdraws an item by removing its issue from the parent, so the read misses it.
+  const readIds = new Set(read.items.map((one) => one.issueId));
+  const missing = [...held]
+    .filter(([issueId, row]) => row.state !== "withdrawn" && !readIds.has(issueId))
+    .map(([, row]) => row);
   const context: PlanContext = {
     input,
     found,
@@ -920,13 +1015,15 @@ export function planRegistration(
         return row === undefined ? [] : [[one.key, row.sourceKey]];
       }),
     ),
+    withdrawn: new Set([...recorded.withdrawn, ...missing.map((row) => row.id)]),
   };
 
-  const seen = new Set<string>();
   for (const item of read.items) {
     const row = held.get(item.issueId);
-    if (row !== undefined) {
-      seen.add(row.id);
+    // The issue matches its withdrawn item by its database id, so a new sub-issue carries the work.
+    if (row !== undefined && row.state === "withdrawn") {
+      refusals.push({ reason: "withdrawn_item_readded", key: item.key, assignmentId: row.id });
+      continue;
     }
     if (item.state === "closed") {
       if (row === undefined) {
@@ -950,11 +1047,15 @@ export function planRegistration(
     }
   }
 
-  // Withdrawal of a registered assignment is not built, so an item the read misses refuses.
-  for (const row of held.values()) {
-    if (!seen.has(row.id)) {
-      refusals.push({ reason: "recorded_item_missing", key: row.sourceKey, assignmentId: row.id });
-    }
+  for (const row of missing) {
+    plan.withdrawals.push({
+      key: row.sourceKey,
+      assignmentId: row.id,
+      state: row.state,
+      landing: recordedLanding(db, row.id),
+    });
+    refusals.push(...withdrawalRefusals(db, row));
+    refusals.push(...dependentRefusals(context, plan.items, row));
   }
 
   for (const one of input.items.toSorted((a, b) => a.issue.localeCompare(b.issue))) {
@@ -968,7 +1069,11 @@ export function planRegistration(
     refusals.push({ reason: "dependency_cycle", key: cycle[0] ?? sourceKey, cycle });
   }
 
-  if (plan.source.change === "changed" || plan.items.some((one) => one.change === "updated")) {
+  if (
+    plan.source.change === "changed" ||
+    plan.items.some((one) => one.change === "updated") ||
+    plan.withdrawals.length > 0
+  ) {
     plan.approval = {
       action: REGISTRATION_CHANGE_APPROVAL,
       targets: [sourceKey],
@@ -1141,6 +1246,17 @@ export function registerWork(
     registered.push(reported(inserted));
   }
 
+  // Operator writes nothing to the tracker here: the removal the person made is the record.
+  const withdrawn: RegisteredAssignment[] = [];
+  for (const one of plan.withdrawals) {
+    const row = readAssignment(db, one.assignmentId);
+    if (row === null) {
+      throw new Error(`the plan withdraws ${one.key}, which the crew state does not hold`);
+    }
+    withdrawAssignment(db, { row, planRevision: plan.planRevision, now });
+    withdrawn.push(reported({ ...row, state: "withdrawn", revision: row.revision + 1 }));
+  }
+
   for (const item of plan.items.filter((one) => one.change !== "unchanged")) {
     for (const dependency of item.dependsOn) {
       db.insert(assignmentDependencies)
@@ -1165,6 +1281,7 @@ export function registerWork(
     planRevision: plan.planRevision,
     registered,
     updated,
+    withdrawn,
     overlaps: summarize(plan.source.id, findOverlaps(db, plan.source.id), all),
   };
 }

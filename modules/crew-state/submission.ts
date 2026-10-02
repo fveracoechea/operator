@@ -13,7 +13,7 @@ import { REVIEW_AXES } from "./review.ts";
 import { closeCycle, openCycleOf } from "./rework.ts";
 import { storedRequirements } from "./work-input.ts";
 import { type outsideChangesOf, recordOutsideChanges } from "./outside-changes.ts";
-import type { SubmissionInput } from "./submission-input.ts";
+import { type SubmissionInput, storedCode } from "./submission-input.ts";
 import type { StoredArtifact, StoredCopy } from "./submission-store.ts";
 
 export type SubmissionRow = typeof submissions.$inferSelect;
@@ -82,6 +82,21 @@ export function submissionsOf(db: CrewReader, assignmentId: string): SubmissionR
 /** The most recent submission of one assignment. Rework submits again under a new revision. */
 export function latestSubmission(db: CrewReader, assignmentId: string): SubmissionRow | null {
   return submissionsOf(db, assignmentId).at(-1) ?? null;
+}
+
+/** The commit one submission handed over, or null for a result that is not code. */
+export function submittedCommit(row: SubmissionRow): string | null {
+  return row.code === null ? null : storedCode(row.code).resultCommit;
+}
+
+/**
+ * The commit that carries the accepted code result of one assignment, or null. Until a landing
+ * records a commit of its own, the accepted commit is the landed one.
+ */
+export function recordedLanding(db: CrewReader, assignmentId: string): string | null {
+  const accepted = submissionsOf(db, assignmentId).filter((one) => one.state === "accepted");
+  const last = accepted.at(-1);
+  return last === undefined ? null : submittedCommit(last);
 }
 
 /**
