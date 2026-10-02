@@ -25,6 +25,7 @@ A production item whose blocker is an open production item of another registered
 The commit of that blocker can land only on the integration branch of its own source, so the base of this source could never hold it.
 The user puts both items under one parent, or registers this item after the other source merges.
 A new item of a source whose integration base is already fixed is refused when a production blocker of it in another source was completed after that base was fixed, for the same reason.
+That refusal, `blocker_completed_after_base`, reads only the crew state: the time the base was fixed, and the time the completion step of the blocker succeeded.
 A closed code blocker gates nothing because a code ticket is completed only after the pull request that carries its commit merged into the target branch (ADR 0022), so a base that is fixed after that close holds the commit.
 A parent with no sub-issues is refused, and so is a read that did not cover every sub-issue and every blocker, because an incomplete read is a gap and not a proof of absence.
 

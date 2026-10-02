@@ -140,6 +140,23 @@ function checkImports(path: string, sourceFile: ts.SourceFile): void {
   visit(sourceFile);
 }
 
+/**
+ * The integration-branch module is the only writer of a Git ref (ADR 0020), so no other
+ * production file may name the Git plumbing command that writes one. A test may, to set up a case.
+ */
+function checkRefWriter(path: string, text: string): void {
+  if (
+    path.startsWith("modules/integration-branch/") ||
+    path.endsWith(".test.ts") ||
+    !path.startsWith("modules/")
+  ) {
+    return;
+  }
+  if (text.includes('"update-ref"')) {
+    errors.push(`${path}: writes a Git ref; only modules/integration-branch writes one`);
+  }
+}
+
 const moduleDirectories = new Set<string>();
 for (const path of sourcePaths) {
   const normalizedPath = normalized(path);
@@ -165,6 +182,7 @@ for (const path of sourcePaths) {
     ts.ScriptKind.TS,
   );
   checkImports(path, sourceFile);
+  checkRefWriter(normalizedPath, text);
 
   if (/^modules\/[^/]+\/main\.ts$/.test(normalizedPath)) {
     checkModuleInterface(path, sourceFile);

@@ -15,7 +15,19 @@ import {
   type Shared,
   type Snapshot,
 } from "./dispatch-context.ts";
-import { checkBaseGate, type BaseGateRefusal } from "./gate-base.ts";
+import {
+  type BasePassed,
+  checkBaseGate,
+  type BaseGateRefusal,
+  type BaseUnread,
+} from "./gate-base.ts";
+import {
+  createIntegrationBranch,
+  type IntegrationFix,
+  type IntegrationRefusal,
+  integrationStart,
+  recordIntegrationBranch,
+} from "./integration.ts";
 import { record } from "./operations.ts";
 import {
   DISPATCH_STAGES,
@@ -51,6 +63,8 @@ export type DispatchResult =
   | { status: "effort-unsupported"; attemptId: string; detail: string }
   | GateUnusable
   | BaseGateRefusal
+  | BaseUnread
+  | IntegrationRefusal
   | AttemptFailure
   | Shared;
 
@@ -197,10 +211,24 @@ export async function dispatchAttempt(request: {
     }
   }
 
+  // A production dispatch of a source with an integration branch starts from its recorded tip,
+  // and a branch that moved outside this protocol stops it (ADR 0020).
+  const integration = await integrationStart({
+    projectRoot: request.projectRoot,
+    context: read.context,
+    attemptId,
+    requested: request.baseCommit,
+    planned: recorded !== null,
+  });
+  if (integration.status !== "ok") {
+    return integration;
+  }
+
   // A correction of a landed commit takes the place of that commit, so it starts on the parent
   // that the invalidation recorded, and a dispatch that names no commit starts there.
   const correctionBase = read.context.rework?.brief.invalidation?.startCommit ?? null;
-  const baseCommit = recorded?.baseCommit ?? request.baseCommit ?? correctionBase;
+  const baseCommit =
+    recorded?.baseCommit ?? integration.start ?? request.baseCommit ?? correctionBase;
   if (baseCommit === null) {
     return { status: "commit-required", attemptId };
   }
@@ -251,6 +279,7 @@ export async function dispatchAttempt(request: {
   }
 
   // A recorded plan fixed its base already, so only a new launch reads the base gate.
+  let passed: BasePassed | null = null;
   if (recorded === null) {
     const base = await checkBaseGate({
       projectRoot: request.projectRoot,
@@ -261,6 +290,7 @@ export async function dispatchAttempt(request: {
     if (base.status !== "ok") {
       return base;
     }
+    passed = base.base;
   }
 
   const brief = briefOf(read.context, attemptId, gate.gate);
@@ -290,6 +320,23 @@ export async function dispatchAttempt(request: {
     };
   }
 
+  // The first code dispatch creates the integration branch at a base that passed, just before its
+  // plan is recorded with it. Nothing pushes the branch.
+  let fix: IntegrationFix | null = null;
+  if (passed !== null) {
+    const created = await createIntegrationBranch({
+      projectRoot: request.projectRoot,
+      sourceId: read.context.assignment.sourceId,
+      attemptId,
+      commit: passed.commit,
+      gate: passed.gate,
+    });
+    if (created.status !== "created") {
+      return created;
+    }
+    fix = created.fix;
+  }
+
   if (recorded === null) {
     const written = await record(
       {
@@ -317,6 +364,9 @@ export async function dispatchAttempt(request: {
           workspaceId: null,
           now,
         });
+        if (fix !== null) {
+          recordIntegrationBranch(tx, { sourceId: read.context.assignment.sourceId, fix, now });
+        }
         return { commit: true, outcome: { status: "recorded" as const } };
       },
     );

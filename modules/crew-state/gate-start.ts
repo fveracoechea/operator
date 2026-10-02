@@ -20,6 +20,7 @@ import {
   readGateRun,
   runningRunOf,
 } from "./gate-runs.ts";
+import { sourceSlug } from "./integration.ts";
 import { gateCheckouts, workSources } from "./schema.ts";
 import { eq } from "drizzle-orm";
 
@@ -72,16 +73,6 @@ async function git(repository: string, args: string[]) {
         detail:
           invoked.status === "completed" ? invoked.stderr.trim() || "git refused" : invoked.detail,
       };
-}
-
-function slug(value: string): string {
-  return (
-    value
-      .toLowerCase()
-      .replaceAll(/[^a-z0-9]+/g, "-")
-      .replaceAll(/^-+|-+$/g, "")
-      .slice(0, 40) || "source"
-  );
 }
 
 /**
@@ -141,8 +132,8 @@ async function ensureCheckout(request: {
     return { status: "ready", checkout: request.recorded, created: false };
   }
 
-  const branch = `operator/gate/${slug(request.sourceId)}`;
-  const path = `${dirname(request.projectRoot)}/${basename(request.projectRoot)}-gate-${slug(request.sourceId)}`;
+  const branch = `operator/gate/${sourceSlug(request.sourceId)}`;
+  const path = `${dirname(request.projectRoot)}/${basename(request.projectRoot)}-gate-${sourceSlug(request.sourceId)}`;
   const found = await HerdrControl.findWorktree({ repoRoot: request.projectRoot, path });
   let workspaceId: string;
   let created = false;

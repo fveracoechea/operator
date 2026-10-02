@@ -3,6 +3,7 @@ import { ProjectGate } from "../project-gate/main.ts";
 import { readWriterContext, type WriterFailure } from "./dispatch-context.ts";
 import { identityOf } from "./identity.ts";
 import { type InvalidInput, parseInput } from "./input.ts";
+import { gateOfAttempt } from "./integration.ts";
 import { mutate, readState } from "./operations.ts";
 import { outsideChangesOf } from "./outside-changes.ts";
 import { answerAuthoritiesOf } from "./questions.ts";
@@ -71,10 +72,12 @@ export async function submitAttemptResult(request: {
 
   const input = parsed.value;
   let outside: ReturnType<typeof outsideChangesOf> = [];
-  // The gate is read at the commit the attempt started from, never from a working tree.
-  const gate = await ProjectGate.read({
-    repository: request.projectRoot,
-    commit: dispatch.baseCommit,
+  // The gate is the one fixed on the source, or the one at the commit the attempt started from
+  // before the source fixed one. It is never read from a working tree.
+  const gate = await gateOfAttempt({
+    projectRoot: request.projectRoot,
+    sourceId: read.context.assignment.sourceId,
+    baseCommit: dispatch.baseCommit,
   });
   // Only production work submits a result, and the transaction below refuses any other kind.
   if (read.context.assignment.kind === "production") {

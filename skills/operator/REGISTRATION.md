@@ -106,6 +106,7 @@ A blocking link is a dependency:
 - A closed blocker is satisfied, and the plan names it.
 - A blocker that is an item of another registered source is a dependency on that assignment.
 - `blocker_in_other_source` refuses a production item whose blocker is an open production item of another source, because that commit lands only on the integration branch of its own source. Put both items under one parent, or register this item after the other source merges.
+- `blocker_completed_after_base` refuses a new production item of a source whose integration base is fixed, when its blocker is a production item of another source that completed after that base was fixed. The branch of this source can never hold that commit, even when the tracker shows the blocker closed. The check reads only the crew state. Register this item in a new source after the other source merges.
 - `blocker_unregistered` refuses an open blocker that no registered source holds.
 - `dependency_cycle` refuses blocking links that form a cycle.
 

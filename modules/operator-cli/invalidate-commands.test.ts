@@ -352,7 +352,8 @@ describe("operator work invalidate", () => {
     // The second input is produced, reviewed, and accepted on its own assignment.
     const second = await startRework(workspace, producer, {
       revision: 1,
-      commit: first.artifact.commit,
+      // A later production dispatch of the source starts from the recorded tip (ADR 0020).
+      commit: producer.baseCommit,
       worktreePath: `${workspace.root}/other`,
       assignmentId: other,
     });
@@ -449,7 +450,8 @@ describe("operator work invalidate", () => {
 
     await startRework(workspace, producer, {
       revision: 1,
-      commit: first.artifact.commit,
+      // A later production dispatch of the source starts from the recorded tip (ADR 0020).
+      commit: producer.baseCommit,
       worktreePath: `${workspace.root}/rollout`,
       assignmentId: dependent,
     });

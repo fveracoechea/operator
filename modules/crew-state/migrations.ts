@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { GATE_TABLES, STATE_VERSION } from "./schema.ts";
+import { GATE_TABLES, INTEGRATION_TABLES, STATE_VERSION } from "./schema.ts";
 
 /**
  * One step from one recorded state version to the next.
@@ -176,6 +176,18 @@ export const MIGRATIONS: MigrationStep[] = [
     // An earlier release could not withdraw an assignment, so every row keeps no revision.
     apply: (sqlite) => {
       sqlite.exec("alter table assignments add column withdrawn_under text");
+    },
+  },
+  {
+    from: 11,
+    to: 12,
+    summary: "Record the integration branch of each source, its base, its tip, and its gate.",
+    // A source that an earlier release dispatched has no branch, and its later dispatches keep the
+    // commit the caller names. Only a source with no production dispatch gets a branch.
+    apply: (sqlite) => {
+      for (const statement of INTEGRATION_TABLES) {
+        sqlite.exec(statement);
+      }
     },
   },
 ];

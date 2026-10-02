@@ -96,11 +96,13 @@ A reviewer observation at a fast-forward candidate in place of a gate run was re
 
 ## Consequences
 
-Until a source records its integration base, the brief and the submit check of an attempt read the gate at the base commit of its dispatch, which is the commit that the producer starts from.
+The first code dispatch records the integration base and the gate declaration at that base on the source together, in the same step that creates the integration branch (ADR 0020).
+From then on, the brief and the submit check of every attempt of the source read that fixed declaration, also when the attempt starts from another commit, such as a rework.
+Before that, the brief and the submit check of an attempt read the gate at the base commit of its dispatch, which is the commit that the producer starts from.
 A review attempt reads no gate at dispatch, because its registered commands already permit the gate commands.
 A missing gate does not hold back a live probe, because a probe runs no gate command.
 
-Until a source records its integration base, the base is the commit of the first code dispatch of the source, which is the first production attempt of the source with a recorded launch plan.
+The integration base is the commit of the first code dispatch of the source, which is the first production attempt of the source with a recorded launch plan.
 That dispatch refuses with `gate_pending`, `gate_running`, `gate_failed`, or `gate_flaky` until the key of its commit passes, and a refusal names the commit and each failed run.
 A source that an earlier release already dispatched keeps the base it started from, and it is not gated again.
 `operator crew next` offers `run_gate` for that attempt in place of `dispatch_attempt`, shows the wait `gate_running` while a run of the source has no outcome, and names the blocker `gate_failed` or `gate_flaky` when only the user can clear the base.

@@ -5,7 +5,7 @@ import { integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqli
  * The durable shape of the crew state. A reader that finds a higher version refuses the file,
  * so this number changes only when an older Operator release can no longer read the tables.
  */
-export const STATE_VERSION = 11;
+export const STATE_VERSION = 12;
 
 export const stateMeta = sqliteTable("state_meta", {
   id: integer("id").primaryKey(),
@@ -521,6 +521,25 @@ export const gateRunCommands = sqliteTable(
 );
 
 /**
+ * The one integration branch of a source (ADR 0020). The first code dispatch creates it at the
+ * integration base, after that base passed the project gate, and fixes the gate declaration with
+ * it. Every later production dispatch of the source starts from the recorded tip.
+ */
+export const integrationBranches = sqliteTable("integration_branches", {
+  sourceId: text("source_id")
+    .primaryKey()
+    .references(() => workSources.id),
+  name: text("name").notNull().unique(),
+  baseCommit: text("base_commit").notNull(),
+  recordedTip: text("recorded_tip").notNull(),
+  // The gate declaration at the base, fixed with it, so no later result chooses the gate.
+  gateIdentity: text("gate_identity").notNull(),
+  gateCommands: text("gate_commands").notNull(),
+  fixedAt: text("fixed_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+/**
  * One approval of one exact action. It binds the action, its targets, its scope, and the
  * revision of the request it was granted against, and a revocation ends it.
  */
@@ -629,6 +648,7 @@ export const crewStateSchema = {
   gateCheckouts,
   gateRuns,
   gateRunCommands,
+  integrationBranches,
   trackerOperations,
   trackerWriteAttempts,
   trackerObservations,
@@ -680,6 +700,20 @@ export const GATE_TABLES = [
   ) strict`,
   // One gate run of a source runs at a time, so two candidates on one tip never race.
   `create unique index gate_runs_one_running on gate_runs (source_id) where state = 'running'`,
+];
+
+/** The integration branch table, written once for a new state and its migration step. */
+export const INTEGRATION_TABLES = [
+  `create table integration_branches (
+    source_id text primary key references work_sources(id),
+    name text not null unique,
+    base_commit text not null,
+    recorded_tip text not null,
+    gate_identity text not null,
+    gate_commands text not null,
+    fixed_at text not null,
+    updated_at text not null
+  ) strict`,
 ];
 
 /**
@@ -950,6 +984,7 @@ export const CREATE_STATEMENTS = [
     recorded_at text not null
   ) strict`,
   ...GATE_TABLES.map((statement) => sql.raw(statement)),
+  ...INTEGRATION_TABLES.map((statement) => sql.raw(statement)),
   sql`create table approvals (
     id text primary key,
     action text not null,

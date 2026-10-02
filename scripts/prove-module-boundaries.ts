@@ -145,6 +145,15 @@ const violations: Violation[] = [
     expectedDiagnostic: "production TypeScript must live",
   },
   {
+    name: "Git ref write outside the integration branch module",
+    files: {
+      [`modules/module-boundary-probe-ref-${probeIdentity}/main.ts`]:
+        'export const RefProbe = { run() { return ["update-ref", "refs/heads/x"]; } };\n',
+    },
+    cleanupPath: `modules/module-boundary-probe-ref-${probeIdentity}`,
+    expectedDiagnostic: "only modules/integration-branch writes one",
+  },
+  {
     name: "module dependency cycle",
     files: {
       [`modules/module-boundary-probe-cycle-${probeIdentity}/main.ts`]:

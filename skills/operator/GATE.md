@@ -23,6 +23,7 @@ Report the wait and yield as [COORDINATION.md](COORDINATION.md) describes.
 The runner wakes you at the end, because a plain command fires no agent event.
 
 When the base passes, `crew next` offers `dispatch_attempt` and names the commit.
+That dispatch creates the integration branch at the commit and fixes the gate declaration on the source, as [DISPATCH.md](DISPATCH.md) describes.
 Dispatch from that commit.
 A dispatch from a commit with no passing run refuses with `gate_pending`, `gate_running`, `gate_failed`, or `gate_flaky`, launches nothing, and fixes no base.
 

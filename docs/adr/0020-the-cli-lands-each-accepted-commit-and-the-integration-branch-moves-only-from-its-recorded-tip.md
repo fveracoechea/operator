@@ -123,3 +123,16 @@ A rewrite updates that commit for every result it lands again, because removal o
 A landing whose outcome was not recorded is a recovery action of the next actions, ahead of new work, as ADR 0011 orders recovery.
 
 Operator now needs a Git version that can merge without a worktree, and readiness refuses an older one.
+
+The integration branch is named `operator/integration/<source slug>`.
+Two sources never share a slug: a source id that loses a part in the slug, by its punctuation or by the cut at 40 characters, ends with a short identity of the whole id.
+A name that another source records refuses with `integration_branch_held`, so no source loses its record.
+The first code dispatch creates it at the integration base, after that base passed the project gate, and only if no branch of that name exists, so a branch that a person made is never taken over and refuses with `integration_branch_exists`.
+That dispatch records the name, the base, the recorded tip, and the gate declaration on the source in the same step as its launch plan.
+A later production dispatch of the source names no commit, and a `--commit` that differs from the recorded tip refuses with `dispatch_base_not_tip`.
+A rework cycle and a review keep their own start.
+A moved branch stops each production dispatch with `integration_branch_moved`, which names both tips and each worktree that has the branch checked out.
+A source that an earlier release dispatched records no branch, and its later dispatches keep the commit that the caller names.
+
+The module `integration-branch` is the only Operator code that writes a Git ref itself, and `lint:modules` refuses the plumbing command that writes a ref in every other production module.
+Herdr still creates the branch of each checkout that it creates.

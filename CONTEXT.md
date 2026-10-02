@@ -6,6 +6,8 @@ Shared language for the Operator project's agent coordination workflow.
 
 **Operator**:
 The primary agent that is the user's main point of contact and coordinates the crew. Operator is also the project name; "the Operator" refers to the agent role.
+The Operator writes no content of its own; it asks the crew or an Operative to make each change.
+A ref move that the CLI builds only from reviewed patches, on a command that the Operator runs, is not an Operator change, and neither is the creation of an integration branch at a base that passed the project gate.
 
 **Crew**:
 The group of sub-agents coordinated by the Operator.
@@ -154,7 +156,10 @@ On a new read of a registered source, it names each item as new, updated, or unc
 
 **Integration branch**:
 The one branch that collects the accepted commits of one work source, in the order they land.
-A dependent assignment starts from it.
+It is a local branch named `operator/integration/<source slug>`, which the first code dispatch of the source creates at the integration base, and its name is recorded on the source.
+No two sources share a slug, so no two sources share a branch.
+Every later production dispatch of the source starts from its recorded tip, so a dependent assignment starts from it.
+A branch that holds any other commit stops each production dispatch of its source, and only a person puts it back.
 It moves only by a landing, or by a rewrite that puts a corrected commit in place of the one it corrects or takes a withdrawn commit out, and only from the tip the crew last recorded.
 Nothing pushes it before publish, and publish pushes its commits only under new remote names, so a pushed branch is never pushed again.
 A published part of it is rewritten only after its pull requests are recalled, and a part that merged is never rewritten.

@@ -31,6 +31,7 @@ import {
 import { readState, type RequestFailure, type StateFailure } from "./operations.ts";
 import { requireOwnership } from "./ownership.ts";
 import { identityOf } from "./identity.ts";
+import { gateOfAttempt } from "./integration.ts";
 import {
   BEHAVIOR_CHANGE_RULE,
   type GateRead,
@@ -146,7 +147,8 @@ export type GateUnusable = {
 };
 
 /**
- * The project gate a producer brief states, read at the base commit of the launch (ADR 0021).
+ * The project gate a producer brief states (ADR 0021): the one fixed on the source with its
+ * integration base, or, before the source has one, the one at the base commit of the launch.
  * A reviewer reads no gate here, because its registered commands already permit the gate.
  */
 export async function briefGate(request: {
@@ -158,9 +160,10 @@ export async function briefGate(request: {
   if (request.context.review !== null) {
     return { status: "ok", gate: null };
   }
-  const gate = await ProjectGate.read({
-    repository: request.projectRoot,
-    commit: request.baseCommit,
+  const gate = await gateOfAttempt({
+    projectRoot: request.projectRoot,
+    sourceId: request.context.assignment.sourceId,
+    baseCommit: request.baseCommit,
   });
   return gate.status === "declared"
     ? {

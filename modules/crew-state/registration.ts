@@ -1,12 +1,19 @@
 // Bun has no real-path API.
 import { realpath } from "node:fs/promises";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { CrewReader, CrewWriter } from "./database.ts";
 import { type AssignmentRow, insertAssignment, readAssignment } from "./assignment.ts";
 import { matchApproval } from "./approvals.ts";
 import { ContentIdentity } from "../content-identity/main.ts";
 import { assignmentId, identityOf } from "./identity.ts";
-import { assignmentDependencies, assignments, attempts, workSources } from "./schema.ts";
+import { integrationBranchOf } from "./integration.ts";
+import {
+  assignmentDependencies,
+  assignments,
+  attempts,
+  trackerOperations,
+  workSources,
+} from "./schema.ts";
 import {
   type CanonicalRead,
   canonicalRead,
@@ -156,6 +163,15 @@ export type Refusal =
       assignmentId: string;
       dependent: string;
       dependentKey: string;
+    }
+  | {
+      reason: "blocker_completed_after_base";
+      key: string;
+      blocker: string;
+      sourceId: string;
+      assignmentId: string;
+      completedAt: string;
+      baseFixedAt: string;
     }
   | { reason: "dependency_cycle"; key: string; cycle: string[] };
 
@@ -545,7 +561,67 @@ type PlanContext = {
   heldKeys: Map<string, string>;
   // Every assignment that is withdrawn, earlier or by this plan.
   withdrawn: Set<string>;
+  // When the integration base of this source was fixed, and when each recorded assignment
+  // completed, both from the crew state only. A source with no base fixes nothing yet.
+  baseFixedAt: string | null;
+  completedAt: Map<string, string>;
 };
+
+/**
+ * A production blocker in another source that completed after the integration base of this
+ * source was fixed. Its commit reached the target after that base, so the branch of this source
+ * can never hold it, whatever the tracker shows now (ADR 0016). The check reads only crew state.
+ */
+function completedAfterBase(
+  context: PlanContext,
+  item: ReadItem,
+  kind: AssignmentKind | null,
+  blocker: ReadItem["blockers"][number],
+): Refusal | null {
+  // Only a new item is checked. A recorded item keeps the links it was registered with.
+  if (context.baseFixedAt === null || kind !== "production" || context.held.has(item.issueId)) {
+    return null;
+  }
+  const registered = matchRecorded(context.recorded, blocker);
+  if (
+    registered === null ||
+    registered.kind !== "production" ||
+    registered.sourceId === context.sourceKey
+  ) {
+    return null;
+  }
+  const completedAt = context.completedAt.get(registered.assignmentId);
+  return completedAt === undefined || completedAt <= context.baseFixedAt
+    ? null
+    : {
+        reason: "blocker_completed_after_base",
+        key: item.key,
+        blocker: blocker.key,
+        sourceId: registered.sourceId,
+        assignmentId: registered.assignmentId,
+        completedAt,
+        baseFixedAt: context.baseFixedAt,
+      };
+}
+
+/** When the integration base of one source was fixed, or null before its first code dispatch. */
+function baseFixedAtOf(db: CrewReader, sourceId: string): string | null {
+  return integrationBranchOf(db, sourceId)?.fixedAt ?? null;
+}
+
+/** When each recorded assignment completed: its tracker completion step succeeded. */
+function completionTimes(db: CrewReader): Map<string, string> {
+  return new Map(
+    db
+      .select({ assignmentId: trackerOperations.assignmentId, at: trackerOperations.updatedAt })
+      .from(trackerOperations)
+      .where(
+        and(eq(trackerOperations.step, "completion"), eq(trackerOperations.state, "succeeded")),
+      )
+      .all()
+      .map((one) => [one.assignmentId, one.at]),
+  );
+}
 
 /**
  * The refusals of one blocker set, and the dependencies and satisfied blockers it gives. A
@@ -562,6 +638,11 @@ function planBlockers(
   const satisfied: SatisfiedBlocker[] = [];
   const dependsOn: PlannedItem["dependsOn"] = [];
   for (const blocker of item.blockers) {
+    const late = completedAfterBase(context, item, kind, blocker);
+    if (late !== null) {
+      refusals.push(late);
+      continue;
+    }
     const registered = matchRecorded(context.recorded, blocker);
     // A withdrawn item never satisfies a dependency. A link the dependent recorded stays, so the
     // withdrawal names that dependent, and a new link to it would wait for ever.
@@ -1016,6 +1097,8 @@ export function planRegistration(
       }),
     ),
     withdrawn: new Set([...recorded.withdrawn, ...missing.map((row) => row.id)]),
+    baseFixedAt: baseFixedAtOf(db, sourceKey),
+    completedAt: completionTimes(db),
   };
 
   for (const item of read.items) {

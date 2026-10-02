@@ -12,6 +12,7 @@ import type { CrewReader } from "./database.ts";
 import { everyStageSucceeded } from "./dispatch-context.ts";
 import { liveOperations, readDispatchRow, unsettledOperations } from "./dispatch.ts";
 import { type BaseGate, baseGateOf, isFirstCodeDispatch } from "./gate-runs.ts";
+import { integrationBranchOf } from "./integration.ts";
 import { directionRecordOf } from "./direction.ts";
 import { calculateFrontier, type Frontier, undirected, unmetDependencies } from "./frontier.ts";
 import { openPauses } from "./invalidate.ts";
@@ -267,6 +268,21 @@ function readBaseGate(
   }
 }
 
+/**
+ * The integration branch that a new launch of one assignment starts from: a production
+ * assignment with no open cycle, of a source that recorded its branch (ADR 0020).
+ */
+function tipStartOf(
+  db: CrewReader,
+  assignment: { id: string; kind: string; sourceId: string },
+): { name: string; recordedTip: string } | null {
+  if (assignment.kind !== "production" || openCycleOf(db, assignment.id) !== null) {
+    return null;
+  }
+  const row = integrationBranchOf(db, assignment.sourceId);
+  return row === null ? null : { name: row.name, recordedTip: row.recordedTip };
+}
+
 /** One active attempt: what it still owes, or what it is waiting for. */
 function readActiveAttempt(
   db: CrewReader,
@@ -277,6 +293,8 @@ function readActiveAttempt(
     unsettled: string[];
     /** The base gate of the source when this is its first code dispatch, or null. */
     baseGate: { sourceId: string; gate: BaseGate; reported: Set<string> } | null;
+    /** The integration branch a new production launch starts from, or null. */
+    integration: { name: string; recordedTip: string } | null;
   },
   into: Collector,
 ): void {
@@ -323,7 +341,9 @@ function readActiveAttempt(
           ? "This launch is planned and has not finished every effect."
           : base?.status === "passed"
             ? `This assignment is claimed and has no Operative yet. The integration base passed the gate at commit ${base.commit} in gate run ${base.run.id}, so dispatch from that commit.`
-            : "This assignment is claimed and has no Operative yet.",
+            : request.integration !== null
+              ? `This assignment is claimed and has no Operative yet. It starts from ${request.integration.recordedTip}, the recorded tip of ${request.integration.name}, so dispatch with no --commit.`
+              : "This assignment is claimed and has no Operative yet.",
       command: "operator attempt dispatch",
     });
     return;
@@ -717,6 +737,7 @@ export function calculateNext(
                 reported: gateSources,
               }
             : null,
+          integration: tipStartOf(db, assignment),
         },
         into,
       );

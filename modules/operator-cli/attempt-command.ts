@@ -134,14 +134,141 @@ function reportBaseGate(parsed: ParsedArguments, result: BaseGateRefusal): Handl
   });
 }
 
+type IntegrationRefusal = Extract<
+  Awaited<ReturnType<typeof CrewState.dispatch>>,
+  {
+    status:
+      | "integration-branch-moved"
+      | "dispatch-base-not-tip"
+      | "integration-branch-exists"
+      | "integration-branch-held"
+      | "integration-branch-unread"
+      | "base-commit-unread";
+  }
+>;
+
+function isIntegrationRefusal(
+  result: Awaited<ReturnType<typeof CrewState.dispatch>>,
+): result is IntegrationRefusal {
+  return (
+    result.status === "integration-branch-moved" ||
+    result.status === "dispatch-base-not-tip" ||
+    result.status === "integration-branch-exists" ||
+    result.status === "integration-branch-held" ||
+    result.status === "integration-branch-unread" ||
+    result.status === "base-commit-unread"
+  );
+}
+
 /**
- * Reports the two gate refusals of a dispatch, a gate it cannot read and a base that has not
- * passed, in the shape `reportSharedFailure` uses.
+ * Reports a production dispatch that the integration branch of its source stops (ADR 0020).
+ * Operator never resets or adopts a moved branch, so each refusal names what a person checks.
+ */
+function reportIntegration(parsed: ParsedArguments, result: IntegrationRefusal): Handled {
+  const operation = "attempt_dispatch";
+  if (result.status === "integration-branch-moved") {
+    return refuse({
+      json: parsed.json,
+      operation,
+      outcome: "conflict",
+      reason: "integration_branch_moved",
+      detail: {
+        attemptId: result.attemptId,
+        branch: result.branch,
+        recordedTip: result.recordedTip,
+        found: result.found,
+        checkedOut: result.checkedOut,
+      },
+      lines: [
+        `Branch ${result.branch} holds ${result.found ?? "no commit"}, and its recorded tip is ${result.recordedTip}.`,
+        ...result.checkedOut.map((path) => `Worktree ${path} has it checked out.`),
+        "Operator never resets or adopts a moved branch. Ask the user to put it back at the recorded tip.",
+        "Nothing was launched.",
+      ],
+    });
+  }
+  if (result.status === "dispatch-base-not-tip") {
+    return refuse({
+      json: parsed.json,
+      operation,
+      outcome: "conflict",
+      reason: "dispatch_base_not_tip",
+      detail: {
+        attemptId: result.attemptId,
+        branch: result.branch,
+        recordedTip: result.recordedTip,
+        requested: result.requested,
+      },
+      lines: [
+        `A production dispatch of this source starts from ${result.recordedTip}, the recorded tip of ${result.branch}, not from ${result.requested}.`,
+        "Run the dispatch again with no --commit.",
+      ],
+    });
+  }
+  if (result.status === "integration-branch-exists") {
+    return refuse({
+      json: parsed.json,
+      operation,
+      outcome: "conflict",
+      reason: "integration_branch_exists",
+      detail: {
+        attemptId: result.attemptId,
+        branch: result.branch,
+        base: result.base,
+        found: result.found,
+      },
+      lines: [
+        `Branch ${result.branch} already holds ${result.found}, so it cannot start at the integration base ${result.base}.`,
+        "Operator never takes over a branch it did not create. Ask the user to remove it, or dispatch from that commit.",
+        "Nothing was launched, and no base was fixed.",
+      ],
+    });
+  }
+  if (result.status === "integration-branch-held") {
+    return refuse({
+      json: parsed.json,
+      operation,
+      outcome: "conflict",
+      reason: "integration_branch_held",
+      detail: { attemptId: result.attemptId, branch: result.branch, heldBy: result.heldBy },
+      lines: [
+        `Source ${result.heldBy} already records the integration branch ${result.branch}, so this source cannot record it.`,
+        "Report it to the user. Nothing was launched, and no base was fixed.",
+      ],
+    });
+  }
+  if (result.status === "base-commit-unread") {
+    return refuse({
+      json: parsed.json,
+      operation,
+      outcome: "failed",
+      reason: "gate_commit_unread",
+      detail: { attemptId: result.attemptId, commit: result.commit, detail: result.detail },
+      lines: [`Commit ${result.commit} could not be read: ${result.detail}`],
+    });
+  }
+  return refuse({
+    json: parsed.json,
+    operation,
+    outcome: "failed",
+    reason: "integration_branch_unread",
+    detail: { attemptId: result.attemptId, branch: result.branch, detail: result.detail },
+    lines: [`Branch ${result.branch} could not be read or written: ${result.detail}`],
+  });
+}
+
+/**
+ * Reports the refusals of where a dispatch starts: a gate it cannot read, a base that has not
+ * passed, and an integration branch that stops it, in the shape `reportSharedFailure` uses.
  */
 function reportDispatchGate(
   parsed: ParsedArguments,
   result: Awaited<ReturnType<typeof CrewState.dispatch>>,
-): result is GateUnusable | BaseGateRefusal {
+): result is GateUnusable | BaseGateRefusal | IntegrationRefusal {
+  if (isIntegrationRefusal(result)) {
+    reportIntegration(parsed, result);
+    return true;
+  }
   if (result.status === "project-gate-unusable") {
     reportGateUnusable(parsed, "attempt_dispatch", result);
     return true;
