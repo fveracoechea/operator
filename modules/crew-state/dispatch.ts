@@ -1,11 +1,13 @@
-import { and, eq, ne } from "drizzle-orm";
+import { and, asc, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import type { CrewReader, CrewWriter } from "./database.ts";
 import type { AssignmentRow } from "./assignment.ts";
 import { attemptCount, type AttemptRow } from "./attempt.ts";
 import { currentOwnership } from "./ownership.ts";
 import { findingsOf, reviewOfAssignment, reviewOfSubmission, type ReviewRow } from "./review.ts";
-import { assignments, attemptDispatch, attempts, externalOperations } from "./schema.ts";
+import { assignments, attemptDispatch, attempts, externalOperations, questions } from "./schema.ts";
+import { answerRecordOf, questionReportOf, readAnswer } from "./questions.ts";
+import { storedBehaviorChanges, storedConcerns, storedDecisions } from "./submission-input.ts";
 import { cyclesOf, openCycleOf, type ReworkCycleRow } from "./rework.ts";
 import { type ReworkBriefRecord, storedReworkBrief } from "./rework-input.ts";
 import { readSubmission, submissionsOf, type SubmissionRow } from "./submission.ts";
@@ -52,7 +54,12 @@ export type ReviewContext = {
 };
 
 /** The delegated cycle a rework attempt answers. Present only while one is open. */
-export type ReworkContext = { cycle: ReworkCycleRow; brief: ReworkBriefRecord };
+export type ReworkContext = {
+  cycle: ReworkCycleRow;
+  brief: ReworkBriefRecord;
+  // The recorded rounds of the assignment, derived at dispatch. The launch contract owns them.
+  rounds: ReturnType<typeof reworkRoundsOf>;
+};
 
 export type AttemptContext = {
   attempt: AttemptRow;
@@ -114,16 +121,29 @@ export function operationFor(operations: OperationRow[], kind: DispatchStage): O
   return operations.find((one) => one.kind === kind) ?? null;
 }
 
-/**
- * Every round that ran on one producer assignment before the submission under review.
- * The reviewer of a revision reads them, so a prior disposition is visible and a finding that
- * came back is reported as a regression rather than as new work.
- */
-function priorRoundsOf(db: CrewReader, submission: SubmissionRow) {
-  const cycles = cyclesOf(db, submission.assignmentId);
+/** The rework cycle that delegated each finding as a correction, by finding id. */
+function delegationsOf(cycles: ReworkCycleRow[]): Map<string, string> {
+  return new Map(
+    cycles.flatMap((cycle) =>
+      storedReworkBrief(cycle.brief).corrections.map((one) => [one.findingId, cycle.id] as const),
+    ),
+  );
+}
 
-  return submissionsOf(db, submission.assignmentId)
-    .filter((one) => one.assignmentRevision < submission.assignmentRevision)
+/**
+ * Every reviewed round of one assignment whose submission passes the filter, with each finding,
+ * its disposition, and the cycle that delegated it. A reviewer of a revision reads the rounds
+ * before it, and a rework Operative reads every round up to the submission it corrects.
+ */
+function roundsOf(
+  db: CrewReader,
+  request: { assignmentId: string; includes: (submission: SubmissionRow) => boolean },
+) {
+  const cycles = cyclesOf(db, request.assignmentId);
+  const delegations = delegationsOf(cycles);
+
+  return submissionsOf(db, request.assignmentId)
+    .filter(request.includes)
     .flatMap((earlier) => {
       const review = reviewOfSubmission(db, earlier.id);
       return review === null
@@ -141,6 +161,7 @@ function priorRoundsOf(db: CrewReader, submission: SubmissionRow) {
                 summary: one.summary,
                 disposition: one.disposition,
                 reason: one.reason,
+                delegatedIn: delegations.get(one.id) ?? null,
               })),
               cycles: cycles
                 .filter((cycle) => cycle.submissionId === earlier.id)
@@ -158,6 +179,18 @@ function priorRoundsOf(db: CrewReader, submission: SubmissionRow) {
     });
 }
 
+/**
+ * Every round that ran on one producer assignment before the submission under review.
+ * The reviewer of a revision reads them, so a prior disposition is visible and a finding that
+ * came back is reported as a regression rather than as new work.
+ */
+function priorRoundsOf(db: CrewReader, submission: SubmissionRow) {
+  return roundsOf(db, {
+    assignmentId: submission.assignmentId,
+    includes: (one) => one.assignmentRevision < submission.assignmentRevision,
+  });
+}
+
 /** The review and submission one review assignment carries, if it is one. */
 function readReviewContext(db: CrewReader, assignmentId: string): ReviewContext | null {
   const review = reviewOfAssignment(db, assignmentId);
@@ -171,10 +204,67 @@ function readReviewContext(db: CrewReader, assignmentId: string): ReviewContext 
     : { review, submission, priorRounds: priorRoundsOf(db, submission) };
 }
 
+/**
+ * Every question of the assignment that was raised and answered before the cycle was delegated.
+ * An attempt of the cycle asks nothing that reaches this list, so a replacement attempt of the
+ * cycle receives the same answers as the attempt it replaces.
+ */
+function answeredQuestionsOf(db: CrewReader, cycle: ReworkCycleRow) {
+  return db
+    .select()
+    .from(questions)
+    .where(eq(questions.assignmentId, cycle.assignmentId))
+    .orderBy(asc(questions.raisedAt), asc(questions.id))
+    .all()
+    .filter((row) => row.raisedAt < cycle.openedAt)
+    .flatMap((row) => {
+      const answer = row.answerId === null ? null : readAnswer(db, row.answerId);
+      if (answer === null || answer.recordedAt > cycle.openedAt) {
+        return [];
+      }
+      const record = answerRecordOf(answer, row);
+      return [
+        {
+          questionId: row.id,
+          attemptId: row.attemptId,
+          question: questionReportOf(row).question,
+          authority: record.authority,
+          exactText: record.exactText,
+          interpretation: record.interpretation,
+        },
+      ];
+    });
+}
+
+/**
+ * The recorded rounds one rework brief carries, derived at dispatch (ADR 0008).
+ * Each record is fixed once it is written, so this gives the same text as a derivation at the
+ * moment the cycle was delegated.
+ */
+function reworkRoundsOf(db: CrewReader, cycle: ReworkCycleRow) {
+  const corrected = readSubmission(db, cycle.submissionId);
+  if (corrected === null) {
+    throw new Error(`rework cycle ${cycle.id} names no recorded submission`);
+  }
+
+  return {
+    concerns: storedConcerns(corrected.concerns),
+    decisions: storedDecisions(corrected.decisions),
+    behaviorChanges: storedBehaviorChanges(corrected.behaviorChanges),
+    answeredQuestions: answeredQuestionsOf(db, cycle),
+    earlier: roundsOf(db, {
+      assignmentId: cycle.assignmentId,
+      includes: (one) => one.assignmentRevision <= corrected.assignmentRevision,
+    }),
+  };
+}
+
 /** The open rework cycle one assignment carries, with the brief fixed when it was delegated. */
 function readReworkContext(db: CrewReader, assignmentId: string): ReworkContext | null {
   const cycle = openCycleOf(db, assignmentId);
-  return cycle === null ? null : { cycle, brief: storedReworkBrief(cycle.brief) };
+  return cycle === null
+    ? null
+    : { cycle, brief: storedReworkBrief(cycle.brief), rounds: reworkRoundsOf(db, cycle) };
 }
 
 /** The planning record ids one launch fixed, or null when it fixed none. */

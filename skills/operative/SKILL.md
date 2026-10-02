@@ -29,6 +29,8 @@ Never address a person in your terminal output, because only the Operator talks 
 
 Read the result you rework and every accepted correction before you change code.
 Start from what the reviewer found, not from your own reading of the original scope.
+You do not hold the context of the producer, so the rework brief carries the recorded rounds of the assignment.
+Read the answered questions, the decisions of the corrected submission, and the earlier findings with their dispositions before you change code.
 
 ## Hand over the result
 

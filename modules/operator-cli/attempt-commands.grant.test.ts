@@ -209,7 +209,6 @@ describe("a write-paths grant across a rework cycle", () => {
       body: {
         reason: "findings",
         reviewId: submitted.json.data.reviewId,
-        instruction: "Add the note.",
         conflicts: [],
       },
     });

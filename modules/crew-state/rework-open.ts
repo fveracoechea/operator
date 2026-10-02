@@ -241,7 +241,6 @@ function briefOf(request: {
     reason: input.reason,
     cycleIndex: request.cycleIndex,
     limit: request.limit,
-    instruction: input.instruction,
     reviewId: request.reviewId,
     approvalId: request.approvalId,
     submissionId: submission.id,

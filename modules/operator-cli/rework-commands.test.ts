@@ -2,6 +2,7 @@ import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { ContentIdentity } from "../content-identity/main.ts";
 import {
   acceptProduction,
+  answeredQuestion,
   acceptReview,
   commitArtifact,
   delegateRework,
@@ -23,6 +24,7 @@ import {
   herdrCalls,
   requestId as request,
   runJson,
+  stopFakeAgents,
   workspaces,
 } from "./workspace-fixture.ts";
 
@@ -154,7 +156,6 @@ describe("operator work rework", () => {
       body: {
         reason: "findings",
         reviewId: submitted.json.data.reviewId,
-        instruction: "State the gate the result passed, and keep the approved scope.",
         conflicts: [],
       },
     });
@@ -184,14 +185,17 @@ describe("operator work rework", () => {
     expect(brief).toContain("## The result you rework");
     expect(brief).toContain("findings cycle 1 of 3");
     expect(brief).toContain(gate);
-    // The Operator writes nothing into a brief, so its instruction is recorded and never rendered.
-    expect(brief).not.toContain("State the gate the result passed");
     expect(brief).toContain("Answer every accepted correction below in one revision.");
     // A rework Operative never addresses the person either.
     expect(brief).toContain("Never address the person yourself.");
     expect(brief).toContain("The Operator accepted it because:");
-    // The deferred finding was answered already, so it is not delegated work.
-    expect(brief).not.toContain("The summary could name the module.");
+    // The deferred finding was answered already, so it is a recorded round, never a correction.
+    expect(brief).not.toContain(
+      `- ${wording} (spec, improvement): The summary could name the module.`,
+    );
+    expect(brief).toContain(
+      `${wording} (spec, improvement) deferred: The summary could name the module.`,
+    );
     expect(brief).toContain("The acceptance requirements above still stand.");
     // The original requirements reach the rework unchanged.
     expect(brief).toContain("1. The quality gate passes.");
@@ -228,7 +232,6 @@ describe("operator work rework", () => {
     expect(secondBrief).toContain(`${gate} (standards, blocker) corrected`);
     expect(secondBrief).toContain(`${wording} (spec, improvement) deferred`);
     expect(secondBrief).toContain("Rework cycle");
-    expect(secondBrief).not.toContain("State the gate the result passed");
     expect(secondBrief).toContain("report a finding that");
 
     const secondReport = await reportReview(
@@ -287,7 +290,6 @@ describe("rework limits", () => {
       body: {
         reason: "findings",
         reviewId: submitted.json.data.reviewId,
-        instruction: "State the gate the result passed.",
         conflicts: [],
       },
     });
@@ -308,7 +310,7 @@ describe("rework limits", () => {
     let submitted = await submit(workspace, current, submissionBody(current, artifact));
 
     /** One full round: review it, accept the correction, delegate it, and rework it. */
-    async function correctionRound(round: number) {
+    async function correctionRound() {
       const reviewer = await startReviewer(workspace, current, submitted.json, artifact.commit);
       const reported = await reportReview(
         workspace,
@@ -338,7 +340,6 @@ describe("rework limits", () => {
         body: {
           reason: "findings",
           reviewId: submitted.json.data.reviewId,
-          instruction: `State the gate, round ${round}.`,
           conflicts: [],
         },
       });
@@ -362,12 +363,12 @@ describe("rework limits", () => {
     }
 
     for (const round of [1, 2, 3]) {
-      const delegated = await correctionRound(round);
+      const delegated = await correctionRound();
       expect(delegated.json.data.cycleIndex).toBe(round);
       await revise(delegated, round);
     }
 
-    const refused = await correctionRound(4);
+    const refused = await correctionRound();
     expect(refused.exitCode).toBe(3);
     expect(refused.json.reason).toBe("limit_reached");
     expect(refused.json.blockers[0]).toMatchObject({
@@ -408,7 +409,6 @@ describe("rework limits", () => {
       body: {
         reason: "findings",
         reviewId: submitted.json.data.reviewId,
-        instruction: "State the gate, round 4.",
         conflicts: [],
       },
     });
@@ -428,7 +428,6 @@ describe("rework limits", () => {
       body: {
         reason: "findings",
         reviewId: submitted.json.data.reviewId,
-        instruction: "State the gate, round 4.",
         conflicts: [],
       },
     });
@@ -446,7 +445,6 @@ describe("rework limits", () => {
       body: {
         reason: "findings",
         reviewId: submitted.json.data.reviewId,
-        instruction: "State the gate, round 4.",
         conflicts: [],
       },
     });
@@ -494,7 +492,6 @@ describe("rework limits", () => {
         body: {
           reason: "diagnostic",
           checks: ["integration"],
-          instruction: `Run the quality gate again, round ${round}.`,
           conflicts: [],
         },
       });
@@ -538,7 +535,6 @@ describe("rework limits", () => {
       body: {
         reason: "diagnostic",
         checks: ["unknown-gate"],
-        instruction: "Run a check that was never recorded.",
         conflicts: [],
       },
     });
@@ -559,7 +555,6 @@ describe("conflicts and combined revisions", () => {
       revision: submitted.json.data.revision,
       body: {
         reason: "integration",
-        instruction: "Combine this result with the accepted helper before anyone reviews it.",
         conflicts: [],
         combines: [{ name: "accepted helper", revision: "rev-helper-1" }],
       },
@@ -602,7 +597,6 @@ describe("conflicts and combined revisions", () => {
       body: {
         reason: "findings",
         reviewId: submitted.json.data.reviewId,
-        instruction: "State the gate.",
         conflicts: [],
       },
     });
@@ -619,7 +613,6 @@ describe("conflicts and combined revisions", () => {
       revision: second.submitted.json.data.revision,
       body: {
         reason: "integration",
-        instruction: "Combine it with the accepted helper.",
         conflicts: [{ summary: "The gate and the helper disagree.", between: [gate, "helper"] }],
         combines: [{ name: "accepted helper", revision: "rev-helper-1" }],
       },
@@ -633,7 +626,6 @@ describe("conflicts and combined revisions", () => {
       revision: second.submitted.json.data.revision,
       body: {
         reason: "integration",
-        instruction: "Combine it with the accepted helper.",
         conflicts: [{ summary: "The helper and the base disagree.", between: ["helper", "base"] }],
         combines: [{ name: "accepted helper", revision: "rev-helper-1" }],
       },
@@ -652,7 +644,6 @@ describe("conflicts and combined revisions", () => {
       revision: first.submitted.json.data.revision,
       body: {
         reason: "integration",
-        instruction: "Combine it with the accepted helper.",
         conflicts: [],
         combines: [{ name: "accepted helper", revision: "rev-helper-1" }],
       },
@@ -694,7 +685,6 @@ describe("conflicts and combined revisions", () => {
       body: {
         reason: "integration",
         reviewId: submitted.json.data.reviewId,
-        instruction: "Combine the narrower behaviour with the accepted helper.",
         conflicts: [{ summary: "The two axes disagree.", between: [gate, scope] }],
         combines: [{ name: "accepted helper", revision: "rev-helper-1" }],
       },
@@ -714,7 +704,6 @@ describe("conflicts and combined revisions", () => {
       body: {
         reason: "integration",
         reviewId: submitted.json.data.reviewId,
-        instruction: "Combine the narrower behaviour with the accepted helper.",
         conflicts: [
           {
             summary: "The narrower behaviour and the accepted helper disagree on the default.",
@@ -783,4 +772,191 @@ describe("conflicts and combined revisions", () => {
     expect(accepted.exitCode).toBe(0);
     expect(accepted.json.reason).toBe("assignment_accepted");
   }, 60_000);
+});
+
+/** One findings cycle on a result whose producer asked a question that a person answered. */
+async function cycleAfterAnsweredQuestion(workspace: Workspace) {
+  const producer = await startProducer(workspace);
+  const questionId = await answeredQuestion(workspace, producer, "human-answer");
+  const artifact = await commitArtifact(workspace, producer, "# Result\n");
+  const submitted = await submit(
+    workspace,
+    producer,
+    submissionBody(producer, artifact, {
+      behaviorChanges: [
+        {
+          statement: "The heading changes.",
+          basis: { kind: "question", questionId },
+        },
+      ],
+    }),
+  );
+  const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
+  const reported = await reportReview(
+    workspace,
+    reviewer,
+    submitted.json.data.reviewId,
+    reportBody({
+      submissionIdentity: submitted.json.data.identity,
+      host: workspace.host,
+      standardsFindings: [BLOCKER],
+      specFindings: [IMPROVEMENT],
+    }),
+  );
+  const gate = findingId(reported, "missing-gate");
+  const wording = findingId(reported, "wording");
+  await disposeFindings(workspace, producer, submitted.json.data.reviewId, [
+    {
+      findingId: gate,
+      disposition: "corrected",
+      reason: "The requirement names the gate, so the result must state it.",
+    },
+    {
+      findingId: wording,
+      disposition: "deferred",
+      reason: "The wording is readable as it stands.",
+      followUp: "github:operator#23",
+    },
+  ]);
+  await acceptReview(workspace, producer, {
+    reviewAssignmentId: submitted.json.data.reviewAssignmentId,
+    attemptId: reviewer.attemptId,
+    revision: reviewer.revision,
+  });
+  const delegated = await delegateRework(workspace, producer, {
+    revision: submitted.json.data.revision,
+    body: {
+      reason: "findings",
+      reviewId: submitted.json.data.reviewId,
+      conflicts: [],
+    },
+  });
+  expect(delegated.json.reason).toBe("rework_delegated");
+
+  return { producer, questionId, artifact, gate, wording, delegated };
+}
+
+describe("the recorded rounds of a rework brief", () => {
+  test("carries the answered questions, the corrected submission, and every earlier finding", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const { producer, questionId, artifact, gate, wording, delegated } =
+      await cycleAfterAnsweredQuestion(workspace);
+
+    const reworked = await startRework(workspace, producer, {
+      revision: delegated.json.data.revision,
+      commit: artifact.commit,
+      worktreePath: `${workspace.root}/rework`,
+    });
+    const brief = await Bun.file(`${reworked.worktreePath}/.operator/local/brief.md`).text();
+
+    // The answer of the producer's question reaches the fresh Operative in its exact words.
+    expect(brief).toContain("### Answered questions");
+    expect(brief).toContain(`- Question ${questionId}: Does the result keep the old heading?`);
+    expect(brief).toContain("  Authority: human-answer");
+    expect(brief).toContain("  Exact words: use the new heading");
+    expect(brief).toContain("  Interpretation: Use the new heading.");
+    expect(brief).toContain("    - Write the new heading.");
+    expect(brief).toContain("  Applies to: docs/");
+
+    // The decisions, concerns, and behavior changes of the submission it corrects.
+    expect(brief).toContain(
+      "- The review base is the submitted commit. (operator-decision): A moving branch is not fixed evidence.",
+    );
+    expect(brief).toContain("- The reviewer decides whether the coverage rule is too strict.");
+    expect(brief).toContain(`- The heading changes. (basis: question ${questionId})`);
+
+    // Every earlier finding with its disposition, its reason, and the cycle it delegated.
+    expect(brief).toContain("### Earlier rounds on this assignment");
+    expect(brief).toContain(
+      `${gate} (standards, blocker) corrected: The result does not state the gate it passed. [The requirement names the gate, so the result must state it.] Delegated in rework cycle ${delegated.json.data.cycleId}.`,
+    );
+    expect(brief).toContain(
+      `${wording} (spec, improvement) deferred: The summary could name the module. [The wording is readable as it stands.]`,
+    );
+  });
+
+  test("refuses a rework input that carries an instruction", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const first = await reviewedResult(workspace);
+    const { producer, submitted, reviewer } = first;
+    await disposeFindings(workspace, producer, submitted.json.data.reviewId, [
+      {
+        findingId: findingId(first.reported, "missing-gate"),
+        disposition: "corrected",
+        reason: "The requirement names the gate.",
+      },
+      {
+        findingId: findingId(first.reported, "wording"),
+        disposition: "rejected",
+        reason: "The wording is readable.",
+      },
+    ]);
+    await acceptReview(workspace, producer, {
+      reviewAssignmentId: submitted.json.data.reviewAssignmentId,
+      attemptId: reviewer.attemptId,
+      revision: reviewer.revision,
+    });
+
+    const refused = await delegateRework(workspace, producer, {
+      revision: submitted.json.data.revision,
+      body: {
+        reason: "findings",
+        reviewId: submitted.json.data.reviewId,
+        instruction: "State the gate the result passed.",
+        conflicts: [],
+      },
+    });
+
+    expect(refused.exitCode).toBe(2);
+    expect(refused.json.reason).toBe("invalid_rework_input");
+  });
+
+  test("gives a replacement attempt of the cycle the same brief text", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const { producer, artifact, delegated } = await cycleAfterAnsweredQuestion(workspace);
+    const reworked = await startRework(workspace, producer, {
+      revision: delegated.json.data.revision,
+      commit: artifact.commit,
+      worktreePath: `${workspace.root}/rework`,
+    });
+    const briefPath = `${reworked.worktreePath}/.operator/local/brief.md`;
+    const first = await Bun.file(briefPath).text();
+    // A question of the cycle's own attempt is not an earlier round, so it changes no brief.
+    const asked = await answeredQuestion(workspace, reworked, "human-answer");
+    await stopFakeAgents(workspace);
+
+    const replace = (inspection: string[]) =>
+      runJson(workspace, [
+        "attempt",
+        "replace",
+        "--request",
+        request(),
+        "--owner-token",
+        producer.ownerToken,
+        "--attempt",
+        reworked.attemptId,
+        ...inspection,
+      ]);
+    const inspected = await replace([]);
+    expect(inspected.json.reason).toBe("inspection_required");
+    const replaced = await replace(["--inspection", inspected.json.data.identity]);
+    expect(replaced.exitCode).toBe(0);
+    const attemptId: string = replaced.json.data.attemptId;
+
+    await runJson(workspace, [
+      "attempt",
+      "dispatch",
+      "--request",
+      request(),
+      "--owner-token",
+      producer.ownerToken,
+      "--attempt",
+      attemptId,
+    ]);
+    const second = await Bun.file(briefPath).text();
+
+    expect(second).toContain("### Answered questions");
+    expect(second).not.toContain(asked);
+    expect(second).toBe(first.replaceAll(reworked.attemptId, attemptId));
+  });
 });

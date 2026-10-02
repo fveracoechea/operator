@@ -466,7 +466,6 @@ describe("a fresh Operator after session loss", () => {
       body: {
         reason: "findings",
         reviewId: submitted.json.data.reviewId,
-        instruction: "Add the reader test the review asked for.",
         conflicts: [],
       },
     });

@@ -4,6 +4,17 @@ import {
   type FixedCheck,
   type FixedCode,
 } from "./fixed-result.ts";
+import {
+  type AnsweredQuestion,
+  answeredQuestionLines,
+  behaviorChangeLines,
+  concernLines,
+  decisionLines,
+  type PriorRound,
+  roundLines,
+  type SubmittedBehaviorChanges,
+  type SubmittedDecision,
+} from "./recorded-rounds.ts";
 
 // These follow the rework contract in crew-state. A launch cannot import that module, because
 // crew-state is what calls this one, so the shapes are restated rather than widened.
@@ -33,6 +44,19 @@ export type ReworkBrief = {
   checks: FixedCheck[];
   code: FixedCode | null;
   artifacts: FixedArtifact[];
+  // The recorded rounds of the assignment, derived at dispatch. They do not change once recorded,
+  // and the brief identity covers them, so every attempt of this cycle receives the same text.
+  rounds: ReworkRounds;
+};
+
+/** What the crew state recorded about the earlier rounds of the assignment (ADR 0008). */
+export type ReworkRounds = {
+  // What the producer of the corrected submission recorded beside its result.
+  concerns: string[];
+  decisions: SubmittedDecision[];
+  behaviorChanges: SubmittedBehaviorChanges;
+  answeredQuestions: AnsweredQuestion[];
+  earlier: PriorRound[];
 };
 
 // The Operator writes no instruction of its own into a cycle (ADR 0008), so each reason renders
@@ -113,6 +137,37 @@ export function reworkResultSection(rework: ReworkBrief): string[] {
           const local = reworkInputPath(artifact);
           return `- ${artifact.name}: ${local ?? artifact.value} [${artifact.contentIdentity}]`;
         })),
+    "",
+    ...recordedRoundsSection(rework.rounds),
+  ];
+}
+
+/**
+ * What the earlier rounds of this assignment recorded.
+ * A fresh Operative writes every correction and holds none of the producer's context, so the
+ * answers, decisions, and findings that shaped the result reach it from the crew state.
+ */
+function recordedRoundsSection(rounds: ReworkRounds): string[] {
+  return [
+    "### Known concerns of the corrected submission",
+    "",
+    ...concernLines(rounds.concerns),
+    "",
+    "### Decisions of the corrected submission",
+    "",
+    ...decisionLines(rounds.decisions),
+    "",
+    "### Behavior changes of the corrected submission",
+    "",
+    ...behaviorChangeLines(rounds.behaviorChanges),
+    "",
+    "### Answered questions",
+    "",
+    ...answeredQuestionLines(rounds.answeredQuestions),
+    "",
+    "### Earlier rounds on this assignment",
+    "",
+    ...(rounds.earlier.length === 0 ? ["None recorded."] : roundLines(rounds.earlier)),
     "",
   ];
 }

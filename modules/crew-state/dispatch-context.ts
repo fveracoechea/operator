@@ -131,10 +131,11 @@ function reviewBriefOf(
 }
 
 /** The fixed cycle one rework attempt answers, as it was recorded when it was delegated. */
-function reworkBriefOf(context: ReworkContext): ReworkBrief {
-  // The recorded instruction is Operator text, and the Operator writes nothing into a brief.
+export function reworkBriefOf(context: ReworkContext): ReworkBrief {
+  // An earlier release recorded an instruction, which is Operator text, and the Operator writes
+  // nothing into a brief.
   const { instruction: _instruction, ...recorded } = context.brief;
-  return { cycleId: context.cycle.id, ...recorded };
+  return { cycleId: context.cycle.id, ...recorded, rounds: context.rounds };
 }
 
 // A producer cannot show a gate that its base commit does not declare, so nothing launches.

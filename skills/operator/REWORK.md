@@ -19,7 +19,9 @@ The request names one reason:
 - `diagnostic`: it names the recorded checks a test infrastructure failure is suspected behind.
   At least one of them must not have passed.
 
-The input still takes an instruction, but it never reaches the brief: each reason renders one fixed sentence that the release owns.
+The input takes no instruction, and an input that names one refuses with `invalid_rework_input`.
+Each reason renders one fixed sentence that the release owns.
+The brief also carries what the crew state recorded about the earlier rounds of the assignment, so you copy none of it into the input.
 State each conflict the Operative must settle.
 You record no resolution of your own, because that decision is the work you are delegating.
 A conflict names only work this cycle carries.

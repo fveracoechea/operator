@@ -8,16 +8,15 @@ import {
   workspaces,
 } from "./workspace-fixture.ts";
 import {
+  answeredQuestion,
   commitArtifact,
   makeReviewWorkspace,
-  type Producer,
   reportBody,
   reportReview,
   startProducer,
   startReviewer,
   submissionBody,
   submit,
-  type Workspace,
   writeInput,
 } from "./review-cycle-fixture.ts";
 
@@ -32,67 +31,6 @@ afterEach(async () => {
 
 function reasons(result: { json: { blockers: Array<{ reason: string }> } }): string[] {
   return result.json.blockers.map((one) => one.reason);
-}
-
-/** Raises one question from the producer worktree and records its answer. */
-async function answeredQuestion(
-  workspace: Workspace,
-  producer: Producer,
-  authority: "human-answer" | "operator-decision",
-): Promise<string> {
-  const raised = await runJson(
-    workspace,
-    [
-      "question",
-      "raise",
-      "--request",
-      request(),
-      "--attempt",
-      producer.attemptId,
-      "--input",
-      await writeInput(workspace, {
-        question: "Does the result keep the old heading?",
-        evidence: [{ label: "ticket", detail: "The ticket names a new heading." }],
-        options: [
-          { name: "keep", detail: "Keep the old heading.", risk: "The ticket is not met." },
-          { name: "change", detail: "Use the new heading.", risk: "Links break." },
-        ],
-        recommendation: "Use the new heading.",
-        affectedScope: ["docs/"],
-        independentWork: ["The rest of the result continues."],
-        escalationTriggers: [],
-      }),
-    ],
-    producer.worktreePath,
-  );
-  const questionId = raised.json.data.questionId;
-  const interpretation = {
-    summary: "Use the new heading.",
-    directives: ["Write the new heading."],
-    appliesTo: ["docs/"],
-  };
-  const answered = await runJson(workspace, [
-    "question",
-    "answer",
-    "--request",
-    request(),
-    "--owner-token",
-    producer.ownerToken,
-    "--question",
-    questionId,
-    "--revision",
-    "1",
-    "--input",
-    await writeInput(
-      workspace,
-      authority === "human-answer"
-        ? { authority, exactText: "use the new heading", interpretation }
-        : { authority, interpretation },
-    ),
-  ]);
-  expect(answered.json.reason).toBe("answer_recorded");
-
-  return questionId;
 }
 
 describe("operator attempt submit reads the behavior changes", () => {

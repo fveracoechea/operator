@@ -1644,7 +1644,6 @@ describe("operator attempt replace for a review", () => {
       revision: submitted.json.data.revision,
       body: {
         reason: "integration",
-        instruction: "Combine it with the accepted helper while its review is stopped.",
         conflicts: [],
         combines: [{ name: "accepted helper", revision: "rev-helper-1" }],
       },

@@ -19,8 +19,9 @@ const combined = z.strictObject({
   revision: z.string().min(1),
 });
 
+// A cycle carries no free instruction (ADR 0008). Each reason renders one fixed sentence that the
+// release owns, so an input that names an instruction refuses as invalid.
 const stated = {
-  instruction: z.string().min(1),
   conflicts: z.array(conflict),
 };
 
@@ -86,7 +87,8 @@ export const reworkBriefSchema = z.strictObject({
   limit: z.int().positive(),
   // The approval that let this cycle run past the limit, when the user directed one.
   approvalId: z.string().nullable(),
-  instruction: z.string(),
+  // An earlier release recorded the free instruction of a cycle. It never reaches a brief.
+  instruction: z.string().optional(),
   reviewId: z.string().nullable(),
   submissionId: z.string(),
   submissionIdentity: z.string(),

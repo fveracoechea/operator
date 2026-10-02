@@ -17,7 +17,7 @@ Register those carefully, because they are what the Operative gets.
 
 The brief is the contract of one attempt.
 It holds every rule that binds the Operative, and you write nothing into it.
-A rework cycle carries its recorded corrections and conflicts, and its input instruction never reaches the brief.
+A rework cycle carries its recorded corrections, its conflicts, and the recorded earlier rounds of the assignment, and its input takes no instruction.
 
 ## Where the rules come from
 

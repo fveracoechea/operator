@@ -560,7 +560,6 @@ describe("recorded formats", () => {
       body: {
         reason: "diagnostic",
         checks: ["integration"],
-        instruction: "Run the quality gate again.",
         conflicts: [],
       },
     });
@@ -631,7 +630,6 @@ describe("recorded formats", () => {
       body: {
         reason: "diagnostic",
         checks: ["integration"],
-        instruction: "Run the quality gate again.",
         conflicts: [],
       },
     });

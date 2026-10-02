@@ -5,32 +5,15 @@ import {
   type FixedCheck,
   type FixedCode,
 } from "./fixed-result.ts";
-
-/**
- * One earlier round on the same assignment.
- * A revised result is reviewed against what those rounds found, their dispositions, and the
- * corrections that were delegated, so a regression is visible as one.
- */
-export type PriorRound = {
-  reviewId: string;
-  submissionId: string;
-  submissionIdentity: string;
-  findings: Array<{
-    findingId: string;
-    axis: string;
-    key: string;
-    severity: string;
-    summary: string;
-    disposition: string | null;
-    reason: string | null;
-  }>;
-  cycles: Array<{
-    cycleId: string;
-    reason: string;
-    cycleIndex: number;
-    conflicts: Array<{ summary: string; between: string[] }>;
-  }>;
-};
+import {
+  behaviorChangeLines,
+  concernLines,
+  decisionLines,
+  type PriorRound,
+  roundLines,
+  type SubmittedBehaviorChanges,
+  type SubmittedDecision,
+} from "./recorded-rounds.ts";
 
 export type ReviewBrief = {
   reviewId: string;
@@ -49,19 +32,8 @@ export type ReviewBrief = {
   code: FixedCode | null;
   checks: FixedCheck[];
   concerns: string[];
-  decisions: Array<{
-    statement: string;
-    authority: "requirement" | "human-answer" | "operator-decision";
-    reason: string;
-  }>;
-  // Each behavior change with its basis. A submission recorded before the list existed holds null.
-  behaviorChanges: Array<{
-    statement: string;
-    basis:
-      | { kind: "approved-scope" }
-      | { kind: "requirement"; position: number }
-      | { kind: "question"; questionId: string };
-  }> | null;
+  decisions: SubmittedDecision[];
+  behaviorChanges: SubmittedBehaviorChanges;
   artifacts: FixedArtifact[];
   // The fixed copy of the producer's scope, requirements, and inputs, taken at submission.
   // A review registered before that copy existed carries none.
@@ -88,26 +60,6 @@ export const BEHAVIOR_CHANGE_LINES = [
   "input: an output, an error, a record that is dropped or skipped, or a boundary value that falls",
   "in another class. A change to a comment, a private name, or a test is not one.",
 ];
-
-function basisText(basis: NonNullable<ReviewBrief["behaviorChanges"]>[number]["basis"]): string {
-  switch (basis.kind) {
-    case "approved-scope":
-      return "the approved scope";
-    case "requirement":
-      return `acceptance requirement ${basis.position}`;
-    case "question":
-      return `question ${basis.questionId}`;
-  }
-}
-
-function behaviorChangeLines(review: ReviewBrief): string[] {
-  if (review.behaviorChanges === null) {
-    return ["This submission was recorded before the behavior change list existed."];
-  }
-  return review.behaviorChanges.length === 0
-    ? ["The producer states that this result has no behavior change."]
-    : review.behaviorChanges.map((one) => `- ${one.statement} (basis: ${basisText(one.basis)})`);
-}
 
 /** The fixed result the two axes read. Every line here is pinned at submission. */
 export function submittedResultSection(review: ReviewBrief): string[] {
@@ -148,19 +100,15 @@ export function submittedResultSection(review: ReviewBrief): string[] {
     "",
     "### Known concerns",
     "",
-    ...(review.concerns.length === 0
-      ? ["None recorded."]
-      : review.concerns.map((one) => `- ${one}`)),
+    ...concernLines(review.concerns),
     "",
     "### Decisions the producer made",
     "",
-    ...(review.decisions.length === 0
-      ? ["None recorded."]
-      : review.decisions.map((one) => `- ${one.statement} (${one.authority}): ${one.reason}`)),
+    ...decisionLines(review.decisions),
     "",
     "### Behavior changes",
     "",
-    ...behaviorChangeLines(review),
+    ...behaviorChangeLines(review.behaviorChanges),
     "",
     ...priorRoundsSection(review),
   ];
@@ -178,21 +126,7 @@ function priorRoundsSection(review: ReviewBrief): string[] {
     "This result is a revision. Check it against every line below, and report a finding that",
     "returned as a regression.",
     "",
-    ...review.priorRounds.flatMap((round) => [
-      `- Review ${round.reviewId} of submission ${round.submissionId}`,
-      ...round.findings.map(
-        (one) =>
-          `  - ${one.findingId} (${one.axis}, ${one.severity}) ${one.disposition ?? "undisposed"}: ${one.summary}` +
-          (one.reason === null ? "" : ` [${one.reason}]`),
-      ),
-      ...round.cycles.flatMap((cycle) => [
-        `  - Rework cycle ${cycle.cycleId} (${cycle.reason} ${cycle.cycleIndex})`,
-        ...cycle.conflicts.map(
-          (one) =>
-            `    - Conflict settled by the Operative: ${one.summary} (${one.between.join(" and ")})`,
-        ),
-      ]),
-    ]),
+    ...roundLines(review.priorRounds),
     "",
     "A rejected or deferred finding was answered by the Operator. Do not reopen it as new work,",
     "and do report it if the revised result made it worse.",
