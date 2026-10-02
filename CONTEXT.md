@@ -10,6 +10,11 @@ The Operator writes no content of its own; it asks the crew or an Operative to m
 A ref move that the CLI builds only from reviewed patches, on a command that the Operator runs, is not an Operator change, and neither is the creation of an integration branch at a base that passed the project gate.
 The take-out of a withdrawn commit is such a move, and it is bound to the revision of the registration plan whose approval recorded the withdrawal.
 
+**Rules of the person**:
+The five rules R1 to R5 that override a ticket, a resolution, an ADR, and a skill topic: the Operator is read-only, nothing merges a pull request without the explicit approval of the person, nothing tears down unlanded work, an Operative never addresses the person directly, and the Operator keeps its own context as low as possible.
+The router of the `operator` skill states all five as a whole.
+A conflict with one of them goes to the person, never to a choice of the Operator or the crew.
+
 **Crew**:
 The group of sub-agents coordinated by the Operator.
 

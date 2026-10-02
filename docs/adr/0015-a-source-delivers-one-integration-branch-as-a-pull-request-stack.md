@@ -63,3 +63,7 @@ An accepted submission keeps its recorded pull request as history.
 
 The branch moves only as the last step of acceptance, so it never holds a commit that failed another gate, as ADR 0020 records.
 ADR 0022 records how each pull request of a stack is opened, linked, and merged: by the CLI, with a merge commit, from the bottom up.
+
+One CLI test proves this shape end to end, with fakes only at the Herdr and GitHub boundaries: `modules/operator-cli/source-end-to-end.test.ts` runs one parent issue to one merged integrated pull request.
+It asserts the commit order, one commit for each item, a passing gate run at the base and at every commit, and the rendered body.
+It fails when the landing, the candidate gate check, or the branch review gate is deleted.

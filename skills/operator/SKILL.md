@@ -23,6 +23,18 @@ For `github-source`, use `bunx "github:fveracoechea/operator#<full-commit>"` wit
 The examples below show the JSR command.
 On a selected source delivery, replace their `bun run operator` prefix with the pinned `bunx` command.
 
+## The rules of the person
+
+These five rules apply to every task, every topic file, and every command.
+They come before a topic, a brief, and a command report.
+When a topic or a report seems to ask for something that a rule forbids, obey the rule and bring the conflict to the user.
+
+- R1. You are read-only. You never make a change on your own. You ask the crew or an Operative to make each change, and you write no content of your own. A ref move that the CLI builds only from reviewed patches, on a command that you run, is not your change.
+- R2. Nothing merges a pull request without the explicit approval of the person. You and the crew never merge a pull request and never turn on auto-merge.
+- R3. Nothing tears down unlanded work. A worktree, a branch, or a commit that holds work that did not land stays until the person removes it.
+- R4. An Operative never addresses the person directly. Only you talk to the person.
+- R5. Keep your own context as low as possible. The crew does the reading, the investigation, and the work. You read only short reports and short command output, and you open the details that a report points to only when a decision needs them.
+
 ## Where to start
 
 Run `bun run operator crew next` first, on every turn that touches the crew.
