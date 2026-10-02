@@ -138,6 +138,7 @@ test("review and rework labels identify their roles on the same ticket", () => {
       spec: null,
       fixedPoint: null,
       readCommands: [],
+      integration: null,
       priorRounds: [],
     },
   });

@@ -349,6 +349,7 @@ One delegated correction round on one submitted result, or on an accepted result
 It carries the accepted findings or the defect, the conflicts it must settle, the revisions it combines, and what was recorded in the earlier rounds of the assignment, and a fresh Operative answers all of them in one combined revision.
 A fresh Operative is a new attempt, in a new agent session and a new checkout.
 An integration cycle applies a result again, on the commit it lands on, when that result no longer lands with its reviewed patch or no longer passes the project gate there.
+It combines only the submitted commit and the commit it lands on, which the CLI reads from the landing plan, and it carries a failed gate run as a fixed artifact.
 The reviewer that found the problem, the Operator that disposed of it, and the Operative that produced the result are never its writer.
 _Avoid_: send-back, same agent
 

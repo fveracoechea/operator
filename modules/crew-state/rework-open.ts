@@ -39,6 +39,12 @@ import {
   submissionsOf,
 } from "./submission.ts";
 import { storedArtifacts } from "./submission-store.ts";
+import { recordedTipOf } from "./landing.ts";
+import type {
+  IntegrationEvidence,
+  IntegrationRead,
+  IntegrationRefusal,
+} from "./rework-integration.ts";
 
 export type ReworkOutcome =
   | {
@@ -67,6 +73,13 @@ export type ReworkOutcome =
   | { status: "findings-undisposed"; reviewId: string; findingIds: string[] }
   | { status: "no-corrections"; reviewId: string }
   | { status: "conflict-not-corrected"; reviewId: string; findingIds: string[] }
+  | IntegrationRefusal
+  | {
+      status: "landing-tip-changed";
+      assignmentId: string;
+      planned: string;
+      recordedTip: string | null;
+    }
   | { status: "unknown-check"; assignmentId: string; names: string[] }
   | { status: "checks-passed"; assignmentId: string; names: string[] }
   | {
@@ -84,6 +97,9 @@ type ReworkRequest = {
   assignmentId: string;
   revision: number;
   input: ReworkInput;
+  // The landing plan read again for an integration cycle, before this transaction. Null for
+  // every other reason.
+  integration: IntegrationRead | null;
   now: string;
 };
 
@@ -311,26 +327,74 @@ function briefOf(request: {
   limit: number;
   approvalId: string | null;
   corrections: ReworkCorrection[];
+  evidence: IntegrationEvidence | null;
 }): ReworkBriefRecord {
-  const { input, submission } = request;
+  const { input, submission, evidence } = request;
   const checks = storedChecks(submission.checks);
+  const result = resultOf(submission);
 
-  return {
+  const brief: ReworkBriefRecord = {
     reason: input.reason,
     cycleIndex: request.cycleIndex,
     limit: request.limit,
     reviewId: request.reviewId,
     approvalId: request.approvalId,
-    ...resultOf(submission),
+    ...result,
+    // A failed gate run is carried with its output, beside the submitted artifacts.
+    artifacts: [...result.artifacts, ...(evidence?.outputs ?? [])],
     corrections: request.corrections,
     conflicts: input.conflicts,
-    combines: input.reason === "integration" ? input.combines : [],
+    // The only revisions an integration cycle combines are the two the landing plan read.
+    combines:
+      evidence === null
+        ? []
+        : [
+            { name: "submitted commit", revision: evidence.integration.commit },
+            {
+              name: `recorded tip of ${evidence.integration.branch}`,
+              revision: evidence.integration.tip,
+            },
+          ],
     // A diagnostic rerun names the checks it suspects. Every other cycle carries them all.
     checks:
       input.reason === "diagnostic"
         ? checks.filter((one) => input.checks.includes(one.name))
         : checks,
   };
+  if (evidence !== null) {
+    brief.integration = evidence.integration;
+  }
+  return brief;
+}
+
+/**
+ * The landing plan an integration cycle answers, checked against the record inside the
+ * transaction. A tip that moved since the plan was read gives another plan, so it refuses.
+ */
+function integrationGate(
+  db: CrewReader,
+  request: { read: IntegrationRead | null; submission: SubmissionRow; sourceId: string },
+):
+  | { status: "ok"; evidence: IntegrationEvidence }
+  | Extract<ReworkOutcome, { status: "submission-required" | "landing-tip-changed" }>
+  | IntegrationRefusal {
+  const { read, submission } = request;
+  if (read === null || read.status === "unread") {
+    return { status: "submission-required", assignmentId: submission.assignmentId };
+  }
+  if (read.status !== "evidence") {
+    return read;
+  }
+  const recordedTip = recordedTipOf(db, request.sourceId);
+  if (read.submissionId !== submission.id || recordedTip !== read.integration.tip) {
+    return {
+      status: "landing-tip-changed",
+      assignmentId: submission.assignmentId,
+      planned: read.integration.tip,
+      recordedTip,
+    };
+  }
+  return { status: "ok", evidence: read };
 }
 
 /**
@@ -387,6 +451,19 @@ export function openReworkCycle(db: CrewWriter, request: ReworkRequest): ReworkO
     return strayConflict;
   }
 
+  let evidence: IntegrationEvidence | null = null;
+  if (input.reason === "integration") {
+    const gate = integrationGate(db, {
+      read: request.integration,
+      submission,
+      sourceId: row.sourceId,
+    });
+    if (gate.status !== "ok") {
+      return gate;
+    }
+    evidence = gate.evidence;
+  }
+
   const budget = spendBudget(db, { assignmentId: row.id, reason: input.reason, now: request.now });
   if (budget.status === "limit-reached") {
     return budget;
@@ -401,6 +478,7 @@ export function openReworkCycle(db: CrewWriter, request: ReworkRequest): ReworkO
     limit,
     approvalId,
     corrections: accepted,
+    evidence,
   });
   insertCycle(db, {
     cycleId: request.cycleId,

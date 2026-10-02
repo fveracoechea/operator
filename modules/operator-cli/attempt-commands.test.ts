@@ -25,6 +25,7 @@ import {
   delegateRework,
   grantDirection,
   makeReviewWorkspace,
+  moveRecordedTip,
   relaunchReviewer,
   reportBody,
   reportReview,
@@ -1637,20 +1638,18 @@ describe("operator attempt replace for a review", () => {
       attemptId: limited.attemptId,
     });
 
-    // The result is combined and handed over again, so a second review reads the revision.
+    // The tip moved under the result, so it is combined and handed over again, and a second
+    // review reads the revision.
+    await moveRecordedTip(workspace, { path: "docs/result.md", text: "# Other\n" });
     const delegated = await delegateRework(workspace, producer, {
       revision: submitted.json.data.revision,
-      body: {
-        reason: "integration",
-        conflicts: [],
-        combines: [{ name: "accepted helper", revision: "rev-helper-1" }],
-      },
+      body: { reason: "integration", conflicts: [] },
     });
     expect(delegated.json.reason).toBe("rework_delegated");
 
     const reworked = await startRework(workspace, producer, {
       revision: delegated.json.data.revision,
-      commit: artifact.commit,
+      commit: null,
       worktreePath: `${workspace.root}/combined`,
     });
     const combined = await commitArtifact(workspace, reworked, "# Result\n\nCombined.\n");

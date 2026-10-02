@@ -9,7 +9,8 @@ The producer fixes its own work with its own context in one place only: a refusa
 
 A cycle carries one reason.
 A findings cycle answers the corrections the Operator accepted.
-An integration cycle combines the submitted result with other named revisions, when it no longer lands as reviewed: a conflict, a changed patch, or a candidate that failed the project gate (ADR 0021).
+An integration cycle combines the submitted result with the commit it lands on, when it no longer lands as reviewed: a conflict, a changed patch, or a candidate that failed or was flaky at the project gate (ADR 0021).
+The CLI plans the landing again to read these revisions, so the input of the cycle names none, and a commit that would land cleanly with no failed or flaky run opens no cycle.
 A diagnostic rerun runs recorded checks again when a test infrastructure failure is suspected.
 An invalidation cycle corrects the defect that an invalidation recorded.
 A findings cycle needs a reported review whose every finding already carries a disposition, because a cycle that starts on a half-read review leaves the unanswered findings with nothing to return to.
@@ -141,6 +142,7 @@ Operator moves one branch, the integration branch of a source, and only as ADR 0
 It never moves an Operative branch, and it changes a pull request only as ADR 0022 records.
 
 An integration cycle names the revisions it combines as commits that Operator read: the submitted commit, and the tip on which it no longer lands as reviewed.
+The combined revision is a new submission with its own result review, and that review also receives the reviewed patch and the interdiff from it to the new patch as fixed inputs (ADR 0017).
 
 The state version stays at 1.
 The new tables are added to a file no release has shipped yet, and a state file that predates them is reported as unreadable rather than repaired in silence.

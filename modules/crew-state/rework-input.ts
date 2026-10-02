@@ -53,7 +53,8 @@ export const reworkInputSchema = z.discriminatedUnion("reason", [
     // A revision can need combining before any review reported, so this names one only when
     // the Operator is answering that review as well.
     reviewId: z.string().min(1).optional(),
-    combines: z.array(combined).min(1),
+    // The revisions it combines are facts the CLI reads from the landing plan (ADR 0020), so the
+    // input names none, and an input that names one refuses as invalid.
   }),
   z.strictObject({
     ...stated,
@@ -104,6 +105,34 @@ const invalidation = z.strictObject({
 export type ReworkInvalidation = z.infer<typeof invalidation>;
 
 /**
+ * Why a result no longer lands as it was reviewed, read from the landing plan when an
+ * integration cycle is delegated (ADR 0020, ADR 0021): a conflict, a changed patch, or a planned
+ * commit that failed or was flaky at the project gate.
+ */
+export const integrationCauseSchema = z.enum([
+  "conflict",
+  "patch-changed",
+  "gate-failed",
+  "gate-flaky",
+]);
+
+/**
+ * What an integration cycle combines, fixed when it is delegated. The submitted commit and the
+ * tip it lands on are the only revisions, and a failed gate run is carried with its output.
+ */
+const integration = z.strictObject({
+  branch: z.string(),
+  tip: z.string(),
+  commit: z.string(),
+  cause: integrationCauseSchema,
+  // The paths of a conflict, and none for every other cause.
+  paths: z.array(z.string()),
+  gateRunId: z.string().nullable(),
+});
+
+export type ReworkIntegration = z.infer<typeof integration>;
+
+/**
  * Everything the fresh Operative receives about the result it reworks.
  * It is written once, when the cycle is delegated, so a later change to the review or the
  * submission cannot change the brief the Operative was given.
@@ -128,6 +157,9 @@ export const reworkBriefSchema = z.strictObject({
   artifacts: z.array(storedArtifactSchema),
   // Present only on an invalidation cycle. A brief that an earlier release recorded has none.
   invalidation: invalidation.optional(),
+  // Present only on an integration cycle that read a landing plan. An earlier release named the
+  // revisions in its input and recorded none.
+  integration: integration.optional(),
 });
 
 export type ReworkBriefRecord = z.infer<typeof reworkBriefSchema>;

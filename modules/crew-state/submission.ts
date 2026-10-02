@@ -14,7 +14,13 @@ import { closeCycle, openCycleOf } from "./rework.ts";
 import { storedRequirements } from "./work-input.ts";
 import { type outsideChangesOf, recordOutsideChanges } from "./outside-changes.ts";
 import { type SubmissionInput, storedCode } from "./submission-input.ts";
-import type { StoredArtifact, StoredCopy } from "./submission-store.ts";
+import {
+  type IntegrationInputs,
+  INTERDIFF_INPUT,
+  REVIEWED_PATCH_INPUT,
+  type StoredArtifact,
+  type StoredCopy,
+} from "./submission-store.ts";
 
 export type SubmissionRow = typeof submissions.$inferSelect;
 
@@ -184,6 +190,7 @@ function registerReview(
     input: SubmissionInput;
     artifacts: StoredArtifact[];
     spec: StoredCopy;
+    integration: IntegrationInputs | null;
     // The project gate commands as lines, which the reviewer is permitted to run.
     gateCommands: string[];
     now: string;
@@ -234,6 +241,24 @@ function registerReview(
       value: request.spec.storedPath,
       contentIdentity: request.spec.contentIdentity,
     },
+    // A combined revision of an integration cycle is reviewed with the patch that was reviewed
+    // and the interdiff from it to the new one (ADR 0017).
+    ...(request.integration === null
+      ? []
+      : [
+          {
+            name: REVIEWED_PATCH_INPUT,
+            kind: "path",
+            value: request.integration.reviewedPatch.storedPath,
+            contentIdentity: request.integration.reviewedPatch.contentIdentity,
+          },
+          {
+            name: INTERDIFF_INPUT,
+            kind: "path",
+            value: request.integration.interdiff.storedPath,
+            contentIdentity: request.integration.interdiff.contentIdentity,
+          },
+        ]),
   ];
 
   const row = insertAssignment(
@@ -300,6 +325,7 @@ export function submitResult(
     input: SubmissionInput;
     artifacts: StoredArtifact[];
     spec: StoredCopy;
+    integration: IntegrationInputs | null;
     // What the scans around the worktree found. Submit records them and never refuses for them.
     outside: ReturnType<typeof outsideChangesOf>;
     gateCommands: string[];
@@ -419,6 +445,7 @@ export function submitResult(
     input,
     artifacts,
     spec: request.spec,
+    integration: request.integration,
     gateCommands: request.gateCommands,
     now: request.now,
   });

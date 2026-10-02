@@ -223,7 +223,7 @@ describe("operator work accept lands the reviewed commit", () => {
     expect(accepted.json.reason).toBe("assignment_accepted");
   });
 
-  test("a failed candidate is refused with gate_failed and lands nothing", async () => {
+  test("a failed candidate is refused with gate_failed, lands nothing, and goes to an integration cycle", async () => {
     const workspace = await makeReviewWorkspace(fixtures, {
       gate: {
         $schema: "./node_modules/@fveracoechea/operator/gate.schema.json",
@@ -248,12 +248,16 @@ describe("operator work accept lands the reviewed commit", () => {
     expect(refused.json.reason).toBe("gate_failed");
     expect(refused.json.blockers[0].runIds).toEqual([gated?.json.data.runId]);
     expect(await tipOf(workspace, branch)).toBe(producer.baseCommit);
+    // The candidate points to this result, so the Operator delegates an integration cycle.
     const next = await nextActions(workspace);
-    expect(
-      next.actions.find(
-        (one) => one.action === "run_gate" && one.assignmentId === producer.assignmentId,
-      ),
-    ).toMatchObject({ blocker: "gate_failed" });
+    expect(next.actions.find((one) => one.assignmentId === producer.assignmentId)).toMatchObject({
+      action: "delegate_rework",
+      blocker: null,
+      command: "operator work rework",
+    });
+    expect(next.forAction("run_gate").map((one) => one.assignmentId)).not.toContain(
+      producer.assignmentId,
+    );
     expect(next.forAction("accept_assignment").map((one) => one.assignmentId)).not.toContain(
       producer.assignmentId,
     );

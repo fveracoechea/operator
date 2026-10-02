@@ -452,3 +452,72 @@ describe("IntegrationBranch holds", () => {
     ).toEqual({ status: "missing" });
   });
 });
+
+describe("IntegrationBranch interdiff", () => {
+  test("gives the reviewed patch and only the change between it and the new patch", async () => {
+    const root = await repository();
+    const base = await head(root, "main");
+    const reviewed = await result(root, {
+      start: base,
+      branch: "work-a",
+      path: "a.txt",
+      text: lines("a", 20, { 5: "A5" }),
+      date: "2002-01-01T00:00:00Z",
+    });
+    // A near line changed on the tip, so the same change made again carries another patch.
+    const tip = await result(root, {
+      start: base,
+      branch: "work-b",
+      path: "a.txt",
+      text: lines("a", 20, { 3: "A3" }),
+      date: "2003-01-01T00:00:00Z",
+    });
+    const combined = await result(root, {
+      start: tip,
+      branch: "work-c",
+      path: "a.txt",
+      text: lines("a", 20, { 3: "A3", 5: "A5" }),
+      date: "2004-01-01T00:00:00Z",
+    });
+
+    const read = await IntegrationBranch.interdiff({ repoRoot: root, reviewed, current: combined });
+
+    expect(read.status).toBe("read");
+    if (read.status !== "read") return;
+    expect(read.reviewedPatch).toBe(
+      await Bun.$`git -C ${root} diff-tree -p --no-renames --full-index ${reviewed}^ ${reviewed}`.text(),
+    );
+    expect(read.interdiff).toContain("- a3");
+    expect(read.interdiff).toContain("+ A3");
+    expect(read.interdiff).not.toContain("+-a5");
+  });
+
+  test("an equal patch gives an empty interdiff", async () => {
+    const root = await repository();
+    const base = await head(root, "main");
+    const change = { path: "a.txt", text: lines("a", 20, { 0: "A0" }) };
+    const reviewed = await result(root, {
+      start: base,
+      branch: "work-a",
+      ...change,
+      date: "2002-01-01T00:00:00Z",
+    });
+    const tip = await result(root, {
+      start: base,
+      branch: "work-b",
+      path: "b.txt",
+      text: lines("b", 20, { 0: "B0" }),
+      date: "2003-01-01T00:00:00Z",
+    });
+    const again = await result(root, {
+      start: tip,
+      branch: "work-c",
+      ...change,
+      date: "2004-01-01T00:00:00Z",
+    });
+
+    const read = await IntegrationBranch.interdiff({ repoRoot: root, reviewed, current: again });
+
+    expect(read).toMatchObject({ status: "read", interdiff: "" });
+  });
+});

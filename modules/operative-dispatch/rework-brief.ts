@@ -38,6 +38,16 @@ export type ReworkInvalidation = {
   startCommit: string | null;
 };
 
+/** Why an integration cycle combines, read from the landing plan when it was delegated. */
+export type ReworkIntegration = {
+  branch: string;
+  tip: string;
+  commit: string;
+  cause: "conflict" | "patch-changed" | "gate-failed" | "gate-flaky";
+  paths: string[];
+  gateRunId: string | null;
+};
+
 export type ReworkBrief = {
   cycleId: string;
   reason: "findings" | "integration" | "diagnostic" | "invalidation";
@@ -56,6 +66,8 @@ export type ReworkBrief = {
   artifacts: FixedArtifact[];
   // Present only on an invalidation cycle. A cycle that an earlier release recorded has none.
   invalidation?: ReworkInvalidation | undefined;
+  // Present only on an integration cycle that read a landing plan.
+  integration?: ReworkIntegration | undefined;
   // The recorded rounds of the assignment, derived at dispatch. They do not change once recorded,
   // and the brief identity covers them, so every attempt of this cycle receives the same text.
   rounds: ReworkRounds;
@@ -75,7 +87,8 @@ export type ReworkRounds = {
 // one fixed sentence that the release owns, and the recorded content below is the work.
 const REASON_SENTENCE: Record<ReworkBrief["reason"], string> = {
   findings: "Answer every accepted correction below in one revision.",
-  integration: "Combine every revision below with the submitted result in one revision.",
+  integration:
+    "Apply the submitted result again on the commit it lands on, and combine every revision below in one revision.",
   diagnostic: "Run the checks below again and record what you observe.",
   invalidation:
     "Correct the defect below in one revision that takes the place of the accepted result.",
@@ -111,6 +124,7 @@ export function reworkResultSection(rework: ReworkBrief): string[] {
     REASON_SENTENCE[rework.reason],
     "",
     ...(rework.invalidation === undefined ? [] : defectSection(rework.invalidation)),
+    ...(rework.integration === undefined ? [] : integrationSection(rework.integration)),
     "### Accepted corrections",
     "",
     ...(rework.corrections.length === 0
@@ -174,6 +188,35 @@ function defectSection(invalidation: ReworkInvalidation): string[] {
   ];
 }
 
+const CAUSE_LINE: Record<ReworkIntegration["cause"], string> = {
+  conflict: "The submitted commit conflicts with the tip.",
+  "patch-changed": "The submitted commit lands on the tip as another patch than the one reviewed.",
+  "gate-failed": "The planned commit on the tip failed the project gate.",
+  "gate-flaky": "The planned commit on the tip is flaky at the project gate.",
+};
+
+/**
+ * Why the submitted result no longer lands as it was reviewed, as the landing plan read it. The
+ * failed gate run is a fixed artifact below, so the Operative reads its output, never a claim.
+ */
+function integrationSection(integration: ReworkIntegration): string[] {
+  return [
+    "### Why the result no longer lands",
+    "",
+    `- ${CAUSE_LINE[integration.cause]}`,
+    `- Integration branch: ${integration.branch}`,
+    `- Recorded tip when the cycle was delegated: ${integration.tip}`,
+    `- Submitted commit: ${integration.commit}`,
+    ...(integration.paths.length === 0
+      ? []
+      : [`- Conflicting paths: ${integration.paths.join(", ")}`]),
+    ...(integration.gateRunId === null
+      ? []
+      : [`- Failed gate run: ${integration.gateRunId}. Its output is in the fixed copies below.`]),
+    "",
+  ];
+}
+
 /**
  * What the earlier rounds of this assignment recorded.
  * A fresh Operative writes every correction and holds none of the producer's context, so the
@@ -224,13 +267,20 @@ export function reworkProtocolSection(rework: ReworkBrief): string[] {
     "## Rework protocol",
     "",
     // A correction of a landed commit takes its place on the branch (ADR 0020), so it is built on
-    // the parent of that commit and never on top of it.
-    ...(start === null
-      ? ["Start from the submitted commit above, not from the original base."]
-      : [
-          `Start from ${start}, the parent of the landed commit.`,
-          "Your one commit takes the place of the landed commit, so do not build on top of it.",
-        ]),
+    // the parent of that commit and never on top of it. An integration cycle starts from the
+    // commit its result lands on, the recorded tip (ADR 0008).
+    ...(rework.integration !== undefined
+      ? [
+          `Your worktree starts from the recorded tip of ${rework.integration.branch}, the commit your result lands on.`,
+          "Make one new commit on that tip that applies the submitted commit above to it, so do not",
+          "build on the submitted commit. The new commit is a new submission with its own review.",
+        ]
+      : start === null
+        ? ["Start from the submitted commit above, not from the original base."]
+        : [
+            `Start from ${start}, the parent of the landed commit.`,
+            "Your one commit takes the place of the landed commit, so do not build on top of it.",
+          ]),
     "Answer every accepted correction, every conflict, and every revision to combine in one",
     "combined revision, then submit that one revision.",
     "Two submissions would split the evidence, and a review reads one fixed result.",

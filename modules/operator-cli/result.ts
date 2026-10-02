@@ -279,6 +279,8 @@ export type Reason =
   | "landing_patch_changed"
   | "landing_pending"
   | "landing_tip_changed"
+  | "lands_cleanly"
+  | "no_landing"
   | "dispatch_base_not_tip"
   | "gate_run_started"
   | "gate_runner_not_typed"

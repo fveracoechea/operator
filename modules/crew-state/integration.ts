@@ -141,8 +141,8 @@ export type IntegrationRefusal =
 /**
  * Where one production dispatch starts (ADR 0020). A source with a recorded branch first proves
  * that the branch still holds its recorded tip. A new launch of a first attempt then starts from
- * that tip, and a commit that differs refuses. A rework cycle keeps the start its cycle names,
- * and a review or planning attempt reads no branch. `start` null leaves the base to those rules.
+ * that tip, and a commit that differs refuses. An integration cycle starts there too. Every other
+ * rework cycle keeps the start its cycle names, and a review or planning attempt reads no branch. `start` null leaves the base to those rules.
  */
 export async function integrationStart(request: {
   projectRoot: string;
@@ -189,8 +189,10 @@ export async function integrationStart(request: {
     };
   }
 
-  // A recorded launch fixed its base already, and a cycle starts where its own rule says.
-  if (request.planned || request.context.rework !== null) {
+  // A recorded launch fixed its base already, and a cycle starts where its own rule says. An
+  // integration cycle starts from the commit its result lands on, the recorded tip (ADR 0008).
+  const rework = request.context.rework;
+  if (request.planned || (rework !== null && rework.brief.reason !== "integration")) {
     return { status: "ok", start: null };
   }
   if (request.requested !== null && request.requested !== row.recordedTip) {

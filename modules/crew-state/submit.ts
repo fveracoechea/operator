@@ -4,6 +4,7 @@ import { readWriterContext, type WriterFailure } from "./dispatch-context.ts";
 import { identityOf } from "./identity.ts";
 import { type InvalidInput, parseInput } from "./input.ts";
 import { gateOfAttempt } from "./integration.ts";
+import { type IntegrationInputsRead, storeIntegrationInputs } from "./integration-inputs.ts";
 import { mutate, readState } from "./operations.ts";
 import { outsideChangesOf } from "./outside-changes.ts";
 import { answerAuthoritiesOf } from "./questions.ts";
@@ -24,6 +25,7 @@ type ResultRefused = {
 
 export type SubmitResult =
   | SubmitOutcome
+  | Extract<IntegrationInputsRead, { status: "integration-branch-unread" }>
   | InvalidInput
   | StoreFailure
   | WriterFailure
@@ -148,6 +150,20 @@ export async function submitAttemptResult(request: {
     planningRecords: read.context.planning.launched ?? read.context.planning.latest,
   });
 
+  // A combined revision of an integration cycle is reviewed with the patch that was reviewed and
+  // the interdiff to it, both fixed before the transaction, as the spec is.
+  const integration = await storeIntegrationInputs({
+    projectRoot: request.projectRoot,
+    attemptId: request.attemptId,
+    assignmentId: read.context.assignment.id,
+    sourceId: read.context.assignment.sourceId,
+    submissionId,
+    commit: input.code?.resultCommit ?? null,
+  });
+  if (integration.status !== "none" && integration.status !== "stored") {
+    return { repeated: false, result: integration };
+  }
+
   const { repeated, result } = await mutate<SubmitOutcome>(
     {
       projectRoot: request.projectRoot,
@@ -164,6 +180,7 @@ export async function submitAttemptResult(request: {
         input,
         artifacts: stored.artifacts,
         spec,
+        integration: integration.status === "stored" ? integration.inputs : null,
         outside,
         // A reviewer may run the project gate, and no reviewer outcome stands in for a gate run.
         gateCommands:

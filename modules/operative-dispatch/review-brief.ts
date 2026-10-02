@@ -41,6 +41,12 @@ export type ReviewBrief = {
   // The commit `code-review` diffs from, and the read-only `git` commands it runs from there.
   fixedPoint: string | null;
   readCommands: string[];
+  // The patch that was reviewed and the interdiff from it to this one, fixed at submission when
+  // this result is the combined revision of an integration cycle (ADR 0017). Null otherwise.
+  integration: {
+    reviewedPatch: { storedPath: string; contentIdentity: string };
+    interdiff: { storedPath: string; contentIdentity: string };
+  } | null;
   priorRounds: PriorRound[];
 };
 
@@ -49,6 +55,10 @@ export const REVIEW_INPUT_DIR = ".operator/local/review";
 
 /** Where the reviewer reads the fixed spec copy, which `code-review` takes as its spec path. */
 export const REVIEW_SPEC_PATH = `${REVIEW_INPUT_DIR}/spec.md`;
+
+/** Where the reviewer reads the patch that was reviewed and the interdiff from it to this one. */
+export const REVIEWED_PATCH_PATH = `${REVIEW_INPUT_DIR}/reviewed-patch.diff`;
+export const INTERDIFF_PATH = `${REVIEW_INPUT_DIR}/interdiff.diff`;
 
 export function reviewInputPath(artifact: FixedArtifact): string | null {
   return copiedInputPath(REVIEW_INPUT_DIR, artifact);
@@ -150,6 +160,14 @@ function readingLines(review: ReviewBrief): string[] {
     ...(review.readCommands.length === 0
       ? []
       : ["- Read commands:", ...review.readCommands.map((one) => `  - ${one}`)]),
+    // A conflict resolution can change what unchanged lines mean, so the reviewer reads the whole
+    // result, and the interdiff only shows where it differs from the patch that was reviewed.
+    ...(review.integration === null
+      ? []
+      : [
+          `- Reviewed patch: ${REVIEWED_PATCH_PATH}. This result applies it again on the commit it lands on.`,
+          `- Interdiff: ${INTERDIFF_PATH}, from the reviewed patch to the patch of this result. Review the whole result, not only the interdiff.`,
+        ]),
   ];
 }
 

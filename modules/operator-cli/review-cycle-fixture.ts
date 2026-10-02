@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { ContentIdentity } from "../content-identity/main.ts";
 import { registerSource } from "./source-fixture.ts";
 import {
@@ -572,11 +573,14 @@ export async function delegateRework(
   ]);
 }
 
-/** Claims and launches one assignment again, as the fresh Operative a rework cycle needs. */
+/**
+ * Claims and launches one assignment again, as the fresh Operative a rework cycle needs. A null
+ * commit names none, so the dispatch starts where the cycle says, as an integration cycle does.
+ */
 export async function startRework(
   workspace: Workspace,
   producer: Producer,
-  options: { revision: number; commit: string; worktreePath: string; assignmentId?: string },
+  options: { revision: number; commit: string | null; worktreePath: string; assignmentId?: string },
 ) {
   const assignmentId = options.assignmentId ?? producer.assignmentId;
   const claimed = await runJson(workspace, [
@@ -602,8 +606,7 @@ export async function startRework(
     producer.ownerToken,
     "--attempt",
     attemptId,
-    "--commit",
-    options.commit,
+    ...(options.commit === null ? [] : ["--commit", options.commit]),
     "--worktree",
     options.worktreePath,
   ]);
@@ -618,7 +621,7 @@ export async function startRework(
     assignmentId,
     attemptId,
     worktreePath: options.worktreePath,
-    baseCommit: options.commit,
+    baseCommit: options.commit ?? (await headCommit(workspace, options.worktreePath)),
     assignmentRevision: claimed.json.data.revision as number,
     dispatched,
   };
@@ -859,4 +862,37 @@ export async function startSibling(
     assignmentRevision: claimed.json.data.revision as number,
     dispatched: dispatched.json,
   };
+}
+
+/**
+ * Moves the integration branch of the fixture source and its recorded tip to one new commit that
+ * writes `text` at `path`. The normal path never lets two results in flight touch one file
+ * (ADR 0004, ADR 0018), so a conflict at a landing arises only outside it, as after a rewrite.
+ * This stands in for that history, and it returns the new tip.
+ */
+export async function moveRecordedTip(
+  workspace: Workspace,
+  options: { path: string; text: string },
+): Promise<{ branch: string; tip: string }> {
+  const format = "--format=%(refname:short)";
+  const branch = (
+    await Bun.$`git -C ${workspace.repo} for-each-ref ${format} refs/heads/operator/integration/`.text()
+  ).trim();
+  const checkout = `${workspace.root}/tip-writer`;
+  await Bun.$`git -C ${workspace.repo} worktree add -q --detach ${checkout} ${branch}`.quiet();
+  await Bun.write(`${checkout}/${options.path}`, options.text);
+  await Bun.$`git -C ${checkout} add ${options.path}`.quiet();
+  await Bun.$`git -C ${checkout} -c user.email=t@example.com -c user.name=Test commit -q -m tip`.quiet();
+  const tip = await headCommit(workspace, checkout);
+  await Bun.$`git -C ${workspace.repo} worktree remove --force ${checkout}`.quiet();
+  await Bun.$`git -C ${workspace.repo} update-ref ${`refs/heads/${branch}`} ${tip}`.quiet();
+  const sqlite = new Database(`${workspace.repo}/.operator/local/crew-state.sqlite`, {
+    readwrite: true,
+  });
+  try {
+    sqlite.query("update integration_branches set recorded_tip = ?").run(tip);
+  } finally {
+    sqlite.close();
+  }
+  return { branch, tip };
 }

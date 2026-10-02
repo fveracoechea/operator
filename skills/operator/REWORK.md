@@ -13,7 +13,12 @@ The request names one reason:
 
 - `findings`: it answers the accepted corrections of the review you name.
   Every finding of that review carries a disposition first.
-- `integration`: it names the revisions it combines with the submitted result.
+- `integration`: it answers a result that no longer lands as it was reviewed.
+  `crew next` offers it as `delegate_rework` with no blocker after a conflict or a changed patch at the landing, or after a failed or flaky gate run on the planned commit.
+  The CLI plans the landing again, so the input names no revision.
+  The cycle combines the submitted commit and the recorded tip, and it carries the failed gate run as a fixed artifact when there is one.
+  `lands_cleanly` means the commit lands cleanly and no failed or flaky run is recorded at its planned commit, so no cycle opens.
+  `landing_tip_changed` means that the recorded tip moved while the CLI planned the landing. Delegate the cycle again, and the CLI plans it on the new tip.
   Name a review only when this cycle answers that review as well.
   A review that already reported is answered either way, so its findings are never lost.
 - `diagnostic`: it names the recorded checks a test infrastructure failure is suspected behind.
@@ -29,11 +34,15 @@ A conflict names only work this cycle carries.
 
 The cycle returns the assignment to the frontier.
 `bun run operator crew next` offers it again.
-Claim it and dispatch it from the commit the submission recorded.
+Claim it and dispatch it.
+A `findings` or `diagnostic` cycle starts from the commit the submission recorded.
+An `integration` cycle starts from the recorded tip of the integration branch, the commit its result lands on, so dispatch it with no `--commit`.
+`dispatch_base_not_tip` means you named another commit.
 A fresh attempt is a fresh Operative, so the reviewer that found the problem never repairs it.
 
 One cycle produces one combined revision, which registers its own review assignment.
 That reviewer reads every earlier round and its dispositions, and reports a finding that came back.
+After an `integration` cycle, that reviewer also receives the reviewed patch and the interdiff from it to the new patch.
 Nothing between the two revisions is acceptable, so do not accept the earlier submission.
 After the combined revision is accepted, the checkout of each earlier attempt holds a replaced commit.
 `crew next` offers no removal of it, and `cleanup remove` refuses it as `unlanded_work`. Only the person removes it.

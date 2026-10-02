@@ -74,7 +74,12 @@ A key passes only with a passing run and no failed run.
 A failed run blocks, and a later pass at the same key makes the key flaky, which also blocks.
 Nothing reruns a gate by itself.
 
-A failed or flaky base or candidate reaches you as `run_gate` with the blocker `gate_failed` or `gate_flaky`, and it names the commit and each failed run.
+A failed or flaky candidate points to the result that is being accepted, because the base and every commit below it already passed.
+It reaches you as `delegate_rework` with no blocker, and it names the commit and each failed run.
+Delegate an integration cycle, as [REWORK.md](REWORK.md) shows. The cycle carries the failed run as a fixed artifact.
+It blocks only that assignment and the dependents that wait for it.
+
+A failed or flaky base reaches you as `run_gate` with the blocker `gate_failed` or `gate_flaky`, and it names the commit and each failed run.
 Bring it to the user.
 Only the user clears it:
 

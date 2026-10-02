@@ -26,6 +26,7 @@ import { acceptWithLanding } from "./accept-landing.ts";
 import { claimAssignment } from "./claims.ts";
 import { calculateFrontier } from "./frontier.ts";
 import { calculateNext, calculateUnowned, isStandingAction } from "./next.ts";
+import { readBrokenLandings } from "./next-landings.ts";
 import { parseInput } from "./input.ts";
 import { preparePlanningRecord, showPlanningRecord } from "./planning-record.ts";
 import { mutate, readState } from "./operations.ts";
@@ -48,6 +49,7 @@ import { storeSourceText } from "./requirement-source.ts";
 import { identityOf } from "./identity.ts";
 import { openReworkCycle, type ReworkOutcome } from "./rework-open.ts";
 import { defectInputSchema, reworkInputSchema } from "./rework-input.ts";
+import { readIntegrationEvidence, stateFailed } from "./rework-integration.ts";
 import { dispositionInputSchema } from "./review-input.ts";
 import { disposeFindings, type DisposeOutcome } from "./review-dispose.ts";
 import { recordReview } from "./review-record.ts";
@@ -433,6 +435,18 @@ export const CrewState = {
     }
 
     const input = parsed.value;
+    // An integration cycle plans the landing again, which reads Git, so it is read first and
+    // checked against the recorded tip inside the transaction (ADR 0020).
+    const integration =
+      input.reason === "integration"
+        ? await readIntegrationEvidence({
+            projectRoot: request.projectRoot,
+            assignmentId: request.assignmentId,
+          })
+        : null;
+    if (integration !== null && stateFailed(integration)) {
+      return reported(integration);
+    }
     return mutate<ReworkOutcome>(
       {
         projectRoot: request.projectRoot,
@@ -448,6 +462,7 @@ export const CrewState = {
           assignmentId: request.assignmentId,
           revision: request.revision,
           input,
+          integration,
           now,
         });
         // A reached limit records the direction request it raised, so the refusal is durable.
@@ -847,9 +862,11 @@ export const CrewState = {
     }
 
     const input = { capacity: capacity.capacity, readiness: request.readiness };
+    // A landing plan reads Git, so the plans are read before the one read of the order.
+    const broken = await readBrokenLandings(request.projectRoot);
     const result = await readState(request.projectRoot, (db) => ({
       stateVersion: STATE_VERSION,
-      ...calculateNext(db, input),
+      ...calculateNext(db, { ...input, broken }),
     }));
 
     // A project with no crew state owes exactly one crew action, so it is answered here in the

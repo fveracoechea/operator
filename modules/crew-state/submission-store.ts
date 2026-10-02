@@ -53,6 +53,13 @@ function fileName(index: number, artifact: SubmittedArtifact): string {
 /** One file copied into the store, with the identity a later reader verifies it against. */
 export type StoredCopy = { storedPath: string; contentIdentity: string };
 
+/** The two fixed inputs that the review of a combined revision reads beside its own result. */
+export type IntegrationInputs = { reviewedPatch: StoredCopy; interdiff: StoredCopy };
+
+/** The names the review assignment fixes them under, so its brief finds them again. */
+export const REVIEWED_PATCH_INPUT = "reviewed-patch";
+export const INTERDIFF_INPUT = "interdiff";
+
 /** Where the spec copy of one submission lives. Artifact copies carry an index, so none collides. */
 export function specPathOf(submissionId: string): string {
   return `${SUBMISSION_STORE}/${submissionId}/spec.md`;

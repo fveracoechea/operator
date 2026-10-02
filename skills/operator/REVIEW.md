@@ -16,6 +16,7 @@ Read this before you review a submitted result, act on a branch review, or accep
 7. `bun run operator work dispose --request <id> --owner-token <token> --submission <id> --input <path> --json` records a disposition on each outside change.
 8. For a code result, `crew next` offers `run_gate` with `operator gate run --assignment <id>`.
    It gates the planned commit of the landing, and the runner wakes you at the end.
+   When the result no longer lands as it was reviewed, `crew next` offers `delegate_rework` instead. Read [REWORK.md](REWORK.md).
 9. `bun run operator work accept ... --submission <id> --json` lands the result and records accepted completion.
 
 ## A submission is not completion
@@ -158,11 +159,12 @@ Acceptance refuses on:
   What a reviewer ran outranks what the producer wrote about its own work.
 - `gate_pending`, `gate_running`, `gate_failed`, or `gate_flaky`: the planned commit of the landing has not passed the project gate.
   Run `operator gate run --assignment <id>` for `gate_pending`, and wait for `gate_running`.
-  Read [GATE.md](GATE.md) for a failed or flaky key.
+  For `gate_failed` or `gate_flaky`, delegate an integration cycle, as [REWORK.md](REWORK.md) shows.
 - `integration_branch_moved`: the branch holds a commit that was not recorded. The refusal names both tips.
 - `integration_branch_checked_out`: a worktree has the branch checked out. The refusal names the worktree.
 - `landing_tip_changed`: another acceptance moved the recorded tip after this landing was planned. Accept again, and the CLI plans the landing on the new tip.
 - `landing_conflict` or `landing_patch_changed`: the commit does not land on the tip as the reviewed patch.
+  Delegate an integration cycle, as [REWORK.md](REWORK.md) shows.
 - `landing_pending`: another landing of the source has no recorded outcome. Settle it first.
 
 Each of these refusals lands nothing and records nothing.

@@ -24,6 +24,7 @@ const review: ReviewBrief = {
   spec: null,
   fixedPoint: null,
   readCommands: [],
+  integration: null,
   priorRounds: [],
 };
 

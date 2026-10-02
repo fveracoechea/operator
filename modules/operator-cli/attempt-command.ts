@@ -1009,6 +1009,20 @@ async function runSubmit(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
+  if (result.status === "integration-branch-unread") {
+    return refuse({
+      json: parsed.json,
+      operation: "attempt_submit",
+      outcome: "failed",
+      reason: "integration_branch_unread",
+      detail: { attemptId: result.attemptId, branch: result.branch, detail: result.detail },
+      lines: [
+        `Git cannot read the reviewed patch or the new patch of this combined revision: ${result.detail}`,
+        "Nothing was submitted. This attempt still runs.",
+      ],
+    });
+  }
+
   if (result.status === "result-refused") {
     report({
       json: parsed.json,

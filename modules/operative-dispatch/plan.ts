@@ -10,7 +10,9 @@ import {
 } from "./branch-review-brief.ts";
 import { type CommandRule, REFERENCE_RULE, ruleLines } from "./command-rules.ts";
 import {
+  INTERDIFF_PATH,
   REVIEW_SPEC_PATH,
+  REVIEWED_PATCH_PATH,
   type ReviewBrief,
   reviewInputPath,
   reviewProtocolSection,
@@ -547,6 +549,16 @@ export function planDispatch(request: {
       sourcePath: `${request.projectRoot}/${one.storedPath}`,
       identity: one.contentIdentity,
     })),
+    ...(review?.integration == null
+      ? []
+      : [
+          { path: REVIEWED_PATCH_PATH, copy: review.integration.reviewedPatch },
+          { path: INTERDIFF_PATH, copy: review.integration.interdiff },
+        ].map((one) => ({
+          path: one.path,
+          sourcePath: `${request.projectRoot}/${one.copy.storedPath}`,
+          identity: one.copy.contentIdentity,
+        }))),
   ];
 
   // A launch reads each path input at its base commit. A rework starts from the submitted

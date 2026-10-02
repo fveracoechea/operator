@@ -38,6 +38,7 @@ import {
 import { readSnapshot } from "./branch-review.ts";
 import { openCycleOf } from "./rework.ts";
 import { assignments, attempts } from "./schema.ts";
+import type { BrokenLanding } from "./next-landings.ts";
 import { latestSubmission, submittedCommit } from "./submission.ts";
 import { readBinding, TRACKER_STEPS, targetOf, trackerOperationsOf } from "./tracker.ts";
 import { trackerStepActions } from "./tracker-show.ts";
@@ -288,13 +289,15 @@ function branchHeadOf(db: CrewReader, assignmentId: string): string | null {
 
 /**
  * The integration branch that a new launch of one assignment starts from: a production
- * assignment with no open cycle, of a source that recorded its branch (ADR 0020).
+ * assignment with no open cycle or an open integration cycle, of a source that recorded its
+ * branch (ADR 0020, ADR 0008).
  */
 function tipStartOf(
   db: CrewReader,
   assignment: { id: string; kind: string; sourceId: string },
 ): { name: string; recordedTip: string } | null {
-  if (assignment.kind !== "production" || openCycleOf(db, assignment.id) !== null) {
+  const cycle = openCycleOf(db, assignment.id);
+  if (assignment.kind !== "production" || (cycle !== null && cycle.reason !== "integration")) {
     return null;
   }
   const row = integrationBranchOf(db, assignment.sourceId);
@@ -437,7 +440,12 @@ function readQuestions(db: CrewReader, unsettled: Set<string>, into: Collector):
 /** The review of one submitted result, and the step it now owes. */
 function readReview(
   db: CrewReader,
-  request: { assignmentId: string; revision: number; sourceId: string },
+  request: {
+    assignmentId: string;
+    revision: number;
+    sourceId: string;
+    broken: Map<string, BrokenLanding>;
+  },
   into: Collector,
 ): void {
   const submission = latestSubmission(db, request.assignmentId);
@@ -507,7 +515,12 @@ function readReview(
     if (submittedCommit(submission) !== null) {
       readLanding(
         db,
-        { ...subject, sourceId: request.sourceId, submissionId: submission.id },
+        {
+          ...subject,
+          sourceId: request.sourceId,
+          submissionId: submission.id,
+          broken: request.broken.get(submission.id) ?? null,
+        },
         into,
       );
       return;
@@ -524,8 +537,10 @@ function readReview(
 /**
  * The landing of one code result whose every other gate of acceptance passed (ADR 0020). An
  * intent with no recorded outcome is settled first, by a repeat of the acceptance. Otherwise its
- * planned commit on the recorded tip passes the project gate, and only then is it accepted. This
- * reads no Git, so the candidate is the one a gate run of this submission on this tip recorded.
+ * planned commit on the recorded tip passes the project gate, and only then is it accepted. The
+ * candidate is the one a gate run of this submission on this tip recorded. A result that no
+ * longer lands as it was reviewed, by a conflict or a changed patch that its plan read, or by a
+ * failed or flaky candidate, goes to an integration cycle (ADR 0021).
  */
 function readLanding(
   db: CrewReader,
@@ -535,10 +550,11 @@ function readLanding(
     revision: number;
     sourceId: string;
     submissionId: string;
+    broken: BrokenLanding | null;
   },
   into: Collector,
 ): void {
-  const { sourceId, submissionId, ...subject } = request;
+  const { sourceId, submissionId, broken, ...subject } = request;
   const intended = intendedLandingOf(db, sourceId);
   if (intended !== null && intended.submissionId === submissionId) {
     into.add({
@@ -583,13 +599,24 @@ function readLanding(
     case "flaky":
       into.add({
         ...subject,
-        action: "run_gate",
-        blocker: gate.status === "failed" ? "gate_failed" : "gate_flaky",
-        detail: `The planned commit ${gate.commit ?? ""} on ${row.recordedTip} is ${gate.status} in gate run ${gate.failed.map((one) => one.id).join(", ")}, so it does not land. Read a run with \`operator gate show --run <id>\`.`,
-        command,
+        action: "delegate_rework",
+        detail: `The planned commit ${gate.commit ?? ""} on ${row.recordedTip} is ${gate.status} in gate run ${gate.failed.map((one) => one.id).join(", ")}, so it does not land. Delegate an integration cycle, with the reason "integration": it carries the failed run, and it starts from the recorded tip of ${row.name}.`,
+        command: INTEGRATION_COMMAND,
       });
       return;
     default: {
+      if (broken !== null) {
+        into.add({
+          ...subject,
+          action: "delegate_rework",
+          detail:
+            broken.cause === "conflict"
+              ? `Commit ${broken.commit} conflicts with the tip ${broken.tip} of ${broken.branch} in ${broken.paths.join(", ")}, so it does not land. Delegate an integration cycle, with the reason "integration": it starts from the recorded tip.`
+              : `Commit ${broken.commit} would land on the tip ${broken.tip} of ${broken.branch} as another patch, so it does not land as it was reviewed. Delegate an integration cycle, with the reason "integration": it starts from the recorded tip.`,
+          command: INTEGRATION_COMMAND,
+        });
+        return;
+      }
       // One gate run of a source runs at a time, so a candidate waits for the run in progress.
       const running = runningRunOf(db, sourceId);
       if (running !== null) {
@@ -609,6 +636,9 @@ function readLanding(
     }
   }
 }
+
+/** The command of an integration cycle. Its input names the reason and no revision (ADR 0020). */
+const INTEGRATION_COMMAND = "operator work rework";
 
 /** The tracker steps one accepted assignment still owes. */
 function readTracker(
@@ -813,7 +843,12 @@ export function calculateUnowned(request: { capacity: Capacity; readiness: Readi
  */
 export function calculateNext(
   db: CrewReader,
-  request: { capacity: Capacity; readiness: Readiness },
+  request: {
+    capacity: Capacity;
+    readiness: Readiness;
+    // The landings whose plan read a conflict or a changed patch, by submission.
+    broken: Map<string, BrokenLanding>;
+  },
 ): CrewNext {
   const frontier = calculateFrontier(db, request.capacity);
   const ownership = currentOwnership(db);
@@ -915,7 +950,12 @@ export function calculateNext(
     if (row.state === "awaiting-review") {
       readReview(
         db,
-        { assignmentId: row.id, revision: row.revision, sourceId: row.sourceId },
+        {
+          assignmentId: row.id,
+          revision: row.revision,
+          sourceId: row.sourceId,
+          broken: request.broken,
+        },
         into,
       );
     }

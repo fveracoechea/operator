@@ -10,7 +10,13 @@ import {
   storedDecisions,
   storedResultKind,
 } from "./submission-input.ts";
-import { ARTIFACT_RULES, specPathOf, storedArtifacts } from "./submission-store.ts";
+import {
+  ARTIFACT_RULES,
+  INTERDIFF_INPUT,
+  REVIEWED_PATCH_INPUT,
+  specPathOf,
+  storedArtifacts,
+} from "./submission-store.ts";
 import { reviewReadCommands, SUBMIT_RULES } from "./submission.ts";
 import { BRANCH_REPORT_RULES, branchCoverage, REPORT_RULES } from "./review-report.ts";
 import { storedFixedInputs, storedPermissions, storedRequirements } from "./work-input.ts";
@@ -103,6 +109,15 @@ function reviewBriefOf(
   const code = submission.code === null ? null : storedCode(submission.code);
   const specPath = specPathOf(submission.id);
   const spec = request.fixedInputs.find((one) => one.kind === "path" && one.value === specPath);
+  // A combined revision of an integration cycle also fixed the reviewed patch and the interdiff.
+  const copyOf = (name: string) => {
+    const input = request.fixedInputs.find((one) => one.kind === "path" && one.name === name);
+    return input?.contentIdentity == null
+      ? null
+      : { storedPath: input.value, contentIdentity: input.contentIdentity };
+  };
+  const reviewedPatch = copyOf(REVIEWED_PATCH_INPUT);
+  const interdiff = copyOf(INTERDIFF_INPUT);
   return {
     reviewId: review.id,
     attemptId: request.attemptId,
@@ -129,6 +144,7 @@ function reviewBriefOf(
         : { storedPath: spec.value, contentIdentity: spec.contentIdentity },
     fixedPoint: code?.baseCommit ?? null,
     readCommands: reviewReadCommands(code?.baseCommit ?? null),
+    integration: reviewedPatch === null || interdiff === null ? null : { reviewedPatch, interdiff },
     priorRounds: context.priorRounds,
   };
 }

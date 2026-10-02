@@ -79,15 +79,15 @@ async function readCommit(
 }
 
 /**
- * The patch identity of one commit against one parent (ADR 0020): `git patch-id --verbatim` over
- * one canonical diff. The diff is plumbing, so no user setting changes it: three lines of
- * context, whitespace kept, no rename detection, and full binary content.
+ * The canonical diff of one commit against one parent (ADR 0020). The diff is plumbing, so no
+ * user setting changes it: three lines of context, whitespace kept, no rename detection, and
+ * full binary content.
  */
-async function patchBetween(
+async function canonicalDiff(
   repoRoot: string,
   parent: string,
   commit: string,
-): Promise<{ status: "read"; patch: string } | { status: "unread"; detail: string }> {
+): Promise<{ status: "read"; diff: string } | { status: "unread"; detail: string }> {
   const diff = await gitRaw(repoRoot, [
     "diff-tree",
     "-p",
@@ -107,14 +107,43 @@ async function patchBetween(
       detail: diff.status === "completed" ? diff.stderr.trim() : diff.detail,
     };
   }
-  if (diff.stdout === "") {
+  return { status: "read", diff: diff.stdout };
+}
+
+/** The patch identity of one commit against one parent: `git patch-id --verbatim` over its diff. */
+async function patchBetween(
+  repoRoot: string,
+  parent: string,
+  commit: string,
+): Promise<{ status: "read"; patch: string } | { status: "unread"; detail: string }> {
+  const diff = await canonicalDiff(repoRoot, parent, commit);
+  if (diff.status !== "read") {
+    return diff;
+  }
+  if (diff.diff === "") {
     return { status: "read", patch: "empty" };
   }
-  const id = await gitRaw(repoRoot, ["patch-id", "--verbatim"], diff.stdout);
+  const id = await gitRaw(repoRoot, ["patch-id", "--verbatim"], diff.diff);
   if (id.status !== "completed" || id.exitCode !== 0) {
     return { status: "unread", detail: id.status === "completed" ? id.stderr.trim() : id.detail };
   }
   return { status: "read", patch: id.stdout.trim().split(" ")[0] ?? "" };
+}
+
+/** The canonical diff of one commit against its one parent. */
+async function diffOfCommit(
+  repoRoot: string,
+  commit: string,
+): Promise<{ status: "read"; diff: string } | { status: "unread"; detail: string }> {
+  const read = await readCommit(repoRoot, commit);
+  if (read.status !== "read") {
+    return read;
+  }
+  const [parent] = read.value.parents;
+  if (parent === undefined || read.value.parents.length > 1) {
+    return { status: "unread", detail: `Commit ${commit} does not have one parent.` };
+  }
+  return canonicalDiff(repoRoot, parent, commit);
 }
 
 /** The commits from the base to the tip, oldest first. The branch is one linear history. */
@@ -384,6 +413,61 @@ export const IntegrationBranch = {
       return { status: "unread", detail: `Commit ${request.commit} does not have one parent.` };
     }
     return patchBetween(request.repoRoot, parent, request.commit);
+  },
+
+  /**
+   * The reviewed patch of one commit and the interdiff from it to the patch of a new commit
+   * (ADR 0017). Each patch is the canonical diff of its commit against its one parent, and the
+   * interdiff is a plain diff of the two patches, so a reviewer reads what changed between them.
+   * Only Git objects are written, never a ref.
+   */
+  async interdiff(request: {
+    repoRoot: string;
+    reviewed: string;
+    current: string;
+  }): Promise<
+    | { status: "read"; reviewedPatch: string; currentPatch: string; interdiff: string }
+    | { status: "unread"; detail: string }
+  > {
+    const reviewed = await diffOfCommit(request.repoRoot, request.reviewed);
+    if (reviewed.status !== "read") {
+      return reviewed;
+    }
+    const current = await diffOfCommit(request.repoRoot, request.current);
+    if (current.status !== "read") {
+      return current;
+    }
+    const blobs: string[] = [];
+    for (const text of [reviewed.diff, current.diff]) {
+      const stored = await gitRaw(request.repoRoot, ["hash-object", "-w", "--stdin"], text);
+      if (stored.status !== "completed" || stored.exitCode !== 0) {
+        return {
+          status: "unread",
+          detail: stored.status === "completed" ? stored.stderr.trim() : stored.detail,
+        };
+      }
+      blobs.push(stored.stdout.trim());
+    }
+    const compared = await gitRaw(request.repoRoot, [
+      "diff",
+      "--no-color",
+      "--no-ext-diff",
+      "--no-textconv",
+      "--unified=3",
+      ...blobs,
+    ]);
+    if (compared.status !== "completed" || compared.exitCode !== 0) {
+      return {
+        status: "unread",
+        detail: compared.status === "completed" ? compared.stderr.trim() : compared.detail,
+      };
+    }
+    return {
+      status: "read",
+      reviewedPatch: reviewed.diff,
+      currentPatch: current.diff,
+      interdiff: compared.stdout,
+    };
   },
 
   /**

@@ -9,6 +9,7 @@ import {
   disposeFindings,
   grantDirection,
   makeReviewWorkspace,
+  moveRecordedTip,
   type Producer,
   reportBody,
   reportReview,
@@ -544,16 +545,16 @@ describe("conflicts and combined revisions", () => {
     const producer = await startProducer(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
     const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
+    const { branch, tip } = await moveRecordedTip(workspace, {
+      path: "docs/result.md",
+      text: "# Other\n",
+    });
 
-    // The base moved under a result that no reviewer has read yet. Combining it first is the
+    // The tip moved under a result that no reviewer has read yet. Combining it first is the
     // point of an integration cycle, so it names no review.
     const delegated = await delegateRework(workspace, producer, {
       revision: submitted.json.data.revision,
-      body: {
-        reason: "integration",
-        conflicts: [],
-        combines: [{ name: "accepted helper", revision: "rev-helper-1" }],
-      },
+      body: { reason: "integration", conflicts: [] },
     });
 
     expect(delegated.exitCode).toBe(0);
@@ -562,16 +563,16 @@ describe("conflicts and combined revisions", () => {
 
     const reworked = await startRework(workspace, producer, {
       revision: delegated.json.data.revision,
-      commit: artifact.commit,
+      commit: null,
       worktreePath: `${workspace.root}/combined`,
     });
     const brief = await Bun.file(`${reworked.worktreePath}/.operator/local/brief.md`).text();
     expect(brief).toContain("- Review: none");
-    expect(brief).toContain("- accepted helper: rev-helper-1");
+    expect(brief).toContain(`- submitted commit: ${artifact.commit}`);
+    expect(brief).toContain(`- recorded tip of ${branch}: ${tip}`);
     expect(brief).toContain(
-      "Combine every revision below with the submitted result in one revision.",
+      "Apply the submitted result again on the commit it lands on, and combine every revision below in one revision.",
     );
-    expect(brief).not.toContain("Combine this result with the accepted helper");
   });
 
   test("a conflict may not name a finding the cycle does not carry", async () => {
@@ -610,20 +611,19 @@ describe("conflicts and combined revisions", () => {
       body: {
         reason: "integration",
         conflicts: [{ summary: "The gate and the helper disagree.", between: [gate, "helper"] }],
-        combines: [{ name: "accepted helper", revision: "rev-helper-1" }],
       },
     });
     expect(refused.exitCode).toBe(2);
     expect(refused.json.reason).toBe("conflict_not_corrected");
     expect(refused.json.blockers[0]).toMatchObject({ findingId: gate });
 
-    // The same cycle without that conflict is ordinary combining work.
+    // The same cycle without that conflict is ordinary combining work once the tip moved.
+    await moveRecordedTip(workspace, { path: "docs/result.md", text: "# Other\n" });
     const delegatedAgain = await delegateRework(workspace, reworked, {
       revision: second.submitted.json.data.revision,
       body: {
         reason: "integration",
         conflicts: [{ summary: "The helper and the base disagree.", between: ["helper", "base"] }],
-        combines: [{ name: "accepted helper", revision: "rev-helper-1" }],
       },
     });
     expect(delegatedAgain.exitCode).toBe(0);
@@ -638,11 +638,7 @@ describe("conflicts and combined revisions", () => {
     // would leave them unanswered.
     const refused = await delegateRework(workspace, first.producer, {
       revision: first.submitted.json.data.revision,
-      body: {
-        reason: "integration",
-        conflicts: [],
-        combines: [{ name: "accepted helper", revision: "rev-helper-1" }],
-      },
+      body: { reason: "integration", conflicts: [] },
     });
 
     expect(refused.exitCode).toBe(3);
@@ -682,7 +678,6 @@ describe("conflicts and combined revisions", () => {
         reason: "integration",
         reviewId: submitted.json.data.reviewId,
         conflicts: [{ summary: "The two axes disagree.", between: [gate, scope] }],
-        combines: [{ name: "accepted helper", revision: "rev-helper-1" }],
       },
     });
     expect(strayConflict.exitCode).toBe(2);
@@ -695,6 +690,10 @@ describe("conflicts and combined revisions", () => {
       revision: reviewer.revision,
     });
 
+    const { branch, tip } = await moveRecordedTip(workspace, {
+      path: "docs/result.md",
+      text: "# Helper\n",
+    });
     const delegated = await delegateRework(workspace, producer, {
       revision: submitted.json.data.revision,
       body: {
@@ -706,7 +705,6 @@ describe("conflicts and combined revisions", () => {
             between: [scope, "accepted helper"],
           },
         ],
-        combines: [{ name: "accepted helper", revision: "rev-helper-1" }],
       },
     });
     expect(delegated.exitCode).toBe(0);
@@ -714,13 +712,13 @@ describe("conflicts and combined revisions", () => {
 
     const reworked = await startRework(workspace, producer, {
       revision: delegated.json.data.revision,
-      commit: first.artifact.commit,
+      commit: null,
       worktreePath: `${workspace.root}/integration`,
     });
     const brief = await Bun.file(`${reworked.worktreePath}/.operator/local/brief.md`).text();
     expect(brief).toContain("### Conflicts to settle");
     expect(brief).toContain("disagree on the default");
-    expect(brief).toContain("- accepted helper: rev-helper-1");
+    expect(brief).toContain(`- recorded tip of ${branch}: ${tip}`);
     expect(brief).toContain("Settle every conflict above yourself.");
     expect(brief).toContain("combined revision, then submit that one revision.");
 
