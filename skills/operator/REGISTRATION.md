@@ -170,7 +170,7 @@ A withdrawal closes a registered branch review with no attempt whose snapshot ho
 The plan refuses, and names what it waits for:
 
 - `withdrawal_attempt_active` names an active attempt of the item, or of a review of its result. The attempt runs to its handoff, and nothing stops it.
-- `withdrawal_effect_unsettled` names a tracker step of the item that has no recorded outcome. Recover the step first.
+- `withdrawal_effect_unsettled` names a tracker step of the item, or a landing or rewrite intent that moves its commit, that has no recorded outcome. Recover the step or settle the move first.
 - `withdrawal_dependent_pending` names each recorded dependent, in any source, that still names the item as a blocker. The person removes that dependent from its parent in the same read, or drops the blocking link. Dropping the link is a changed item, so a dependent that has an attempt is refused as `recorded_item_changed`, and it is withdrawn with the item. Settle a dependent in another source with a registration of its own source first.
 
 The plan file lists each withdrawal under `withdrawals`, with its recorded state and its recorded `landing`, the commit that carries its accepted code result.

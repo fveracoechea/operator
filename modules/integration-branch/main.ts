@@ -249,6 +249,111 @@ async function checkedOut(
 }
 
 /**
+ * Lands one reviewed change on one tip, with no worktree. When the parent of the commit is the tip,
+ * the commit itself lands. Otherwise the change is merged onto the tip with the reviewed base as
+ * the merge base, and the new commit must carry the reviewed patch.
+ */
+async function landOn(
+  repoRoot: string,
+  request: {
+    tip: string;
+    commit: string;
+    reviewedBase: string;
+    reviewed: CommitObject;
+    patch: string;
+  },
+): Promise<
+  | { status: "ready"; commit: string; kind: "fast-forward" | "merge"; tree: string }
+  | Extract<LandingRefusal, { status: "conflict" | "patch-changed" | "unread" }>
+> {
+  const [parent] = request.reviewed.parents;
+  if (parent === request.tip && request.reviewed.parents.length === 1) {
+    return {
+      status: "ready",
+      commit: request.commit,
+      kind: "fast-forward",
+      tree: request.reviewed.tree,
+    };
+  }
+
+  const merged = await gitRaw(repoRoot, [
+    "merge-tree",
+    "--write-tree",
+    "--name-only",
+    "--no-messages",
+    `--merge-base=${request.reviewedBase}`,
+    request.tip,
+    request.commit,
+  ]);
+  if (merged.status !== "completed") {
+    return merged;
+  }
+  const lines = merged.stdout.split("\n").filter((one) => one !== "");
+  // Exit 1 is a merge with conflicts, and its paths follow the tree line.
+  if (merged.exitCode === 1) {
+    return { status: "conflict", paths: [...new Set(lines.slice(1))] };
+  }
+  if (merged.exitCode !== 0 || lines[0] === undefined) {
+    return {
+      status: "unread",
+      detail: `git merge-tree exited ${merged.exitCode}: ${merged.stderr.trim()}`,
+    };
+  }
+
+  const written = await gitRaw(
+    repoRoot,
+    ["hash-object", "-t", "commit", "-w", "--stdin"],
+    landedObject(request.reviewed, lines[0], request.tip),
+  );
+  if (written.status !== "completed" || written.exitCode !== 0) {
+    return {
+      status: "unread",
+      detail: written.status === "completed" ? written.stderr.trim() : written.detail,
+    };
+  }
+  const landed = written.stdout.trim();
+  const planned = await patchBetween(repoRoot, request.tip, landed);
+  if (planned.status !== "read") {
+    return planned;
+  }
+  if (planned.patch !== request.patch) {
+    return { status: "patch-changed", reviewed: request.patch, planned: planned.patch };
+  }
+  return { status: "ready", commit: landed, kind: "merge", tree: lines[0] };
+}
+
+/** Why one rewrite cannot be planned. Each one moves nothing. */
+type RewriteRefusal =
+  | LandingRefusal
+  | { status: "published-range"; pullRequest: number | null; url: string | null };
+
+type RewritePlan = {
+  status: "ready";
+  name: string;
+  /** The recorded tip the branch moves from, once. */
+  from: string;
+  /** The rebuilt tip. */
+  to: string;
+  /** The commit the correction takes the place of, and its parent on the branch. */
+  replaced: { commit: string; parent: string };
+  /** The commit that carries the correction, on the parent of the replaced one. */
+  correction: {
+    commit: string;
+    parent: string;
+    kind: "fast-forward" | "merge";
+    tree: string;
+    patch: string;
+  };
+  /** Each later commit that landed again, in branch order, with its new commit and parent. */
+  relanded: Array<{ was: string; commit: string; parent: string; tree: string }>;
+  /** Each later commit that is taken out, and why. */
+  takenOut: Array<{
+    commit: string;
+    cause: "conflict" | "patch-changed" | "gate" | "dependency";
+  }>;
+};
+
+/**
  * The integration branch of one source (ADR 0020). This module is the only writer of it: a plain
  * local branch that it creates once at the integration base and moves only from its recorded
  * tip. It never resets a branch, never adopts a tip that it did not record, and never pushes.
@@ -559,56 +664,166 @@ export const IntegrationBranch = {
       below = one;
     }
 
-    const merged = await gitRaw(request.repoRoot, [
-      "merge-tree",
-      "--write-tree",
-      "--name-only",
-      "--no-messages",
-      `--merge-base=${request.reviewedBase}`,
-      request.recordedTip,
-      request.commit,
-    ]);
-    if (merged.status !== "completed") {
-      return merged;
+    const onTip = await landOn(request.repoRoot, {
+      tip: request.recordedTip,
+      commit: request.commit,
+      reviewedBase: request.reviewedBase,
+      reviewed: reviewed.value,
+      patch: patch.patch,
+    });
+    if (onTip.status !== "ready") {
+      return onTip;
     }
-    const lines = merged.stdout.split("\n").filter((one) => one !== "");
-    // Exit 1 is a merge with conflicts, and its paths follow the tree line.
-    if (merged.exitCode === 1) {
-      return { status: "conflict", paths: [...new Set(lines.slice(1))] };
+    return ready({
+      to: onTip.commit,
+      landed: onTip.commit,
+      landedParent: request.recordedTip,
+      kind: "merge",
+      tree: onTip.tree,
+    });
+  },
+
+  /**
+   * Plans the rewrite of one landed commit in place, and moves no ref (ADR 0020). The correction
+   * takes the place of the replaced commit, on its parent, and each later commit lands again in
+   * the same order. A later commit is taken out, with every later commit that needs it, when its
+   * patch changes or conflicts at its new place, when a commit it needs is taken out, or when its
+   * new tree is one the caller names as refused, which is a tree that failed the project gate
+   * (ADR 0021). Every new commit copies the fields of the commit it rebuilds, so a repeat gives
+   * the same commits. Only Git objects are written, never a ref.
+   */
+  async rewrite(request: {
+    repoRoot: string;
+    name: string;
+    base: string;
+    recordedTip: string;
+    /** The commit on the branch that carries the corrected result now. */
+    replaces: string;
+    correction: { commit: string; reviewedBase: string };
+    /** The commits above the replaced one, oldest first, with the commits each one needs. */
+    later: Array<{ commit: string; needs: string[] }>;
+    refused: string[];
+    /** The head of each published range, with the pull request that carries it. */
+    published: Array<{ head: string; pullRequest: number | null; url: string | null }>;
+  }): Promise<RewritePlan | RewriteRefusal> {
+    const read = await IntegrationBranch.read(request);
+    if (read.status === "unread") {
+      return read;
     }
-    if (merged.exitCode !== 0 || lines[0] === undefined) {
+    if (read.status === "tip-moved") {
+      return read;
+    }
+    if (read.checkedOut.length > 0) {
+      return { status: "checked-out", worktrees: read.checkedOut };
+    }
+
+    // The record names the branch from the replaced commit to the tip, and Git must agree.
+    const held = await commitsOf(request.repoRoot, request.base, request.recordedTip);
+    if (held.status !== "read") {
+      return held;
+    }
+    const at = held.commits.indexOf(request.replaces);
+    const above = at === -1 ? [] : held.commits.slice(at + 1);
+    if (at === -1 || above.join(" ") !== request.later.map((one) => one.commit).join(" ")) {
       return {
         status: "unread",
-        detail: `git merge-tree exited ${merged.exitCode}: ${merged.stderr.trim()}`,
+        detail: `The branch ${request.name} does not hold ${request.replaces} with the recorded commits above it.`,
+      };
+    }
+    const parent = held.commits[at - 1] ?? request.base;
+    // A published commit is never rewritten in place, because others already read it.
+    const published = request.published.find((one) => held.commits.indexOf(one.head) >= at);
+    if (published !== undefined) {
+      return {
+        status: "published-range",
+        pullRequest: published.pullRequest,
+        url: published.url,
       };
     }
 
-    const written = await gitRaw(
+    const corrected = await readCommit(request.repoRoot, request.correction.commit);
+    if (corrected.status !== "read") {
+      return corrected;
+    }
+    const patch = await patchBetween(
       request.repoRoot,
-      ["hash-object", "-t", "commit", "-w", "--stdin"],
-      landedObject(reviewed.value, lines[0], request.recordedTip),
+      request.correction.reviewedBase,
+      request.correction.commit,
     );
-    if (written.status !== "completed" || written.exitCode !== 0) {
-      return {
-        status: "unread",
-        detail: written.status === "completed" ? written.stderr.trim() : written.detail,
-      };
+    if (patch.status !== "read") {
+      return patch;
     }
-    const landed = written.stdout.trim();
-    const planned = await patchBetween(request.repoRoot, request.recordedTip, landed);
-    if (planned.status !== "read") {
-      return planned;
-    }
-    if (planned.patch !== patch.patch) {
-      return { status: "patch-changed", reviewed: patch.patch, planned: planned.patch };
-    }
-    return ready({
-      to: landed,
-      landed,
-      landedParent: request.recordedTip,
-      kind: "merge",
-      tree: lines[0],
+    const placed = await landOn(request.repoRoot, {
+      tip: parent,
+      commit: request.correction.commit,
+      reviewedBase: request.correction.reviewedBase,
+      reviewed: corrected.value,
+      patch: patch.patch,
     });
+    if (placed.status !== "ready") {
+      return placed;
+    }
+
+    const refused = new Set(request.refused);
+    const out = new Set<string>();
+    const relanded: RewritePlan["relanded"] = [];
+    const takenOut: RewritePlan["takenOut"] = [];
+    let tip = placed.commit;
+    let below = request.replaces;
+    for (const one of request.later) {
+      const oldParent = below;
+      below = one.commit;
+      if (one.needs.some((need) => out.has(need))) {
+        out.add(one.commit);
+        takenOut.push({ commit: one.commit, cause: "dependency" });
+        continue;
+      }
+      const object = await readCommit(request.repoRoot, one.commit);
+      if (object.status !== "read") {
+        return object;
+      }
+      const own = await patchBetween(request.repoRoot, oldParent, one.commit);
+      if (own.status !== "read") {
+        return own;
+      }
+      const again = await landOn(request.repoRoot, {
+        tip,
+        commit: one.commit,
+        reviewedBase: oldParent,
+        reviewed: object.value,
+        patch: own.patch,
+      });
+      if (again.status === "unread") {
+        return again;
+      }
+      if (again.status !== "ready" || refused.has(again.tree)) {
+        out.add(one.commit);
+        takenOut.push({
+          commit: one.commit,
+          cause: again.status === "ready" ? "gate" : again.status,
+        });
+        continue;
+      }
+      relanded.push({ was: one.commit, commit: again.commit, parent: tip, tree: again.tree });
+      tip = again.commit;
+    }
+
+    return {
+      status: "ready",
+      name: request.name,
+      from: request.recordedTip,
+      to: tip,
+      replaced: { commit: request.replaces, parent },
+      correction: {
+        commit: placed.commit,
+        parent,
+        kind: placed.kind,
+        tree: placed.tree,
+        patch: patch.patch,
+      },
+      relanded,
+      takenOut,
+    };
   },
 
   /**

@@ -6,6 +6,7 @@ import type { CrewReader, CrewWriter } from "./database.ts";
 import type { AttemptContext } from "./dispatch.ts";
 import { readState, type StateFailure } from "./operations.ts";
 import type { GateRead } from "./result-checks.ts";
+import { currentLandingOf } from "./landing-record.ts";
 import { integrationBranches } from "./schema.ts";
 import { readStored } from "./stored.ts";
 import { identityOf } from "./identity.ts";
@@ -155,14 +156,18 @@ export async function integrationStart(request: {
   if (assignment.kind !== "production") {
     return { status: "ok", start: null };
   }
-  const row = await readState(request.projectRoot, (db) =>
-    integrationBranchOf(db, assignment.sourceId),
-  );
+  const recorded = await readState(request.projectRoot, (db) => ({
+    row: integrationBranchOf(db, assignment.sourceId),
+    // An integration cycle of a correction lands in the place of the commit that carries the
+    // result now, so it starts from the parent of that commit (ADR 0008, ADR 0020).
+    replaced: currentLandingOf(db, assignment.id),
+  }));
+  if ("status" in recorded) {
+    return recorded;
+  }
+  const { row } = recorded;
   if (row === null) {
     return { status: "ok", start: null };
-  }
-  if ("status" in row) {
-    return row;
   }
 
   const read = await IntegrationBranch.read({
@@ -195,22 +200,26 @@ export async function integrationStart(request: {
   if (request.planned || (rework !== null && rework.brief.reason !== "integration")) {
     return { status: "ok", start: null };
   }
-  if (request.requested !== null && request.requested !== row.recordedTip) {
+  const lands =
+    rework?.brief.integration?.replaces !== undefined && recorded.replaced !== null
+      ? recorded.replaced.landedParent
+      : row.recordedTip;
+  if (request.requested !== null && request.requested !== lands) {
     const resolved = await IntegrationBranch.resolve({
       repoRoot: request.projectRoot,
       commit: request.requested,
     });
-    if (resolved.status !== "resolved" || resolved.commit !== row.recordedTip) {
+    if (resolved.status !== "resolved" || resolved.commit !== lands) {
       return {
         status: "dispatch-base-not-tip",
         attemptId: request.attemptId,
         branch: row.name,
-        recordedTip: row.recordedTip,
+        recordedTip: lands,
         requested: request.requested,
       };
     }
   }
-  return { status: "ok", start: row.recordedTip };
+  return { status: "ok", start: lands };
 }
 
 /**

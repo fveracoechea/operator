@@ -25,12 +25,13 @@ import {
 import {
   insertLandingIntent,
   intendedLandingOf,
-  landedEarlier,
   type LandingPlan,
   type LandingRefusal,
   recordedTipOf,
   recordLanding,
+  replacedLandingOf,
 } from "./landing.ts";
+import { applyRewrite } from "./rewrite.ts";
 import { blockingQuestionOf } from "./questions.ts";
 import { submissions } from "./schema.ts";
 import { type ReviewBlocker, storedBlocker, storedObservedChecks } from "./review-input.ts";
@@ -107,6 +108,9 @@ export type AcceptResult =
       submissionId: string;
       commit: string;
       reviewedBase: string;
+      // The landing this result replaces when it is a correction of a landed commit, which lands
+      // through a rewrite in place (ADR 0020), or null for an ordinary landing.
+      replaces: string | null;
     }
   | { status: "landing-intended"; assignmentId: string; landingId: string }
   | {
@@ -126,6 +130,12 @@ export type AcceptedLanding = {
   to: string;
   // The commit on the branch that carries the accepted result.
   landed: string;
+  // What a rewrite did to the later commits, or null for an ordinary landing.
+  rewrite: {
+    replaced: string;
+    relanded: Array<{ assignmentId: string; from: string; to: string }>;
+    takenOut: Array<{ assignmentId: string; commit: string; cause: string }>;
+  } | null;
 };
 
 /**
@@ -346,11 +356,8 @@ function landingStep(
   request: { row: AssignmentRow; submission: SubmissionRow; step: LandingStep; now: string },
 ): { status: "landed"; landing: AcceptedLanding | null } | AcceptResult {
   const { row, submission, step } = request;
-  // A correction of a landed commit takes its place through the rewrite of ADR 0020, which is not
-  // built yet, so until then it is accepted with no move and the branch keeps the landed commit.
-  if (landedEarlier(db, { assignmentId: row.id, submissionId: submission.id })) {
-    return { status: "landed", landing: null };
-  }
+  // A correction of a landed commit takes the place of that commit through a rewrite in place.
+  const replaced = replacedLandingOf(db, { assignmentId: row.id, submissionId: submission.id });
   if (step.kind === "probe") {
     return {
       status: "landing-required",
@@ -359,6 +366,7 @@ function landingStep(
       submissionId: submission.id,
       commit: storedCode(submission.code ?? "").resultCommit,
       reviewedBase: reviewedBaseOf(db, submission) ?? "",
+      replaces: replaced?.id ?? null,
     };
   }
 
@@ -395,6 +403,10 @@ function landingStep(
     return { status: "landing-intended", assignmentId: row.id, landingId: step.landingId };
   }
   recordLanding(db, { ...fields, intended: own });
+  const { rewrite } = step.plan;
+  if (rewrite !== null) {
+    applyRewrite(db, { rewrite, now: request.now });
+  }
   return {
     status: "landed",
     landing: {
@@ -404,6 +416,22 @@ function landingStep(
       from: step.plan.from,
       to: step.plan.to,
       landed: step.plan.landed,
+      rewrite:
+        rewrite === null
+          ? null
+          : {
+              replaced: rewrite.replacedCommit,
+              relanded: rewrite.relanded.map(({ assignmentId, from, to }) => ({
+                assignmentId,
+                from,
+                to,
+              })),
+              takenOut: rewrite.takenOut.map(({ assignmentId, commit, cause }) => ({
+                assignmentId,
+                commit,
+                cause,
+              })),
+            },
     },
   };
 }

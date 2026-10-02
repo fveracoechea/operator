@@ -46,6 +46,7 @@ A commit whose equal patch the branch already holds gates nothing, and `gate run
 When the candidate passes, `crew next` offers `accept_assignment`, and a landing that has a passing run comes before a new `run_gate` of the same source.
 `work accept` refuses with `gate_pending`, `gate_running`, `gate_failed`, or `gate_flaky` until then, and changes nothing.
 After a landing moves the tip, every other candidate of the source is a new commit, so it is gated again.
+A correction of a landed commit gates its rebuilt range in order, one `run_gate` for each commit, and a commit below a failure keeps its pass, as [REWORK.md](REWORK.md) shows.
 
 ## Where the run happens
 

@@ -36,7 +36,7 @@ The cycle returns the assignment to the frontier.
 `bun run operator crew next` offers it again.
 Claim it and dispatch it.
 A `findings` or `diagnostic` cycle starts from the commit the submission recorded.
-An `integration` cycle starts from the recorded tip of the integration branch, the commit its result lands on, so dispatch it with no `--commit`.
+An `integration` cycle starts from the commit its result lands on, so dispatch it with no `--commit`: the recorded tip of the integration branch, or, for a correction of a landed commit, the parent of the commit it replaces.
 `dispatch_base_not_tip` means you named another commit.
 A fresh attempt is a fresh Operative, so the reviewer that found the problem never repairs it.
 
@@ -46,5 +46,22 @@ After an `integration` cycle, that reviewer also receives the reviewed patch and
 Nothing between the two revisions is acceptable, so do not accept the earlier submission.
 After the combined revision is accepted, the checkout of each earlier attempt holds a replaced commit.
 `crew next` offers no removal of it, and `cleanup remove` refuses it as `unlanded_work`. Only the person removes it.
+
+## A correction of a landed commit is rewritten in place
+
+The acceptance of a correction of a landed commit rebuilds the integration branch in the same order.
+The correction takes the place of the landed commit, on its parent, and each later commit lands again with a new identity and an equal patch.
+`crew next` offers `run_gate` once for each commit of the rebuilt range, in order, and the plan is made again after each run.
+When every commit passed, `crew next` offers `accept_assignment`, and `work accept` moves the branch once and reports the rewrite under `landing.rewrite`.
+
+A later commit is taken out, and its cause is named, when its patch changes (`patch-changed`), it conflicts (`conflict`), it fails the gate at its new place (`gate`), or a commit it depends on is taken out (`dependency`).
+A result taken out is paused as a consumer of the corrected result: it returns to awaiting review, and `crew next` offers its landing again as an ordinary landing on the new tip.
+An equal patch then lands with no new review, and a changed patch is an `integration` cycle.
+A correction that conflicts, changes its patch, or fails the gate at its own place lands nothing, and `crew next` offers an `integration` cycle from the parent of the commit it replaces.
+
+`rewrite_published_range` means the commit is inside a published pull request, which is never rewritten in place; tell the person and name that pull request.
+A rewrite whose move stopped is offered as `settle_landing`; repeat `work accept`.
+Until then, `cleanup remove` refuses each checkout of the source with `rewrite_pending`.
+After the rewrite, the checkout of the corrected attempt holds a replaced commit, so only the person removes it.
 
 A cycle is bounded. Read [LIMITS.md](LIMITS.md) when one is refused with `limit_reached`.

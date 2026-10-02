@@ -12,6 +12,8 @@ A production assignment holds its write paths from its first claim until it reac
 Inside one reading, each assignment that the frontier offers also holds its write paths, in priority order, in the same way that it takes a crew slot, so one reading never offers two overlapping assignments.
 An assignment that has not started holds nothing, so a ready assignment never waits behind an earlier one that waits on something else.
 An assignment that has started is never withheld by the hold, because each new attempt of it starts on the base of its dispatch (ADR 0008), so withholding it prevents no changed patch.
+The correction of accepted work fits this rule: the invalidated assignment has started, and its new attempt starts at its landed commit on the integration branch (ADR 0020), so withholding it prevents no changed patch either.
+Started work that overlaps the correction is not withheld for it, because the rewrite at the acceptance of the correction lands each later commit again only with an equal patch, and takes out the commit whose patch changed.
 The frontier withholds an assignment whose write paths overlap held paths, and it names each holder with the number of overlapping pairs of paths.
 The Operator reads the frontier, so the blocker gives this summary and names `operator work overlaps`, which lists each pair.
 `operator work overlaps` reads the effective write paths, as the frontier does, so it also lists a pair that a grant caused.

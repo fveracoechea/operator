@@ -124,6 +124,17 @@ function reportCandidateRefusal(parsed: ParsedArguments, result: CandidateResult
           `Commit ${result.commit} would land on ${result.tip} as another patch, so there is no candidate to gate.`,
         ],
       });
+    case "rewrite-published-range":
+      return refuse({
+        json: parsed.json,
+        operation,
+        outcome: "conflict",
+        reason: "rewrite_published_range",
+        detail: { ...result },
+        lines: [
+          `Commit ${result.commit} is inside the range that pull request ${result.pullRequest ?? "(number not recorded)"} published, so it is never rewritten in place.`,
+        ],
+      });
     default:
       return null;
   }

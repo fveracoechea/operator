@@ -6,6 +6,7 @@ import { assignments, directionRequests, invalidations, reviews, reworkCycles } 
 import { submissionsOf } from "./submission.ts";
 import { trackerOperationsOf } from "./tracker.ts";
 import { branchReviewHoldersOf, closeBranchReviewsOf } from "./branch-review.ts";
+import { intendedLandingOf, intentTouches } from "./landing.ts";
 
 /**
  * Why one withdrawal waits. A withdrawal never stops work that nobody handed over, and recovery
@@ -28,6 +29,16 @@ export type WithdrawalRefusal =
       effect: "tracker_step";
       step: string;
       state: string;
+    }
+  | {
+      reason: "withdrawal_effect_unsettled";
+      key: string;
+      assignmentId: string;
+      // A move of the integration branch whose outcome is not recorded: the landing of the item,
+      // or a rewrite that replaces, lands again, or takes out its commit.
+      effect: "landing_intent" | "rewrite_intent";
+      landingId: string;
+      pendingAssignmentId: string;
     };
 
 // A tracker step in one of these states has a recorded outcome. Every other state is unsettled.
@@ -48,8 +59,9 @@ function reviewsOfWork(db: CrewReader, assignmentId: string) {
 
 /**
  * What refuses the withdrawal of one recorded assignment: each active attempt of it or of a
- * review of its result, then each tracker step with no recorded outcome. The rule reads the
- * recorded attempts, not a list of assignment states.
+ * review of its result, then each tracker step with no recorded outcome, then an open landing or
+ * rewrite intent that moves its commit. The rule reads the recorded attempts, not a list of
+ * assignment states.
  */
 export function withdrawalRefusals(db: CrewReader, row: AssignmentRow): WithdrawalRefusal[] {
   // A branch review in flight would report on a head that can never be published, and it would
@@ -83,7 +95,22 @@ export function withdrawalRefusals(db: CrewReader, row: AssignmentRow): Withdraw
       step: one.step,
       state: one.state,
     }));
-  return [...attempts, ...effects];
+  // Recovery settles an open move first, so a withdrawal never decides about a commit in flight.
+  const intent = intendedLandingOf(db, row.sourceId);
+  const moves: WithdrawalRefusal[] =
+    intent === null || !intentTouches(intent, row.id)
+      ? []
+      : [
+          {
+            reason: "withdrawal_effect_unsettled",
+            key: row.sourceKey,
+            assignmentId: row.id,
+            effect: intent.kind === "rewrite" ? "rewrite_intent" : "landing_intent",
+            landingId: intent.id,
+            pendingAssignmentId: intent.assignmentId,
+          },
+        ];
+  return [...attempts, ...effects, ...moves];
 }
 
 function markWithdrawn(

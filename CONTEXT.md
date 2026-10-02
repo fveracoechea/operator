@@ -367,9 +367,10 @@ It keeps the evidence of what was tried, blocks acceptance, or the dispatch of a
 
 **Invalidated result**:
 An accepted result a defect was found in afterwards.
-Its acceptance and evidence stay recorded, and only the dependents that consumed it, and the later results whose patch changes when it is corrected, are paused.
+Its acceptance and evidence stay recorded, and only the dependents that consumed it, and the later results that the rewrite of its correction takes out, are paused.
+A result is taken out when its patch changes, it fails the project gate at its new place, or a result it depends on is taken out; it returns to awaiting review, and its acceptance lands it again on the tip.
 A paused result is not itself invalidated, because nothing was found wrong in it.
-Its correction is a rework cycle that counts against the same limit as every other correction of that assignment.
+Its correction is a rework cycle that counts against the same limit as every other correction of that assignment, and it starts at the commit on the integration branch that carries the result.
 
 **Withdrawal**:
 The end of one registered assignment that a person took out of its work source, by removing its issue from the parent issue.

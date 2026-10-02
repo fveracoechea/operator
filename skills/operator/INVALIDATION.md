@@ -14,7 +14,8 @@ The acceptance, the submission, the review, and every finding stay recorded.
 The assignment returns to the frontier as `invalidated`, and the invalidation opens its correction cycle in the same change.
 The cycle carries the defect, the accepted submission, and the landed commit, so you write no rework input and do not run `work rework`.
 Claim it and dispatch it with no `--commit`.
-A code correction starts on the parent of the landed commit, because it takes the place of that commit, and `correction_base_changed` means you named another commit.
+A code correction starts at the landed commit, and the Operative makes one commit on top of it. `correction_base_changed` means you named another commit.
+Its acceptance rewrites the branch in place, as [REWORK.md](REWORK.md) shows.
 The cycle counts against the same budget of three as every other correction cycle.
 When that budget is spent, the invalidation still records the defect and pauses its dependents, and it records a direction request in the same change.
 The frontier then withholds the dispatch with `direction_required` until the user answers, as [LIMITS.md](LIMITS.md) shows.

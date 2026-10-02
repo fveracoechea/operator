@@ -40,7 +40,10 @@ export type LandingProof = {
   /** The recorded landing of the submission of this attempt, or null when it landed nothing. */
   landing: LandingRow | null;
   branch: IntegrationBranchRow | null;
-  /** A landing of the same source with no recorded outcome, which recovery settles first. */
+  /**
+   * A landing or a rewrite of the same source with no recorded outcome, which recovery settles
+   * first.
+   */
   openLanding: LandingRow | null;
 };
 
@@ -67,10 +70,11 @@ export async function landingBlockers(request: {
   context: CleanupContext;
 }): Promise<CleanupBlocker[]> {
   const { landing, branch, openLanding } = request.context.proof;
+  // A rewrite moves the commit of every later landing, so no commit proof holds until it settles.
   if (openLanding !== null) {
     return [
       {
-        reason: "landing_pending",
+        reason: openLanding.kind === "rewrite" ? "rewrite_pending" : "landing_pending",
         landingId: openLanding.id,
         pendingAssignmentId: openLanding.assignmentId,
       },

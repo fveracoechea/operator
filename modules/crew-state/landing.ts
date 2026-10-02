@@ -1,52 +1,31 @@
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { IntegrationBranch } from "../integration-branch/main.ts";
 import type { CrewReader, CrewWriter } from "./database.ts";
 import { type GateKey, keyStatus } from "./gate-runs.ts";
 import { type IntegrationBranchRow, integrationBranchOf } from "./integration.ts";
+import { type LandingRow, rewriteOf, type RewriteRecord } from "./landing-record.ts";
 import { integrationBranches, landings } from "./schema.ts";
 
-export type LandingRow = typeof landings.$inferSelect;
+export {
+  currentLandingOf,
+  intendedLandingOf,
+  intentTouches,
+  landedOfSource,
+  landingOfSubmission,
+  type LandingRow,
+  replacedLandingOf,
+  rewriteOf,
+  type RewriteRecord,
+} from "./landing-record.ts";
 
-/** One planned landing as the integration branch module gives it. */
-export type LandingPlan = Extract<
-  Awaited<ReturnType<typeof IntegrationBranch.plan>>,
-  { status: "ready" }
->;
-
-/** The landing of one source whose move has no recorded outcome, or null. */
-export function intendedLandingOf(db: CrewReader, sourceId: string): LandingRow | null {
-  return (
-    db
-      .select()
-      .from(landings)
-      .where(and(eq(landings.sourceId, sourceId), eq(landings.state, "intended")))
-      .all()[0] ?? null
-  );
-}
-
-/** True when an earlier submission of one assignment landed, so this one is a correction. */
-export function landedEarlier(
-  db: CrewReader,
-  request: { assignmentId: string; submissionId: string },
-): boolean {
-  return db
-    .select()
-    .from(landings)
-    .where(and(eq(landings.assignmentId, request.assignmentId), eq(landings.state, "landed")))
-    .all()
-    .some((one) => one.submissionId !== request.submissionId);
-}
-
-/** The recorded landing of one submission, or null when it never landed. */
-export function landingOfSubmission(db: CrewReader, submissionId: string): LandingRow | null {
-  return (
-    db
-      .select()
-      .from(landings)
-      .where(and(eq(landings.submissionId, submissionId), eq(landings.state, "landed")))
-      .all()[0] ?? null
-  );
-}
+/** One planned landing or rewrite. A plain landing carries no rewrite record. */
+export type LandingPlan = Omit<
+  Extract<Awaited<ReturnType<typeof IntegrationBranch.plan>>, { status: "ready" }>,
+  "kind"
+> & {
+  kind: "fast-forward" | "merge" | "held" | "rewrite";
+  rewrite: RewriteRecord | null;
+};
 
 /**
  * The refusals of a landing, members of the durable unions of ADR 0011. Each one lands nothing
@@ -96,6 +75,15 @@ export type LandingRefusal =
       runIds: string[];
     }
   | {
+      // A rewrite of a commit inside a published range, which is never rewritten in place.
+      status: "rewrite-published-range";
+      assignmentId: string;
+      branch: string;
+      commit: string;
+      pullRequest: number | null;
+      url: string | null;
+    }
+  | {
       status: "landing-pending";
       assignmentId: string;
       landingId: string;
@@ -111,7 +99,8 @@ export type PlanRefusal = Extract<
       | "integration-branch-checked-out"
       | "integration-branch-unread"
       | "landing-conflict"
-      | "landing-patch-changed";
+      | "landing-patch-changed"
+      | "rewrite-published-range";
   }
 >;
 
@@ -141,7 +130,7 @@ export async function planLanding(request: {
   const subject = { assignmentId: request.assignmentId, branch: row.name };
   switch (plan.status) {
     case "ready":
-      return { status: "planned", landing: { row, plan } };
+      return { status: "planned", landing: { row, plan: { ...plan, rewrite: null } } };
     case "tip-moved":
       return {
         status: "integration-branch-moved",
@@ -232,9 +221,13 @@ export function planOfLanding(landing: LandingRow): LandingPlan {
     to: landing.toCommit,
     landed: landing.landedCommit,
     landedParent: landing.landedParent,
-    kind: landing.kind === "merge" || landing.kind === "held" ? landing.kind : "fast-forward",
+    kind:
+      landing.kind === "merge" || landing.kind === "held" || landing.kind === "rewrite"
+        ? landing.kind
+        : "fast-forward",
     tree: "",
     patch: landing.patch,
+    rewrite: rewriteOf(landing),
   };
 }
 
@@ -269,6 +262,7 @@ export function insertLandingIntent(
       state: "intended",
       createdAt: request.now,
       landedAt: null,
+      rewrite: request.plan.rewrite === null ? null : JSON.stringify(request.plan.rewrite),
     })
     .run();
 }

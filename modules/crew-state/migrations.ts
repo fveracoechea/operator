@@ -3,6 +3,7 @@ import {
   BRANCH_REVIEW_TABLES,
   GATE_TABLES,
   INTEGRATION_TABLES,
+  LANDING_REWRITE_COLUMN,
   LANDING_TABLES,
   OBSERVATION_TABLES,
   PUBLISH_TABLES,
@@ -257,6 +258,15 @@ export const MIGRATIONS: MigrationStep[] = [
       for (const statement of OBSERVATION_TABLES) {
         sqlite.exec(statement);
       }
+    },
+  },
+  {
+    from: 16,
+    to: 17,
+    summary: "Record the plan of each rewrite of a corrected landed commit.",
+    // An earlier release rewrote nothing, so every recorded landing keeps a null plan.
+    apply: (sqlite) => {
+      sqlite.exec(LANDING_REWRITE_COLUMN);
     },
   },
 ];

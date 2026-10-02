@@ -419,27 +419,35 @@ export async function reportReview(
  * `crew next` offers `run_gate` for it. Any other state is left as it is.
  */
 export async function passCandidateGate(workspace: Workspace, producer: Producer) {
-  const next = await nextActions(workspace);
-  const owed = next.actions.find(
-    (one) =>
-      one.action === "run_gate" &&
-      one.assignmentId === producer.assignmentId &&
-      one.attemptId === null &&
-      one.blocker === null,
-  );
-  if (owed === undefined) {
-    return null;
+  // A rewrite gates its rebuilt range in order, one run for each commit, so every owed run runs.
+  let last: Awaited<ReturnType<typeof runJson>> | null = null;
+  for (let round = 0; round < 10; round += 1) {
+    const next = await nextActions(workspace);
+    const owed = next.actions.find(
+      (one) =>
+        one.action === "run_gate" &&
+        one.assignmentId === producer.assignmentId &&
+        one.attemptId === null &&
+        one.blocker === null,
+    );
+    if (owed === undefined) {
+      return last;
+    }
+    last = await runJson(workspace, [
+      "gate",
+      "run",
+      "--request",
+      request(),
+      "--owner-token",
+      producer.ownerToken,
+      "--assignment",
+      producer.assignmentId,
+    ]);
+    if (last.json.reason !== "gate_run_started") {
+      return last;
+    }
   }
-  return runJson(workspace, [
-    "gate",
-    "run",
-    "--request",
-    request(),
-    "--owner-token",
-    producer.ownerToken,
-    "--assignment",
-    producer.assignmentId,
-  ]);
+  return last;
 }
 
 /**

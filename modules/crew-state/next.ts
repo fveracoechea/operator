@@ -19,7 +19,7 @@ import {
   runningRunOf,
 } from "./gate-runs.ts";
 import { unlandedCommitOf } from "./cleanup-landing.ts";
-import { intendedLandingOf, landedEarlier } from "./landing.ts";
+import { currentLandingOf, intendedLandingOf, replacedLandingOf } from "./landing.ts";
 import { integrationBranchOf } from "./integration.ts";
 import { directionRecordOf } from "./direction.ts";
 import { calculateFrontier, type Frontier, undirected, unmetDependencies } from "./frontier.ts";
@@ -38,7 +38,7 @@ import {
 import { readSnapshot } from "./branch-review.ts";
 import { openCycleOf } from "./rework.ts";
 import { approvals, assignments, attempts, workSources } from "./schema.ts";
-import type { BrokenLanding } from "./next-landings.ts";
+import type { BrokenLanding, RewriteRead } from "./next-landings.ts";
 import { openPublicationOf, PUBLISH_ACTION, publicationsOf } from "./publish.ts";
 import { publishRecordsOf } from "./publish-gate.ts";
 import { mergeGateOf, stackStateOf } from "./publish-status.ts";
@@ -410,13 +410,24 @@ function branchHeadOf(db: CrewReader, assignmentId: string): string | null {
 function tipStartOf(
   db: CrewReader,
   assignment: { id: string; kind: string; sourceId: string },
-): { name: string; recordedTip: string } | null {
+): { name: string; recordedTip: string; place: string } | null {
   const cycle = openCycleOf(db, assignment.id);
   if (assignment.kind !== "production" || (cycle !== null && cycle.reason !== "integration")) {
     return null;
   }
   const row = integrationBranchOf(db, assignment.sourceId);
-  return row === null ? null : { name: row.name, recordedTip: row.recordedTip };
+  if (row === null) {
+    return null;
+  }
+  // An integration cycle of a correction lands in the place of the landed commit, on its parent.
+  const landed = cycle === null ? null : currentLandingOf(db, assignment.id);
+  return landed === null
+    ? { name: row.name, recordedTip: row.recordedTip, place: `the recorded tip of ${row.name}` }
+    : {
+        name: row.name,
+        recordedTip: landed.landedParent,
+        place: `the parent of ${landed.landedCommit} on ${row.name}`,
+      };
 }
 
 /** One active attempt: what it still owes, or what it is waiting for. */
@@ -430,7 +441,7 @@ function readActiveAttempt(
     /** The base gate of the source when this is its first code dispatch, or null. */
     baseGate: { sourceId: string; gate: BaseGate; reported: Set<string> } | null;
     /** The integration branch a new production launch starts from, or null. */
-    integration: { name: string; recordedTip: string } | null;
+    integration: { name: string; recordedTip: string; place: string } | null;
     /** The head a branch review reads, or null for every other assignment. */
     branchHead: string | null;
   },
@@ -480,7 +491,7 @@ function readActiveAttempt(
           : base?.status === "passed"
             ? `This assignment is claimed and has no Operative yet. The integration base passed the gate at commit ${base.commit} in gate run ${base.run.id}, so dispatch from that commit.`
             : request.integration !== null
-              ? `This assignment is claimed and has no Operative yet. It starts from ${request.integration.recordedTip}, the recorded tip of ${request.integration.name}, so dispatch with no --commit.`
+              ? `This assignment is claimed and has no Operative yet. It starts from ${request.integration.recordedTip}, ${request.integration.place}, so dispatch with no --commit.`
               : request.branchHead !== null
                 ? `This branch review is claimed and has no reviewer yet. It reads the branch snapshot at head ${request.branchHead}, so dispatch with no --commit.`
                 : "This assignment is claimed and has no Operative yet.",
@@ -560,6 +571,7 @@ function readReview(
     revision: number;
     sourceId: string;
     broken: Map<string, BrokenLanding>;
+    rewrites: Map<string, RewriteRead>;
   },
   into: Collector,
 ): void {
@@ -635,6 +647,7 @@ function readReview(
           sourceId: request.sourceId,
           submissionId: submission.id,
           broken: request.broken.get(submission.id) ?? null,
+          rewrite: request.rewrites.get(submission.id) ?? null,
         },
         into,
       );
@@ -666,10 +679,11 @@ function readLanding(
     sourceId: string;
     submissionId: string;
     broken: BrokenLanding | null;
+    rewrite: RewriteRead | null;
   },
   into: Collector,
 ): void {
-  const { sourceId, submissionId, broken, ...subject } = request;
+  const { sourceId, submissionId, broken, rewrite, ...subject } = request;
   const intended = intendedLandingOf(db, sourceId);
   if (intended !== null && intended.submissionId === submissionId) {
     into.add({
@@ -681,8 +695,14 @@ function readLanding(
     return;
   }
   const row = integrationBranchOf(db, sourceId);
-  // A correction of a landed commit waits for the rewrite, so it is accepted with no landing yet.
-  if (row === null || landedEarlier(db, { assignmentId: request.assignmentId, submissionId })) {
+  if (
+    row !== null &&
+    replacedLandingOf(db, { assignmentId: request.assignmentId, submissionId }) !== null
+  ) {
+    readRewrite(db, { ...subject, sourceId, broken, rewrite }, into);
+    return;
+  }
+  if (row === null) {
     into.add({
       ...subject,
       action: "accept_assignment",
@@ -747,6 +767,84 @@ function readLanding(
         action: "run_gate",
         detail: `The review reported. Acceptance lands the result on ${row.name} only after its planned commit on ${row.recordedTip} passes the project gate.`,
         command,
+      });
+    }
+  }
+}
+
+/**
+ * The step a correction of a landed commit owes (ADR 0020, ADR 0021). Its rebuilt range passes
+ * the project gate in order, one commit at a time, and acceptance then moves the branch once. A
+ * correction that conflicts, changes its patch, or fails the gate at its own place goes to an
+ * integration cycle, which starts from the parent of the replaced commit.
+ */
+function readRewrite(
+  db: CrewReader,
+  request: {
+    assignmentId: string;
+    reviewId: string;
+    revision: number;
+    sourceId: string;
+    broken: BrokenLanding | null;
+    rewrite: RewriteRead | null;
+  },
+  into: Collector,
+): void {
+  const { sourceId, broken, rewrite, ...subject } = request;
+  if (broken !== null) {
+    into.add({
+      ...subject,
+      action: "delegate_rework",
+      detail:
+        broken.cause === "conflict"
+          ? `The correction ${broken.commit} conflicts with ${broken.tip}, the parent of the commit it replaces on ${broken.branch}, in ${broken.paths.join(", ")}. Delegate an integration cycle, with the reason "integration": it starts from that parent.`
+          : `The correction ${broken.commit} would land on ${broken.tip}, the parent of the commit it replaces on ${broken.branch}, as another patch. Delegate an integration cycle, with the reason "integration": it starts from that parent.`,
+      command: INTEGRATION_COMMAND,
+    });
+    return;
+  }
+  // A plan that read no range is left to acceptance, which names the refusal.
+  const gate = rewrite?.gate ?? { status: "passed" as const };
+  switch (gate.status) {
+    case "passed":
+      into.add({
+        ...subject,
+        action: "accept_assignment",
+        detail: `The review reported, and each commit of the rebuilt range passed the project gate. Acceptance puts the correction in the place of ${rewrite?.replaced ?? "the landed commit"} and moves ${rewrite?.branch ?? "the branch"} once.`,
+        command: "operator work accept",
+      });
+      return;
+    case "running":
+      into.wait({
+        wait: "gate_running",
+        assignmentId: request.assignmentId,
+        detail: `Gate run ${gate.runIds.join(", ")} runs on ${gate.commit} of the rebuilt range. Its runner wakes the Operator at the end.`,
+      });
+      return;
+    case "failed":
+    case "flaky":
+      into.add({
+        ...subject,
+        action: "delegate_rework",
+        detail: `The correction ${gate.commit} on ${gate.parent} is ${gate.status} in gate run ${gate.runIds.join(", ")}, so it does not land. Delegate an integration cycle, with the reason "integration": it carries the failed run, and it starts from the parent of the replaced commit.`,
+        command: INTEGRATION_COMMAND,
+      });
+      return;
+    default: {
+      const running = runningRunOf(db, sourceId);
+      if (running !== null) {
+        into.wait({
+          wait: "gate_running",
+          assignmentId: request.assignmentId,
+          detail: `Gate run ${running.id} of source ${sourceId} runs first. One gate run of a source runs at a time.`,
+        });
+        return;
+      }
+      into.add({
+        ...subject,
+        action: "run_gate",
+        detail: `The review reported. The rebuilt range of the correction is gated in order, and ${gate.commit} on ${gate.parent} is the next commit with no gate run at its key.`,
+        command: `operator gate run --assignment ${request.assignmentId}`,
       });
     }
   }
@@ -978,6 +1076,8 @@ export function calculateNext(
     readiness: Readiness;
     // The landings whose plan read a conflict or a changed patch, by submission.
     broken: Map<string, BrokenLanding>;
+    // The rebuilt range of each correction of a landed commit, by submission.
+    rewrites: Map<string, RewriteRead>;
   },
 ): CrewNext {
   const frontier = calculateFrontier(db, request.capacity);
@@ -1085,6 +1185,7 @@ export function calculateNext(
           revision: row.revision,
           sourceId: row.sourceId,
           broken: request.broken,
+          rewrites: request.rewrites,
         },
         into,
       );

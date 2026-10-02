@@ -15,8 +15,9 @@ export type GateCommandRow = typeof gateRunCommands.$inferSelect;
 export type GateCheckoutRow = typeof gateCheckouts.$inferSelect;
 
 /**
- * What one run gates: the integration base, or the candidate of one submission on one recorded
- * tip, which is the planned commit of its landing (ADR 0021).
+ * What one run gates: the integration base, the candidate of one submission on one recorded
+ * tip, which is the planned commit of its landing, or one place in the rebuilt range of a
+ * correction, which the commit and the parent it lands on name (ADR 0021).
  */
 export const gateSubjectSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("base") }),
@@ -25,6 +26,13 @@ export const gateSubjectSchema = z.discriminatedUnion("kind", [
     assignmentId: z.string(),
     submissionId: z.string(),
     tip: z.string(),
+  }),
+  z.strictObject({
+    kind: z.literal("rewrite"),
+    assignmentId: z.string(),
+    submissionId: z.string(),
+    tip: z.string(),
+    parent: z.string(),
   }),
 ]);
 

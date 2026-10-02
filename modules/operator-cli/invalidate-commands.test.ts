@@ -38,8 +38,13 @@ const DEFECT = {
 };
 
 /** Produces, reviews, and accepts one result, which is what a defect is later found in. */
-async function acceptedResult(workspace: Workspace, producer: Producer, text: string) {
-  const artifact = await commitArtifact(workspace, producer, text);
+async function acceptedResult(
+  workspace: Workspace,
+  producer: Producer,
+  text: string,
+  path = "docs/result.md",
+) {
+  const artifact = await commitArtifact(workspace, producer, text, path);
   const submitted = await submit(
     workspace,
     producer,
@@ -119,7 +124,7 @@ describe("operator work invalidate", () => {
       cycleIndex: 1,
       limit: 3,
       landedCommit: landed,
-      startCommit: producer.baseCommit,
+      startCommit: landed,
     });
     expect(invalidated.json.data.direction).toBeNull();
 
@@ -127,17 +132,17 @@ describe("operator work invalidate", () => {
     expect(claimed.json.reason).toBe("assignment_claimed");
     const attemptId = claimed.json.data.attemptId;
 
-    // The correction takes the place of the landed commit, so it never starts on top of it.
-    const onTop = await dispatchAt(workspace, producer, {
+    // The correction starts at the landed commit, and its acceptance puts it in that place.
+    const onParent = await dispatchAt(workspace, producer, {
       attemptId,
-      commit: landed,
-      worktreePath: `${workspace.root}/on-top`,
+      commit: producer.baseCommit,
+      worktreePath: `${workspace.root}/on-parent`,
     });
-    expect(onTop.exitCode).toBe(4);
-    expect(onTop.json.reason).toBe("correction_base_changed");
-    expect(onTop.json.blockers[0]).toMatchObject({
-      recorded: producer.baseCommit,
-      requested: landed,
+    expect(onParent.exitCode).toBe(4);
+    expect(onParent.json.reason).toBe("correction_base_changed");
+    expect(onParent.json.blockers[0]).toMatchObject({
+      recorded: landed,
+      requested: producer.baseCommit,
     });
 
     const worktreePath = `${workspace.root}/fix`;
@@ -147,7 +152,7 @@ describe("operator work invalidate", () => {
       worktreePath,
     });
     expect(dispatched.json.blockers[0].reason).toBe("acknowledgement_pending");
-    expect(dispatched.json.data.baseCommit).toBe(producer.baseCommit);
+    expect(dispatched.json.data.baseCommit).toBe(landed);
 
     const brief = await Bun.file(`${worktreePath}/.operator/local/brief.md`).text();
     expect(brief).toContain(`invalidation cycle 1 of 3`);
@@ -156,7 +161,7 @@ describe("operator work invalidate", () => {
     expect(brief).toContain(DEFECT.evidence);
     expect(brief).toContain(`Found by: ${DEFECT.foundBy}`);
     expect(brief).toContain(`Landed commit: ${landed}`);
-    expect(brief).toContain(`Start from ${producer.baseCommit}, the parent of the landed commit.`);
+    expect(brief).toContain(`Your worktree starts at ${landed}, the landed commit.`);
     expect(brief).not.toContain("Start from the submitted commit above");
   }, 60_000);
 
@@ -229,7 +234,8 @@ describe("operator work invalidate", () => {
       commit: null,
       worktreePath,
     });
-    expect(dispatched.json.data.baseCommit).toBe(producer.baseCommit);
+    // The correction starts at the commit that carries the result now.
+    expect(dispatched.json.data.baseCommit).toBe(result.accepted.json.data.landing.landed);
     const brief = await Bun.file(`${worktreePath}/.operator/local/brief.md`).text();
     expect(brief).toContain("invalidation cycle 4 of 3");
     expect(brief).toContain("This cycle runs past the recorded limit under approval");
@@ -356,7 +362,8 @@ describe("operator work invalidate", () => {
       worktreePath: `${workspace.root}/other`,
       assignmentId: other,
     });
-    const otherResult = await acceptedResult(workspace, second, "# Other\n");
+    // Each input writes its own file, so the rewrite of one lands the other again.
+    const otherResult = await acceptedResult(workspace, second, "# Other\n", "docs/other.md");
     expect(otherResult.accepted.json.reason).toBe("assignment_accepted");
 
     const resolved = await acceptAssignment(workspace, producer, {
@@ -415,7 +422,7 @@ describe("operator work invalidate", () => {
       worktreePath: `${workspace.root}/fix-other`,
       assignmentId: other,
     });
-    await acceptedResult(workspace, secondFix, "# Other, corrected\n");
+    await acceptedResult(workspace, secondFix, "# Other, corrected\n", "docs/other.md");
 
     const released = await frontierEntry(workspace, consumer);
     expect(released.entry.state).toBe("registered");

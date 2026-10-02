@@ -40,6 +40,7 @@ import {
 } from "./submission.ts";
 import { storedArtifacts } from "./submission-store.ts";
 import { recordedTipOf } from "./landing.ts";
+import { replacedLandingOf } from "./landing-record.ts";
 import type {
   IntegrationEvidence,
   IntegrationRead,
@@ -351,7 +352,11 @@ function briefOf(request: {
         : [
             { name: "submitted commit", revision: evidence.integration.commit },
             {
-              name: `recorded tip of ${evidence.integration.branch}`,
+              // A correction lands in the place of the commit it replaces, on its parent.
+              name:
+                evidence.integration.replaces === undefined
+                  ? `recorded tip of ${evidence.integration.branch}`
+                  : `parent of ${evidence.integration.replaces} on ${evidence.integration.branch}`,
               revision: evidence.integration.tip,
             },
           ],
@@ -369,7 +374,8 @@ function briefOf(request: {
 
 /**
  * The landing plan an integration cycle answers, checked against the record inside the
- * transaction. A tip that moved since the plan was read gives another plan, so it refuses.
+ * transaction. A tip that moved since the plan was read gives another plan, so it refuses. A
+ * correction lands in the place of the commit it replaces, so its tip is the parent of that commit.
  */
 function integrationGate(
   db: CrewReader,
@@ -385,7 +391,13 @@ function integrationGate(
   if (read.status !== "evidence") {
     return read;
   }
-  const recordedTip = recordedTipOf(db, request.sourceId);
+  const recordedTip =
+    read.integration.replaces === undefined
+      ? recordedTipOf(db, request.sourceId)
+      : (replacedLandingOf(db, {
+          assignmentId: submission.assignmentId,
+          submissionId: submission.id,
+        })?.landedParent ?? null);
   if (read.submissionId !== submission.id || recordedTip !== read.integration.tip) {
     return {
       status: "landing-tip-changed",
@@ -553,14 +565,14 @@ export function openInvalidationCycle(
   }
 
   const result = resultOf(request.submission);
-  // The correction takes the place of the commit on the branch that carries the result, so it
-  // starts on the parent of that commit there (ADR 0020).
+  // The correction starts at the commit on the branch that carries the result, and its base is
+  // the parent of that commit there, so acceptance puts it in the place of that commit (ADR 0020).
   const landed = landedCommitOf(db, request.submission);
   const invalidation: ReworkInvalidation = {
     invalidationId: request.invalidationId,
     defect: request.defect,
     landedCommit: landed?.commit ?? null,
-    startCommit: landed?.parent ?? null,
+    startCommit: landed?.commit ?? null,
   };
   const brief: ReworkBriefRecord = {
     reason: "invalidation",

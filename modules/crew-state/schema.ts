@@ -5,7 +5,7 @@ import { integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqli
  * The durable shape of the crew state. A reader that finds a higher version refuses the file,
  * so this number changes only when an older Operator release can no longer read the tables.
  */
-export const STATE_VERSION = 16;
+export const STATE_VERSION = 17;
 
 export const stateMeta = sqliteTable("state_meta", {
   id: integer("id").primaryKey(),
@@ -590,6 +590,9 @@ export const landings = sqliteTable("landings", {
   state: text("state").notNull(),
   createdAt: text("created_at").notNull(),
   landedAt: text("landed_at"),
+  // The plan of a rewrite: the landing it replaces, each later landing that lands again with its
+  // new commit, and each one that is taken out. Null for every other landing.
+  rewrite: text("rewrite"),
 });
 
 /**
@@ -883,6 +886,9 @@ export const LANDING_TABLES = [
   // One landing of a source waits at a time, so two intents never race for one tip.
   `create unique index landings_one_intended on landings (source_id) where state = 'intended'`,
 ];
+
+/** The rewrite plan of a landing, written once for a new state and its migration step. */
+export const LANDING_REWRITE_COLUMN = "alter table landings add column rewrite text";
 
 /**
  * The branch snapshot table and the review table that reads either subject, written once for a
@@ -1242,6 +1248,7 @@ export const CREATE_STATEMENTS = [
   ...LANDING_TABLES.map((statement) => sql.raw(statement)),
   ...PUBLISH_TABLES.map((statement) => sql.raw(statement)),
   ...OBSERVATION_TABLES.map((statement) => sql.raw(statement)),
+  sql.raw(LANDING_REWRITE_COLUMN),
   sql`create table approvals (
     id text primary key,
     action text not null,

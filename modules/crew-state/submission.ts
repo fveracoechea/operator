@@ -122,7 +122,9 @@ export function landedCommitOf(
 /**
  * The commit the reviewed change of one code submission starts from. A findings cycle or a
  * diagnostic rerun starts on the commit an earlier submission handed over, so its change runs
- * from the base of the first submission of that chain, as an amended commit would.
+ * from the base of the first submission of that chain, as an amended commit would. A correction
+ * of accepted work starts at the commit on the branch that carries the result, so its change
+ * runs from the parent of that commit there.
  */
 export function reviewedBaseOf(db: CrewReader, submission: SubmissionRow): string | null {
   if (submission.code === null) {
@@ -133,6 +135,17 @@ export function reviewedBaseOf(db: CrewReader, submission: SubmissionRow): strin
     if (one.id !== submission.id && one.code !== null) {
       const code = storedCode(one.code);
       earlier.set(code.resultCommit, code.baseCommit);
+    }
+  }
+  for (const one of db
+    .select()
+    .from(landings)
+    .where(eq(landings.assignmentId, submission.assignmentId))
+    .all()) {
+    // A held landing names a commit that another result put on the branch, so it is no start.
+    const carried = one.state === "landed" || one.state === "replaced" || one.state === "taken-out";
+    if (one.submissionId !== submission.id && carried && one.kind !== "held") {
+      earlier.set(one.landedCommit, one.landedParent);
     }
   }
   let base = storedCode(submission.code).baseCommit;

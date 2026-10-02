@@ -383,6 +383,210 @@ describe("IntegrationBranch landing", () => {
   });
 });
 
+describe("IntegrationBranch rewrite", () => {
+  /**
+   * Three landed commits: one in a.txt, then two in b.txt far apart. The correction changes
+   * a.txt again on top of the first, as a correction dispatch starts at the landed commit.
+   */
+  async function threeLanded(root: string, later = { path: "b.txt", prefix: "b" }) {
+    const base = await head(root, "main");
+    await branchAt(root, base);
+    const first = await result(root, {
+      start: base,
+      branch: "work-a",
+      path: "a.txt",
+      text: lines("a", 20, { 0: "A0" }),
+      date: "2002-01-01T00:00:00Z",
+    });
+    await land(root, { base, tip: base, commit: first });
+    const second = await result(root, {
+      start: first,
+      branch: "work-b",
+      path: later.path,
+      // In a.txt the change sits near the fix, with no overlap, so it merges as another patch.
+      text: lines(later.prefix, 20, later.path === "a.txt" ? { 0: "A0", 4: "X4" } : { 3: "X3" }),
+      date: "2003-01-01T00:00:00Z",
+    });
+    await land(root, { base, tip: first, commit: second });
+    const third = await result(root, {
+      start: second,
+      branch: "work-c",
+      path: "b.txt",
+      text: lines("b", 20, { 3: later.path === "b.txt" ? "X3" : "b3", 19: "B19" }),
+      date: "2004-01-01T00:00:00Z",
+    });
+    await land(root, { base, tip: second, commit: third });
+    const fix = await result(root, {
+      start: first,
+      branch: "work-fix",
+      path: "a.txt",
+      text: lines("a", 20, { 0: "A0", 1: "A1" }),
+      date: "2005-01-01T00:00:00Z",
+    });
+    return { base, first, second, third, fix };
+  }
+
+  function rewrite(
+    root: string,
+    request: {
+      base: string;
+      tip: string;
+      replaces: string;
+      fix: string;
+      reviewedBase: string;
+      later: Array<{ commit: string; needs: string[] }>;
+      refused?: string[];
+      published?: Array<{ head: string; pullRequest: number | null; url: string | null }>;
+    },
+  ) {
+    return IntegrationBranch.rewrite({
+      repoRoot: root,
+      name: NAME,
+      base: request.base,
+      recordedTip: request.tip,
+      replaces: request.replaces,
+      correction: { commit: request.fix, reviewedBase: request.reviewedBase },
+      later: request.later,
+      refused: request.refused ?? [],
+      published: request.published ?? [],
+    });
+  }
+
+  async function patch(root: string, commit: string): Promise<string> {
+    return Bun.$`git -C ${root} diff-tree -p --no-renames ${commit}^ ${commit}`.text();
+  }
+
+  test("puts the correction in place, lands each later commit again, and moves no ref", async () => {
+    const root = await repository();
+    const { base, first, second, third, fix } = await threeLanded(root);
+    const later = [
+      { commit: second, needs: [] },
+      { commit: third, needs: [] },
+    ];
+    const request = { base, tip: third, replaces: first, fix, reviewedBase: base, later };
+
+    const plan = await rewrite(root, request);
+
+    if (plan.status !== "ready") {
+      throw new Error(`rewrite refused: ${JSON.stringify(plan)}`);
+    }
+    expect(await head(root, NAME)).toBe(third);
+    expect(plan).toMatchObject({ from: third, replaced: { commit: first, parent: base } });
+    expect(plan.correction.parent).toBe(base);
+    // The correction carries the landed change and the fix as one commit on the old parent.
+    expect(await patch(root, plan.correction.commit)).toContain("+A1");
+    expect(await patch(root, plan.correction.commit)).toContain("+A0");
+    expect(plan.relanded.map((one) => one.was)).toEqual([second, third]);
+    expect(plan.relanded[0]?.parent).toBe(plan.correction.commit);
+    expect(plan.to).toBe(plan.relanded[1]?.commit ?? "");
+    for (const one of plan.relanded) {
+      expect(one.commit).not.toBe(one.was);
+      expect(await patch(root, one.commit)).toBe(await patch(root, one.was));
+    }
+    expect(plan.takenOut).toEqual([]);
+    // A repeat gives the same commits, so the intent names the exact rebuilt tip.
+    expect(await rewrite(root, request)).toEqual(plan);
+  });
+
+  test("takes out a later commit whose patch changes, and each later commit that needs it", async () => {
+    const root = await repository();
+    // The second commit changes a.txt two lines from the fix, so its patch context changes.
+    const { base, first, second, third, fix } = await threeLanded(root, {
+      path: "a.txt",
+      prefix: "a",
+    });
+
+    const plan = await rewrite(root, {
+      base,
+      tip: third,
+      replaces: first,
+      fix,
+      reviewedBase: base,
+      later: [
+        { commit: second, needs: [] },
+        { commit: third, needs: [second] },
+      ],
+    });
+
+    if (plan.status !== "ready") {
+      throw new Error(`rewrite refused: ${JSON.stringify(plan)}`);
+    }
+    expect(plan.takenOut).toEqual([
+      { commit: second, cause: "patch-changed" },
+      { commit: third, cause: "dependency" },
+    ]);
+    expect(plan.relanded).toEqual([]);
+    expect(plan.to).toBe(plan.correction.commit);
+  });
+
+  test("takes out a later commit whose new tree the gate refused, and keeps the rest", async () => {
+    const root = await repository();
+    const { base, first, second, third, fix } = await threeLanded(root);
+    const later = [
+      { commit: second, needs: [] },
+      { commit: third, needs: [] },
+    ];
+    const request = { base, tip: third, replaces: first, fix, reviewedBase: base, later };
+    const planned = await rewrite(root, request);
+    if (planned.status !== "ready") {
+      throw new Error("rewrite refused");
+    }
+
+    const plan = await rewrite(root, { ...request, refused: [planned.relanded[0]?.tree ?? ""] });
+
+    if (plan.status !== "ready") {
+      throw new Error(`rewrite refused: ${JSON.stringify(plan)}`);
+    }
+    expect(plan.takenOut).toEqual([{ commit: second, cause: "gate" }]);
+    expect(plan.relanded.map((one) => one.was)).toEqual([third]);
+    expect(plan.relanded[0]?.parent).toBe(plan.correction.commit);
+  });
+
+  test("refuses a replaced commit inside a published range and names its pull request", async () => {
+    const root = await repository();
+    const { base, first, second, third, fix } = await threeLanded(root);
+    const later = [
+      { commit: second, needs: [] },
+      { commit: third, needs: [] },
+    ];
+    const request = { base, tip: third, replaces: first, fix, reviewedBase: base, later };
+    const url = "https://github.com/o/r/pull/7";
+
+    const refused = await rewrite(root, {
+      ...request,
+      published: [{ head: second, pullRequest: 7, url }],
+    });
+
+    expect(refused).toEqual({ status: "published-range", pullRequest: 7, url });
+    // A commit that landed after the last publish is rewritten locally.
+    const local = await rewrite(root, {
+      ...request,
+      replaces: second,
+      later: [{ commit: third, needs: [] }],
+      reviewedBase: first,
+      published: [{ head: first, pullRequest: 7, url }],
+    });
+    expect(local.status).toBe("ready");
+  });
+
+  test("refuses a record that the branch does not hold in the same order", async () => {
+    const root = await repository();
+    const { base, first, second, third, fix } = await threeLanded(root);
+
+    const plan = await rewrite(root, {
+      base,
+      tip: third,
+      replaces: first,
+      fix,
+      reviewedBase: base,
+      later: [{ commit: second, needs: [] }],
+    });
+
+    expect(plan.status).toBe("unread");
+    expect(await head(root, NAME)).toBe(third);
+  });
+});
+
 describe("IntegrationBranch holds", () => {
   /** A branch with two landed commits, so the first one is held below the tip. */
   async function landedTwice(root: string) {

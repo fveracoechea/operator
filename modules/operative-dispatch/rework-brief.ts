@@ -32,8 +32,8 @@ export type ReworkCorrection = {
 export type ReworkInvalidation = {
   invalidationId: string;
   defect: { summary: string; evidence: string; foundBy: string };
-  // The commit the correction takes the place of, and its parent, which the correction starts on.
-  // A non-code result lands nothing, so both are null.
+  // The commit the correction takes the place of, and the commit it starts at, which is the same
+  // landed commit. A non-code result lands nothing, so both are null.
   landedCommit: string | null;
   startCommit: string | null;
 };
@@ -46,6 +46,8 @@ export type ReworkIntegration = {
   cause: "conflict" | "patch-changed" | "gate-failed" | "gate-flaky";
   paths: string[];
   gateRunId: string | null;
+  // The landed commit a correction replaces, when the cycle answers a rewrite (ADR 0020).
+  replaces?: string | undefined;
 };
 
 export type ReworkBrief = {
@@ -266,20 +268,24 @@ export function reworkProtocolSection(rework: ReworkBrief): string[] {
   return [
     "## Rework protocol",
     "",
-    // A correction of a landed commit takes its place on the branch (ADR 0020), so it is built on
-    // the parent of that commit and never on top of it. An integration cycle starts from the
-    // commit its result lands on, the recorded tip (ADR 0008).
+    // A correction of a landed commit starts at that commit, and acceptance puts the combined
+    // change in its place on the branch (ADR 0020). An integration cycle starts from the commit
+    // its result lands on: the recorded tip, or the parent of the replaced commit (ADR 0008).
     ...(rework.integration !== undefined
       ? [
-          `Your worktree starts from the recorded tip of ${rework.integration.branch}, the commit your result lands on.`,
-          "Make one new commit on that tip that applies the submitted commit above to it, so do not",
-          "build on the submitted commit. The new commit is a new submission with its own review.",
+          rework.integration.replaces === undefined
+            ? `Your worktree starts from the recorded tip of ${rework.integration.branch}, the commit your result lands on.`
+            : `Your worktree starts from the parent of ${rework.integration.replaces} on ${rework.integration.branch}, the commit your correction lands on in its place.`,
+          "Make one new commit on that commit that applies the submitted commit above to it, so do",
+          "not build on the submitted commit. The new commit is a new submission with its own review.",
         ]
       : start === null
         ? ["Start from the submitted commit above, not from the original base."]
         : [
-            `Start from ${start}, the parent of the landed commit.`,
-            "Your one commit takes the place of the landed commit, so do not build on top of it.",
+            `Your worktree starts at ${start}, the landed commit.`,
+            "Make one commit on top of it that corrects the defect. At acceptance the CLI puts one",
+            "commit with the landed change and your correction in the place of the landed commit,",
+            "and it lands each later commit of the branch again above it.",
           ]),
     "Answer every accepted correction, every conflict, and every revision to combine in one",
     "combined revision, then submit that one revision.",

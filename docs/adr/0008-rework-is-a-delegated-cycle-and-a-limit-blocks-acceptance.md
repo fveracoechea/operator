@@ -136,7 +136,7 @@ A rework cycle waits for capacity like any other work.
 Each cycle starts from the commit that its reason names, and the brief says which commit that is.
 A findings cycle and a diagnostic rerun start from the submitted commit, on the base of its dispatch.
 An integration cycle starts from the commit that its result lands on: the tip of the integration branch, or, in a rewrite, the parent of the commit it replaces.
-An invalidation cycle of a code result starts from the landed commit that it corrects, on the parent of that commit, as ADR 0020 records.
+An invalidation cycle of a code result starts at the landed commit that it corrects, and its base is the parent of that commit, as ADR 0020 records: the Operative makes one commit on top, and the rewrite at acceptance puts the combined change in the place of the landed commit.
 Its dispatch starts on that parent when it names no commit, and a dispatch that names another commit is refused with `correction_base_changed`.
 Operator moves one branch, the integration branch of a source, and only as ADR 0020 records.
 It never moves an Operative branch, and it changes a pull request only as ADR 0022 records.

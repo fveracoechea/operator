@@ -128,6 +128,9 @@ const integration = z.strictObject({
   // The paths of a conflict, and none for every other cause.
   paths: z.array(z.string()),
   gateRunId: z.string().nullable(),
+  // The landed commit that a correction replaces, when the cycle answers a rewrite (ADR 0020).
+  // Its tip is then the parent of that commit.
+  replaces: z.string().optional(),
 });
 
 export type ReworkIntegration = z.infer<typeof integration>;

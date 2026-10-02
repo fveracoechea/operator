@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { IntegrationBranch } from "../integration-branch/main.ts";
 import { type AcceptResult, acceptAssignment, type LandingStep } from "./acceptance.ts";
 import { integrationBranchOf } from "./integration.ts";
@@ -12,6 +13,8 @@ import {
 } from "./landing.ts";
 import { mutate, readState, type RequestFailure, type StateFailure } from "./operations.ts";
 import type { PreparedRecord } from "./planning-record.ts";
+import { planRewrite, rewriteGate } from "./rewrite.ts";
+import { landings } from "./schema.ts";
 
 type AcceptCall = {
   projectRoot: string;
@@ -148,6 +151,10 @@ export async function acceptWithLanding(request: AcceptCall): Promise<Reported> 
   const read = await readState(request.projectRoot, (db) => ({
     row: integrationBranchOf(db, required.sourceId),
     intended: intendedLandingOf(db, required.sourceId),
+    replaced:
+      required.replaces === null
+        ? null
+        : (db.select().from(landings).where(eq(landings.id, required.replaces)).all()[0] ?? null),
   }));
   if ("status" in read) {
     return { repeated: false, result: read };
@@ -178,6 +185,29 @@ export async function acceptWithLanding(request: AcceptCall): Promise<Reported> 
     return settle(request, { id: intended.id, plan: planOfLanding(intended) });
   }
 
+  // A correction of a landed commit rebuilds the branch in the same order, and the project gate
+  // runs on each commit of the rebuilt range in order before the branch moves once (ADR 0021).
+  if (read.replaced !== null) {
+    const rewritten = await planRewrite({
+      projectRoot: request.projectRoot,
+      assignmentId: required.assignmentId,
+      row: read.row,
+      replaced: read.replaced,
+      commit: required.commit,
+      reviewedBase: required.reviewedBase,
+    });
+    if (rewritten.status !== "planned") {
+      return { repeated: false, result: rewritten };
+    }
+    const gated = await readState(request.projectRoot, (db) =>
+      rewriteGate(db, { assignmentId: required.assignmentId, rewrite: rewritten.rewrite }),
+    );
+    if (gated !== null) {
+      return { repeated: false, result: gated };
+    }
+    return land(request, rewritten.rewrite.landing.plan);
+  }
+
   const planned = await planLanding({
     projectRoot: request.projectRoot,
     assignmentId: required.assignmentId,
@@ -203,7 +233,12 @@ export async function acceptWithLanding(request: AcceptCall): Promise<Reported> 
     return { repeated: false, result: gated };
   }
 
-  const intent = await intendOnce(request, landingId, plan);
+  return land(request, plan);
+}
+
+/** Records the intent of one planned move, then moves the branch and records the outcome. */
+async function land(request: AcceptCall, plan: LandingPlan): Promise<Reported> {
+  const intent = await intendOnce(request, crypto.randomUUID(), plan);
   if (intent.result.status !== "landing-intended") {
     return intent;
   }

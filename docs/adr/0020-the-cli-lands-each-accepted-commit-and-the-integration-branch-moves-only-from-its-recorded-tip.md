@@ -26,7 +26,7 @@ A fresh Operative makes one new commit on that tip, and it is a new submission w
 The integration branch is a local branch of the shared repository, in a namespace of its own, and its name is recorded on the source when it is created.
 Its base is the commit that the first code dispatch of the source names, and that base changes only through a rebase onto a new base that a person approves (ADR 0022).
 Every later production dispatch of the source starts from the recorded tip, so its base holds every result it depends on.
-An invalidated assignment whose commit is on the branch starts from that commit instead, on the parent of that commit, because its correction takes the place of that commit.
+An invalidated assignment whose commit is on the branch starts at that commit instead, and its base is the parent of that commit there, because its correction takes the place of that commit.
 Nothing pushes the branch before publish, and publish pushes its commits under new remote names, with the user's approval and never with force (ADR 0022).
 
 A branch that moved outside this protocol stops every landing, rewrite, and production dispatch of its source, and a branch that a worktree has checked out stops every landing and rewrite.
@@ -143,6 +143,16 @@ Each one lands nothing and records nothing.
 The patch identity hashes the plumbing diff with three lines of context, no rename detection, and full binary content, so no user setting changes it.
 A landing whose outcome was not recorded is offered as `settle_landing`, right after `reconcile_attempt`, and its command is a repeat of `work accept`.
 A findings cycle and a diagnostic rerun start on the earlier submitted commit, so the patch of their result runs from the base of the first submission of that chain, and it lands as one commit, as an amended commit would.
-A correction of a landed commit starts on the parent that its landing recorded.
-Until the rewrite is built, a correction of a landed commit is accepted with no move, and the branch keeps the commit it corrects.
+A correction of a landed commit starts at the commit that its landing recorded, and the Operative makes one commit on top of it.
+Its reviewed change runs from the parent of that commit, so the commit that takes the place of the landed one carries the landed change and the correction together.
+An integration cycle of a correction starts from the parent of the replaced commit, the commit its result lands on.
+
+The rewrite is a landing of the kind `rewrite`, and its intent records the whole plan: the landing it replaces, each later landing that lands again with its new commit and parent, and each later landing that is taken out with its cause (`patch-changed`, `conflict`, `gate`, or `dependency`).
+The later landings, and the results each one depends on, are read from the crew state, and the plan refuses when Git does not hold them above the replaced commit in the same order.
+`crew next` offers `run_gate` for the first commit of the rebuilt range that has no passing run, one commit at a time, and the plan is made again after each run.
+A later commit whose new tree failed or is flaky is taken out by the next plan, so only the changed part of the range is gated again.
+When every commit of the range passed, `work accept` records the intent, moves the branch once from the old tip to the rebuilt tip, and records the outcome with the acceptance: the replaced landing ends, each later landing names its new commit, and each one taken out ends and returns its assignment to awaiting review.
+An interrupted rewrite is settled by `settle_landing` like any other landing, and while it waits, cleanup refuses each checkout of the source with `rewrite_pending` and a withdrawal of a result it moves refuses with `withdrawal_effect_unsettled`.
+The rewrite is a ref move that the CLI builds only from reviewed patches, on a command that the Operator runs, so it is not an Operator change (`CONTEXT.md`, **Operator**).
+A rewrite whose replaced commit a recorded stack publication holds refuses with `rewrite_published_range` and names the pull request, because no recall is recorded yet.
 Readiness refuses a Git older than 2.40.0 with `git_too_old`, because Git 2.40.0 is the first release that has both `merge-tree --merge-base` and `patch-id --verbatim`.

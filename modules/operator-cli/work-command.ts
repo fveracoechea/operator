@@ -669,6 +669,7 @@ function reportLandingRefusal(parsed: ParsedArguments, result: AcceptanceResult)
     case "landing-patch-changed":
     case "landing-gate-not-passed":
     case "landing-pending":
+    case "rewrite-published-range":
     case "landing-tip-changed": {
       const { outcome, reason, lines } = landingRefusalOf(result, "accept");
       const { status: _status, ...detail } = result;

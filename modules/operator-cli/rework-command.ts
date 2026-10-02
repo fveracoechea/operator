@@ -202,6 +202,7 @@ export async function runRework(parsed: ParsedArguments): Promise<Handled> {
     case "integration-branch-moved":
     case "integration-branch-checked-out":
     case "integration-branch-unread":
+    case "rewrite-published-range":
     case "landing-tip-changed": {
       const { outcome, reason, lines } = landingRefusalOf(result, "delegate the cycle");
       const { status: _status, ...detail } = result;

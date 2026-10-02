@@ -107,10 +107,10 @@ export function reportedRounds(db: CrewReader, sourceId: string): ReviewRow[] {
  */
 function landedCommits(db: CrewReader, rows: AssignmentRow[]): SnapshotCommit[] {
   const byId = new Map(rows.map((row) => [row.id, row]));
-  const landed = db
+  const recorded = db
     .select()
     .from(landings)
-    .where(eq(landings.state, "landed"))
+    .where(inArray(landings.state, ["landed", "replaced", "taken-out"]))
     .all()
     .filter((one) => byId.has(one.assignmentId))
     .toSorted(
@@ -119,14 +119,27 @@ function landedCommits(db: CrewReader, rows: AssignmentRow[]): SnapshotCommit[] 
         left.createdAt.localeCompare(right.createdAt),
     );
 
-  // The first landing of an assignment gives its place, and the latest gives its commit.
+  // The first landing of an assignment gives its place, and the latest gives its commit. A
+  // correction takes the place of the landing it replaced, and a rewrite records the new commit of
+  // each later landing in place, so both keep their place. A landing that a rewrite took out gave
+  // up its place, and the next landing of that assignment lands on the tip.
   const order: string[] = [];
-  const latest = new Map<string, (typeof landed)[number]>();
-  for (const one of landed) {
-    if (!latest.has(one.assignmentId)) {
+  const latest = new Map<string, (typeof recorded)[number]>();
+  for (const one of recorded) {
+    if (one.state === "taken-out") {
+      const at = order.indexOf(one.assignmentId);
+      if (at !== -1) {
+        order.splice(at, 1);
+      }
+      latest.delete(one.assignmentId);
+      continue;
+    }
+    if (!order.includes(one.assignmentId)) {
       order.push(one.assignmentId);
     }
-    latest.set(one.assignmentId, one);
+    if (one.state === "landed") {
+      latest.set(one.assignmentId, one);
+    }
   }
 
   return order.flatMap((assignmentId) => {

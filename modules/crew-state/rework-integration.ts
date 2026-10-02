@@ -1,9 +1,16 @@
 import { readAssignment } from "./assignment.ts";
 import type { CrewReader } from "./database.ts";
-import { commandsOfRun, type GateRunRow, keyStatus } from "./gate-runs.ts";
-import { integrationBranchOf } from "./integration.ts";
-import { candidateKey, type PlanRefusal, planLanding } from "./landing.ts";
+import { commandsOfRun, type GateRunRow, keyStatus, readGateRun } from "./gate-runs.ts";
+import { integrationBranchOf, type IntegrationBranchRow } from "./integration.ts";
+import {
+  candidateKey,
+  type LandingRow,
+  type PlanRefusal,
+  planLanding,
+  replacedLandingOf,
+} from "./landing.ts";
 import { readState, type StateFailure } from "./operations.ts";
+import { planRewrite, rangeGateOf } from "./rewrite.ts";
 import type { ReworkIntegration } from "./rework-input.ts";
 import { latestSubmission, reviewedBaseOf, submittedCommit } from "./submission.ts";
 import type { StoredArtifact } from "./submission-store.ts";
@@ -83,12 +90,13 @@ export async function readIntegrationEvidence(request: {
       commit,
       reviewedBase: commit === null ? null : (reviewedBaseOf(db, submission) ?? commit),
       row: integrationBranchOf(db, assignment.sourceId),
+      replaced: replacedLandingOf(db, { assignmentId: assignment.id, submissionId: submission.id }),
     };
   });
   if (read.status !== "read") {
     return read;
   }
-  const { assignment, submission, commit, reviewedBase, row } = read;
+  const { assignment, submission, commit, reviewedBase, row, replaced } = read;
   if (commit === null || reviewedBase === null) {
     return { status: "no-landing", assignmentId: assignment.id, submissionId: submission.id };
   }
@@ -98,6 +106,18 @@ export async function readIntegrationEvidence(request: {
       assignmentId: assignment.id,
       sourceId: assignment.sourceId,
     };
+  }
+
+  if (replaced !== null) {
+    return readRewriteEvidence({
+      projectRoot: request.projectRoot,
+      assignmentId: assignment.id,
+      submissionId: submission.id,
+      row,
+      replaced,
+      commit,
+      reviewedBase,
+    });
   }
 
   const planned = await planLanding({
@@ -155,6 +175,76 @@ export async function readIntegrationEvidence(request: {
       integration: {
         ...base,
         cause: verdict.status === "failed" ? "gate-failed" : "gate-flaky",
+        paths: [],
+        gateRunId: run.id,
+      },
+      outputs: outputsOf(db, run),
+    };
+  });
+}
+
+/**
+ * Plans the rewrite of one correction again (ADR 0020). The correction lands on the parent of the
+ * commit it replaces, so a conflict, a changed patch, or a failed or flaky run at its own place
+ * names that parent as its tip, and the integration cycle starts there. A later commit that fails
+ * is taken out by the rewrite itself, so it needs no cycle of the correction.
+ */
+async function readRewriteEvidence(request: {
+  projectRoot: string;
+  assignmentId: string;
+  submissionId: string;
+  row: IntegrationBranchRow;
+  replaced: LandingRow;
+  commit: string;
+  reviewedBase: string;
+}): Promise<IntegrationRead | StateFailure> {
+  const { row, replaced } = request;
+  const base = {
+    branch: row.name,
+    tip: replaced.landedParent,
+    commit: request.commit,
+    replaces: replaced.landedCommit,
+  };
+  const planned = await planRewrite(request);
+  if (planned.status === "landing-conflict" || planned.status === "landing-patch-changed") {
+    return {
+      status: "evidence",
+      submissionId: request.submissionId,
+      integration: {
+        ...base,
+        cause: planned.status === "landing-conflict" ? "conflict" : "patch-changed",
+        paths: planned.status === "landing-conflict" ? planned.paths : [],
+        gateRunId: null,
+      },
+      outputs: [],
+    };
+  }
+  if (planned.status !== "planned") {
+    return planned;
+  }
+  return readState(request.projectRoot, (db): IntegrationRead => {
+    const gate = rangeGateOf(db, planned.rewrite);
+    const run = gate.status === "passed" ? null : readGateRun(db, gate.runIds.at(-1) ?? "");
+    if (
+      gate.status === "passed" ||
+      !gate.correction ||
+      (gate.status !== "failed" && gate.status !== "flaky") ||
+      run === null
+    ) {
+      return {
+        status: "lands-cleanly",
+        assignmentId: request.assignmentId,
+        branch: row.name,
+        tip: replaced.landedParent,
+        planned: planned.rewrite.landing.plan.landed,
+      };
+    }
+    return {
+      status: "evidence",
+      submissionId: request.submissionId,
+      integration: {
+        ...base,
+        cause: gate.status === "failed" ? "gate-failed" : "gate-flaky",
         paths: [],
         gateRunId: run.id,
       },

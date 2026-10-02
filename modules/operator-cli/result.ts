@@ -278,6 +278,8 @@ export type Reason =
   | "landing_conflict"
   | "landing_patch_changed"
   | "landing_pending"
+  | "rewrite_pending"
+  | "rewrite_published_range"
   | "landing_tip_changed"
   | "lands_cleanly"
   | "no_landing"

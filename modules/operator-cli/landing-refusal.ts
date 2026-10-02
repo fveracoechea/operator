@@ -19,7 +19,8 @@ export type LandingRefusalResult = Extract<
       | "landing-patch-changed"
       | "landing-gate-not-passed"
       | "landing-pending"
-      | "landing-tip-changed";
+      | "landing-tip-changed"
+      | "rewrite-published-range";
   }
 >;
 
@@ -109,6 +110,15 @@ export function landingRefusalOf(
         reason: "landing_pending",
         lines: [
           `Landing ${result.landingId} of assignment ${result.pendingAssignmentId} has no recorded outcome. Settle it first with \`operator work accept\` on that assignment.`,
+        ],
+      };
+    case "rewrite-published-range":
+      return {
+        outcome: "conflict",
+        reason: "rewrite_published_range",
+        lines: [
+          `Commit ${result.commit} of ${result.branch} is inside the range that pull request ${result.pullRequest ?? "(number not recorded)"} published${result.url === null ? "" : ` at ${result.url}`}.`,
+          "A published commit is never rewritten in place, and nothing pushes with force.",
         ],
       };
     default:

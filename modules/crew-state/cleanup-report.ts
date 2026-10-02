@@ -50,6 +50,7 @@ export type CleanupBlocker =
       foundHead: string | null;
     }
   | { reason: "landing_pending"; landingId: string; pendingAssignmentId: string }
+  | { reason: "rewrite_pending"; landingId: string; pendingAssignmentId: string }
   | { reason: "integration_branch_moved"; branch: string; recordedTip: string; found: string }
   | { reason: "integration_branch_missing"; branch: string }
   | { reason: "integration_branch_unread"; branch: string; detail: string }

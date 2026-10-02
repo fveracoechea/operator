@@ -133,4 +133,7 @@ ADR 0005, 0007, 0008, 0015, 0017, 0018, and 0020 are amended to refer to this re
 
 `operator gate run --assignment <id>` starts the run on the candidate of one code result: it plans the landing on the recorded tip and gates the planned commit, keyed by its tree and the gate declaration fixed on the source.
 The run records the submission and the tip as its subject, so `crew next` reads the candidate with no Git read, and a run at an earlier tip proves nothing for a later one.
+For a correction of a landed commit, the same command gates the first commit of the rebuilt range whose key has no passing run, and its subject is `rewrite`, with the submission, the recorded tip, and the commit that place lands on.
+`crew next` plans the rewrite again to read the range, and each commit is read by its key, so a commit below the first failure keeps its pass and only the changed part is gated again.
+A failed or flaky correction itself is answered by an integration cycle from the parent of the replaced commit, and a failed later commit is taken out by the next plan.
 A landing that lands nothing gates nothing, because the tip already passed at its own landing.

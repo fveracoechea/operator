@@ -907,10 +907,10 @@ export const CrewState = {
 
     const input = { capacity: capacity.capacity, readiness: request.readiness };
     // A landing plan reads Git, so the plans are read before the one read of the order.
-    const broken = await readBrokenLandings(request.projectRoot);
+    const { broken, rewrites } = await readBrokenLandings(request.projectRoot);
     const result = await readState(request.projectRoot, (db) => ({
       stateVersion: STATE_VERSION,
-      ...calculateNext(db, { ...input, broken }),
+      ...calculateNext(db, { ...input, broken, rewrites }),
     }));
 
     // A project with no crew state owes exactly one crew action, so it is answered here in the

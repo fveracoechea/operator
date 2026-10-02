@@ -40,7 +40,7 @@ afterEach(async () => {
  */
 async function correctedRound(
   workspace: Workspace,
-  context: { producer: Producer; sibling: Producer; landedCommit: string; parent: string },
+  context: { producer: Producer; sibling: Producer; landedCommit: string },
   registered: Registered,
   round: number,
 ) {
@@ -89,7 +89,8 @@ async function correctedRound(
   ).find((one) => one.assignmentId === context.sibling.assignmentId);
   const correction = await startRework(workspace, context.sibling, {
     revision: invalidated?.revision ?? 0,
-    commit: context.parent,
+    // The correction starts at the landed commit, where the cycle says.
+    commit: null,
     worktreePath: `${workspace.root}/correction-${round}`,
   });
   const result = await reviewedResult(workspace, correction, {
@@ -288,7 +289,8 @@ describe("the branch review of an integration branch", () => {
     ).find((one) => one.assignmentId === sibling.assignmentId);
     const correction = await startRework(workspace, sibling, {
       revision: invalidated?.revision ?? 0,
-      commit: landing.from,
+      // The correction starts at the landed commit, where the cycle says.
+      commit: null,
       worktreePath: `${workspace.root}/correction`,
     });
     const result = await reviewedResult(workspace, correction, {
@@ -330,13 +332,15 @@ describe("the branch review of an integration branch", () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const { producer, sibling, acceptedSecond } = await finalBranch(workspace);
     const landing = acceptedSecond.json.data.landing;
-    const context = { producer, sibling, landedCommit: landing.to, parent: landing.from };
+    const context = { producer, sibling, landedCommit: landing.to };
 
     let registered = acceptedSecond.json.data.branchReview as Registered;
     for (const round of [1, 2, 3]) {
       const accepted = await correctedRound(workspace, context, registered, round);
       registered = accepted.json.data.branchReview as Registered;
       expect(registered.round).toBe(round + 1);
+      // The rewrite put the correction in place, so the next round names its new commit.
+      context.landedCommit = accepted.json.data.landing.landed;
     }
 
     // Three rounds reported, so the fourth is registered with a direction request.

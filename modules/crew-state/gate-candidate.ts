@@ -1,8 +1,9 @@
 import { readAssignment } from "./assignment.ts";
 import { type GateStartResult, startRun } from "./gate-start.ts";
 import { fixedGateOf, integrationBranchOf } from "./integration.ts";
-import { candidateKey, type LandingRefusal, planLanding } from "./landing.ts";
-import { readState } from "./operations.ts";
+import { candidateKey, type LandingRefusal, planLanding, replacedLandingOf } from "./landing.ts";
+import { readState, type StateFailure } from "./operations.ts";
+import { planRewrite, rangeGateOf } from "./rewrite.ts";
 import { latestSubmission, reviewedBaseOf, submittedCommit } from "./submission.ts";
 
 export type CandidateStartResult =
@@ -10,7 +11,8 @@ export type CandidateStartResult =
   | { status: "unknown-assignment"; assignmentId: string }
   | { status: "candidate-missing"; assignmentId: string; state: string }
   | { status: "landing-lands-nothing"; assignmentId: string; branch: string; landed: string }
-  | Exclude<LandingRefusal, { status: "landing-gate-not-passed" | "landing-pending" }>;
+  | Exclude<LandingRefusal, { status: "landing-gate-not-passed" | "landing-pending" }>
+  | StateFailure;
 
 /**
  * Starts one gate run on the candidate of one code result: the planned commit of its landing on
@@ -47,18 +49,74 @@ export async function startCandidateGateRun(request: {
       commit,
       reviewedBase: reviewedBaseOf(db, submission) ?? commit,
       row: integrationBranchOf(db, assignment.sourceId),
+      replaced: replacedLandingOf(db, { assignmentId: assignment.id, submissionId: submission.id }),
     };
   });
   if (read.status !== "read") {
     return read;
   }
-  const { assignment, submission, commit, reviewedBase, row } = read;
+  const { assignment, submission, commit, reviewedBase, row, replaced } = read;
   if (row === null) {
     return {
       status: "integration-branch-missing",
       assignmentId: assignment.id,
       sourceId: assignment.sourceId,
     };
+  }
+
+  // A correction of a landed commit gates its rebuilt range in order, one commit at a time.
+  if (replaced !== null) {
+    const rewritten = await planRewrite({
+      projectRoot: request.projectRoot,
+      assignmentId: assignment.id,
+      row,
+      replaced,
+      commit,
+      reviewedBase,
+    });
+    if (rewritten.status !== "planned") {
+      return rewritten;
+    }
+    const gated = await readState(request.projectRoot, (db) => ({
+      gate: rangeGateOf(db, rewritten.rewrite),
+    }));
+    if (!("gate" in gated)) {
+      return gated;
+    }
+    const { gate } = gated;
+    if (gate.status === "passed") {
+      const last = rewritten.rewrite.gated.at(-1);
+      return {
+        status: "gate-passed",
+        key: { tree: last?.tree ?? "", declarationIdentity: row.gateIdentity },
+        commit: rewritten.rewrite.landing.plan.to,
+        runIds: [],
+      };
+    }
+    if (gate.status === "running") {
+      return {
+        status: "gate-running",
+        runId: gate.runIds[0] ?? "",
+        detail: `Gate run ${gate.runIds.join(", ")} still runs at commit ${gate.commit} of the rebuilt range.`,
+      };
+    }
+    return startRun({
+      ...request,
+      target: {
+        sourceId: assignment.sourceId,
+        commit: gate.commit,
+        key: gate.key,
+        commands: fixedGateOf(row).commands,
+        subject: {
+          kind: "rewrite",
+          assignmentId: assignment.id,
+          submissionId: submission.id,
+          tip: row.recordedTip,
+          parent: gate.parent,
+        },
+        checkoutBase: row.baseCommit,
+      },
+    });
   }
 
   const planned = await planLanding({
