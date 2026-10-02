@@ -26,10 +26,10 @@ import { acknowledgeAnswer, deliverAnswer } from "./question-deliver.ts";
 import { approvalCheckSchema, approvalInputSchema } from "./approval-input.ts";
 import { raiseQuestion, reviseQuestion } from "./question-raise.ts";
 import { showQuestion } from "./question-report.ts";
-import { defectInputSchema, type InvalidateOutcome, invalidateResult } from "./invalidate.ts";
+import { type InvalidateOutcome, invalidateResult } from "./invalidate.ts";
 import { readPathIdentities, registerWork, showOverlaps } from "./registration.ts";
 import { openReworkCycle, type ReworkOutcome } from "./rework-open.ts";
-import { reworkInputSchema } from "./rework-input.ts";
+import { defectInputSchema, reworkInputSchema } from "./rework-input.ts";
 import { dispositionInputSchema } from "./review-input.ts";
 import { disposeFindings, type DisposeOutcome } from "./review-dispose.ts";
 import { recordReview } from "./review-record.ts";
@@ -193,6 +193,7 @@ export const CrewState = {
             revision: request.revision,
             ownerToken: request.ownerToken,
             attemptId: crypto.randomUUID(),
+            cycleId: crypto.randomUUID(),
             capacity: capacity.capacity,
             now,
           }),
@@ -359,6 +360,7 @@ export const CrewState = {
         commitOn(
           invalidateResult(tx, {
             invalidationId: crypto.randomUUID(),
+            cycleId: crypto.randomUUID(),
             assignmentId: request.assignmentId,
             revision: request.revision,
             input,

@@ -136,6 +136,24 @@ async function runDispatch(parsed: ParsedArguments): Promise<Handled> {
     });
   }
 
+  if (result.status === "correction-base-changed") {
+    return refuse({
+      json: parsed.json,
+      operation: "attempt_dispatch",
+      outcome: "conflict",
+      reason: "correction_base_changed",
+      detail: {
+        attemptId: result.attemptId,
+        recorded: result.recorded,
+        requested: result.requested,
+      },
+      lines: [
+        `This correction starts on ${result.recorded}, the parent of the landed commit, not on ${result.requested}.`,
+        "The correction takes the place of the landed commit, so run the dispatch again with no --commit.",
+      ],
+    });
+  }
+
   if (result.status === "commit-required") {
     report({
       json: parsed.json,

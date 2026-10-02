@@ -245,6 +245,7 @@ export type Reason =
   | "artifact_unreadable"
   | "artifact_identity_changed"
   | "review_base_changed"
+  | "correction_base_changed"
   | "review_pending"
   | "invalid_review_report"
   | "unknown_review"

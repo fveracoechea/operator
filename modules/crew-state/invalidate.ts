@@ -11,17 +11,16 @@ import {
 import type { CrewReader, CrewWriter } from "./database.ts";
 import { assignmentDependencies, invalidations } from "./schema.ts";
 import { readStored } from "./stored.ts";
-import { latestSubmission } from "./submission.ts";
+import type { DirectionRecord } from "./direction.ts";
+import { defectInputSchema, type DefectInput } from "./rework-input.ts";
+import {
+  type InvalidationCycle,
+  type InvalidationCycleOutcome,
+  openInvalidationCycle,
+} from "./rework-open.ts";
+import { openCycleOf } from "./rework.ts";
+import { latestSubmission, readSubmission } from "./submission.ts";
 import { isReview } from "./work-input.ts";
-
-/** The defect found in an accepted result, in the words of whoever found it. */
-export const defectInputSchema = z.strictObject({
-  summary: z.string().min(1),
-  evidence: z.string().min(1),
-  foundBy: z.string().min(1),
-});
-
-export type DefectInput = z.infer<typeof defectInputSchema>;
 
 /** One dependent that consumed the invalid result, and the state it was paused from. */
 const dependent = z.strictObject({
@@ -60,6 +59,10 @@ export type InvalidateOutcome =
       invalidationId: string;
       submissionId: string | null;
       dependents: Dependent[];
+      // The cycle the invalidation opened, or null for planning work or a spent budget.
+      cycle: InvalidationCycle | null;
+      // The direction request a spent budget recorded, or null when the budget allowed a cycle.
+      direction: DirectionRecord | null;
     }
   | { status: "unknown-assignment"; assignmentId: string }
   | { status: "stale-revision"; assignmentId: string; recordedRevision: number }
@@ -179,6 +182,7 @@ export function invalidateResult(
     invalidationId: string;
     assignmentId: string;
     revision: number;
+    cycleId: string;
     input: DefectInput;
     now: string;
   },
@@ -208,6 +212,19 @@ export function invalidateResult(
   }
 
   const submission = latestSubmission(db, row.id);
+  // Planning work is never dispatched (ADR 0004), so it holds no submission and opens no cycle.
+  // It is decided again with a new record (ADR 0019).
+  const correction =
+    submission === null
+      ? null
+      : openInvalidationCycle(db, {
+          cycleId: request.cycleId,
+          assignmentId: row.id,
+          invalidationId: request.invalidationId,
+          defect: request.input,
+          submission,
+          now: request.now,
+        });
   db.insert(invalidations)
     .values({
       id: request.invalidationId,
@@ -228,7 +245,35 @@ export function invalidateResult(
     invalidationId: request.invalidationId,
     submissionId: submission?.id ?? null,
     dependents: affected,
+    cycle: correction?.status === "opened" ? correction.cycle : null,
+    direction: correction?.status === "limit-reached" ? correction.direction : null,
   };
+}
+
+/**
+ * Opens the cycle of the open invalidation of one assignment, when that invalidation found the
+ * budget spent and the user has directed it since. The claim calls this, so the direction is
+ * spent by the work it permits, and the content of the cycle is still what the defect recorded.
+ */
+export function openDirectedCorrection(
+  db: CrewWriter,
+  request: { assignmentId: string; cycleId: string; now: string },
+): InvalidationCycleOutcome | null {
+  const open = openInvalidations(db).find((one) => one.assignmentId === request.assignmentId);
+  const submission =
+    open === undefined || open.submissionId === null ? null : readSubmission(db, open.submissionId);
+  if (open === undefined || submission === null || openCycleOf(db, request.assignmentId) !== null) {
+    return null;
+  }
+
+  return openInvalidationCycle(db, {
+    cycleId: request.cycleId,
+    assignmentId: request.assignmentId,
+    invalidationId: open.id,
+    defect: readStored("defect", defectInputSchema, open.defect),
+    submission,
+    now: request.now,
+  });
 }
 
 /**

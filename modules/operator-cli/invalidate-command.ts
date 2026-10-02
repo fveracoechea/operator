@@ -90,12 +90,29 @@ export async function runInvalidate(parsed: ParsedArguments): Promise<Handled> {
         invalidationId: result.invalidationId,
         submissionId: result.submissionId,
         dependents: result.dependents,
+        cycle: result.cycle,
+        direction: result.direction,
         repeated,
       },
     },
     lines: [
       `Recorded defect ${result.invalidationId} against ${result.assignmentId}.`,
       "Its acceptance, submission, review, and findings stay recorded.",
+      ...(result.cycle !== null
+        ? [
+            `Opened invalidation cycle ${result.cycle.cycleId} (${result.cycle.cycleIndex} of ${result.cycle.limit}). Its brief carries the defect.`,
+            ...(result.cycle.startCommit === null
+              ? []
+              : [
+                  `Its dispatch starts on ${result.cycle.startCommit}, the parent of landed commit ${result.cycle.landedCommit}.`,
+                ]),
+          ]
+        : result.direction !== null
+          ? [
+              `The correction budget is spent, so direction request ${result.direction.directionRequestId} waits on the user.`,
+              "The frontier withholds the dispatch with direction_required until the user answers.",
+            ]
+          : ["Planning work opens no cycle. It is decided again with a new planning record."]),
       ...(result.dependents.length === 0
         ? ["No dependent consumed the result, so nothing was paused."]
         : [

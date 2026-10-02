@@ -31,6 +31,7 @@ Read the result you rework and every accepted correction before you change code.
 Start from what the reviewer found, not from your own reading of the original scope.
 You do not hold the context of the producer, so the rework brief carries the recorded rounds of the assignment.
 Read the answered questions, the decisions of the corrected submission, and the earlier findings with their dispositions before you change code.
+A correction of accepted work answers the defect that the brief names, and it starts on the commit that the brief names.
 
 ## Hand over the result
 

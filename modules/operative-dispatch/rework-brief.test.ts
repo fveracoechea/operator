@@ -36,7 +36,12 @@ async function pinnedSentences(): Promise<Array<[ReworkBrief["reason"], string]>
     .split("\n")
     .map((line) => {
       const [reason = "", ...rest] = line.split(": ");
-      if (reason !== "findings" && reason !== "integration" && reason !== "diagnostic") {
+      if (
+        reason !== "findings" &&
+        reason !== "integration" &&
+        reason !== "diagnostic" &&
+        reason !== "invalidation"
+      ) {
         throw new Error(`the fixture names no reason on the line ${line}`);
       }
       return [reason, rest.join(": ")];
@@ -45,7 +50,12 @@ async function pinnedSentences(): Promise<Array<[ReworkBrief["reason"], string]>
 
 test("each cycle reason renders the fixed sentence that the fixture pins", async () => {
   const pinned = await pinnedSentences();
-  expect(pinned.map(([reason]) => reason)).toEqual(["findings", "integration", "diagnostic"]);
+  expect(pinned.map(([reason]) => reason)).toEqual([
+    "findings",
+    "integration",
+    "diagnostic",
+    "invalidation",
+  ]);
 
   for (const [reason, sentence] of pinned) {
     const lines = reworkResultSection({ ...REWORK, reason });

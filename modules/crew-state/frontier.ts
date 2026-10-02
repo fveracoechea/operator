@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import type { CrewReader } from "./database.ts";
 import type { Capacity } from "./capacity.ts";
 import { readAssignment } from "./assignment.ts";
-import { openDirectionsOf } from "./direction.ts";
+import { type DirectionRequestRow, openDirectionsOf, readDirection } from "./direction.ts";
 import { type LimitKind, storedLimitKind } from "./rework.ts";
 import { openPauses } from "./invalidate.ts";
 import type { EscalationTrigger } from "./question-input.ts";
@@ -124,6 +124,17 @@ export function activeAttempt(db: CrewReader, id: string) {
   );
 }
 
+/** The open direction requests of one assignment that no approval of the user answers yet. */
+export function undirected(db: CrewReader, assignmentId: string): DirectionRequestRow[] {
+  return openDirectionsOf(db, assignmentId).filter(
+    (request) =>
+      readDirection(db, {
+        assignmentId,
+        limitKind: storedLimitKind(request.limitKind),
+      }).status !== "directed",
+  );
+}
+
 /** Reads every ordering, dependency, and capacity input and writes nothing. */
 export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier {
   const sourceOrder = new Map(
@@ -228,8 +239,9 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
       continue;
     }
 
-    // A reached limit waits on the user, whatever state the assignment stopped in.
-    const waiting = openDirectionsOf(db, one.assignmentId);
+    // A reached limit waits on the user, whatever state the assignment stopped in. A direction
+    // the user already gave waits on nobody, and the action it permits spends it.
+    const waiting = undirected(db, one.assignmentId);
     if (waiting.length > 0) {
       blocked.push({
         ...one,

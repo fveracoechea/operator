@@ -25,8 +25,12 @@ const stated = {
   conflicts: z.array(conflict),
 };
 
-/** The three reasons a cycle is delegated. A stored reason is read back through this. */
-export const reworkReasonSchema = z.enum(["findings", "integration", "diagnostic"]);
+/**
+ * The four reasons a cycle opens. A stored reason is read back through this.
+ * The Operator delegates the first three. An invalidation opens its own cycle, because the open
+ * invalidation is the cycle (ADR 0008), so `work rework` never names it.
+ */
+export const reworkReasonSchema = z.enum(["findings", "integration", "diagnostic", "invalidation"]);
 
 export function storedReworkReason(stored: string): ReworkReason {
   return readStoredValue("rework reason", reworkReasonSchema, stored);
@@ -76,6 +80,29 @@ const correction = z.strictObject({
 
 export type ReworkCorrection = z.infer<typeof correction>;
 
+/** The defect found in an accepted result, in the words of whoever found it. */
+export const defectInputSchema = z.strictObject({
+  summary: z.string().min(1),
+  evidence: z.string().min(1),
+  foundBy: z.string().min(1),
+});
+
+export type DefectInput = z.infer<typeof defectInputSchema>;
+
+/**
+ * What an invalidation cycle corrects, fixed when the defect is recorded.
+ * A code correction takes the place of the landed commit, so it starts on the parent of that
+ * commit (ADR 0020). A non-code result lands nothing, so both commits are null.
+ */
+const invalidation = z.strictObject({
+  invalidationId: z.string(),
+  defect: defectInputSchema,
+  landedCommit: z.string().nullable(),
+  startCommit: z.string().nullable(),
+});
+
+export type ReworkInvalidation = z.infer<typeof invalidation>;
+
 /**
  * Everything the fresh Operative receives about the result it reworks.
  * It is written once, when the cycle is delegated, so a later change to the review or the
@@ -99,6 +126,8 @@ export const reworkBriefSchema = z.strictObject({
   checks: z.array(submittedCheckSchema),
   code: codeRevisionsSchema.nullable(),
   artifacts: z.array(storedArtifactSchema),
+  // Present only on an invalidation cycle. A brief that an earlier release recorded has none.
+  invalidation: invalidation.optional(),
 });
 
 export type ReworkBriefRecord = z.infer<typeof reworkBriefSchema>;

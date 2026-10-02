@@ -28,9 +28,19 @@ export type ReworkCorrection = {
   reason: string;
 };
 
+/** What an invalidation cycle corrects, fixed when the defect was recorded. */
+export type ReworkInvalidation = {
+  invalidationId: string;
+  defect: { summary: string; evidence: string; foundBy: string };
+  // The commit the correction takes the place of, and its parent, which the correction starts on.
+  // A non-code result lands nothing, so both are null.
+  landedCommit: string | null;
+  startCommit: string | null;
+};
+
 export type ReworkBrief = {
   cycleId: string;
-  reason: "findings" | "integration" | "diagnostic";
+  reason: "findings" | "integration" | "diagnostic" | "invalidation";
   cycleIndex: number;
   limit: number;
   approvalId: string | null;
@@ -44,6 +54,8 @@ export type ReworkBrief = {
   checks: FixedCheck[];
   code: FixedCode | null;
   artifacts: FixedArtifact[];
+  // Present only on an invalidation cycle. A cycle that an earlier release recorded has none.
+  invalidation?: ReworkInvalidation | undefined;
   // The recorded rounds of the assignment, derived at dispatch. They do not change once recorded,
   // and the brief identity covers them, so every attempt of this cycle receives the same text.
   rounds: ReworkRounds;
@@ -65,6 +77,8 @@ const REASON_SENTENCE: Record<ReworkBrief["reason"], string> = {
   findings: "Answer every accepted correction below in one revision.",
   integration: "Combine every revision below with the submitted result in one revision.",
   diagnostic: "Run the checks below again and record what you observe.",
+  invalidation:
+    "Correct the defect below in one revision that takes the place of the accepted result.",
 };
 
 /** The directory a rework worktree receives its fixed copies of the submitted artifacts in. */
@@ -96,6 +110,7 @@ export function reworkResultSection(rework: ReworkBrief): string[] {
     "",
     REASON_SENTENCE[rework.reason],
     "",
+    ...(rework.invalidation === undefined ? [] : defectSection(rework.invalidation)),
     "### Accepted corrections",
     "",
     ...(rework.corrections.length === 0
@@ -139,6 +154,23 @@ export function reworkResultSection(rework: ReworkBrief): string[] {
         })),
     "",
     ...recordedRoundsSection(rework.rounds),
+  ];
+}
+
+/**
+ * The defect an invalidation found in the accepted result, in the words of whoever found it.
+ * The Operator adds nothing to it, so the fresh Operative reads what the finder recorded.
+ */
+function defectSection(invalidation: ReworkInvalidation): string[] {
+  return [
+    "### The defect found in the accepted result",
+    "",
+    `- Invalidation: ${invalidation.invalidationId}`,
+    `- Summary: ${invalidation.defect.summary}`,
+    `- Evidence: ${invalidation.defect.evidence}`,
+    `- Found by: ${invalidation.defect.foundBy}`,
+    `- Landed commit: ${invalidation.landedCommit ?? "none, because a non-code result lands nothing"}`,
+    "",
   ];
 }
 
@@ -187,10 +219,18 @@ export function reworkProtocolSection(rework: ReworkBrief): string[] {
         ]
       : [];
 
+  const start = rework.invalidation?.startCommit ?? null;
   return [
     "## Rework protocol",
     "",
-    "Start from the submitted commit above, not from the original base.",
+    // A correction of a landed commit takes its place on the branch (ADR 0020), so it is built on
+    // the parent of that commit and never on top of it.
+    ...(start === null
+      ? ["Start from the submitted commit above, not from the original base."]
+      : [
+          `Start from ${start}, the parent of the landed commit.`,
+          "Your one commit takes the place of the landed commit, so do not build on top of it.",
+        ]),
     "Answer every accepted correction, every conflict, and every revision to combine in one",
     "combined revision, then submit that one revision.",
     "Two submissions would split the evidence, and a review reads one fixed result.",

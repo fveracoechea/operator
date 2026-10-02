@@ -45,6 +45,7 @@ export type DispatchResult =
   | { status: "commit-required"; attemptId: string }
   | { status: "workspace-required"; attemptId: string; detail: string }
   | { status: "review-base-changed"; attemptId: string; recorded: string; requested: string }
+  | { status: "correction-base-changed"; attemptId: string; recorded: string; requested: string }
   | { status: "host-unnamed"; attemptId: string }
   | { status: "effort-unsupported"; attemptId: string; detail: string }
   | GateUnusable
@@ -194,9 +195,20 @@ export async function dispatchAttempt(request: {
     }
   }
 
-  const baseCommit = recorded?.baseCommit ?? request.baseCommit;
+  // A correction of a landed commit takes the place of that commit, so it starts on the parent
+  // that the invalidation recorded, and a dispatch that names no commit starts there.
+  const correctionBase = read.context.rework?.brief.invalidation?.startCommit ?? null;
+  const baseCommit = recorded?.baseCommit ?? request.baseCommit ?? correctionBase;
   if (baseCommit === null) {
     return { status: "commit-required", attemptId };
+  }
+  if (correctionBase !== null && baseCommit !== correctionBase) {
+    return {
+      status: "correction-base-changed",
+      attemptId,
+      recorded: correctionBase,
+      requested: baseCommit,
+    };
   }
 
   // A review reads the exact commit the result was submitted on, never a later one.

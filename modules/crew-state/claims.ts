@@ -2,6 +2,7 @@ import type { Capacity } from "./capacity.ts";
 import type { CrewWriter } from "./database.ts";
 import { moveAssignment, readAssignment } from "./assignment.ts";
 import { activeAttempt, calculateFrontier, type FrontierBlocker } from "./frontier.ts";
+import { openDirectedCorrection } from "./invalidate.ts";
 import { attempts } from "./schema.ts";
 
 export type ClaimResult =
@@ -28,6 +29,7 @@ export function claimAssignment(
     revision: number;
     ownerToken: string;
     attemptId: string;
+    cycleId: string;
     capacity: Capacity;
     now: string;
   },
@@ -71,6 +73,29 @@ export function claimAssignment(
       assignmentId: row.id,
       blockers: blocked?.blockers ?? [],
     };
+  }
+
+  // An invalidation that found the budget spent opens its cycle only after the user directed it,
+  // and the frontier offers it only then, so this claim spends that direction.
+  if (row.state === "invalidated") {
+    const correction = openDirectedCorrection(db, {
+      assignmentId: row.id,
+      cycleId: request.cycleId,
+      now: request.now,
+    });
+    if (correction?.status === "limit-reached") {
+      return {
+        status: "not-dispatchable",
+        assignmentId: row.id,
+        blockers: [
+          {
+            reason: "direction_required",
+            directionRequestId: correction.direction.directionRequestId,
+            limitKind: correction.limitKind,
+          },
+        ],
+      };
+    }
   }
 
   db.insert(attempts)

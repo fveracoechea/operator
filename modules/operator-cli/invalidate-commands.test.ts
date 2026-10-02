@@ -5,6 +5,7 @@ import {
   acceptReview,
   commitArtifact,
   frontierEntry,
+  grantDirection,
   invalidateResult,
   makeReviewWorkspace,
   PLANNING_RECORD,
@@ -66,7 +67,176 @@ async function acceptedResult(workspace: Workspace, producer: Producer, text: st
   return { artifact, submitted, reviewer, accepted };
 }
 
+/** Launches one claimed attempt as the CLI does, with no `--commit` when none is named. */
+async function dispatchAt(
+  workspace: Workspace,
+  producer: Producer,
+  options: { attemptId: string; commit: string | null; worktreePath: string },
+) {
+  return runJson(workspace, [
+    "attempt",
+    "dispatch",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--attempt",
+    options.attemptId,
+    ...(options.commit === null ? [] : ["--commit", options.commit]),
+    "--worktree",
+    options.worktreePath,
+  ]);
+}
+
+async function claim(workspace: Workspace, producer: Producer, revision: number) {
+  return runJson(workspace, [
+    "work",
+    "claim",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--assignment",
+    producer.assignmentId,
+    "--revision",
+    String(revision),
+  ]);
+}
+
 describe("operator work invalidate", () => {
+  test("opens the cycle that carries the defect, the accepted submission, and the landed commit", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const producer = await startProducer(workspace);
+    const first = await acceptedResult(workspace, producer, "# Result\n");
+    const landed = first.artifact.commit;
+
+    const invalidated = await invalidateResult(workspace, producer, {
+      assignmentId: producer.assignmentId,
+      revision: first.accepted.json.data.revision,
+      defect: DEFECT,
+    });
+    expect(invalidated.json.reason).toBe("result_invalidated");
+    expect(invalidated.json.data.cycle).toMatchObject({
+      cycleIndex: 1,
+      limit: 3,
+      landedCommit: landed,
+      startCommit: producer.baseCommit,
+    });
+    expect(invalidated.json.data.direction).toBeNull();
+
+    const claimed = await claim(workspace, producer, invalidated.json.data.revision);
+    expect(claimed.json.reason).toBe("assignment_claimed");
+    const attemptId = claimed.json.data.attemptId;
+
+    // The correction takes the place of the landed commit, so it never starts on top of it.
+    const onTop = await dispatchAt(workspace, producer, {
+      attemptId,
+      commit: landed,
+      worktreePath: `${workspace.root}/on-top`,
+    });
+    expect(onTop.exitCode).toBe(4);
+    expect(onTop.json.reason).toBe("correction_base_changed");
+    expect(onTop.json.blockers[0]).toMatchObject({
+      recorded: producer.baseCommit,
+      requested: landed,
+    });
+
+    const worktreePath = `${workspace.root}/fix`;
+    const dispatched = await dispatchAt(workspace, producer, {
+      attemptId,
+      commit: null,
+      worktreePath,
+    });
+    expect(dispatched.json.blockers[0].reason).toBe("acknowledgement_pending");
+    expect(dispatched.json.data.baseCommit).toBe(producer.baseCommit);
+
+    const brief = await Bun.file(`${worktreePath}/.operator/local/brief.md`).text();
+    expect(brief).toContain(`invalidation cycle 1 of 3`);
+    expect(brief).toContain(`Submission: ${first.submitted.json.data.submissionId}`);
+    expect(brief).toContain(DEFECT.summary);
+    expect(brief).toContain(DEFECT.evidence);
+    expect(brief).toContain(`Found by: ${DEFECT.foundBy}`);
+    expect(brief).toContain(`Landed commit: ${landed}`);
+    expect(brief).toContain(`Start from ${producer.baseCommit}, the parent of the landed commit.`);
+    expect(brief).not.toContain("Start from the submitted commit above");
+  }, 60_000);
+
+  test("an invalidation with the correction budget spent waits for the direction of the user", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    let producer = await startProducer(workspace);
+    let result = await acceptedResult(workspace, producer, "# Result 0\n");
+
+    // Each invalidation cycle changes the result, so three of them spend the budget of three.
+    for (const round of [1, 2, 3]) {
+      const invalidated = await invalidateResult(workspace, producer, {
+        assignmentId: producer.assignmentId,
+        revision: result.accepted.json.data.revision,
+        defect: DEFECT,
+      });
+      expect(invalidated.json.data.cycle.cycleIndex).toBe(round);
+      producer = await startRework(workspace, producer, {
+        revision: invalidated.json.data.revision,
+        commit: invalidated.json.data.cycle.startCommit,
+        worktreePath: `${workspace.root}/fix-${round}`,
+      });
+      result = await acceptedResult(workspace, producer, `# Result ${round}\n`);
+      expect(result.accepted.json.reason).toBe("assignment_accepted");
+    }
+
+    const dependents = await registerDependents(workspace, producer, [
+      { key: "22.2", kind: "planning", title: "Decide the rollout order" },
+    ]);
+    const consumer = dependents.get("22.2") ?? "";
+    await acceptAssignment(workspace, producer, { assignmentId: consumer, revision: 1 });
+
+    // A found defect is never refused, so the fourth one is recorded and pauses what read it.
+    const spent = await invalidateResult(workspace, producer, {
+      assignmentId: producer.assignmentId,
+      revision: result.accepted.json.data.revision,
+      defect: DEFECT,
+    });
+    expect(spent.exitCode).toBe(0);
+    expect(spent.json.reason).toBe("result_invalidated");
+    expect(spent.json.data.cycle).toBeNull();
+    expect(spent.json.data.dependents).toEqual([
+      expect.objectContaining({ assignmentId: consumer, paused: true }),
+    ]);
+    const direction = spent.json.data.direction;
+    expect(direction).toMatchObject({ limitKind: "rework_cycles", limitValue: 3, state: "open" });
+
+    const waiting = await frontierEntry(workspace, producer.assignmentId);
+    expect(waiting.group).toBe("blocked");
+    expect(waiting.entry.blockers).toEqual([
+      {
+        reason: "direction_required",
+        directionRequestId: direction.directionRequestId,
+        limitKind: "rework_cycles",
+      },
+    ]);
+    const refused = await claim(workspace, producer, spent.json.data.revision);
+    expect(refused.json.reason).toBe("assignment_not_dispatchable");
+
+    await grantDirection(workspace, producer, direction, "Correct it once more.");
+    expect((await frontierEntry(workspace, producer.assignmentId)).group).toBe("dispatchable");
+    const next = await nextActions(workspace);
+    expect(next.forAction("direct_limit")).toEqual([]);
+
+    // The claim spends the direction, and the cycle it opens says under what approval it runs.
+    const claimed = await claim(workspace, producer, spent.json.data.revision);
+    expect(claimed.json.reason).toBe("assignment_claimed");
+    const worktreePath = `${workspace.root}/fix-4`;
+    const dispatched = await dispatchAt(workspace, producer, {
+      attemptId: claimed.json.data.attemptId,
+      commit: null,
+      worktreePath,
+    });
+    expect(dispatched.json.data.baseCommit).toBe(producer.baseCommit);
+    const brief = await Bun.file(`${worktreePath}/.operator/local/brief.md`).text();
+    expect(brief).toContain("invalidation cycle 4 of 3");
+    expect(brief).toContain("This cycle runs past the recorded limit under approval");
+    expect(brief).toContain(DEFECT.summary);
+  }, 240_000);
+
   test("pauses only the work that read the invalid result and keeps the history", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const producer = await startProducer(workspace);
@@ -142,7 +312,7 @@ describe("operator work invalidate", () => {
 
     const fixing = await startRework(workspace, producer, {
       revision: invalidated.json.data.revision,
-      commit: first.artifact.commit,
+      commit: invalidated.json.data.cycle.startCommit,
       worktreePath: `${workspace.root}/fix`,
     });
     const second = await acceptedResult(workspace, fixing, "# Result\n\nEvery record.\n");
@@ -216,7 +386,7 @@ describe("operator work invalidate", () => {
     // Correcting the first input alone does not release work that also read the second.
     const firstFix = await startRework(workspace, producer, {
       revision: firstDefect.json.data.revision,
-      commit: first.artifact.commit,
+      commit: firstDefect.json.data.cycle.startCommit,
       worktreePath: `${workspace.root}/fix-first`,
     });
     await acceptedResult(workspace, firstFix, "# First, corrected\n");
@@ -237,7 +407,7 @@ describe("operator work invalidate", () => {
     // Only the second correction releases it, and it returns to the step that decided it.
     const secondFix = await startRework(workspace, producer, {
       revision: secondDefect.json.data.revision,
-      commit: otherResult.artifact.commit,
+      commit: secondDefect.json.data.cycle.startCommit,
       worktreePath: `${workspace.root}/fix-other`,
       assignmentId: other,
     });
@@ -284,6 +454,9 @@ describe("operator work invalidate", () => {
       defect: DEFECT,
     });
     expect(invalidated.json.reason).toBe("result_invalidated");
+    // Planning work is never dispatched, so it is decided again and opens no cycle.
+    expect(invalidated.json.data.cycle).toBeNull();
+    expect(invalidated.json.data.direction).toBeNull();
     expect(invalidated.json.data.dependents).toEqual([
       { assignmentId: dependent, title: "Roll out", consumedState: "claimed", paused: true },
     ]);
@@ -399,7 +572,7 @@ describe("operator work invalidate", () => {
 
     const fixing = await startRework(workspace, producer, {
       revision: invalidated.json.data.revision,
-      commit: first.artifact.commit,
+      commit: invalidated.json.data.cycle.startCommit,
       worktreePath: `${workspace.root}/fix`,
     });
     // The correction is in progress, so the paths stay held.

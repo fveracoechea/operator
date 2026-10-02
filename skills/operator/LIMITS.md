@@ -4,11 +4,12 @@ Read this when a refusal names `limit_reached`, `review_attempt_limit`, or `dire
 
 Three limits hold across sessions:
 
-- three correction cycles on one assignment, counting `findings` and `integration` together,
+- three correction cycles on one assignment, counting `findings`, `integration`, and `invalidation` together,
 - two diagnostic reruns,
 - three attempts on one review, which is one reviewer and two replacements per revision.
 
 `limit_reached` and `review_attempt_limit` both record a direction request and keep the evidence.
+An invalidation with the budget spent records one too, and it reports the request in place of a cycle.
 Acceptance then refuses with `direction_required` until the user directs the work.
 Nothing is deleted, so the refusal you show the user carries every failure that led to it.
 

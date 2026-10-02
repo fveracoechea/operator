@@ -11,8 +11,8 @@ import {
 import type { CrewReader } from "./database.ts";
 import { everyStageSucceeded } from "./dispatch-context.ts";
 import { liveOperations, readDispatchRow, unsettledOperations } from "./dispatch.ts";
-import { directionRecordOf, openDirectionsOf } from "./direction.ts";
-import { calculateFrontier, type Frontier, unmetDependencies } from "./frontier.ts";
+import { directionRecordOf } from "./direction.ts";
+import { calculateFrontier, type Frontier, undirected, unmetDependencies } from "./frontier.ts";
 import { openPauses } from "./invalidate.ts";
 import { outsideChangesOfSubmission, undisposedOutside } from "./outside-changes.ts";
 import { type DependencyRecord, dependencyRecords } from "./planning-record.ts";
@@ -655,7 +655,7 @@ export function calculateNext(
     .from(assignments)
     .all()
     .toSorted((left, right) => left.id.localeCompare(right.id))) {
-    for (const direction of openDirectionsOf(db, row.id)) {
+    for (const direction of undirected(db, row.id)) {
       const record = directionRecordOf(direction);
       into.add({
         action: "direct_limit",
