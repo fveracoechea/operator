@@ -61,6 +61,8 @@ Read [QUESTIONS.md](QUESTIONS.md) before you answer a question or record an appr
 
 Process closure and worktree removal.
 `bun run operator cleanup` carries them, and each one needs its own proof and its own approval.
+Removal reads no remote. It proves the handed-over commit from the local integration branch, and it refuses with `head_moved`, `integration_branch_moved`, `integration_branch_missing`, `landing_pending`, or `landing_not_held`. Settle `landing_pending` first; a person puts a moved or deleted branch back.
+`unlanded_work` names a checkout that holds a withdrawn or replaced commit. `cleanup show` lists it under `unlanded`, and only the person removes it.
 
 Tracker completion and recovery.
 `bun run operator tracker` carries the resolution, the ticket completion, and the map amendment as three

@@ -808,3 +808,55 @@ export async function answeredQuestion(
 
   return questionId;
 }
+
+/** Claims and dispatches a second item of the producer's source, from the recorded tip. */
+export async function startSibling(
+  workspace: Workspace,
+  producer: Producer,
+  key: string,
+): Promise<Producer> {
+  const assignmentId = producer.dependents.get(key) ?? "";
+  const claimed = await runJson(workspace, [
+    "work",
+    "claim",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--assignment",
+    assignmentId,
+    "--revision",
+    "1",
+  ]);
+  if (claimed.json.reason !== "assignment_claimed") {
+    throw new Error(`the sibling was not claimed: ${claimed.json.reason}`);
+  }
+  const attemptId = claimed.json.data.attemptId as string;
+  const worktreePath = `${workspace.root}/operative-${key.replace(".", "-")}`;
+  const dispatched = await runJson(workspace, [
+    "attempt",
+    "dispatch",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--attempt",
+    attemptId,
+    "--worktree",
+    worktreePath,
+  ]);
+  await runJson(
+    workspace,
+    ["attempt", "acknowledge", "--request", request(), "--attempt", attemptId],
+    worktreePath,
+  );
+  return {
+    ...producer,
+    assignmentId,
+    attemptId,
+    worktreePath,
+    baseCommit: await headCommit(workspace, worktreePath),
+    assignmentRevision: claimed.json.data.revision as number,
+    dispatched: dispatched.json,
+  };
+}

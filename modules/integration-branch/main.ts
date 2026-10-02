@@ -321,6 +321,55 @@ export const IntegrationBranch = {
       ? { status: "at-tip", checkedOut: worktrees.paths }
       : { status: "tip-moved", found: commit, checkedOut: worktrees.paths };
   },
+
+  /**
+   * Reads whether the branch still holds one recorded commit, for the removal of a checkout (ADR
+   * 0010). The branch must be at its recorded tip, as for a move, and the commit must be an
+   * ancestor of that tip. It reads no remote and searches no patch, because acceptance proved the
+   * patch once. `not-held` answers a recorded tip without the commit, which only a corrupt
+   * record gives.
+   */
+  async holds(request: {
+    repoRoot: string;
+    name: string;
+    recordedTip: string;
+    commit: string;
+  }): Promise<
+    | { status: "held" }
+    | { status: "tip-moved"; found: string }
+    | { status: "missing" }
+    | { status: "not-held" }
+    | { status: "unread"; detail: string }
+  > {
+    const found = await tipOf(request.repoRoot, request.name);
+    if (found.status === "unread") {
+      return found;
+    }
+    if (found.status === "absent") {
+      return { status: "missing" };
+    }
+    if (found.commit !== request.recordedTip) {
+      return { status: "tip-moved", found: found.commit };
+    }
+    const ancestor = await ToolInvocation.run({
+      tool: "git",
+      args: ["-C", request.repoRoot, "merge-base", "--is-ancestor", request.commit, found.commit],
+      timeoutMs: 30_000,
+    });
+    if (ancestor.status !== "completed") {
+      return { status: "unread", detail: ancestor.detail };
+    }
+    // Exit 1 is a commit that is not an ancestor. Any other exit is a commit Git cannot read.
+    if (ancestor.exitCode === 0) {
+      return { status: "held" };
+    }
+    return ancestor.exitCode === 1
+      ? { status: "not-held" }
+      : {
+          status: "unread",
+          detail: `git merge-base exited ${ancestor.exitCode}: ${ancestor.stderr.trim()}`,
+        };
+  },
   /** The patch identity of one commit against its parent (ADR 0020). */
   async patchOf(request: {
     repoRoot: string;

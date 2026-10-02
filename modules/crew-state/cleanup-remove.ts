@@ -4,8 +4,15 @@ import type { ApprovalCheck } from "./approval-input.ts";
 import { type ApprovalRecord, matchApproval } from "./approvals.ts";
 import { cleanupRecordOf, cleanupRevisionOf } from "./cleanup.ts";
 import { type ContextFailure, inspectCheckout, readContext } from "./cleanup-context.ts";
-import { checkoutBlockers, holdBlocker, hostBlocker, identityBlocker } from "./cleanup-gates.ts";
+import {
+  checkoutBlockers,
+  headBlockers,
+  holdBlocker,
+  hostBlocker,
+  identityBlocker,
+} from "./cleanup-gates.ts";
 import { matchIdentity } from "./cleanup-identity.ts";
+import { landingBlockers } from "./cleanup-landing.ts";
 import type { CleanupBlocker, CleanupReport } from "./cleanup-report.ts";
 import { cleanupWriter } from "./cleanup-write.ts";
 import { readState, type StateFailure } from "./operations.ts";
@@ -89,9 +96,10 @@ async function readApproval(
 /**
  * Removes one approved Operative checkout through Herdr.
  * Acceptance is not disposal authority, so the removal runs only behind a closed process, an
- * accepted or withdrawn assignment, preserved evidence, remote copies of every commit, and an
- * approval granted against these exact inputs. A checkout of withdrawn work that holds a commit
- * holds unlanded work, so it is refused whatever approval exists, and only the person removes it.
+ * accepted or withdrawn assignment, a head at the handed-over commit, a landing the integration
+ * branch still holds, preserved evidence, and an approval granted against these exact inputs. No
+ * remote is read. A checkout that holds a commit of withdrawn work or a replaced commit holds
+ * unlanded work, so it is refused whatever approval exists, and only the person removes it (D3).
  */
 // oxlint-disable-next-line complexity -- Removal gates and recovery run in one ordered operation.
 export async function removeWorktree(request: {
@@ -169,16 +177,18 @@ export async function removeWorktree(request: {
             state,
           },
         ]),
-    ...(state === "withdrawn" && inspection.commits.length > 0
-      ? [
+    ...(context.unlanded === null
+      ? []
+      : [
           {
             reason: "unlanded_work" as const,
             assignmentId: context.assignment.id,
-            commits: inspection.commits,
+            cause: context.unlanded.cause,
+            commits: [context.unlanded.commit],
           },
-        ]
-      : []),
-    ...checkoutBlockers(inspection, { requireRemote: true }),
+        ]),
+    ...headBlockers({ context, inspection }),
+    ...checkoutBlockers(inspection),
   ].flatMap((one) => (one === null ? [] : [one]));
   if (gates.length > 0) {
     return refuse(gates);
@@ -205,6 +215,12 @@ export async function removeWorktree(request: {
         ? { status: "removed", report: writer.report("done"), repeated: reconciled.repeated }
         : reconciled;
     }
+  }
+
+  // A landing with no recorded outcome is settled first, because recovery comes before new work.
+  const landing = await landingBlockers({ projectRoot: request.projectRoot, context });
+  if (landing.length > 0) {
+    return refuse(landing);
   }
 
   const identity = await matchIdentity({ projectRoot: request.projectRoot, context });

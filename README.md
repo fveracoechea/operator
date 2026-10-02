@@ -830,7 +830,9 @@ It runs only after a durable handoff, which is a submitted result or the two axi
 Before it stops anything, it copies the brief, the control reference, the release record, and every artifact the submission fixed into the controlling checkout, and reads each copy back.
 
 `bun run operator cleanup remove` disposes of one Operative checkout.
-It needs a closed process, the preserved evidence verified again, and a remote copy of every commit.
+It needs a closed process, the preserved evidence verified again, and a checkout at the commit its handoff names.
+When that commit is an accepted result, the local integration branch must be at its recorded tip and hold the commit that carries it. No remote is read.
+A checkout that holds a commit of withdrawn work or a replaced commit holds unlanded work, and only the person removes it.
 It also needs an approval that names this checkout or the workflow, because acceptance alone does not grant removal.
 
 The two outcomes are separate, so a stop that cannot be proven never holds back a removal that is already safe.

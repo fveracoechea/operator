@@ -10,12 +10,12 @@ import {
 } from "./cleanup.ts";
 import type { AssignmentState } from "./assignment.ts";
 import type { CleanupContext } from "./cleanup-context.ts";
+import { type UnlandedCause, unlandedCommitOf } from "./cleanup-landing.ts";
 import type { IdentityMismatch } from "./cleanup-identity.ts";
 import { eq } from "drizzle-orm";
 import type { CrewReader } from "./database.ts";
 import { readState, type StateFailure } from "./operations.ts";
 import { assignments, attemptDispatch, attempts, STATE_VERSION } from "./schema.ts";
-import { submissionOfAttempt, submittedCommit } from "./submission.ts";
 
 /** One reason a cleanup retained its resources. Every blocker names what a person must settle. */
 export type CleanupBlocker =
@@ -25,7 +25,6 @@ export type CleanupBlocker =
   | { reason: "question_open"; questionId: string; state: string }
   | { reason: "unexpected_work"; paths: string[] }
   | { reason: "unexpected_files"; paths: string[] }
-  | { reason: "unpushed_commits"; commits: string[] }
   | { reason: "evidence_missing"; name: string; path: string }
   | { reason: "evidence_changed"; name: string; path: string; expected: string; found: string }
   | { reason: "unfamiliar_process"; occupants: string[]; childTools: string[] }
@@ -39,8 +38,22 @@ export type CleanupBlocker =
   | { reason: "writer_active"; state: string; checkout: string }
   | { reason: "host_unsupported"; host: string }
   | { reason: "assignment_not_accepted"; assignmentId: string; state: AssignmentState }
-  // A commit of withdrawn work is on no integration branch, so only the person removes it.
-  | { reason: "unlanded_work"; assignmentId: string; commits: string[] }
+  // A commit of withdrawn work or a replaced commit is on no integration branch, so only the
+  // person removes it (D3).
+  | { reason: "unlanded_work"; assignmentId: string; cause: UnlandedCause; commits: string[] }
+  // The checkout is not at the commit its attempt handed over, or HEAD is on no branch.
+  | {
+      reason: "head_moved";
+      branch: string;
+      commit: string;
+      foundBranch: string | null;
+      foundHead: string | null;
+    }
+  | { reason: "landing_pending"; landingId: string; pendingAssignmentId: string }
+  | { reason: "integration_branch_moved"; branch: string; recordedTip: string; found: string }
+  | { reason: "integration_branch_missing"; branch: string }
+  | { reason: "integration_branch_unread"; branch: string; detail: string }
+  | { reason: "landing_not_held"; branch: string; recordedTip: string; commit: string }
   | { reason: "process_live"; state: string }
   | {
       reason: "approval_required";
@@ -106,6 +119,7 @@ export type UnlandedCheckout = {
   worktreePath: string;
   branch: string;
   commit: string;
+  cause: UnlandedCause;
 };
 
 export type CleanupOverview = {
@@ -126,8 +140,8 @@ export type CleanupOverview = {
 };
 
 /**
- * Each checkout of withdrawn work that still holds the commit its attempt submitted. It reads the
- * crew state alone, so it writes nothing and runs no Git. The removal reads the checkout itself.
+ * Each checkout that still holds a commit of withdrawn work or a replaced commit (D3). It reads
+ * the crew state alone, so it writes nothing and runs no Git. The removal reads the checkout.
  */
 function unlandedCheckouts(db: CrewReader): UnlandedCheckout[] {
   return db
@@ -135,14 +149,15 @@ function unlandedCheckouts(db: CrewReader): UnlandedCheckout[] {
     .from(attempts)
     .innerJoin(assignments, eq(assignments.id, attempts.assignmentId))
     .innerJoin(attemptDispatch, eq(attemptDispatch.attemptId, attempts.id))
-    .where(eq(assignments.state, "withdrawn"))
     .all()
     .toSorted((left, right) => left.attempts.id.localeCompare(right.attempts.id))
-    .flatMap(({ attempts: attempt, attempt_dispatch: dispatch }): UnlandedCheckout[] => {
-      const submission = submissionOfAttempt(db, attempt.id);
-      const commit = submission === null ? null : submittedCommit(submission);
+    .flatMap(({ attempts: attempt, assignments: assignment, attempt_dispatch: dispatch }) => {
+      const unlanded = unlandedCommitOf(db, {
+        attemptId: attempt.id,
+        assignmentState: assignment.state,
+      });
       const removed = readCleanup(db, { attemptId: attempt.id, kind: "worktree_removal" });
-      return commit === null || removed?.state === "done"
+      return unlanded === null || removed?.state === "done"
         ? []
         : [
             {
@@ -150,7 +165,7 @@ function unlandedCheckouts(db: CrewReader): UnlandedCheckout[] {
               assignmentId: attempt.assignmentId,
               worktreePath: dispatch.worktreePath,
               branch: dispatch.branch,
-              commit,
+              ...unlanded,
             },
           ];
     });

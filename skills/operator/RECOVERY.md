@@ -83,6 +83,8 @@ After the adoptions, `bun run operator crew next` reports the rest of the recove
 - `close_process` and `remove_worktree` for the resources an Operative left behind, except a checkout of withdrawn work that holds its commit, which `cleanup show` lists under `unlanded` and only the person removes,
 - `direct_limit` for a limit that reached the user and was never answered.
 
+A checkout that holds a replaced commit is never offered for removal either. A replaced commit is a submitted commit of an assignment that was accepted through another submission. `cleanup show` lists the checkout under `unlanded`, and only the person removes it.
+
 A retention hold appears in `data.waits`, not in the actions.
 It outlives the session that placed it, and only a person releases it.
 

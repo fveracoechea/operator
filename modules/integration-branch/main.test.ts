@@ -382,3 +382,73 @@ describe("IntegrationBranch landing", () => {
     expect(moved).toEqual({ status: "moved" });
   });
 });
+
+describe("IntegrationBranch holds", () => {
+  /** A branch with two landed commits, so the first one is held below the tip. */
+  async function landedTwice(root: string) {
+    const base = await head(root, "main");
+    await branchAt(root, base);
+    const first = await result(root, {
+      start: base,
+      branch: "work-a",
+      path: "a.txt",
+      text: lines("a", 20, { 0: "A0" }),
+      date: "2002-01-01T00:00:00Z",
+    });
+    await land(root, { base, tip: base, commit: first });
+    const second = await result(root, {
+      start: base,
+      branch: "work-b",
+      path: "b.txt",
+      text: lines("b", 20, { 0: "B0" }),
+      date: "2003-01-01T00:00:00Z",
+    });
+    const merged = await land(root, { base, tip: first, commit: second });
+    return { base, first, second, tip: merged.to };
+  }
+
+  test("a commit below the recorded tip is held, and a merge landing holds its new commit", async () => {
+    const root = await repository();
+    const { first, second, tip } = await landedTwice(root);
+    const holds = (commit: string) =>
+      IntegrationBranch.holds({ repoRoot: root, name: NAME, recordedTip: tip, commit });
+
+    expect(await holds(first)).toEqual({ status: "held" });
+    expect(await holds(tip)).toEqual({ status: "held" });
+    // The reviewed commit of a merge landing is not the commit that carries it.
+    expect(await holds(second)).toEqual({ status: "not-held" });
+  });
+
+  test("a branch away from its recorded tip moved, even when it still holds the commit", async () => {
+    const root = await repository();
+    const { first, tip } = await landedTwice(root);
+    await Bun.$`git -C ${root} commit -q --allow-empty -m person`.quiet();
+    const person = await head(root, "main");
+    await branchAt(root, person);
+
+    expect(
+      await IntegrationBranch.holds({
+        repoRoot: root,
+        name: NAME,
+        recordedTip: tip,
+        commit: first,
+      }),
+    ).toEqual({ status: "tip-moved", found: person });
+  });
+
+  test("a deleted branch is missing, and nothing falls back to another ref", async () => {
+    const root = await repository();
+    const { first, tip } = await landedTwice(root);
+    await Bun.$`git -C ${root} update-ref refs/heads/main ${tip}`.quiet();
+    await Bun.$`git -C ${root} update-ref -d refs/heads/${NAME}`.quiet();
+
+    expect(
+      await IntegrationBranch.holds({
+        repoRoot: root,
+        name: NAME,
+        recordedTip: tip,
+        commit: first,
+      }),
+    ).toEqual({ status: "missing" });
+  });
+});

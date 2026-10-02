@@ -35,5 +35,7 @@ A fresh attempt is a fresh Operative, so the reviewer that found the problem nev
 One cycle produces one combined revision, which registers its own review assignment.
 That reviewer reads every earlier round and its dispositions, and reports a finding that came back.
 Nothing between the two revisions is acceptable, so do not accept the earlier submission.
+After the combined revision is accepted, the checkout of each earlier attempt holds a replaced commit.
+`crew next` offers no removal of it, and `cleanup remove` refuses it as `unlanded_work`. Only the person removes it.
 
 A cycle is bounded. Read [LIMITS.md](LIMITS.md) when one is refused with `limit_reached`.

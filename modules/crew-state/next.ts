@@ -18,6 +18,7 @@ import {
   isFirstCodeDispatch,
   runningRunOf,
 } from "./gate-runs.ts";
+import { unlandedCommitOf } from "./cleanup-landing.ts";
 import { intendedLandingOf, landedEarlier } from "./landing.ts";
 import { integrationBranchOf } from "./integration.ts";
 import { directionRecordOf } from "./direction.ts";
@@ -37,7 +38,7 @@ import {
 import { readSnapshot } from "./branch-review.ts";
 import { openCycleOf } from "./rework.ts";
 import { assignments, attempts } from "./schema.ts";
-import { latestSubmission, submissionOfAttempt, submittedCommit } from "./submission.ts";
+import { latestSubmission, submittedCommit } from "./submission.ts";
 import { readBinding, TRACKER_STEPS, targetOf, trackerOperationsOf } from "./tracker.ts";
 import { trackerStepActions } from "./tracker-show.ts";
 import { isReview } from "./work-input.ts";
@@ -655,20 +656,17 @@ const cleanupBlockers = {
 } as const satisfies Record<CleanupState, NextBlocker | null>;
 
 /**
- * Whether a removal of the checkout of one ended attempt may be offered. Accepted work may go. A
- * checkout of withdrawn work that holds a submitted commit holds unlanded work, so only the
- * person removes it, and `operator cleanup show` lists it.
+ * Whether a removal of the checkout of one ended attempt may be offered. Accepted and withdrawn
+ * work may go. A checkout that holds a commit of withdrawn work or a replaced commit holds
+ * unlanded work, so only the person removes it, and `operator cleanup show` lists it (D3).
  */
 function removableAfterClosure(
   db: CrewReader,
   request: { attemptId: string; state: string },
 ): boolean {
-  if (request.state === "accepted") {
-    return true;
-  }
-  const submission = submissionOfAttempt(db, request.attemptId);
   return (
-    request.state === "withdrawn" && (submission === null || submittedCommit(submission) === null)
+    (request.state === "accepted" || request.state === "withdrawn") &&
+    unlandedCommitOf(db, { attemptId: request.attemptId, assignmentState: request.state }) === null
   );
 }
 
