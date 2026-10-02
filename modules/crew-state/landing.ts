@@ -23,7 +23,7 @@ export type LandingPlan = Omit<
   Extract<Awaited<ReturnType<typeof IntegrationBranch.plan>>, { status: "ready" }>,
   "kind"
 > & {
-  kind: "fast-forward" | "merge" | "held" | "rewrite";
+  kind: "fast-forward" | "merge" | "held" | "rewrite" | "take-out";
   rewrite: RewriteRecord | null;
 };
 
@@ -84,6 +84,22 @@ export type LandingRefusal =
       url: string | null;
     }
   | {
+      // A rewrite that would move back a result whose tracker step already ran. The ticket would
+      // say the work is done while its commit leaves the branch, so a person decides (#114).
+      status: "rewrite-tracker-recorded";
+      assignmentId: string;
+      branch: string;
+      steps: Array<{ assignmentId: string; step: string; state: string }>;
+    }
+  | {
+      // A landing of a source whose integration branch still holds a withdrawn commit. The
+      // take-out rebuilds the branch first, so no landing is gated twice (ADR 0020).
+      status: "take-out-pending";
+      assignmentId: string;
+      sourceId: string;
+      commits: Array<{ assignmentId: string; commit: string }>;
+    }
+  | {
       status: "landing-pending";
       assignmentId: string;
       landingId: string;
@@ -100,7 +116,8 @@ export type PlanRefusal = Extract<
       | "integration-branch-unread"
       | "landing-conflict"
       | "landing-patch-changed"
-      | "rewrite-published-range";
+      | "rewrite-published-range"
+      | "rewrite-tracker-recorded";
   }
 >;
 
@@ -222,7 +239,10 @@ export function planOfLanding(landing: LandingRow): LandingPlan {
     landed: landing.landedCommit,
     landedParent: landing.landedParent,
     kind:
-      landing.kind === "merge" || landing.kind === "held" || landing.kind === "rewrite"
+      landing.kind === "merge" ||
+      landing.kind === "held" ||
+      landing.kind === "rewrite" ||
+      landing.kind === "take-out"
         ? landing.kind
         : "fast-forward",
     tree: "",

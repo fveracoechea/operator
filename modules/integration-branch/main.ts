@@ -322,6 +322,36 @@ async function landOn(
   return { status: "ready", commit: landed, kind: "merge", tree: lines[0] };
 }
 
+/** Lands one reviewed correction on the parent of the commit it replaces. */
+async function placeCorrection(
+  repoRoot: string,
+  request: { parent: string; correction: { commit: string; reviewedBase: string } },
+): Promise<
+  | { status: "ready"; commit: string; kind: "fast-forward" | "merge"; tree: string; patch: string }
+  | Extract<LandingRefusal, { status: "conflict" | "patch-changed" | "unread" }>
+> {
+  const corrected = await readCommit(repoRoot, request.correction.commit);
+  if (corrected.status !== "read") {
+    return corrected;
+  }
+  const patch = await patchBetween(
+    repoRoot,
+    request.correction.reviewedBase,
+    request.correction.commit,
+  );
+  if (patch.status !== "read") {
+    return patch;
+  }
+  const placed = await landOn(repoRoot, {
+    tip: request.parent,
+    commit: request.correction.commit,
+    reviewedBase: request.correction.reviewedBase,
+    reviewed: corrected.value,
+    patch: patch.patch,
+  });
+  return placed.status === "ready" ? { ...placed, patch: patch.patch } : placed;
+}
+
 /** Why one rewrite cannot be planned. Each one moves nothing. */
 type RewriteRefusal =
   | LandingRefusal
@@ -336,14 +366,19 @@ type RewritePlan = {
   to: string;
   /** The commit the correction takes the place of, and its parent on the branch. */
   replaced: { commit: string; parent: string };
-  /** The commit that carries the correction, on the parent of the replaced one. */
+  /**
+   * The commit that carries the correction, on the parent of the replaced one, or null for a
+   * take-out, which puts nothing in the place of the replaced commit.
+   */
   correction: {
     commit: string;
     parent: string;
     kind: "fast-forward" | "merge";
     tree: string;
     patch: string;
-  };
+  } | null;
+  /** Each later commit that a take-out removes with the replaced one, in branch order. */
+  removed: string[];
   /** Each later commit that landed again, in branch order, with its new commit and parent. */
   relanded: Array<{ was: string; commit: string; parent: string; tree: string }>;
   /** Each later commit that is taken out, and why. */
@@ -686,11 +721,13 @@ export const IntegrationBranch = {
   /**
    * Plans the rewrite of one landed commit in place, and moves no ref (ADR 0020). The correction
    * takes the place of the replaced commit, on its parent, and each later commit lands again in
-   * the same order. A later commit is taken out, with every later commit that needs it, when its
-   * patch changes or conflicts at its new place, when a commit it needs is taken out, or when its
-   * new tree is one the caller names as refused, which is a tree that failed the project gate
-   * (ADR 0021). Every new commit copies the fields of the commit it rebuilds, so a repeat gives
-   * the same commits. Only Git objects are written, never a ref.
+   * the same order. A take-out names no correction, so the replaced commit, and each later commit
+   * that the caller names to drop, leave the branch with nothing in their place. A later commit is
+   * taken out, with every later commit that needs it, when its patch changes or conflicts at its
+   * new place, when a commit it needs is taken out or dropped, or when its new tree is one the
+   * caller names as refused, which is a tree that failed the project gate (ADR 0021). Every new
+   * commit copies the fields of the commit it rebuilds, so a repeat gives the same commits. Only
+   * Git objects are written, never a ref.
    */
   async rewrite(request: {
     repoRoot: string;
@@ -699,9 +736,13 @@ export const IntegrationBranch = {
     recordedTip: string;
     /** The commit on the branch that carries the corrected result now. */
     replaces: string;
-    correction: { commit: string; reviewedBase: string };
-    /** The commits above the replaced one, oldest first, with the commits each one needs. */
-    later: Array<{ commit: string; needs: string[] }>;
+    /** The reviewed commit that takes the place of the replaced one, or null for a take-out. */
+    correction: { commit: string; reviewedBase: string } | null;
+    /**
+     * The commits above the replaced one, oldest first, with the commits each one needs. A
+     * commit to drop is a withdrawn commit that a take-out removes too.
+     */
+    later: Array<{ commit: string; needs: string[]; drop?: boolean }>;
     refused: string[];
     /** The head of each published range, with the pull request that carries it. */
     published: Array<{ head: string; pullRequest: number | null; url: string | null }>;
@@ -741,38 +782,33 @@ export const IntegrationBranch = {
       };
     }
 
-    const corrected = await readCommit(request.repoRoot, request.correction.commit);
-    if (corrected.status !== "read") {
-      return corrected;
-    }
-    const patch = await patchBetween(
-      request.repoRoot,
-      request.correction.reviewedBase,
-      request.correction.commit,
-    );
-    if (patch.status !== "read") {
-      return patch;
-    }
-    const placed = await landOn(request.repoRoot, {
-      tip: parent,
-      commit: request.correction.commit,
-      reviewedBase: request.correction.reviewedBase,
-      reviewed: corrected.value,
-      patch: patch.patch,
-    });
-    if (placed.status !== "ready") {
+    const placed =
+      request.correction === null
+        ? null
+        : await placeCorrection(request.repoRoot, {
+            parent,
+            correction: request.correction,
+          });
+    if (placed !== null && placed.status !== "ready") {
       return placed;
     }
 
     const refused = new Set(request.refused);
-    const out = new Set<string>();
+    // A commit that a take-out removes is gone, so a later commit that needs it is taken out.
+    const out = new Set<string>(placed === null ? [request.replaces] : []);
+    const removed: string[] = [];
     const relanded: RewritePlan["relanded"] = [];
     const takenOut: RewritePlan["takenOut"] = [];
-    let tip = placed.commit;
+    let tip = placed === null ? parent : placed.commit;
     let below = request.replaces;
     for (const one of request.later) {
       const oldParent = below;
       below = one.commit;
+      if (one.drop === true) {
+        out.add(one.commit);
+        removed.push(one.commit);
+        continue;
+      }
       if (one.needs.some((need) => out.has(need))) {
         out.add(one.commit);
         takenOut.push({ commit: one.commit, cause: "dependency" });
@@ -814,13 +850,17 @@ export const IntegrationBranch = {
       from: request.recordedTip,
       to: tip,
       replaced: { commit: request.replaces, parent },
-      correction: {
-        commit: placed.commit,
-        parent,
-        kind: placed.kind,
-        tree: placed.tree,
-        patch: patch.patch,
-      },
+      correction:
+        placed === null
+          ? null
+          : {
+              commit: placed.commit,
+              parent,
+              kind: placed.kind,
+              tree: placed.tree,
+              patch: placed.patch,
+            },
+      removed,
       relanded,
       takenOut,
     };

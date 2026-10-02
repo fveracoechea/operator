@@ -167,7 +167,8 @@ Acceptance refuses on:
 - `landing_conflict` or `landing_patch_changed`: the commit does not land on the tip as the reviewed patch.
   Delegate an integration cycle, as [REWORK.md](REWORK.md) shows.
 - `landing_pending`: another landing of the source has no recorded outcome. Settle it first.
-- `rewrite_pending`: a rewrite of the source has no recorded outcome, so no commit of the source is proven yet. Settle it first.
+- `take_out_pending`: the branch still holds a withdrawn commit. Run `operator work take-out` first, as [REGISTRATION.md](REGISTRATION.md) shows.
+- `rewrite_tracker_recorded`: the rewrite would return a result to awaiting review whose tracker step already ran. Bring it to the person.
 
 Each of these refusals lands nothing and records nothing.
 A moved or checked-out branch is put back by the person, never by you or the CLI.

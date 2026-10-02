@@ -15,23 +15,27 @@ import {
 import { readState, type StateFailure } from "./operations.ts";
 import { publicationsOf, pullRequestsOf } from "./publish.ts";
 import { assignmentDependencies, attempts, gateRuns, landings, submissions } from "./schema.ts";
+import { trackerOperationsOf } from "./tracker.ts";
 
 /** One commit of a rebuilt range, in branch order, with the commit it lands on. */
 export type GatedCommit = { commit: string; parent: string; tree: string };
 
-/** A planned rewrite and the rebuilt range that the project gate runs on, in order. */
-export type PlannedRewrite = { landing: PlannedLanding; gated: GatedCommit[] };
+/**
+ * A planned rewrite and the rebuilt range that the project gate runs on, in order. The first
+ * commit of the range is the correction itself, unless the rewrite is a take-out.
+ */
+export type PlannedRewrite = { landing: PlannedLanding; gated: GatedCommit[]; correction: boolean };
 
-type LaterLanding = { commit: string; parent: string; rows: LandingRow[] };
+export type LaterLanding = { commit: string; parent: string; rows: LandingRow[] };
 
 /**
  * The landings above the replaced one, oldest first, read from the record alone: each recorded
  * landing names its commit and the parent it landed on, from the recorded tip down. A record that
  * does not reach the replaced commit gives null, and the rewrite then refuses.
  */
-function laterLandings(
+export function laterLandings(
   db: CrewReader,
-  request: { row: IntegrationBranchRow; replaced: LandingRow },
+  request: { row: IntegrationBranchRow; replaced: Pick<LandingRow, "landedCommit"> },
 ): LaterLanding[] | null {
   const byCommit = new Map<string, LandingRow[]>();
   for (const one of landedOfSource(db, request.row.sourceId)) {
@@ -96,50 +100,105 @@ function refusedTrees(db: CrewReader, row: IntegrationBranchRow): string[] {
   });
 }
 
+/** The crew-state side of one rebuild: the later landings, the refused trees, the published heads. */
+function readRebuild(
+  db: CrewReader,
+  request: { row: IntegrationBranchRow; replaced: LandingRow; drop: Set<string> },
+) {
+  const { row, replaced } = request;
+  const later = laterLandings(db, { row, replaced });
+  if (later === null) {
+    return null;
+  }
+  const owners = later.map((one) => new Set(one.rows.map((landing) => landing.assignmentId)));
+  return {
+    later: later.map((one, index) => {
+      const needed = new Set(
+        one.rows.flatMap((landing) => [...dependenciesOf(db, landing.assignmentId)]),
+      );
+      return {
+        ...one,
+        drop: request.drop.has(one.commit),
+        needs: [
+          // A result that depends on the replaced one needs it, which only a take-out removes.
+          ...(needed.has(replaced.assignmentId) ? [replaced.landedCommit] : []),
+          ...later
+            .slice(0, index)
+            .filter((_, earlier) => [...(owners[earlier] ?? [])].some((id) => needed.has(id)))
+            .map((earlier) => earlier.commit),
+        ],
+      };
+    }),
+    refused: refusedTrees(db, row),
+    published: publicationsOf(db, row.sourceId).map((publication) => {
+      const [first] = pullRequestsOf(db, publication.id);
+      return {
+        head: publication.headCommit,
+        pullRequest: first?.number ?? null,
+        url: first?.url ?? null,
+      };
+    }),
+  };
+}
+
 /**
- * Plans the rewrite that puts one corrected result in the place of its landed commit (ADR 0020).
- * The later landings, the commits each one needs, and the trees the gate refused are read from the
- * crew state, and Git builds the rebuilt range. A refusal moves nothing and records nothing.
+ * Each tracker step that is recorded for a result that a rebuild moves back to awaiting review.
+ * Such a step ran when an earlier release completed a code result at its acceptance, so its
+ * ticket says the work is done while its commit leaves the branch. The rebuild holds, and a
+ * person decides, because Operator writes no tracker step to undo another one (#114).
  */
-export async function planRewrite(request: {
+function trackerHold(
+  db: CrewReader,
+  assignmentIds: string[],
+): Array<{ assignmentId: string; step: string; state: string }> {
+  return [...new Set(assignmentIds)].flatMap((assignmentId) => {
+    const row = readAssignment(db, assignmentId);
+    return row === null || row.state !== "accepted"
+      ? []
+      : trackerOperationsOf(db, assignmentId).map((one) => ({
+          assignmentId,
+          step: one.step,
+          state: one.state,
+        }));
+  });
+}
+
+/** What one rebuild puts in the place of its replaced commit, and what it removes with it. */
+type Rebuild =
+  | { kind: "correction"; commit: string; reviewedBase: string }
+  | {
+      kind: "take-out";
+      planRevision: string;
+      // Every withdrawn landing that the take-out removes, the replaced one among them.
+      withdrawn: LandingRow[];
+    };
+
+/**
+ * Plans one rebuild of the integration branch in the same order (ADR 0020). A correction takes
+ * the place of its landed commit, and a take-out removes every withdrawn commit with nothing in
+ * its place. The later landings, the commits each one needs, and the trees the gate refused are
+ * read from the crew state, and Git builds the rebuilt range. A refusal moves nothing and
+ * records nothing.
+ */
+async function planRebuild(request: {
   projectRoot: string;
   assignmentId: string;
   row: IntegrationBranchRow;
   replaced: LandingRow;
-  commit: string;
-  reviewedBase: string;
+  rebuild: Rebuild;
 }): Promise<{ status: "planned"; rewrite: PlannedRewrite } | PlanRefusal | StateFailure> {
-  const { row, replaced } = request;
+  const { row, replaced, rebuild } = request;
   const subject = { assignmentId: request.assignmentId, branch: row.name };
+  const withdrawn = rebuild.kind === "take-out" ? rebuild.withdrawn : [];
+  const withdrawnIds = new Set(withdrawn.map((one) => one.id));
   const read = await readState(request.projectRoot, (db) => {
-    const later = laterLandings(db, { row, replaced });
-    if (later === null) {
-      return null;
-    }
-    const owners = later.map((one) => new Set(one.rows.map((landing) => landing.assignmentId)));
-    return {
-      later: later.map((one, index) => {
-        const needed = new Set(
-          one.rows.flatMap((landing) => [...dependenciesOf(db, landing.assignmentId)]),
-        );
-        return {
-          ...one,
-          needs: later
-            .slice(0, index)
-            .filter((_, earlier) => [...(owners[earlier] ?? [])].some((id) => needed.has(id)))
-            .map((earlier) => earlier.commit),
-        };
-      }),
-      refused: refusedTrees(db, row),
-      published: publicationsOf(db, row.sourceId).map((publication) => {
-        const [first] = pullRequestsOf(db, publication.id);
-        return {
-          head: publication.headCommit,
-          pullRequest: first?.number ?? null,
-          url: first?.url ?? null,
-        };
-      }),
-    };
+    // A later commit leaves with the replaced one only when every result it carries is withdrawn.
+    const drop = new Set(
+      laterLandings(db, { row, replaced })
+        ?.filter((one) => one.rows.every((landing) => withdrawnIds.has(landing.id)))
+        .map((one) => one.commit) ?? [],
+    );
+    return readRebuild(db, { row, replaced, drop });
   });
   if (read === null) {
     return {
@@ -158,11 +217,15 @@ export async function planRewrite(request: {
     base: row.baseCommit,
     recordedTip: row.recordedTip,
     replaces: replaced.landedCommit,
-    correction: { commit: request.commit, reviewedBase: request.reviewedBase },
-    later: read.later.map((one) => ({ commit: one.commit, needs: one.needs })),
+    correction:
+      rebuild.kind === "correction"
+        ? { commit: rebuild.commit, reviewedBase: rebuild.reviewedBase }
+        : null,
+    later: read.later.map((one) => ({ commit: one.commit, needs: one.needs, drop: one.drop })),
     refused: read.refused,
     published: read.published,
   });
+  const commit = rebuild.kind === "correction" ? rebuild.commit : replaced.landedCommit;
   switch (plan.status) {
     case "ready":
       break;
@@ -190,26 +253,23 @@ export async function planRewrite(request: {
         status: "landing-conflict",
         ...subject,
         tip: replaced.landedParent,
-        commit: request.commit,
+        commit,
         paths: plan.paths,
       };
     case "patch-changed":
-      return {
-        status: "landing-patch-changed",
-        ...subject,
-        tip: replaced.landedParent,
-        commit: request.commit,
-      };
+      return { status: "landing-patch-changed", ...subject, tip: replaced.landedParent, commit };
     default:
       return { status: "integration-branch-unread", ...subject, detail: plan.detail };
   }
 
   const rowsOf = new Map(read.later.map((one) => [one.commit, one.rows]));
+  const live = (rows: LandingRow[] | undefined) =>
+    (rows ?? []).filter((landing) => !withdrawnIds.has(landing.id));
   const rewrite: RewriteRecord = {
     replaces: replaced.id,
     replacedCommit: replaced.landedCommit,
     relanded: plan.relanded.flatMap((one) =>
-      (rowsOf.get(one.was) ?? []).map((landing) => ({
+      live(rowsOf.get(one.was)).map((landing) => ({
         landingId: landing.id,
         assignmentId: landing.assignmentId,
         from: one.was,
@@ -218,16 +278,45 @@ export async function planRewrite(request: {
       })),
     ),
     takenOut: plan.takenOut.flatMap((one) =>
-      (rowsOf.get(one.commit) ?? []).map((landing) => ({
+      live(rowsOf.get(one.commit)).map((landing) => ({
         landingId: landing.id,
         assignmentId: landing.assignmentId,
         commit: one.commit,
         cause: one.cause,
       })),
     ),
+    takeOut:
+      rebuild.kind === "take-out"
+        ? {
+            planRevision: rebuild.planRevision,
+            removed: withdrawn
+              .filter((one) => one.id !== replaced.id)
+              .map((one) => ({
+                landingId: one.id,
+                assignmentId: one.assignmentId,
+                commit: one.landedCommit,
+              })),
+          }
+        : null,
   };
+  const held = await readState(request.projectRoot, (db) =>
+    trackerHold(
+      db,
+      rewrite.takenOut.map((one) => one.assignmentId),
+    ),
+  );
+  if (!Array.isArray(held)) {
+    return held;
+  }
+  if (held.length > 0) {
+    return { status: "rewrite-tracker-recorded", ...subject, steps: held };
+  }
+
+  const correction = plan.correction;
   const gated: GatedCommit[] = [
-    { commit: plan.correction.commit, parent: plan.correction.parent, tree: plan.correction.tree },
+    ...(correction === null
+      ? []
+      : [{ commit: correction.commit, parent: correction.parent, tree: correction.tree }]),
     ...plan.relanded.map((one) => ({ commit: one.commit, parent: one.parent, tree: one.tree })),
   ];
   return {
@@ -240,17 +329,62 @@ export async function planRewrite(request: {
           name: plan.name,
           from: plan.from,
           to: plan.to,
-          landed: plan.correction.commit,
-          landedParent: plan.correction.parent,
-          kind: "rewrite",
-          tree: gated.at(-1)?.tree ?? plan.correction.tree,
-          patch: plan.correction.patch,
+          landed: correction?.commit ?? replaced.landedCommit,
+          landedParent: correction?.parent ?? plan.replaced.parent,
+          kind: rebuild.kind === "correction" ? "rewrite" : "take-out",
+          tree: gated.at(-1)?.tree ?? correction?.tree ?? "",
+          patch: correction?.patch ?? replaced.patch,
           rewrite,
         },
       },
+      // A take-out lands nothing in the place of the replaced commit, so only the later ones run.
       gated,
+      correction: correction !== null,
     },
   };
+}
+
+/**
+ * Plans the rewrite that puts one corrected result in the place of its landed commit (ADR 0020).
+ * A refusal moves nothing and records nothing.
+ */
+export function planRewrite(request: {
+  projectRoot: string;
+  assignmentId: string;
+  row: IntegrationBranchRow;
+  replaced: LandingRow;
+  commit: string;
+  reviewedBase: string;
+}): Promise<{ status: "planned"; rewrite: PlannedRewrite } | PlanRefusal | StateFailure> {
+  return planRebuild({
+    ...request,
+    rebuild: { kind: "correction", commit: request.commit, reviewedBase: request.reviewedBase },
+  });
+}
+
+/**
+ * Plans the take-out of every withdrawn commit of one source that the branch still holds: the
+ * rewrite of ADR 0020 with no replacement. The lowest withdrawn commit is the replaced one, and
+ * each other withdrawn commit leaves with it. A refusal moves nothing and records nothing.
+ */
+export function planTakeOutRebuild(request: {
+  projectRoot: string;
+  row: IntegrationBranchRow;
+  replaced: LandingRow;
+  withdrawn: LandingRow[];
+  planRevision: string;
+}): Promise<{ status: "planned"; rewrite: PlannedRewrite } | PlanRefusal | StateFailure> {
+  return planRebuild({
+    projectRoot: request.projectRoot,
+    assignmentId: request.replaced.assignmentId,
+    row: request.row,
+    replaced: request.replaced,
+    rebuild: {
+      kind: "take-out",
+      planRevision: request.planRevision,
+      withdrawn: request.withdrawn,
+    },
+  });
 }
 
 /** Where the project gate stands on a rebuilt range: the first commit that has not passed. */
@@ -279,7 +413,12 @@ export function rangeGateOf(db: CrewReader, rewrite: PlannedRewrite): RangeGate 
     if (verdict.status === "passed") {
       continue;
     }
-    const place = { commit: one.commit, parent: one.parent, key, correction: index === 0 };
+    const place = {
+      commit: one.commit,
+      parent: one.parent,
+      key,
+      correction: rewrite.correction && index === 0,
+    };
     switch (verdict.status) {
       case "pending":
         return { status: "pending", ...place, runIds: [] };
@@ -320,7 +459,14 @@ export function rewriteGate(
  */
 export function applyRewrite(db: CrewWriter, request: { rewrite: RewriteRecord; now: string }) {
   const { rewrite, now } = request;
-  db.update(landings).set({ state: "replaced" }).where(eq(landings.id, rewrite.replaces)).run();
+  // A take-out puts nothing in the place of the withdrawn commits, so each one is taken out.
+  db.update(landings)
+    .set({ state: rewrite.takeOut === null ? "replaced" : "taken-out" })
+    .where(eq(landings.id, rewrite.replaces))
+    .run();
+  for (const one of rewrite.takeOut?.removed ?? []) {
+    db.update(landings).set({ state: "taken-out" }).where(eq(landings.id, one.landingId)).run();
+  }
   for (const one of rewrite.relanded) {
     db.update(landings)
       .set({ landedCommit: one.to, landedParent: one.parent })

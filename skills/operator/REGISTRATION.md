@@ -173,7 +173,9 @@ The plan refuses, and names what it waits for:
 - `withdrawal_effect_unsettled` names a tracker step of the item, or a landing or rewrite intent that moves its commit, that has no recorded outcome. Recover the step or settle the move first.
 - `withdrawal_dependent_pending` names each recorded dependent, in any source, that still names the item as a blocker. The person removes that dependent from its parent in the same read, or drops the blocking link. Dropping the link is a changed item, so a dependent that has an attempt is refused as `recorded_item_changed`, and it is withdrawn with the item. Settle a dependent in another source with a registration of its own source first.
 
-The plan file lists each withdrawal under `withdrawals`, with its recorded state and its recorded `landing`, the commit that carries its accepted code result.
+- `take_out_pending` names a withdrawal of landed work while an earlier take-out of the source still waits. Run that take-out first, as the next section shows, then register again.
+
+The plan file lists each withdrawal under `withdrawals`, with its recorded state, its recorded `landing`, the commit that carries its accepted code result, and `rebuilds`, the later commits that its take-out lands again.
 The preview reports the `registration-change` approval of the plan revision, as for any other change, and a withdrawal is recorded only under it.
 Give the counts and the `planPath` to the person, and record their exact words as the approval.
 
@@ -186,6 +188,33 @@ A withdrawn item with no landed commit releases its write paths.
 
 - `withdrawn_item_readded` refuses a withdrawn issue that a person adds to its parent again. A new sub-issue carries the work.
 - `blocker_withdrawn` refuses an item that names a withdrawn item as a new blocker, because that dependency would wait for ever.
+
+## Take out a withdrawn commit
+
+A withdrawn item whose commit the integration branch holds keeps its write paths, and the frontier withholds every production assignment of the source with the blocker `take_out_pending`, which names the withdrawn commits.
+`crew next` then offers `take_out_commit` ahead of every landing of the source, and `work accept` of a code result of the source refuses with `take_out_pending`.
+Run the command it names:
+
+```sh
+bun run operator work take-out --request <id> --owner-token <token> --source <source> --plan-revision <revision> --json
+```
+
+The plan revision is the one whose approval recorded the withdrawal, so the take-out does exactly what the person approved.
+`operator work take-out` rebuilds the branch in the same order without every withdrawn commit, and each later commit lands again when its patch is equal, no commit it needs was taken out, and it passed the project gate at its new place.
+Before that, `crew next` offers `run_gate` with `operator gate run --source <source>` once for each commit that lands again, as [GATE.md](GATE.md) shows, and the take-out refuses with a `gate_` reason until each one passed.
+The branch moves once, from its recorded tip, and the report names the commits it removed, landed again, and took out.
+A later accepted result that does not land again returns to awaiting review, and `crew next` offers its landing again on the new tip. A later result that is not accepted keeps its state.
+The take-out that makes the branch final registers its branch review in the same change.
+
+The take-out refuses, and moves nothing:
+
+- `take_out_plan_changed`: the revision you named did not record the withdrawals. Run the command that `crew next` offers.
+- `rewrite_tracker_recorded`: a tracker step already ran for a result that the take-out returns to awaiting review, so its ticket says the work is done. Bring it to the person; you write no tracker step to undo it.
+- `rewrite_published_range`, `integration_branch_moved`, `integration_branch_checked_out`, and `landing_pending`, as for every landing in [REVIEW.md](REVIEW.md).
+- `nothing_to_take_out`: the branch holds no withdrawn commit.
+
+A take-out whose move stopped is offered as `settle_landing` with the same command. Repeat it.
+Until then, `cleanup remove` refuses each checkout of the source with `rewrite_pending`.
 
 A checkout of withdrawn work that holds its commit holds unlanded work.
 `crew next` offers no removal of it, `bun run operator cleanup show` lists it under `unlanded`, and `cleanup remove` refuses it as `unlanded_work`.

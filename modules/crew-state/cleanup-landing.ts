@@ -74,7 +74,10 @@ export async function landingBlockers(request: {
   if (openLanding !== null) {
     return [
       {
-        reason: openLanding.kind === "rewrite" ? "rewrite_pending" : "landing_pending",
+        reason:
+          openLanding.kind === "rewrite" || openLanding.kind === "take-out"
+            ? "rewrite_pending"
+            : "landing_pending",
         landingId: openLanding.id,
         pendingAssignmentId: openLanding.assignmentId,
       },

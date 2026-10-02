@@ -35,7 +35,7 @@ export type WithdrawalRefusal =
       key: string;
       assignmentId: string;
       // A move of the integration branch whose outcome is not recorded: the landing of the item,
-      // or a rewrite that replaces, lands again, or takes out its commit.
+      // or a rewrite or a take-out that replaces, lands again, or takes out its commit.
       effect: "landing_intent" | "rewrite_intent";
       landingId: string;
       pendingAssignmentId: string;
@@ -105,7 +105,10 @@ export function withdrawalRefusals(db: CrewReader, row: AssignmentRow): Withdraw
             reason: "withdrawal_effect_unsettled",
             key: row.sourceKey,
             assignmentId: row.id,
-            effect: intent.kind === "rewrite" ? "rewrite_intent" : "landing_intent",
+            effect:
+              intent.kind === "rewrite" || intent.kind === "take-out"
+                ? "rewrite_intent"
+                : "landing_intent",
             landingId: intent.id,
             pendingAssignmentId: intent.assignmentId,
           },

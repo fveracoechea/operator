@@ -22,6 +22,7 @@ import {
 import { checkoutOf, gateRunRecordOf, readGateRun } from "./gate-runs.ts";
 import { startCandidateGateRun } from "./gate-candidate.ts";
 import { startGateRun } from "./gate-start.ts";
+import { readTakeOuts, startTakeOutGateRun, takeOutWithdrawn } from "./take-out.ts";
 import { acceptWithLanding } from "./accept-landing.ts";
 import { claimAssignment } from "./claims.ts";
 import { calculateFrontier } from "./frontier.ts";
@@ -566,6 +567,31 @@ export const CrewState = {
   },
 
   /**
+   * Starts one gate run on the rebuilt range of the take-out of one source: the first commit that
+   * lands again whose key has not passed. `operator work take-out` moves only after every commit
+   * of the range passed.
+   */
+  async startTakeOutGateRun(
+    request: Mutation & {
+      sourceId: string;
+      approvalId: string | null;
+      runnerLine: (runId: string) => string;
+    },
+  ) {
+    return startTakeOutGateRun(request);
+  },
+
+  /**
+   * Takes out every withdrawn commit that the integration branch of one source still holds, as
+   * the rewrite of ADR 0020 with no replacement, bound to the plan revision that recorded the
+   * withdrawals (D5). The CLI moves the branch once, from its recorded tip, only from reviewed
+   * patches, so it is not an Operator change.
+   */
+  async takeOut(request: Mutation & { sourceId: string; planRevision: string }) {
+    return takeOutWithdrawn(request);
+  },
+
+  /**
    * Reports one gate run, the outcome of each command, and where each output is stored, with the
    * gate checkout it runs in. It reads no output text, and it writes nothing.
    */
@@ -916,9 +942,10 @@ export const CrewState = {
     const input = { capacity: capacity.capacity, readiness: request.readiness };
     // A landing plan reads Git, so the plans are read before the one read of the order.
     const { broken, rewrites } = await readBrokenLandings(request.projectRoot);
+    const takeOuts = await readTakeOuts(request.projectRoot);
     const result = await readState(request.projectRoot, (db) => ({
       stateVersion: STATE_VERSION,
-      ...calculateNext(db, { ...input, broken, rewrites }),
+      ...calculateNext(db, { ...input, broken, rewrites, takeOuts }),
     }));
 
     // A project with no crew state owes exactly one crew action, so it is answered here in the

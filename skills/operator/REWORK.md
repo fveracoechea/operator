@@ -60,6 +60,7 @@ An equal patch then lands with no new review, and a changed patch is an `integra
 A correction that conflicts, changes its patch, or fails the gate at its own place lands nothing, and `crew next` offers an `integration` cycle from the parent of the commit it replaces.
 
 `rewrite_published_range` means the commit is inside a published pull request, which is never rewritten in place; tell the person and name that pull request.
+`rewrite_tracker_recorded` means a tracker step already ran for a result that the rewrite would take out, so its ticket says the work is done; bring it to the person.
 A rewrite whose move stopped is offered as `settle_landing`; repeat `work accept`.
 Until then, `cleanup remove` refuses each checkout of the source with `rewrite_pending`.
 After the rewrite, the checkout of the corrected attempt holds a replaced commit, so only the person removes it.

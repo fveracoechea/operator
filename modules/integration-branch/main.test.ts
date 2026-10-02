@@ -472,12 +472,12 @@ describe("IntegrationBranch rewrite", () => {
     }
     expect(await head(root, NAME)).toBe(third);
     expect(plan).toMatchObject({ from: third, replaced: { commit: first, parent: base } });
-    expect(plan.correction.parent).toBe(base);
+    expect(plan.correction?.parent).toBe(base);
     // The correction carries the landed change and the fix as one commit on the old parent.
-    expect(await patch(root, plan.correction.commit)).toContain("+A1");
-    expect(await patch(root, plan.correction.commit)).toContain("+A0");
+    expect(await patch(root, plan.correction?.commit ?? "")).toContain("+A1");
+    expect(await patch(root, plan.correction?.commit ?? "")).toContain("+A0");
     expect(plan.relanded.map((one) => one.was)).toEqual([second, third]);
-    expect(plan.relanded[0]?.parent).toBe(plan.correction.commit);
+    expect(plan.relanded[0]?.parent).toBe(plan.correction?.commit ?? "");
     expect(plan.to).toBe(plan.relanded[1]?.commit ?? "");
     for (const one of plan.relanded) {
       expect(one.commit).not.toBe(one.was);
@@ -516,7 +516,66 @@ describe("IntegrationBranch rewrite", () => {
       { commit: third, cause: "dependency" },
     ]);
     expect(plan.relanded).toEqual([]);
-    expect(plan.to).toBe(plan.correction.commit);
+    expect(plan.to).toBe(plan.correction?.commit ?? "");
+  });
+
+  test("takes out a withdrawn commit with no correction, and drops each other one it names", async () => {
+    const root = await repository();
+    const { base, first, second, third } = await threeLanded(root);
+
+    const plan = await IntegrationBranch.rewrite({
+      repoRoot: root,
+      name: NAME,
+      base,
+      recordedTip: third,
+      replaces: first,
+      correction: null,
+      later: [
+        { commit: second, needs: [], drop: true },
+        { commit: third, needs: [] },
+      ],
+      refused: [],
+      published: [],
+    });
+
+    if (plan.status !== "ready") {
+      throw new Error(`take-out refused: ${JSON.stringify(plan)}`);
+    }
+    expect(await head(root, NAME)).toBe(third);
+    expect(plan.correction).toBeNull();
+    expect(plan.removed).toEqual([second]);
+    // Nothing takes the place of the withdrawn commits, so the later one lands on their parent.
+    expect(plan.relanded.map((one) => ({ was: one.was, parent: one.parent }))).toEqual([
+      { was: third, parent: base },
+    ]);
+    expect(plan.to).toBe(plan.relanded[0]?.commit ?? "");
+    expect(plan.takenOut).toEqual([]);
+  });
+
+  test("takes out a later commit that needs a withdrawn commit", async () => {
+    const root = await repository();
+    const { base, first, second, third } = await threeLanded(root);
+
+    const plan = await IntegrationBranch.rewrite({
+      repoRoot: root,
+      name: NAME,
+      base,
+      recordedTip: third,
+      replaces: first,
+      correction: null,
+      later: [
+        { commit: second, needs: [first] },
+        { commit: third, needs: [] },
+      ],
+      refused: [],
+      published: [],
+    });
+
+    if (plan.status !== "ready") {
+      throw new Error(`take-out refused: ${JSON.stringify(plan)}`);
+    }
+    expect(plan.takenOut).toEqual([{ commit: second, cause: "dependency" }]);
+    expect(plan.relanded.map((one) => one.was)).toEqual([third]);
   });
 
   test("takes out a later commit whose new tree the gate refused, and keeps the rest", async () => {
@@ -539,7 +598,7 @@ describe("IntegrationBranch rewrite", () => {
     }
     expect(plan.takenOut).toEqual([{ commit: second, cause: "gate" }]);
     expect(plan.relanded.map((one) => one.was)).toEqual([third]);
-    expect(plan.relanded[0]?.parent).toBe(plan.correction.commit);
+    expect(plan.relanded[0]?.parent).toBe(plan.correction?.commit ?? "");
   });
 
   test("refuses a replaced commit inside a published range and names its pull request", async () => {

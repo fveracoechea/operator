@@ -41,6 +41,8 @@ import { writePathsReader } from "./write-path-grants.ts";
 import { overlappingPaths, overlapsCommand } from "./write-paths.ts";
 import { recordedLanding } from "./submission.ts";
 import { type WithdrawalRefusal, withdrawAssignment, withdrawalRefusals } from "./withdrawal.ts";
+import { laterCommitsOf, pendingTakeOutsOf } from "./take-out.ts";
+import { currentLandingOf } from "./landing-record.ts";
 import { registerBranchReview, type RegisteredBranchReview } from "./branch-review.ts";
 
 export type RegisteredAssignment = {
@@ -91,6 +93,9 @@ export type PlannedWithdrawal = {
   state: string;
   // The commit that carries its accepted code result, or null when none landed.
   landing: string | null;
+  // The landed commits above that commit, oldest first, which the take-out rebuilds. They are
+  // read from the crew state with no Git read (ADR 0020).
+  rebuilds: string[];
 };
 
 /**
@@ -158,6 +163,14 @@ export type Refusal =
   | { reason: "withdrawn_item_readded"; key: string; assignmentId: string }
   | { reason: "blocker_withdrawn"; key: string; blocker: string; assignmentId: string }
   | WithdrawalRefusal
+  | {
+      // A withdrawal of landed work while an earlier take-out of the source still waits. Each
+      // take-out is bound to one plan revision, so the person withdraws it after that one (D5).
+      reason: "take_out_pending";
+      key: string;
+      assignmentId: string;
+      pending: string[];
+    }
   | {
       reason: "withdrawal_dependent_pending";
       key: string;
@@ -1134,13 +1147,9 @@ export function planRegistration(
   }
 
   for (const row of missing) {
-    plan.withdrawals.push({
-      key: row.sourceKey,
-      assignmentId: row.id,
-      state: row.state,
-      landing: recordedLanding(db, row.id),
-    });
-    refusals.push(...withdrawalRefusals(db, row));
+    const planned = planWithdrawal(db, row);
+    plan.withdrawals.push(planned.withdrawal);
+    refusals.push(...planned.refusals);
     refusals.push(...dependentRefusals(context, plan.items, row));
   }
 
@@ -1169,6 +1178,44 @@ export function planRegistration(
   }
 
   return plan;
+}
+
+/**
+ * The withdrawal of one recorded item that the read does not find, with what refuses it. Its
+ * recorded landing and the later commits that the take-out rebuilds are read from the crew state
+ * with no Git read. A second withdrawal of landed work waits until the earlier take-out of the
+ * source ran, because each take-out is bound to the one plan revision that recorded it (D5).
+ */
+function planWithdrawal(
+  db: CrewReader,
+  row: AssignmentRow,
+): { withdrawal: PlannedWithdrawal; refusals: Refusal[] } {
+  const waiting = pendingTakeOutsOf(db, row.sourceId);
+  const landed = currentLandingOf(db, row.id);
+  const refusals: Refusal[] =
+    landed !== null && waiting.length > 0
+      ? [
+          {
+            reason: "take_out_pending",
+            key: row.sourceKey,
+            assignmentId: row.id,
+            pending: waiting.map((one) => one.assignmentId),
+          },
+        ]
+      : [];
+  return {
+    withdrawal: {
+      key: row.sourceKey,
+      assignmentId: row.id,
+      state: row.state,
+      landing: recordedLanding(db, row.id),
+      rebuilds:
+        landed === null
+          ? []
+          : laterCommitsOf(db, { sourceId: row.sourceId, commit: landed.landedCommit }),
+    },
+    refusals: [...refusals, ...withdrawalRefusals(db, row)],
+  };
 }
 
 /** Writes the new content of one recorded item that no work has read. */

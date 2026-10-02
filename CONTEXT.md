@@ -8,6 +8,7 @@ Shared language for the Operator project's agent coordination workflow.
 The primary agent that is the user's main point of contact and coordinates the crew. Operator is also the project name; "the Operator" refers to the agent role.
 The Operator writes no content of its own; it asks the crew or an Operative to make each change.
 A ref move that the CLI builds only from reviewed patches, on a command that the Operator runs, is not an Operator change, and neither is the creation of an integration branch at a base that passed the project gate.
+The take-out of a withdrawn commit is such a move, and it is bound to the revision of the registration plan whose approval recorded the withdrawal.
 
 **Crew**:
 The group of sub-agents coordinated by the Operator.
@@ -384,7 +385,7 @@ The end of one registered assignment that a person took out of its work source, 
 It is recorded behind the approval of a registration plan, only when no attempt of it is running and each dependent is withdrawn with it or no longer depends on it.
 A withdrawn assignment never unblocks a dependent, and its history stays.
 It records the registration plan revision whose approval recorded it.
-A commit of it that the integration branch holds is taken out of that branch.
+A commit of it that the integration branch holds is taken out of that branch, bound to that plan revision, and until then no production work of its work source starts.
 _Avoid_: cancel, drop, descope, abandon, revert, for this act
 
 **Review capability**:

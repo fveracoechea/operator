@@ -3,6 +3,7 @@ import { runInvalidate } from "./invalidate-command.ts";
 import { runDispose } from "./outside-command.ts";
 import { landingRefusalOf } from "./landing-refusal.ts";
 import { runRework } from "./rework-command.ts";
+import { runTakeOut } from "./take-out-command.ts";
 import { type ParsedArguments, readMutation, readRevision } from "./arguments.ts";
 import {
   readStructuredInput,
@@ -670,6 +671,8 @@ function reportLandingRefusal(parsed: ParsedArguments, result: AcceptanceResult)
     case "landing-gate-not-passed":
     case "landing-pending":
     case "rewrite-published-range":
+    case "rewrite-tracker-recorded":
+    case "take-out-pending":
     case "landing-tip-changed": {
       const { outcome, reason, lines } = landingRefusalOf(result, "accept");
       const { status: _status, ...detail } = result;
@@ -1227,6 +1230,9 @@ export async function runWork(words: string[], parsed: ParsedArguments): Promise
   }
   if (subcommand === "rework") {
     return runRework(parsed);
+  }
+  if (subcommand === "take-out") {
+    return runTakeOut(parsed);
   }
   if (subcommand === "invalidate") {
     return runInvalidate(parsed);

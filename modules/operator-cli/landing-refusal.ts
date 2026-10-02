@@ -20,7 +20,9 @@ export type LandingRefusalResult = Extract<
       | "landing-gate-not-passed"
       | "landing-pending"
       | "landing-tip-changed"
-      | "rewrite-published-range";
+      | "rewrite-published-range"
+      | "rewrite-tracker-recorded"
+      | "take-out-pending";
   }
 >;
 
@@ -119,6 +121,24 @@ export function landingRefusalOf(
         lines: [
           `Commit ${result.commit} of ${result.branch} is inside the range that pull request ${result.pullRequest ?? "(number not recorded)"} published${result.url === null ? "" : ` at ${result.url}`}.`,
           "A published commit is never rewritten in place, and nothing pushes with force.",
+        ],
+      };
+    case "rewrite-tracker-recorded":
+      return {
+        outcome: "conflict",
+        reason: "rewrite_tracker_recorded",
+        lines: [
+          `A tracker step already ran for a result that this move of ${result.branch} takes back to awaiting review: ${result.steps.map((one) => `${one.step} of ${one.assignmentId} (${one.state})`).join(", ")}.`,
+          "Its ticket says the work is done while its commit would leave the branch. Bring it to the person. Operator writes no tracker step to undo another one.",
+        ],
+      };
+    case "take-out-pending":
+      return {
+        outcome: "pending",
+        reason: "take_out_pending",
+        lines: [
+          `The integration branch of ${result.sourceId} still holds the withdrawn commit(s) ${result.commits.map((one) => one.commit).join(", ")}.`,
+          "Take them out first with `operator work take-out`, as `operator crew next` offers it.",
         ],
       };
     default:

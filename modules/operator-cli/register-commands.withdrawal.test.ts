@@ -257,7 +257,7 @@ describe("withdrawal by removing an issue from its parent", () => {
     expect(plan.json.data.approval).toEqual(approval);
     const held = await planFile(workspace, plan);
     expect(held.withdrawals).toEqual([
-      { key: key(93), assignmentId: c, state: "registered", landing: null },
+      { key: key(93), assignmentId: c, state: "registered", landing: null, rebuilds: [] },
     ]);
 
     // Only the approval of the person records the withdrawal.
@@ -533,6 +533,7 @@ describe("withdrawal of work that started", () => {
         assignmentId: producer.assignmentId,
         state: "accepted",
         landing: artifact.commit,
+        rebuilds: [],
       },
     ]);
     expect(held.refusals).toEqual([

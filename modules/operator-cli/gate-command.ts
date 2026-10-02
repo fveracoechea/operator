@@ -135,6 +135,17 @@ function reportCandidateRefusal(parsed: ParsedArguments, result: CandidateResult
           `Commit ${result.commit} is inside the range that pull request ${result.pullRequest ?? "(number not recorded)"} published, so it is never rewritten in place.`,
         ],
       });
+    case "rewrite-tracker-recorded":
+      return refuse({
+        json: parsed.json,
+        operation,
+        outcome: "conflict",
+        reason: "rewrite_tracker_recorded",
+        detail: { ...result },
+        lines: [
+          `A tracker step already ran for a result that this move of ${result.branch} takes back: ${result.steps.map((one) => `${one.step} of ${one.assignmentId}`).join(", ")}. Bring it to the person.`,
+        ],
+      });
     default:
       return null;
   }
@@ -158,17 +169,34 @@ async function runStart(parsed: ParsedArguments): Promise<Handled> {
         operatorCommand("gate", "runner", "--run", runId, "--root", projectRoot),
       ),
   };
-  // A run gates the integration base of a source, or the candidate of one code result.
-  let result: Awaited<ReturnType<typeof CrewState.startCandidateGateRun>>;
+  // A run gates the integration base of a source, the candidate of one code result, or the next
+  // commit of the rebuilt range of the take-out of a source.
+  let result:
+    | Awaited<ReturnType<typeof CrewState.startCandidateGateRun>>
+    | Awaited<ReturnType<typeof CrewState.startTakeOutGateRun>>;
   if (assignmentId !== undefined && sourceId === undefined && baseCommit === undefined) {
     result = await CrewState.startCandidateGateRun({ ...shared, assignmentId });
   } else if (assignmentId === undefined && sourceId !== undefined && baseCommit !== undefined) {
     result = await CrewState.startGateRun({ ...shared, sourceId, commit: baseCommit });
+  } else if (assignmentId === undefined && sourceId !== undefined) {
+    result = await CrewState.startTakeOutGateRun({ ...shared, sourceId });
   } else {
     return "invalid-arguments";
   }
   if (reportSharedFailure(parsed, "gate_run", result)) {
     return "reported";
+  }
+  if (result.status === "nothing-to-take-out" || result.status === "take-out-plan-changed") {
+    return refuse({
+      json: parsed.json,
+      operation: "gate_run",
+      outcome: "conflict",
+      reason: "nothing_to_take_out",
+      detail: { sourceId: result.sourceId },
+      lines: [
+        `The integration branch of ${result.sourceId} holds no withdrawn commit, so no take-out range is gated.`,
+      ],
+    });
   }
   const candidate = reportCandidateRefusal(parsed, result);
   if (candidate !== null) {

@@ -13,6 +13,7 @@ import { latestSubmission } from "./submission.ts";
 import { isExecutable, isReview } from "./work-input.ts";
 import { writePathHolders, writePathsReader } from "./write-path-grants.ts";
 import { overlappingPaths, overlapsCommand } from "./write-paths.ts";
+import { pendingCommitsOf } from "./take-out.ts";
 
 export type FrontierEntry = {
   assignmentId: string;
@@ -33,6 +34,12 @@ export type FrontierBlocker =
   | { reason: "direction_required"; directionRequestId: string; limitKind: LimitKind }
   | { reason: "input_invalidated"; invalidated: string[] }
   | { reason: "write_paths_overlap"; holders: WritePathHolder[]; command: string }
+  | {
+      // The integration branch of the source still holds the commit of withdrawn work, so no
+      // dispatch base may hold a commit that no assignment owns until the take-out (ADR 0004).
+      reason: "take_out_pending";
+      commits: Array<{ assignmentId: string; commit: string }>;
+    }
   | { reason: "review_capacity_reserved"; productionLimit: number }
   | { reason: "crew_at_capacity"; limit: number };
 
@@ -203,6 +210,9 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
   }
 
   const paused = openPauses(db);
+  const takeOutPending = new Map(
+    [...sourceOrder.keys()].map((sourceId) => [sourceId, pendingCommitsOf(db, sourceId)]),
+  );
   const entries = rows.map(entry).toSorted(byPriority);
   const activeEntries = entries.flatMap((one) => {
     const attempt = attemptByAssignment.get(one.assignmentId);
@@ -269,6 +279,16 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
         blockers: [
           { reason: "review_pending", reviewAssignmentId: reviewByProducer(db, one.assignmentId) },
         ],
+      });
+      continue;
+    }
+
+    const withdrawnCommits =
+      one.kind === "production" ? takeOutPending.get(one.sourceId) : undefined;
+    if (withdrawnCommits !== undefined && withdrawnCommits.length > 0) {
+      blocked.push({
+        ...one,
+        blockers: [{ reason: "take_out_pending", commits: withdrawnCommits }],
       });
       continue;
     }

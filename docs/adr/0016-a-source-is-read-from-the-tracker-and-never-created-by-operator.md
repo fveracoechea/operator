@@ -75,6 +75,7 @@ A withdrawn assignment ends in its own state, and it never unblocks a dependent.
 Its attempts, submissions, reviews, findings, invalidations, and planning record stay as they were recorded.
 Its open cycle, its open invalidation, its open direction request, and each review of it that no attempt holds close with it.
 A withdrawn commit that the integration branch still holds is taken out, as ADR 0020 records.
+The plan lists each withdrawal with its recorded landing and the later commits that the take-out lands again, read from the crew state with no Git read, and the take-out is bound to the plan revision whose approval recorded the withdrawal.
 Operator writes nothing to the tracker for a withdrawal, because the removal that the person made is already there.
 A withdrawn issue that is added to its parent again is refused, because it matches the recorded item by its issue identity, and a new sub-issue carries the work again.
 On a new read, the input names only the new and changed items.

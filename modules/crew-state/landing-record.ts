@@ -14,7 +14,10 @@ export type LandingRow = typeof landings.$inferSelect;
 /**
  * The plan of one rewrite, as its intent records it (ADR 0020). It names the landing that the
  * correction replaces, each later landing that lands again with its new commit, and each later
- * landing that is taken out, so recovery and the record read the same move.
+ * landing that is taken out, so recovery and the record read the same move. A take-out names no
+ * correction: it records the registration plan revision that recorded the withdrawals it is bound
+ * to, and each other withdrawn landing that it removes with the replaced one (D5). A rewrite that
+ * an earlier release recorded carries no take-out part.
  */
 const rewriteRecordSchema = z.strictObject({
   replaces: z.string(),
@@ -36,6 +39,15 @@ const rewriteRecordSchema = z.strictObject({
       cause: z.enum(["conflict", "patch-changed", "gate", "dependency"]),
     }),
   ),
+  takeOut: z
+    .strictObject({
+      planRevision: z.string(),
+      removed: z.array(
+        z.strictObject({ landingId: z.string(), assignmentId: z.string(), commit: z.string() }),
+      ),
+    })
+    .nullable()
+    .default(null),
 });
 
 export type RewriteRecord = z.infer<typeof rewriteRecordSchema>;
@@ -81,7 +93,9 @@ export function intentTouches(intent: LandingRow, assignmentId: string): boolean
   const rewrite = rewriteOf(intent);
   return (
     rewrite !== null &&
-    [...rewrite.relanded, ...rewrite.takenOut].some((one) => one.assignmentId === assignmentId)
+    [...rewrite.relanded, ...rewrite.takenOut, ...(rewrite.takeOut?.removed ?? [])].some(
+      (one) => one.assignmentId === assignmentId,
+    )
   );
 }
 

@@ -137,3 +137,5 @@ For a correction of a landed commit, the same command gates the first commit of 
 `crew next` plans the rewrite again to read the range, and each commit is read by its key, so a commit below the first failure keeps its pass and only the changed part is gated again.
 A failed or flaky correction itself is answered by an integration cycle from the parent of the replaced commit, and a failed later commit is taken out by the next plan.
 A landing that lands nothing gates nothing, because the tip already passed at its own landing.
+For the take-out of a withdrawn commit, `operator gate run --source <id>` gates the first commit that lands again whose key has no passing run, and its subject is `take-out`, with the source, the recorded tip, and the commit that place lands on.
+A take-out lands nothing in the place of the withdrawn commit, so only the later commits are gated, and a take-out that lands no later commit again gates nothing.

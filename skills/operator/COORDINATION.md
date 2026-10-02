@@ -107,6 +107,7 @@ It reports this as the blocker `write_paths_overlap`, and the work waits until t
 Started production work holds its paths until it is accepted, also when it is invalidated.
 Work that the same reading offers holds its paths too, in priority order.
 Review work and planning work hold nothing, and work of another source is never held.
+While the integration branch of a source still holds a withdrawn commit, the frontier withholds every production assignment of that source with `take_out_pending`, until `take_out_commit` runs.
 
 The blocker lists each holder with its `assignmentId`, its `sourceKey`, `started` or `offered`, and `pathPairCount`, the number of overlapping pairs of paths.
 Its `command` lists each pair.

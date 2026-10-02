@@ -155,4 +155,14 @@ When every commit of the range passed, `work accept` records the intent, moves t
 An interrupted rewrite is settled by `settle_landing` like any other landing, and while it waits, cleanup refuses each checkout of the source with `rewrite_pending` and a withdrawal of a result it moves refuses with `withdrawal_effect_unsettled`.
 The rewrite is a ref move that the CLI builds only from reviewed patches, on a command that the Operator runs, so it is not an Operator change (`CONTEXT.md`, **Operator**).
 A rewrite whose replaced commit a recorded stack publication holds refuses with `rewrite_published_range` and names the pull request, because no recall is recorded yet.
+A rewrite that would return a result to awaiting review while a tracker step of that result is recorded refuses with `rewrite_tracker_recorded` and names each step.
+Since ADR 0022, a code result completes only after its merge, so its commit is inside a published range, and only a state that an earlier release recorded holds such a step; its ticket would say the work is done while its commit leaves the branch, so a person decides, and Operator writes no tracker step to undo another one.
+
+The take-out is a landing of the kind `take-out`, and its intent records the same plan with no correction: the lowest withdrawn commit is the replaced one, each other withdrawn commit is removed with it, and the plan names the registration plan revision that recorded the withdrawals.
+`operator work take-out --source <id> --plan-revision <revision>` is bound to that revision (D5): a revision that did not record each withdrawal refuses with `take_out_plan_changed`, so the move is exactly the one the person approved, and the registration plan already listed each later commit that it lands again (`rebuilds`), read from the crew state.
+Each take-out is bound to one revision, so a registration that withdraws more landed work while a take-out of the source waits refuses with `take_out_pending`, and `work accept` of a code result of the source refuses with `take_out_pending` too, so the rebuilt range stays the one the plan listed and no landing is gated twice.
+`crew next` offers `run_gate` with `operator gate run --source <id>` for each commit that lands again, then `take_out_commit`, and the command refuses with the gate blockers of ADR 0021 until the range passed.
+The record ends each withdrawn landing as taken out, moves the recorded tip, and registers the branch review when the branch became final (ADR 0017); the withdrawn commit stays in its checkout, which only the person removes (D3).
+A withdrawn landing on a commit that a result that is not withdrawn also carries leaves the record only, because that commit stays on the branch.
+An interrupted take-out is offered as `settle_landing` with the same command.
 Readiness refuses a Git older than 2.40.0 with `git_too_old`, because Git 2.40.0 is the first release that has both `merge-tree --merge-base` and `patch-id --verbatim`.

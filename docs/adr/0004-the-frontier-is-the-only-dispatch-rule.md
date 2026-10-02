@@ -31,6 +31,7 @@ The hold ends at accepted completion, because the integration branch then holds 
 A commit that is on the integration branch but not yet accepted still holds its paths.
 A withdrawn assignment whose commit the integration branch still holds keeps its paths until the take-out of ADR 0020 moves the branch without that commit.
 While such a take-out waits, the frontier offers no production assignment of that source, so no base holds a commit that no assignment owns.
+It withholds each one with the blocker `take_out_pending`, which names the withdrawn commits, and a claim of it is refused as for any other withheld work.
 
 The hold applies inside one source, because each source has its own integration branch.
 Work of another source never starts from that branch, so a hold across sources would stop parallel work and prevent no refusal.

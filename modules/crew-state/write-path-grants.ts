@@ -4,7 +4,7 @@ import { approvalRecordOf } from "./approvals.ts";
 import type { CrewReader } from "./database.ts";
 import { identityOf } from "./identity.ts";
 import { assignments, attempts, approvals } from "./schema.ts";
-import { recordedLanding } from "./submission.ts";
+import { currentLandingOf } from "./landing-record.ts";
 import { storedPermissions } from "./work-input.ts";
 import {
   overlappingPaths,
@@ -27,7 +27,8 @@ function writePathsRevision(registered: string[]): string {
 /**
  * Which production assignments hold their write paths now. Work holds them from its first claim
  * until it reaches accepted completion, and again after it leaves accepted completion. A
- * withdrawal ends the hold, unless a commit of the work is still landed (ADR 0004).
+ * withdrawal ends the hold, unless the integration branch still holds a commit of the work: then
+ * the take-out that moves the branch without that commit ends it (ADR 0004).
  */
 export function writePathHolders(db: CrewReader): (row: AssignmentRow) => boolean {
   const started = new Set(
@@ -41,7 +42,7 @@ export function writePathHolders(db: CrewReader): (row: AssignmentRow) => boolea
     row.kind === "production" &&
     started.has(row.id) &&
     row.state !== "accepted" &&
-    (row.state !== "withdrawn" || recordedLanding(db, row.id) !== null);
+    (row.state !== "withdrawn" || currentLandingOf(db, row.id) !== null);
 }
 
 /**

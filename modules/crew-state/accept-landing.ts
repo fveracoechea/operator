@@ -15,6 +15,7 @@ import { mutate, readState, type RequestFailure, type StateFailure } from "./ope
 import type { PreparedRecord } from "./planning-record.ts";
 import { planRewrite, rewriteGate } from "./rewrite.ts";
 import { landings } from "./schema.ts";
+import { pendingCommitsOf } from "./take-out.ts";
 
 type AcceptCall = {
   projectRoot: string;
@@ -151,6 +152,7 @@ export async function acceptWithLanding(request: AcceptCall): Promise<Reported> 
   const read = await readState(request.projectRoot, (db) => ({
     row: integrationBranchOf(db, required.sourceId),
     intended: intendedLandingOf(db, required.sourceId),
+    withdrawn: pendingCommitsOf(db, required.sourceId),
     replaced:
       required.replaces === null
         ? null
@@ -183,6 +185,20 @@ export async function acceptWithLanding(request: AcceptCall): Promise<Reported> 
       };
     }
     return settle(request, { id: intended.id, plan: planOfLanding(intended) });
+  }
+
+  // The take-out rebuilds the branch first, so a landing on a tip that still holds a withdrawn
+  // commit is never gated, and the rebuild is the one the registration plan listed (ADR 0020).
+  if (read.withdrawn.length > 0) {
+    return {
+      repeated: false,
+      result: {
+        status: "take-out-pending",
+        assignmentId: required.assignmentId,
+        sourceId: required.sourceId,
+        commits: read.withdrawn,
+      },
+    };
   }
 
   // A correction of a landed commit rebuilds the branch in the same order, and the project gate

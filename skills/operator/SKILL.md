@@ -45,7 +45,7 @@ Release selection, updates, and publication.
 Read [RELEASE.md](RELEASE.md) before you select a release, update a project, or report what a publication would do.
 
 Crew ownership, work registration, the frontier, and Operative dispatch.
-Read [REGISTRATION.md](REGISTRATION.md) before you register approved work.
+Read [REGISTRATION.md](REGISTRATION.md) before you register approved work, withdraw an item, or act on `take_out_commit` or `take_out_pending`.
 Read [DISPATCH.md](DISPATCH.md) before you claim, launch, or recover an Operative; it covers the Herdr launch and skill choice.
 Read [GATE.md](GATE.md) before you run the project gate or act on `run_gate`, `gate_running`, or a `gate_` refusal.
 

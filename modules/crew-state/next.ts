@@ -19,7 +19,8 @@ import {
   runningRunOf,
 } from "./gate-runs.ts";
 import { unlandedCommitOf } from "./cleanup-landing.ts";
-import { currentLandingOf, intendedLandingOf, replacedLandingOf } from "./landing.ts";
+import { currentLandingOf, intendedLandingOf, replacedLandingOf, rewriteOf } from "./landing.ts";
+import { pendingTakeOutsOf, type TakeOutRead, takeOutCommand } from "./take-out.ts";
 import { integrationBranchOf } from "./integration.ts";
 import { directionRecordOf } from "./direction.ts";
 import { calculateFrontier, type Frontier, undirected, unmetDependencies } from "./frontier.ts";
@@ -70,6 +71,7 @@ export const NEXT_ACTIONS = [
   "dispose_findings",
   "delegate_rework",
   "dispose_outside_changes",
+  "take_out_commit",
   "accept_assignment",
   "resolve_planning",
   "publish_stack",
@@ -613,6 +615,7 @@ function readReview(
     sourceId: string;
     broken: Map<string, BrokenLanding>;
     rewrites: Map<string, RewriteRead>;
+    takeOutWaits: Set<string>;
   },
   into: Collector,
 ): void {
@@ -689,6 +692,7 @@ function readReview(
           submissionId: submission.id,
           broken: request.broken.get(submission.id) ?? null,
           rewrite: request.rewrites.get(submission.id) ?? null,
+          takeOutWaits: request.takeOutWaits.has(request.sourceId),
         },
         into,
       );
@@ -701,6 +705,77 @@ function readReview(
       command: "operator work accept",
     });
   }
+}
+
+/**
+ * The take-out of each source whose integration branch still holds a withdrawn commit (ADR
+ * 0020). It comes ahead of every landing of the source, so no landing is gated twice. A
+ * take-out whose move has no recorded outcome is settled by a repeat of the command. Otherwise
+ * each commit of the rebuilt range passes the project gate first, one `run_gate` at a time, and
+ * the command is then offered with the plan revision that recorded the withdrawals (D5).
+ */
+function readTakeOutsOf(
+  db: CrewReader,
+  request: { takeOuts: Map<string, TakeOutRead> },
+  into: Collector,
+): Set<string> {
+  const waiting = new Set<string>();
+  for (const source of db.select().from(workSources).all()) {
+    const intended = intendedLandingOf(db, source.id);
+    const pending = pendingTakeOutsOf(db, source.id);
+    if (intended?.kind === "take-out") {
+      waiting.add(source.id);
+      into.add({
+        action: "settle_landing",
+        sourceId: source.id,
+        detail: `Take-out ${intended.id} moves ${intended.branch} from ${intended.fromCommit} to ${intended.toCommit}, and its outcome is not recorded. Repeat the take-out: it reads the branch once and moves it again, records the outcome, or names a moved branch.`,
+        command: takeOutCommand(source.id, rewriteOf(intended)?.takeOut?.planRevision ?? ""),
+      });
+      continue;
+    }
+    if (pending.length === 0) {
+      continue;
+    }
+    waiting.add(source.id);
+    const read = request.takeOuts.get(source.id);
+    const commits = pending.map((one) => one.landing.landedCommit).join(", ");
+    const revision = read?.planRevision ?? pending[0]?.planRevision ?? "";
+    const gate = read?.gate ?? null;
+    if (gate !== null && gate.status === "running") {
+      into.wait({
+        wait: "gate_running",
+        sourceId: source.id,
+        detail: `Gate run ${gate.runIds.join(", ")} runs on ${gate.commit} of the rebuilt range of the take-out. Its runner wakes the Operator at the end.`,
+      });
+      continue;
+    }
+    if (gate !== null && gate.status === "pending") {
+      const running = runningRunOf(db, source.id);
+      if (running !== null) {
+        into.wait({
+          wait: "gate_running",
+          sourceId: source.id,
+          detail: `Gate run ${running.id} of source ${source.id} runs first. One gate run of a source runs at a time.`,
+        });
+        continue;
+      }
+      into.add({
+        action: "run_gate",
+        sourceId: source.id,
+        detail: `The take-out of the withdrawn commit(s) ${commits} rebuilds the branch, and ${gate.commit} on ${gate.parent} is the next commit of the rebuilt range with no gate run at its key.`,
+        command: `operator gate run --source ${source.id}`,
+      });
+      continue;
+    }
+    // A plan that read no range is left to the command, which names the refusal.
+    into.add({
+      action: "take_out_commit",
+      sourceId: source.id,
+      detail: `The integration branch still holds the withdrawn commit(s) ${commits}. Each later commit that lands again passed the project gate, so the take-out moves the branch once without them. Until then no production work of the source starts.`,
+      command: takeOutCommand(source.id, revision),
+    });
+  }
+  return waiting;
 }
 
 /**
@@ -721,10 +796,11 @@ function readLanding(
     submissionId: string;
     broken: BrokenLanding | null;
     rewrite: RewriteRead | null;
+    takeOutWaits: boolean;
   },
   into: Collector,
 ): void {
-  const { sourceId, submissionId, broken, rewrite, ...subject } = request;
+  const { sourceId, submissionId, broken, rewrite, takeOutWaits, ...subject } = request;
   const intended = intendedLandingOf(db, sourceId);
   if (intended !== null && intended.submissionId === submissionId) {
     into.add({
@@ -733,6 +809,10 @@ function readLanding(
       detail: `Landing ${intended.id} moves ${intended.branch} from ${intended.fromCommit} to ${intended.toCommit}, and its outcome is not recorded. Repeat the acceptance: it reads the branch once and lands again, records the outcome, or names a moved branch.`,
       command: "operator work accept",
     });
+    return;
+  }
+  // The take-out rebuilds the branch first, so this landing is planned on the new tip after it.
+  if (takeOutWaits) {
     return;
   }
   const row = integrationBranchOf(db, sourceId);
@@ -1119,6 +1199,8 @@ export function calculateNext(
     broken: Map<string, BrokenLanding>;
     // The rebuilt range of each correction of a landed commit, by submission.
     rewrites: Map<string, RewriteRead>;
+    // The take-out of each source whose branch still holds a withdrawn commit, by source.
+    takeOuts: Map<string, TakeOutRead>;
   },
 ): CrewNext {
   const frontier = calculateFrontier(db, request.capacity);
@@ -1183,6 +1265,7 @@ export function calculateNext(
   }
 
   readQuestions(db, unsettled, into);
+  const takeOutWaits = readTakeOutsOf(db, { takeOuts: request.takeOuts }, into);
 
   const paused = openPauses(db);
   for (const row of db
@@ -1227,6 +1310,7 @@ export function calculateNext(
           sourceId: row.sourceId,
           broken: request.broken,
           rewrites: request.rewrites,
+          takeOutWaits,
         },
         into,
       );
