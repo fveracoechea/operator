@@ -166,7 +166,7 @@ It is a local branch named `operator/integration/<source slug>`, which the first
 No two sources share a slug, so no two sources share a branch.
 Every later production dispatch of the source starts from its recorded tip, so a dependent assignment starts from it.
 A branch that holds any other commit stops each production dispatch of its source, and only a person puts it back.
-It moves only by a landing, or by a rewrite that puts a corrected commit in place of the one it corrects or takes a withdrawn commit out, and only from the tip the crew last recorded.
+It moves only by a landing, by a rewrite that puts a corrected commit in place of the one it corrects or takes a withdrawn commit out, or by an approved rebase onto a new integration base, and only from the tip the crew last recorded.
 Nothing pushes it before publish, and publish pushes its commits only under new remote names, so a pushed branch is never pushed again.
 A published part of it is rewritten only after its pull requests are recalled, and a part that merged is never rewritten.
 _Avoid_: autosquash, fixup, for the rewrite
@@ -174,6 +174,9 @@ _Avoid_: autosquash, fixup, for the rewrite
 **Integration base**:
 The commit one integration branch starts from.
 It changes only through a rebase onto a new base that a person approves, so a moved main branch never changes an accepted patch by itself, and a patch that the rebase changes is reviewed again.
+The new base is a fetched tip of the target branch, it passes the project gate under the gate declaration fixed on the source before it is recorded, and the old base is below it.
+A rebase runs before publish, or after a recall or a stack fault, and never while a published pull request of the source is open.
+A commit whose pull request merged into the target leaves the branch, and a commit whose patch the rebase changes is taken out and comes back through an integration cycle.
 It is fixed only after it passes the project gate, so a failure it already holds is never blamed on the first result.
 
 **Landing**:
@@ -236,6 +239,7 @@ An outcome on GitHub that no stack publication planned: a merge that is not a me
 Operator adopts nothing from it, and it waits on a person.
 A fault on one part stops every part above it.
 Only the person settles it, by an approval of the reading: a settled merge by another method counts as landed, and any other settled fault ends its part.
+Operator writes nothing more to a pull request whose head a person moved, also after the person settled that fault: a later stack publication only names it.
 `operator publish status` records it when the user reports a merge or a close, because `operator crew next` never reads GitHub.
 The items of a pull request that reached the target by another merge method still complete.
 _Avoid_: delivery fault

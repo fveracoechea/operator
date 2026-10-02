@@ -76,6 +76,11 @@ A merged commit is never corrected or taken out; a defect found after the merge 
 The integration base changes only through a rebase that a person approves, before publish or after a recall or a stack fault.
 The CLI gates the new base, then rebuilds the branch on it under the tests of the ADR 0020 rewrite, and a commit that already merged into the target leaves the branch.
 A patch that the rebase changes becomes an integration cycle, and the new head needs a new branch review.
+The approval names the action `integration-rebase`, the old base and the new base as targets, the source as scope, and the plan revision as request revision, and `crew next` offers `rebase_integration` only for an approval of the plan of today.
+The new base must be on the fetched target branch, and the old base must be below it.
+A published pull request of the source that no read shows merged or closed refuses the rebase with `rebase_published_range`, also when a stack fault that no person settled holds it, because a person can still read and merge it.
+When the person settled every fault of the last publication, its open pull requests are stopped: the rebase runs, and the next stack publication carries their commits and closes each one, after one comment that points to its replacement, under the same `publish` approval, which names each close as a target.
+A pull request whose head a person moved gets no write, no comment and no close, also after the person settled that fault: Operator writes nothing more to it (decision 21), and the plan only names it, so the person closes it.
 The preview reports whether the head merges cleanly onto the fetched target, as information, so a conflict with another source can be settled by this rebase before anyone reviews on GitHub.
 
 A source is finished when every pull request of its last stack publication merged with a merge commit, or a person settled its merge by another method, and every tracker step of its items is verified.

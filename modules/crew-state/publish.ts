@@ -37,8 +37,20 @@ export type PublishPreview = {
   info: ModulePlan["info"] | null;
   refusals: PublishRefusal[];
   approval: ApprovalRequest | null;
+  /** The open pull requests of an ended publication that this one replaces and closes. */
+  closes: ReplacedPull[];
+  /** The replaced pull requests whose head a person moved, which get no write (decision 21). */
+  headMoved: ReplacedPull[];
   planPath: string;
 };
+
+/** One open pull request of an ended publication, which the next publication closes. */
+export type ReplacedPull = { number: number; url: string | null };
+
+/** The approval target of the close of one replaced pull request (decisions 9 and 23). */
+export function closeTarget(repository: string, number: number): string {
+  return `${repository}#${number}`;
+}
 
 const PLAN_STORE = ".operator/local/publish-plans";
 
@@ -63,9 +75,18 @@ const effectSchema = z.discriminatedUnion("kind", [
     from: z.string(),
     base: z.string(),
   }),
+  z.strictObject({
+    kind: z.literal("close"),
+    repository: z.string(),
+    number: z.int(),
+    publication: z.int(),
+  }),
 ]);
 
-/** One write as its intent records it. A create learns the number of the part below at run. */
+/**
+ * One write as its intent records it. A create learns the number of the part below at run, and a
+ * close learns the number of the first part that replaces it.
+ */
 type StoredEffect = z.infer<typeof effectSchema>;
 
 type PublicationRow = typeof stackPublications.$inferSelect;
@@ -128,6 +149,7 @@ export function approvalRequestOf(
   sourceId: string,
   revision: string,
   ships: Ships,
+  closes: { repository: string; pulls: ReplacedPull[] },
 ): ApprovalRequest {
   return {
     action: PUBLISH_ACTION,
@@ -138,6 +160,7 @@ export function approvalRequestOf(
         trackerStepTarget(one.closes, "resolution"),
         trackerStepTarget(one.closes, "completion"),
       ]),
+      ...closes.pulls.map((one) => closeTarget(closes.repository, one.number)),
     ],
     scope: sourceId,
     requestRevision: revision,
@@ -174,6 +197,30 @@ function previewText(preview: Omit<PublishPreview, "planPath">): string {
           ...info.unverifiedRules.map((one) => `- Unverified: ${one}`),
         ]),
     "",
+    ...(preview.closes.length === 0
+      ? []
+      : [
+          "## Pull requests this publication closes",
+          "",
+          "Each one gets one comment that names its replacement, then it is closed with no merge. Its branch stays.",
+          "",
+          ...preview.closes.map(
+            (one) => `- #${one.number}${one.url === null ? "" : ` ${one.url}`}`,
+          ),
+          "",
+        ]),
+    ...(preview.headMoved.length === 0
+      ? []
+      : [
+          "## Replaced pull requests that get no write",
+          "",
+          "A person moved the head of each one, so Operator writes nothing more to it, no comment and no close (decision 21). A person closes it.",
+          "",
+          ...preview.headMoved.map(
+            (one) => `- #${one.number} gets no write${one.url === null ? "" : `: ${one.url}`}`,
+          ),
+          "",
+        ]),
     "## Refusals",
     "",
     ...(preview.refusals.length === 0
@@ -230,6 +277,10 @@ function previewText(preview: Omit<PublishPreview, "planPath">): string {
 export async function planPublish(request: {
   projectRoot: string;
   sourceId: string;
+  /** The open pull requests of an ended publication, read by the caller (decision 23). */
+  replaces: ReplacedPull[];
+  /** The replaced pull requests whose head a person moved, which get no write (decision 21). */
+  headMoved: ReplacedPull[];
 }): Promise<
   | PublishPreview
   | StateFailure
@@ -284,7 +335,10 @@ export async function planPublish(request: {
   }
 
   const ships = planned?.ships ?? null;
-  const planRevision = ships === null ? null : identityOf(ships);
+  const closes = request.replaces;
+  // A close is part of what ships, so the approval binds it. With none, the revision is unchanged.
+  const planRevision =
+    ships === null ? null : closes.length === 0 ? identityOf(ships) : identityOf({ ships, closes });
   const preview = {
     status: "planned" as const,
     sourceId: request.sourceId,
@@ -297,7 +351,12 @@ export async function planPublish(request: {
     approval:
       ships === null || planRevision === null
         ? null
-        : approvalRequestOf(request.sourceId, planRevision, ships),
+        : approvalRequestOf(request.sourceId, planRevision, ships, {
+            repository: records.repository ?? "",
+            pulls: closes,
+          }),
+    closes,
+    headMoved: request.headMoved,
   };
   const shown = read.mapIssue ? withMapAmendments(preview) : preview;
   const name = planRevision ?? `refused-${identityOf(shown).slice(0, 16)}`;
@@ -371,6 +430,13 @@ function recordPublication(
       base: one.base,
       title: one.title,
       body: one.body,
+    })),
+    // After every create, so the comment of each close names the replacement.
+    ...preview.closes.map((one) => ({
+      kind: "close" as const,
+      repository: request.repository,
+      number: one.number,
+      publication: preview.publication,
     })),
   ];
   effects.forEach((effect, position) => {
@@ -457,6 +523,14 @@ export type ApplyResult =
   | { status: "unknown-source"; sourceId: string }
   | { status: "unread"; detail: string };
 
+/** The recorded number of the lowest part of one publication, which a replaced one points to. */
+async function firstPartOf(projectRoot: string, publicationId: string): Promise<number | null> {
+  const read = await readState(projectRoot, (db) => ({
+    first: pullRequestsOf(db, publicationId)[0] ?? null,
+  }));
+  return "status" in read ? null : (read.first?.number ?? null);
+}
+
 /**
  * The recorded number of the part whose remote branch is this base, or null for the lowest part.
  * The creates run bottom up, so the part below is created and numbered by then.
@@ -506,7 +580,9 @@ export async function runEffects(
       effect:
         intent.kind === "create"
           ? { ...intent, below: await belowOf(request.projectRoot, publicationId, intent.base) }
-          : intent,
+          : intent.kind === "close"
+            ? { ...intent, replacement: await firstPartOf(request.projectRoot, publicationId) }
+            : intent,
     });
     const recorded = await mutate(
       {
@@ -551,6 +627,8 @@ export async function applyPublish(request: {
   ownerToken: string;
   sourceId: string;
   planRevision: string;
+  replaces: ReplacedPull[];
+  headMoved: ReplacedPull[];
 }): Promise<ApplyResult> {
   const open = await readState(request.projectRoot, (db) =>
     openPublicationOf(db, request.sourceId),

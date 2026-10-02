@@ -154,7 +154,7 @@ function reportCandidateRefusal(parsed: ParsedArguments, result: CandidateResult
 // oxlint-disable-next-line complexity -- Each refusal of a gate start keeps its own reason.
 async function runStart(parsed: ParsedArguments): Promise<Handled> {
   const mutation = readMutation(parsed);
-  const { sourceId, baseCommit, assignmentId } = parsed.crew;
+  const { sourceId, baseCommit, assignmentId, newBase } = parsed.crew;
   if (mutation === null) {
     return "invalid-arguments";
   }
@@ -170,14 +170,18 @@ async function runStart(parsed: ParsedArguments): Promise<Handled> {
       ),
   };
   // A run gates the integration base of a source, the candidate of one code result, or the next
-  // commit of the rebuilt range of the take-out of a source.
+  // commit of the rebuilt range of the take-out of a source, or the next place of a rebase onto
+  // a new base.
   let result:
     | Awaited<ReturnType<typeof CrewState.startCandidateGateRun>>
-    | Awaited<ReturnType<typeof CrewState.startTakeOutGateRun>>;
+    | Awaited<ReturnType<typeof CrewState.startTakeOutGateRun>>
+    | Awaited<ReturnType<typeof CrewState.startRebaseGateRun>>;
   if (assignmentId !== undefined && sourceId === undefined && baseCommit === undefined) {
     result = await CrewState.startCandidateGateRun({ ...shared, assignmentId });
   } else if (assignmentId === undefined && sourceId !== undefined && baseCommit !== undefined) {
     result = await CrewState.startGateRun({ ...shared, sourceId, commit: baseCommit });
+  } else if (assignmentId === undefined && sourceId !== undefined && newBase !== undefined) {
+    result = await CrewState.startRebaseGateRun({ ...shared, sourceId, newBase });
   } else if (assignmentId === undefined && sourceId !== undefined) {
     result = await CrewState.startTakeOutGateRun({ ...shared, sourceId });
   } else {
@@ -185,6 +189,34 @@ async function runStart(parsed: ParsedArguments): Promise<Handled> {
   }
   if (reportSharedFailure(parsed, "gate_run", result)) {
     return "reported";
+  }
+  if (result.status === "rebase-refused") {
+    const { preview } = result;
+    return refuse({
+      json: parsed.json,
+      operation: "gate_run",
+      outcome: "invalid",
+      reason: preview.refusals[0]?.reason ?? "integration_branch_unread",
+      detail: { refusals: preview.refusals, planPath: preview.planPath },
+      lines: [
+        `The rebase of ${preview.sourceId} is refused, so no place of it is gated: ${preview.refusals.map((one) => one.reason).join(", ")}.`,
+        `Every refusal: ${preview.planPath}`,
+      ],
+    });
+  }
+  if (result.status === "rebase-gate-failed") {
+    const { gate } = result;
+    return refuse({
+      json: parsed.json,
+      operation: "gate_run",
+      outcome: "conflict",
+      reason: `gate_${gate.status}`,
+      detail: { commit: gate.commit, parent: gate.parent, ...gate.key, runIds: gate.runIds },
+      lines: [
+        `The key of ${gate.parent === null ? "the new base" : "commit"} ${gate.commit} is ${gate.status} in gate run ${gate.runIds.join(", ")}, so nothing was started.`,
+        "Nothing reruns a failed key by itself. Only the person starts a fresh series, with an approval.",
+      ],
+    });
   }
   if (result.status === "nothing-to-take-out" || result.status === "take-out-plan-changed") {
     return refuse({

@@ -29,8 +29,14 @@ import { calculateFrontier } from "./frontier.ts";
 import { calculateNext, calculateUnowned, isStandingAction } from "./next.ts";
 import { readBrokenLandings } from "./next-landings.ts";
 import { parseInput } from "./input.ts";
-import { applyPublish, planPublish } from "./publish.ts";
-import { finishAfterStep, observePublish, retargetPublish } from "./publish-status.ts";
+import {
+  applyStack,
+  finishAfterStep,
+  observePublish,
+  planStack,
+  retargetPublish,
+} from "./publish-status.ts";
+import { applyRebase, planRebase, startRebaseGateRun } from "./rebase.ts";
 import { preparePlanningRecord, showPlanningRecord } from "./planning-record.ts";
 import { mutate, readState } from "./operations.ts";
 import { claimOwnership, currentOwnership } from "./ownership.ts";
@@ -256,7 +262,7 @@ export const CrewState = {
    * named by its plan revision, so its report stays a summary that points to the text.
    */
   async planPublish(request: Located & { sourceId: string }) {
-    return { repeated: false, result: await planPublish(request) };
+    return { repeated: false, result: await planStack(request) };
   },
 
   /**
@@ -266,7 +272,7 @@ export const CrewState = {
    * It never merges and never asks GitHub to merge: a person merges.
    */
   async publish(request: Mutation & { sourceId: string; planRevision: string }) {
-    return { repeated: false, result: await applyPublish(request) };
+    return { repeated: false, result: await applyStack(request) };
   },
 
   /**
@@ -284,6 +290,24 @@ export const CrewState = {
    */
   async retargetPublish(request: Mutation & { sourceId: string; part: number }) {
     return { repeated: false, result: await retargetPublish(request) };
+  },
+
+  /**
+   * Plans the rebase of the integration branch of one source onto a new base, a fetched tip of
+   * its target, and changes nothing that others read. It names what leaves the branch, what lands
+   * again, what is taken out, and the plan revision a person approves (ADR 0022).
+   */
+  async planRebase(request: Located & { sourceId: string; newBase: string }) {
+    return { repeated: false, result: await planRebase(request) };
+  },
+
+  /**
+   * Rebases the integration branch of one source onto its new base behind one
+   * `integration-rebase` approval of the plan revision, after the new base and each commit that
+   * lands again passed the project gate. A repeat settles a rebase whose outcome is not recorded.
+   */
+  async rebase(request: Mutation & { sourceId: string; newBase: string; planRevision: string }) {
+    return { repeated: false, result: await applyRebase(request) };
   },
 
   /** Claims one dispatchable assignment. Exactly one concurrent claim wins. */
@@ -589,6 +613,21 @@ export const CrewState = {
    */
   async takeOut(request: Mutation & { sourceId: string; planRevision: string }) {
     return takeOutWithdrawn(request);
+  },
+
+  /**
+   * Starts one gate run on the first place of a rebase onto a new base that has not passed: the
+   * new base, then each commit that lands again on it, in order (ADR 0021).
+   */
+  async startRebaseGateRun(
+    request: Mutation & {
+      sourceId: string;
+      newBase: string;
+      approvalId: string | null;
+      runnerLine: (runId: string) => string;
+    },
+  ) {
+    return startRebaseGateRun(request);
   },
 
   /**

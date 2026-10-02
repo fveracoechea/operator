@@ -1,6 +1,6 @@
 # Publish
 
-Read this when `bun run operator crew next` offers `publish_stack`, `retarget_pull_request`, or `settle_publish`, or shows `stack_open` or `stack_fault`, and when the user reports a merge or a close of a pull request.
+Read this when `bun run operator crew next` offers `publish_stack`, `retarget_pull_request`, `settle_publish`, `rebase_integration`, or `settle_rebase`, or shows `stack_open` or `stack_fault`, when the user reports a merge or a close of a pull request, and when the target branch moved under a source.
 
 The CLI publishes the integration branch of a source as a pull request stack, one pull request by default, behind one approval of the person (ADR 0022).
 A person merges each pull request on GitHub.
@@ -153,6 +153,64 @@ Bring it to the user, and run the read again when the user reports a change on G
 When the person accepts a fault as GitHub shows it, record their approval of the settlement that `publish status` names under each `stack_fault` blocker: action `stack-fault`, the pull request as target, the source as scope, and the reading as request revision.
 A settled squash or rebase merge counts as landed.
 Any other settled fault ends its part, and the parts above it stay stopped, so `crew next` keeps `stack_fault` for them: their commits reach the target only through a new stack publication.
+
+## Rebase onto a new base
+
+The integration base changes only through a rebase that the person approves, so a moved target branch never changes an accepted patch by itself.
+Propose a rebase in one of these cases, and only then:
+
+- before publish, when the preview reports that the head does not merge cleanly onto the target tip, which is how an overlap with another source shows;
+- before publish, when the person wants the branch on a newer target;
+- after the person settled every stack fault of a publication, to drop the commits whose pull request merged and to publish the rest again.
+
+A rebase also comes after a recall, when the recall is built.
+Never propose it to follow the target on every merge.
+It gates the new base and every commit again, and the new head needs a new branch review, which counts against the limit of three.
+
+Plan it with the fetched tip of the target branch as the new base:
+
+```
+bun run operator work rebase --source <source id> --base <sha> --json
+```
+
+The plan changes nothing that others read.
+Its report is a summary: the old and new base, how many commits leave the branch because their pull request merged, how many land again, how many are taken out, and the next place to gate.
+Every commit is in the file it names under `.operator/local/rebase-plans/`.
+Ask the person to read it and to approve the exact request it names: action `integration-rebase`, the old base and the new base as targets, the source as scope, and the plan revision as request revision.
+Then `crew next` offers `rebase_integration` with the command to run:
+
+```
+bun run operator work rebase --request <id> --owner-token <token> --source <source id> --base <sha> --plan-revision <revision> --json
+```
+
+It refuses with `approval_required` without that approval, and with `plan_revision_changed` when the base or the tip moved since the plan.
+It answers `gate_pending` until the new base and each commit that lands again passed the project gate, in that order.
+Run the gate run it names, `bun run operator gate run --request <id> --owner-token <token> --source <source id> --base <sha> --json`, and repeat the rebase after each run, as [GATE.md](GATE.md) describes.
+A failing new base is never recorded, and the refusal names the run. Only the person clears it: by a fixed target and a new base, or by a fresh series.
+A commit whose new tree fails the gate is taken out by the next plan.
+
+Then the CLI records the intent, moves the branch once, and answers `rebased`.
+It is a ref move that the CLI builds only from reviewed patches, on a command you run, so it is not a change of yours, and it writes no file and nothing to GitHub.
+A commit whose pull request merged into the target leaves the branch, and its ticket still completes after the merge.
+A commit whose patch changes on the new base is taken out: its assignment returns to awaiting review, and `crew next` offers `delegate_rework` for an integration cycle, as [REWORK.md](REWORK.md) describes.
+The rebase registers a new branch review on the new head, as [REVIEW.md](REVIEW.md) describes.
+A rebase whose outcome is not recorded shows as `settle_rebase`; run the command it names again.
+
+After the rebase, `crew next` offers `publish_stack` again when the publish gate holds.
+The next publication closes each open pull request of the settled publication that it replaces: the part a settled fault left open and each stopped part above a fault.
+The plan names each close, the approval names each one as `<owner>/<repo>#<n>`, and each one gets one comment that points to the replacement before it is closed with no merge. Its branch stays.
+A replaced pull request whose head a person moved gets no write, no comment and no close (decision 21). The plan names it under `headMoved`; tell the user that a person closes it.
+
+The plan refuses, all at once, with:
+
+- `rebase_published_range`: a published pull request of the source is open, also one with a stack fault that no person settled. A rebase never changes what an open pull request holds. The person settles the fault or closes the pull request first.
+- `publish_unsettled`, `landing_pending`, `rebase_pending`: settle that write, landing, or rebase first.
+- `rebase_correction_open`: a correction replaces a landed commit. Accept it first.
+- `rebase_take_out_pending`: the branch still holds the commit of a withdrawn item.
+- `rebase_base_not_on_target`: the commit is not on the fetched target branch.
+- `rebase_base_unchanged`, `rebase_base_not_ahead`: the new base is the old one, or the old base is not below it.
+- `rebase_merge_not_in_base`: the new base does not hold the merge commit of a pull request that merged.
+- `repository_unread`, `remote_missing`, `remote_ambiguous`, `remote_unread`, `integration_branch_moved`, `integration_branch_checked_out`, `integration_branch_unread`.
 
 ## Finished source
 

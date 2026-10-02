@@ -79,7 +79,7 @@ function dependenciesOf(db: CrewReader, assignmentId: string): Set<string> {
  * The trees of one source whose key failed or is flaky under the gate fixed on it. A later
  * commit that lands again at one of them fails the third test of a rewrite (ADR 0021).
  */
-function refusedTrees(db: CrewReader, row: IntegrationBranchRow): string[] {
+export function refusedTrees(db: CrewReader, row: IntegrationBranchRow): string[] {
   const trees = new Set(
     db
       .select()
@@ -142,12 +142,35 @@ function readRebuild(
 }
 
 /**
+ * Each landing with the commits below it, in the same list, that hold a result it needs. A rebase
+ * reads the whole branch this way, from its base.
+ */
+export function withNeeds(
+  db: CrewReader,
+  later: LaterLanding[],
+): Array<LaterLanding & { needs: string[] }> {
+  const owners = later.map((one) => new Set(one.rows.map((landing) => landing.assignmentId)));
+  return later.map((one, index) => {
+    const needed = new Set(
+      one.rows.flatMap((landing) => [...dependenciesOf(db, landing.assignmentId)]),
+    );
+    return {
+      ...one,
+      needs: later
+        .slice(0, index)
+        .filter((_, earlier) => [...(owners[earlier] ?? [])].some((id) => needed.has(id)))
+        .map((earlier) => earlier.commit),
+    };
+  });
+}
+
+/**
  * Each tracker step that is recorded for a result that a rebuild moves back to awaiting review.
  * Such a step ran when an earlier release completed a code result at its acceptance, so its
  * ticket says the work is done while its commit leaves the branch. The rebuild holds, and a
  * person decides, because Operator writes no tracker step to undo another one (#114).
  */
-function trackerHold(
+export function trackerHold(
   db: CrewReader,
   assignmentIds: string[],
 ): Array<{ assignmentId: string; step: string; state: string }> {
@@ -467,13 +490,30 @@ export function applyRewrite(db: CrewWriter, request: { rewrite: RewriteRecord; 
   for (const one of rewrite.takeOut?.removed ?? []) {
     db.update(landings).set({ state: "taken-out" }).where(eq(landings.id, one.landingId)).run();
   }
-  for (const one of rewrite.relanded) {
+  relandAll(db, rewrite.relanded);
+  takeOutAll(db, { takenOut: rewrite.takenOut, now });
+}
+
+/** Each landing that a rebuild landed again names its new commit and parent. */
+export function relandAll(db: CrewWriter, relanded: RewriteRecord["relanded"]): void {
+  for (const one of relanded) {
     db.update(landings)
       .set({ landedCommit: one.to, landedParent: one.parent })
       .where(eq(landings.id, one.landingId))
       .run();
   }
-  for (const one of rewrite.takenOut) {
+}
+
+/**
+ * Each landing that a rebuild took out ends, and its accepted assignment returns to awaiting
+ * review, so its acceptance is taken again as an ordinary landing on the new tip (ADR 0020).
+ */
+export function takeOutAll(
+  db: CrewWriter,
+  request: { takenOut: RewriteRecord["takenOut"]; now: string },
+): void {
+  const { now } = request;
+  for (const one of request.takenOut) {
     const landing = db.select().from(landings).where(eq(landings.id, one.landingId)).all()[0];
     db.update(landings).set({ state: "taken-out" }).where(eq(landings.id, one.landingId)).run();
     const row = readAssignment(db, one.assignmentId);

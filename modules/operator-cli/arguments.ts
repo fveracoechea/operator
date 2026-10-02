@@ -16,6 +16,7 @@ const crewFieldByFlag = {
   "--revision": "revision",
   "--input": "inputPath",
   "--commit": "baseCommit",
+  "--base": "newBase",
   "--branch": "branch",
   "--worktree": "worktreePath",
   "--inspection": "inspectionIdentity",

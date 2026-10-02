@@ -646,6 +646,181 @@ describe("IntegrationBranch rewrite", () => {
   });
 });
 
+describe("IntegrationBranch rebase", () => {
+  /** Two landed commits: one in a.txt, then one in b.txt, on the base of main. */
+  async function twoLanded(root: string) {
+    const base = await head(root, "main");
+    await branchAt(root, base);
+    const first = await result(root, {
+      start: base,
+      branch: "work-a",
+      path: "a.txt",
+      text: lines("a", 20, { 0: "A0" }),
+      date: "2002-01-01T00:00:00Z",
+    });
+    await land(root, { base, tip: base, commit: first });
+    const second = await result(root, {
+      start: first,
+      branch: "work-b",
+      path: "b.txt",
+      text: lines("b", 20, { 10: "B10" }),
+      date: "2003-01-01T00:00:00Z",
+    });
+    await land(root, { base, tip: first, commit: second });
+    return { base, first, second };
+  }
+
+  /** One commit on main, as a merge of another source moves the target. */
+  async function moveMain(root: string, path: string, text: string): Promise<string> {
+    await write(root, path, text);
+    return commit(root, `upstream ${path}`, "2006-01-01T00:00:00Z");
+  }
+
+  function rebase(
+    root: string,
+    request: {
+      base: string;
+      tip: string;
+      newBase: string;
+      commits: Array<{ commit: string; needs?: string[]; merged?: boolean }>;
+      mergeCommits?: string[];
+      refused?: string[];
+    },
+  ) {
+    return IntegrationBranch.rebase({
+      repoRoot: root,
+      name: NAME,
+      base: request.base,
+      recordedTip: request.tip,
+      newBase: request.newBase,
+      commits: request.commits.map((one) => ({
+        commit: one.commit,
+        needs: one.needs ?? [],
+        merged: one.merged ?? false,
+      })),
+      mergeCommits: request.mergeCommits ?? [],
+      refused: request.refused ?? [],
+    });
+  }
+
+  async function patch(root: string, commit: string): Promise<string> {
+    return Bun.$`git -C ${root} diff-tree -p --no-renames ${commit}^ ${commit}`.text();
+  }
+
+  test("lands each commit again on the new base with an equal patch, and moves no ref", async () => {
+    const root = await repository();
+    const { base, first, second } = await twoLanded(root);
+    const newBase = await moveMain(root, "c.txt", "upstream\n");
+
+    const plan = await rebase(root, {
+      base,
+      tip: second,
+      newBase,
+      commits: [{ commit: first }, { commit: second }],
+    });
+
+    if (plan.status !== "ready") {
+      throw new Error(`rebase refused: ${JSON.stringify(plan)}`);
+    }
+    expect(plan.base).toEqual({
+      from: base,
+      to: newBase,
+      tree: (await Bun.$`git -C ${root} rev-parse ${`${newBase}^{tree}`}`.text()).trim(),
+    });
+    expect(plan.takenOut).toEqual([]);
+    expect(plan.merged).toEqual([]);
+    expect(plan.relanded.map((one) => one.was)).toEqual([first, second]);
+    expect(plan.relanded[0]?.parent).toBe(newBase);
+    expect(plan.relanded[1]?.parent).toBe(plan.relanded[0]?.commit ?? "");
+    expect(plan.to).toBe(plan.relanded[1]?.commit ?? "");
+    expect(await patch(root, plan.to)).toBe(await patch(root, second));
+    // The plan writes only Git objects. The branch moves only through `move`.
+    expect(await head(root, NAME)).toBe(second);
+  });
+
+  test("takes out a commit whose patch changes on the new base, and each commit that needs it", async () => {
+    const root = await repository();
+    const { base, first, second } = await twoLanded(root);
+    // A change two lines from the first result merges cleanly but changes its context lines.
+    const newBase = await moveMain(root, "a.txt", lines("a", 20, { 2: "U2" }));
+
+    const plan = await rebase(root, {
+      base,
+      tip: second,
+      newBase,
+      commits: [{ commit: first }, { commit: second, needs: [first] }],
+    });
+
+    if (plan.status !== "ready") {
+      throw new Error(`rebase refused: ${JSON.stringify(plan)}`);
+    }
+    expect(plan.takenOut).toEqual([
+      { commit: first, cause: "patch-changed" },
+      { commit: second, cause: "dependency" },
+    ]);
+    expect(plan.relanded).toEqual([]);
+    expect(plan.to).toBe(newBase);
+  });
+
+  test("a commit whose pull request merged leaves the branch, and its merge commit must be in the new base", async () => {
+    const root = await repository();
+    const { base, first, second } = await twoLanded(root);
+    await Bun.$`git -C ${root} -c user.name=Person -c user.email=person@example.test merge -q --no-ff -m merge ${first}`.quiet();
+    const merge = await head(root, "main");
+    const commits = [{ commit: first, merged: true }, { commit: second }];
+
+    const plan = await rebase(root, {
+      base,
+      tip: second,
+      newBase: merge,
+      commits,
+      mergeCommits: [merge],
+    });
+
+    if (plan.status !== "ready") {
+      throw new Error(`rebase refused: ${JSON.stringify(plan)}`);
+    }
+    expect(plan.merged).toEqual([first]);
+    expect(plan.relanded.map((one) => one.was)).toEqual([second]);
+    expect(plan.relanded[0]?.parent).toBe(merge);
+    expect(await patch(root, plan.to)).toBe(await patch(root, second));
+
+    // A new base that does not hold the merge would drop a commit the target never received.
+    await Bun.$`git -C ${root} checkout -q -b other ${base}`.quiet();
+    const without = await moveMain(root, "d.txt", "other\n");
+    await Bun.$`git -C ${root} checkout -q main`.quiet();
+    const refused = await rebase(root, {
+      base,
+      tip: second,
+      newBase: without,
+      commits,
+      mergeCommits: [merge],
+    });
+    expect(refused).toEqual({ status: "merge-not-in-base", mergeCommit: merge, newBase: without });
+  });
+
+  test("refuses a new base that is the old base or not ahead of it", async () => {
+    const root = await repository();
+    const { base, first, second } = await twoLanded(root);
+    const commits = [{ commit: first }, { commit: second }];
+
+    expect(await rebase(root, { base, tip: second, newBase: base, commits })).toEqual({
+      status: "base-unchanged",
+    });
+    await Bun.$`git -C ${root} checkout -q --orphan unrelated`.quiet();
+    const unrelated = await moveMain(root, "e.txt", "unrelated\n");
+    await Bun.$`git -C ${root} checkout -q -f main`.quiet();
+    expect(await rebase(root, { base, tip: second, newBase: unrelated, commits })).toEqual({
+      status: "base-not-ahead",
+      base,
+      newBase: unrelated,
+    });
+    // A record that leaves out a commit of the branch moves nothing.
+    const short = await rebase(root, { base, tip: second, newBase: unrelated, commits: [] });
+    expect(short.status).toBe("unread");
+  });
+});
+
 describe("IntegrationBranch holds", () => {
   /** A branch with two landed commits, so the first one is held below the tip. */
   async function landedTwice(root: string) {

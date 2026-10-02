@@ -268,3 +268,70 @@ export async function retargetPull(
     ? { status: "failed", message: detailOf(outcome) }
     : { status: "uncertain", detail: outcome.detail };
 }
+
+/** The bodies of the comments on one pull request, oldest first. It writes nothing. */
+export async function commentsOf(
+  repository: string,
+  number: number,
+): Promise<{ status: "read"; value: string[] } | { status: "unread"; detail: string }> {
+  const outcome = await GithubApi.call({
+    args: [`repos/${repository}/issues/${number}/comments?per_page=100`],
+    timeoutMs: READ_TIMEOUT_MS,
+  });
+  if (outcome.status !== "succeeded") {
+    return { status: "unread", detail: detailOf(outcome) };
+  }
+  const listed = Array.isArray(outcome.value.body) ? outcome.value.body : [];
+  return {
+    status: "read",
+    value: listed.map((one) => ToolInvocation.text(one, "body") ?? ""),
+  };
+}
+
+/** Writes one comment on one pull request. */
+export async function commentOn(
+  repository: string,
+  number: number,
+  body: string,
+): Promise<
+  | { status: "written" }
+  | { status: "failed"; message: string }
+  | { status: "uncertain"; detail: string }
+> {
+  const outcome = await GithubApi.call({
+    args: ["--method", "POST", `repos/${repository}/issues/${number}/comments`, "--input", "-"],
+    input: JSON.stringify({ body }),
+    timeoutMs: WRITE_TIMEOUT_MS,
+  });
+  if (outcome.status === "succeeded") {
+    return { status: "written" };
+  }
+  return outcome.status === "failed"
+    ? { status: "failed", message: detailOf(outcome) }
+    : { status: "uncertain", detail: outcome.detail };
+}
+
+/**
+ * Closes one pull request with no merge. It sends the state and nothing else, so it never
+ * merges and never deletes its branch (ADR 0022, D6, R3).
+ */
+export async function closePull(
+  repository: string,
+  number: number,
+): Promise<
+  | { status: "closed" }
+  | { status: "failed"; message: string }
+  | { status: "uncertain"; detail: string }
+> {
+  const outcome = await GithubApi.call({
+    args: ["--method", "PATCH", `repos/${repository}/pulls/${number}`, "--input", "-"],
+    input: JSON.stringify({ state: "closed" }),
+    timeoutMs: WRITE_TIMEOUT_MS,
+  });
+  if (outcome.status === "succeeded") {
+    return { status: "closed" };
+  }
+  return outcome.status === "failed"
+    ? { status: "failed", message: detailOf(outcome) }
+    : { status: "uncertain", detail: outcome.detail };
+}

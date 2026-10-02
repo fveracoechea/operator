@@ -165,4 +165,13 @@ Each take-out is bound to one revision, so a registration that withdraws more la
 The record ends each withdrawn landing as taken out, moves the recorded tip, and registers the branch review when the branch became final (ADR 0017); the withdrawn commit stays in its checkout, which only the person removes (D3).
 A withdrawn landing on a commit that a result that is not withdrawn also carries leaves the record only, because that commit stays on the branch.
 An interrupted take-out is offered as `settle_landing` with the same command.
+
+The rebase onto a new base is `operator work rebase --source <id> --base <commit>` (ADR 0022).
+Without `--plan-revision` it plans and changes nothing that others read, and its full plan is a local file under `.operator/local/rebase-plans/`.
+It rebuilds the whole branch on the new base in the same order, under the three tests of the rewrite, and its plan revision names the source, the branch, the old base and tip, and the new base.
+A commit whose pull request the recorded observations show merged into the target leaves the branch, its landing becomes `merged`, and removal of its checkout still proves it, because it is below the new base.
+The new base must hold the merge commit of each such pull request, or the plan refuses with `rebase_merge_not_in_base`.
+Each commit that is taken out returns its assignment to awaiting review, as in a rewrite, and a recorded tracker step of such a result refuses with `rewrite_tracker_recorded`.
+The rebase is a separate intent in the crew state, so a landing refuses with `rebase_pending`, cleanup refuses each checkout of the source with `rebase_pending`, and `crew next` offers `settle_rebase`, while its outcome is not recorded.
+It is a ref move that the CLI builds only from reviewed patches, on a command that the Operator runs, so it is not an Operator change (D5).
 Readiness refuses a Git older than 2.40.0 with `git_too_old`, because Git 2.40.0 is the first release that has both `merge-tree --merge-base` and `patch-id --verbatim`.

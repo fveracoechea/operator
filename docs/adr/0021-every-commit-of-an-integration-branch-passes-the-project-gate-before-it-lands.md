@@ -125,6 +125,9 @@ The key does not cover the machine, so a changed tool version outside the tree d
 A failed or flaky key at the base has no assignment to correct it, so only the user can clear it: by a fixed main branch and a new base, or by an approval of a fresh series.
 
 A rebase of the branch onto a moved main branch, which a person approves (ADR 0022), gives every commit a new tree, so every commit is gated again before it is published.
+`operator gate run --source <id> --base <commit>` gates the new base first, as a base run, and then each commit that lands again on it, in order, and the plan is made again after each run.
+The rebase keeps the gate declaration fixed on the source, so a result of the source that already merged into the target never chooses the gate of the later commits.
+A failed or flaky place starts no new run without a fresh series, and a failing new base is never recorded.
 
 Removal of the gate checkout needs no approval, because it holds no work, as ADR 0012 records for the checkout of a probe.
 The branch that Herdr creates for it never moves and stays after the checkout is gone.

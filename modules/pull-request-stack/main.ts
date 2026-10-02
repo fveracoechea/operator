@@ -26,6 +26,9 @@ import {
   pullsByHead,
   readParents,
   readPullState,
+  closePull,
+  commentOn,
+  commentsOf,
   readRepository,
   readRules,
   retargetPull,
@@ -128,7 +131,18 @@ type Effect =
       /** The recorded number of the part below, which fills the one slot of the body. */
       below: number | null;
     }
-  | { kind: "retarget"; repository: string; number: number; from: string; base: string };
+  | { kind: "retarget"; repository: string; number: number; from: string; base: string }
+  | {
+      /**
+       * The close of one pull request that a later stack publication replaces, with one comment
+       * that points to the replacement, whose number fills the one slot at the write.
+       */
+      kind: "close";
+      repository: string;
+      number: number;
+      publication: number;
+      replacement: number | null;
+    };
 
 type WriteOutcome =
   | { status: "done"; how: "observed" | "written"; number: number | null; url: string | null }
@@ -439,6 +453,53 @@ export const PullRequestStack = {
   },
 
   /**
+   * Reads the target branch of one repository, fetches its tip by its commit, and answers
+   * whether one commit is on it, for the new base of a rebase (ADR 0022). The target is the
+   * default branch, and the remote is the one whose URL names the repository, as for a plan. It
+   * moves no ref of the project and writes nothing that others read.
+   */
+  async target(request: { repoRoot: string; repository: string; commit: string }): Promise<
+    | { status: "read"; target: string; tip: string; onTarget: boolean }
+    | {
+        status: "unread";
+        reason: "repository_unread" | "remote_missing" | "remote_ambiguous" | "remote_unread";
+        detail: string;
+      }
+  > {
+    const settings = await readRepository(request.repository);
+    if (settings.status !== "read") {
+      return { status: "unread", reason: "repository_unread", detail: settings.detail };
+    }
+    const remote = await remoteOf(request.repoRoot, request.repository);
+    if (remote.status === "missing") {
+      return {
+        status: "unread",
+        reason: "remote_missing",
+        detail: `No remote URL names ${request.repository}.`,
+      };
+    }
+    if (remote.status === "ambiguous") {
+      return {
+        status: "unread",
+        reason: "remote_ambiguous",
+        detail: `Each of these remotes names ${request.repository}: ${remote.remotes.map((one) => one.name).join(", ")}.`,
+      };
+    }
+    if (remote.status === "unread") {
+      return { status: "unread", reason: "remote_unread", detail: remote.detail };
+    }
+    const target = settings.value.target;
+    const tip = await fetchTarget(request.repoRoot, remote.remote.name, target);
+    if (tip.status !== "read") {
+      return { status: "unread", reason: "remote_unread", detail: tip.detail };
+    }
+    const on = await isAncestor(request.repoRoot, request.commit, tip.value);
+    return on.status === "read"
+      ? { status: "read", target, tip: tip.value, onTarget: on.value }
+      : { status: "unread", reason: "remote_unread", detail: on.detail };
+  },
+
+  /**
    * Performs one staged effect. It reads first and writes only when the read shows that the
    * effect is still needed, so a repeat after a lost answer is safe (ADR 0005).
    */
@@ -446,6 +507,9 @@ export const PullRequestStack = {
     const { effect } = request;
     if (effect.kind === "push") {
       return writePush(request.repoRoot, effect);
+    }
+    if (effect.kind === "close") {
+      return writeClose(effect);
     }
     return effect.kind === "create" ? writeCreate(effect) : writeRetarget(effect);
   },
@@ -715,6 +779,66 @@ async function writeRetarget(effect: Extract<Effect, { kind: "retarget" }>): Pro
         ? `#${effect.number} still targets ${after.value.base}.`
         : changed.status === "uncertain"
           ? changed.detail
+          : after.detail,
+  };
+}
+
+/** The comment that a replaced pull request gets once, with a marker that finds it again. */
+function replacedComment(effect: Extract<Effect, { kind: "close" }>): string {
+  return [
+    `<!-- operator:replaced-by-publication:${effect.publication} -->`,
+    `Stack publication ${effect.publication} replaces this pull request${effect.replacement === null ? "" : `: it starts at #${effect.replacement}`}.`,
+    "Its commits were rebuilt on a new base and reviewed again, so this pull request is closed with no merge. Its branch stays.",
+  ].join("\n");
+}
+
+/**
+ * Closes one pull request that a later publication replaces, after one comment that points to the
+ * replacement (decision 23). It reads first: a closed pull request is done, a merged one is a
+ * conflict for a person, and the comment is written only when no comment holds its marker, so a
+ * repeat writes nothing twice. It never merges and deletes no branch.
+ */
+async function writeClose(effect: Extract<Effect, { kind: "close" }>): Promise<WriteOutcome> {
+  const before = await readPullState(effect.repository, effect.number);
+  if (before.status !== "read") {
+    return { status: "uncertain", detail: before.detail };
+  }
+  if (before.value.merged) {
+    return { status: "conflict", found: `#${effect.number} is merged into ${before.value.base}` };
+  }
+  if (before.value.state === "closed") {
+    return { status: "done", how: "observed", number: effect.number, url: null };
+  }
+  const comment = replacedComment(effect);
+  const marker = comment.split("\n")[0] ?? "";
+  const held = await commentsOf(effect.repository, effect.number);
+  if (held.status !== "read") {
+    return { status: "uncertain", detail: held.detail };
+  }
+  if (!held.value.some((one) => one.includes(marker))) {
+    const written = await commentOn(effect.repository, effect.number, comment);
+    if (written.status === "failed") {
+      return { status: "failed", message: written.message };
+    }
+    if (written.status === "uncertain") {
+      return { status: "uncertain", detail: written.detail };
+    }
+  }
+  const closed = await closePull(effect.repository, effect.number);
+  if (closed.status === "failed") {
+    return { status: "failed", message: closed.message };
+  }
+  const after = await readPullState(effect.repository, effect.number);
+  if (after.status === "read" && after.value.state === "closed" && !after.value.merged) {
+    return { status: "done", how: "written", number: effect.number, url: null };
+  }
+  return {
+    status: "uncertain",
+    detail:
+      after.status === "read"
+        ? `#${effect.number} is still ${after.value.state}.`
+        : closed.status === "uncertain"
+          ? closed.detail
           : after.detail,
   };
 }

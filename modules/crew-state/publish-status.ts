@@ -10,6 +10,9 @@ import { checkoutOf, runningRunOf } from "./gate-runs.ts";
 import { mutate, readState, type RequestFailure, type StateFailure } from "./operations.ts";
 import {
   type ApplyResult,
+  applyPublish,
+  planPublish,
+  type ReplacedPull,
   type ApprovalRequest,
   effectsOf,
   PUBLISH_ACTION,
@@ -86,6 +89,109 @@ function reachedTarget(seen: ObservationRow | null): boolean {
     seen.state === "merged" &&
     (seen.fault === null || seen.fault === "not_merge_commit")
   );
+}
+
+/**
+ * Each published pull request of one source, read from the recorded observations only, for a
+ * rebase (ADR 0022). A part that reached the target names its published commit and its merge
+ * commit. Any other part that no read shows merged or closed is still open, also when it has a
+ * stack fault, because a person can still read and merge it.
+ */
+export function publishedPartsOf(
+  db: CrewReader,
+  sourceId: string,
+): {
+  merged: Array<{ number: number; publishedCommit: string; mergeCommit: string }>;
+  open: Array<{ number: number | null; url: string | null; fault: string | null }>;
+} {
+  const merged: Array<{ number: number; publishedCommit: string; mergeCommit: string }> = [];
+  const open: Array<{ number: number | null; url: string | null; fault: string | null }> = [];
+  for (const publication of publicationsOf(db, sourceId)) {
+    for (const pull of pullRequestsOf(db, publication.id)) {
+      const seen = latestObservationOf(db, publication.id, pull.part);
+      if (reachedTarget(seen) && seen?.mergeCommit != null) {
+        merged.push({
+          number: pull.number ?? 0,
+          publishedCommit: pull.publishedCommit,
+          mergeCommit: seen.mergeCommit,
+        });
+      } else if (seen?.state !== "merged" && seen?.state !== "closed") {
+        open.push({ number: pull.number, url: pull.url, fault: seen?.fault ?? null });
+      }
+    }
+  }
+  return { merged, open };
+}
+
+/**
+ * The open pull requests of the last publication of one source when every fault of it is settled
+ * and its commits did not all reach the target: the part a settled fault left open and the parts
+ * above a fault, which stay stopped. The next stack publication carries their commits, after a
+ * rebase, and closes each one with a pointer to its replacement (decision 23).
+ */
+export function replacedPullsOf(db: CrewReader, sourceId: string): ReplacedPull[] {
+  const last = writtenPublicationOf(db, sourceId);
+  if (last === null || !last.written || stackStateOf(db, sourceId).state !== "ended") {
+    return [];
+  }
+  return last.pulls.flatMap((pull) => {
+    const seen = latestObservationOf(db, last.publication.id, pull.part);
+    return pull.number === null || seen?.state === "merged" || seen?.state === "closed"
+      ? []
+      : [{ number: pull.number, url: pull.url }];
+  });
+}
+
+/** Plans the next stack publication of one source, with the pull requests it replaces. */
+export async function planStack(request: { projectRoot: string; sourceId: string }) {
+  const replaces = await readState(request.projectRoot, (db) => ({
+    ...replacedSplitOf(db, request.sourceId),
+  }));
+  return "status" in replaces
+    ? replaces
+    : planPublish({ ...request, replaces: replaces.pulls, headMoved: replaces.headMoved });
+}
+
+/** Applies the next stack publication of one source, with the pull requests it replaces. */
+export async function applyStack(request: {
+  projectRoot: string;
+  requestId: string;
+  ownerToken: string;
+  sourceId: string;
+  planRevision: string;
+}): Promise<ApplyResult> {
+  const replaces = await readState(request.projectRoot, (db) => ({
+    ...replacedSplitOf(db, request.sourceId),
+  }));
+  return "status" in replaces
+    ? replaces
+    : applyPublish({ ...request, replaces: replaces.pulls, headMoved: replaces.headMoved });
+}
+
+/**
+ * The pull requests the next stack publication replaces, split by what it writes to them. A
+ * person moved the head of a pull request with a `head_moved` fault, so Operator writes nothing
+ * more to it, no comment and no close. The plan only names it (decision 21).
+ */
+function replacedSplitOf(
+  db: CrewReader,
+  sourceId: string,
+): { pulls: ReplacedPull[]; headMoved: ReplacedPull[] } {
+  const last = writtenPublicationOf(db, sourceId);
+  const moved = new Set(
+    (last?.pulls ?? [])
+      .filter(
+        (pull) =>
+          last !== null &&
+          latestObservationOf(db, last.publication.id, pull.part)?.fault === "head_moved",
+      )
+      .map((pull) => pull.number),
+  );
+  const replaced = replacedPullsOf(db, sourceId);
+  return {
+    pulls: replaced.filter((one) => !moved.has(one.number)),
+    headMoved: replaced.filter((one) => moved.has(one.number)),
+  };
 }
 
 /** The publication whose approval names the tracker steps of one ticket, newest first. */

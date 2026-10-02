@@ -7,6 +7,7 @@ import {
   LANDING_TABLES,
   OBSERVATION_TABLES,
   PUBLISH_TABLES,
+  REBASE_TABLES,
   STATE_VERSION,
 } from "./schema.ts";
 
@@ -267,6 +268,17 @@ export const MIGRATIONS: MigrationStep[] = [
     // An earlier release rewrote nothing, so every recorded landing keeps a null plan.
     apply: (sqlite) => {
       sqlite.exec(LANDING_REWRITE_COLUMN);
+    },
+  },
+  {
+    from: 17,
+    to: 18,
+    summary: "Record each approved rebase of an integration branch onto a new base.",
+    // An earlier release rebased nothing, so the table starts empty.
+    apply: (sqlite) => {
+      for (const statement of REBASE_TABLES) {
+        sqlite.exec(statement);
+      }
     },
   },
 ];

@@ -51,6 +51,7 @@ export type CleanupBlocker =
     }
   | { reason: "landing_pending"; landingId: string; pendingAssignmentId: string }
   | { reason: "rewrite_pending"; landingId: string; pendingAssignmentId: string }
+  | { reason: "rebase_pending"; rebaseId: string; planRevision: string }
   | { reason: "integration_branch_moved"; branch: string; recordedTip: string; found: string }
   | { reason: "integration_branch_missing"; branch: string }
   | { reason: "integration_branch_unread"; branch: string; detail: string }

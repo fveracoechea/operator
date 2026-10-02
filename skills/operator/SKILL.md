@@ -68,7 +68,7 @@ Delegated rework, the limits that bound it, and a defect found after acceptance.
 Read [REWORK.md](REWORK.md), [LIMITS.md](LIMITS.md), and [INVALIDATION.md](INVALIDATION.md) before you act on any of them.
 
 The integrated pull request of a source.
-Read [PUBLISH.md](PUBLISH.md) before you act on `publish_stack`, `retarget_pull_request`, `settle_publish`, `stack_open`, or `stack_fault`, and when the user reports a merge or a close of a pull request.
+Read [PUBLISH.md](PUBLISH.md) before you act on `publish_stack`, `retarget_pull_request`, `settle_publish`, `rebase_integration`, `settle_rebase`, `stack_open`, or `stack_fault`, when the user reports a merge or a close of a pull request, and before you propose a rebase onto a new base.
 
 Question routing, answers, and approvals.
 `bun run operator question` and `bun run operator approval` carry them, and the brief tells each Operative how to raise one.
@@ -76,7 +76,7 @@ Read [QUESTIONS.md](QUESTIONS.md) before you answer a question or record an appr
 
 Process closure and worktree removal.
 `bun run operator cleanup` carries them, and each one needs its own proof and its own approval.
-Removal reads no remote. It proves the handed-over commit from the local integration branch, and it refuses with `head_moved`, `integration_branch_moved`, `integration_branch_missing`, `landing_pending`, `rewrite_pending`, or `landing_not_held`. Settle `landing_pending` and `rewrite_pending` first; a person puts a moved or deleted branch back.
+Removal reads no remote. It proves the handed-over commit from the local integration branch, and it refuses with `head_moved`, `integration_branch_moved`, `integration_branch_missing`, `landing_pending`, `rewrite_pending`, `rebase_pending`, or `landing_not_held`. Settle `landing_pending`, `rewrite_pending`, and `rebase_pending` first; a person puts a moved or deleted branch back.
 `unlanded_work` names a checkout that holds a withdrawn or replaced commit. `cleanup show` lists it under `unlanded`, and only the person removes it.
 
 Tracker completion and recovery.

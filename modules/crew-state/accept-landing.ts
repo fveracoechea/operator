@@ -13,6 +13,7 @@ import {
 } from "./landing.ts";
 import { mutate, readState, type RequestFailure, type StateFailure } from "./operations.ts";
 import type { PreparedRecord } from "./planning-record.ts";
+import { intendedRebaseOf } from "./rebase.ts";
 import { planRewrite, rewriteGate } from "./rewrite.ts";
 import { landings } from "./schema.ts";
 import { pendingCommitsOf } from "./take-out.ts";
@@ -153,6 +154,7 @@ export async function acceptWithLanding(request: AcceptCall): Promise<Reported> 
     row: integrationBranchOf(db, required.sourceId),
     intended: intendedLandingOf(db, required.sourceId),
     withdrawn: pendingCommitsOf(db, required.sourceId),
+    rebase: intendedRebaseOf(db, required.sourceId),
     replaced:
       required.replaces === null
         ? null
@@ -168,6 +170,18 @@ export async function acceptWithLanding(request: AcceptCall): Promise<Reported> 
         status: "integration-branch-missing",
         assignmentId: required.assignmentId,
         sourceId: required.sourceId,
+      },
+    };
+  }
+  // A landing on a tip that an open rebase moves would leave that rebase no tip to move from.
+  if (read.rebase !== null) {
+    return {
+      repeated: false,
+      result: {
+        status: "rebase-pending",
+        assignmentId: required.assignmentId,
+        rebaseId: read.rebase.id,
+        planRevision: read.rebase.planRevision,
       },
     };
   }

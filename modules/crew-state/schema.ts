@@ -5,7 +5,7 @@ import { integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqli
  * The durable shape of the crew state. A reader that finds a higher version refuses the file,
  * so this number changes only when an older Operator release can no longer read the tables.
  */
-export const STATE_VERSION = 17;
+export const STATE_VERSION = 18;
 
 export const stateMeta = sqliteTable("state_meta", {
   id: integer("id").primaryKey(),
@@ -596,6 +596,32 @@ export const landings = sqliteTable("landings", {
 });
 
 /**
+ * One approved rebase of the integration branch of one source onto a new base (ADR 0020, ADR
+ * 0022). The intent records the whole plan before the branch moves, so recovery reads the branch
+ * once, and the outcome records the new base and tip with what the rebase did to each landing.
+ */
+export const integrationRebases = sqliteTable("integration_rebases", {
+  id: text("id").primaryKey(),
+  sourceId: text("source_id")
+    .notNull()
+    .references(() => workSources.id),
+  planRevision: text("plan_revision").notNull(),
+  approvalId: text("approval_id")
+    .notNull()
+    .references(() => approvals.id),
+  branch: text("branch").notNull(),
+  fromBase: text("from_base").notNull(),
+  toBase: text("to_base").notNull(),
+  fromTip: text("from_tip").notNull(),
+  toTip: text("to_tip").notNull(),
+  // The landings that leave the branch, land again with their new commit, or are taken out.
+  plan: text("plan").notNull(),
+  state: text("state").notNull(),
+  createdAt: text("created_at").notNull(),
+  rebasedAt: text("rebased_at"),
+});
+
+/**
  * One stack publication of one source (ADR 0022), recorded after its `publish` approval and
  * before its first write. A source can publish more than once, so each one has its number.
  */
@@ -798,6 +824,7 @@ export const crewStateSchema = {
   publishEffects,
   stackPullRequests,
   stackObservations,
+  integrationRebases,
   trackerOperations,
   trackerWriteAttempts,
   trackerObservations,
@@ -985,6 +1012,27 @@ export const OBSERVATION_TABLES = [
     detail text,
     observed_at text not null
   ) strict`,
+];
+
+/** The rebase table, written once for a new state and for the migration step. */
+export const REBASE_TABLES = [
+  `create table integration_rebases (
+    id text primary key,
+    source_id text not null references work_sources(id),
+    plan_revision text not null,
+    approval_id text not null references approvals(id),
+    branch text not null,
+    from_base text not null,
+    to_base text not null,
+    from_tip text not null,
+    to_tip text not null,
+    plan text not null,
+    state text not null,
+    created_at text not null,
+    rebased_at text
+  ) strict`,
+  // One rebase of a source waits at a time, so two intents never race for one tip.
+  `create unique index integration_rebases_one_intended on integration_rebases (source_id) where state = 'intended'`,
 ];
 
 /**
@@ -1249,6 +1297,7 @@ export const CREATE_STATEMENTS = [
   ...PUBLISH_TABLES.map((statement) => sql.raw(statement)),
   ...OBSERVATION_TABLES.map((statement) => sql.raw(statement)),
   sql.raw(LANDING_REWRITE_COLUMN),
+  ...REBASE_TABLES.map((statement) => sql.raw(statement)),
   sql`create table approvals (
     id text primary key,
     action text not null,

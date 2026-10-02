@@ -41,6 +41,8 @@ import { openCycleOf } from "./rework.ts";
 import { approvals, assignments, attempts, workSources } from "./schema.ts";
 import type { BrokenLanding, RewriteRead } from "./next-landings.ts";
 import { openPublicationOf, PUBLISH_ACTION, publicationsOf } from "./publish.ts";
+import { intendedRebaseOf, REBASE_ACTION, rebaseRevisionOf, rebasesOf } from "./rebase.ts";
+import { approvalRecordOf } from "./approvals.ts";
 import { publishRecordsOf } from "./publish-gate.ts";
 import { mergeGateOf, retargetsDue, stackStateOf } from "./publish-status.ts";
 import { eq } from "drizzle-orm";
@@ -61,6 +63,7 @@ export const NEXT_ACTIONS = [
   "own_crew",
   "reconcile_attempt",
   "settle_landing",
+  "settle_rebase",
   "settle_publish",
   "adopt_attempt",
   "recover_tracker",
@@ -74,6 +77,7 @@ export const NEXT_ACTIONS = [
   "take_out_commit",
   "accept_assignment",
   "resolve_planning",
+  "rebase_integration",
   "publish_stack",
   "retarget_pull_request",
   "record_tracker",
@@ -304,6 +308,11 @@ function readPublish(db: CrewReader, into: Collector): void {
         ].join(" "),
         command: status,
       });
+    } else if (
+      stack.state === "ended" &&
+      publicationsOf(db, source.id).at(-1)?.baseCommit !== branch.baseCommit
+    ) {
+      // A rebase after the settled faults is the path, so the next publication is offered below.
     } else if (stack.state === "ended") {
       // A settled fault ends its part, and the parts above it stay stopped: only a new stack
       // publication carries their commits to the target, after a recall or a rebase.
@@ -321,7 +330,7 @@ function readPublish(db: CrewReader, into: Collector): void {
           ...(stack.stopped.length === 0
             ? []
             : [`A fault stops every part above it, so ${parts(stack.stopped)} are stopped.`]),
-          "Their commits reach the target only through a new stack publication. A person decides the path.",
+          "Their commits reach the target only through a new stack publication, after a rebase onto the target that the person approves. Plan it with `operator work rebase --source <id> --base <the target tip>`, and the next publication closes each pull request it replaces.",
         ].join(" "),
         command: status,
       });
@@ -376,6 +385,74 @@ function readPublish(db: CrewReader, into: Collector): void {
       offer.blocker = "approval_required";
     }
     into.add(offer);
+  }
+}
+
+/**
+ * The rebase of each source onto a new base (ADR 0022). A rebase whose move has no recorded
+ * outcome is settled first, by a repeat of the same command. A granted `integration-rebase`
+ * approval that no rebase used yet, whose old base is still the base, is offered as the rebase
+ * to run: the command gates the new base and each commit first, and names the next gate run.
+ * This reads no Git.
+ */
+function readRebase(db: CrewReader, into: Collector): void {
+  for (const source of db.select().from(workSources).all()) {
+    const branch = integrationBranchOf(db, source.id);
+    if (branch === null) {
+      continue;
+    }
+    const open = intendedRebaseOf(db, source.id);
+    if (open !== null) {
+      into.add({
+        action: "settle_rebase",
+        sourceId: source.id,
+        detail: `Rebase ${open.id} moves ${open.branch} from ${open.fromTip} to ${open.toTip} on the new base ${open.toBase}, and its outcome is not recorded. Repeat it: it reads the branch once and moves it again, records the outcome, or names a moved branch.`,
+        command: `operator work rebase --source ${source.id} --base ${open.toBase} --plan-revision ${open.planRevision}`,
+      });
+      continue;
+    }
+    const used = new Set(rebasesOf(db, source.id).map((one) => one.planRevision));
+    const approved = db
+      .select()
+      .from(approvals)
+      .where(eq(approvals.action, REBASE_ACTION))
+      .all()
+      .find((one) => {
+        const [from, to] = approvalRecordOf(one).targets;
+        // Only an approval of the plan of today: the recorded base and tip, and its new base.
+        const planned = rebaseRevisionOf({
+          sourceId: source.id,
+          branch: branch.name,
+          from: { base: branch.baseCommit, tip: branch.recordedTip },
+          newBase: to ?? "",
+        });
+        return (
+          one.state === "granted" &&
+          one.scope === source.id &&
+          from === branch.baseCommit &&
+          one.requestRevision === planned &&
+          !used.has(one.requestRevision)
+        );
+      });
+    if (approved === undefined) {
+      continue;
+    }
+    const running = runningRunOf(db, source.id);
+    if (running !== null) {
+      into.wait({
+        wait: "gate_running",
+        sourceId: source.id,
+        detail: `Gate run ${running.id} of source ${source.id} runs first. One gate run of a source runs at a time.`,
+      });
+      continue;
+    }
+    const newBase = approvalRecordOf(approved).targets[1] ?? "<the new base>";
+    into.add({
+      action: "rebase_integration",
+      sourceId: source.id,
+      detail: `An integration-rebase approval of ${branch.name} onto ${newBase} is recorded. Run the rebase: it moves the branch only after the new base and each commit that lands again passed the project gate, and it names the next gate run until then.`,
+      command: `operator work rebase --source ${source.id} --base ${newBase} --plan-revision ${approved.requestRevision}`,
+    });
   }
 }
 
@@ -1353,6 +1430,7 @@ export function calculateNext(
     }
   }
 
+  readRebase(db, into);
   readPublish(db, into);
 
   // Planning work is never dispatched. Once its dependencies land, the crew prepares its record

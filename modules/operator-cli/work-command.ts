@@ -2,6 +2,7 @@ import { CrewState } from "../crew-state/main.ts";
 import { runInvalidate } from "./invalidate-command.ts";
 import { runDispose } from "./outside-command.ts";
 import { landingRefusalOf } from "./landing-refusal.ts";
+import { runRebase } from "./rebase-command.ts";
 import { runRework } from "./rework-command.ts";
 import { runTakeOut } from "./take-out-command.ts";
 import { type ParsedArguments, readMutation, readRevision } from "./arguments.ts";
@@ -670,6 +671,7 @@ function reportLandingRefusal(parsed: ParsedArguments, result: AcceptanceResult)
     case "landing-patch-changed":
     case "landing-gate-not-passed":
     case "landing-pending":
+    case "rebase-pending":
     case "rewrite-published-range":
     case "rewrite-tracker-recorded":
     case "take-out-pending":
@@ -1224,6 +1226,9 @@ export async function runWork(words: string[], parsed: ParsedArguments): Promise
   }
   if (subcommand === "claim") {
     return runClaim(parsed);
+  }
+  if (subcommand === "rebase") {
+    return runRebase(parsed);
   }
   if (subcommand === "accept") {
     return runAccept(parsed);

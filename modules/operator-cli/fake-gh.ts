@@ -244,6 +244,9 @@ if (repositoryMatch?.[1] !== undefined) {
       if (body?.base !== undefined) {
         changed.base = { ref: body.base };
       }
+      if (body?.state === "closed" || body?.state === "open") {
+        changed.state = body.state;
+      }
       state.pulls = {
         ...state.pulls,
         [name]: held.map((one) => (one.number === changed.number ? changed : one)),

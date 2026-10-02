@@ -19,6 +19,7 @@ export type LandingRefusalResult = Extract<
       | "landing-patch-changed"
       | "landing-gate-not-passed"
       | "landing-pending"
+      | "rebase-pending"
       | "landing-tip-changed"
       | "rewrite-published-range"
       | "rewrite-tracker-recorded"
@@ -112,6 +113,14 @@ export function landingRefusalOf(
         reason: "landing_pending",
         lines: [
           `Landing ${result.landingId} of assignment ${result.pendingAssignmentId} has no recorded outcome. Settle it first with \`operator work accept\` on that assignment.`,
+        ],
+      };
+    case "rebase-pending":
+      return {
+        outcome: "pending",
+        reason: "rebase_pending",
+        lines: [
+          `Rebase ${result.rebaseId} of this source has no recorded outcome. Settle it first with \`operator work rebase\` and plan revision ${result.planRevision}.`,
         ],
       };
     case "rewrite-published-range":

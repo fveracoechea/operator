@@ -104,6 +104,13 @@ export type LandingRefusal =
       assignmentId: string;
       landingId: string;
       pendingAssignmentId: string;
+    }
+  | {
+      // A rebase of the source moves the branch, and its outcome is not recorded (ADR 0022).
+      status: "rebase-pending";
+      assignmentId: string;
+      rebaseId: string;
+      planRevision: string;
     };
 
 /** The refusals that a landing plan itself gives. */

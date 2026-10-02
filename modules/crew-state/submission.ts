@@ -109,7 +109,7 @@ export function landedCommitOf(
     .from(landings)
     .where(eq(landings.submissionId, submission.id))
     .all()
-    .find((one) => one.state === "landed");
+    .find((one) => one.state === "landed" || one.state === "merged");
   if (landed !== undefined) {
     return { commit: landed.landedCommit, parent: landed.landedParent };
   }
@@ -143,7 +143,7 @@ export function reviewedBaseOf(db: CrewReader, submission: SubmissionRow): strin
     .where(eq(landings.assignmentId, submission.assignmentId))
     .all()) {
     // A held landing names a commit that another result put on the branch, so it is no start.
-    const carried = one.state === "landed" || one.state === "replaced" || one.state === "taken-out";
+    const carried = ["landed", "merged", "replaced", "taken-out"].includes(one.state);
     if (one.submissionId !== submission.id && carried && one.kind !== "held") {
       earlier.set(one.landedCommit, one.landedParent);
     }

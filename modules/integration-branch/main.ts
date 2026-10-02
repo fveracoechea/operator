@@ -352,6 +352,107 @@ async function placeCorrection(
   return placed.status === "ready" ? { ...placed, patch: patch.patch } : placed;
 }
 
+/** One commit above a rebuilt place, with the commits below it on the branch that it needs. */
+type Later = { commit: string; needs: string[]; drop?: boolean };
+
+type Relanded = Array<{ was: string; commit: string; parent: string; tree: string }>;
+
+type TakenOut = Array<{
+  commit: string;
+  cause: "conflict" | "patch-changed" | "gate" | "dependency";
+}>;
+
+/**
+ * Lands each later commit again on a rebuilt tip, in the same order, under the three tests of a
+ * rewrite (ADR 0020). A commit is taken out, with every later commit that needs it, when its
+ * patch changes or conflicts at its new place, when a commit it needs is taken out or gone, or
+ * when its new tree is one the caller names as refused, which is a tree that failed the project
+ * gate (ADR 0021). A commit to drop is removed with no test. `below` is the commit under the first
+ * later commit on the old branch, and `gone` names the commits already removed below it.
+ */
+async function relandOn(
+  repoRoot: string,
+  request: { tip: string; below: string; later: Later[]; refused: string[]; gone: string[] },
+): Promise<
+  | { status: "ready"; tip: string; removed: string[]; relanded: Relanded; takenOut: TakenOut }
+  | { status: "unread"; detail: string }
+> {
+  const refused = new Set(request.refused);
+  const out = new Set<string>(request.gone);
+  const removed: string[] = [];
+  const relanded: Relanded = [];
+  const takenOut: TakenOut = [];
+  let tip = request.tip;
+  let below = request.below;
+  for (const one of request.later) {
+    const oldParent = below;
+    below = one.commit;
+    if (one.drop === true) {
+      out.add(one.commit);
+      removed.push(one.commit);
+      continue;
+    }
+    if (one.needs.some((need) => out.has(need))) {
+      out.add(one.commit);
+      takenOut.push({ commit: one.commit, cause: "dependency" });
+      continue;
+    }
+    const object = await readCommit(repoRoot, one.commit);
+    if (object.status !== "read") {
+      return object;
+    }
+    const own = await patchBetween(repoRoot, oldParent, one.commit);
+    if (own.status !== "read") {
+      return own;
+    }
+    const again = await landOn(repoRoot, {
+      tip,
+      commit: one.commit,
+      reviewedBase: oldParent,
+      reviewed: object.value,
+      patch: own.patch,
+    });
+    if (again.status === "unread") {
+      return again;
+    }
+    if (again.status !== "ready" || refused.has(again.tree)) {
+      out.add(one.commit);
+      takenOut.push({
+        commit: one.commit,
+        cause: again.status === "ready" ? "gate" : again.status,
+      });
+      continue;
+    }
+    relanded.push({ was: one.commit, commit: again.commit, parent: tip, tree: again.tree });
+    tip = again.commit;
+  }
+  return { status: "ready", tip, removed, relanded, takenOut };
+}
+
+/** Whether one commit is an ancestor of another, or the same commit. */
+async function isAncestor(
+  repoRoot: string,
+  commit: string,
+  of: string,
+): Promise<{ status: "read"; value: boolean } | { status: "unread"; detail: string }> {
+  const ancestor = await ToolInvocation.run({
+    tool: "git",
+    args: ["-C", repoRoot, "merge-base", "--is-ancestor", commit, of],
+    timeoutMs: 30_000,
+  });
+  if (ancestor.status !== "completed") {
+    return { status: "unread", detail: ancestor.detail };
+  }
+  // Exit 1 is a commit that is not an ancestor. Any other exit is a commit Git cannot read.
+  if (ancestor.exitCode === 0 || ancestor.exitCode === 1) {
+    return { status: "read", value: ancestor.exitCode === 0 };
+  }
+  return {
+    status: "unread",
+    detail: `git merge-base exited ${ancestor.exitCode}: ${ancestor.stderr.trim()}`,
+  };
+}
+
 /** Why one rewrite cannot be planned. Each one moves nothing. */
 type RewriteRefusal =
   | LandingRefusal
@@ -380,12 +481,31 @@ type RewritePlan = {
   /** Each later commit that a take-out removes with the replaced one, in branch order. */
   removed: string[];
   /** Each later commit that landed again, in branch order, with its new commit and parent. */
-  relanded: Array<{ was: string; commit: string; parent: string; tree: string }>;
+  relanded: Relanded;
   /** Each later commit that is taken out, and why. */
-  takenOut: Array<{
-    commit: string;
-    cause: "conflict" | "patch-changed" | "gate" | "dependency";
-  }>;
+  takenOut: TakenOut;
+};
+
+/** Why one rebase cannot be planned. Each one moves nothing. */
+type RebaseRefusal =
+  | Extract<LandingRefusal, { status: "tip-moved" | "checked-out" | "unread" }>
+  | { status: "base-unchanged" }
+  | { status: "base-not-ahead"; base: string; newBase: string }
+  | { status: "merge-not-in-base"; mergeCommit: string; newBase: string };
+
+type RebasePlan = {
+  status: "ready";
+  name: string;
+  /** The recorded tip the branch moves from, once. */
+  from: string;
+  /** The rebuilt tip, which is the new base when no commit lands again. */
+  to: string;
+  /** The old and the new base, and the tree of the new base, which keys its gate run. */
+  base: { from: string; to: string; tree: string };
+  /** The commits whose pull request merged into the target, which leave the branch. */
+  merged: string[];
+  relanded: Relanded;
+  takenOut: TakenOut;
 };
 
 /**
@@ -742,7 +862,7 @@ export const IntegrationBranch = {
      * The commits above the replaced one, oldest first, with the commits each one needs. A
      * commit to drop is a withdrawn commit that a take-out removes too.
      */
-    later: Array<{ commit: string; needs: string[]; drop?: boolean }>;
+    later: Later[];
     refused: string[];
     /** The head of each published range, with the pull request that carries it. */
     published: Array<{ head: string; pullRequest: number | null; url: string | null }>;
@@ -793,56 +913,18 @@ export const IntegrationBranch = {
       return placed;
     }
 
-    const refused = new Set(request.refused);
     // A commit that a take-out removes is gone, so a later commit that needs it is taken out.
-    const out = new Set<string>(placed === null ? [request.replaces] : []);
-    const removed: string[] = [];
-    const relanded: RewritePlan["relanded"] = [];
-    const takenOut: RewritePlan["takenOut"] = [];
-    let tip = placed === null ? parent : placed.commit;
-    let below = request.replaces;
-    for (const one of request.later) {
-      const oldParent = below;
-      below = one.commit;
-      if (one.drop === true) {
-        out.add(one.commit);
-        removed.push(one.commit);
-        continue;
-      }
-      if (one.needs.some((need) => out.has(need))) {
-        out.add(one.commit);
-        takenOut.push({ commit: one.commit, cause: "dependency" });
-        continue;
-      }
-      const object = await readCommit(request.repoRoot, one.commit);
-      if (object.status !== "read") {
-        return object;
-      }
-      const own = await patchBetween(request.repoRoot, oldParent, one.commit);
-      if (own.status !== "read") {
-        return own;
-      }
-      const again = await landOn(request.repoRoot, {
-        tip,
-        commit: one.commit,
-        reviewedBase: oldParent,
-        reviewed: object.value,
-        patch: own.patch,
-      });
-      if (again.status === "unread") {
-        return again;
-      }
-      if (again.status !== "ready" || refused.has(again.tree)) {
-        out.add(one.commit);
-        takenOut.push({
-          commit: one.commit,
-          cause: again.status === "ready" ? "gate" : again.status,
-        });
-        continue;
-      }
-      relanded.push({ was: one.commit, commit: again.commit, parent: tip, tree: again.tree });
-      tip = again.commit;
+    const rebuilt = await relandOn(request.repoRoot, {
+      tip: placed === null ? parent : placed.commit,
+      below: request.replaces,
+      later: request.later,
+      refused: request.refused,
+      gone: placed === null ? [request.replaces] : [],
+    });
+    if (rebuilt.status !== "ready") {
+      return rebuilt;
     }
+    const { tip, removed, relanded, takenOut } = rebuilt;
 
     return {
       status: "ready",
@@ -863,6 +945,93 @@ export const IntegrationBranch = {
       removed,
       relanded,
       takenOut,
+    };
+  },
+
+  /**
+   * Plans the rebuild of the whole branch on a new base, and moves no ref (ADR 0020, ADR 0022).
+   * The commits whose pull request merged into the target leave the branch, and the new base
+   * must hold each of their merge commits. Each other commit lands again on the new base in the
+   * same order, under the three tests of a rewrite. The old base must be an ancestor of the new
+   * one, so the base only moves forward along the target. Only Git objects are written.
+   */
+  async rebase(request: {
+    repoRoot: string;
+    name: string;
+    base: string;
+    recordedTip: string;
+    newBase: string;
+    /** Every commit of the branch, oldest first, with the commits below it that it needs. */
+    commits: Array<Later & { merged: boolean }>;
+    /** The merge commit of each pull request that merged into the target. */
+    mergeCommits: string[];
+    refused: string[];
+  }): Promise<RebasePlan | RebaseRefusal> {
+    const read = await IntegrationBranch.read(request);
+    if (read.status === "unread") {
+      return read;
+    }
+    if (read.status === "tip-moved") {
+      return read;
+    }
+    if (read.checkedOut.length > 0) {
+      return { status: "checked-out", worktrees: read.checkedOut };
+    }
+    const held = await commitsOf(request.repoRoot, request.base, request.recordedTip);
+    if (held.status !== "read") {
+      return held;
+    }
+    // A merged pull request carries the bottom of the branch, because a stack merges bottom up.
+    const merged = request.commits.filter((one) => one.merged).map((one) => one.commit);
+    if (
+      held.commits.join(" ") !== request.commits.map((one) => one.commit).join(" ") ||
+      held.commits.slice(0, merged.length).join(" ") !== merged.join(" ")
+    ) {
+      return {
+        status: "unread",
+        detail: `The branch ${request.name} does not hold the recorded commits from ${request.base}, with the merged ones at the bottom.`,
+      };
+    }
+    if (request.newBase === request.base) {
+      return { status: "base-unchanged" };
+    }
+    const ahead = await isAncestor(request.repoRoot, request.base, request.newBase);
+    if (ahead.status !== "read") {
+      return ahead;
+    }
+    if (!ahead.value) {
+      return { status: "base-not-ahead", base: request.base, newBase: request.newBase };
+    }
+    for (const mergeCommit of request.mergeCommits) {
+      const inBase = await isAncestor(request.repoRoot, mergeCommit, request.newBase);
+      if (inBase.status !== "read" || !inBase.value) {
+        return { status: "merge-not-in-base", mergeCommit, newBase: request.newBase };
+      }
+    }
+
+    const newBase = await readCommit(request.repoRoot, request.newBase);
+    if (newBase.status !== "read") {
+      return newBase;
+    }
+    const rebuilt = await relandOn(request.repoRoot, {
+      tip: request.newBase,
+      below: merged.at(-1) ?? request.base,
+      later: request.commits.filter((one) => !one.merged),
+      refused: request.refused,
+      gone: [],
+    });
+    if (rebuilt.status !== "ready") {
+      return rebuilt;
+    }
+    return {
+      status: "ready",
+      name: request.name,
+      from: request.recordedTip,
+      to: rebuilt.tip,
+      base: { from: request.base, to: request.newBase, tree: newBase.value.tree },
+      merged,
+      relanded: rebuilt.relanded,
+      takenOut: rebuilt.takenOut,
     };
   },
 

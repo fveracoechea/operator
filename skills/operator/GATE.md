@@ -49,6 +49,19 @@ After a landing moves the tip, every other candidate of the source is a new comm
 A correction of a landed commit gates its rebuilt range in order, one `run_gate` for each commit, and a commit below a failure keeps its pass, as [REWORK.md](REWORK.md) shows.
 The take-out of a withdrawn commit gates each commit that lands again in the same way, and its `run_gate` names the source: `operator gate run --source <source>`, with no `--commit`. A commit whose new tree failed is taken out by the next plan, as [REGISTRATION.md](REGISTRATION.md) shows.
 
+## A rebase passes before it moves
+
+An approved rebase onto a new base gates the new base first, then each commit that lands again on it, in order, under the gate declaration fixed on the source:
+
+```
+bun run operator gate run --request <id> --owner-token <token> --source <source id> --base <sha> --json
+```
+
+Each run gates the next place with no passing run, and the plan is made again for each one, so a commit whose new tree failed is taken out and only the changed part is gated.
+It answers `gate_passed` when every place passed, and `gate_failed` or `gate_flaky` with the run on a failed place, where it starts nothing.
+A failing new base is never recorded, and only the user clears it, as for any base.
+[PUBLISH.md](PUBLISH.md) describes the rebase.
+
 ## Where the run happens
 
 Herdr creates one gate checkout for each source, on the branch `operator/gate/<source slug>`, beside the project root.

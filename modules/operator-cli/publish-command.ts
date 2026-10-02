@@ -33,6 +33,8 @@ function reportPreview(parsed: ParsedArguments, operation: Operation, preview: P
         remote: preview.ships?.remote ?? null,
         target: preview.ships?.target ?? null,
         names: preview.ships?.parts.map((one) => one.name) ?? [],
+        closes: preview.closes.map((one) => one.number),
+        headMoved: preview.headMoved.map((one) => one.number),
         info,
         approval: refused ? null : preview.approval,
         command: refused ? null : command,
@@ -44,6 +46,16 @@ function reportPreview(parsed: ParsedArguments, operation: Operation, preview: P
         ? []
         : [
             `  ${preview.ships.parts.length} pull request(s) from ${preview.ships.parts.map((one) => one.name).join(", ")} into ${preview.ships.target} through ${preview.ships.remote.name}.`,
+          ]),
+      ...(preview.closes.length === 0
+        ? []
+        : [
+            `  It closes ${preview.closes.map((one) => `#${one.number}`).join(", ")}, which it replaces, each with one comment that names the replacement.`,
+          ]),
+      ...(preview.headMoved.length === 0
+        ? []
+        : [
+            `  It writes nothing to ${preview.headMoved.map((one) => `#${one.number}`).join(", ")}: a person moved its head (decision 21). A person closes it.`,
           ]),
       ...(info === null
         ? []

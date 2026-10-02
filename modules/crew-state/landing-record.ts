@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { CrewReader } from "./database.ts";
 import { landings } from "./schema.ts";
@@ -52,13 +52,19 @@ const rewriteRecordSchema = z.strictObject({
 
 export type RewriteRecord = z.infer<typeof rewriteRecordSchema>;
 
+/**
+ * The states of a landing whose commit still carries its accepted result: on the branch, or
+ * merged into the target by its pull request, which a rebase then leaves below the new base.
+ */
+const CARRYING = ["landed", "merged"];
+
 /** The landing that carries the accepted result of one assignment now, or null. */
 export function currentLandingOf(db: CrewReader, assignmentId: string): LandingRow | null {
   return (
     db
       .select()
       .from(landings)
-      .where(and(eq(landings.assignmentId, assignmentId), eq(landings.state, "landed")))
+      .where(and(eq(landings.assignmentId, assignmentId), inArray(landings.state, CARRYING)))
       .all()
       .toSorted((left, right) =>
         (left.landedAt ?? left.createdAt).localeCompare(right.landedAt ?? right.createdAt),
@@ -67,7 +73,7 @@ export function currentLandingOf(db: CrewReader, assignmentId: string): LandingR
   );
 }
 
-/** Every landing of one source that the branch carries now, in no order. */
+/** Every landing of one source on the branch now, in no order. A merged one is below the base. */
 export function landedOfSource(db: CrewReader, sourceId: string): LandingRow[] {
   return db
     .select()
@@ -123,13 +129,13 @@ export function replacedLandingOf(
   return current === null || current.submissionId === request.submissionId ? null : current;
 }
 
-/** The recorded landing of one submission, or null when it never landed. */
+/** The recorded landing of one submission that still carries it, or null when none does. */
 export function landingOfSubmission(db: CrewReader, submissionId: string): LandingRow | null {
   return (
     db
       .select()
       .from(landings)
-      .where(and(eq(landings.submissionId, submissionId), eq(landings.state, "landed")))
+      .where(and(eq(landings.submissionId, submissionId), inArray(landings.state, CARRYING)))
       .all()[0] ?? null
   );
 }

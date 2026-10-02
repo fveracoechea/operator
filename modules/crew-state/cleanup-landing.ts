@@ -4,6 +4,7 @@ import type { CleanupBlocker } from "./cleanup-report.ts";
 import type { CrewReader } from "./database.ts";
 import { type IntegrationBranchRow, integrationBranchOf } from "./integration.ts";
 import { intendedLandingOf, landingOfSubmission, type LandingRow } from "./landing.ts";
+import { intendedRebaseOf } from "./rebase.ts";
 import { submissionOfAttempt, submittedCommit } from "./submission.ts";
 
 /**
@@ -45,6 +46,8 @@ export type LandingProof = {
    * first.
    */
   openLanding: LandingRow | null;
+  /** A rebase of the same source with no recorded outcome, which moves every commit of it. */
+  openRebase: { id: string; planRevision: string } | null;
 };
 
 export function landingProofOf(
@@ -56,6 +59,7 @@ export function landingProofOf(
     landing: submission === null ? null : landingOfSubmission(db, submission.id),
     branch: integrationBranchOf(db, request.sourceId),
     openLanding: intendedLandingOf(db, request.sourceId),
+    openRebase: intendedRebaseOf(db, request.sourceId),
   };
 }
 
@@ -69,7 +73,12 @@ export async function landingBlockers(request: {
   projectRoot: string;
   context: CleanupContext;
 }): Promise<CleanupBlocker[]> {
-  const { landing, branch, openLanding } = request.context.proof;
+  const { landing, branch, openLanding, openRebase } = request.context.proof;
+  if (openRebase !== null) {
+    return [
+      { reason: "rebase_pending", rebaseId: openRebase.id, planRevision: openRebase.planRevision },
+    ];
+  }
   // A rewrite moves the commit of every later landing, so no commit proof holds until it settles.
   if (openLanding !== null) {
     return [
