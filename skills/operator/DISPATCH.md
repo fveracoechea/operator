@@ -11,8 +11,10 @@ Read this before you launch, recover, or replace an Operative.
 3. `bun run operator work register --plan --input <path> --json` previews the approved work, and `bun run operator work register --request <id> --owner-token <token> --input <path> --plan-revision <revision> --json` records that plan.
    Read [REGISTRATION.md](REGISTRATION.md) for what that request carries.
 4. When `crew next` offers a claim, `bun run operator work claim --request <id> --owner-token <token> --assignment <id> --revision <n> --json` gives you one attempt.
-5. When `crew next` offers dispatch, `bun run operator attempt dispatch --request <id> --owner-token <token> --attempt <id> --commit <sha> --json` launches it.
-6. The Operative hands over its result with `bun run operator attempt submit`.
+5. When `crew next` offers `run_gate` instead, the first code dispatch of the source waits for its integration base to pass the project gate.
+   Read [GATE.md](GATE.md) for that run.
+6. When `crew next` offers dispatch, `bun run operator attempt dispatch --request <id> --owner-token <token> --attempt <id> --commit <sha> --json` launches it.
+7. The Operative hands over its result with `bun run operator attempt submit`.
    Read [REVIEW.md](REVIEW.md) from there.
 
 Dispatch creates the Herdr worktree and sends the fixed prompt.
@@ -29,6 +31,7 @@ Repeat the same identity only to recover the result of a call you did not see fi
 
 A dispatch starts from an explicit commit.
 Name the commit the assignment must build on.
+The first code dispatch of a source names its integration base, and it refuses until that commit passed the project gate, as [GATE.md](GATE.md) describes.
 A worktree never picks up uncommitted work from another checkout, so ask the user to commit or to choose a different base when needed inputs are not committed.
 
 ## The project gate comes from that commit

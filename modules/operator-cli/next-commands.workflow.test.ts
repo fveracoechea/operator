@@ -21,6 +21,7 @@ import {
   writeInput,
 } from "./review-cycle-fixture.ts";
 import {
+  passBaseGate,
   headCommit,
   nextActions,
   ownCrew,
@@ -94,6 +95,8 @@ async function dispatch(
   ownerToken: string,
   options: { attemptId: string; worktreePath: string; extra?: string[] },
 ) {
+  const commit = await headCommit(workspace);
+  await passBaseGate(workspace, { ownerToken, attemptId: options.attemptId, commit });
   return runJson(workspace, [
     "attempt",
     "dispatch",
@@ -104,7 +107,7 @@ async function dispatch(
     "--attempt",
     options.attemptId,
     "--commit",
-    await headCommit(workspace),
+    commit,
     "--worktree",
     options.worktreePath,
     ...(options.extra ?? []),
@@ -248,6 +251,11 @@ describe("a fresh Operator after session loss", () => {
       items: [item({ key: "15.1" })],
     });
     const claimed = await claim(workspace, ownerToken, String(registered.get("15.1")));
+    await passBaseGate(workspace, {
+      ownerToken,
+      attemptId: claimed.json.data.attemptId,
+      commit: await headCommit(workspace),
+    });
     const second = await ownCrew(workspace, { label: "second-session", takeoverFrom: 1 });
 
     const blocked = await nextActions(workspace);
@@ -639,6 +647,13 @@ describe("either supported host as Operator", () => {
     const claimed = await claim(workspace, ownerToken, assignmentId);
     const worktreePath = `${workspace.root}/operative`;
     expect(offered.exitCode).toBe(0);
+    const gated = await nextActions(workspace, targets);
+    expect(gated.forAction("run_gate")[0]?.attemptId).toBe(claimed.json.data.attemptId);
+    await passBaseGate(workspace, {
+      ownerToken,
+      attemptId: claimed.json.data.attemptId,
+      commit: await headCommit(workspace),
+    });
 
     const launch = await nextActions(workspace, targets);
     expect(launch.forAction("dispatch_attempt")[0]?.attemptId).toBe(claimed.json.data.attemptId);

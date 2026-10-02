@@ -416,6 +416,18 @@ export const HerdrControl = {
     );
   },
 
+  /**
+   * Types one line into a pane shell. Herdr joins its words with no quoting, so the caller passes
+   * the whole line as one argument, already quoted for the shell. It reports no exit status.
+   */
+  async runInPane(request: { paneId: string; line: string }): Promise<HerdrOutcome<null>> {
+    const outcome = await invokeHerdr({
+      args: ["pane", "run", request.paneId, request.line],
+      timeoutMs: READ_TIMEOUT_MS,
+    });
+    return outcome.status === "succeeded" ? { status: "succeeded", value: null } : outcome;
+  },
+
   /** Read-only. Names every agent Herdr holds, so the occupants of a workspace can be counted. */
   async listAgents(): Promise<Lookup<Agent[]>> {
     const outcome = await invokeHerdr({ args: ["agent", "list"], timeoutMs: READ_TIMEOUT_MS });

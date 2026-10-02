@@ -100,6 +100,14 @@ Until a source records its integration base, the brief and the submit check of a
 A review attempt reads no gate at dispatch, because its registered commands already permit the gate commands.
 A missing gate does not hold back a live probe, because a probe runs no gate command.
 
+Until a source records its integration base, the base is the commit of the first code dispatch of the source, which is the first production attempt of the source with a recorded launch plan.
+That dispatch refuses with `gate_pending`, `gate_running`, `gate_failed`, or `gate_flaky` until the key of its commit passes, and a refusal names the commit and each failed run.
+A source that an earlier release already dispatched keeps the base it started from, and it is not gated again.
+`operator crew next` offers `run_gate` for that attempt in place of `dispatch_attempt`, shows the wait `gate_running` while a run of the source has no outcome, and names the blocker `gate_failed` or `gate_flaky` when only the user can clear the base.
+The approval of a fresh series names the action `gate-fresh-series`, the source as its scope, the key as its request revision, and the key and every failed run at the key as its targets, so an approval that leaves out a later failure covers nothing.
+A runner that stops before an outcome, for example because it cannot prepare the checkout, records the reason, and its run stays with no outcome.
+Herdr ignores `--base` when the branch of a new checkout already exists, so `operator gate run` refuses a gate branch that exists before it calls Herdr, and it verifies the HEAD of a checkout that Herdr created.
+
 Each landing on a moved tip waits for one gate run, and each run installs the project again from nothing.
 One gate run of a source runs at a time, because two candidates on one tip can never both land, and the next actions offer a landing that waits before a new run of the same source.
 A gate run takes no crew slot, because it starts no agent.

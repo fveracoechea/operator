@@ -6,6 +6,7 @@ import { readdir, rm } from "node:fs/promises";
 // Bun has no path manipulation API.
 import { resolve } from "node:path";
 import {
+  passBaseGate,
   requestId as request,
   runJson,
   runOperator,
@@ -91,6 +92,11 @@ async function dispatchedCrew(workspace: Workspace, keys: string[] = ["21.1"]): 
     .toString()
     .trim();
   const worktree = `${workspace.root}/operative`;
+  await passBaseGate(workspace, {
+    ownerToken,
+    attemptId: claimed.json.data.attemptId,
+    commit: head,
+  });
   await runJson(workspace, [
     "attempt",
     "dispatch",

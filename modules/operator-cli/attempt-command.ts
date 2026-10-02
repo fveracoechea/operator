@@ -94,6 +94,65 @@ function reportGateUnusable(
   });
 }
 
+type BaseGateRefusal = Extract<
+  Awaited<ReturnType<typeof CrewState.dispatch>>,
+  { status: "base-gate-not-passed" }
+>;
+
+/**
+ * Reports a first code dispatch whose base has not passed the project gate. Nothing launches and
+ * no base is fixed, and a failed or flaky base names the person, who alone clears it.
+ */
+function reportBaseGate(parsed: ParsedArguments, result: BaseGateRefusal): Handled {
+  const blocked = result.gate === "gate_failed" || result.gate === "gate_flaky";
+  return refuse({
+    json: parsed.json,
+    operation: "attempt_dispatch",
+    outcome: blocked ? "conflict" : "missing-condition",
+    reason: result.gate,
+    detail: {
+      attemptId: result.attemptId,
+      commit: result.commit,
+      tree: result.key.tree,
+      declarationIdentity: result.key.declarationIdentity,
+      runIds: result.runIds,
+    },
+    lines: [
+      `The first code dispatch of this source fixes its integration base at commit ${result.commit}, and that commit has not passed the project gate.`,
+      result.gate === "gate_pending"
+        ? "No gate run is recorded at its key. Run `operator gate run` on this commit first."
+        : result.gate === "gate_running"
+          ? `Gate run ${result.runIds.join(", ")} is still running. Wait for its outcome.`
+          : `The key is ${result.gate === "gate_flaky" ? "flaky" : "failed"} in gate run ${result.runIds.join(", ")}. Read it with \`operator gate show --run <id>\`.`,
+      ...(blocked
+        ? [
+            "Only the user clears it: by a fixed main branch and a new base commit, or by an approval of a fresh series.",
+          ]
+        : []),
+      "Nothing was launched, and no base was fixed.",
+    ],
+  });
+}
+
+/**
+ * Reports the two gate refusals of a dispatch, a gate it cannot read and a base that has not
+ * passed, in the shape `reportSharedFailure` uses.
+ */
+function reportDispatchGate(
+  parsed: ParsedArguments,
+  result: Awaited<ReturnType<typeof CrewState.dispatch>>,
+): result is GateUnusable | BaseGateRefusal {
+  if (result.status === "project-gate-unusable") {
+    reportGateUnusable(parsed, "attempt_dispatch", result);
+    return true;
+  }
+  if (result.status === "base-gate-not-passed") {
+    reportBaseGate(parsed, result);
+    return true;
+  }
+  return false;
+}
+
 async function runDispatch(parsed: ParsedArguments): Promise<Handled> {
   const mutation = mutationArguments(parsed);
   if (mutation === null) {
@@ -114,8 +173,8 @@ async function runDispatch(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
-  if (result.status === "project-gate-unusable") {
-    return reportGateUnusable(parsed, "attempt_dispatch", result);
+  if (reportDispatchGate(parsed, result)) {
+    return "reported";
   }
 
   if (result.status === "review-base-changed") {

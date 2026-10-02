@@ -13,6 +13,14 @@ import { reconcileAttempt } from "./dispatch-reconcile.ts";
 import { replaceAttempt } from "./dispatch-replace.ts";
 import { showAttempt } from "./dispatch-report.ts";
 import { readCapacity } from "./capacity.ts";
+import {
+  beginGateRun,
+  type CommandOutcome,
+  recordGateCommand,
+  stopGateRun,
+} from "./gate-record.ts";
+import { checkoutOf, gateRunRecordOf, readGateRun } from "./gate-runs.ts";
+import { startGateRun } from "./gate-start.ts";
 import { acceptAssignment } from "./acceptance.ts";
 import { claimAssignment } from "./claims.ts";
 import { calculateFrontier } from "./frontier.ts";
@@ -492,6 +500,56 @@ export const CrewState = {
     },
   ) {
     return dispatchAttempt(request);
+  },
+
+  /**
+   * Starts one gate run on the integration base of one source (ADR 0021). The run is recorded,
+   * then an Operator runner is typed into the pane of the gate checkout of the source. It takes
+   * no crew slot, and one run of a source runs at a time.
+   */
+  async startGateRun(
+    request: Mutation & {
+      sourceId: string;
+      commit: string;
+      approvalId: string | null;
+      runnerLine: (runId: string) => string;
+    },
+  ) {
+    return startGateRun(request);
+  },
+
+  /**
+   * Reports one gate run, the outcome of each command, and where each output is stored, with the
+   * gate checkout it runs in. It reads no output text, and it writes nothing.
+   */
+  async gateRun(request: Located & { runId: string }) {
+    const result = await readState(request.projectRoot, (db) => {
+      const run = readGateRun(db, request.runId);
+      if (run === null) {
+        return { status: "unknown-gate-run" as const, runId: request.runId };
+      }
+      return {
+        status: "reported" as const,
+        run: gateRunRecordOf(db, run),
+        checkoutPath: checkoutOf(db, run.sourceId)?.path ?? null,
+      };
+    });
+    return { repeated: false, result };
+  },
+
+  /** The first write of the runner of one gate run, under the owner that started the run. */
+  async beginGateRun(request: Located & { runId: string }) {
+    return { repeated: false, result: await beginGateRun(request) };
+  },
+
+  /** Records the outcome of one gate command, read from its process, with its stored output. */
+  async recordGateCommand(request: Located & { runId: string; command: CommandOutcome }) {
+    return { repeated: false, result: await recordGateCommand(request) };
+  },
+
+  /** Records that a runner stopped before an outcome. The run proves nothing. */
+  async stopGateRun(request: Located & { runId: string; detail: string }) {
+    return { repeated: false, result: await stopGateRun(request) };
   },
 
   /** Records the Operative's own acknowledgement, which is the proof that the brief arrived. */

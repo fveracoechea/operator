@@ -343,6 +343,7 @@ describe("the review brief", () => {
         `- git rev-parse ${base}`,
         `- git diff ${base}...HEAD`,
         `- git log ${base}..HEAD --oneline`,
+        "- true",
         "- bun run quality",
       ].join("\n"),
     );

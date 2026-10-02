@@ -26,10 +26,13 @@ export type WorkspaceOptions = {
   gate?: unknown;
 };
 
-/** The project gate each fixture commits, which the default submitted check satisfies. */
+/**
+ * The project gate each fixture commits, which the default submitted check satisfies. Its one
+ * command passes at once, so a gate run on a fixture base proves the run path and nothing else.
+ */
 export const FIXTURE_GATE = {
   $schema: "./node_modules/@fveracoechea/operator/gate.schema.json",
-  commands: [{ name: "quality", argv: ["bun", "run", "quality"], timeoutSeconds: 1800 }],
+  commands: [{ name: "quality", argv: ["true"], timeoutSeconds: 1800 }],
 };
 
 /**
@@ -341,4 +344,61 @@ export async function ownCrew(
       : ["--takeover", "--ownership-revision", String(options.takeoverFrom)]),
   ]);
   return taken.json.data.ownerToken;
+}
+
+/**
+ * Runs the project gate on one commit of one source through the real CLI. The Herdr fake types
+ * the runner line into its shell, so the real runner records each outcome before this returns.
+ */
+export async function runGate(
+  workspace: Workspace,
+  request: { ownerToken: string; commit: string; sourceId: string; approvalId?: string },
+) {
+  return runJson(workspace, [
+    "gate",
+    "run",
+    "--request",
+    requestId(),
+    "--owner-token",
+    request.ownerToken,
+    "--source",
+    request.sourceId,
+    "--commit",
+    request.commit,
+    ...(request.approvalId === undefined ? [] : ["--approval", request.approvalId]),
+  ]);
+}
+
+/**
+ * Passes the base gate that the first code dispatch of an attempt waits for, as the Operator
+ * does when `crew next` offers `run_gate`. Any other attempt is left as it is.
+ */
+export async function passBaseGate(
+  workspace: Workspace,
+  request: { ownerToken: string; attemptId: string; commit: string },
+) {
+  const next = await nextActions(workspace);
+  const owed = next.actions.find(
+    (one) => one.action === "run_gate" && one.attemptId === request.attemptId,
+  );
+  if (owed === undefined) {
+    return null;
+  }
+  const entries: Array<{ assignmentId: string; sourceId: string }> =
+    next.json.data.frontier.active ?? [];
+  const sourceId = entries.find((one) => one.assignmentId === owed.assignmentId)?.sourceId;
+  if (sourceId === undefined) {
+    throw new Error(`the frontier names no source for assignment ${owed.assignmentId}`);
+  }
+  const ran = await runGate(workspace, {
+    ownerToken: request.ownerToken,
+    commit: request.commit,
+    sourceId,
+  });
+  // The gate run is setup, so a test that reads the Herdr calls reads only what it drives next.
+  // A gate that cannot start is left for the dispatch to refuse, as a test of that refusal reads.
+  if (ran.json.reason === "gate_run_started") {
+    await rm(`${workspace.herdr}/calls.log`, { force: true });
+  }
+  return ran;
 }

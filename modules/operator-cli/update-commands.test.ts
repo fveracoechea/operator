@@ -45,6 +45,7 @@ function makeStateOutdated(): void {
   const sqlite = new Database(statePath(), { create: false, readwrite: true });
   sqlite.exec("alter table state_meta drop column release_identity");
   sqlite.exec("alter table answers drop column source_kind");
+  dropVersionTen(sqlite);
   dropVersionNine(sqlite);
   dropVersionEight(sqlite);
   dropVersionSeven(sqlite);
@@ -60,6 +61,7 @@ function makeStateOutdated(): void {
  */
 function makeSourceEarlier(options: { location: boolean }): void {
   const sqlite = new Database(statePath(), { create: false, readwrite: true });
+  dropVersionTen(sqlite);
   dropVersionNine(sqlite);
   // An earlier release named a source by the id its input stated, not by its parent issue.
   sqlite.exec("update work_sources set id = 'github:operator#28'");
@@ -145,6 +147,13 @@ function dropVersionSix(sqlite: Database): void {
   sqlite.exec("alter table submissions drop column behavior_changes");
 }
 
+/** Removes what version 10 added, so a later migration step can add it again. */
+function dropVersionTen(sqlite: Database): void {
+  sqlite.exec("drop table gate_run_commands");
+  sqlite.exec("drop table gate_runs");
+  sqlite.exec("drop table gate_checkouts");
+}
+
 /** Removes what version 7 added, so a later migration step can add it again. */
 function dropVersionSeven(sqlite: Database): void {
   sqlite.exec("drop table planning_records");
@@ -164,6 +173,9 @@ function dropVersionNine(sqlite: Database): void {
 /** Moves the recorded version back, and removes what each later version added. */
 function setStateVersion(version: number): void {
   const sqlite = new Database(statePath(), { create: false, readwrite: true });
+  if (version < 10) {
+    dropVersionTen(sqlite);
+  }
   if (version < 9) {
     dropVersionNine(sqlite);
   }
@@ -416,7 +428,7 @@ describe("recorded formats", () => {
 
     expect(applied.exitCode).toBe(0);
     expect(applied.json.data.migration.status).toBe("migrated");
-    expect(stateVersion()).toBe(9);
+    expect(stateVersion()).toBe(10);
     expect(recordedRelease()).toBe(applied.json.data.selection.releaseIdentity);
     expect((await runJson(workspace, ["work", "frontier"])).exitCode).toBe(0);
   });
@@ -442,6 +454,28 @@ describe("recorded formats", () => {
     expect(table).toHaveLength(1);
   });
 
+  test("adds the gate run tables and the gate checkout of each source", async () => {
+    await ownCrew(workspace);
+    setStateVersion(9);
+
+    const { applied } = await apply();
+
+    expect(applied.json.data.migration.steps).toEqual([
+      expect.objectContaining({ from: 9, to: 10 }),
+    ]);
+    const sqlite = new Database(statePath(), { create: false, readonly: true });
+    const tables = sqlite
+      .query("select name from sqlite_master where type = 'table' and name like 'gate_%'")
+      .all() as Array<{ name: string }>;
+    sqlite.close();
+    expect(tables.map((one) => one.name).toSorted()).toEqual([
+      "gate_checkouts",
+      "gate_run_commands",
+      "gate_runs",
+    ]);
+    expect(stateVersion()).toBe(10);
+  });
+
   test("adds the behavior change list of each submission", async () => {
     await ownCrew(workspace);
     setStateVersion(5);
@@ -453,6 +487,7 @@ describe("recorded formats", () => {
       expect.objectContaining({ from: 6, to: 7 }),
       expect.objectContaining({ from: 7, to: 8 }),
       expect.objectContaining({ from: 8, to: 9 }),
+      expect.objectContaining({ from: 9, to: 10 }),
     ]);
     const sqlite = new Database(statePath(), { create: false, readonly: true });
     const columns = sqlite.query("pragma table_info(submissions)").all() as Array<{
@@ -460,7 +495,7 @@ describe("recorded formats", () => {
     }>;
     sqlite.close();
     expect(columns.map((one) => one.name)).toContain("behavior_changes");
-    expect(stateVersion()).toBe(9);
+    expect(stateVersion()).toBe(10);
   });
 
   test("adds the planning record list of each launch and fixes none for an earlier launch", async () => {
@@ -481,8 +516,9 @@ describe("recorded formats", () => {
     expect(applied.json.data.migration.steps).toEqual([
       expect.objectContaining({ from: 7, to: 8 }),
       expect.objectContaining({ from: 8, to: 9 }),
+      expect.objectContaining({ from: 9, to: 10 }),
     ]);
-    expect(stateVersion()).toBe(9);
+    expect(stateVersion()).toBe(10);
     const sqlite = new Database(statePath(), { create: false, readonly: true });
     const row = sqlite
       .query("select planning_record_ids from attempt_dispatch where attempt_id = ?")
@@ -538,7 +574,7 @@ describe("recorded formats", () => {
     const { applied } = await apply();
 
     expect(applied.exitCode).toBe(0);
-    expect(stateVersion()).toBe(9);
+    expect(stateVersion()).toBe(10);
     const after = recordedRows();
     expect(after.sources).toEqual(before.sources);
     expect(after.bindings.map((one) => JSON.parse(one ?? "null"))).toEqual([
@@ -748,7 +784,7 @@ describe("recorded formats", () => {
     const { applied } = await apply();
 
     expect(applied.json.data.migration.status).toBe("migrated");
-    expect(stateVersion()).toBe(9);
+    expect(stateVersion()).toBe(10);
     const stored = new Database(statePath(), { create: false, readonly: true });
     const kept = stored.query("select code from submissions where id = ?").get(submissionId) as {
       code: string;

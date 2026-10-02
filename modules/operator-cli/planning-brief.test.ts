@@ -14,6 +14,7 @@ import {
 import { registerSource, workspaceTarget } from "./source-fixture.ts";
 import {
   headCommit,
+  passBaseGate,
   requestId as request,
   runJson,
   stopFakeAgents,
@@ -153,6 +154,8 @@ async function launch(
   ]);
   const attemptId = claimed.json.data.attemptId as string;
   const baseCommit = await headCommit(workspace);
+  // The first code dispatch of a source starts only from a base that passed the project gate.
+  await passBaseGate(workspace, { ownerToken, attemptId, commit: baseCommit });
   const dispatched = await runJson(workspace, [
     "attempt",
     "dispatch",

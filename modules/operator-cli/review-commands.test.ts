@@ -63,7 +63,7 @@ describe("operator review report", () => {
     expect(brief).toContain("Write only inside these paths:\n- .operator/local/");
     // The brief authorizes the commands the reviewer must run, not only the checks it may re-run.
     expect(brief).toContain(
-      `Run only these commands:\n- operator attempt acknowledge\n- operator review report\n- git rev-parse ${base}\n- git diff ${base}...HEAD\n- git log ${base}..HEAD --oneline\n- bun run quality`,
+      `Run only these commands:\n- operator attempt acknowledge\n- operator review report\n- git rev-parse ${base}\n- git diff ${base}...HEAD\n- git log ${base}..HEAD --oneline\n- true\n- bun run quality`,
     );
 
     const copied = await Bun.file(

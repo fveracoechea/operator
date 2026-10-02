@@ -3,6 +3,7 @@ import { registerSource } from "./source-fixture.ts";
 import {
   headCommit,
   requestId as request,
+  passBaseGate,
   runJson,
   stopFakeAgents,
   type Workspace as Fixture,
@@ -130,6 +131,8 @@ export async function startProducer(
   const attemptId = claimed.json.data.attemptId;
   const worktreePath = `${workspace.root}/operative`;
   const baseCommit = await headCommit(workspace);
+  // The first code dispatch of a source starts only from a base that passed the project gate.
+  await passBaseGate(workspace, { ownerToken, attemptId, commit: baseCommit });
 
   const dispatched = await runJson(
     workspace,

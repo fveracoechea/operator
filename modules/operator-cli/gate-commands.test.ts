@@ -18,11 +18,12 @@ afterEach(async () => {
   await fixtures.removeAll();
 });
 
+// Both commands pass at once, so the base gate run before the first dispatch passes.
 const TWO_COMMANDS = {
   ...FIXTURE_GATE,
   commands: [
-    { name: "install", argv: ["bun", "install", "--frozen-lockfile"], timeoutSeconds: 600 },
-    { name: "quality", argv: ["bun", "run", "quality"], timeoutSeconds: 1800 },
+    { name: "install", argv: ["git", "--version"], timeoutSeconds: 600 },
+    { name: "quality", argv: ["true"], timeoutSeconds: 1800 },
   ],
 };
 
@@ -61,10 +62,8 @@ describe("the project gate at dispatch", () => {
 
     const brief = await Bun.file(`${producer.worktreePath}/.operator/local/brief.md`).text();
     const submitAt = brief.indexOf("attempt submit --request");
-    const install = brief.indexOf(
-      "- `install`: `bun install --frozen-lockfile` (time limit 600 seconds)",
-    );
-    const quality = brief.indexOf("- `quality`: `bun run quality` (time limit 1800 seconds)");
+    const install = brief.indexOf("- `install`: `git --version` (time limit 600 seconds)");
+    const quality = brief.indexOf("- `quality`: `true` (time limit 1800 seconds)");
     expect(submitAt).toBeGreaterThan(-1);
     expect(install).toBeGreaterThan(submitAt);
     expect(quality).toBeGreaterThan(install);
@@ -150,6 +149,6 @@ describe("the project gate at submit", () => {
     const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
 
     const brief = await Bun.file(`${reviewer.worktreePath}/.operator/local/brief.md`).text();
-    expect(brief).toContain("- bun install --frozen-lockfile\n- bun run quality\n");
+    expect(brief).toContain("- git --version\n- true\n");
   });
 });

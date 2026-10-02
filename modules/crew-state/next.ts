@@ -11,6 +11,7 @@ import {
 import type { CrewReader } from "./database.ts";
 import { everyStageSucceeded } from "./dispatch-context.ts";
 import { liveOperations, readDispatchRow, unsettledOperations } from "./dispatch.ts";
+import { type BaseGate, baseGateOf, isFirstCodeDispatch } from "./gate-runs.ts";
 import { directionRecordOf } from "./direction.ts";
 import { calculateFrontier, type Frontier, undirected, unmetDependencies } from "./frontier.ts";
 import { openPauses } from "./invalidate.ts";
@@ -57,6 +58,7 @@ export const NEXT_ACTIONS = [
   "close_process",
   "remove_worktree",
   "direct_limit",
+  "run_gate",
   "dispatch_attempt",
   "claim_assignment",
 ] as const;
@@ -88,6 +90,8 @@ export const NEXT_BLOCKERS = [
   "cleanup_blocked",
   "cleanup_failed",
   "cleanup_uncertain",
+  "gate_failed",
+  "gate_flaky",
 ] as const;
 
 export type NextBlocker = (typeof NEXT_BLOCKERS)[number];
@@ -99,6 +103,7 @@ export const NEXT_WAITS = [
   "operative_working",
   "cleanup_held",
   "input_invalidated",
+  "gate_running",
 ] as const;
 
 export type NextWaitName = (typeof NEXT_WAITS)[number];
@@ -216,6 +221,52 @@ function allAttempts(db: CrewReader) {
     );
 }
 
+/**
+ * The gate run that the first code dispatch of one source waits for. A source is reported once,
+ * however many of its attempts wait. A failed or flaky base has no assignment to correct it, so
+ * only the user clears it.
+ */
+function readBaseGate(
+  base: { sourceId: string; gate: BaseGate; reported: Set<string> },
+  request: { assignmentId: string; attemptId: string },
+  into: Collector,
+): void {
+  if (base.reported.has(base.sourceId)) {
+    return;
+  }
+  base.reported.add(base.sourceId);
+  const { gate } = base;
+  const subject = { assignmentId: request.assignmentId, attemptId: request.attemptId };
+
+  if (gate.status === "running") {
+    into.wait({
+      wait: "gate_running",
+      ...subject,
+      detail: `Gate run ${gate.run.id} of source ${base.sourceId} runs at commit ${gate.run.commit}. Its runner wakes the Operator at the end. If its pane shows no runner, \`operator gate run\` replaces it.`,
+    });
+    return;
+  }
+  if (gate.status === "failed" || gate.status === "flaky") {
+    const runs = gate.failed.map((one) => one.id).join(", ");
+    into.add({
+      action: "run_gate",
+      ...subject,
+      blocker: gate.status === "failed" ? "gate_failed" : "gate_flaky",
+      detail: `The integration base of source ${base.sourceId} is ${gate.status} at commit ${gate.commit} in gate run ${runs}, and it is not fixed. Only the user clears it: by a fixed main branch and a new base commit, or by an approval of a fresh series that names the key and each failed run. Read a run with \`operator gate show --run <id>\`.`,
+      command: "operator gate run",
+    });
+    return;
+  }
+  if (gate.status === "none") {
+    into.add({
+      action: "run_gate",
+      ...subject,
+      detail: `The first code dispatch of source ${base.sourceId} fixes its integration base, so the base commit passes the project gate first. Run the gate on the commit you will dispatch from.${gate.stopped === null ? "" : ` Gate run ${gate.stopped.id} stopped with no outcome: ${gate.stopped.detail ?? "no reason recorded"}.`}`,
+      command: "operator gate run",
+    });
+  }
+}
+
 /** One active attempt: what it still owes, or what it is waiting for. */
 function readActiveAttempt(
   db: CrewReader,
@@ -224,6 +275,8 @@ function readActiveAttempt(
     assignmentId: string;
     ownedByCurrent: boolean;
     unsettled: string[];
+    /** The base gate of the source when this is its first code dispatch, or null. */
+    baseGate: { sourceId: string; gate: BaseGate; reported: Set<string> } | null;
   },
   into: Collector,
 ): void {
@@ -251,17 +304,26 @@ function readActiveAttempt(
     return;
   }
 
+  // The first code dispatch of a source fixes its integration base, so it waits for the gate.
+  if (dispatch === null && request.baseGate !== null && request.baseGate.gate.status !== "passed") {
+    readBaseGate(request.baseGate, request, into);
+    return;
+  }
+
   // A launch that has not finished every effect resumes at the first one that is unfinished,
   // which is the same command that started it.
   if (dispatch === null || !everyStageSucceeded(liveOperations(db, request.attemptId))) {
+    const base = request.baseGate?.gate;
     into.add({
       action: "dispatch_attempt",
       assignmentId: request.assignmentId,
       attemptId: request.attemptId,
       detail:
-        dispatch === null
-          ? "This assignment is claimed and has no Operative yet."
-          : "This launch is planned and has not finished every effect.",
+        dispatch !== null
+          ? "This launch is planned and has not finished every effect."
+          : base?.status === "passed"
+            ? `This assignment is claimed and has no Operative yet. The integration base passed the gate at commit ${base.commit} in gate run ${base.run.id}, so dispatch from that commit.`
+            : "This assignment is claimed and has no Operative yet.",
       command: "operator attempt dispatch",
     });
     return;
@@ -612,6 +674,7 @@ export function calculateNext(
     held.flatMap((one) => (one.unsettled.length === 0 ? [] : [one.attempt.id])),
   );
 
+  const gateSources = new Set<string>();
   for (const { attempt, unsettled: pending } of held) {
     const assignment = readAssignment(db, attempt.assignmentId);
     if (assignment === null) {
@@ -619,6 +682,8 @@ export function calculateNext(
     }
 
     if (attempt.state === "active") {
+      const first =
+        assignment.kind === "production" && isFirstCodeDispatch(db, assignment.sourceId);
       readActiveAttempt(
         db,
         {
@@ -626,6 +691,13 @@ export function calculateNext(
           assignmentId: attempt.assignmentId,
           ownedByCurrent: ownership !== null && ownership.token === attempt.ownerToken,
           unsettled: pending,
+          baseGate: first
+            ? {
+                sourceId: assignment.sourceId,
+                gate: baseGateOf(db, assignment.sourceId),
+                reported: gateSources,
+              }
+            : null,
         },
         into,
       );

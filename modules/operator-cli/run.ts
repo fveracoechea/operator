@@ -14,6 +14,7 @@ import { runCleanup } from "./cleanup-command.ts";
 import { runConfig } from "./config-command.ts";
 import { runCrewOwn } from "./crew-command.ts";
 import { runHealthcheck } from "./healthcheck-command.ts";
+import { runGate } from "./gate-command.ts";
 import { runCrewNext } from "./next-command.ts";
 import { runInstall, runMattSkills } from "./install-command.ts";
 import { runUpdate } from "./update-command.ts";
@@ -52,6 +53,7 @@ const crewCommands: Record<string, CrewCommand | undefined> = {
   review: runReview,
   tracker: runTracker,
   cleanup: runCleanup,
+  gate: runGate,
 };
 
 function rejectArguments(json: boolean): void {

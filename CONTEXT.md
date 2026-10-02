@@ -180,6 +180,11 @@ Runs are appended and never rewritten, and a tree passes only with a passing run
 A reported pass from an Operative or a reviewer is not a gate run.
 _Avoid_: spare worktree, rerun, for a fresh series that a person approves
 
+**Gate checkout**:
+The one checkout of a source in which its gate runs.
+Herdr creates it once on its own branch, and its HEAD is detached at each key, so it never commits, never moves a branch, and holds no work.
+_Avoid_: spare worktree
+
 **Integrated pull request**:
 A pull request that carries a contiguous range of one integration branch, with one commit for each accepted code result.
 Operator opens it with a body rendered from the records, and a person merges it with a merge commit, so each of its commits reaches the target branch as it was reviewed and gated.

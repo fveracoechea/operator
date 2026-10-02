@@ -1,4 +1,4 @@
-import { registerSource, workspaceTarget } from "./source-fixture.ts";
+import { registerSource, sourceIdOf, workspaceTarget } from "./source-fixture.ts";
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
@@ -6,6 +6,8 @@ import { ContentIdentity } from "../content-identity/main.ts";
 import { OperatorRelease } from "../operator-release/main.ts";
 import { ReleaseInstall } from "../release-install/main.ts";
 import {
+  passBaseGate,
+  runGate,
   headCommit,
   herdrCalls,
   markFakeAgent,
@@ -100,6 +102,12 @@ async function claimedAttempt(
     "--revision",
     "1",
   ]);
+  // The first code dispatch of the source starts only from a base that passed the project gate.
+  await passBaseGate(workspace, {
+    ownerToken,
+    attemptId: claimed.json.data.attemptId,
+    commit: await headCommit(workspace),
+  });
 
   return {
     ownerToken,
@@ -757,6 +765,12 @@ describe("interrupted dispatch", () => {
     ]);
     await Bun.write(`${workspace.repo}/docs/spec.md`, "# Changed spec\n");
     await Bun.$`git -C ${workspace.repo} -c user.email=t@example.com -c user.name=Test commit -qam change`.quiet();
+    // The new base commit has its own key, so it passes the gate before it is dispatched.
+    await runGate(workspace, {
+      ownerToken: crew.ownerToken,
+      commit: await headCommit(workspace),
+      sourceId: sourceIdOf(20),
+    });
 
     const failed = await dispatch(workspace, crew);
     expect(failed.exitCode).toBe(1);

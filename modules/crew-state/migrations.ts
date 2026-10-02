@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { STATE_VERSION } from "./schema.ts";
+import { GATE_TABLES, STATE_VERSION } from "./schema.ts";
 
 /**
  * One step from one recorded state version to the next.
@@ -155,6 +155,18 @@ export const MIGRATIONS: MigrationStep[] = [
          end
          where tracker_binding is not null`,
       );
+    },
+  },
+  {
+    from: 9,
+    to: 10,
+    summary: "Record each gate run, its command outcomes, and the gate checkout of each source.",
+    // A source that an earlier release dispatched has its base already in use, so it is not
+    // gated again. Only a source with no production dispatch waits for a gate run at its base.
+    apply: (sqlite) => {
+      for (const statement of GATE_TABLES) {
+        sqlite.exec(statement);
+      }
     },
   },
 ];

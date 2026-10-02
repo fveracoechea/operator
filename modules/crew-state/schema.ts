@@ -5,7 +5,7 @@ import { integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqli
  * The durable shape of the crew state. A reader that finds a higher version refuses the file,
  * so this number changes only when an older Operator release can no longer read the tables.
  */
-export const STATE_VERSION = 9;
+export const STATE_VERSION = 10;
 
 export const stateMeta = sqliteTable("state_meta", {
   id: integer("id").primaryKey(),
@@ -455,6 +455,70 @@ export const planningRecords = sqliteTable("planning_records", {
 });
 
 /**
+ * The one gate checkout of a source (ADR 0021). Herdr creates it once, and the runner detaches
+ * its HEAD at each key, so its branch never moves and it holds no work.
+ */
+export const gateCheckouts = sqliteTable("gate_checkouts", {
+  sourceId: text("source_id")
+    .primaryKey()
+    .references(() => workSources.id),
+  path: text("path").notNull(),
+  branch: text("branch").notNull(),
+  workspaceId: text("workspace_id").notNull(),
+  paneId: text("pane_id").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
+/**
+ * One run of the project gate on one key: the tree of a commit and the identity of the gate
+ * declaration. Runs are appended, and a run records its outcome once. A run with no outcome
+ * proves nothing.
+ */
+export const gateRuns = sqliteTable("gate_runs", {
+  id: text("id").primaryKey(),
+  sourceId: text("source_id")
+    .notNull()
+    .references(() => workSources.id),
+  subject: text("subject").notNull(),
+  tree: text("tree").notNull(),
+  declarationIdentity: text("declaration_identity").notNull(),
+  commit: text("commit").notNull(),
+  commands: text("commands").notNull(),
+  // The approval of a person that started a fresh series at this key, or null for the first one.
+  series: text("series"),
+  replaces: text("replaces"),
+  // The runner writes only while this owner still owns the crew, so a takeover stops it.
+  ownerToken: text("owner_token").notNull(),
+  paneId: text("pane_id").notNull(),
+  state: text("state").notNull(),
+  detail: text("detail"),
+  startedAt: text("started_at").notNull(),
+  begunAt: text("begun_at"),
+  finishedAt: text("finished_at"),
+});
+
+/** The outcome of one command of one gate run, with its output as a stored artifact. */
+export const gateRunCommands = sqliteTable(
+  "gate_run_commands",
+  {
+    runId: text("run_id")
+      .notNull()
+      .references(() => gateRuns.id),
+    position: integer("position").notNull(),
+    name: text("name").notNull(),
+    argv: text("argv").notNull(),
+    timeoutSeconds: integer("timeout_seconds").notNull(),
+    outcome: text("outcome").notNull(),
+    exitCode: integer("exit_code"),
+    reason: text("reason"),
+    outputPath: text("output_path"),
+    outputIdentity: text("output_identity"),
+    recordedAt: text("recorded_at").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.runId, table.position] })],
+);
+
+/**
  * One approval of one exact action. It binds the action, its targets, its scope, and the
  * revision of the request it was granted against, and a revocation ends it.
  */
@@ -560,12 +624,61 @@ export const crewStateSchema = {
   answers,
   planningRecords,
   approvals,
+  gateCheckouts,
+  gateRuns,
+  gateRunCommands,
   trackerOperations,
   trackerWriteAttempts,
   trackerObservations,
   cleanups,
   retentionHolds,
 };
+
+/** The gate tables, written once so a new state and the migration step create the same tables. */
+export const GATE_TABLES = [
+  `create table gate_checkouts (
+    source_id text primary key references work_sources(id),
+    path text not null,
+    branch text not null,
+    workspace_id text not null,
+    pane_id text not null,
+    created_at text not null
+  ) strict`,
+  `create table gate_runs (
+    id text primary key,
+    source_id text not null references work_sources(id),
+    subject text not null,
+    tree text not null,
+    declaration_identity text not null,
+    "commit" text not null,
+    commands text not null,
+    series text,
+    replaces text,
+    owner_token text not null,
+    pane_id text not null,
+    state text not null,
+    detail text,
+    started_at text not null,
+    begun_at text,
+    finished_at text
+  ) strict`,
+  `create table gate_run_commands (
+    run_id text not null references gate_runs(id),
+    position integer not null,
+    name text not null,
+    argv text not null,
+    timeout_seconds integer not null,
+    outcome text not null,
+    exit_code integer,
+    reason text,
+    output_path text,
+    output_identity text,
+    recorded_at text not null,
+    primary key (run_id, position)
+  ) strict`,
+  // One gate run of a source runs at a time, so two candidates on one tip never race.
+  `create unique index gate_runs_one_running on gate_runs (source_id) where state = 'running'`,
+];
 
 /**
  * The tables this release creates. `schema.test.ts` compares every statement against the
@@ -833,6 +946,7 @@ export const CREATE_STATEMENTS = [
     identity text not null,
     recorded_at text not null
   ) strict`,
+  ...GATE_TABLES.map((statement) => sql.raw(statement)),
   sql`create table approvals (
     id text primary key,
     action text not null,

@@ -29,6 +29,8 @@ const crewFieldByFlag = {
   "--source": "sourceId",
   "--record": "recordId",
   "--plan-revision": "planRevision",
+  "--run": "runId",
+  "--root": "projectRoot",
 } as const;
 
 type CrewFlag = keyof typeof crewFieldByFlag;

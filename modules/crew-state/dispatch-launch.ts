@@ -15,6 +15,7 @@ import {
   type Shared,
   type Snapshot,
 } from "./dispatch-context.ts";
+import { checkBaseGate, type BaseGateRefusal } from "./gate-base.ts";
 import { record } from "./operations.ts";
 import {
   DISPATCH_STAGES,
@@ -49,6 +50,7 @@ export type DispatchResult =
   | { status: "host-unnamed"; attemptId: string }
   | { status: "effort-unsupported"; attemptId: string; detail: string }
   | GateUnusable
+  | BaseGateRefusal
   | AttemptFailure
   | Shared;
 
@@ -246,6 +248,19 @@ export async function dispatchAttempt(request: {
   });
   if (gate.status !== "ok") {
     return gate;
+  }
+
+  // A recorded plan fixed its base already, so only a new launch reads the base gate.
+  if (recorded === null) {
+    const base = await checkBaseGate({
+      projectRoot: request.projectRoot,
+      context: read.context,
+      attemptId,
+      baseCommit,
+    });
+    if (base.status !== "ok") {
+      return base;
+    }
   }
 
   const brief = briefOf(read.context, attemptId, gate.gate);

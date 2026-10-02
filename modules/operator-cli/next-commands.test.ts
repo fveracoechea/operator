@@ -20,6 +20,7 @@ import {
   type NextAction,
   nextActions,
   ownCrew,
+  passBaseGate,
   requestId as request,
   runJson,
   stopFakeAgents,
@@ -214,6 +215,16 @@ describe("the next actions", () => {
       "--revision",
       "1",
     ]);
+    // The first code dispatch of the source waits for a passing gate run at its base.
+    const gated = await nextActions(workspace);
+    expect(gated.of("run_gate").attemptId).toBe(claimed.json.data.attemptId);
+    expect(gated.names).not.toContain("dispatch_attempt");
+    await passBaseGate(workspace, {
+      ownerToken,
+      attemptId: claimed.json.data.attemptId,
+      commit: await headCommit(workspace),
+    });
+
     const claimedNext = await nextActions(workspace);
     expect(claimedNext.of("dispatch_attempt").attemptId).toBe(claimed.json.data.attemptId);
 
@@ -481,6 +492,11 @@ describe("adoption", () => {
       "--revision",
       "1",
     ]);
+    await passBaseGate(workspace, {
+      ownerToken,
+      attemptId: claimed.json.data.attemptId,
+      commit: await headCommit(workspace),
+    });
     await Bun.write(`${workspace.herdr}/agent-start.garbage`, "");
     const uncertain = await runJson(workspace, [
       "attempt",
