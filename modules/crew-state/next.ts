@@ -40,9 +40,11 @@ import { readSnapshot } from "./branch-review.ts";
 import { openCycleOf } from "./rework.ts";
 import { approvals, assignments, attempts, workSources } from "./schema.ts";
 import type { BrokenLanding, RewriteRead } from "./next-landings.ts";
-import { openPublicationOf, PUBLISH_ACTION, publicationsOf } from "./publish.ts";
+import { openPublicationOf, PUBLISH_ACTION, publicationsOf, storedEffect } from "./publish.ts";
 import { intendedRebaseOf, REBASE_ACTION, rebaseRevisionOf, rebasesOf } from "./rebase.ts";
 import { approvalRecordOf } from "./approvals.ts";
+import { recallOffer } from "./recall.ts";
+import { conflictSettlementOf, publishBaseOf } from "./stack-parts.ts";
 import { publishRecordsOf } from "./publish-gate.ts";
 import { mergeGateOf, retargetsDue, stackStateOf } from "./publish-status.ts";
 import { eq } from "drizzle-orm";
@@ -84,6 +86,7 @@ export const NEXT_ACTIONS = [
   "close_process",
   "remove_worktree",
   "direct_limit",
+  "recall_stack",
   "run_gate",
   "dispatch_attempt",
   "claim_assignment",
@@ -260,6 +263,71 @@ function collector() {
 type Collector = ReturnType<typeof collector>;
 
 /**
+ * The settle of one publication with a write that is not done. A recall is settled by a repeat
+ * of the recall, every other write by a repeat of the apply, and a conflict on an existing pull
+ * request names the approval by which the person settles it (#120).
+ */
+function settleDraft(
+  db: CrewReader,
+  sourceId: string,
+  open: NonNullable<ReturnType<typeof openPublicationOf>>,
+): Draft {
+  const states = open.open.map((one) => one.state);
+  const [first] = open.open;
+  const intent = first === undefined ? null : storedEffect(first.intent);
+  const recall =
+    intent !== null && (intent.kind === "recall" || intent.kind === "close")
+      ? (intent.recall ?? null)
+      : null;
+  const settlements = open.open.flatMap((one) => {
+    const settlement = conflictSettlementOf(db, sourceId, one);
+    return settlement === null ? [] : [settlement];
+  });
+  const settle: Draft = {
+    action: "settle_publish",
+    sourceId,
+    detail: [
+      `Stack publication ${open.publication.number} holds ${open.open.length} write(s) with no done outcome: ${states.join(", ")}. The command reads GitHub first and writes only what is missing; a conflict or a refused write waits on a person.`,
+      ...settlements.map(
+        (one) =>
+          `When the person accepts the conflict on ${one.targets.join(", ")} as GitHub shows it, record their approval: action ${one.action}, scope ${one.scope}, targets ${one.targets.join(", ")}, request revision ${one.requestRevision}.`,
+      ),
+    ].join(" "),
+    command:
+      recall === null
+        ? `operator publish apply --source ${sourceId} --plan-revision ${open.publication.planRevision}`
+        : `operator publish recall --source ${sourceId} --plan-revision ${recall}`,
+  };
+  // A conflict, or a write GitHub refused, is settled by a person, never written over.
+  if (states.includes("conflict")) {
+    settle.blocker = "publish_conflict";
+  } else if (states.includes("failed")) {
+    settle.blocker = "publish_failed";
+  }
+  return settle;
+}
+
+/** The recall one source owes before a change after publish, behind its approval (decision 23). */
+function recallDraft(db: CrewReader, sourceId: string): Draft | null {
+  const recall = recallOffer(db, sourceId);
+  if (recall === null) {
+    return null;
+  }
+  const offer: Draft = {
+    action: "recall_stack",
+    sourceId,
+    detail: `A commit to change is inside stack publication ${recall.publication}, which people still read: ${recall.numbers.map((one) => `#${one}`).join(", ")}. The recall turns each one into a draft with one comment that names the reason${recall.replaced ? "" : ", and closes it, because no new stack publication will replace it"}. The rewrite or the take-out refuses until it is done.`,
+    command: recall.approved
+      ? `operator publish recall --request <id> --owner-token <token> --source ${sourceId} --plan-revision ${recall.planRevision}`
+      : `operator publish recall --source ${sourceId}`,
+  };
+  if (!recall.approved) {
+    offer.blocker = "approval_required";
+  }
+  return offer;
+}
+
+/**
  * The publish of each source (ADR 0022). A publication with a write that is not done is settled
  * first, by a repeat of the apply that reads GitHub before it writes. A source whose records
  * pass the publish gate and that holds no publication of its head is offered `publish_stack`,
@@ -273,21 +341,12 @@ function readPublish(db: CrewReader, into: Collector): void {
     }
     const open = openPublicationOf(db, source.id);
     if (open !== null) {
-      const states = open.open.map((one) => one.state);
-      const settle: Draft = {
-        action: "settle_publish",
-        sourceId: source.id,
-        detail: `Stack publication ${open.publication.number} holds ${open.open.length} write(s) with no done outcome: ${states.join(", ")}. The apply reads GitHub first and writes only what is missing; a conflict or a refused write waits on a person.`,
-        command: `operator publish apply --source ${source.id} --plan-revision ${open.publication.planRevision}`,
-      };
-      // A conflict, or a write GitHub refused, is settled by a person, never written over.
-      if (states.includes("conflict")) {
-        settle.blocker = "publish_conflict";
-      } else if (states.includes("failed")) {
-        settle.blocker = "publish_failed";
-      }
-      into.add(settle);
+      into.add(settleDraft(db, source.id, open));
       continue;
+    }
+    const recall = recallDraft(db, source.id);
+    if (recall !== null) {
+      into.add(recall);
     }
     // No event reaches the crew when a pull request merges, so the wait names the read that the
     // user's report of a merge or a close triggers. This reads only what that read recorded.
@@ -310,10 +369,12 @@ function readPublish(db: CrewReader, into: Collector): void {
       });
     } else if (
       stack.state === "ended" &&
-      publicationsOf(db, source.id).at(-1)?.baseCommit !== branch.baseCommit
+      // A new stack publication is the path when the records permit it, so it is offered instead.
+      !(
+        publishBaseOf(db, source.id).superseded &&
+        publishRecordsOf(db, source.id).refusals.length === 0
+      )
     ) {
-      // A rebase after the settled faults is the path, so the next publication is offered below.
-    } else if (stack.state === "ended") {
       // A settled fault ends its part, and the parts above it stay stopped: only a new stack
       // publication carries their commits to the target, after a recall or a rebase.
       into.add({
@@ -355,7 +416,12 @@ function readPublish(db: CrewReader, into: Collector): void {
       into.add(retarget);
     }
     const publications = publicationsOf(db, source.id);
-    if (publications.some((one) => one.headCommit === branch.recordedTip)) {
+    // A head that the last publication carries publishes again only when a recall, a close, or
+    // a settled fault ended a part of it: then a new publication replaces that part.
+    if (
+      publications.at(-1)?.headCommit === branch.recordedTip &&
+      !publishBaseOf(db, source.id).superseded
+    ) {
       continue;
     }
     if (publishRecordsOf(db, source.id).refusals.length > 0) {
@@ -374,9 +440,16 @@ function readPublish(db: CrewReader, into: Collector): void {
     const offer: Draft = {
       action: "publish_stack",
       sourceId: source.id,
-      detail: approved
-        ? "A publish approval is recorded for this source. Apply the plan revision it names."
-        : "The branch review and the gate records pass. Plan the publish, and ask the person to read and approve the plan revision.",
+      detail: [
+        approved
+          ? "A publish approval is recorded for this source. Apply the plan revision it names."
+          : "The branch review and the gate records pass. Plan the publish, and ask the person to read and approve the plan revision.",
+        ...(publishBaseOf(db, source.id).superseded
+          ? [
+              `It replaces the parts of stack publication ${publications.at(-1)?.number ?? 0} that a recall, a close, or a settled fault ended, and closes each one that is still open with a pointer. When the target moved, a rebase that the person approves can come first: \`operator work rebase --source ${source.id} --base <the target tip>\`.`,
+            ]
+          : []),
+      ].join(" "),
       command: approved
         ? `operator publish apply --source ${source.id} --plan-revision <the approved revision>`
         : `operator publish plan --source ${source.id}`,

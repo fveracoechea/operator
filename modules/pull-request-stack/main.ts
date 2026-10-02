@@ -1,6 +1,9 @@
 import {
   BELOW_SLOT,
   BODY_LIMIT,
+  commentMarker,
+  type RecallCause,
+  renderRecall,
   type DeferredFinding,
   type Landed,
   type PublishCommit,
@@ -22,6 +25,7 @@ import {
   subjectOf,
 } from "./git.ts";
 import {
+  convertToDraft,
   createPull,
   pullsByHead,
   readParents,
@@ -132,16 +136,20 @@ type Effect =
       below: number | null;
     }
   | { kind: "retarget"; repository: string; number: number; from: string; base: string }
+  | { kind: "recall"; repository: string; number: number; comment: string; marker: string }
   | {
       /**
        * The close of one pull request that a later stack publication replaces, with one comment
-       * that points to the replacement, whose number fills the one slot at the write.
+       * that points to the replacement, whose number fills the one slot at the write. A recall
+       * with no replacement names no publication: its own comment already names the withdrawal.
        */
       kind: "close";
       repository: string;
       number: number;
-      publication: number;
+      publication: number | null;
       replacement: number | null;
+      /** The published commit of the pull request, or null for an intent recorded without it. */
+      head: string | null;
     };
 
 type WriteOutcome =
@@ -505,13 +513,30 @@ export const PullRequestStack = {
    */
   async write(request: { repoRoot: string; effect: Effect }): Promise<WriteOutcome> {
     const { effect } = request;
-    if (effect.kind === "push") {
-      return writePush(request.repoRoot, effect);
+    switch (effect.kind) {
+      case "push":
+        return writePush(request.repoRoot, effect);
+      case "create":
+        return writeCreate(effect);
+      case "retarget":
+        return writeRetarget(effect);
+      case "recall":
+        return writeRecall(effect);
+      default:
+        return writeClose(effect);
     }
-    if (effect.kind === "close") {
-      return writeClose(effect);
-    }
-    return effect.kind === "create" ? writeCreate(effect) : writeRetarget(effect);
+  },
+
+  /**
+   * Renders the one comment of a recall from its causes, with the marker by which a repeat finds
+   * it. The text holds no free words: the causes come from the records (D1).
+   */
+  recallComment(request: { id: string; causes: RecallCause[]; replaced: boolean }): {
+    comment: string;
+    marker: string;
+  } {
+    const marker = commentMarker(request.id);
+    return { marker, comment: renderRecall({ marker, ...request }) };
   },
 
   /**
@@ -784,19 +809,98 @@ async function writeRetarget(effect: Extract<Effect, { kind: "retarget" }>): Pro
 }
 
 /** The comment that a replaced pull request gets once, with a marker that finds it again. */
-function replacedComment(effect: Extract<Effect, { kind: "close" }>): string {
+function replacedComment(effect: { publication: number; replacement: number | null }): string {
   return [
     `<!-- operator:replaced-by-publication:${effect.publication} -->`,
     `Stack publication ${effect.publication} replaces this pull request${effect.replacement === null ? "" : `: it starts at #${effect.replacement}`}.`,
-    "Its commits were rebuilt on a new base and reviewed again, so this pull request is closed with no merge. Its branch stays.",
+    "Its commits changed on the integration branch and were reviewed again, so this pull request is closed with no merge. Its branch stays.",
   ].join("\n");
 }
 
+type Ensured =
+  | { status: "found" }
+  | { status: "written" }
+  | Exclude<WriteOutcome, { status: "done" }>;
+
+/** Adds one marked comment unless a read finds it, so a repeat never writes it twice. */
+async function ensureComment(
+  repository: string,
+  number: number,
+  comment: { body: string; marker: string },
+): Promise<Ensured> {
+  const held = await commentsOf(repository, number);
+  if (held.status !== "read") {
+    return { status: "uncertain", detail: held.detail };
+  }
+  if (held.value.some((one) => one.includes(comment.marker))) {
+    return { status: "found" };
+  }
+  const posted = await commentOn(repository, number, comment.body);
+  if (posted.status === "written") {
+    return { status: "written" };
+  }
+  return posted.status === "failed"
+    ? { status: "failed", message: posted.message }
+    : { status: "uncertain", detail: posted.detail };
+}
+
 /**
- * Closes one pull request that a later publication replaces, after one comment that points to the
- * replacement (decision 23). It reads first: a closed pull request is done, a merged one is a
- * conflict for a person, and the comment is written only when no comment holds its marker, so a
- * repeat writes nothing twice. It never merges and deletes no branch.
+ * Turns one open pull request into a draft and adds the one comment with the reason (decision
+ * 23). It reads first: a draft that holds the comment is done with no write. A pull request that
+ * merged or closed first is a conflict for a person, because a merge before the recall ends the
+ * change (decision 24). It never merges and never closes.
+ */
+async function writeRecall(effect: Extract<Effect, { kind: "recall" }>): Promise<WriteOutcome> {
+  const before = await readPullState(effect.repository, effect.number);
+  if (before.status !== "read") {
+    return { status: "uncertain", detail: before.detail };
+  }
+  if (before.value.merged || before.value.state !== "open") {
+    return {
+      status: "conflict",
+      found: `#${effect.number} is ${before.value.merged ? "merged" : before.value.state} into ${before.value.base}`,
+    };
+  }
+  let wrote = false;
+  if (!before.value.draft) {
+    if (before.value.nodeId === null) {
+      return { status: "uncertain", detail: `GitHub answered #${effect.number} with no node id.` };
+    }
+    const drafted = await convertToDraft(before.value.nodeId);
+    if (drafted.status === "failed") {
+      return { status: "failed", message: drafted.message };
+    }
+    wrote = true;
+  }
+  const after = await readPullState(effect.repository, effect.number);
+  if (after.status !== "read" || !after.value.draft) {
+    return {
+      status: "uncertain",
+      detail: after.status === "read" ? `#${effect.number} is not a draft yet.` : after.detail,
+    };
+  }
+  const commented = await ensureComment(effect.repository, effect.number, {
+    body: effect.comment,
+    marker: effect.marker,
+  });
+  if (commented.status !== "found" && commented.status !== "written") {
+    return commented;
+  }
+  return {
+    status: "done",
+    how: wrote || commented.status === "written" ? "written" : "observed",
+    number: effect.number,
+    url: null,
+  };
+}
+
+/**
+ * Closes one pull request with no merge (decisions 23 and 30). A later publication first adds one
+ * comment that points to the replacement; a recall with no replacement adds none, because its
+ * own comment named the withdrawal. It reads first: a closed pull request is done, a merged one or
+ * one whose head is not the published commit is a conflict for a person, and the comment is
+ * written only when no comment holds its marker, so a repeat writes nothing twice. It never
+ * merges and deletes no branch.
  */
 async function writeClose(effect: Extract<Effect, { kind: "close" }>): Promise<WriteOutcome> {
   const before = await readPullState(effect.repository, effect.number);
@@ -809,19 +913,21 @@ async function writeClose(effect: Extract<Effect, { kind: "close" }>): Promise<W
   if (before.value.state === "closed") {
     return { status: "done", how: "observed", number: effect.number, url: null };
   }
-  const comment = replacedComment(effect);
-  const marker = comment.split("\n")[0] ?? "";
-  const held = await commentsOf(effect.repository, effect.number);
-  if (held.status !== "read") {
-    return { status: "uncertain", detail: held.detail };
+  // A person moved its head, so Operator writes nothing more to it (decision 21).
+  if (effect.head !== null && before.value.head !== effect.head) {
+    return {
+      status: "conflict",
+      found: `#${effect.number} has head ${before.value.head}, not the published commit ${effect.head}`,
+    };
   }
-  if (!held.value.some((one) => one.includes(marker))) {
-    const written = await commentOn(effect.repository, effect.number, comment);
-    if (written.status === "failed") {
-      return { status: "failed", message: written.message };
-    }
-    if (written.status === "uncertain") {
-      return { status: "uncertain", detail: written.detail };
+  if (effect.publication !== null) {
+    const comment = replacedComment({ ...effect, publication: effect.publication });
+    const commented = await ensureComment(effect.repository, effect.number, {
+      body: comment,
+      marker: comment.split("\n")[0] ?? "",
+    });
+    if (commented.status !== "found" && commented.status !== "written") {
+      return commented;
     }
   }
   const closed = await closePull(effect.repository, effect.number);

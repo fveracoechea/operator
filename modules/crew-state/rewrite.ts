@@ -13,7 +13,7 @@ import {
   type RewriteRecord,
 } from "./landing.ts";
 import { readState, type StateFailure } from "./operations.ts";
-import { publicationsOf, pullRequestsOf } from "./publish.ts";
+import { guardedRangesOf } from "./stack-parts.ts";
 import { assignmentDependencies, attempts, gateRuns, landings, submissions } from "./schema.ts";
 import { trackerOperationsOf } from "./tracker.ts";
 
@@ -130,14 +130,9 @@ function readRebuild(
       };
     }),
     refused: refusedTrees(db, row),
-    published: publicationsOf(db, row.sourceId).map((publication) => {
-      const [first] = pullRequestsOf(db, publication.id);
-      return {
-        head: publication.headCommit,
-        pullRequest: first?.number ?? null,
-        url: first?.url ?? null,
-      };
-    }),
+    // Each part people still read or that merged, lowest first. A recalled part no longer
+    // guards its range, so the change runs after the recall (decision 23).
+    published: guardedRangesOf(db, row.sourceId),
   };
 }
 

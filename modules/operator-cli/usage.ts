@@ -72,6 +72,8 @@ export const usage = [
   "  operator publish apply --request <id> --owner-token <token> --source <id> --plan-revision <revision> [--json]",
   "  operator publish status --request <id> --owner-token <token> --source <id> [--json]",
   "  operator publish retarget --request <id> --owner-token <token> --source <id> --part <k> [--json]",
+  "  operator publish recall --source <id> [--json]",
+  "  operator publish recall --request <id> --owner-token <token> --source <id> --plan-revision <revision> [--json]",
   "  operator cleanup close --request <id> --owner-token <token> --attempt <id> [--json]",
   "  operator cleanup remove --request <id> --owner-token <token> --attempt <id> [--json]",
   "  operator cleanup hold --request <id> --owner-token <token> --attempt <id> --input <path|-> [--json]",

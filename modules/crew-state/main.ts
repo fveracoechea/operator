@@ -37,6 +37,8 @@ import {
   retargetPublish,
 } from "./publish-status.ts";
 import { applyRebase, planRebase, startRebaseGateRun } from "./rebase.ts";
+import { applyRecall, planRecall } from "./recall.ts";
+import { STACK_FAULT_ACTION } from "./stack-parts.ts";
 import { preparePlanningRecord, showPlanningRecord } from "./planning-record.ts";
 import { mutate, readState } from "./operations.ts";
 import { claimOwnership, currentOwnership } from "./ownership.ts";
@@ -45,7 +47,11 @@ import { acknowledgeAnswer, deliverAnswer } from "./question-deliver.ts";
 import { approvalCheckSchema, approvalInputSchema } from "./approval-input.ts";
 import { raiseQuestion, reviseQuestion } from "./question-raise.ts";
 import { showQuestion } from "./question-report.ts";
-import { type InvalidateOutcome, invalidateResult } from "./invalidate.ts";
+import {
+  closeMergedInvalidations,
+  type InvalidateOutcome,
+  invalidateResult,
+} from "./invalidate.ts";
 import {
   planRegistration,
   readPathIdentities,
@@ -308,6 +314,22 @@ export const CrewState = {
    */
   async rebase(request: Mutation & { sourceId: string; newBase: string; planRevision: string }) {
     return { repeated: false, result: await applyRebase(request) };
+  },
+
+  /**
+   * Plans the recall of the open published range of one source and changes nothing. The reason
+   * is rendered from the defect or the withdrawal record (D1).
+   */
+  async planRecall(request: Located & { sourceId: string }) {
+    return { repeated: false, result: await planRecall(request) };
+  },
+
+  /**
+   * Recalls exactly the previewed plan behind one `stack-recall` approval of its revision: each
+   * open pull request from the affected part up becomes a draft with one comment (decision 23).
+   */
+  async recall(request: Mutation & { sourceId: string; planRevision: string }) {
+    return { repeated: false, result: await applyRecall(request) };
   },
 
   /** Claims one dispatchable assignment. Exactly one concurrent claim wins. */
@@ -787,8 +809,14 @@ export const CrewState = {
         operation: "approval_grant",
         input,
       },
-      ({ tx, now }) =>
-        commitOn(grantApproval(tx, { approvalId: crypto.randomUUID(), input, now }), "granted"),
+      ({ tx, now }) => {
+        const granted = grantApproval(tx, { approvalId: crypto.randomUUID(), input, now });
+        // A settled merge before a recall ends the change that invalidation asked for (decision 24).
+        if (input.action === STACK_FAULT_ACTION) {
+          closeMergedInvalidations(tx, { sourceId: input.scope, now });
+        }
+        return commitOn(granted, "granted");
+      },
     );
   },
 

@@ -154,7 +154,8 @@ A later commit whose new tree failed or is flaky is taken out by the next plan, 
 When every commit of the range passed, `work accept` records the intent, moves the branch once from the old tip to the rebuilt tip, and records the outcome with the acceptance: the replaced landing ends, each later landing names its new commit, and each one taken out ends and returns its assignment to awaiting review.
 An interrupted rewrite is settled by `settle_landing` like any other landing, and while it waits, cleanup refuses each checkout of the source with `rewrite_pending` and a withdrawal of a result it moves refuses with `withdrawal_effect_unsettled`.
 The rewrite is a ref move that the CLI builds only from reviewed patches, on a command that the Operator runs, so it is not an Operator change (`CONTEXT.md`, **Operator**).
-A rewrite whose replaced commit a recorded stack publication holds refuses with `rewrite_published_range` and names the pull request, because no recall is recorded yet.
+A rewrite or a take-out whose replaced commit is in a published part that people still read, or that merged, refuses with `rewrite_published_range` and names the pull request of that part.
+A part that a recall turned into a draft, or that closed with no merge, no longer guards its range, so the change runs after the recall (ADR 0022), and a merged part guards its range for ever.
 A rewrite that would return a result to awaiting review while a tracker step of that result is recorded refuses with `rewrite_tracker_recorded` and names each step.
 Since ADR 0022, a code result completes only after its merge, so its commit is inside a published range, and only a state that an earlier release recorded holds such a step; its ticket would say the work is done while its commit leaves the branch, so a person decides, and Operator writes no tracker step to undo another one.
 

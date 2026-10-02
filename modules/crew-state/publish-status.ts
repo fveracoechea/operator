@@ -3,9 +3,10 @@ import { z } from "zod";
 import { HerdrControl } from "../herdr-control/main.ts";
 import { PullRequestStack } from "../pull-request-stack/main.ts";
 import { approvalCovers, matchApproval, readApproval } from "./approvals.ts";
+import { publishRecordsOf } from "./publish-gate.ts";
+import { type Fault, faultsOf, partStatusesOf, publishBaseOf } from "./stack-parts.ts";
 import { readAssignment } from "./assignment.ts";
 import type { CrewReader } from "./database.ts";
-import { identityOf } from "./identity.ts";
 import { checkoutOf, runningRunOf } from "./gate-runs.ts";
 import { mutate, readState, type RequestFailure, type StateFailure } from "./operations.ts";
 import {
@@ -15,6 +16,7 @@ import {
   type ReplacedPull,
   type ApprovalRequest,
   effectsOf,
+  openEffectsOf,
   PUBLISH_ACTION,
   publicationsOf,
   pullRequestsOf,
@@ -124,22 +126,17 @@ export function publishedPartsOf(
 }
 
 /**
- * The open pull requests of the last publication of one source when every fault of it is settled
- * and its commits did not all reach the target: the part a settled fault left open and the parts
- * above a fault, which stay stopped. The next stack publication carries their commits, after a
- * rebase, and closes each one with a pointer to its replacement (decision 23).
+ * The open pull requests of the last publication of one source that the next stack publication
+ * replaces: each recalled part, the part a settled fault left open, and the parts above a fault,
+ * which stay stopped. The next publication carries their commits, after a recall or a rebase, and
+ * closes each one with a pointer to its replacement (decision 23).
  */
 export function replacedPullsOf(db: CrewReader, sourceId: string): ReplacedPull[] {
   const last = writtenPublicationOf(db, sourceId);
-  if (last === null || !last.written || stackStateOf(db, sourceId).state !== "ended") {
+  if (last === null || !last.written) {
     return [];
   }
-  return last.pulls.flatMap((pull) => {
-    const seen = latestObservationOf(db, last.publication.id, pull.part);
-    return pull.number === null || seen?.state === "merged" || seen?.state === "closed"
-      ? []
-      : [{ number: pull.number, url: pull.url }];
-  });
+  return publishBaseOf(db, sourceId).replaces;
 }
 
 /** Plans the next stack publication of one source, with the pull requests it replaces. */
@@ -310,16 +307,9 @@ function writtenPublicationOf(db: CrewReader, sourceId: string) {
   }
   const pulls = pullRequestsOf(db, publication.id);
   const written =
-    effectsOf(db, publication.id).every((one) => one.state === "done") &&
-    pulls.every((one) => one.number !== null);
+    openEffectsOf(db, publication).length === 0 && pulls.every((one) => one.number !== null);
   return { publication, pulls, written };
 }
-
-/**
- * The approval action by which a person settles one stack fault. Operator adopts nothing from a
- * fault, so only the person says that it stands as GitHub shows it (decision 21).
- */
-export const STACK_FAULT_ACTION = "stack-fault";
 
 /** The repository of one source, which names its pull requests in an approval target. */
 function repositoryOf(db: CrewReader, sourceId: string): string {
@@ -330,63 +320,17 @@ function repositoryOf(db: CrewReader, sourceId: string): string {
 }
 
 /**
- * The approval that settles one fault as one reading recorded it. Its revision is that reading,
- * so a different fault, a moved head, or another merge needs a new settlement.
- */
-function settlementOf(
-  db: CrewReader,
-  publication: PublicationRow,
-  seen: ObservationRow,
-): ApprovalRequest {
-  return {
-    action: STACK_FAULT_ACTION,
-    targets: [`${repositoryOf(db, publication.sourceId)}#${seen.number}`],
-    scope: publication.sourceId,
-    requestRevision: identityOf({
-      publicationId: publication.id,
-      part: seen.part,
-      fault: seen.fault,
-      head: seen.headCommit,
-      base: seen.base,
-      mergeCommit: seen.mergeCommit,
-    }),
-  };
-}
-
-type Fault = {
-  part: number;
-  number: number;
-  fault: string;
-  detail: string;
-  settlement: ApprovalRequest;
-  settled: boolean;
-};
-
-/**
  * Each part of one written publication as the last readings show it. A fault on one part stops
  * every part above it (decision 20), so a part above the lowest fault is stopped, never due.
  */
 function partsOf(db: CrewReader, publication: PublicationRow) {
+  const statuses = partStatusesOf(db, publication);
   const pulls = pullRequestsOf(db, publication.id).map((pull) => ({
     pull,
     seen: latestObservationOf(db, publication.id, pull.part),
+    status: statuses.get(pull.part) ?? "open",
   }));
-  const faults: Fault[] = pulls.flatMap(({ pull, seen }) => {
-    if (seen?.fault == null) {
-      return [];
-    }
-    const settlement = settlementOf(db, publication, seen);
-    return [
-      {
-        part: pull.part,
-        number: pull.number ?? 0,
-        fault: seen.fault,
-        detail: seen.detail ?? "",
-        settlement,
-        settled: matchApproval(db, settlement).status === "matched",
-      },
-    ];
-  });
+  const faults = faultsOf(db, publication);
   const lowest = faults[0]?.part ?? Number.POSITIVE_INFINITY;
   return { pulls, faults, lowest };
 }
@@ -396,7 +340,8 @@ function partsOf(db: CrewReader, publication: PublicationRow) {
  * `crew next` reads this, so it never reads GitHub (ADR 0016). A settled fault of a merge by
  * another method counts as landed, because its commits reached the target. Any other settled
  * fault ends its part, and a part above a fault is stopped: their commits reach the target only
- * through a new stack publication.
+ * through a new stack publication. A recalled part waits for that publication too, or is closed
+ * by its recall when no new publication will replace it (decisions 23 and 30).
  */
 export function stackStateOf(
   db: CrewReader,
@@ -407,6 +352,7 @@ export function stackStateOf(
   | { state: "faulted"; publication: number; faults: Fault[]; stopped: number[] }
   | { state: "ended"; publication: number; ended: Fault[]; stopped: number[] }
   | { state: "open"; publication: number; open: number[] }
+  | { state: "recalled"; publication: number; recalled: number[]; closed: boolean }
   | { state: "merged"; publication: number } {
   const last = writtenPublicationOf(db, sourceId);
   if (last === null) {
@@ -417,8 +363,9 @@ export function stackStateOf(
   }
   const { pulls, faults, lowest } = partsOf(db, last.publication);
   const publication = last.publication.number;
+  const faulted = new Set(faults.map((one) => one.part));
   const stopped = pulls
-    .filter((one) => one.pull.part > lowest && one.seen?.fault == null)
+    .filter((one) => one.pull.part > lowest && !faulted.has(one.pull.part) && one.status === "open")
     .map((one) => one.pull.part);
   if (faults.some((one) => !one.settled)) {
     return { state: "faulted", publication, faults: faults.filter((one) => !one.settled), stopped };
@@ -427,11 +374,18 @@ export function stackStateOf(
   if (ended.length > 0 || stopped.length > 0) {
     return { state: "ended", publication, ended, stopped };
   }
-  const open = pulls.filter(
-    (one) => one.seen?.state !== "merged" && !faults.some((fault) => fault.part === one.pull.part),
-  );
-  return open.length > 0
-    ? { state: "open", publication, open: open.map((one) => one.pull.number ?? 0) }
+  const open = pulls.filter((one) => one.status === "open" && !faulted.has(one.pull.part));
+  if (open.length > 0) {
+    return { state: "open", publication, open: open.map((one) => one.pull.number ?? 0) };
+  }
+  const recalled = pulls.filter((one) => one.status === "recalled" || one.status === "closed");
+  return recalled.length > 0
+    ? {
+        state: "recalled",
+        publication,
+        recalled: recalled.map((one) => one.pull.number ?? 0),
+        closed: recalled.every((one) => one.status === "closed"),
+      }
     : { state: "merged", publication };
 }
 
@@ -487,6 +441,8 @@ export function retargetsDue(db: CrewReader, sourceId: string): RetargetDue[] {
       below.seen.fault === null &&
       pull.number !== null &&
       !retargeted.has(pull.number) &&
+      // A recalled part, or one above a recalled part, waits for the publication that replaces it.
+      pulls.slice(0, index + 1).every((one) => one.status === "open" || one.status === "merged") &&
       (seen === null || seen.state === "open");
     if (!due || pull.number === null) {
       return [];
@@ -506,16 +462,21 @@ export function retargetsDue(db: CrewReader, sourceId: string): RetargetDue[] {
   });
 }
 
-/** The assignments whose tickets one publication completes, by the ticket each one closes. */
-function itemsOf(db: CrewReader, publication: PublicationRow): string[] {
-  const closes = new Set(trackerStepsOf(publication).map((one) => one.closes));
+/**
+ * The assignments whose tickets the publications of one source complete, by the ticket each one
+ * closes. A withdrawn item completes nothing: Operator writes nothing to the tracker for it.
+ */
+function itemsOf(db: CrewReader, sourceId: string): string[] {
+  const closes = new Set(
+    publicationsOf(db, sourceId).flatMap((one) => trackerStepsOf(one).map((step) => step.closes)),
+  );
   return db
     .select()
     .from(assignments)
-    .where(eq(assignments.sourceId, publication.sourceId))
+    .where(eq(assignments.sourceId, sourceId))
     .all()
     .filter((row) => {
-      if (row.trackerBinding === null) {
+      if (row.trackerBinding === null || row.state === "withdrawn") {
         return false;
       }
       const bound = storedTrackerBinding(row.trackerBinding);
@@ -526,18 +487,20 @@ function itemsOf(db: CrewReader, publication: PublicationRow): string[] {
 
 /**
  * Whether one source is finished: every pull request of its last publication merged with a
- * merge commit, and every tracker step of its items is verified (decision 29).
+ * merge commit, and every tracker step of its items is verified (decision 29). A recall that
+ * closed its pull requests because every code item above them is withdrawn also ends the
+ * publication, once the branch holds nothing more to publish (decision 30).
  */
 function finishedOf(db: CrewReader, sourceId: string): { finished: boolean; detail: string } {
   const state = stackStateOf(db, sourceId);
-  if (state.state !== "merged") {
+  const closedByRecall =
+    state.state === "recalled" &&
+    state.closed &&
+    publishRecordsOf(db, sourceId).refusals.some((one) => one.reason === "nothing_to_publish");
+  if (state.state !== "merged" && !closedByRecall) {
     return { finished: false, detail: `The last stack publication is ${state.state}.` };
   }
-  const last = writtenPublicationOf(db, sourceId);
-  if (last === null) {
-    return { finished: false, detail: "No stack publication is recorded." };
-  }
-  for (const assignmentId of itemsOf(db, last.publication)) {
+  for (const assignmentId of itemsOf(db, sourceId)) {
     const bound = readBinding(db, assignmentId);
     if (bound.status !== "bound") {
       continue;
@@ -664,8 +627,14 @@ export type StatusResult =
       status: "observed";
       publication: number;
       seen: Seen[];
-      /** The approval that settles each fault no person has settled yet. */
-      settlements: Array<{ part: number; approval: ApprovalRequest }>;
+      /** Each fault no person has settled yet, with the approval that settles it. */
+      settlements: Array<{
+        part: number;
+        number: number;
+        fault: string;
+        detail: string;
+        approval: ApprovalRequest;
+      }>;
       finish: Finish;
     }
   | { status: "nothing-published"; sourceId: string }
@@ -769,7 +738,13 @@ export async function observePublish(request: {
     seen: observed.seen,
     settlements:
       state.state === "faulted"
-        ? state.faults.map((one) => ({ part: one.part, approval: one.settlement }))
+        ? state.faults.map((one) => ({
+            part: one.part,
+            number: one.number,
+            fault: one.fault,
+            detail: one.detail,
+            approval: one.settlement,
+          }))
         : [],
     finish,
   };

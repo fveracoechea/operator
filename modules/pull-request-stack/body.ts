@@ -230,3 +230,53 @@ export function renderResolution(input: {
   ];
   return `${lines.join("\n")}\n`;
 }
+
+/**
+ * Why one published range is recalled, read from a record with no free text (D1): an open
+ * defect of an accepted result, as `work invalidate` recorded it, or a withdrawal, as the
+ * registration plan that the person approved recorded it.
+ */
+export type RecallCause =
+  | {
+      kind: "defect";
+      item: string;
+      summary: string;
+      evidence: string;
+      foundBy: string;
+    }
+  | { kind: "withdrawal"; item: string; planRevision: string };
+
+/** The hidden line by which a repeat finds the one comment that an effect wrote. */
+export function commentMarker(id: string): string {
+  return `<!-- operator:stack-comment:v1 ${id} -->`;
+}
+
+function causeLine(cause: RecallCause): string {
+  return cause.kind === "defect"
+    ? `- A defect in ${cause.item}: ${cause.summary} Evidence: ${cause.evidence} Found by ${cause.foundBy}.`
+    : `- ${cause.item} is withdrawn: a person removed its issue from the parent, and registration plan ${cause.planRevision} recorded the withdrawal.`;
+}
+
+/**
+ * The one comment a recall adds to each pull request it turns into a draft (decision 23). The
+ * reason is rendered from the records. With no replacement, the comment names the close that
+ * the same approval covers, because every code item of the source is withdrawn (decision 30).
+ */
+export function renderRecall(input: {
+  marker: string;
+  causes: RecallCause[];
+  replaced: boolean;
+}): string {
+  const lines = [
+    "Operator recalled this pull request to a draft. Do not merge it.",
+    "",
+    ...section("Why", input.causes.map(causeLine)),
+    ...section("What follows", [
+      input.replaced
+        ? "Its commits change on the integration branch first. Then a new stack publication replaces this pull request and closes it with a link to its replacement."
+        : "Every code item of this source is withdrawn, so no new stack publication replaces this pull request. Operator closes it now. No branch is deleted.",
+    ]),
+    input.marker,
+  ];
+  return `${lines.join("\n")}\n`;
+}

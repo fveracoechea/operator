@@ -177,6 +177,8 @@ export async function createPull(
 /** What GitHub shows of one pull request, in the fields the merge observation reads. */
 export type PullState = {
   number: number;
+  /** The GraphQL identity, which the one draft mutation names. */
+  nodeId: string | null;
   state: string;
   draft: boolean;
   merged: boolean;
@@ -212,6 +214,7 @@ export async function readPullState(
     status: "read",
     value: {
       number,
+      nodeId: ToolInvocation.text(body, "node_id"),
       state,
       draft: ToolInvocation.record(body, "draft") === true,
       merged,
@@ -330,6 +333,44 @@ export async function closePull(
   });
   if (outcome.status === "succeeded") {
     return { status: "closed" };
+  }
+  return outcome.status === "failed"
+    ? { status: "failed", message: detailOf(outcome) }
+    : { status: "uncertain", detail: outcome.detail };
+}
+
+type Write =
+  | { status: "written" }
+  | { status: "failed"; message: string }
+  | { status: "uncertain"; detail: string };
+
+/**
+ * Marks one pull request as a draft, which GitHub refuses to merge ("Draft pull requests cannot
+ * be merged", GitHub docs). REST has no such write, so this is the one GraphQL mutation
+ * `convertPullRequestToDraft`, verified by a read-only schema query on ticket #121. It never
+ * merges and never changes the title, the body, or the base.
+ */
+export async function convertToDraft(nodeId: string): Promise<Write> {
+  const outcome = await GithubApi.call({
+    args: ["--method", "POST", "graphql", "--input", "-"],
+    input: JSON.stringify({
+      query:
+        "mutation($id: ID!) { convertPullRequestToDraft(input: { pullRequestId: $id }) { pullRequest { isDraft } } }",
+      variables: { id: nodeId },
+    }),
+    timeoutMs: WRITE_TIMEOUT_MS,
+  });
+  // GraphQL answers a refused mutation with HTTP 200 and a list of errors.
+  const errors =
+    outcome.status === "succeeded" ? ToolInvocation.list(outcome.value.body, "errors") : [];
+  if (errors.length > 0) {
+    return {
+      status: "failed",
+      message: errors.map((one) => ToolInvocation.text(one, "message") ?? "error").join("; "),
+    };
+  }
+  if (outcome.status === "succeeded") {
+    return { status: "written" };
   }
   return outcome.status === "failed"
     ? { status: "failed", message: detailOf(outcome) }

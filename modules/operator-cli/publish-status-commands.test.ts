@@ -496,11 +496,14 @@ describe("the merge observation", () => {
     expect(gateCheckouts(workspace)).toEqual([]);
   });
 
-  test("a settled close with no merge ends its part, and the source does not finish", async () => {
+  test("a settled close with no merge ends its part, and a new stack publication carries its commits", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const published = await publishedOneCommit(workspace);
     await editPull(workspace, { state: "closed" });
     const read = await publishStatus(workspace, published.producer);
+    const unsettled = await nextActions(workspace);
+    expect(unsettled.of("settle_publish").blocker).toBe("stack_fault");
+    expect(unsettled.forAction("publish_stack")).toEqual([]);
     const granted = await grantDirection(
       workspace,
       published.producer,
@@ -509,14 +512,20 @@ describe("the merge observation", () => {
     );
     expect(granted.json.reason).toBe("approval_granted");
 
+    // The person settled the fault, so the path is a new stack publication behind its approval.
     const next = await nextActions(workspace);
-    expect(next.of("settle_publish").blocker).toBe("stack_fault");
-    expect(next.of("settle_publish").detail).toContain("ended with no merge commit");
+    expect(next.forAction("settle_publish")).toEqual([]);
+    expect(next.of("publish_stack").blocker).toBe("approval_required");
     expect(next.waiting).not.toContain("stack_open");
     expect((await publishStatus(workspace, published.producer)).json.data.finish.status).toBe(
       "not-finished",
     );
     expect(gateCheckouts(workspace)).toHaveLength(1);
+    const again = await plan(workspace);
+    expect(again.json.reason).toBe("publish_planned");
+    expect(again.json.data.publication).toBe(2);
+    // The closed pull request is not closed again, so the approval names no close.
+    expect(again.json.data.approval.targets).not.toContain(`${REPOSITORY}#${published.number}`);
   });
 
   test("a close with no merge, a moved head, and a merge into another base complete nothing", async () => {

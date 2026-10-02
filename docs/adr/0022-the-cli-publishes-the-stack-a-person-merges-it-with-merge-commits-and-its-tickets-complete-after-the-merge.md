@@ -67,11 +67,21 @@ A fault on one part stops that part and every part above it: no retarget, and th
 So the Operator writes nothing more to a pull request whose head a person moved (decision 21).
 Only the person settles a fault, by an approval of action `stack-fault` whose target is the pull request and whose request revision is the reading that recorded the fault.
 A settled merge by another method counts as landed, because its commits reached the target.
-Any other settled fault ends its part, and the parts above a fault stay stopped, because their commits reach the target only through a new stack publication.
+Any other settled fault ends its part, and the parts above a fault stay stopped, because their commits reach the target only through a new stack publication, which `crew next` then offers behind its own approval.
+A conflict that a retarget, a recall, or a close finds on an existing pull request waits on `publish_conflict` until the person settles it by the same action, with the pull request as target and the recorded conflict as request revision; then nothing repeats that write, and the next reading records what GitHub shows.
+A conflict of a push or a create has no settlement, because what it found was never planned.
 
-A defect found in an open published range, or a withdrawal of an item whose commit is in one, first recalls that range: with an approval, each open pull request from that part up becomes a draft, which cannot be merged, and gets one comment with the reason.
-The correction or the take-out then runs on the local branch, and a new stack publication closes each recalled pull request with a pointer to its replacement.
+A defect found in an open published range, or a withdrawal of an item whose commit is in one, first recalls that range: `crew next` offers `recall_stack` with `approval_required`, and with an approval of action `stack-recall`, the pull requests as targets, the source as scope, and the recall plan revision as request revision, each open pull request from that part up becomes a draft, which cannot be merged, and gets one comment with the reason.
+The reason is rendered from the defect record of `work invalidate` or from the withdrawal record of the registration plan, so the Operator writes no word of it, and the approval binds the recall plan revision that names every comment (D1).
+GitHub has no REST write that makes a draft, so the recall sends the one GraphQL mutation `convertPullRequestToDraft`, and GitHub documents that "Draft pull requests cannot be merged".
+Each write reads GitHub first, and a comment carries a hidden marker by which a repeat finds it, so a repeat after a lost answer writes nothing twice.
+The correction or the take-out then runs on the local branch, and a new stack publication, with a new number and new remote names, closes each recalled pull request with a pointer to its replacement, under its own publish approval, which names each close.
+The parts below the recalled ones stay open, and the new publication starts on the published commit of the highest of them after a person merged them; until then its plan refuses with `stack_part_open`.
+When every code item above the recalled point is withdrawn and no item can still land, no publication will replace them, so the recall approval also covers the close of each recalled pull request, and its comment names the withdrawal.
 A merged commit is never corrected or taken out; a defect found after the merge is new work.
+A merge of a part that holds a commit to change, before any recall, is the stack fault `merged_before_recall`: the recall is no longer offered, and the fault waits on a person, and for a withdrawn item it names its issue, which the keyword may have closed.
+When the person settles it, the open invalidation of that commit closes with no correction, each dependent it paused returns to the state it was paused from, and the merged part counts as landed, so the source can finish.
+`work invalidate` of a commit whose pull request merged refuses with `invalidation_merged`.
 
 The integration base changes only through a rebase that a person approves, before publish or after a recall or a stack fault.
 The CLI gates the new base, then rebuilds the branch on it under the tests of the ADR 0020 rewrite, and a commit that already merged into the target leaves the branch.
@@ -81,9 +91,11 @@ The new base must be on the fetched target branch, and the old base must be belo
 A published pull request of the source that no read shows merged or closed refuses the rebase with `rebase_published_range`, also when a stack fault that no person settled holds it, because a person can still read and merge it.
 When the person settled every fault of the last publication, its open pull requests are stopped: the rebase runs, and the next stack publication carries their commits and closes each one, after one comment that points to its replacement, under the same `publish` approval, which names each close as a target.
 A pull request whose head a person moved gets no write, no comment and no close, also after the person settled that fault: Operator writes nothing more to it (decision 21), and the plan only names it, so the person closes it.
+Each close carries the published commit, and a close that reads another head at the write is a conflict that writes nothing.
 The preview reports whether the head merges cleanly onto the fetched target, as information, so a conflict with another source can be settled by this rebase before anyone reviews on GitHub.
 
 A source is finished when every pull request of its last stack publication merged with a merge commit, or a person settled its merge by another method, and every tracker step of its items is verified.
+A recall that closed its pull requests, because no publication will replace them, also ends the publication once the branch holds nothing more to publish.
 Its gate checkout is removed then, by an unforced Herdr removal with no approval, so a checkout that holds a change stays, and Operator deletes no branch (ADR 0010).
 
 ## Considered options

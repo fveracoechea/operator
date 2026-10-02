@@ -466,7 +466,9 @@ describe("operator work rebase moves the integration branch to a new base behind
     const read = await publishStatus(workspace, producer);
     expect(read.json.blockers[0]).toMatchObject({ fault: "head_moved" });
     await grant(workspace, producer, read.json.blockers[0].settlement);
-    const ended = (await nextActions(workspace)).of("settle_publish");
+    // The settled fault ends the part, so a new stack publication is the path, after a rebase
+    // when the target moved (#121).
+    const ended = (await nextActions(workspace)).of("publish_stack");
     expect(ended.detail).toContain("operator work rebase");
 
     // The stopped pull request is still open, and the settled fault lets the rebase run.

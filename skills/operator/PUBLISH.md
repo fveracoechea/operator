@@ -1,6 +1,6 @@
 # Publish
 
-Read this when `bun run operator crew next` offers `publish_stack`, `retarget_pull_request`, `settle_publish`, `rebase_integration`, or `settle_rebase`, or shows `stack_open` or `stack_fault`, when the user reports a merge or a close of a pull request, and when the target branch moved under a source.
+Read this when `bun run operator crew next` offers `publish_stack`, `retarget_pull_request`, `recall_stack`, `settle_publish`, `rebase_integration`, or `settle_rebase`, or shows `stack_open` or `stack_fault`, when the user reports a merge or a close of a pull request, and when the target branch moved under a source.
 
 The CLI publishes the integration branch of a source as a pull request stack, one pull request by default, behind one approval of the person (ADR 0022).
 A person merges each pull request on GitHub.
@@ -39,7 +39,9 @@ The plan refuses, all at once and in this order, when one of these holds:
 - `branch_review_missing`, `review_findings_undisposed`, `review_correction_pending`, `branch_review_checks_missing`, `branch_review_checks_differ`: the review gate.
 - `gate_base_not_passed`, `gate_commit_not_passed`: the gate records. Read [GATE.md](GATE.md).
 - `invalidation_open`, `withdrawal_open`, `direction_open`.
-- `nothing_to_publish`: the branch holds no commit above its base.
+- `stack_fault_unsettled`: a fault of the last publication that the person did not settle.
+- `stack_part_open`: a part that an earlier publication keeps below the parts it replaces has not merged yet.
+- `nothing_to_publish`: the branch holds no commit above where the publication starts.
 - `cut_not_between_commits`: a cut point that does not fall between two neighbouring commits of the head.
 - `section_missing`: the review that gates the publish recorded no published text.
 - `body_too_long`: a body is over 65536 characters, the GitHub limit.
@@ -71,6 +73,7 @@ Ask the person to read the file and to approve the exact request the plan names:
 action `publish`, the source as scope, the plan revision as request revision, and these targets:
 
 - each new remote branch name and the target branch;
+- `<owner>/<repo>#<n>` for each earlier pull request that this publication closes with a pointer to its replacement;
 - `github:<owner>/<repo>#<n>:resolution` and `github:<owner>/<repo>#<n>:completion` for each item that closes a ticket.
 
 The tracker steps run after the merge, and the plan file holds the text of each resolution under "Tracker steps after the merge".
@@ -98,6 +101,11 @@ Each write reads GitHub first: names that are already at their commits push noth
 `publish_uncertain` means the answer was lost, so run it again.
 `publish_conflict` and `publish_failed` wait on the person: a remote name at another commit, more than one pull request for one head, or a write GitHub refused.
 Operator writes nothing over them.
+
+A conflict that a retarget, a recall, or a close found on an existing pull request names a settlement in its report and in the `settle_publish` detail: action `stack-fault`, the pull request as target, the source as scope, and the recorded conflict as request revision.
+When the person accepts it as GitHub shows it, record their approval of that exact request.
+Then nothing repeats the write, and the next `publish status` records what GitHub shows.
+A conflict of a push or a create has no settlement, because what it found was never planned.
 
 ## Merge and status
 
@@ -140,6 +148,7 @@ It refuses with `retarget_not_due` before the merge of the part below, and with 
 
 `publish status` answers `stack_fault`, and `crew next` offers `settle_publish` with the blocker `stack_fault`, when GitHub shows an outcome that no publication planned:
 
+- `merged_before_recall`: a merge of a part that held a commit to change, before any recall. Read "Recall".
 - `not_merge_commit`: a squash or rebase merge. The tracker steps of its items still run, and the resolution names the commit that landed and the method.
 - `base_not_target`: a merge into a base that is not the target. It completes nothing.
 - `head_moved`: the head is not the published commit, so it holds a commit that no review read.
@@ -152,7 +161,45 @@ Bring it to the user, and run the read again when the user reports a change on G
 
 When the person accepts a fault as GitHub shows it, record their approval of the settlement that `publish status` names under each `stack_fault` blocker: action `stack-fault`, the pull request as target, the source as scope, and the reading as request revision.
 A settled squash or rebase merge counts as landed.
-Any other settled fault ends its part, and the parts above it stay stopped, so `crew next` keeps `stack_fault` for them: their commits reach the target only through a new stack publication.
+Any other settled fault ends its part, and the parts above it stay stopped: their commits reach the target only through a new stack publication.
+`crew next` then offers `publish_stack` for it, with `approval_required`, and keeps `stack_fault` only while the records refuse that publication.
+After a squash below, the plan refuses with `base_not_on_target`, because the target does not hold the reviewed commits.
+
+## Recall
+
+A pushed branch is never pushed again, and a published commit is never rewritten in place.
+`work invalidate` of a commit in an open pull request, or a withdrawal of an item whose commit is in one, makes `crew next` offer `recall_stack` with `approval_required`.
+Until the recall is done, the rewrite at the acceptance of the correction and `work take-out` refuse with `rewrite_published_range` and name the pull request.
+
+Plan it, and change nothing:
+
+```
+bun run operator publish recall --source <source id> --json
+```
+
+The plan names each open pull request from the part that holds the commit up. The parts below stay open.
+Each one gets one comment, which the CLI renders from the defect or the withdrawal record, so you write no reason.
+The report is a summary, and every comment is in the file it names under `.operator/local/publish-plans/`.
+Ask the person to read it and approve the exact request: action `stack-recall`, each pull request as `<owner>/<repo>#<n>`, the source as scope, and the recall plan revision as request revision.
+Then recall:
+
+```
+bun run operator publish recall --request <id> --owner-token <token> --source <source id> --plan-revision <revision> --json
+```
+
+Each pull request becomes a draft, which GitHub refuses to merge, and gets its comment.
+Each write reads GitHub first, so a repeat after a lost answer writes nothing twice.
+Then the correction or the take-out runs on the integration branch.
+The next publication has a new number and new remote branch names, and it closes each recalled pull request with a pointer to its replacement, under its own publish approval.
+It starts above the parts that stay open, after a person merges them; until then the plan refuses with `stack_part_open`.
+
+When every code item above the recalled point is withdrawn and no item can still land, no publication will replace them.
+Then the same approval also closes each recalled pull request, and its comment names the withdrawal.
+
+A merge before the recall ends the change.
+`publish status` answers the stack fault `merged_before_recall`, the recall is no longer offered, and the fault waits on the person: the defect or the unwanted change becomes a new issue, which a person creates.
+When the person settles it, the open invalidation closes with no correction, its paused dependents return to the state they were paused from, and the merged part counts as landed, so its tracker steps run and the source can finish.
+`work invalidate` of a commit whose pull request merged refuses with `invalidation_merged`, and a take-out of it refuses with `rewrite_published_range`.
 
 ## Rebase onto a new base
 
@@ -163,7 +210,7 @@ Propose a rebase in one of these cases, and only then:
 - before publish, when the person wants the branch on a newer target;
 - after the person settled every stack fault of a publication, to drop the commits whose pull request merged and to publish the rest again.
 
-A rebase also comes after a recall, when the recall is built.
+A rebase may also come after a recall, before the next publication.
 Never propose it to follow the target on every merge.
 It gates the new base and every commit again, and the new head needs a new branch review, which counts against the limit of three.
 
@@ -197,13 +244,14 @@ The rebase registers a new branch review on the new head, as [REVIEW.md](REVIEW.
 A rebase whose outcome is not recorded shows as `settle_rebase`; run the command it names again.
 
 After the rebase, `crew next` offers `publish_stack` again when the publish gate holds.
-The next publication closes each open pull request of the settled publication that it replaces: the part a settled fault left open and each stopped part above a fault.
+The next publication closes each open pull request of the last publication that it replaces: each recalled part, the part a settled fault left open, and each stopped part above a fault.
 The plan names each close, the approval names each one as `<owner>/<repo>#<n>`, and each one gets one comment that points to the replacement before it is closed with no merge. Its branch stays.
 A replaced pull request whose head a person moved gets no write, no comment and no close (decision 21). The plan names it under `headMoved`; tell the user that a person closes it.
+A close that finds a head that is not the published commit at the write stops with `publish_conflict` and writes nothing to that pull request.
 
 The plan refuses, all at once, with:
 
-- `rebase_published_range`: a published pull request of the source is open, also one with a stack fault that no person settled. A rebase never changes what an open pull request holds. The person settles the fault or closes the pull request first.
+- `rebase_published_range`: a published pull request of the source is open, also one with a stack fault that no person settled. A rebase never changes what an open pull request holds. The person settles the fault or closes the pull request first, or a recall turns it into a draft, which no longer counts as open.
 - `publish_unsettled`, `landing_pending`, `rebase_pending`: settle that write, landing, or rebase first.
 - `rebase_correction_open`: a correction replaces a landed commit. Accept it first.
 - `rebase_take_out_pending`: the branch still holds the commit of a withdrawn item.
@@ -215,6 +263,7 @@ The plan refuses, all at once, with:
 ## Finished source
 
 A source is finished when every pull request of its last publication merged with a merge commit, or the person settled its merge by another method, and every tracker step of its items is verified.
+A recall that closed its pull requests also finishes it, once the branch holds nothing more to publish.
 The read or the tracker step that finishes it removes its gate checkout by an unforced Herdr removal, with no approval.
 Herdr refuses a checkout that holds a change, so it stays, and the report says so.
 Operator deletes no branch, and a person deletes the remote branches.

@@ -232,10 +232,13 @@ _Avoid_: release publication, and "publication" alone, for this act
 **Recall**:
 The return of the open integrated pull requests of one stack publication, from one part up, to drafts, before a correction or a withdrawal changes that range.
 It keeps the change off the target branch while it is made, and the next stack publication closes what it recalled.
+Its one comment on each pull request is rendered from the defect or the withdrawal record, and one approval binds the recall plan revision that names every comment.
+When every code item above the recalled point is withdrawn, no publication follows, so the recall also closes what it recalled.
+A merge before the recall ends the change: when a person settles that stack fault, the invalidation closes with no correction, and the merged result counts as landed.
 _Avoid_: withdraw, retract, for this act
 
 **Stack fault**:
-An outcome on GitHub that no stack publication planned: a merge that is not a merge commit, a merge into another base, a commit that no review read on a pushed branch, or a close with no merge.
+An outcome on GitHub that no stack publication planned: a merge that is not a merge commit, a merge into another base, a commit that no review read on a pushed branch, a close with no merge, or a merge of a part that held a commit to change before its recall.
 Operator adopts nothing from it, and it waits on a person.
 A fault on one part stops every part above it.
 Only the person settles it, by an approval of the reading: a settled merge by another method counts as landed, and any other settled fault ends its part.

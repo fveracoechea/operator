@@ -131,6 +131,8 @@ const body: {
   head?: string;
   base?: string;
   draft?: boolean;
+  query?: string;
+  variables?: { id?: string };
 } | null = usesStdin ? JSON.parse(await Bun.stdin.text()) : null;
 const state = await readState();
 const now = new Date().toISOString();
@@ -172,7 +174,35 @@ async function faulted(name: string): Promise<"answered" | "applied-lost" | "non
   return "applied-lost";
 }
 
-if (repositoryMatch?.[1] !== undefined) {
+if (path === "graphql" && method === "POST") {
+  // The one mutation the recall sends: it marks a pull request as a draft by its node id.
+  const fault = await faulted("convertToDraft");
+  if (fault !== "answered") {
+    const number = Number((body?.variables?.id ?? "").replace("PR_", ""));
+    const [name, held] =
+      Object.entries(state.pulls ?? {}).find(([, pulls]) =>
+        pulls.some((one) => one.number === number),
+      ) ?? [];
+    if (
+      name === undefined ||
+      held === undefined ||
+      !String(body?.query).includes("convertPullRequestToDraft")
+    ) {
+      answer(200, { errors: [{ message: "Could not resolve to a node" }] });
+    } else {
+      state.pulls = {
+        ...state.pulls,
+        [name]: held.map((one) => (one.number === number ? { ...one, draft: true } : one)),
+      };
+      await writeState(state);
+      if (fault === "applied-lost") {
+        lose();
+      } else {
+        answer(200, { data: { convertPullRequestToDraft: { pullRequest: { isDraft: true } } } });
+      }
+    }
+  }
+} else if (repositoryMatch?.[1] !== undefined) {
   if ((await faulted("readRepository")) === "none") {
     const name = repositoryMatch[1];
     answer(200, {
@@ -255,7 +285,12 @@ if (repositoryMatch?.[1] !== undefined) {
       if (fault === "applied-lost") {
         lose();
       } else {
-        answer(200, { merged: false, merge_commit_sha: null, ...changed });
+        answer(200, {
+          merged: false,
+          merge_commit_sha: null,
+          node_id: `PR_${changed.number}`,
+          ...changed,
+        });
       }
     }
   }
@@ -267,7 +302,12 @@ if (repositoryMatch?.[1] !== undefined) {
     if (found === undefined) {
       answer(404, { message: "Not Found" });
     } else {
-      answer(200, { merged: false, merge_commit_sha: null, ...found });
+      answer(200, {
+        merged: false,
+        merge_commit_sha: null,
+        node_id: `PR_${found.number}`,
+        ...found,
+      });
     }
   }
 } else if (commitMatch?.[2] !== undefined) {

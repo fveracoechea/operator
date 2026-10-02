@@ -11,6 +11,7 @@ import {
   keyStatus,
 } from "./gate-runs.ts";
 import { fixedGateOf, integrationBranchOf, sourceSlug } from "./integration.ts";
+import { publishBaseOf } from "./stack-parts.ts";
 import { storedObservedChecks, storedPublishedText, storedTargets } from "./review-input.ts";
 import { findingsOf, reportsOf, reviewOfSubmission, type ReviewRow } from "./review.ts";
 import { assignments, directionRequests, gateRuns, workSources } from "./schema.ts";
@@ -36,6 +37,8 @@ export type RecordRefusal = {
     | "invalidation_open"
     | "withdrawal_open"
     | "direction_open"
+    | "stack_fault_unsettled"
+    | "stack_part_open"
     | "nothing_to_publish";
   detail: string;
 };
@@ -60,6 +63,12 @@ export type PublishRecords = {
   slug: string;
   base: string | null;
   head: string | null;
+  /**
+   * The commit the next stack publication starts on: the integration base, or the published
+   * commit of the highest part an earlier publication keeps, which merged (decision 23).
+   */
+  publishBase: string | null;
+  /** The commits above the publish base, which this publication carries. */
   commits: GatedCommit[];
   /** The review whose report gates the publish and wrote its text. */
   gatingReview: ReviewRow | null;
@@ -252,6 +261,43 @@ function openRefusals(
 }
 
 /**
+ * A branch with no commit above where the publication starts has nothing to publish (decision
+ * 30).
+ */
+function nothingRefusal(
+  sourceId: string,
+  branch: { recordedTip: string; baseCommit: string },
+  publishBase: string,
+): RecordRefusal[] {
+  if (branch.recordedTip !== publishBase) {
+    return [];
+  }
+  return [
+    {
+      reason: "nothing_to_publish",
+      detail:
+        publishBase === branch.baseCommit
+          ? `The integration branch of ${sourceId} holds no commit above its base.`
+          : `Every commit of the integration branch of ${sourceId} is in a part that merged.`,
+    },
+  ];
+}
+
+/** What the last publication holds against a new one: a fault and each kept part still open. */
+function stackRefusals(carried: ReturnType<typeof publishBaseOf>): RecordRefusal[] {
+  return [
+    ...carried.unsettled.map((one) => ({
+      reason: "stack_fault_unsettled" as const,
+      detail: `#${one.number} holds the stack fault ${one.fault}, which no person settled.`,
+    })),
+    ...carried.waiting.map((one) => ({
+      reason: "stack_part_open" as const,
+      detail: `Part ${one.part} (#${one.number}) of stack publication ${one.publication} stays open below the parts it replaces. The new stack publication starts above it after a person merges it.`,
+    })),
+  ];
+}
+
+/**
  * The review whose report gates the publish and wrote its text: the branch review reported on
  * the exact snapshot of the head, or the result review of the one commit of a source with no
  * branch review (ADR 0017).
@@ -330,6 +376,7 @@ export function publishRecordsOf(db: CrewReader, sourceId: string): PublishRecor
     slug: sourceSlug(sourceId),
     base: branch?.baseCommit ?? null,
     head: branch?.recordedTip ?? null,
+    publishBase: branch?.baseCommit ?? null,
     commits: [],
     gatingReview: null,
     text: null,
@@ -347,8 +394,12 @@ export function publishRecordsOf(db: CrewReader, sourceId: string): PublishRecor
     };
   }
 
-  const commits =
+  const carried = publishBaseOf(db, sourceId);
+  const publishBase = carried.base ?? branch.baseCommit;
+  const snapshot =
     condition.status === "due" || condition.status === "one-commit" ? condition.commits : [];
+  // A kept part of an earlier publication already carries the commits up to the publish base.
+  const commits = snapshot.slice(snapshot.findIndex((one) => one.commit === publishBase) + 1);
   const isBranch = condition.status === "due";
   const gatingReview = gatingReviewOf(db, sourceId, condition);
 
@@ -392,15 +443,8 @@ export function publishRecordsOf(db: CrewReader, sourceId: string): PublishRecor
           ]),
     ...(commits.length > 0 ? gateRefusals : []),
     ...openRefusals(db, sourceId, condition),
-    // A branch with no commit above its base has nothing to publish (decision 30).
-    ...(branch.recordedTip === branch.baseCommit
-      ? [
-          {
-            reason: "nothing_to_publish" as const,
-            detail: `The integration branch of ${sourceId} holds no commit above its base.`,
-          },
-        ]
-      : []),
+    ...stackRefusals(carried),
+    ...nothingRefusal(sourceId, branch, publishBase),
   ];
 
   const resultReviews = commits.flatMap((one) => {
@@ -411,6 +455,7 @@ export function publishRecordsOf(db: CrewReader, sourceId: string): PublishRecor
 
   return {
     ...empty,
+    publishBase,
     commits: commits.map((one) => gatedCommit(db, one)),
     gatingReview,
     text:

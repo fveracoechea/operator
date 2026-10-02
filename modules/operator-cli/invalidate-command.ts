@@ -63,6 +63,20 @@ export async function runInvalidate(parsed: ParsedArguments): Promise<Handled> {
     });
   }
 
+  if (result.status === "merged") {
+    return refuse({
+      json: parsed.json,
+      operation: "work_invalidate",
+      outcome: "conflict",
+      reason: "invalidation_merged",
+      detail: { ...result },
+      lines: [
+        `The commit ${result.commit} of assignment ${result.assignmentId} merged into the target in pull request ${result.pullRequest ?? "(number not recorded)"}.`,
+        "A merged commit is never invalidated or taken out. The defect becomes a new issue, which a person creates.",
+      ],
+    });
+  }
+
   if (result.status === "not-accepted") {
     return refuse({
       json: parsed.json,

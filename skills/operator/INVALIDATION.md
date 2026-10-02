@@ -7,6 +7,8 @@ bun run operator work invalidate --request <id> --owner-token <token> --assignme
 ```
 
 The defect states its summary, its evidence, and who found it.
+`invalidation_merged` means the pull request of that commit merged, so the commit is never invalidated: tell the person and name that pull request, and the defect becomes a new issue.
+Inside an open pull request, the invalidation is recorded, and `crew next` offers `recall_stack` first: read "Recall" in [PUBLISH.md](PUBLISH.md) before the correction lands.
 A corrected branch finding invalidates its target through this same path, inside `review dispose`, so you do not run `work invalidate` for it.
 Its defect carries the finding, its target commits, and your reason, as [REVIEW.md](REVIEW.md) shows.
 Review work is refused, because a review holds no result of its own.

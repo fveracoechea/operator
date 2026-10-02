@@ -7,6 +7,7 @@ import { identityOf } from "./identity.ts";
 import { mapIssueOf } from "./map-amendment.ts";
 import { mutate, readState, type RequestFailure, type StateFailure } from "./operations.ts";
 import { publishRecordsOf, type RecordRefusal } from "./publish-gate.ts";
+import { conflictSettled, conflictSettlementOf } from "./stack-parts.ts";
 import { publishEffects, stackPublications, stackPullRequests } from "./schema.ts";
 import { readStored } from "./stored.ts";
 
@@ -45,7 +46,7 @@ export type PublishPreview = {
 };
 
 /** One open pull request of an ended publication, which the next publication closes. */
-export type ReplacedPull = { number: number; url: string | null };
+export type ReplacedPull = { number: number; url: string | null; head: string };
 
 /** The approval target of the close of one replaced pull request (decisions 9 and 23). */
 export function closeTarget(repository: string, number: number): string {
@@ -76,10 +77,24 @@ const effectSchema = z.discriminatedUnion("kind", [
     base: z.string(),
   }),
   z.strictObject({
+    kind: z.literal("recall"),
+    repository: z.string(),
+    number: z.int(),
+    comment: z.string(),
+    marker: z.string(),
+    /** The recall plan revision that the `stack-recall` approval binds (D1). */
+    recall: z.string(),
+  }),
+  z.strictObject({
     kind: z.literal("close"),
     repository: z.string(),
     number: z.int(),
-    publication: z.int(),
+    /** The publication that replaces it, or null when a recall closes it with no replacement. */
+    publication: z.int().nullable(),
+    /** The recall plan revision when the recall closes it with no replacement. */
+    recall: z.string().optional(),
+    /** The published commit, so a close writes nothing after a person moved the head. */
+    head: z.string().optional(),
   }),
 ]);
 
@@ -87,7 +102,11 @@ const effectSchema = z.discriminatedUnion("kind", [
  * One write as its intent records it. A create learns the number of the part below at run, and a
  * close learns the number of the first part that replaces it.
  */
-type StoredEffect = z.infer<typeof effectSchema>;
+export type StoredEffect = z.infer<typeof effectSchema>;
+
+export function storedEffect(intent: string): StoredEffect {
+  return readStored("publish effect", effectSchema, intent);
+}
 
 type PublicationRow = typeof stackPublications.$inferSelect;
 type EffectRow = typeof publishEffects.$inferSelect;
@@ -119,13 +138,23 @@ export function pullRequestsOf(db: CrewReader, publicationId: string) {
     .all();
 }
 
+/**
+ * The writes of one publication that are not done, in order. A conflict that a person settled is
+ * done for Operator: it stands as GitHub shows it, and nothing repeats it (#120).
+ */
+export function openEffectsOf(db: CrewReader, publication: PublicationRow): EffectRow[] {
+  return effectsOf(db, publication.id).filter(
+    (one) => one.state !== "done" && !conflictSettled(db, publication.sourceId, one),
+  );
+}
+
 /** The publication of one source whose writes are not all done, which only a settle finishes. */
 export function openPublicationOf(
   db: CrewReader,
   sourceId: string,
 ): { publication: PublicationRow; open: EffectRow[] } | null {
   for (const publication of publicationsOf(db, sourceId)) {
-    const open = effectsOf(db, publication.id).filter((one) => one.state !== "done");
+    const open = openEffectsOf(db, publication);
     if (open.length > 0) {
       return { publication, open };
     }
@@ -313,7 +342,7 @@ export async function planPublish(request: {
       repository: records.repository,
       sourceSlug: records.slug,
       publication: read.publication,
-      branch: { base: records.base, head: records.head },
+      branch: { base: records.publishBase ?? records.base, head: records.head },
       commits: records.commits.map((one) => ({
         commit: one.commit,
         closes: one.closes,
@@ -437,6 +466,7 @@ function recordPublication(
       repository: request.repository,
       number: one.number,
       publication: preview.publication,
+      head: one.head,
     })),
   ];
   effects.forEach((effect, position) => {
@@ -483,7 +513,7 @@ function recordOutcome(
     })
     .where(eq(publishEffects.id, request.effect.id))
     .run();
-  const intent = readStored("publish effect", effectSchema, request.effect.intent);
+  const intent = storedEffect(request.effect.intent);
   if (request.outcome.status === "done" && intent.kind === "create") {
     db.update(stackPullRequests)
       .set({ number: request.outcome.number, url: request.outcome.url })
@@ -517,6 +547,8 @@ export type ApplyResult =
       publication: number;
       effect: { id: string; kind: string; position: number };
       outcome: Exclude<WriteOutcome, { status: "done" }>;
+      /** The approval by which a person settles a conflict on an existing pull request. */
+      settlement: ApprovalRequest | null;
     }
   | StateFailure
   | RequestFailure
@@ -546,24 +578,60 @@ async function belowOf(
   return read === undefined || "status" in read ? null : read.number;
 }
 
+type ModuleEffect = Parameters<typeof PullRequestStack.write>[0]["effect"];
+
+/** One recorded intent as the module runs it, with each slot it learns at run time. */
+async function runnable(
+  projectRoot: string,
+  publicationId: string,
+  intent: StoredEffect,
+): Promise<ModuleEffect> {
+  switch (intent.kind) {
+    case "create":
+      return { ...intent, below: await belowOf(projectRoot, publicationId, intent.base) };
+    case "recall": {
+      const { recall: _recall, ...effect } = intent;
+      return effect;
+    }
+    case "close": {
+      const { recall: _recall, ...effect } = intent;
+      return {
+        ...effect,
+        head: effect.head ?? null,
+        replacement:
+          effect.publication === null ? null : await firstPartOf(projectRoot, publicationId),
+      };
+    }
+    default:
+      return intent;
+  }
+}
+
 /** Runs each write of one publication that is not done, in order, and records each outcome. */
 export async function runEffects(
   request: { projectRoot: string; requestId: string; ownerToken: string },
   publicationId: string,
 ): Promise<ApplyResult> {
-  const read = await readState(request.projectRoot, (db) => ({
-    publication: db
+  const read = await readState(request.projectRoot, (db) => {
+    const publication = db
       .select()
       .from(stackPublications)
       .where(eq(stackPublications.id, publicationId))
-      .all()[0],
-    effects: effectsOf(db, publicationId),
-  }));
+      .all()[0];
+    const effects = publication === undefined ? [] : openEffectsOf(db, publication);
+    return {
+      publication,
+      effects,
+      settlements: new Map(
+        effects.map((one) => [one.id, conflictSettlementOf(db, publication?.sourceId ?? "", one)]),
+      ),
+    };
+  });
   if ("status" in read) {
     return read;
   }
   const number = read.publication?.number ?? 0;
-  for (const effect of read.effects.filter((one) => one.state !== "done")) {
+  for (const effect of read.effects) {
     const subject = { id: effect.id, kind: effect.kind, position: effect.position };
     // A conflict is something a person settles, so a repeat never writes over it.
     if (effect.state === "conflict") {
@@ -572,17 +640,17 @@ export async function runEffects(
         z.strictObject({ status: z.literal("conflict"), found: z.string() }),
         effect.outcome ?? "{}",
       );
-      return { status: "effect-stopped", publication: number, effect: subject, outcome };
+      return {
+        status: "effect-stopped",
+        publication: number,
+        effect: subject,
+        outcome,
+        settlement: read.settlements.get(effect.id) ?? null,
+      };
     }
-    const intent = readStored("publish effect", effectSchema, effect.intent);
     const outcome = await PullRequestStack.write({
       repoRoot: request.projectRoot,
-      effect:
-        intent.kind === "create"
-          ? { ...intent, below: await belowOf(request.projectRoot, publicationId, intent.base) }
-          : intent.kind === "close"
-            ? { ...intent, replacement: await firstPartOf(request.projectRoot, publicationId) }
-            : intent,
+      effect: await runnable(request.projectRoot, publicationId, storedEffect(effect.intent)),
     });
     const recorded = await mutate(
       {
@@ -599,7 +667,23 @@ export async function runEffects(
       return recorded.result;
     }
     if (outcome.status !== "done") {
-      return { status: "effect-stopped", publication: number, effect: subject, outcome };
+      const settlement =
+        outcome.status === "conflict"
+          ? await readState(request.projectRoot, (db) =>
+              conflictSettlementOf(db, read.publication?.sourceId ?? "", {
+                ...effect,
+                state: outcome.status,
+                outcome: JSON.stringify(outcome),
+              }),
+            )
+          : null;
+      return {
+        status: "effect-stopped",
+        publication: number,
+        effect: subject,
+        outcome,
+        settlement: settlement !== null && "status" in settlement ? null : settlement,
+      };
     }
   }
   const pullRequests = await readState(request.projectRoot, (db) =>

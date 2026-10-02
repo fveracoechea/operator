@@ -5,8 +5,11 @@ import {
   type Registered,
   startBranchReviewer,
 } from "./branch-review-fixture.ts";
+import { Database } from "bun:sqlite";
 import {
+  acceptProduction,
   acceptReview,
+  invalidateResult,
   makeReviewWorkspace,
   type Producer,
   PUBLISHED_TEXT,
@@ -16,6 +19,7 @@ import {
 import {
   addRemote,
   apply,
+  correction,
   editState,
   grant,
   normalized,
@@ -432,6 +436,183 @@ describe("a stack of more than one part", () => {
     for (const call of (await githubCalls(workspace)).slice(callsBefore)) {
       expect(call).not.toMatch(/^PATCH /);
     }
+  });
+});
+
+/** The recorded revision of one assignment, which a mutation on it states. */
+function revisionOf(workspace: Workspace, assignmentId: string): number {
+  const sqlite = new Database(`${workspace.repo}/.operator/local/crew-state.sqlite`, {
+    readonly: true,
+  });
+  try {
+    return (
+      sqlite
+        .query<{ revision: number }, [string]>("select revision from assignments where id = ?")
+        .get(assignmentId)?.revision ?? 0
+    );
+  } finally {
+    sqlite.close();
+  }
+}
+
+async function recall(workspace: Workspace, producer: Producer, planRevision?: string) {
+  return runJson(workspace, [
+    "publish",
+    "recall",
+    ...(planRevision === undefined
+      ? []
+      : ["--request", request(), "--owner-token", producer.ownerToken]),
+    "--source",
+    SOURCE,
+    ...(planRevision === undefined ? [] : ["--plan-revision", planRevision]),
+  ]);
+}
+
+describe("a change after publish", () => {
+  test("a recall makes drafts from the affected part up and leaves the parts below open", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const stack = await publishedStack(workspace);
+    const [first = 0, second = 0, third = 0] = stack.numbers;
+    const sibling = stack.final.sibling;
+    const invalidated = await invalidateResult(workspace, stack.producer, {
+      assignmentId: sibling.assignmentId,
+      revision: revisionOf(workspace, sibling.assignmentId),
+      defect: {
+        summary: "The notes name the wrong result.",
+        evidence: "notes/notes.md:1",
+        foundBy: "the person, on the pull request",
+      },
+    });
+    expect(invalidated.json.reason).toBe("result_invalidated");
+
+    const offered = (await nextActions(workspace)).of("recall_stack");
+    expect(offered.blocker).toBe("approval_required");
+    const planned = await recall(workspace, stack.producer);
+    expect(planned.json.data.pullRequests).toEqual([second, third]);
+    expect(planned.json.data.approval.targets).toEqual([
+      `${REPOSITORY}#${second}`,
+      `${REPOSITORY}#${third}`,
+    ]);
+    const granted = await grant(workspace, stack.producer, planned.json.data.approval);
+    expect(granted.json.reason).toBe("approval_granted");
+    const callsBefore = (await githubCalls(workspace)).length;
+    const applied = await recall(workspace, stack.producer, planned.json.data.planRevision);
+    expect(applied.json.reason).toBe("stack_recalled");
+    expect(applied.json.data).toMatchObject({ pullRequests: [second, third], closed: false });
+
+    const pulls = await pullsOf(workspace);
+    expect(pulls.map((one) => [one.number, one.state, one.draft])).toEqual([
+      [first, "open", false],
+      [second, "open", true],
+      [third, "open", true],
+    ]);
+    const comments = (await readFake(workspace.github)).comments;
+    expect(comments[String(first)]).toBeUndefined();
+    for (const number of [second, third]) {
+      expect(comments[String(number)]?.map((one) => one.body)).toEqual([
+        expect.stringContaining("The notes name the wrong result."),
+      ]);
+    }
+    // The recall never merges, never closes, and never changes a base (R2, D6).
+    for (const call of (await githubCalls(workspace)).slice(callsBefore)) {
+      expect(call).toMatch(/^(GET repos\/|POST graphql|POST repos\/.*\/issues\/\d+\/comments)/);
+    }
+
+    // The part below stays open, so the stack still waits on its merge.
+    await publishStatus(workspace, stack.producer);
+    const next = await nextActions(workspace);
+    expect(next.forAction("recall_stack")).toEqual([]);
+    expect(next.waits.find((one) => one.wait === "stack_open")?.detail).toContain(`#${first}`);
+    expect(next.waits.find((one) => one.wait === "stack_open")?.detail).not.toContain(`#${second}`);
+
+    // The correction lands on the local branch, and the rewrite lands the third commit again.
+    const fixed = await correction(workspace, sibling, invalidated.json.data.revision as number, {
+      path: "notes/notes.md",
+      text: "# Notes\n\nThe right result.\n",
+      worktree: "fix-notes",
+    });
+    const corrected = await acceptProduction(workspace, fixed.fixing, fixed);
+    expect(corrected.json.reason).toBe("assignment_accepted");
+    // Part 1 stays open below the recalled parts, so a new publication waits for its merge.
+    const waiting = await plan(workspace);
+    expect(reasons(waiting)).toContain("stack_part_open");
+
+    const registered = corrected.json.data.branchReview as Registered;
+    const commits = (
+      await Bun.$`git -C ${workspace.repo} rev-list --reverse ${stack.final.acceptedFirst.json.data.landing.from}..${registered.headCommit}`.quiet()
+    ).stdout
+      .toString()
+      .trim()
+      .split("\n");
+    expect(commits[0]).toBe(stack.commits[0]);
+    const reviewer = await startBranchReviewer(
+      workspace,
+      stack.producer,
+      registered,
+      "branch-reviewer-again",
+    );
+    const report = branchReport(workspace, registered.snapshotIdentity, [], {
+      observedChecks: [{ name: "true", outcome: "passed" }],
+    });
+    const reported = await reportReview(workspace, reviewer, registered.reviewId, {
+      ...report,
+      published: { ...PUBLISHED_TEXT, cuts: [{ after: commits[1], ...PART_THREE }] },
+    });
+    expect(reported.json.reason).toBe("review_reported");
+    await acceptReview(workspace, stack.producer, {
+      reviewAssignmentId: registered.assignmentId,
+      attemptId: reviewer.attemptId,
+      revision: reviewer.revision,
+    });
+
+    // A person merges part 1, so the new publication starts on its published commit: it holds
+    // only the commits above it and replaces only the recalled parts.
+    await mergePart(workspace, { number: first, head: stack.commits[0] ?? "", method: "merge" });
+    await publishStatus(workspace, stack.producer);
+    const again = await plan(workspace);
+    expect(reasons(again)).not.toContain("stack_part_open");
+    expect(again.json.data.names).toEqual([
+      "operator/fveracoechea-operator-15/2/1",
+      "operator/fveracoechea-operator-15/2/2",
+    ]);
+    expect(again.json.data.closes).toEqual([second, third]);
+    const text = await Bun.file(`${workspace.repo}/${again.json.data.planPath}`).text();
+    expect(text).not.toContain(`/commit/${stack.commits[0]}`);
+    expect(text).toContain(`/commit/${commits[1]}`);
+    expect(text).toContain(`/commit/${commits[2]}`);
+  });
+
+  test("a retarget conflict waits on a person, and their settlement ends it", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const stack = await publishedStack(workspace);
+    const [first = 0, second = 0] = stack.numbers;
+    await mergePart(workspace, { number: first, head: stack.commits[0] ?? "", method: "merge" });
+    await publishStatus(workspace, stack.producer);
+    // A person closes part 2 on GitHub before the retarget reads it.
+    await changePull(workspace, second, { state: "closed" });
+
+    const stopped = await retarget(workspace, stack.producer, 2);
+    expect(stopped.json.reason).toBe("publish_conflict");
+    const settlement = stopped.json.blockers[0].settlement;
+    expect(settlement).toMatchObject({
+      action: "stack-fault",
+      scope: SOURCE,
+      targets: [`${REPOSITORY}#${second}`],
+    });
+    const waiting = await nextActions(workspace);
+    expect(waiting.of("settle_publish").blocker).toBe("publish_conflict");
+    expect(waiting.of("settle_publish").detail).toContain(settlement.requestRevision);
+
+    const granted = await grant(workspace, stack.producer, settlement);
+    expect(granted.json.reason).toBe("approval_granted");
+    const settled = await nextActions(workspace);
+    expect(
+      settled.forAction("settle_publish").filter((one) => one.blocker === "publish_conflict"),
+    ).toEqual([]);
+    // The read records the close as GitHub shows it, and Operator writes nothing over it.
+    const read = await publishStatus(workspace, stack.producer);
+    expect(read.json.reason).toBe("stack_fault");
+    expect(read.json.blockers[0]).toMatchObject({ number: second, fault: "closed_unmerged" });
   });
 });
 

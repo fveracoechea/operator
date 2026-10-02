@@ -5,11 +5,13 @@ import {
   acceptReview,
   commitArtifact,
   grantDirection,
+  passCandidateGate,
   type Producer,
   reportBody,
   reportReview,
   startProducer,
   startReviewer,
+  startRework,
   submissionBody,
   submit,
   type Workspace,
@@ -130,9 +132,12 @@ export function reasons(result: { json: { blockers: Array<{ reason: string }> } 
  * One source with one code result, reviewed and accepted through the real CLI, so its branch
  * holds one commit and its result review wrote the published text.
  */
-export async function acceptedOneCommit(workspace: Workspace) {
+export async function acceptedOneCommit(
+  workspace: Workspace,
+  options: Parameters<typeof startProducer>[2] = {},
+) {
   const bare = await addRemote(workspace);
-  const producer = await startProducer(workspace);
+  const producer = await startProducer(workspace, undefined, options);
   const artifact = await commitArtifact(workspace, producer, "# Result\n");
   const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
   expect(submitted.json.reason).toBe("result_submitted");
@@ -242,4 +247,49 @@ export async function recordTracker(
     "--input",
     path,
   ]);
+}
+
+/** Starts the correction of the invalidated result and has it reviewed, not yet accepted. */
+export async function correction(
+  workspace: Workspace,
+  producer: Producer,
+  revision: number,
+  options: { path: string; text: string; worktree: string } = {
+    path: "docs/result.md",
+    text: "# Result\n\nEvery record.\n",
+    worktree: "fix",
+  },
+) {
+  const fixing = await startRework(workspace, producer, {
+    revision,
+    commit: null,
+    worktreePath: `${workspace.root}/${options.worktree}`,
+  });
+  const artifact = await commitArtifact(workspace, fixing, options.text, options.path);
+  const submitted = await submit(
+    workspace,
+    fixing,
+    submissionBody(fixing, artifact, { assignmentRevision: fixing.assignmentRevision }),
+  );
+  expect(submitted.json.reason).toBe("result_submitted");
+  const reviewer = await startReviewer(workspace, fixing, submitted.json, artifact.commit, {
+    worktreePath: `${workspace.root}/reviewer-${crypto.randomUUID().slice(0, 8)}`,
+  });
+  await reportReview(
+    workspace,
+    reviewer,
+    submitted.json.data.reviewId,
+    reportBody({ submissionIdentity: submitted.json.data.identity, host: workspace.host }),
+  );
+  await acceptReview(workspace, fixing, {
+    reviewAssignmentId: submitted.json.data.reviewAssignmentId,
+    attemptId: reviewer.attemptId,
+    revision: reviewer.revision,
+  });
+  await passCandidateGate(workspace, fixing);
+  return {
+    fixing,
+    submissionId: submitted.json.data.submissionId as string,
+    revision: submitted.json.data.revision as number,
+  };
 }

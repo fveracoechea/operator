@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import {
   type AssignmentRow,
@@ -9,7 +9,7 @@ import {
   storedAssignmentState,
 } from "./assignment.ts";
 import type { CrewReader, CrewWriter } from "./database.ts";
-import { assignmentDependencies, invalidations } from "./schema.ts";
+import { assignmentDependencies, invalidations, reworkCycles } from "./schema.ts";
 import { readStored } from "./stored.ts";
 import type { DirectionRecord } from "./direction.ts";
 import { defectInputSchema, type DefectInput } from "./rework-input.ts";
@@ -21,6 +21,8 @@ import {
 import { openCycleOf } from "./rework.ts";
 import { latestSubmission, readSubmission } from "./submission.ts";
 import { isReview } from "./work-input.ts";
+import { currentLandingOf } from "./landing-record.ts";
+import { faultsOf, partOfCommit } from "./stack-parts.ts";
 
 /** One dependent that consumed the invalid result, and the state it was paused from. */
 const dependent = z.strictObject({
@@ -67,7 +69,15 @@ export type InvalidateOutcome =
   | { status: "unknown-assignment"; assignmentId: string }
   | { status: "stale-revision"; assignmentId: string; recordedRevision: number }
   | { status: "not-accepted"; assignmentId: string; state: string }
-  | { status: "review-not-invalidated"; assignmentId: string };
+  | { status: "review-not-invalidated"; assignmentId: string }
+  | {
+      // The commit of the result merged into the target, so it is never invalidated (decision 24).
+      status: "merged";
+      assignmentId: string;
+      commit: string;
+      pullRequest: number | null;
+      url: string | null;
+    };
 
 /** Every defect that still holds work. A resolved one is history and holds nothing. */
 function openInvalidations(db: CrewReader): InvalidationRow[] {
@@ -202,6 +212,18 @@ export function invalidateResult(
   if (isReview(row.kind)) {
     return { status: "review-not-invalidated", assignmentId: row.id };
   }
+  // A merged commit is never invalidated: the defect becomes a new issue (decision 24).
+  const landing = currentLandingOf(db, row.id);
+  const part = landing === null ? null : partOfCommit(db, row.sourceId, landing.landedCommit);
+  if (landing !== null && part !== null && part.status === "merged") {
+    return {
+      status: "merged",
+      assignmentId: row.id,
+      commit: landing.landedCommit,
+      pullRequest: part.pull.number,
+      url: part.pull.url,
+    };
+  }
 
   const affected = consumingDependents(db, row.id);
   for (const one of affected) {
@@ -329,4 +351,63 @@ export function resolveInvalidations(
   }
 
   return resumed;
+}
+
+/**
+ * Closes each open invalidation of one source whose commit merged before any recall, once a
+ * person settled that stack fault `merged_before_recall` (decision 24). A merged commit is never
+ * corrected, so the invalidation and its open cycle close with no correction, the result is
+ * accepted again and counts as landed, and the defect becomes a new issue. Each dependent it
+ * paused returns to the state it was paused from, because its input is the merged commit, which
+ * no correction changes. An invalidation whose correction already started stays open.
+ */
+export function closeMergedInvalidations(
+  db: CrewWriter,
+  request: { sourceId: string; now: string },
+): string[] {
+  const closing = openInvalidations(db).filter((one) => {
+    const row = readAssignment(db, one.assignmentId);
+    if (row === null || row.sourceId !== request.sourceId || row.state !== "invalidated") {
+      return false;
+    }
+    const landing = currentLandingOf(db, row.id);
+    const part = landing === null ? null : partOfCommit(db, row.sourceId, landing.landedCommit);
+    return (
+      part !== null &&
+      part.status === "merged" &&
+      faultsOf(db, part.publication).some(
+        (fault) =>
+          fault.part === part.pull.part && fault.fault === "merged_before_recall" && fault.settled,
+      )
+    );
+  });
+
+  for (const one of closing) {
+    db.update(invalidations)
+      .set({ state: "merged", resolvedAt: request.now })
+      .where(eq(invalidations.id, one.id))
+      .run();
+    db.update(reworkCycles)
+      .set({ state: "merged", updatedAt: request.now })
+      .where(and(eq(reworkCycles.assignmentId, one.assignmentId), eq(reworkCycles.state, "open")))
+      .run();
+    const row = readAssignment(db, one.assignmentId);
+    if (row !== null) {
+      moveAssignment(db, { row, state: "accepted", now: request.now });
+    }
+  }
+
+  const stillHeld = openPauses(db);
+  for (const one of closing) {
+    for (const held of storedDependents(one.dependents)) {
+      const row = readAssignment(db, held.assignmentId);
+      // Work that also read another invalid result keeps waiting for that correction.
+      if (row === null || row.state !== "paused" || stillHeld.has(held.assignmentId)) {
+        continue;
+      }
+      moveAssignment(db, { row, state: held.consumedState, now: request.now });
+    }
+  }
+
+  return closing.map((one) => one.assignmentId);
 }

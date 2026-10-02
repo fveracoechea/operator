@@ -175,20 +175,7 @@ async function runApply(parsed: ParsedArguments): Promise<Handled> {
     });
   }
   if (result.status === "effect-stopped") {
-    const reason = stopReasons[result.outcome.status] ?? "publish_uncertain";
-    return refuse({
-      json: parsed.json,
-      operation,
-      outcome: result.outcome.status === "uncertain" ? "uncertain" : "conflict",
-      reason,
-      detail: { publication: result.publication, effect: result.effect, outcome: result.outcome },
-      lines: [
-        `Stack publication ${result.publication} stopped at its ${result.effect.kind} write: ${result.outcome.status}.`,
-        result.outcome.status === "uncertain"
-          ? "Run the same apply again. It reads GitHub first and writes only what is missing."
-          : "A person settles this. Operator writes nothing over it.",
-      ],
-    });
+    return reportStopped(parsed, operation, result);
   }
   if (result.status === "published") {
     report({
@@ -287,9 +274,7 @@ async function runStatus(parsed: ParsedArguments): Promise<Handled> {
     });
   }
   // A fault a person already settled stays in the reading, and it no longer blocks.
-  const faults = result.seen.filter((one) =>
-    result.settlements.some((settle) => settle.part === one.part),
-  );
+  const faults = result.settlements;
   report({
     json: parsed.json,
     result: {
@@ -300,7 +285,7 @@ async function runStatus(parsed: ParsedArguments): Promise<Handled> {
         fault: one.fault,
         number: one.number,
         detail: one.detail,
-        settlement: result.settlements.find((settle) => settle.part === one.part)?.approval,
+        settlement: one.approval,
       })),
       operation,
       data: { publication: result.publication, seen: result.seen, finish: result.finish },
@@ -315,12 +300,10 @@ async function runStatus(parsed: ParsedArguments): Promise<Handled> {
         ? [
             "A person settles each stack fault. Operator adopts nothing from it.",
             "When the person accepts a fault as GitHub shows it, record their approval of its settlement:",
-            ...faults.map((one) => {
-              const approval = result.settlements.find(
-                (settle) => settle.part === one.part,
-              )?.approval;
-              return `  part ${one.part}: action ${approval?.action ?? ""}, scope ${approval?.scope ?? ""}, targets ${approval?.targets.join(", ") ?? ""}, request revision ${approval?.requestRevision ?? ""}.`;
-            }),
+            ...faults.map(
+              (one) =>
+                `  part ${one.part}, ${one.fault}: action ${one.approval.action}, scope ${one.approval.scope}, targets ${one.approval.targets.join(", ")}, request revision ${one.approval.requestRevision}.`,
+            ),
           ]
         : []),
       finishLine(result.finish),
@@ -414,21 +397,185 @@ async function runRetarget(parsed: ParsedArguments): Promise<Handled> {
     });
   }
   if (result.status === "effect-stopped") {
-    return refuse({
-      json: parsed.json,
-      operation,
-      outcome: result.outcome.status === "uncertain" ? "uncertain" : "conflict",
-      reason: stopReasons[result.outcome.status] ?? "publish_uncertain",
-      detail: { publication: result.publication, effect: result.effect, outcome: result.outcome },
-      lines: [
-        `The retarget stopped: ${result.outcome.status}.`,
-        result.outcome.status === "uncertain"
-          ? "`crew next` offers settle_publish, which reads GitHub first."
-          : "A person settles this. Operator writes nothing over it.",
-      ],
-    });
+    return reportStopped(parsed, operation, result);
   }
   return reportPlanned(parsed, operation, result);
+}
+
+type Recalled = Awaited<ReturnType<typeof CrewState.recall>>["result"];
+
+/**
+ * Reports one recall plan as a summary and the path of every comment. The Operator reads this,
+ * so it names the pull requests, the approval, and the path, and never prints a comment (R5).
+ */
+function reportRecallPlan(
+  parsed: ParsedArguments,
+  preview: Extract<Recalled, { status: "planned" }>,
+): Handled {
+  const command = `operator publish recall --request <id> --owner-token <token> --source ${preview.sourceId} --plan-revision ${preview.planRevision}`;
+  report({
+    json: parsed.json,
+    result: {
+      outcome: "completed",
+      reason: "recall_planned",
+      blockers: [],
+      operation: "publish_recall",
+      data: {
+        sourceId: preview.sourceId,
+        publication: preview.publication,
+        planRevision: preview.planRevision,
+        planPath: preview.planPath,
+        pullRequests: preview.parts.map((one) => one.number),
+        replaced: preview.replaced,
+        approval: preview.approval,
+        command,
+      },
+    },
+    lines: [
+      `Recall plan ${preview.planRevision} for ${preview.sourceId}, stack publication ${preview.publication}:`,
+      `  ${preview.parts.map((one) => `#${one.number}`).join(", ")} become drafts with one comment each${preview.replaced ? "" : ", and close, because no new stack publication will replace them"}.`,
+      "Ask the person to read every comment in the file below and to approve this exact plan revision.",
+      `Recall with: ${command}`,
+      `Every comment: ${preview.planPath}`,
+    ],
+  });
+  return "reported";
+}
+
+/**
+ * Plans or applies the recall of the open published range of one source (decision 23). With no
+ * plan revision it changes nothing. It never merges and never closes a pull request that a new
+ * publication will replace.
+ */
+// oxlint-disable-next-line complexity -- Each outcome of a recall keeps its own reason.
+async function runRecall(parsed: ParsedArguments): Promise<Handled> {
+  const {
+    sourceId,
+    planRevision,
+    requestId: _request,
+    ownerToken: _owner,
+    ...otherCrewFlags
+  } = parsed.crew;
+  if (sourceId === undefined || Object.keys(otherCrewFlags).length > 0) {
+    return "invalid-arguments";
+  }
+  const operation = "publish_recall";
+  let result: Recalled;
+  if (planRevision === undefined) {
+    result = (await CrewState.planRecall({ projectRoot: process.cwd(), sourceId })).result;
+  } else {
+    const mutation = readMutation(parsed);
+    if (mutation === null) {
+      return "invalid-arguments";
+    }
+    result = (
+      await CrewState.recall({ projectRoot: process.cwd(), ...mutation, sourceId, planRevision })
+    ).result;
+  }
+  if (reportSharedFailure(parsed, operation, result)) {
+    return "reported";
+  }
+  switch (result.status) {
+    case "planned":
+      return reportRecallPlan(parsed, result);
+    case "nothing-to-recall":
+      return refuse({
+        json: parsed.json,
+        operation,
+        outcome: "missing-condition",
+        reason: "nothing_to_recall",
+        detail: { sourceId: result.sourceId },
+        lines: [`No commit to change is inside an open pull request of ${result.sourceId}.`],
+      });
+    case "unknown-source":
+      return refuse({
+        json: parsed.json,
+        operation,
+        outcome: "invalid",
+        reason: "unknown_source",
+        detail: { sourceId: result.sourceId },
+        lines: [`No source ${result.sourceId} is recorded.`],
+      });
+    case "plan-revision-changed":
+      return refuse({
+        json: parsed.json,
+        operation,
+        outcome: "conflict",
+        reason: "plan_revision_changed",
+        detail: { ...result },
+        lines: [
+          `The recall plan is now ${result.planned ?? "different"}, not ${result.stated}. Nothing was recalled. Plan it again.`,
+        ],
+      });
+    case "approval-required":
+      return refuse({
+        json: parsed.json,
+        operation,
+        outcome: "missing-condition",
+        reason: "approval_required",
+        detail: { approval: result.approval, planPath: result.planPath },
+        lines: [
+          "Nothing was recalled. Ask the person to read the plan and approve this exact request:",
+          `  action ${result.approval.action}, scope ${result.approval.scope}, targets ${result.approval.targets.join(", ")}, request revision ${result.approval.requestRevision}.`,
+          `The plan: ${result.planPath}`,
+        ],
+      });
+    case "recalled":
+      report({
+        json: parsed.json,
+        result: {
+          outcome: "completed",
+          reason: "stack_recalled",
+          blockers: [],
+          operation,
+          data: { ...result },
+        },
+        lines: [
+          `Stack publication ${result.publication}: ${result.pullRequests.map((one) => `#${one}`).join(", ")} ${result.closed ? "are drafts with the reason, and closed" : "are drafts with the reason"}.`,
+          result.closed
+            ? "No new stack publication replaces them. No branch is deleted."
+            : "The change can run on the integration branch now. Run `operator crew next`.",
+        ],
+      });
+      return "reported";
+    case "effect-stopped":
+      return reportStopped(parsed, operation, result);
+    default:
+      return reportPlanned(parsed, operation, result);
+  }
+}
+
+/** Reports a write that stopped, with the settlement a person grants for a conflict (#120). */
+function reportStopped(
+  parsed: ParsedArguments,
+  operation: Operation,
+  result: Extract<Applied, { status: "effect-stopped" }>,
+): Handled {
+  const { settlement } = result;
+  return refuse({
+    json: parsed.json,
+    operation,
+    outcome: result.outcome.status === "uncertain" ? "uncertain" : "conflict",
+    reason: stopReasons[result.outcome.status] ?? "publish_uncertain",
+    detail: {
+      publication: result.publication,
+      effect: result.effect,
+      outcome: result.outcome,
+      settlement,
+    },
+    lines: [
+      `Stack publication ${result.publication} stopped at its ${result.effect.kind} write: ${result.outcome.status}.`,
+      result.outcome.status === "uncertain"
+        ? "Run the same command again. It reads GitHub first and writes only what is missing."
+        : "A person settles this. Operator writes nothing over it.",
+      ...(settlement === null
+        ? []
+        : [
+            "When the person accepts it as GitHub shows it, record their approval of this exact request:",
+            `  action ${settlement.action}, scope ${settlement.scope}, targets ${settlement.targets.join(", ")}, request revision ${settlement.requestRevision}.`,
+          ]),
+    ],
+  });
 }
 
 /** `operator publish`: the plan, the apply that also settles a publication, and the status. */
@@ -444,6 +591,9 @@ export async function runPublish(words: string[], parsed: ParsedArguments): Prom
   }
   if (words[0] === "retarget") {
     return runRetarget(parsed);
+  }
+  if (words[0] === "recall") {
+    return runRecall(parsed);
   }
   return words[0] === "apply" ? runApply(parsed) : "invalid-arguments";
 }
