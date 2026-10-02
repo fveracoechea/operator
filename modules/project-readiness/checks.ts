@@ -349,6 +349,44 @@ function instructionCheck(observation: Observation, target: Target): Check {
   );
 }
 
+/**
+ * The project gate is a committed declaration, so it is read at HEAD of this checkout. Setup never
+ * writes it, because only the project knows which commands prove a commit (ADR 0021).
+ */
+function gateCheck(observation: Observation): Check {
+  const gate = observation.gate;
+  switch (gate.status) {
+    case "declared":
+      return check(
+        "project-gate",
+        null,
+        `${gate.path} at ${gate.commit} declares ${gate.commands.map((one) => one.name).join(", ")}.`,
+        null,
+      );
+    case "missing":
+      return check("project-gate", null, "", {
+        reason: "project_gate_missing",
+        detail: `The commit ${gate.commit} at HEAD holds no ${gate.path}, so no code result can show that it passed the project gate.`,
+        nextAction: `The person commits ${gate.path} at the repository root, with each gate command and its time limit. Then check again.`,
+        paths: [gate.path],
+      });
+    case "invalid":
+      return check("project-gate", null, "", {
+        reason: "project_gate_invalid",
+        detail: `${gate.path} at ${gate.commit} is not a valid project gate: ${gate.issues.join("; ")}.`,
+        nextAction: `The person corrects ${gate.path} and commits it. Then check again.`,
+        paths: [gate.path],
+      });
+    case "unread":
+      return check("project-gate", null, "", {
+        reason: "project_gate_unread",
+        detail: `${gate.path} could not be read at HEAD: ${gate.detail}`,
+        nextAction: `The person makes a commit that holds ${gate.path} at HEAD. Then check again.`,
+        paths: [gate.path],
+      });
+  }
+}
+
 /** Derives every check that observes the current machine and project without launching an agent. */
 export function staticChecks(observation: Observation): Check[] {
   return [
@@ -375,6 +413,7 @@ export function staticChecks(observation: Observation): Check[] {
     settingsCheck(observation),
     selectionCheck(observation, "operator"),
     selectionCheck(observation, "crew"),
+    gateCheck(observation),
     ...observation.targets.flatMap((target) => [
       skillCheck(observation, target),
       instructionCheck(observation, target),

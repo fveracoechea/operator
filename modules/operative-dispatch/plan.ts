@@ -38,6 +38,12 @@ export type Brief = {
   }>;
   // The module that runs each check owns its line, so the brief only places it beside its command.
   rules: { submit: CommandRule[]; report: CommandRule[] };
+  // The project gate at the base commit, which a producer runs before it submits a code result.
+  // A reviewer gets its gate permission from its registered commands, so its brief holds none.
+  gate: {
+    commit: string;
+    commands: Array<{ name: string; line: string; timeoutSeconds: number }>;
+  } | null;
   // Present only on a review assignment, which reads a fixed result instead of producing one.
   review: ReviewBrief | null;
   // Present only while a delegated rework cycle is open on this assignment.
@@ -146,6 +152,7 @@ function allowedTools(brief: Brief, invocation: string): string[] {
     ...(invocation === "bun run operator" ? ["Bash(bun install --frozen-lockfile)"] : []),
     ...briefOperations(brief).map((operation) => `Bash(${invocation} ${operation}:*)`),
     ...allowedCommands.map((command) => `Bash(${command}:*)`),
+    ...(brief.gate?.commands ?? []).map((one) => `Bash(${one.line}:*)`),
     // A producer makes the one commit of its code result. A reviewer changes nothing.
     ...(brief.review === null ? ["Bash(git status:*)", "Bash(git add:*)", "Bash(git commit:*)"] : []),
     `Edit(./${OUTBOX_PATH}**)`,
@@ -229,6 +236,27 @@ function questionSection(brief: Brief, invocation: string): string[] {
   ];
 }
 
+/**
+ * The project gate commands, beside the submit command that checks them (ADR 0021).
+ * A failure the producer cannot fix inside its limits is a question, never a submitted failure.
+ */
+function gateLines(brief: Brief): string[] {
+  if (brief.gate === null) {
+    return [];
+  }
+  return [
+    `Before you submit a code result, run each command of the project gate at commit ${brief.gate.commit}, in this order, from this worktree root.`,
+    "Record each one in `checks`, with the command name as its `name`:",
+    "",
+    ...brief.gate.commands.map(
+      (one) => `- \`${one.name}\`: \`${one.line}\` (time limit ${one.timeoutSeconds} seconds)`,
+    ),
+    "",
+    "When you cannot make a gate command pass inside your authority limits, for example because a flaky test is outside your write paths, raise a question.",
+    "",
+  ];
+}
+
 /** The reporting protocol of an Operative that produces a result. */
 function productionProtocolSection(brief: Brief, invocation: string): string[] {
   return [
@@ -257,6 +285,7 @@ function productionProtocolSection(brief: Brief, invocation: string): string[] {
     "```",
     "",
     ...ruleLines(brief.rules.submit),
+    ...gateLines(brief),
     "A submission is a handoff to a separate review, never accepted completion.",
     "",
     ...questionSection(brief, invocation),
@@ -333,6 +362,7 @@ function briefDocument(request: {
     "",
     "Run only these commands:",
     ...brief.permissions.allowedCommands.map((one) => `- ${one}`),
+    ...(brief.gate?.commands ?? []).map((one) => `- ${one.line}`),
     "",
     `Network access: ${brief.permissions.network ? "permitted" : "not permitted"}.`,
     "",

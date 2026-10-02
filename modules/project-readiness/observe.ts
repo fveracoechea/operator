@@ -3,6 +3,7 @@ import { EnvironmentProbe } from "../environment-probe/main.ts";
 import { OperatorRelease } from "../operator-release/main.ts";
 import { ReleaseInstall } from "../release-install/main.ts";
 import { OperatorConfig } from "../operator-config/main.ts";
+import { ProjectGate } from "../project-gate/main.ts";
 import { ProjectSetup } from "../project-setup/main.ts";
 import { SkillInstall } from "../skill-install/main.ts";
 
@@ -62,7 +63,7 @@ export async function observeProject(request: {
 }) {
   const configuration = await readConfiguration(request.projectRoot);
 
-  const [environment, plan, skills, everySkillCopy, release, agentsText, claudeText] =
+  const [environment, plan, skills, everySkillCopy, release, agentsText, claudeText, gate] =
     await Promise.all([
       EnvironmentProbe.observe({ tools: [...observedTools] }),
       ProjectSetup.plan({ projectRoot: request.projectRoot, targets: request.targets }),
@@ -72,6 +73,8 @@ export async function observeProject(request: {
       OperatorRelease.identify(),
       readTextOrNull(`${request.projectRoot}/${INSTRUCTIONS_PATH}`),
       readTextOrNull(`${request.projectRoot}/${CLAUDE_IMPORT_PATH}`),
+      // The gate is read from the commit at HEAD, never from the working tree (ADR 0021).
+      ProjectGate.read({ repository: request.projectRoot, commit: "HEAD" }),
     ]);
 
   // The selected release is compared against the release actually running, so a mismatched or
@@ -96,6 +99,7 @@ export async function observeProject(request: {
     installation,
     configuration,
     instructions: { agents: agentsText, claude: claudeText },
+    gate,
     selection: AgentSelection.resolve({
       overrides: request.overrides,
       configuration: configuration.selection,

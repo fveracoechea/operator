@@ -1,6 +1,8 @@
 import { OperativeDispatch } from "../operative-dispatch/main.ts";
 import {
   type AttemptFailure,
+  briefGate,
+  type GateUnusable,
   briefOf,
   readContext,
   type Shared,
@@ -43,6 +45,7 @@ export type ReplaceResult =
   | { status: "writer-live"; attemptId: string; agentName: string; paneId: string }
   | { status: "writer-unknown"; attemptId: string; detail: string }
   | { status: "snapshot-unreadable"; attemptId: string; detail: string }
+  | GateUnusable
   | { status: "reconciliation-required"; attemptId: string; pending: string[] }
   | { status: "not-dispatched"; attemptId: string }
   | {
@@ -215,9 +218,18 @@ export async function replaceAttempt(request: {
 
   const snapshot: Snapshot = restored.snapshot;
   const attemptId = crypto.randomUUID();
+  const gate = await briefGate({
+    projectRoot: request.projectRoot,
+    context: read.context,
+    attemptId: request.attemptId,
+    baseCommit: dispatch.baseCommit,
+  });
+  if (gate.status !== "ok") {
+    return gate;
+  }
   const launch = OperativeDispatch.plan({
     projectRoot: request.projectRoot,
-    brief: briefOf(read.context, attemptId),
+    brief: briefOf(read.context, attemptId, gate.gate),
     snapshot,
     baseCommit: dispatch.baseCommit,
     branch: dispatch.branch,

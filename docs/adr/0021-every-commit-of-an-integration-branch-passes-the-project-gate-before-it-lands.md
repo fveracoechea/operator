@@ -96,6 +96,10 @@ A reviewer observation at a fast-forward candidate in place of a gate run was re
 
 ## Consequences
 
+Until a source records its integration base, the brief and the submit check of an attempt read the gate at the base commit of its dispatch, which is the commit that the producer starts from.
+A review attempt reads no gate at dispatch, because its registered commands already permit the gate commands.
+A missing gate does not hold back a live probe, because a probe runs no gate command.
+
 Each landing on a moved tip waits for one gate run, and each run installs the project again from nothing.
 One gate run of a source runs at a time, because two candidates on one tip can never both land, and the next actions offer a landing that waits before a new run of the same source.
 A gate run takes no crew slot, because it starts no agent.

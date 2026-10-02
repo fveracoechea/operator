@@ -506,7 +506,11 @@ describe("recorded formats", () => {
     const reviewing = await makeReviewWorkspace(fixtures);
     workspace = reviewing;
     const producer = await startProducer(reviewing);
-    const flaky = [{ name: "quality", command: "bun run quality", outcome: "flaky", detail: "" }];
+    // A gate command must pass at submit, so the flaky check is another one.
+    const flaky = [
+      { name: "quality", command: "bun run quality", outcome: "passed", detail: "" },
+      { name: "integration", command: "bun test", outcome: "flaky", detail: "" },
+    ];
     const first = await commitArtifact(reviewing, producer, "# Result 0\n");
     const replaced = await submit(
       reviewing,
@@ -517,7 +521,7 @@ describe("recorded formats", () => {
       revision: replaced.json.data.revision,
       body: {
         reason: "diagnostic",
-        checks: ["quality"],
+        checks: ["integration"],
         instruction: "Run the quality gate again.",
         conflicts: [],
       },
@@ -573,7 +577,11 @@ describe("recorded formats", () => {
     const reviewing = await makeReviewWorkspace(fixtures);
     workspace = reviewing;
     const producer = await startProducer(reviewing);
-    const flaky = [{ name: "quality", command: "bun run quality", outcome: "flaky", detail: "" }];
+    // A gate command must pass at submit, so the flaky check is another one.
+    const flaky = [
+      { name: "quality", command: "bun run quality", outcome: "passed", detail: "" },
+      { name: "integration", command: "bun test", outcome: "flaky", detail: "" },
+    ];
     const artifact = await commitArtifact(reviewing, producer, "# Result\n");
     const submitted = await submit(
       reviewing,
@@ -584,7 +592,7 @@ describe("recorded formats", () => {
       revision: submitted.json.data.revision,
       body: {
         reason: "diagnostic",
-        checks: ["quality"],
+        checks: ["integration"],
         instruction: "Run the quality gate again.",
         conflicts: [],
       },

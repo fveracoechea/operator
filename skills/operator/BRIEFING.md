@@ -37,6 +37,7 @@ A personal instruction file does not reach the crew.
 - **Fixed inputs**, with the content identity of every path input. They are fixed at registration, and a launch refuses a base commit that holds another version of a path input.
 - **Effective configuration**: the crew host, model, and reasoning effort, the Operator release, the lock data, and the skill contents of this launch.
 - **The reporting protocol** of its role, with the refusals of each command beside it.
+  A producer brief also lists each project gate command from `operator-gate.json` at the base commit, beside the submit command. The brief permits those commands, and a producer that cannot make one pass raises a question.
 
 A review brief adds the fixed submission it reads, its two axes, and the coverage each axis owes.
 It also names the inputs of `code-review`, and it carries none of the producer's rules.

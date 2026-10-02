@@ -33,6 +33,7 @@ test("dispatch groups the worktree under the Operator and labels the launched ag
     permissions: { writePaths: [], allowedCommands: [], network: false },
     fixedInputs: [],
     rules: { submit: [], report: [] },
+    gate: null,
     review: null,
     rework: null,
   };

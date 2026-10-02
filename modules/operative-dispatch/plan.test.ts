@@ -25,6 +25,7 @@ const brief: Brief = {
   permissions: { writePaths: [], allowedCommands: [], network: false },
   fixedInputs: [],
   rules: { submit: [], report: [] },
+  gate: null,
   review: null,
   rework: null,
 };
@@ -44,6 +45,7 @@ const protocolBrief: Brief = {
   permissions: { writePaths: ["modules/"], allowedCommands: ["bun test"], network: false },
   fixedInputs: [],
   rules: { submit: [], report: [] },
+  gate: null,
   review: null,
   rework: null,
 };
@@ -168,6 +170,29 @@ test("source Operative instructions use the selected commit", () => {
   expect(plan.briefText).toContain(`${command} attempt acknowledge --request`);
   expect(plan.promptText).toContain(`${command} attempt acknowledge --request`);
   expect(plan.promptText).not.toContain("bun install --frozen-lockfile");
+});
+
+test("a producer brief lists each gate command after the submit rules, and permits it", () => {
+  const planned = plan({
+    ...protocolBrief,
+    gate: {
+      commit: "c".repeat(40),
+      commands: [{ name: "quality", line: "bun run quality", timeoutSeconds: 1800 }],
+    },
+  });
+
+  const submit = planned.briefText.indexOf("attempt submit --request");
+  const gate = planned.briefText.indexOf(
+    "- `quality`: `bun run quality` (time limit 1800 seconds)",
+  );
+  expect(submit).toBeGreaterThan(-1);
+  expect(gate).toBeGreaterThan(submit);
+  expect(planned.briefText).toContain(
+    `run each command of the project gate at commit ${"c".repeat(40)}`,
+  );
+  expect(planned.briefText).toContain("raise a question");
+  expect(planned.briefText).toContain("Run only these commands:\n- bun test\n- bun run quality\n");
+  expect(planned.allowedTools).toContain("Bash(bun run quality:*)");
 });
 
 // A host that never asks refuses each tool outside the list, so a producer could not make the

@@ -20,6 +20,9 @@ Read this before you review a submitted result or accept an assignment.
 
 Submit reads the Operative checkout and refuses a result that breaks its authority limits, for example with `result_not_one_commit`.
 It also refuses with `behavior_change_basis_missing` when a behavior change names a basis that does not exist.
+A code result is also refused with `project_gate_not_passed` when its checks do not show each project gate command, by name, as `passed`.
+Submit reads the gate at the base commit of the attempt, so the producer cannot choose the gate that scores it.
+The reviewer is permitted to run the gate commands, and no reviewer outcome stands in for a gate run.
 The attempt then keeps running, and its Operative fixes the result and submits again.
 You do nothing for that refusal.
 

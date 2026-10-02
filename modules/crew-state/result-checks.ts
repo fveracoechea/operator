@@ -1,8 +1,10 @@
 import type { OperativeDispatch } from "../operative-dispatch/main.ts";
+import type { ProjectGate } from "../project-gate/main.ts";
 import type { BehaviorChangeBasis, SubmissionInput } from "./submission-input.ts";
 import { outsideWritePaths } from "./write-paths.ts";
 
 export type CheckoutInspection = Awaited<ReturnType<typeof OperativeDispatch.inspectCheckout>>;
+export type GateRead = Awaited<ReturnType<typeof ProjectGate.read>>;
 
 /**
  * The one-commit rule of ADR 0015, as the brief states it beside the submit command.
@@ -39,7 +41,16 @@ export type BasisGap = {
   detail: string;
 };
 
-export type ResultCheck = "commit-shape" | "working-tree" | "write-paths";
+/**
+ * The project gate rule of ADR 0021, as the brief states it beside the submit command and the
+ * gate commands. The check below owns this line and its refusal name.
+ */
+export const PROJECT_GATE_RULE = {
+  refusal: "project_gate_not_passed",
+  rule: "A code result records one check for each project gate command, with the command name as its `name`, and every check with that name has the outcome `passed`.",
+} as const;
+
+export type ResultCheck = "commit-shape" | "working-tree" | "write-paths" | "project-gate";
 
 export type ResultRefusal =
   | {
@@ -53,6 +64,13 @@ export type ResultRefusal =
     }
   | { reason: "uncommitted_work"; paths: string[] }
   | { reason: "outside_write_paths"; paths: string[]; writePaths: string[] }
+  | {
+      reason: typeof PROJECT_GATE_RULE.refusal;
+      rule: string;
+      gateCommit: string;
+      // Each gate command with no passing record, and the outcomes that its name recorded.
+      commands: Array<{ name: string; recorded: string[] }>;
+    }
   | { reason: "result_check_not_run"; check: ResultCheck; detail: string }
   | { reason: typeof BEHAVIOR_CHANGE_RULE.refusal; entries: BasisGap[] };
 
@@ -82,9 +100,9 @@ function basisGap(basis: BehaviorChangeBasis, bases: RecordedBases): string | nu
 /**
  * Applies the authority limits of ADR 0018 to one inspection of the Operative checkout.
  * Every refusal is reported at once, in a fixed order: the commit shape, the working tree, the
- * write paths, and the behavior change basis. A check that could not run says so and never
- * reports a pass. Operator checks only that a basis exists, and the review checks that it covers
- * the change.
+ * write paths, the behavior change basis, and the project gate. A check that could not run says
+ * so and never reports a pass. Operator checks only that a basis exists, and the review checks
+ * that it covers the change.
  */
 export function refuseResult(request: {
   inspection: CheckoutInspection;
@@ -92,8 +110,9 @@ export function refuseResult(request: {
   baseCommit: string;
   writePaths: string[];
   bases: RecordedBases;
+  gate: GateRead;
 }): ResultRefusal[] {
-  const { inspection, input, baseCommit, writePaths, bases } = request;
+  const { inspection, input, baseCommit, writePaths, bases, gate } = request;
   const refusals: ResultRefusal[] = [];
 
   // A result with code revisions is one commit. Without them, nothing names a result commit,
@@ -180,6 +199,38 @@ export function refuseResult(request: {
   });
   if (entries.length > 0) {
     refusals.push({ reason: BEHAVIOR_CHANGE_RULE.refusal, entries });
+  }
+
+  // The producer names its checks, so only the declared gate decides which names must pass.
+  if (input.resultKind === "code") {
+    if (gate.status !== "declared") {
+      refusals.push({
+        reason: "result_check_not_run",
+        check: "project-gate",
+        detail: `${gate.path} at ${gate.commit} is ${gate.status}${
+          gate.status === "invalid"
+            ? `: ${gate.issues.join("; ")}`
+            : gate.status === "unread"
+              ? `: ${gate.detail}`
+              : ""
+        }.`,
+      });
+    } else {
+      const commands = gate.commands.flatMap(({ name }) => {
+        const recorded = input.checks.filter((one) => one.name === name).map((one) => one.outcome);
+        return recorded.length > 0 && recorded.every((one) => one === "passed")
+          ? []
+          : [{ name, recorded }];
+      });
+      if (commands.length > 0) {
+        refusals.push({
+          reason: PROJECT_GATE_RULE.refusal,
+          rule: PROJECT_GATE_RULE.rule,
+          gateCommit: gate.commit,
+          commands,
+        });
+      }
+    }
   }
 
   return refusals;

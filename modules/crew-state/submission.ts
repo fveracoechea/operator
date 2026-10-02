@@ -123,6 +123,8 @@ function registerReview(
     input: SubmissionInput;
     artifacts: StoredArtifact[];
     spec: StoredCopy;
+    // The project gate commands as lines, which the reviewer is permitted to run.
+    gateCommands: string[];
     now: string;
   },
 ): { assignmentId: string; sourceKey: string } {
@@ -138,9 +140,12 @@ function registerReview(
   // A reviewer reports through the CLI, so the brief authorizes those commands as well as the
   // checks it may re-run. A result that recorded no check still leaves the reviewer able to report.
   const commands = [
-    ...REVIEWER_COMMANDS,
-    ...reviewReadCommands(request.input.code?.baseCommit ?? null),
-    ...new Set(request.input.checks.map((one) => one.command)),
+    ...new Set([
+      ...REVIEWER_COMMANDS,
+      ...reviewReadCommands(request.input.code?.baseCommit ?? null),
+      ...request.gateCommands,
+      ...request.input.checks.map((one) => one.command),
+    ]),
   ];
 
   const fixedInputs = [
@@ -234,6 +239,7 @@ export function submitResult(
     spec: StoredCopy;
     // What the scans around the worktree found. Submit records them and never refuses for them.
     outside: ReturnType<typeof outsideChangesOf>;
+    gateCommands: string[];
     submissionId: string;
     reviewId: string;
     now: string;
@@ -350,6 +356,7 @@ export function submitResult(
     input,
     artifacts,
     spec: request.spec,
+    gateCommands: request.gateCommands,
     now: request.now,
   });
 

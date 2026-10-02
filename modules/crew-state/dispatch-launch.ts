@@ -2,6 +2,8 @@ import { OperativeDispatch } from "../operative-dispatch/main.ts";
 import { ProjectReadiness } from "../project-readiness/main.ts";
 import {
   type AttemptFailure,
+  briefGate,
+  type GateUnusable,
   briefOf,
   type DispatchPlan,
   type DispatchReport,
@@ -44,6 +46,7 @@ export type DispatchResult =
   | { status: "review-base-changed"; attemptId: string; recorded: string; requested: string }
   | { status: "host-unnamed"; attemptId: string }
   | { status: "effort-unsupported"; attemptId: string; detail: string }
+  | GateUnusable
   | AttemptFailure
   | Shared;
 
@@ -222,9 +225,19 @@ export async function dispatchAttempt(request: {
     return { status: "plan-changed", attemptId, recorded: changed[1], computed: changed[0] ?? "" };
   }
 
+  const gate = await briefGate({
+    projectRoot: request.projectRoot,
+    context: read.context,
+    attemptId,
+    baseCommit,
+  });
+  if (gate.status !== "ok") {
+    return gate;
+  }
+
   const launch = OperativeDispatch.plan({
     projectRoot: request.projectRoot,
-    brief: briefOf(read.context, attemptId),
+    brief: briefOf(read.context, attemptId, gate.gate),
     snapshot,
     baseCommit,
     branch: recorded?.branch ?? request.branch,

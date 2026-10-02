@@ -186,6 +186,17 @@ describe("the brief states each refusal beside its command", () => {
               ],
             }),
         },
+        {
+          refusal: "project_gate_not_passed",
+          rule: "A code result records one check for each project gate command, with the command name as its `name`, and every check with that name has the outcome `passed`.",
+          breaks: () =>
+            submit(workspace, producer, {
+              ...body,
+              checks: [
+                { name: "quality", command: "bun run quality", outcome: "failed", detail: "" },
+              ],
+            }),
+        },
       ],
       "review report": [],
     });

@@ -472,10 +472,12 @@ describe("rework limits", () => {
     const workspace = await makeReviewWorkspace(fixtures);
     let current = await startProducer(workspace);
     let artifact = await commitArtifact(workspace, current, "# Result 0\n");
+    // A gate command must pass at submit, so the flaky check is another one.
     const flaky = [
+      { name: "quality", command: "bun run quality", outcome: "passed", detail: "" },
       {
-        name: "quality",
-        command: "bun run quality",
+        name: "integration",
+        command: "bun test",
         outcome: "flaky",
         detail: "One test failed once.",
       },
@@ -491,7 +493,7 @@ describe("rework limits", () => {
         revision: submitted.json.data.revision,
         body: {
           reason: "diagnostic",
-          checks: ["quality"],
+          checks: ["integration"],
           instruction: `Run the quality gate again, round ${round}.`,
           conflicts: [],
         },

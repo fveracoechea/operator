@@ -1,0 +1,7 @@
+{
+  "$schema": "./node_modules/@fveracoechea/operator/gate.schema.json",
+  "commands": [
+    { "name": "install", "argv": ["bun", "install", "--frozen-lockfile"], "timeoutSeconds": 600 },
+    { "name": "quality", "argv": ["bun", "run", "quality"], "timeoutSeconds": 3600 }
+  ]
+}

@@ -58,6 +58,42 @@ function reportUnreadableSnapshot(
   return "reported";
 }
 
+type GateUnusable = Extract<
+  Awaited<ReturnType<typeof CrewState.dispatch>>,
+  { status: "project-gate-unusable" }
+>;
+
+/**
+ * Reports a base commit whose project gate a producer cannot run, so nothing launches.
+ * Setup never writes the gate and the Operator never commits, so only the person adds it.
+ */
+function reportGateUnusable(
+  parsed: ParsedArguments,
+  operation: "attempt_dispatch" | "attempt_replace",
+  result: GateUnusable,
+): Handled {
+  const { gate } = result;
+  const reason = `project_gate_${gate.status}` as const;
+  const why =
+    gate.status === "missing"
+      ? `Commit ${gate.commit} holds no ${gate.path}.`
+      : gate.status === "invalid"
+        ? `${gate.path} at ${gate.commit} is not valid: ${gate.issues.join("; ")}.`
+        : `${gate.path} could not be read at ${gate.commit}: ${gate.detail}`;
+  return refuse({
+    json: parsed.json,
+    operation,
+    outcome: "missing-condition",
+    reason,
+    detail: { attemptId: result.attemptId, commit: gate.commit, path: gate.path },
+    lines: [
+      why,
+      "A producer runs the project gate before it submits, so nothing was launched.",
+      `The person commits a valid ${gate.path} at the repository root. Then dispatch from a commit that holds it.`,
+    ],
+  });
+}
+
 async function runDispatch(parsed: ParsedArguments): Promise<Handled> {
   const mutation = mutationArguments(parsed);
   if (mutation === null) {
@@ -76,6 +112,10 @@ async function runDispatch(parsed: ParsedArguments): Promise<Handled> {
 
   if (reportSharedFailure(parsed, "attempt_dispatch", result)) {
     return "reported";
+  }
+
+  if (result.status === "project-gate-unusable") {
+    return reportGateUnusable(parsed, "attempt_dispatch", result);
   }
 
   if (result.status === "review-base-changed") {
@@ -573,6 +613,10 @@ async function runReplace(parsed: ParsedArguments): Promise<Handled> {
     return reportUnreadableSnapshot(parsed, "attempt_replace", result);
   }
 
+  if (result.status === "project-gate-unusable") {
+    return reportGateUnusable(parsed, "attempt_replace", result);
+  }
+
   if (result.status === "review-attempt-limit") {
     const { direction } = result;
     report({
@@ -667,6 +711,8 @@ function refusalLine(refusal: ResultRefusal): string {
       return `  behavior_change_basis_missing: ${refusal.entries
         .map((one) => `entry ${one.position} (${one.detail})`)
         .join(", ")}`;
+    case "project_gate_not_passed":
+      return `  project_gate_not_passed: no passing check of ${refusal.commands.map((one) => (one.recorded.length === 0 ? `${one.name} (not recorded)` : `${one.name} (${one.recorded.join(", ")})`)).join(", ")}, from the gate at ${refusal.gateCommit}.`;
   }
 }
 

@@ -22,6 +22,14 @@ export type WorkspaceOptions = {
   files?: Record<string, string>;
   /** Extra executables on the fixture path, such as the agent hosts a readiness check reads. */
   tools?: Record<string, string>;
+  /** The committed `operator-gate.json`, or null for a project that declares no gate. */
+  gate?: unknown;
+};
+
+/** The project gate each fixture commits, which the default submitted check satisfies. */
+export const FIXTURE_GATE = {
+  $schema: "./node_modules/@fveracoechea/operator/gate.schema.json",
+  commands: [{ name: "quality", argv: ["bun", "run", "quality"], timeoutSeconds: 1800 }],
 };
 
 /**
@@ -64,6 +72,10 @@ export function workspaces() {
       const config = options.config ?? { crew: { host: "claude-code" } };
       await Bun.write(`${workspace.repo}/.operator/config.json`, `${JSON.stringify(config)}\n`);
       await Bun.write(`${workspace.repo}/README.md`, "# Fixture\n");
+      const gate = options.gate === undefined ? FIXTURE_GATE : options.gate;
+      if (gate !== null) {
+        await Bun.write(`${workspace.repo}/operator-gate.json`, `${JSON.stringify(gate)}\n`);
+      }
       for (const [path, content] of Object.entries(options.files ?? {})) {
         await Bun.write(`${workspace.repo}/${path}`, content, { createPath: true });
       }

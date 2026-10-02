@@ -1,4 +1,5 @@
 import { OperativeDispatch } from "../operative-dispatch/main.ts";
+import { ProjectGate } from "../project-gate/main.ts";
 import { readWriterContext, type WriterFailure } from "./dispatch-context.ts";
 import { identityOf } from "./identity.ts";
 import { type InvalidInput, parseInput } from "./input.ts";
@@ -70,6 +71,11 @@ export async function submitAttemptResult(request: {
 
   const input = parsed.value;
   let outside: ReturnType<typeof outsideChangesOf> = [];
+  // The gate is read at the commit the attempt started from, never from a working tree.
+  const gate = await ProjectGate.read({
+    repository: request.projectRoot,
+    commit: dispatch.baseCommit,
+  });
   // Only production work submits a result, and the transaction below refuses any other kind.
   if (read.context.assignment.kind === "production") {
     const assignment = read.context.assignment;
@@ -92,6 +98,7 @@ export async function submitAttemptResult(request: {
         requirementCount: storedRequirements(assignment.acceptanceRequirements).length,
         questions,
       },
+      gate,
     });
     const [first, ...rest] = refusals;
     if (first !== undefined) {
@@ -152,6 +159,11 @@ export async function submitAttemptResult(request: {
         artifacts: stored.artifacts,
         spec,
         outside,
+        // A reviewer may run the project gate, and no reviewer outcome stands in for a gate run.
+        gateCommands:
+          gate.status === "declared"
+            ? gate.commands.map((one) => ProjectGate.commandLine(one.argv))
+            : [],
         submissionId,
         reviewId: crypto.randomUUID(),
         now,

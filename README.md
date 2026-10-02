@@ -214,6 +214,29 @@ Use `--unset probe.githubFixture` to remove the fixture.
 If an apply is interrupted, run `bun run operator config recover --json` to compare the file against its recorded before and after identities.
 Recovery settles that record without editing the configuration file.
 
+### The project gate
+
+A project declares its one project gate in `operator-gate.json` at the repository root, and commits it. Setup does not write it.
+
+```json
+{
+  "$schema": "./node_modules/@fveracoechea/operator/gate.schema.json",
+  "commands": [
+    { "name": "install", "argv": ["bun", "install", "--frozen-lockfile"], "timeoutSeconds": 600 },
+    { "name": "quality", "argv": ["bun", "run", "quality"], "timeoutSeconds": 3600 }
+  ]
+}
+```
+
+Each command has a unique `name`, an `argv` array with no shell, and a required `timeoutSeconds`.
+The release publishes the schema as `gate.schema.json`.
+Operator reads the file at a commit, never from the working tree, so an edit that is not committed has no effect.
+Readiness reads it at HEAD as the `project-gate` check.
+A production dispatch reads it at the base commit and refuses with `project_gate_missing`, `project_gate_invalid`, or `project_gate_unread`.
+The producer brief lists each gate command beside the submit command, and submit refuses a code result whose checks do not show each one as passed.
+A reviewer is permitted to run the gate commands.
+See [ADR 0021](docs/adr/0021-every-commit-of-an-integration-branch-passes-the-project-gate-before-it-lands.md).
+
 ## Release and updates
 
 One release is one matched version of the CLI code and the Operator-owned skills.
@@ -277,7 +300,7 @@ bun scripts/release.ts plan    --out dist --commit <full-commit>
 bun scripts/release.ts publish --out dist --commit <full-commit>
 ```
 
-The artifact holds runnable ESM, the public declarations, the complete owned-skill directories, and the generated configuration schema.
+The artifact holds runnable ESM, the public declarations, the complete owned-skill directories, and the generated configuration and project gate schemas.
 Its identity covers every byte it holds.
 The release identity binds the delivery record to that version, that merged commit, and that content.
 
@@ -324,6 +347,7 @@ Static checks observe these items:
 - The instruction files and the discoverable skill contents.
 - The Operator release, the selected installation, and its lock data.
 - The project settings.
+- The project gate, `operator-gate.json`, read at HEAD. A missing or invalid file is a blocker, and it does not hold back a live probe.
 
 Static checks never prove host termination, the native review sub-agents, or provider compatibility.
 Those need a live probe.
@@ -614,6 +638,7 @@ Submit reads the worktree with Git before it records anything, and it refuses a 
 - `outside_write_paths`: a commit since the base adds, changes, or deletes a file outside the write paths. A rename touches both paths.
 - `result_check_not_run`: a check that could not run, which is never a pass.
 - `behavior_change_basis_missing`: a behavior change names a basis that does not exist. A basis is the approved scope, one acceptance requirement by its position, or one answered question of the assignment whose answer is a requirement or a human answer. An Operator decision is never a basis.
+- `project_gate_not_passed`: a code result whose checks do not show each project gate command, by name, as `passed`. Every check with that name must pass, so a pass beside a failure is refused.
 
 It reports every refusal at once, in that order, and the first one is the reason of the result.
 A refusal records nothing, so the attempt keeps running and its Operative fixes the result.

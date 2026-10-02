@@ -1,4 +1,5 @@
 import { OperativeDispatch } from "../operative-dispatch/main.ts";
+import { ProjectGate } from "../project-gate/main.ts";
 import { ProjectReadiness } from "../project-readiness/main.ts";
 import {
   requiredCoverage,
@@ -30,7 +31,12 @@ import {
 import { readState, type RequestFailure, type StateFailure } from "./operations.ts";
 import { requireOwnership } from "./ownership.ts";
 import { identityOf } from "./identity.ts";
-import { BEHAVIOR_CHANGE_RULE, ONE_COMMIT_RULE } from "./result-checks.ts";
+import {
+  BEHAVIOR_CHANGE_RULE,
+  type GateRead,
+  ONE_COMMIT_RULE,
+  PROJECT_GATE_RULE,
+} from "./result-checks.ts";
 
 export type Overrides = Parameters<typeof ProjectReadiness.snapshot>[0]["overrides"];
 
@@ -131,8 +137,47 @@ function reworkBriefOf(context: ReworkContext): ReworkBrief {
   return { cycleId: context.cycle.id, ...recorded };
 }
 
+// A producer cannot show a gate that its base commit does not declare, so nothing launches.
+export type GateUnusable = {
+  status: "project-gate-unusable";
+  attemptId: string;
+  gate: Exclude<GateRead, { status: "declared" }>;
+};
+
+/**
+ * The project gate a producer brief states, read at the base commit of the launch (ADR 0021).
+ * A reviewer reads no gate here, because its registered commands already permit the gate.
+ */
+export async function briefGate(request: {
+  projectRoot: string;
+  context: AttemptContext;
+  attemptId: string;
+  baseCommit: string;
+}): Promise<{ status: "ok"; gate: Brief["gate"] } | GateUnusable> {
+  if (request.context.review !== null) {
+    return { status: "ok", gate: null };
+  }
+  const gate = await ProjectGate.read({
+    repository: request.projectRoot,
+    commit: request.baseCommit,
+  });
+  return gate.status === "declared"
+    ? {
+        status: "ok",
+        gate: {
+          commit: gate.commit,
+          commands: gate.commands.map((one) => ({
+            name: one.name,
+            line: ProjectGate.commandLine(one.argv),
+            timeoutSeconds: one.timeoutSeconds,
+          })),
+        },
+      }
+    : { status: "project-gate-unusable", attemptId: request.attemptId, gate };
+}
+
 /** The fixed brief of one assignment, as the attempt that holds it receives it. */
-export function briefOf(context: AttemptContext, attemptId: string): Brief {
+export function briefOf(context: AttemptContext, attemptId: string, gate: Brief["gate"]): Brief {
   const assignment = context.assignment;
   const review = context.review;
   const acceptanceRequirements = storedRequirements(assignment.acceptanceRequirements);
@@ -161,10 +206,12 @@ export function briefOf(context: AttemptContext, attemptId: string): Brief {
               ...ARTIFACT_RULES,
               ...SUBMIT_RULES,
               BEHAVIOR_CHANGE_RULE,
+              PROJECT_GATE_RULE,
             ],
             report: [],
           }
         : { submit: [], report: [ACKNOWLEDGED_RULE, ...REPORT_RULES] },
+    gate,
     review:
       review === null
         ? null

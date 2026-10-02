@@ -45,7 +45,7 @@ A source registered with no location records none, and its assignments refuse tr
   "kind": "production",
   "trackerIssue": 24,
   "approvedScope": "Build the dispatch path and nothing else.",
-  "acceptanceRequirements": ["The quality gate passes."],
+  "acceptanceRequirements": ["Dispatch records each stage before it acts."],
   "permissions": {
     "writePaths": ["modules/operative-dispatch/", ".changeset/dispatch-path.md"],
     "allowedCommands": ["bun test"],

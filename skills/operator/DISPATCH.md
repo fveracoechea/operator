@@ -31,6 +31,14 @@ A dispatch starts from an explicit commit.
 Name the commit the assignment must build on.
 A worktree never picks up uncommitted work from another checkout, so ask the user to commit or to choose a different base when needed inputs are not committed.
 
+## The project gate comes from that commit
+
+A producer brief states the project gate that `operator-gate.json` declares at the base commit, with each command beside the submit command.
+Dispatch and replace of a production attempt refuse with `project_gate_missing`, `project_gate_invalid`, or `project_gate_unread` when that commit holds no valid gate, and nothing launches.
+The person commits the file, because setup does not write it and you commit nothing.
+Then dispatch from a commit that holds it.
+A review attempt reads no gate at dispatch, because its registered commands already permit the gate commands.
+
 ## Pending is the normal answer
 
 Herdr acknowledges that it submitted the brief, not that the Operative read it.

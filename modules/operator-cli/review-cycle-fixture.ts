@@ -28,6 +28,7 @@ export async function makeReviewWorkspace(
     maxActiveAgents?: number;
     reviewSkill?: boolean;
     files?: Record<string, string>;
+    gate?: unknown;
   } = {},
 ): Promise<Workspace> {
   const host = options.host ?? "claude-code";
@@ -35,7 +36,7 @@ export async function makeReviewWorkspace(
   if (options.maxActiveAgents !== undefined) crew.maxActiveAgents = options.maxActiveAgents;
   const files: Record<string, string> = { ...options.files };
   if (options.reviewSkill !== false) files[SKILL_PATH[host]] = "---\nname: code-review\n---\n";
-  const fixture = await fixtures.make({ config: { crew }, files });
+  const fixture = await fixtures.make({ config: { crew }, files, gate: options.gate });
 
   return { ...fixture, host };
 }
@@ -109,7 +110,7 @@ export async function startProducer(
   const worktreePath = `${workspace.root}/operative`;
   const baseCommit = await headCommit(workspace);
 
-  await runJson(
+  const dispatched = await runJson(
     workspace,
     [
       "attempt",
@@ -143,6 +144,7 @@ export async function startProducer(
     worktreePath,
     baseCommit,
     assignmentRevision: claimed.json.data.revision as number,
+    dispatched: dispatched.json,
   };
 }
 

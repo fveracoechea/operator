@@ -44,6 +44,7 @@ export const REQUIRED_PARTS = [
   "jsr.json",
   "release.json",
   "config.schema.json",
+  "gate.schema.json",
   "modules/operator-cli/main.js",
   "modules/operator-cli/main.d.ts",
   "skills/operator/SKILL.md",
