@@ -23,8 +23,14 @@ A refusal leaves the attempt running, so the Operative that holds the context ma
 
 A write outside the write paths is a security permission under ADR 0006.
 Only a person widens the write paths, with one approval that names the extra paths and the assignment, bound to the write paths as registered.
+The approval action is `write-paths-grant`, its targets are the extra paths in the same canonical form, its scope is the assignment, and its request revision is the identity of the registered write paths.
+A grant target that is not canonical is refused when the approval is recorded.
 That approval covers every attempt of the assignment, rework included, until the registered write paths change.
-An answer never widens them.
+The effective write paths are the registered paths plus the targets of every current grant.
+The brief, submit, and the crew frontier read them, and the matcher reads the grant targets, because the approval check compares targets as exact words.
+`operator work write-paths` prints the effective write paths, and for the paths a person is asked to grant, the exact approval and each started assignment of the source that it would overlap (ADR 0004).
+It writes nothing.
+An answer never widens the write paths, and an Operator decision is no grant.
 
 Every submission lists its behavior changes, and an empty list is the explicit statement that there are none.
 A behavior change is any difference, compared with the base, in what the changed code does for some input.
@@ -80,7 +86,8 @@ That revision moves at every change of state, so a rework Operative would be ref
 A file that is written and deleted before submit is not seen.
 Only a guard at write time catches it, and the host launch settings that could give one are not part of this decision.
 
-The crew frontier reads the registered write paths plus every grant, because a grant can make two running assignments overlap.
+The crew frontier reads the effective write paths, because a grant can make two running assignments overlap.
+A grant that the person gives during an attempt does not reach the brief that the attempt already holds, so the answer to its question tells the Operative.
 
 A behavior change that nothing asked for now costs one question to the user before the Operative makes it.
 

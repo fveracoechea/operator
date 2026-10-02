@@ -14,6 +14,7 @@ An assignment that has not started holds nothing, so a ready assignment never wa
 An assignment that has started is never withheld by the hold, because each new attempt of it starts on the base of its dispatch (ADR 0008), so withholding it prevents no changed patch.
 The frontier withholds an assignment whose write paths overlap held paths, and it names each holder with the number of overlapping pairs of paths.
 The Operator reads the frontier, so the blocker gives this summary and names `operator work overlaps`, which lists each pair.
+`operator work overlaps` reads the effective write paths, as the frontier does, so it also lists a pair that a grant caused.
 Review and planning work hold no write paths, because neither makes a commit.
 Two write paths overlap by the one rule that ADR 0018 records, and the frontier uses that same rule.
 

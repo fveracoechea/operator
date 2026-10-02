@@ -660,7 +660,7 @@ function refusalLine(refusal: ResultRefusal): string {
     case "uncommitted_work":
       return `  uncommitted_work: ${refusal.paths.join(", ")}`;
     case "outside_write_paths":
-      return `  outside_write_paths: ${refusal.paths.join(", ")}`;
+      return `  outside_write_paths: ${refusal.paths.join(", ")}. Only a person grants more write paths, so undo these changes or raise a question that names each path.`;
     case "result_check_not_run":
       return `  result_check_not_run: the ${refusal.check} check did not run. ${refusal.detail}`;
   }

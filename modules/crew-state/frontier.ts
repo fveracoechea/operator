@@ -10,7 +10,8 @@ import { blockingQuestions, questionReportOf, triggersOf } from "./questions.ts"
 import { reviewOfSubmission } from "./review.ts";
 import { assignmentDependencies, assignments, attempts, workSources } from "./schema.ts";
 import { latestSubmission } from "./submission.ts";
-import { isExecutable, isReview, storedPermissions } from "./work-input.ts";
+import { isExecutable, isReview } from "./work-input.ts";
+import { writePathsReader } from "./write-path-grants.ts";
 import { overlappingPaths, overlapsCommand } from "./write-paths.ts";
 
 export type FrontierEntry = {
@@ -157,9 +158,9 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
   // Production work holds its write paths from its first claim until it reaches accepted
   // completion, and again after it leaves accepted completion, so this reads no list of states.
   const started = new Set(recordedAttempts.map((attempt) => attempt.assignmentId));
-  const writePathsOf = new Map(
-    rows.map((row) => [row.id, storedPermissions(row.permissions).writePaths]),
-  );
+  // The effective write paths: a grant widens what an assignment holds and what it asks for.
+  const effectiveOf = writePathsReader(db);
+  const writePathsOf = new Map(rows.map((row) => [row.id, effectiveOf(row)]));
   const held: WritePathHold[] = rows
     .filter((row) => row.kind === "production" && row.state !== "accepted" && started.has(row.id))
     .map((row) => ({

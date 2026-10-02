@@ -33,7 +33,7 @@ A personal instruction file does not reach the crew.
 
 - **Identity**: the assignment and its revision, the attempt, the source and its revision, the assignment kind, the controlling checkout, the worktree, and the branch with its base commit.
 - **Approved scope** and **acceptance requirements**, with the requirements identity needed to submit the result.
-- **Authority limits**: the write paths, the allowed commands, and whether network access is permitted. Work outside them is a question, never the Operative's own decision.
+- **Authority limits**: the effective write paths (the registered paths plus every grant of a person), the allowed commands, and whether network access is permitted. Work outside them is a question, never the Operative's own decision.
 - **Fixed inputs**, with the content identity of every path input. They are fixed at registration, and a launch refuses a base commit that holds another version of a path input.
 - **Effective configuration**: the crew host, model, and reasoning effort, the Operator release, the lock data, and the skill contents of this launch.
 - **The reporting protocol** of its role, with the refusals of each command beside it.

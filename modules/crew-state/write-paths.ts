@@ -1,6 +1,13 @@
 // The write-path grammar of ADR 0018. It is the one rule for what "inside" means, so every check
 // that compares write paths reads them through this matcher.
 
+/**
+ * The approval action a person grants to widen the write paths of one assignment.
+ * A write outside the write paths is a security permission, so an answer or an Operator decision
+ * never widens them, and each target of the grant is a write path in this grammar.
+ */
+export const WRITE_PATHS_GRANT_ACTION = "write-paths-grant";
+
 const globCharacters = /[*?[\]{}]/;
 
 /** Why a write path is not in its one canonical form, or null when it is. */

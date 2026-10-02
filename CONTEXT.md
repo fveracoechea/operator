@@ -22,6 +22,7 @@ A file or a folder, named from the repository root, that one assignment may chan
 A folder covers everything under it, each path has one written form, and the letter case counts.
 A path that an earlier release stored is read in that form, or it fails loudly.
 Only a person widens the write paths of an assignment, with an approval; an answer never does.
+The effective write paths are the registered paths plus every current grant, and the brief, submit, and the crew frontier read them.
 _Avoid_: allowed paths, scope paths
 
 **Attempt**:

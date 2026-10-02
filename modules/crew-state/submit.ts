@@ -7,7 +7,6 @@ import { refuseResult, type ResultRefusal } from "./result-checks.ts";
 import { submissionInputSchema } from "./submission-input.ts";
 import { submissionOfAttempt, type SubmitOutcome, submitResult } from "./submission.ts";
 import { storeArtifacts, storeSpec, type StoreOutcome } from "./submission-store.ts";
-import { storedPermissions } from "./work-input.ts";
 
 type StoreFailure = Exclude<StoreOutcome, { status: "stored" }>;
 
@@ -77,7 +76,7 @@ export async function submitAttemptResult(request: {
       }),
       input,
       baseCommit: dispatch.baseCommit,
-      writePaths: storedPermissions(read.context.assignment.permissions).writePaths,
+      writePaths: read.context.writePaths,
     });
     const [first, ...rest] = refusals;
     if (first !== undefined) {

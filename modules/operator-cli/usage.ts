@@ -32,6 +32,7 @@ export const usage = [
   "  operator work invalidate --request <id> --owner-token <token> --assignment <id> --revision <n> --input <path|-> [--json]",
   "  operator work frontier [--json]",
   "  operator work overlaps --source <id> [--json]",
+  "  operator work write-paths --assignment <id> [--input <path|->] [--json]",
   `  operator attempt dispatch --request <id> --owner-token <token> --attempt <id> --commit <sha> [--branch <name>] [--worktree <path>] ${crewSelection} [--json]`,
   "  operator attempt acknowledge --request <id> --attempt <id> [--json]",
   "  operator attempt reconcile --request <id> --owner-token <token> --attempt <id> [--json]",

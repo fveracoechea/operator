@@ -146,7 +146,7 @@ export function briefOf(context: AttemptContext, attemptId: string): Brief {
     acceptanceRequirements,
     requirementsIdentity: identityOf(acceptanceRequirements),
     approvedScope: assignment.approvedScope,
-    permissions: storedPermissions(assignment.permissions),
+    permissions: { ...storedPermissions(assignment.permissions), writePaths: context.writePaths },
     fixedInputs,
     // A reviewer reports and never submits, so it receives none of the producer's rules.
     rules:

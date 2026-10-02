@@ -113,6 +113,9 @@ Its `command` lists each pair.
 Do not run it to list the pairs yourself.
 Tell the person the holders and the command.
 
+A holder holds its effective write paths, so a grant of more paths can withhold work that its registered paths did not (see [QUESTIONS.md](QUESTIONS.md)).
+The `command` reads the effective write paths too, so it lists the pair that a grant caused.
+
 This is no error to repair, and you do not schedule around it.
 Narrow write paths prevent it, and the person sets them at registration (see [REGISTRATION.md](REGISTRATION.md)).
 Tell the person when broad paths make a source run one assignment at a time.

@@ -11,6 +11,7 @@ import {
   storedPermissions,
   type WorkInput,
 } from "./work-input.ts";
+import { writePathsReader } from "./write-path-grants.ts";
 import { overlappingPaths, overlapsCommand } from "./write-paths.ts";
 
 export type RegisteredAssignment = {
@@ -199,12 +200,14 @@ function reaches(edges: Map<string, string[]>, from: string, to: string): boolea
 }
 
 /**
- * Each pair of production items in one source whose registered write paths overlap and that no
+ * Each pair of production items in one source whose effective write paths overlap and that no
  * dependency orders, in item order. A pair that a dependency orders never runs at the same time,
- * so it is not reported. The paths of a pair stay in the order each item registered them.
+ * so it is not reported. The frontier hold reads the effective write paths, so a pair that a
+ * grant caused is listed too. The paths of a pair stay in the order each item holds them.
  */
 function findOverlaps(db: CrewReader, sourceId: string): WritePathOverlap[] {
   const edges = dependencyEdges(db);
+  const effectiveOf = writePathsReader(db);
   const production = db
     .select()
     .from(assignments)
@@ -212,7 +215,7 @@ function findOverlaps(db: CrewReader, sourceId: string): WritePathOverlap[] {
     .all()
     .filter((row) => row.kind === "production")
     .toSorted((one, other) => one.orderIndex - other.orderIndex)
-    .map((row) => ({ row, writePaths: storedPermissions(row.permissions).writePaths }));
+    .map((row) => ({ row, writePaths: effectiveOf(row) }));
 
   return production.flatMap((one, index) =>
     production.slice(index + 1).flatMap((other): WritePathOverlap[] => {

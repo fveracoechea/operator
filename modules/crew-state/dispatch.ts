@@ -8,6 +8,7 @@ import { assignments, attemptDispatch, attempts, externalOperations } from "./sc
 import { cyclesOf, openCycleOf, type ReworkCycleRow } from "./rework.ts";
 import { type ReworkBriefRecord, storedReworkBrief } from "./rework-input.ts";
 import { readSubmission, submissionsOf, type SubmissionRow } from "./submission.ts";
+import { effectiveWritePaths } from "./write-path-grants.ts";
 
 /** The external effects one launch performs, in the order a dispatch performs them. */
 export const DISPATCH_STAGES = [
@@ -57,6 +58,8 @@ export type AttemptContext = {
   operations: OperationRow[];
   review: ReviewContext | null;
   rework: ReworkContext | null;
+  // The registered write paths plus every current grant, which the brief and submit read.
+  writePaths: string[];
   // How many attempts this assignment has held, which bounds a replacement.
   attemptsHeld: number;
   // True while the Operator that claimed this attempt still owns the crew.
@@ -200,6 +203,7 @@ export function lookupAttempt(db: CrewReader, attemptId: string): AttemptLookup 
       operations: liveOperations(db, attempt.id),
       review: readReviewContext(db, assignment.id),
       rework: readReworkContext(db, assignment.id),
+      writePaths: effectiveWritePaths(db, assignment),
       attemptsHeld: attemptCount(db, assignment.id),
       current: currentOwnership(db)?.token === attempt.ownerToken,
     },

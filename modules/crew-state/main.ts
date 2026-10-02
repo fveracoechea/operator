@@ -39,6 +39,7 @@ import { recordTrackerStep, recoverTrackerStep } from "./tracker-apply.ts";
 import { readTrackerMap, showTrackerSteps } from "./tracker-show.ts";
 import { STATE_VERSION } from "./schema.ts";
 import { workInputSchema } from "./work-input.ts";
+import { grantRequestInputSchema, showWritePaths } from "./write-path-grants.ts";
 
 type Located = { projectRoot: string };
 type Mutation = Located & { requestId: string; ownerToken: string };
@@ -130,6 +131,29 @@ export const CrewState = {
    */
   async overlaps(request: Located & { sourceId: string }) {
     const result = await readState(request.projectRoot, (db) => showOverlaps(db, request.sourceId));
+    return { repeated: false, result };
+  },
+
+  /**
+   * Reports the effective write paths of one production assignment. With asked paths it also
+   * gives the exact `write-paths-grant` approval request and each started assignment of the same
+   * source that the grant would overlap. It writes nothing, and only a person grants.
+   */
+  async writePaths(request: Located & { assignmentId: string; input: unknown | null }) {
+    if (request.input === null) {
+      const result = await readState(request.projectRoot, (db) =>
+        showWritePaths(db, { assignmentId: request.assignmentId, paths: null }),
+      );
+      return { repeated: false, result };
+    }
+    const parsed = parseInput(grantRequestInputSchema, request.input);
+    if (parsed.status !== "parsed") {
+      return { repeated: false, result: parsed };
+    }
+    const paths = parsed.value.paths;
+    const result = await readState(request.projectRoot, (db) =>
+      showWritePaths(db, { assignmentId: request.assignmentId, paths }),
+    );
     return { repeated: false, result };
   },
 

@@ -56,6 +56,7 @@ Read [REWORK.md](REWORK.md), [LIMITS.md](LIMITS.md), and [INVALIDATION.md](INVAL
 
 Question routing, answers, and approvals.
 `bun run operator question` and `bun run operator approval` carry them, and the brief tells each Operative how to raise one.
+Read [QUESTIONS.md](QUESTIONS.md) before you answer a question or record an approval; a question about write paths always goes to the user.
 
 Process closure and worktree removal.
 `bun run operator cleanup` carries them, and each one needs its own proof and its own approval.

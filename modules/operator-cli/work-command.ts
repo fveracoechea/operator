@@ -752,6 +752,95 @@ async function runOverlaps(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
+async function runWritePaths(parsed: ParsedArguments): Promise<Handled> {
+  const { assignmentId, inputPath } = parsed.crew;
+  if (assignmentId === undefined) {
+    return "invalid-arguments";
+  }
+
+  let input: unknown = null;
+  if (inputPath !== undefined) {
+    const read = await readStructuredInput({
+      parsed,
+      operation: "work_write_paths",
+      reason: "invalid_write_paths_input",
+      path: inputPath,
+    });
+    if (read.status !== "read") {
+      return "reported";
+    }
+    input = read.value;
+  }
+
+  const { result } = await CrewState.writePaths({
+    projectRoot: process.cwd(),
+    assignmentId,
+    input,
+  });
+  if (reportSharedFailure(parsed, "work_write_paths", result)) {
+    return "reported";
+  }
+  if (reportAssignmentFailure(parsed, "work_write_paths", result)) {
+    return "reported";
+  }
+  if (result.status === "invalid-input") {
+    return reportInvalidInput({
+      parsed,
+      operation: "work_write_paths",
+      reason: "invalid_write_paths_input",
+      issues: result.issues,
+    });
+  }
+  if (result.status === "not-production") {
+    return refuse({
+      json: parsed.json,
+      operation: "work_write_paths",
+      outcome: "invalid",
+      reason: "not_production_work",
+      detail: { assignmentId: result.assignmentId, kind: result.kind },
+      lines: [
+        `Assignment ${result.assignmentId} is ${result.kind} work, and it holds no write paths.`,
+      ],
+    });
+  }
+
+  const { status: _status, ...data } = result;
+  const grant = result.grant;
+  report({
+    json: parsed.json,
+    result: {
+      outcome: "completed",
+      reason: "write_paths_reported",
+      blockers: [],
+      operation: "work_write_paths",
+      data,
+    },
+    lines: [
+      `Assignment ${result.assignmentId} writes only inside these paths:`,
+      ...result.effective.map(
+        (one) => `  ${one}${result.registered.includes(one) ? "" : " (granted)"}`,
+      ),
+      ...(grant === null
+        ? []
+        : [
+            "Only the person grants more write paths. Ask them with these exact words:",
+            `  action "${grant.approval.action}", targets ${grant.approval.targets.join(", ")}, scope "${grant.approval.scope}", requestRevision "${grant.approval.requestRevision}".`,
+            ...(grant.overlaps.length === 0
+              ? ["The grant overlaps no started assignment of this source."]
+              : [
+                  "The grant overlaps these started assignments of this source. Both keep running, and acceptance can refuse a patch that changed:",
+                  ...grant.overlaps.map(
+                    (one) =>
+                      `  ${one.sourceKey} (${one.assignmentId}): ${one.pathPairCount} pair(s) of paths`,
+                  ),
+                  `After the grant, list each pair with: ${grant.command}`,
+                ]),
+          ]),
+    ],
+  });
+  return "reported";
+}
+
 export async function runWork(words: string[], parsed: ParsedArguments): Promise<Handled> {
   if (words.length !== 1) {
     return "invalid-arguments";
@@ -778,6 +867,9 @@ export async function runWork(words: string[], parsed: ParsedArguments): Promise
   }
   if (subcommand === "overlaps") {
     return runOverlaps(parsed);
+  }
+  if (subcommand === "write-paths") {
+    return runWritePaths(parsed);
   }
 
   return "invalid-arguments";

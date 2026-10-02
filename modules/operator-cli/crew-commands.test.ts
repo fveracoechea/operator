@@ -1679,6 +1679,209 @@ describe("the frontier holds the write paths of unaccepted work", () => {
   });
 });
 
+/** Reads the effective write paths of one assignment, and the grant request for asked paths. */
+async function writePaths(root: string, assignmentId: string, paths?: unknown) {
+  const input = paths === undefined ? [] : ["--input", await writeJson(root, { paths })];
+  return runJson(root, ["work", "write-paths", "--assignment", assignmentId, ...input]);
+}
+
+async function writeJson(root: string, value: unknown): Promise<string> {
+  const path = `${root}/input-${crypto.randomUUID()}.json`;
+  await Bun.write(path, JSON.stringify(value));
+  return path;
+}
+
+/** Records the person's grant of more write paths, from the exact request the CLI printed. */
+async function grant(
+  root: string,
+  token: string,
+  approval: { action: string; targets: string[]; scope: string; requestRevision: string },
+) {
+  return runJson(root, [
+    "approval",
+    "grant",
+    "--request",
+    request(),
+    "--owner-token",
+    token,
+    "--input",
+    await writeJson(root, {
+      ...approval,
+      exactText: "Yes, it may write that.",
+      grantedBy: "human",
+    }),
+  ]);
+}
+
+describe("a person grants more write paths to an assignment", () => {
+  const command = "operator work overlaps --source github:operator#15";
+
+  test("the frontier hold reads the effective write paths of started work", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+    const registered = await register(root, token, {
+      items: [
+        item({ key: "a", writePaths: ["modules/a/"] }),
+        item({ key: "b", writePaths: ["modules/b/"] }),
+      ],
+    });
+    const holder = assignmentIdOf(registered.json, "a");
+    await claim(root, token, holder, 1);
+    expect(offered(await runJson(root, ["work", "frontier"]))).toEqual(["b"]);
+
+    const asked = await writePaths(root, holder, ["modules/b/shared.ts"]);
+    expect(asked.json.data.grant.overlaps).toEqual([]);
+    const granted = await grant(root, token, asked.json.data.grant.approval);
+    expect(granted.json.reason).toBe("approval_granted");
+
+    const frontier = await runJson(root, ["work", "frontier"]);
+    expect(offered(frontier)).toEqual([]);
+    expect(blockersOf(frontier, "b")).toEqual([
+      {
+        reason: "write_paths_overlap",
+        holders: [{ assignmentId: holder, sourceKey: "a", hold: "started", pathPairCount: 1 }],
+        command,
+      },
+    ]);
+
+    // The blocker points to the command that lists the pair that the grant caused.
+    const listed = await runJson(root, ["work", "overlaps", "--source", sourceIdOf()]);
+    expect(listed.json.data.overlaps).toEqual([
+      {
+        sourceKeys: [issueKey(1501), issueKey(1502)],
+        paths: [["modules/b/shared.ts", "modules/b/"]],
+      },
+    ]);
+
+    const shown = await writePaths(root, holder);
+    expect(shown.json.data).toMatchObject({
+      registered: ["modules/a/"],
+      effective: ["modules/a/", "modules/b/shared.ts"],
+      grant: null,
+    });
+  });
+
+  test("the request names each started assignment the grant overlaps, and stops neither", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+    const registered = await register(root, token, {
+      items: [
+        item({ key: "a", writePaths: ["modules/a/"] }),
+        item({ key: "b", writePaths: ["modules/b/", "docs/b.md"] }),
+        item({ key: "c", writePaths: ["docs/c.md"] }),
+        item({ key: "d", writePaths: ["skills/d.md"] }),
+      ],
+    });
+    const asker = assignmentIdOf(registered.json, "a");
+    const started = assignmentIdOf(registered.json, "b");
+    for (const key of ["a", "b"]) {
+      await claim(root, token, assignmentIdOf(registered.json, key), 1);
+    }
+
+    // `c` overlaps the grant too, but it has not started, so the frontier holds it instead.
+    const asked = await writePaths(root, asker, ["modules/b/x.ts", "docs/"]);
+
+    expect(asked.exitCode).toBe(0);
+    expect(asked.json.reason).toBe("write_paths_reported");
+    expect(asked.json.data.grant).toEqual({
+      command,
+      approval: {
+        action: "write-paths-grant",
+        targets: ["modules/b/x.ts", "docs/"],
+        scope: asker,
+        requestRevision: ContentIdentity.of({ writePaths: ["modules/a/"] }),
+      },
+      overlaps: [{ assignmentId: started, sourceKey: "b", pathPairCount: 2 }],
+    });
+    expect(asked.stdout).not.toContain("--json");
+
+    const text = await runOperator(root, [
+      "work",
+      "write-paths",
+      "--assignment",
+      asker,
+      "--input",
+      await writeJson(root, { paths: ["modules/b/x.ts", "docs/"] }),
+    ]);
+    expect(text.stdout).toContain("Only the person grants more write paths.");
+    expect(text.stdout).toContain(`b (${started}): 2 pair(s) of paths`);
+    // The Operator reads this report, so it gives the count and never the path pairs.
+    expect(text.stdout).not.toContain("docs/b.md");
+    expect(text.stdout).toContain(`After the grant, list each pair with: ${command}`);
+
+    await grant(root, token, asked.json.data.grant.approval);
+
+    // Started work keeps its base, so the grant changes only what the frontier offers next.
+    const frontier = await runJson(root, ["work", "frontier"]);
+    expect(frontier.json.data.active.map((one: { sourceKey: string }) => one.sourceKey)).toEqual([
+      "a",
+      "b",
+    ]);
+    expect(blockersOf(frontier, "c").map((one) => one.reason)).toEqual(["write_paths_overlap"]);
+    expect(blockersOf(frontier, "d").map((one) => one.reason)).toEqual([
+      "review_capacity_reserved",
+    ]);
+  });
+
+  test("refuses a grant target that is not canonical", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+    const registered = await register(root, token, { items: [item({ key: "a" })] });
+    const assignmentId = assignmentIdOf(registered.json, "a");
+
+    const asked = await writePaths(root, assignmentId, ["./docs/", "notes/*.md"]);
+    expect(asked.exitCode).toBe(2);
+    expect(asked.json.reason).toBe("invalid_write_paths_input");
+    expect(asked.json.blockers).toHaveLength(2);
+
+    const refused = await grant(root, token, {
+      action: "write-paths-grant",
+      targets: ["docs/ok.md", "/etc/hosts", "docs\\b.md"],
+      scope: assignmentId,
+      requestRevision: ContentIdentity.of({ writePaths: ["modules/a/"] }),
+    });
+    expect(refused.exitCode).toBe(2);
+    expect(refused.json.reason).toBe("invalid_approval_input");
+    expect(refused.json.blockers.map((one: { issue: string }) => one.issue)).toEqual([
+      expect.stringContaining("targets.1"),
+      expect.stringContaining("targets.2"),
+    ]);
+    // An Operator decision is no grant, because a write path is a security permission.
+    const decided = await runJson(root, [
+      "approval",
+      "grant",
+      "--request",
+      request(),
+      "--owner-token",
+      token,
+      "--input",
+      await writeJson(root, {
+        action: "write-paths-grant",
+        targets: ["docs/"],
+        scope: assignmentId,
+        requestRevision: ContentIdentity.of({ writePaths: ["modules/a/"] }),
+        exactText: "The Operator decided that docs/ is fine.",
+        grantedBy: "operator-decision",
+      }),
+    ]);
+    expect(decided.json.reason).toBe("invalid_approval_input");
+    expect((await writePaths(root, assignmentId)).json.data.effective).toEqual(["modules/a/"]);
+  });
+
+  test("only production work has write paths to widen", async () => {
+    const root = await makeProject();
+    const token = await own(root);
+    const registered = await register(root, token, {
+      items: [item({ key: "r", kind: "review", writePaths: ["docs/"] })],
+    });
+
+    const refused = await writePaths(root, assignmentIdOf(registered.json, "r"), ["notes/"]);
+
+    expect(refused.json.reason).toBe("not_production_work");
+    expect((await writePaths(root, "no-such-assignment")).json.reason).toBe("unknown_assignment");
+  });
+});
+
 describe("commands that own no crew state", () => {
   test("refuse a crew flag they have no use for", async () => {
     const root = await makeProject();
