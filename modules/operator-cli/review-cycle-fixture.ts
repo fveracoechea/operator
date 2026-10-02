@@ -341,6 +341,14 @@ export function windowAt(offsetSeconds: number, durationSeconds: number) {
   };
 }
 
+/** The pull request text a reviewer writes for what publishes (ADR 0022). */
+export const PUBLISHED_TEXT = {
+  title: "Build the reviewed result path",
+  summary: "Adds the reviewed result and its notes.",
+  startHere: "Read docs/result.md first, because the notes refer to it.",
+  mergeDanger: "Nothing known: the change adds two new files.",
+};
+
 export type Finding = { key: string; severity: string; summary: string; evidence: string };
 
 export function reportBody(options: {
@@ -354,6 +362,8 @@ export function reportBody(options: {
   statedHost?: string;
   failedAxis?: string;
   observedChecks?: Array<{ name: string; outcome: string }>;
+  /** The published text, or null to leave it out. A test reads the fixture text by default. */
+  published?: typeof PUBLISHED_TEXT | null;
 }) {
   const checked = options.checked ?? ["diff", "requirements", "checks", "behavior-changes"];
   const axes = ["standards", "spec"] as const;
@@ -377,6 +387,8 @@ export function reportBody(options: {
       findings:
         axis === "standards" ? (options.standardsFindings ?? []) : (options.specFindings ?? []),
     })),
+    // The input is written as JSON, which leaves an undefined field out.
+    published: options.published === null ? undefined : (options.published ?? PUBLISHED_TEXT),
   };
 }
 

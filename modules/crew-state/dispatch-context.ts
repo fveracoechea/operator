@@ -145,7 +145,9 @@ function reviewBriefOf(
     fixedPoint: code?.baseCommit ?? null,
     readCommands: reviewReadCommands(code?.baseCommit ?? null),
     integration: reviewedPatch === null || interdiff === null ? null : { reviewedPatch, interdiff },
+    basisQuestions: context.basisQuestions,
     priorRounds: context.priorRounds,
+    publishes: context.publishes,
   };
 }
 

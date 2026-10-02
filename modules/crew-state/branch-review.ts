@@ -16,7 +16,13 @@ import { REVIEW_AXES, reviewOfSubmission, type ReviewRow } from "./review.ts";
 import { assignments, branchSnapshots, landings, reviews } from "./schema.ts";
 import { readStored } from "./stored.ts";
 import { type StoredCopy, specPathOf } from "./submission-store.ts";
-import { REVIEWER_COMMANDS, reviewReadCommands, submissionsOf } from "./submission.ts";
+import {
+  REVIEWER_COMMANDS,
+  reviewReadCommands,
+  type SubmissionRow,
+  submissionsOf,
+} from "./submission.ts";
+import { storedResultKind } from "./submission-input.ts";
 import { storedFixedInputs } from "./work-input.ts";
 
 /**
@@ -182,7 +188,7 @@ export type BranchCondition =
   | { status: "no-branch" }
   | { status: "not-final"; pending: Array<{ assignmentId: string; state: string }> }
   | { status: "take-out-pending"; assignmentIds: string[] }
-  | { status: "one-commit" };
+  | { status: "one-commit"; baseCommit: string; headCommit: string; commits: SnapshotCommit[] };
 
 /**
  * Reads whether the integration branch of one source is final, and the snapshot it then holds.
@@ -217,7 +223,12 @@ export function branchCondition(db: CrewReader, sourceId: string): BranchConditi
 
   const commits = landedCommits(db, live);
   if (commits.length === 0 || (commits.length === 1 && live.length === 1)) {
-    return { status: "one-commit" };
+    return {
+      status: "one-commit",
+      baseCommit: branch.baseCommit,
+      headCommit: branch.recordedTip,
+      commits,
+    };
   }
 
   const subject = {
@@ -227,6 +238,27 @@ export function branchCondition(db: CrewReader, sourceId: string): BranchConditi
     commits,
   };
   return { status: "due", ...subject, identity: identityOf(subject) };
+}
+
+/**
+ * True when one submission is the code result of the only code item of its source that is not
+ * withdrawn. Such a source has no branch review, so its result review writes the published text.
+ */
+export function publishesAlone(db: CrewReader, submission: SubmissionRow): boolean {
+  if (storedResultKind(submission.resultKind) !== "code") {
+    return false;
+  }
+  const holder = readAssignment(db, submission.assignmentId);
+  if (holder === null || holder.kind !== "production") {
+    return false;
+  }
+  const live = db
+    .select({ id: assignments.id, state: assignments.state })
+    .from(assignments)
+    .where(and(eq(assignments.sourceId, holder.sourceId), eq(assignments.kind, "production")))
+    .all()
+    .filter((row) => row.state !== "withdrawn");
+  return live.length === 1 && live[0]?.id === holder.id;
 }
 
 export type RegisteredBranchReview = {

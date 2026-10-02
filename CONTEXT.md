@@ -195,8 +195,14 @@ _Avoid_: spare worktree
 
 **Integrated pull request**:
 A pull request that carries a contiguous range of one integration branch, with one commit for each accepted code result.
-Operator opens it with a body rendered from the records, and a person merges it with a merge commit, so each of its commits reaches the target branch as it was reviewed and gated.
+Operator opens it with a body rendered from the records and the published text, and a person merges it with a merge commit, so each of its commits reaches the target branch as it was reviewed and gated.
+The Operator and the crew never merge it and never turn on auto-merge; a merge by a teammate of the person counts as the approval of the person.
 _Avoid_: pull request per assignment
+
+**Published text**:
+The title, the summary, where to start reading, and the merge danger of one integrated pull request, which the branch reviewer writes in its report, or the result reviewer for a work source with one code commit.
+The Operator only passes it on, and the publish approval binds it word for word.
+_Avoid_: Operator sections, PR description
 
 **Pull request stack**:
 The ordered integrated pull requests of one work source, each based on the one below it.

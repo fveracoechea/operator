@@ -302,6 +302,12 @@ describe("the brief states each refusal beside its command", () => {
           rule: "Each axis states in `checked` every reading that this result kind requires.",
           breaks: () => reportWith({ checked: ["diff"] }),
         },
+        {
+          refusal: "review_published_text_missing",
+          rule: "`published` holds the pull request text when the brief asks for it.",
+          // This result is the only code result of its source, so its brief asks for the text.
+          breaks: () => reportWith({ published: null }),
+        },
       ],
     });
     // A producer launch rule written as prose is still a producer rule, so none appears at all.

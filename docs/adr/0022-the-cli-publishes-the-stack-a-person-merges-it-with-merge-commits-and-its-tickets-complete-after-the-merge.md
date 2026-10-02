@@ -6,7 +6,7 @@ The tracker resolution of a code result was written at acceptance, before any co
 A squash merge of the lowest pull request of a stack also rewrites what the higher ones are based on.
 
 The CLI publishes.
-`operator publish plan` changes nothing: it reads the recorded branch snapshot, the gate runs, the reviews, and the Operator's input, and it prints every pull request of the stack in full with a plan revision.
+`operator publish plan` changes nothing: it reads the recorded branch snapshot, the gate runs, and the reviews with their published text, and it reports a summary with a plan revision and writes every pull request in full to a local file.
 `operator publish apply` plans again, refuses when the revision differs, and then writes, behind one approval of that revision.
 The plan refuses unless the branch review of ADR 0017 reported on the exact head, the gate runs of ADR 0021 pass at the base and at every commit, and no invalidation, withdrawal, or direction request is open.
 The revision covers everything that ships: the head, the cut points with their reasons, the titles, every body, the remote, the remote branch names, the target branch, and the integration base.
@@ -24,14 +24,17 @@ The pull requests are created from the bottom up, ready for review: the lowest o
 Each write is a staged effect under ADR 0005.
 Recovery reads GitHub: the remote names at their planned commits, and the pull request whose head is a new remote name, which the server allows only once.
 
-Each body is rendered by the CLI from the records, with a closed set of sections that the Operator writes, and the approval covers the exact text.
+Each body is rendered by the CLI from the records, with a closed set of sections that a reviewer writes, and the approval covers the exact text.
 The rendered sections are the commit list, with each subject linked to its commit and a closing keyword for its issue; the behavior changes of each commit with their basis (ADR 0018); the project gate commands and the runs that passed; the reviews by their identity; each rejected finding as what looks wrong and is not; each deferred finding with its follow-up as what is not in this pull request; the concerns the producers recorded; the stack position; and how to merge.
-The Operator writes the title, a summary, where to start reading, and the merge danger, because no record holds that judgment.
-The Operator text goes to people and not to the crew, and the user approves it word for word, so it opens no channel into a brief.
+The branch reviewer writes the title, a summary, where to start reading, and the merge danger in its report, because it read the whole head and no record holds that judgment; for a source with one code commit, the result reviewer of that commit writes it.
+The Operator writes no content of its own, so it only passes this published text on, and `operator publish plan` takes no input from it.
+The published text goes to people and not to a brief, and the person approves it word for word, because the plan revision names every title and body.
+The plan prints a summary and writes every title and body in full to a local file named by its revision, which the person reads before the approval.
 A body is final at its create: it links each commit by its identity, and it names only the pull request below it, whose number is recorded by then.
 
 A person merges.
 Merging follows the human review on GitHub, and the person who merges is often not the user of the Operator.
+The Operator and the crew never merge a pull request and never turn on auto-merge, and a merge by a teammate of the person counts as the approval of the person.
 Each pull request merges with a merge commit, from the bottom up, because only a merge commit brings each commit to the target with the identity and the tree that were reviewed and gated.
 The plan refuses when the repository or a rule of the target branch does not allow a merge commit, and when a rule requires signed commits, because Operator pushes the unsigned commits of ADR 0020 and signing is not decided.
 A rule that the plan cannot read is shown as unverified, never as a pass, and a push that GitHub rejects lands nothing.
@@ -90,7 +93,8 @@ The tracker resolution at acceptance was rejected, because it names no final com
 The resolution at publish was rejected, because a correction after publish still changes every commit, and a written comment is never corrected (ADR 0009).
 
 A body that the Operator writes freely was rejected, because it repeats recorded facts that can drift.
-A body with no Operator text was rejected, because where to start reading and the merge danger need judgment that no record holds.
+A body with no written text was rejected, because where to start reading and the merge danger need judgment that no record holds.
+Text that the Operator writes into the plan input was rejected, because the Operator writes no content of its own, and the branch reviewer is the one agent that read the whole head.
 
 A next action that always offers the read while a pull request is open was rejected.
 It is a loop that polls GitHub on every turn, and as an action that waits on a person it would hide every other wait (ADR 0011).

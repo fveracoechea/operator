@@ -25,7 +25,9 @@ const review: ReviewBrief = {
   fixedPoint: null,
   readCommands: [],
   integration: null,
+  basisQuestions: [],
   priorRounds: [],
+  publishes: false,
 };
 
 test("reviewer protocol uses the selected JSR invocation", () => {

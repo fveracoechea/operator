@@ -1,5 +1,5 @@
 import { type CommandRule, REFERENCE_RULE, ruleLines } from "./command-rules.ts";
-import { REVIEW_INPUT_DIR } from "./review-brief.ts";
+import { PUBLISHED_TEXT_LINES, PUBLISHED_TEXT_SHAPE, REVIEW_INPUT_DIR } from "./review-brief.ts";
 
 /** One commit of the branch snapshot, in branch order, with the accepted result it carries. */
 export type BranchCommit = {
@@ -147,7 +147,9 @@ export function branchReviewProtocolSection(
     "Your sub-agents may read files, run the read commands above, and run the project gate commands:",
     ...review.gateCommands.map((one) => `- ${one}`),
     "Run each project gate command at the head, and record what you saw in `observedChecks` with",
-    "the command name as `name`. Never push, and never perform rework.",
+    "the command line above as `name`. Publish compares each one with the gate run at the head, so",
+    "a command with no observation, or with another outcome, stops the publish.",
+    "Never push, and never perform rework.",
     "",
     "## Reporting protocol",
     "",
@@ -196,6 +198,7 @@ export function branchReviewProtocolSection(
             },
           ],
         })),
+        published: PUBLISHED_TEXT_SHAPE,
       },
       null,
       2,
@@ -203,6 +206,8 @@ export function branchReviewProtocolSection(
     "```",
     "",
     `A branch review requires ${review.requiredCoverage.join(", ")} in \`checked\`.`,
+    "",
+    ...PUBLISHED_TEXT_LINES,
     "",
     "If this host cannot run the required sub-agents, or a credential or input is missing, record",
     "the blocker instead of a partial review:",

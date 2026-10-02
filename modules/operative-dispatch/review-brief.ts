@@ -6,6 +6,8 @@ import {
   type FixedCode,
 } from "./fixed-result.ts";
 import {
+  type AnsweredQuestion,
+  answeredQuestionLines,
   behaviorChangeLines,
   concernLines,
   decisionLines,
@@ -47,7 +49,12 @@ export type ReviewBrief = {
     reviewedPatch: { storedPath: string; contentIdentity: string };
     interdiff: { storedPath: string; contentIdentity: string };
   } | null;
+  // Each question that a behavior change names as its basis, with its answer.
+  basisQuestions: AnsweredQuestion[];
   priorRounds: PriorRound[];
+  // True for the only code result of its source: no branch review follows, so this review
+  // writes the text of the pull request that publishes it.
+  publishes: boolean;
 };
 
 /** The directory a review worktree receives its fixed copies of the submitted artifacts in. */
@@ -69,6 +76,29 @@ export const BEHAVIOR_CHANGE_LINES = [
   "A behavior change is a difference, compared with the base, in what changed code does for some",
   "input: an output, an error, a record that is dropped or skipped, or a boundary value that falls",
   "in another class. A change to a comment, a private name, or a test is not one.",
+];
+
+/** The example of the published text in a report shape. */
+export const PUBLISHED_TEXT_SHAPE = {
+  title: "<the pull request title, at most 256 characters>",
+  summary: "<what this change does and why, for a person who reviews it on GitHub>",
+  startHere: "<the file or commit to read first, and why>",
+  mergeDanger: "<what can break when this merges, or that nothing known can>",
+};
+
+/**
+ * What the published text is. The reviewer read the whole subject, so it writes the judgment
+ * that no record holds, and the Operator only passes it on (ADR 0022).
+ */
+export const PUBLISHED_TEXT_LINES = [
+  "Write `published` once, beside `reports`: the text of the pull request that publishes what you",
+  "read. The person reads it on GitHub and approves it word for word, and the Operator changes",
+  "nothing in it. The CLI renders every other section from the records, so do not repeat the",
+  "commit list, the checks, or the findings.",
+  "- `title`: one line that names the change.",
+  "- `summary`: what the change does and why.",
+  "- `startHere`: where a reader starts, and why there.",
+  "- `mergeDanger`: what can break when it merges, or that you know of nothing.",
 ];
 
 /** The fixed result the two axes read. Every line here is pinned at submission. */
@@ -120,6 +150,14 @@ export function submittedResultSection(review: ReviewBrief): string[] {
     "",
     ...behaviorChangeLines(review.behaviorChanges),
     "",
+    ...(review.basisQuestions.length === 0
+      ? []
+      : [
+          "### Questions that a behavior change names as its basis",
+          "",
+          ...answeredQuestionLines(review.basisQuestions),
+          "",
+        ]),
     ...priorRoundsSection(review),
   ];
 }
@@ -255,12 +293,21 @@ export function reviewProtocolSection(
             },
           ],
         })),
+        // JSON leaves an undefined field out, so only a review that publishes shows the text.
+        published: review.publishes ? PUBLISHED_TEXT_SHAPE : undefined,
       },
       null,
       2,
     ),
     "```",
     "",
+    ...(review.publishes
+      ? [
+          "This is the only code result of its source, so no branch review follows it.",
+          ...PUBLISHED_TEXT_LINES,
+          "",
+        ]
+      : []),
     `This result kind requires ${review.requiredCoverage.join(", ")} in \`checked\`.`,
     ...(review.behaviorChanges === null
       ? []

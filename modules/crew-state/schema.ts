@@ -5,7 +5,7 @@ import { integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqli
  * The durable shape of the crew state. A reader that finds a higher version refuses the file,
  * so this number changes only when an older Operator release can no longer read the tables.
  */
-export const STATE_VERSION = 14;
+export const STATE_VERSION = 15;
 
 export const stateMeta = sqliteTable("state_meta", {
   id: integer("id").primaryKey(),
@@ -248,6 +248,10 @@ export const reviews = sqliteTable("reviews", {
   revision: integer("revision").notNull(),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
+  // The text a reviewer wrote for the pull request that publishes this subject (ADR 0022). A
+  // branch review always writes it, and a result review writes it for the only code result of
+  // its source. The Operator only passes it on.
+  publishedText: text("published_text"),
 });
 
 /** One axis report of one review. The two axes stay separate and are never merged. */
@@ -589,6 +593,70 @@ export const landings = sqliteTable("landings", {
 });
 
 /**
+ * One stack publication of one source (ADR 0022), recorded after its `publish` approval and
+ * before its first write. A source can publish more than once, so each one has its number.
+ */
+export const stackPublications = sqliteTable(
+  "stack_publications",
+  {
+    id: text("id").primaryKey(),
+    sourceId: text("source_id")
+      .notNull()
+      .references(() => workSources.id),
+    number: integer("number").notNull(),
+    planRevision: text("plan_revision").notNull(),
+    approvalId: text("approval_id")
+      .notNull()
+      .references(() => approvals.id),
+    remote: text("remote").notNull(),
+    target: text("target").notNull(),
+    baseCommit: text("base_commit").notNull(),
+    headCommit: text("head_commit").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [unique().on(table.sourceId, table.number)],
+);
+
+/**
+ * One staged write of one stack publication: the push, or the create of one pull request. The
+ * intent is recorded before the write, and recovery reads GitHub to settle it (ADR 0005).
+ */
+export const publishEffects = sqliteTable(
+  "publish_effects",
+  {
+    id: text("id").primaryKey(),
+    publicationId: text("publication_id")
+      .notNull()
+      .references(() => stackPublications.id),
+    position: integer("position").notNull(),
+    kind: text("kind").notNull(),
+    intent: text("intent").notNull(),
+    state: text("state").notNull(),
+    outcome: text("outcome"),
+    createdAt: text("created_at").notNull(),
+    settledAt: text("settled_at"),
+  },
+  (table) => [unique().on(table.publicationId, table.position)],
+);
+
+/** One pull request of one stack publication, with the number GitHub gave it once created. */
+export const stackPullRequests = sqliteTable(
+  "stack_pull_requests",
+  {
+    publicationId: text("publication_id")
+      .notNull()
+      .references(() => stackPublications.id),
+    part: integer("part").notNull(),
+    headName: text("head_name").notNull().unique(),
+    publishedCommit: text("published_commit").notNull(),
+    plannedBase: text("planned_base").notNull(),
+    number: integer("number"),
+    url: text("url"),
+  },
+  (table) => [primaryKey({ columns: [table.publicationId, table.part] })],
+);
+
+/**
  * One approval of one exact action. It binds the action, its targets, its scope, and the
  * revision of the request it was granted against, and a revocation ends it.
  */
@@ -699,6 +767,9 @@ export const crewStateSchema = {
   gateRuns,
   gateRunCommands,
   integrationBranches,
+  stackPublications,
+  publishEffects,
+  stackPullRequests,
   trackerOperations,
   trackerWriteAttempts,
   trackerObservations,
@@ -818,6 +889,50 @@ export const BRANCH_REVIEW_TABLES = [
     snapshot_id text references branch_snapshots(id),
     unique (assignment_id),
     check ((submission_id is null) <> (snapshot_id is null))
+  ) strict`,
+];
+
+/**
+ * The stack publication tables, and the published text of a review, written once for a new state
+ * and its migration step. The review table keeps the statement of version 14, so the text is a
+ * column added after it.
+ */
+export const PUBLISH_TABLES = [
+  `alter table reviews add column published_text text`,
+  `create table stack_publications (
+    id text primary key,
+    source_id text not null references work_sources(id),
+    number integer not null,
+    plan_revision text not null,
+    approval_id text not null references approvals(id),
+    remote text not null,
+    target text not null,
+    base_commit text not null,
+    head_commit text not null,
+    created_at text not null,
+    unique (source_id, number)
+  ) strict`,
+  `create table publish_effects (
+    id text primary key,
+    publication_id text not null references stack_publications(id),
+    position integer not null,
+    kind text not null,
+    intent text not null,
+    state text not null,
+    outcome text,
+    created_at text not null,
+    settled_at text,
+    unique (publication_id, position)
+  ) strict`,
+  `create table stack_pull_requests (
+    publication_id text not null references stack_publications(id),
+    part integer not null,
+    head_name text not null unique,
+    published_commit text not null,
+    planned_base text not null,
+    number integer,
+    url text,
+    primary key (publication_id, part)
   ) strict`,
 ];
 
@@ -1080,6 +1195,7 @@ export const CREATE_STATEMENTS = [
   ...GATE_TABLES.map((statement) => sql.raw(statement)),
   ...INTEGRATION_TABLES.map((statement) => sql.raw(statement)),
   ...LANDING_TABLES.map((statement) => sql.raw(statement)),
+  ...PUBLISH_TABLES.map((statement) => sql.raw(statement)),
   sql`create table approvals (
     id text primary key,
     action text not null,

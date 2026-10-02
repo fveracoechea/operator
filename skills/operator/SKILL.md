@@ -55,6 +55,9 @@ Read [REVIEW.md](REVIEW.md) before you review a result, act on a branch review, 
 Delegated rework, the limits that bound it, and a defect found after acceptance.
 Read [REWORK.md](REWORK.md), [LIMITS.md](LIMITS.md), and [INVALIDATION.md](INVALIDATION.md) before you act on any of them.
 
+The integrated pull request of a source.
+Read [PUBLISH.md](PUBLISH.md) before you act on `publish_stack` or `settle_publish`.
+
 Question routing, answers, and approvals.
 `bun run operator question` and `bun run operator approval` carry them, and the brief tells each Operative how to raise one.
 Read [QUESTIONS.md](QUESTIONS.md) before you answer a question or record an approval; a question about write paths always goes to the user.

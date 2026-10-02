@@ -65,6 +65,8 @@ export const usage = [
   "  operator gate run --request <id> --owner-token <token> --assignment <id> [--approval <id>] [--json]",
   "  operator gate show --run <id> [--json]",
   "  operator gate runner --run <id> --root <path> [--json]",
+  "  operator publish plan --source <id> [--json]",
+  "  operator publish apply --request <id> --owner-token <token> --source <id> --plan-revision <revision> [--json]",
   "  operator cleanup close --request <id> --owner-token <token> --attempt <id> [--json]",
   "  operator cleanup remove --request <id> --owner-token <token> --attempt <id> [--json]",
   "  operator cleanup hold --request <id> --owner-token <token> --attempt <id> --input <path|-> [--json]",

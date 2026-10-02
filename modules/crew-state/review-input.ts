@@ -49,6 +49,24 @@ const blocker = z.strictObject({
 
 export type ReviewBlocker = z.infer<typeof blocker>;
 
+/**
+ * The text a reviewer writes for the pull request that publishes what it read (ADR 0022). The
+ * reviewer read the whole subject, so it writes the judgment that no record holds. The Operator
+ * only passes this text on, and the person approves it word for word.
+ */
+export const publishedTextSchema = z.strictObject({
+  title: z.string().trim().min(1).max(256),
+  summary: z.string().trim().min(1),
+  startHere: z.string().trim().min(1),
+  mergeDanger: z.string().trim().min(1),
+});
+
+export type PublishedText = z.infer<typeof publishedTextSchema>;
+
+export function storedPublishedText(stored: string): PublishedText {
+  return readStored("published text", publishedTextSchema, stored);
+}
+
 export const reviewReportInputSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("reported"),
@@ -56,6 +74,8 @@ export const reviewReportInputSchema = z.discriminatedUnion("kind", [
     host: z.string().min(1),
     subAgents: z.array(subAgent).length(2),
     reports: z.array(axisReport).length(2),
+    // Required for the only code result of a source, which publishes with no branch review.
+    published: publishedTextSchema.optional(),
   }),
   z.strictObject({
     kind: z.literal("blocked"),
@@ -82,6 +102,7 @@ export const branchReportInputSchema = z.discriminatedUnion("kind", [
     host: z.string().min(1),
     subAgents: z.array(subAgent).length(2),
     reports: z.array(branchAxisReport).length(2),
+    published: publishedTextSchema,
   }),
   z.strictObject({
     kind: z.literal("blocked"),

@@ -1,0 +1,175 @@
+import { GithubApi } from "../github-api/main.ts";
+import { ToolInvocation } from "../tool-invocation/main.ts";
+
+const READ_TIMEOUT_MS = 30_000;
+const WRITE_TIMEOUT_MS = 60_000;
+
+type Outcome = Awaited<ReturnType<typeof GithubApi.call>>;
+
+function detailOf(outcome: Exclude<Outcome, { status: "succeeded" }>): string {
+  return outcome.status === "failed" ? `${outcome.code}: ${outcome.detail}` : outcome.detail;
+}
+
+export type MergeSettings = {
+  target: string;
+  allowMergeCommit: boolean;
+  /** The other merge methods the repository allows, which the preview names. */
+  otherMethods: string[];
+};
+
+/** The default branch and the merge methods of one repository, read at the plan (decision 5). */
+export async function readRepository(
+  repository: string,
+): Promise<{ status: "read"; value: MergeSettings } | { status: "unread"; detail: string }> {
+  const outcome = await GithubApi.call({
+    args: [`repos/${repository}`],
+    timeoutMs: READ_TIMEOUT_MS,
+  });
+  if (outcome.status !== "succeeded") {
+    return { status: "unread", detail: detailOf(outcome) };
+  }
+  const body = outcome.value.body;
+  const target = ToolInvocation.text(body, "default_branch");
+  const merge = ToolInvocation.record(body, "allow_merge_commit");
+  if (target === null || typeof merge !== "boolean") {
+    return {
+      status: "unread",
+      detail: `GitHub answered for ${repository} with no default branch or merge setting.`,
+    };
+  }
+  return {
+    status: "read",
+    value: {
+      target,
+      allowMergeCommit: merge,
+      otherMethods: [
+        ...(ToolInvocation.record(body, "allow_squash_merge") === true ? ["squash"] : []),
+        ...(ToolInvocation.record(body, "allow_rebase_merge") === true ? ["rebase"] : []),
+      ],
+    },
+  };
+}
+
+export type BranchRules = {
+  signaturesRequired: boolean;
+  linearHistory: boolean;
+  /** The merge methods a ruleset allows, or null when no ruleset limits them. */
+  allowedMethods: string[] | null;
+};
+
+/**
+ * The active rules of the target branch. The endpoint returns only ruleset rules, never classic
+ * branch protection, which needs admin rights to read (ticket #118). So the caller shows classic
+ * protection as unverified, and an unreadable answer as unverified, never as a pass.
+ */
+export async function readRules(
+  repository: string,
+  target: string,
+): Promise<{ status: "read"; value: BranchRules } | { status: "unread"; detail: string }> {
+  const outcome = await GithubApi.call({
+    args: [`repos/${repository}/rules/branches/${encodeURIComponent(target)}`],
+    timeoutMs: READ_TIMEOUT_MS,
+  });
+  if (outcome.status !== "succeeded") {
+    return { status: "unread", detail: detailOf(outcome) };
+  }
+  if (!Array.isArray(outcome.value.body)) {
+    return { status: "unread", detail: "GitHub answered the branch rules with no list." };
+  }
+  const rules: unknown[] = outcome.value.body;
+  const typeOf = (rule: unknown) => ToolInvocation.text(rule, "type");
+  const methods = rules
+    .filter((rule) => typeOf(rule) === "pull_request")
+    .map((rule) =>
+      ToolInvocation.list(ToolInvocation.record(rule, "parameters"), "allowed_merge_methods"),
+    )
+    .filter((list) => list.length > 0)
+    .map((list) => list.filter((one): one is string => typeof one === "string"));
+  return {
+    status: "read",
+    value: {
+      signaturesRequired: rules.some((rule) => typeOf(rule) === "required_signatures"),
+      linearHistory: rules.some((rule) => typeOf(rule) === "required_linear_history"),
+      // Each ruleset limits on its own, so a method passes only when every one allows it.
+      allowedMethods:
+        methods.length === 0
+          ? null
+          : (methods[0] ?? []).filter((one) => methods.every((list) => list.includes(one))),
+    },
+  };
+}
+
+export type PullRequest = { number: number; url: string; state: string };
+
+function readPull(source: unknown): PullRequest | null {
+  const number = ToolInvocation.number(source, "number");
+  const url = ToolInvocation.text(source, "html_url");
+  const state = ToolInvocation.text(source, "state");
+  return number === null || url === null || state === null ? null : { number, url, state };
+}
+
+/**
+ * Every pull request whose head is one branch of the repository, in every state. GitHub allows
+ * one open pull request for a head, and a head name is new for each publication, so this is the
+ * recovery key of a create (decision 14). `state=all` is required: the default is open only.
+ */
+export async function pullsByHead(
+  repository: string,
+  head: string,
+): Promise<{ status: "read"; value: PullRequest[] } | { status: "unread"; detail: string }> {
+  const owner = repository.split("/")[0] ?? "";
+  const outcome = await GithubApi.call({
+    args: [
+      `repos/${repository}/pulls?state=all&per_page=100&head=${encodeURIComponent(`${owner}:${head}`)}`,
+    ],
+    timeoutMs: READ_TIMEOUT_MS,
+  });
+  if (outcome.status !== "succeeded") {
+    return { status: "unread", detail: detailOf(outcome) };
+  }
+  const rows = Array.isArray(outcome.value.body) ? outcome.value.body : null;
+  const read = rows?.map(readPull) ?? null;
+  if (read === null || read.some((one) => one === null)) {
+    return {
+      status: "unread",
+      detail: "GitHub answered with a pull request list this release cannot read.",
+    };
+  }
+  return { status: "read", value: read.filter((one) => one !== null) };
+}
+
+/**
+ * Opens one pull request, ready for review. It never asks for auto-merge and never merges:
+ * a person merges (ADR 0022, decision D6).
+ */
+export async function createPull(
+  repository: string,
+  request: { head: string; base: string; title: string; body: string },
+): Promise<
+  | { status: "created"; value: PullRequest }
+  | { status: "failed"; message: string }
+  | { status: "uncertain"; detail: string }
+> {
+  const outcome = await GithubApi.call({
+    args: ["--method", "POST", `repos/${repository}/pulls`, "--input", "-"],
+    input: JSON.stringify({
+      title: request.title,
+      head: request.head,
+      base: request.base,
+      body: request.body,
+      draft: false,
+      maintainer_can_modify: false,
+    }),
+    timeoutMs: WRITE_TIMEOUT_MS,
+  });
+  if (outcome.status === "failed") {
+    return { status: "failed", message: detailOf(outcome) };
+  }
+  if (outcome.status === "uncertain") {
+    return outcome;
+  }
+  const created = readPull(outcome.value.body);
+  return created === null
+    ? { status: "uncertain", detail: "GitHub accepted a pull request it did not describe." }
+    : { status: "created", value: created };
+}

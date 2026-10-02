@@ -2,7 +2,7 @@ import { OperativeDispatch } from "../operative-dispatch/main.ts";
 import { readWriterContext, type WriterFailure } from "./dispatch-context.ts";
 import { type InvalidInput, parseInput } from "./input.ts";
 import { mutate, readState } from "./operations.ts";
-import { readSnapshot, storedSnapshotCommits } from "./branch-review.ts";
+import { publishesAlone, readSnapshot, storedSnapshotCommits } from "./branch-review.ts";
 import { branchReportInputSchema, reviewReportInputSchema } from "./review-input.ts";
 import { type ReportOutcome, type ReportSubject, recordReviewReport } from "./review-report.ts";
 import { readReview, type ReviewRow } from "./review.ts";
@@ -38,7 +38,7 @@ function subjectOf(
   const submission = review.submissionId === null ? null : readSubmission(db, review.submissionId);
   return submission === null || !("submissionIdentity" in input)
     ? null
-    : { kind: "submission", submission, input };
+    : { kind: "submission", submission, input, publishes: publishesAlone(db, submission) };
 }
 
 /**

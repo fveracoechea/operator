@@ -4,6 +4,7 @@ import {
   GATE_TABLES,
   INTEGRATION_TABLES,
   LANDING_TABLES,
+  PUBLISH_TABLES,
   STATE_VERSION,
 } from "./schema.ts";
 
@@ -230,6 +231,18 @@ export const MIGRATIONS: MigrationStep[] = [
       sqlite.exec("alter table reviews_next rename to reviews");
       sqlite.exec("alter table review_findings add column targets text");
       sqlite.exec("alter table review_findings add column correction_target text");
+    },
+  },
+  {
+    from: 14,
+    to: 15,
+    summary:
+      "Record the published text of each review, and each stack publication with its writes and pull requests.",
+    // An earlier release published nothing, and no review wrote a published text.
+    apply: (sqlite) => {
+      for (const statement of PUBLISH_TABLES) {
+        sqlite.exec(statement);
+      }
     },
   },
 ];

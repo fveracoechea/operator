@@ -154,6 +154,24 @@ const violations: Violation[] = [
     expectedDiagnostic: "only modules/integration-branch writes one",
   },
   {
+    name: "push outside the pull request stack module",
+    files: {
+      [`modules/module-boundary-probe-push-${probeIdentity}/main.ts`]:
+        'export const PushProbe = { run() { return ["push", "--atomic", "origin"]; } };\n',
+    },
+    cleanupPath: `modules/module-boundary-probe-push-${probeIdentity}`,
+    expectedDiagnostic: "only modules/pull-request-stack publishes",
+  },
+  {
+    name: "pull request write outside the pull request stack module",
+    files: {
+      [`modules/module-boundary-probe-pulls-${probeIdentity}/main.ts`]:
+        "export const PullProbe = { run(repository: string) { return `repos/${repository}/pulls`; } };\n",
+    },
+    cleanupPath: `modules/module-boundary-probe-pulls-${probeIdentity}`,
+    expectedDiagnostic: "only modules/pull-request-stack publishes",
+  },
+  {
     name: "module dependency cycle",
     files: {
       [`modules/module-boundary-probe-cycle-${probeIdentity}/main.ts`]:

@@ -19,6 +19,7 @@ import { runCrewNext } from "./next-command.ts";
 import { runInstall, runMattSkills } from "./install-command.ts";
 import { runUpdate } from "./update-command.ts";
 import { runQuestion } from "./question-command.ts";
+import { runPublish } from "./publish-command.ts";
 import { runReview } from "./review-command.ts";
 import { runSetup } from "./setup-command.ts";
 import { runTracker } from "./tracker-command.ts";
@@ -51,6 +52,7 @@ const crewCommands: Record<string, CrewCommand | undefined> = {
   question: runQuestion,
   approval: runApproval,
   review: runReview,
+  publish: runPublish,
   tracker: runTracker,
   cleanup: runCleanup,
   gate: runGate,

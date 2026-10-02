@@ -270,6 +270,16 @@ describe("operator attempt submit reads the behavior changes", () => {
       ].join("\n"),
     );
     expect(brief).toContain("A behavior change is a difference, compared with the base,");
+    // The reviewer checks that the answer permits the change, so the question stands beside it.
+    expect(brief).toContain(
+      [
+        `- Question ${questionId}: Does the result keep the old heading?`,
+        `  Asked by attempt: ${producer.attemptId}`,
+        "  Authority: human-answer",
+        "  Exact words: use the new heading",
+        "  Interpretation: Use the new heading.",
+      ].join("\n"),
+    );
 
     const shown = await runJson(workspace, [
       "review",

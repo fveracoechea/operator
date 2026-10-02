@@ -32,6 +32,7 @@ You do nothing for that refusal.
 Every submission lists its behavior changes, and `[]` states that there is none.
 Submit checks only that each basis exists.
 The reviewer checks that the list is complete and that each basis permits its change.
+The review brief gives each question that a basis names, with its authority and its answer.
 
 Exit 6 with `result_submitted` means the result is handed over, not accepted.
 The assignment is now awaiting review, and its attempt has ended.
@@ -212,8 +213,14 @@ The reviewer starts from the head of the snapshot and no other.
 
 The brief gives the fixed text of the source as `spec source`. The CLI stores the text of the parent issue each time it registers the source, so a later edit of the issue never changes what the review reads.
 The brief carries the spec copy of every item, the base of the integration branch as the fixed point, the commit list, and every earlier review of the source with its findings and dispositions.
-The reviewer may run the project gate commands at the head, and records what it saw in `observedChecks`.
+The reviewer may run the project gate commands at the head, and records what it saw in `observedChecks`, named by the command line.
+Publish compares each observation with the gate run at the head, so a gate command with no observation, or with another outcome, stops the publish.
 It states `diff`, `requirements`, and `checks` in `checked`. It reads no behavior change list.
+
+The reviewer also writes `published`: the title, the summary, where to start reading, and the merge danger of the pull request that publishes the head.
+For a source with one code commit, the result reviewer of that commit writes it, and that report refuses with `review_published_text_missing` without it.
+You pass this text on and change nothing in it, because the person approves it word for word.
+Read [PUBLISH.md](PUBLISH.md) for the publish.
 
 Its report refuses on these, in addition to the rules of every report:
 

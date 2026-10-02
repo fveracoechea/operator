@@ -157,6 +157,26 @@ function checkRefWriter(path: string, text: string): void {
   }
 }
 
+/**
+ * The pull-request-stack module is the only module that pushes or writes a pull request
+ * (ADR 0022), so no other production file may run `git push` or name the pull request endpoint.
+ * A `kind: "push"`, or its schema literal, names a recorded effect, not a call. A test may, to set up a case.
+ */
+function checkPublisher(path: string, text: string): void {
+  if (
+    path.startsWith("modules/pull-request-stack/") ||
+    path.endsWith(".test.ts") ||
+    !path.startsWith("modules/")
+  ) {
+    return;
+  }
+  if (/(?<!kind:\s*|literal\()["'`]push["'`]/.test(text) || /(?<![\\\w])\/pulls\b/.test(text)) {
+    errors.push(
+      `${path}: pushes or writes a pull request; only modules/pull-request-stack publishes`,
+    );
+  }
+}
+
 const moduleDirectories = new Set<string>();
 for (const path of sourcePaths) {
   const normalizedPath = normalized(path);
@@ -183,6 +203,7 @@ for (const path of sourcePaths) {
   );
   checkImports(path, sourceFile);
   checkRefWriter(normalizedPath, text);
+  checkPublisher(normalizedPath, text);
 
   if (/^modules\/[^/]+\/main\.ts$/.test(normalizedPath)) {
     checkModuleInterface(path, sourceFile);

@@ -8,7 +8,8 @@ import type {
   SubAgentRecord,
 } from "./review-input.ts";
 import { findingId, REVIEW_AXES, type ReviewRow, updateReview } from "./review.ts";
-import { reviewFindings, reviewReports } from "./schema.ts";
+import { eq } from "drizzle-orm";
+import { reviewFindings, reviewReports, reviews } from "./schema.ts";
 import { requiredCoverage, storedBehaviorChanges, storedResultKind } from "./submission-input.ts";
 import type { SubmissionRow } from "./submission.ts";
 
@@ -62,7 +63,8 @@ export type ReportOutcome =
       status: "coverage-incomplete";
       reviewId: string;
       gaps: Array<{ axis: string; missing: string[] }>;
-    };
+    }
+  | { status: "published-text-missing"; reviewId: string };
 
 /** The required axes one list does not state exactly once, which is what makes it incomplete. */
 function axesNotStatedOnce(entries: Array<{ axis: string }>): string[] {
@@ -129,6 +131,10 @@ export const REPORT_RULES = [
     refusal: "review_coverage_incomplete",
     rule: "Each axis states in `checked` every reading that this result kind requires.",
   },
+  {
+    refusal: "review_published_text_missing",
+    rule: "`published` holds the pull request text when the brief asks for it.",
+  },
 ];
 
 /**
@@ -154,7 +160,13 @@ export function branchCoverage(): string[] {
 
 /** The fixed subject one report names: a submission, or a branch snapshot. */
 export type ReportSubject =
-  | { kind: "submission"; submission: SubmissionRow; input: ReviewReportInput }
+  | {
+      kind: "submission";
+      submission: SubmissionRow;
+      input: ReviewReportInput;
+      // True for the only code result of its source, which publishes with no branch review.
+      publishes: boolean;
+    }
   | {
       kind: "branch";
       snapshot: BranchSnapshotRow;
@@ -324,6 +336,11 @@ export function recordReviewReport(
   if (untargeted !== null) {
     return untargeted;
   }
+  // The reviewer of what publishes writes its pull request text, so the Operator writes none.
+  const published = input.published ?? null;
+  if (subject.kind === "submission" && subject.publishes && published === null) {
+    return { status: "published-text-missing", reviewId: review.id };
+  }
 
   const findings: ReportedFinding[] = [];
   const reports: Array<AxisReport & { findings: Array<{ targets?: string[] }> }> = input.reports;
@@ -381,6 +398,12 @@ export function recordReviewReport(
     reportedAt: request.now,
     now: request.now,
   });
+  if (published !== null) {
+    db.update(reviews)
+      .set({ publishedText: JSON.stringify(published) })
+      .where(eq(reviews.id, review.id))
+      .run();
+  }
 
   return {
     status: "reported",

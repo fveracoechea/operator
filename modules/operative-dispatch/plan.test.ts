@@ -139,7 +139,9 @@ test("review and rework labels identify their roles on the same ticket", () => {
       fixedPoint: null,
       readCommands: [],
       integration: null,
+      basisQuestions: [],
       priorRounds: [],
+      publishes: false,
     },
   });
   const rework = plan({
@@ -250,6 +252,7 @@ test("a reviewer may not stage or commit", () => {
     fixedPoint: null,
     readCommands: [],
     integration: null,
+    basisQuestions: [],
     priorRounds: [],
     publishes: false,
   } satisfies ReviewBrief;

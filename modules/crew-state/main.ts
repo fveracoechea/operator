@@ -28,6 +28,7 @@ import { calculateFrontier } from "./frontier.ts";
 import { calculateNext, calculateUnowned, isStandingAction } from "./next.ts";
 import { readBrokenLandings } from "./next-landings.ts";
 import { parseInput } from "./input.ts";
+import { applyPublish, planPublish } from "./publish.ts";
 import { preparePlanningRecord, showPlanningRecord } from "./planning-record.ts";
 import { mutate, readState } from "./operations.ts";
 import { claimOwnership, currentOwnership } from "./ownership.ts";
@@ -245,6 +246,25 @@ export const CrewState = {
       showPlanningRecord(db, { assignmentId: request.assignmentId, recordId: request.recordId }),
     );
     return { repeated: false, result };
+  },
+
+  /**
+   * Previews the stack publication of one source (ADR 0022). It changes nothing, reports every
+   * refusal at once in the fixed order, and writes every title and body in full to a local file
+   * named by its plan revision, so its report stays a summary that points to the text.
+   */
+  async planPublish(request: Located & { sourceId: string }) {
+    return { repeated: false, result: await planPublish(request) };
+  },
+
+  /**
+   * Publishes exactly the previewed plan behind one `publish` approval of its revision: one
+   * atomic push of new remote names, then each pull request, ready for review. Each write is a
+   * staged effect, so a repeat settles an unfinished publication by reading GitHub first.
+   * It never merges and never asks GitHub to merge: a person merges.
+   */
+  async publish(request: Mutation & { sourceId: string; planRevision: string }) {
+    return { repeated: false, result: await applyPublish(request) };
   },
 
   /** Claims one dispatchable assignment. Exactly one concurrent claim wins. */

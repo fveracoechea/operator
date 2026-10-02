@@ -27,6 +27,8 @@ const reasonOfBlocker = {
   cleanup_uncertain: "cleanup_uncertain",
   gate_failed: "gate_failed",
   gate_flaky: "gate_flaky",
+  publish_conflict: "publish_conflict",
+  publish_failed: "publish_failed",
 } as const satisfies Record<NextBlocker, Reason>;
 
 function actionLines(actions: NextAction[]): string[] {

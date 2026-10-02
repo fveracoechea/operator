@@ -271,6 +271,7 @@ export function requestId(): string {
 export type NextAction = {
   action: string;
   rank: number;
+  sourceId: string | null;
   assignmentId: string | null;
   attemptId: string | null;
   questionId: string | null;

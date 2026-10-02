@@ -7,6 +7,7 @@ import { currentOwnership } from "./ownership.ts";
 import { findingsOf, reviewOfAssignment, reviewOfSubmission, type ReviewRow } from "./review.ts";
 import {
   type BranchSnapshotRow,
+  publishesAlone,
   readSnapshot,
   type SnapshotCommit,
   storedSnapshotCommits,
@@ -21,7 +22,7 @@ import {
   questions,
   reviews as reviewsTable,
 } from "./schema.ts";
-import { answerRecordOf, questionReportOf, readAnswer } from "./questions.ts";
+import { answerRecordOf, questionReportOf, type QuestionRow, readAnswer } from "./questions.ts";
 import { storedBehaviorChanges, storedConcerns, storedDecisions } from "./submission-input.ts";
 import { cyclesOf, openCycleOf, type ReworkCycleRow } from "./rework.ts";
 import { type ReworkBriefRecord, storedReworkBrief } from "./rework-input.ts";
@@ -64,8 +65,12 @@ export type OperationRow = typeof externalOperations.$inferSelect;
 export type ReviewContext = {
   review: ReviewRow;
   submission: SubmissionRow;
+  // Each question that a behavior change names as its basis, with the answer it held at submit.
+  basisQuestions: ReturnType<typeof basisQuestionsOf>;
   // The earlier rounds a reviewer of a revision reads. The launch contract owns their shape.
   priorRounds: ReturnType<typeof priorRoundsOf>;
+  // True when this review writes the published text, because no branch review follows it.
+  publishes: boolean;
 };
 
 /** The branch snapshot a branch review attempt reads. Present only on a branch review. */
@@ -226,7 +231,13 @@ function readReviewContext(db: CrewReader, assignmentId: string): ReviewContext 
   const submission = review.submissionId === null ? null : readSubmission(db, review.submissionId);
   return submission === null
     ? null
-    : { review, submission, priorRounds: priorRoundsOf(db, submission) };
+    : {
+        review,
+        submission,
+        basisQuestions: basisQuestionsOf(db, submission),
+        priorRounds: priorRoundsOf(db, submission),
+        publishes: publishesAlone(db, submission),
+      };
 }
 
 /**
@@ -313,23 +324,43 @@ function answeredQuestionsOf(db: CrewReader, cycle: ReworkCycleRow) {
     .orderBy(asc(questions.raisedAt), asc(questions.id))
     .all()
     .filter((row) => row.raisedAt < cycle.openedAt)
-    .flatMap((row) => {
-      const answer = row.answerId === null ? null : readAnswer(db, row.answerId);
-      if (answer === null || answer.recordedAt > cycle.openedAt) {
-        return [];
-      }
-      const record = answerRecordOf(answer, row);
-      return [
-        {
-          questionId: row.id,
-          attemptId: row.attemptId,
-          question: questionReportOf(row).question,
-          authority: record.authority,
-          exactText: record.exactText,
-          interpretation: record.interpretation,
-        },
-      ];
-    });
+    .flatMap((row) => answeredBy(db, row, cycle.openedAt));
+}
+
+/** One question with the answer it held at a moment, or nothing when it held none then. */
+function answeredBy(db: CrewReader, row: QuestionRow, moment: string) {
+  const answer = row.answerId === null ? null : readAnswer(db, row.answerId);
+  if (answer === null || answer.recordedAt > moment) {
+    return [];
+  }
+  const record = answerRecordOf(answer, row);
+  return [
+    {
+      questionId: row.id,
+      attemptId: row.attemptId,
+      question: questionReportOf(row).question,
+      authority: record.authority,
+      exactText: record.exactText,
+      interpretation: record.interpretation,
+    },
+  ];
+}
+
+/**
+ * Each question of the producer assignment that a behavior change of the submission names as its
+ * basis, in list order, with the answer it held at submit. The reviewer checks that the answer
+ * permits the change, so the brief gives the question, the authority, and the answer beside it.
+ */
+function basisQuestionsOf(db: CrewReader, submission: SubmissionRow) {
+  const named = (storedBehaviorChanges(submission.behaviorChanges) ?? []).flatMap((one) =>
+    one.basis.kind === "question" ? [one.basis.questionId] : [],
+  );
+  return [...new Set(named)].flatMap((questionId) => {
+    const row = db.select().from(questions).where(eq(questions.id, questionId)).all()[0];
+    return row === undefined || row.assignmentId !== submission.assignmentId
+      ? []
+      : answeredBy(db, row, submission.submittedAt);
+  });
 }
 
 /**

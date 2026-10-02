@@ -321,6 +321,20 @@ async function runReport(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
+  if (result.status === "published-text-missing") {
+    return refuse({
+      json: parsed.json,
+      operation: "review_report",
+      outcome: "missing-condition",
+      reason: "review_published_text_missing",
+      detail: { reviewId: result.reviewId },
+      lines: [
+        "This result is the only code result of its source, so its review writes the pull request text.",
+        "Add `published` with the title, the summary, where to start reading, and the merge danger.",
+      ],
+    });
+  }
+
   if (result.status === "blocked") {
     report({
       json: parsed.json,

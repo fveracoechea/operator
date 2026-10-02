@@ -37,6 +37,7 @@ A behavior change is any difference, compared with the base, in what the changed
 Each entry names its basis: the approved scope, one acceptance requirement, or one answered question whose answer is a requirement or a human answer.
 An Operator decision is never a basis, because ADR 0006 puts visible behavior outside delegated authority.
 Operator checks that the basis exists, and it cannot check that the basis covers the change.
+The review brief gives each question that a basis names with its authority and the answer it held at submit, so the reviewer can check that the answer permits the change.
 So each axis of the review states that it read the list, and a missing or wrong entry is a blocker finding.
 
 Before the agent starts, dispatch records a snapshot of the folder that holds the worktree and of the controlling checkout, and submit compares them again.

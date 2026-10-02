@@ -7,7 +7,13 @@
  * Its state lives in `$GH_FAKE_DIR/state.json` and the faults it injects in `faults.json`.
  */
 
-import type { FakeComment, FakeFault, FakeIssue, GithubFakeState } from "./github-fake-state.ts";
+import type {
+  FakeComment,
+  FakeFault,
+  FakeIssue,
+  FakePull,
+  GithubFakeState,
+} from "./github-fake-state.ts";
 
 const directory = process.env.GH_FAKE_DIR ?? "";
 const statePath = `${directory}/state.json`;
@@ -117,9 +123,15 @@ await Bun.write(
 );
 
 const { path, query } = parsePath(rawPath);
-const body: { body?: string; state?: string; state_reason?: string } | null = usesStdin
-  ? JSON.parse(await Bun.stdin.text())
-  : null;
+const body: {
+  body?: string;
+  state?: string;
+  state_reason?: string;
+  title?: string;
+  head?: string;
+  base?: string;
+  draft?: boolean;
+} | null = usesStdin ? JSON.parse(await Bun.stdin.text()) : null;
 const state = await readState();
 const now = new Date().toISOString();
 
@@ -129,6 +141,9 @@ const commentsMatch = /^repos\/[^/]+\/[^/]+\/issues\/(\d+)\/comments$/.exec(path
 const eventsMatch = /^repos\/[^/]+\/[^/]+\/issues\/(\d+)\/events$/.exec(path);
 const subIssuesMatch = /^repos\/[^/]+\/[^/]+\/issues\/(\d+)\/sub_issues$/.exec(path);
 const blockedByMatch = /^repos\/[^/]+\/[^/]+\/issues\/(\d+)\/dependencies\/blocked_by$/.exec(path);
+const repositoryMatch = /^repos\/([^/]+\/[^/]+)$/.exec(path);
+const rulesMatch = /^repos\/([^/]+\/[^/]+)\/rules\/branches\/(.+)$/.exec(path);
+const pullsMatch = /^repos\/([^/]+\/[^/]+)\/pulls$/.exec(path);
 
 /** Answers with the fault this call was given, or null when it should run normally. */
 /**
@@ -155,7 +170,66 @@ async function faulted(name: string): Promise<"answered" | "applied-lost" | "non
   return "applied-lost";
 }
 
-if (path === "user") {
+if (repositoryMatch?.[1] !== undefined) {
+  if ((await faulted("readRepository")) === "none") {
+    const name = repositoryMatch[1];
+    answer(200, {
+      full_name: name,
+      ...(state.repositories?.[name] ?? {
+        default_branch: "main",
+        allow_merge_commit: true,
+        allow_squash_merge: true,
+        allow_rebase_merge: true,
+      }),
+    });
+  }
+} else if (rulesMatch?.[1] !== undefined) {
+  if ((await faulted("readRules")) === "none") {
+    answer(200, state.rules?.[`${rulesMatch[1]}:${decodeURIComponent(rulesMatch[2] ?? "")}`] ?? []);
+  }
+} else if (pullsMatch?.[1] !== undefined && method === "POST") {
+  const name = pullsMatch[1];
+  const fault = await faulted("createPull");
+  if (fault !== "answered") {
+    const held = state.pulls?.[name] ?? [];
+    const text = String(body?.body ?? "");
+    if (text.length > 65_536) {
+      answer(422, { message: "Validation Failed: body is too long (maximum is 65536 characters)" });
+    } else {
+      const number = 1000 + Object.values(state.pulls ?? {}).flat().length + 1;
+      const owner = name.split("/")[0] ?? "";
+      const pull: FakePull = {
+        number,
+        html_url: `https://github.com/${name}/pull/${number}`,
+        state: "open",
+        draft: body?.draft === true,
+        title: String(body?.title ?? ""),
+        body: text,
+        head: { ref: String(body?.head ?? ""), label: `${owner}:${String(body?.head ?? "")}` },
+        base: { ref: String(body?.base ?? "") },
+      };
+      state.pulls = { ...state.pulls, [name]: [...held, pull] };
+      await writeState(state);
+      if (fault === "applied-lost") {
+        lose();
+      } else {
+        answer(201, pull);
+      }
+    }
+  }
+} else if (pullsMatch?.[1] !== undefined) {
+  if ((await faulted("listPulls")) === "none") {
+    const wanted = query.get("state") ?? "open";
+    const head = query.get("head");
+    answer(
+      200,
+      (state.pulls?.[pullsMatch[1]] ?? []).filter(
+        (one) =>
+          (wanted === "all" || one.state === wanted) && (head === null || one.head.label === head),
+      ),
+    );
+  }
+} else if (path === "user") {
   if ((await faulted("viewer")) === "none") {
     answer(200, { login: state.viewer });
   }

@@ -37,8 +37,11 @@ import {
 } from "./review.ts";
 import { readSnapshot } from "./branch-review.ts";
 import { openCycleOf } from "./rework.ts";
-import { assignments, attempts } from "./schema.ts";
+import { approvals, assignments, attempts, workSources } from "./schema.ts";
 import type { BrokenLanding } from "./next-landings.ts";
+import { openPublicationOf, PUBLISH_ACTION, publicationsOf } from "./publish.ts";
+import { publishRecordsOf } from "./publish-gate.ts";
+import { eq } from "drizzle-orm";
 import { latestSubmission, submittedCommit } from "./submission.ts";
 import { readBinding, TRACKER_STEPS, targetOf, trackerOperationsOf } from "./tracker.ts";
 import { trackerStepActions } from "./tracker-show.ts";
@@ -55,6 +58,7 @@ export const NEXT_ACTIONS = [
   "own_crew",
   "reconcile_attempt",
   "settle_landing",
+  "settle_publish",
   "adopt_attempt",
   "recover_tracker",
   "settle_cleanup",
@@ -66,6 +70,7 @@ export const NEXT_ACTIONS = [
   "dispose_outside_changes",
   "accept_assignment",
   "resolve_planning",
+  "publish_stack",
   "record_tracker",
   "close_process",
   "remove_worktree",
@@ -104,6 +109,8 @@ export const NEXT_BLOCKERS = [
   "cleanup_uncertain",
   "gate_failed",
   "gate_flaky",
+  "publish_conflict",
+  "publish_failed",
 ] as const;
 
 export type NextBlocker = (typeof NEXT_BLOCKERS)[number];
@@ -123,6 +130,8 @@ export type NextWaitName = (typeof NEXT_WAITS)[number];
 export type NextAction = {
   action: NextActionName;
   rank: number;
+  /** The source a publish action names. Every other action names its assignment instead. */
+  sourceId: string | null;
   assignmentId: string | null;
   attemptId: string | null;
   questionId: string | null;
@@ -170,6 +179,7 @@ type Draft = {
   action: NextActionName;
   detail: string;
   command: string;
+  sourceId?: string;
   assignmentId?: string;
   attemptId?: string;
   questionId?: string;
@@ -193,6 +203,7 @@ function collector() {
       held.push({
         action: {
           rank: rankOf(draft.action),
+          sourceId: null,
           assignmentId: null,
           attemptId: null,
           questionId: null,
@@ -220,6 +231,70 @@ function collector() {
 }
 
 type Collector = ReturnType<typeof collector>;
+
+/**
+ * The publish of each source (ADR 0022). A publication with a write that is not done is settled
+ * first, by a repeat of the apply that reads GitHub before it writes. A source whose records
+ * pass the publish gate and that holds no publication of its head is offered `publish_stack`,
+ * which waits on the approval of a plan revision. This reads no Git and no GitHub.
+ */
+function readPublish(db: CrewReader, into: Collector): void {
+  for (const source of db.select().from(workSources).all()) {
+    const branch = integrationBranchOf(db, source.id);
+    if (branch === null) {
+      continue;
+    }
+    const open = openPublicationOf(db, source.id);
+    if (open !== null) {
+      const states = open.open.map((one) => one.state);
+      const settle: Draft = {
+        action: "settle_publish",
+        sourceId: source.id,
+        detail: `Stack publication ${open.publication.number} holds ${open.open.length} write(s) with no done outcome: ${states.join(", ")}. The apply reads GitHub first and writes only what is missing; a conflict or a refused write waits on a person.`,
+        command: `operator publish apply --source ${source.id} --plan-revision ${open.publication.planRevision}`,
+      };
+      // A conflict, or a write GitHub refused, is settled by a person, never written over.
+      if (states.includes("conflict")) {
+        settle.blocker = "publish_conflict";
+      } else if (states.includes("failed")) {
+        settle.blocker = "publish_failed";
+      }
+      into.add(settle);
+      continue;
+    }
+    const publications = publicationsOf(db, source.id);
+    if (publications.some((one) => one.headCommit === branch.recordedTip)) {
+      continue;
+    }
+    if (publishRecordsOf(db, source.id).refusals.length > 0) {
+      continue;
+    }
+    const used = new Set(publications.map((one) => one.planRevision));
+    const approved = db
+      .select()
+      .from(approvals)
+      .where(eq(approvals.action, PUBLISH_ACTION))
+      .all()
+      .some(
+        (one) =>
+          one.state === "granted" && one.scope === source.id && !used.has(one.requestRevision),
+      );
+    const offer: Draft = {
+      action: "publish_stack",
+      sourceId: source.id,
+      detail: approved
+        ? "A publish approval is recorded for this source. Apply the plan revision it names."
+        : "The branch review and the gate records pass. Plan the publish, and ask the person to read and approve the plan revision.",
+      command: approved
+        ? `operator publish apply --source ${source.id} --plan-revision <the approved revision>`
+        : `operator publish plan --source ${source.id}`,
+    };
+    if (!approved) {
+      offer.blocker = "approval_required";
+    }
+    into.add(offer);
+  }
+}
 
 /** The attempts of one crew, oldest first, so a report reads them in the order they started. */
 function allAttempts(db: CrewReader) {
@@ -996,6 +1071,8 @@ export function calculateNext(
       readTracker(db, row.id, row.revision, into);
     }
   }
+
+  readPublish(db, into);
 
   // Planning work is never dispatched. Once its dependencies land, the crew prepares its record
   // and the Operator records the acceptance.
