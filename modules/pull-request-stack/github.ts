@@ -242,3 +242,29 @@ export async function readParents(
   }
   return { status: "read", value: parents.filter((one) => one !== null) };
 }
+
+/**
+ * Changes the base of one pull request. It sends the base and nothing else, so it never merges,
+ * never asks for auto-merge, and never changes the title or the body (ADR 0022, decision D6).
+ */
+export async function retargetPull(
+  repository: string,
+  number: number,
+  base: string,
+): Promise<
+  | { status: "changed" }
+  | { status: "failed"; message: string }
+  | { status: "uncertain"; detail: string }
+> {
+  const outcome = await GithubApi.call({
+    args: ["--method", "PATCH", `repos/${repository}/pulls/${number}`, "--input", "-"],
+    input: JSON.stringify({ base }),
+    timeoutMs: WRITE_TIMEOUT_MS,
+  });
+  if (outcome.status === "succeeded") {
+    return { status: "changed" };
+  }
+  return outcome.status === "failed"
+    ? { status: "failed", message: detailOf(outcome) }
+    : { status: "uncertain", detail: outcome.detail };
+}

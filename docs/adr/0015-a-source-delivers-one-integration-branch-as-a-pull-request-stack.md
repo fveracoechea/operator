@@ -21,7 +21,7 @@ Nothing is reordered after review.
 The integration branch is published as a pull request stack.
 A cut point between two neighbouring commits starts a new integrated pull request, which is based on the one below it.
 A stack of one pull request is the default.
-At publish, the Operator proposes the cut points with a reason for each, and the user approves them as part of the publish approval.
+At publish, the branch reviewer proposes the cut points with a reason for each in its report, because it read the whole head and the Operator writes no content of its own (ADR 0022), and the user approves them as part of the publish approval.
 An intent the user stated at registration is input to that proposal, not a fixed split.
 
 A source with one code assignment delivers one pull request with one commit, so a pull request for each assignment is one case of this shape and not a second shape.

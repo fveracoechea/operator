@@ -67,7 +67,13 @@ export type PublishRecords = {
   verified: {
     gateCommands: string[];
     gateRuns: Array<{ runId: string; commit: string; at: "base" | "commit" }>;
-    reviews: Array<{ kind: "result" | "branch"; reviewId: string; subject: string; host: string }>;
+    reviews: Array<{
+      kind: "result" | "branch";
+      reviewId: string;
+      subject: string;
+      host: string;
+      commit: string | null;
+    }>;
   };
   rejected: Array<{ summary: string; reason: string; evidence: string; targets: string[] }>;
   deferred: Array<{ summary: string; reason: string; followUp: string }>;
@@ -427,6 +433,7 @@ export function publishRecordsOf(db: CrewReader, sourceId: string): PublishRecor
           reviewId: one.review.id,
           subject: `commit ${one.commit.slice(0, 12)}`,
           host: one.review.host ?? "an unrecorded host",
+          commit: one.commit,
         })),
         ...(branchReview === null
           ? []
@@ -436,6 +443,7 @@ export function publishRecordsOf(db: CrewReader, sourceId: string): PublishRecor
                 reviewId: branchReview.id,
                 subject: `the head ${branch.recordedTip.slice(0, 12)}`,
                 host: branchReview.host ?? "an unrecorded host",
+                commit: null,
               },
             ]),
       ],

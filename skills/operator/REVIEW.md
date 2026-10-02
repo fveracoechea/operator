@@ -218,7 +218,7 @@ The reviewer may run the project gate commands at the head, and records what it 
 Publish compares each observation with the gate run at the head, so a gate command with no observation, or with another outcome, stops the publish.
 It states `diff`, `requirements`, and `checks` in `checked`. It reads no behavior change list.
 
-The reviewer also writes `published`: the title, the summary, where to start reading, and the merge danger of the pull request that publishes the head.
+The reviewer also writes `published`: the title, the summary, where to start reading, and the merge danger of the pull request that publishes the head, and in `cuts` each cut point of a stack with its reason and the text of the part above it ([PUBLISH.md](PUBLISH.md)).
 For a source with one code commit, the result reviewer of that commit writes it, and that report refuses with `review_published_text_missing` without it.
 You pass this text on and change nothing in it, because the person approves it word for word.
 Read [PUBLISH.md](PUBLISH.md) for the publish.

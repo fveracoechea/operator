@@ -1,9 +1,9 @@
 # Publish
 
-Read this when `bun run operator crew next` offers `publish_stack` or `settle_publish`, or shows `stack_open` or `stack_fault`, and when the user reports a merge or a close of a pull request.
+Read this when `bun run operator crew next` offers `publish_stack`, `retarget_pull_request`, or `settle_publish`, or shows `stack_open` or `stack_fault`, and when the user reports a merge or a close of a pull request.
 
-The CLI publishes the integration branch of a source as one integrated pull request, behind one approval of the person (ADR 0022).
-A person merges it on GitHub.
+The CLI publishes the integration branch of a source as a pull request stack, one pull request by default, behind one approval of the person (ADR 0022).
+A person merges each pull request on GitHub.
 You and the crew never merge a pull request and never turn on auto-merge.
 A merge by a teammate of the person counts as the approval of the person.
 
@@ -26,7 +26,7 @@ bun run operator publish plan --source <source id>
 
 The plan changes nothing: no crew record, no ref, and nothing on GitHub.
 It takes no input from you.
-The reviewer wrote the title, the summary, where to start reading, and the merge danger in its report, and the CLI renders every other section of the body from the records.
+The reviewer wrote the title, the summary, where to start reading, the merge danger, and the cut points in its report, and the CLI renders every other section of the body from the records.
 
 The report is a summary.
 It names the plan revision, the new remote branch, the target branch, the tip of the target, how far the target moved since the base, whether the head merges cleanly onto it, and each rule reading it could not verify.
@@ -40,6 +40,7 @@ The plan refuses, all at once and in this order, when one of these holds:
 - `gate_base_not_passed`, `gate_commit_not_passed`: the gate records. Read [GATE.md](GATE.md).
 - `invalidation_open`, `withdrawal_open`, `direction_open`.
 - `nothing_to_publish`: the branch holds no commit above its base.
+- `cut_not_between_commits`: a cut point that does not fall between two neighbouring commits of the head.
 - `section_missing`: the review that gates the publish recorded no published text.
 - `body_too_long`: a body is over 65536 characters, the GitHub limit.
 - `repository_unread`, `merge_commit_not_allowed`, `signatures_required`: the repository and the rules of its default branch. A rule that the plan cannot read is shown as unverified, never as a pass.
@@ -48,14 +49,28 @@ The plan refuses, all at once and in this order, when one of these holds:
 - `base_not_on_target`: the integration base is not an ancestor of the fetched tip of the default branch.
 
 The target branch is the default branch of the source repository.
-The new remote branch is `operator/<source slug>/<publication>/1`.
+Part `k` gets the new remote branch `operator/<source slug>/<publication>/<k>`.
+
+## Cut points
+
+The Operator writes no cut point and no reason.
+The branch reviewer proposes them, because it read the whole head: its report holds `published.cuts`, in landing order.
+Each cut names the commit `after` which the part below ends, the `reason` for the cut, and the title, summary, start, and merge danger of the part above it.
+`cuts: []` is a stack of one, the default.
+A cut falls only between two neighbouring commits: a cut after a commit the head does not hold, after the head, or out of order refuses the report with `review_cut_not_between_commits`, and the plan with `cut_not_between_commits`.
+The plan file shows each cut with its reason, and the person approves the cuts as part of the publish approval.
+For a source with one code commit there is no cut.
+
+The lowest pull request targets the target branch, and each higher one targets the remote branch below it.
+The pull requests are created from the bottom up.
+Each body covers only its own commits, says "Part `k` of `n`.", and for `k` > 1 "Based on #`m`. Merge #`m` first.", where `m` is the number of the part below.
 
 ## Approval
 
 Ask the person to read the file and to approve the exact request the plan names:
 action `publish`, the source as scope, the plan revision as request revision, and these targets:
 
-- the new remote branch name and the target branch;
+- each new remote branch name and the target branch;
 - `github:<owner>/<repo>#<n>:resolution` and `github:<owner>/<repo>#<n>:completion` for each item that closes a ticket.
 
 The tracker steps run after the merge, and the plan file holds the text of each resolution under "Tracker steps after the merge".
@@ -71,8 +86,8 @@ bun run operator publish apply --request <id> --owner-token <token> --source <so
 ```
 
 The apply plans again and refuses with `plan_revision_changed` when anything that ships differs, and with `approval_required` without the approval.
-Then it records the publication and each write as an intent, pushes every new name in one atomic push with no force option, and opens the pull request, ready for review.
-It answers `published` with the pull request.
+Then it records the publication and each write as an intent, pushes every new name in one atomic push with no force option, and opens each pull request from the bottom up, ready for review.
+It answers `published` with the pull requests.
 Operator deletes no branch.
 
 ## Settle
@@ -86,7 +101,7 @@ Operator writes nothing over them.
 
 ## Merge and status
 
-A person merges the pull request on GitHub with a merge commit.
+A person merges each pull request on GitHub with a merge commit, from the bottom up.
 No event reaches the crew when it merges, and `crew next` never reads GitHub.
 While a pull request is open, `crew next` shows the wait `stack_open` with the read to run.
 
@@ -109,6 +124,18 @@ After a merge commit, `crew next` offers `record_tracker` for each item of the p
 - The map amendment keeps its stated input. Its first record renders the exact comment to a local file, writes nothing, and refuses with `map_amendment_approval_required`. `crew next` then offers `record_tracker` with `approval_required` and names the file and the request: action `map-amendment`, the map issue as target, the assignment as scope, and the content identity as request revision. Show the person the file. After they grant that request, run the same record again. An approval of other text covers nothing. If the person rejects the text, state other text before any write, and it replaces the unsent one.
 - A revoked publish approval refuses with `publish_approval_missing`, and the step carries `approval_required`.
 
+## Retarget
+
+After the read records a merge commit of part `k`, `crew next` offers `retarget_pull_request` for part `k+1`:
+
+```
+bun run operator publish retarget --request <id> --owner-token <token> --source <source id> --part <k+1> --json
+```
+
+It changes the base of that pull request to the target branch, under the publish approval, and changes nothing else.
+It reads GitHub first, so a base that GitHub already changed answers `pull_request_retargeted` with `how: "observed"` and writes nothing.
+It refuses with `retarget_not_due` before the merge of the part below, and with `stack_fault` on a part that holds a fault or above it.
+
 ## Stack faults
 
 `publish status` answers `stack_fault`, and `crew next` offers `settle_publish` with the blocker `stack_fault`, when GitHub shows an outcome that no publication planned:
@@ -118,12 +145,18 @@ After a merge commit, `crew next` offers `record_tracker` for each item of the p
 - `head_moved`: the head is not the published commit, so it holds a commit that no review read.
 - `closed_unmerged`: a close with no merge.
 
+A fault on part `k` stops part `k` and every part above it: no retarget, and the fault waits on the person.
+A pull request whose head a person moved gets no more writes.
 Operator adopts nothing from a fault.
-Bring it to the user, and run the read again when the user reports it settled.
+Bring it to the user, and run the read again when the user reports a change on GitHub.
+
+When the person accepts a fault as GitHub shows it, record their approval of the settlement that `publish status` names under each `stack_fault` blocker: action `stack-fault`, the pull request as target, the source as scope, and the reading as request revision.
+A settled squash or rebase merge counts as landed.
+Any other settled fault ends its part, and the parts above it stay stopped, so `crew next` keeps `stack_fault` for them: their commits reach the target only through a new stack publication.
 
 ## Finished source
 
-A source is finished when every pull request of its last publication merged with a merge commit and every tracker step of its items is verified.
+A source is finished when every pull request of its last publication merged with a merge commit, or the person settled its merge by another method, and every tracker step of its items is verified.
 The read or the tracker step that finishes it removes its gate checkout by an unforced Herdr removal, with no approval.
 Herdr refuses a checkout that holds a change, so it stays, and the report says so.
 Operator deletes no branch, and a person deletes the remote branches.

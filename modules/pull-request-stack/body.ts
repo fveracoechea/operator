@@ -33,7 +33,14 @@ export type PublishedText = {
 export type Verified = {
   gateCommands: string[];
   gateRuns: Array<{ runId: string; commit: string; at: "base" | "commit" }>;
-  reviews: Array<{ kind: "result" | "branch"; reviewId: string; subject: string; host: string }>;
+  reviews: Array<{
+    kind: "result" | "branch";
+    reviewId: string;
+    subject: string;
+    host: string;
+    /** The commit a result review read, or null for the branch review of the whole head. */
+    commit: string | null;
+  }>;
 };
 
 export type RejectedFinding = {
@@ -45,6 +52,20 @@ export type RejectedFinding = {
 
 export type DeferredFinding = { summary: string; reason: string; followUp: string };
 
+/** Where one pull request sits in a stack of more than one part. */
+export type StackPlace = {
+  part: number;
+  of: number;
+  /** The other parts by position, with how many commits each holds. */
+  others: Array<{ part: number; commits: number }>;
+};
+
+/**
+ * The one slot of a body: the number GitHub gives the pull request below, which is recorded by
+ * the time this one is created (decision 16).
+ */
+export const BELOW_SLOT = "<the number of the part below>";
+
 export type BodyInput = {
   repository: string;
   text: PublishedText;
@@ -52,6 +73,8 @@ export type BodyInput = {
   verified: Verified;
   rejected: RejectedFinding[];
   deferred: DeferredFinding[];
+  /** Null for a stack of one, which has no stack section. */
+  stack: StackPlace | null;
 };
 
 function short(commit: string): string {
@@ -81,12 +104,20 @@ function listOrNone(lines: string[]): string[] {
 /**
  * Renders the body of one pull request from the records and the reviewer text, in the fixed
  * order of decision 16 of the publish. Every section that is not reviewer text is rendered, so
- * no recorded fact is written twice. A stack of one part has no stack section.
+ * no recorded fact is written twice. A stack of one part has no stack section. Each body covers
+ * only its own commits, and names only the pull request below it.
  */
 export function renderBody(input: BodyInput): string {
   const commitLink = (commit: string) => `https://github.com/${input.repository}/commit/${commit}`;
+  const { stack } = input;
   const lines = [
     ...section("Summary", [input.text.summary]),
+    ...(stack === null
+      ? []
+      : section("Stack", [
+          `Part ${stack.part} of ${stack.of}.`,
+          ...(stack.part === 1 ? [] : ["", `Based on #${BELOW_SLOT}. Merge #${BELOW_SLOT} first.`]),
+        ])),
     ...section("Commits", [
       "Review this pull request one commit at a time.",
       "",
@@ -133,11 +164,14 @@ export function renderBody(input: BodyInput): string {
     ),
     ...section(
       "Not in this pull request",
-      listOrNone(
-        input.deferred.map(
+      listOrNone([
+        ...input.deferred.map(
           (one) => `- ${one.summary} Deferred: ${one.reason} Follow-up: ${one.followUp}`,
         ),
-      ),
+        ...(stack?.others ?? []).map(
+          (one) => `- Part ${one.part} of ${stack?.of ?? 1}, with ${one.commits} commit(s).`,
+        ),
+      ]),
     ),
     ...section(
       "Concerns",
@@ -148,7 +182,10 @@ export function renderBody(input: BodyInput): string {
       ),
     ),
     ...section("Merge danger", [input.text.mergeDanger]),
-    ...section("How to merge", ["Merge with a merge commit."]),
+    ...section("How to merge", [
+      "Merge with a merge commit.",
+      ...(stack === null ? [] : ["", "Merge from the bottom up."]),
+    ]),
   ];
   return `${lines.join("\n").trimEnd()}\n`;
 }

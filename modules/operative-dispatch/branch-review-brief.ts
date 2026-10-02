@@ -1,6 +1,19 @@
 import { type CommandRule, REFERENCE_RULE, ruleLines } from "./command-rules.ts";
 import { PUBLISHED_TEXT_LINES, PUBLISHED_TEXT_SHAPE, REVIEW_INPUT_DIR } from "./review-brief.ts";
 
+/**
+ * What a cut point is (ADR 0015). The branch reviewer read the whole head, so it proposes each
+ * cut with its reason, and the person approves the cuts in the publish approval (D1).
+ */
+const CUT_LINES = [
+  "`cuts` divides the head into a pull request stack, from the bottom up. Leave it `[]` for one",
+  "pull request, which is the default. Each cut ends the part below it after the commit `after`,",
+  "names in `reason` why the review divides there, and carries the text of the part above it.",
+  "A cut falls only between two neighbouring commits: `after` is a commit of the snapshot that is",
+  "not the head, and the cuts follow the landing order. Cut only where a reviewer of a smaller",
+  "part reads a complete topic.",
+];
+
 /** One commit of the branch snapshot, in branch order, with the accepted result it carries. */
 export type BranchCommit = {
   assignmentId: string;
@@ -198,7 +211,16 @@ export function branchReviewProtocolSection(
             },
           ],
         })),
-        published: PUBLISHED_TEXT_SHAPE,
+        published: {
+          ...PUBLISHED_TEXT_SHAPE,
+          cuts: [
+            {
+              after: "<the full SHA of the last commit of the part below>",
+              reason: "<why the review divides here>",
+              ...PUBLISHED_TEXT_SHAPE,
+            },
+          ],
+        },
       },
       null,
       2,
@@ -208,6 +230,8 @@ export function branchReviewProtocolSection(
     `A branch review requires ${review.requiredCoverage.join(", ")} in \`checked\`.`,
     "",
     ...PUBLISHED_TEXT_LINES,
+    "",
+    ...CUT_LINES,
     "",
     "If this host cannot run the required sub-agents, or a credential or input is missing, record",
     "the blocker instead of a partial review:",

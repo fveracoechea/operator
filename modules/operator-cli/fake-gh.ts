@@ -231,6 +231,31 @@ if (repositoryMatch?.[1] !== undefined) {
       ),
     );
   }
+} else if (pullMatch?.[1] !== undefined && method === "PATCH") {
+  const name = pullMatch[1];
+  const fault = await faulted("updatePull");
+  if (fault !== "answered") {
+    const held = state.pulls?.[name] ?? [];
+    const found = held.find((one) => one.number === Number(pullMatch[2]));
+    if (found === undefined) {
+      answer(404, { message: "Not Found" });
+    } else {
+      const changed = { ...found };
+      if (body?.base !== undefined) {
+        changed.base = { ref: body.base };
+      }
+      state.pulls = {
+        ...state.pulls,
+        [name]: held.map((one) => (one.number === changed.number ? changed : one)),
+      };
+      await writeState(state);
+      if (fault === "applied-lost") {
+        lose();
+      } else {
+        answer(200, { merged: false, merge_commit_sha: null, ...changed });
+      }
+    }
+  }
 } else if (pullMatch?.[1] !== undefined && method === "GET") {
   if ((await faulted("readPull")) === "none") {
     const found = (state.pulls?.[pullMatch[1]] ?? []).find(

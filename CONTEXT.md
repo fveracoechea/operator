@@ -146,7 +146,7 @@ The approved origin of registered work.
 An approved specification, a ready ticket, and a wayfinder map are the three supported sources, each with its own revision.
 Operator reads each one from the tracker, as a parent issue with its sub-issues or as one issue, and never creates the issues.
 Its revision is the identity of the approved text of that parent issue or that one issue, so a comment or a closed ticket does not change it.
-It is finished when every integrated pull request of its last stack publication merged with a merge commit and every tracker step of its items is verified, or, when it has nothing to publish, when the rest of its work is accepted and its tracker steps are verified.
+It is finished when every integrated pull request of its last stack publication merged with a merge commit, or a person settled its merge by another method, and every tracker step of its items is verified, or, when it has nothing to publish, when the rest of its work is accepted and its tracker steps are verified.
 
 **Registration plan**:
 The preview of what one registration would record, read from the tracker together with the Operator's input.
@@ -200,15 +200,20 @@ The Operator and the crew never merge it and never turn on auto-merge; a merge b
 _Avoid_: pull request per assignment
 
 **Published text**:
-The title, the summary, where to start reading, and the merge danger of one integrated pull request, which the branch reviewer writes in its report, or the result reviewer for a work source with one code commit.
+The title, the summary, where to start reading, and the merge danger of each integrated pull request, and each cut point with its reason, which the branch reviewer writes in its report, or the result reviewer for a work source with one code commit.
 The Operator only passes it on, and the publish approval binds it word for word.
 _Avoid_: Operator sections, PR description
 
 **Pull request stack**:
 The ordered integrated pull requests of one work source, each based on the one below it.
 A stack of one is the default.
-It is published at once and merged from the bottom up, and after each merge the next one is based on the target branch.
+It is published at once and merged from the bottom up, and after each merge commit the CLI changes the base of the next one to the target branch.
 _Avoid_: delivery group
+
+**Cut point**:
+The place between two neighbouring commits of the integration branch where one integrated pull request of a pull request stack ends and the next one starts.
+The branch reviewer proposes each one with a reason, and the person approves it in the publish approval.
+_Avoid_: split, delivery group boundary
 
 **Stack publication**:
 One numbered push and opening of the pull request stack of one work source, at one reviewed head, with the cut points, titles, bodies, and tracker steps after the merge that one approval covers.
@@ -223,6 +228,8 @@ _Avoid_: withdraw, retract, for this act
 **Stack fault**:
 An outcome on GitHub that no stack publication planned: a merge that is not a merge commit, a merge into another base, a commit that no review read on a pushed branch, or a close with no merge.
 Operator adopts nothing from it, and it waits on a person.
+A fault on one part stops every part above it.
+Only the person settles it, by an approval of the reading: a settled merge by another method counts as landed, and any other settled fault ends its part.
 `operator publish status` records it when the user reports a merge or a close, because `operator crew next` never reads GitHub.
 The items of a pull request that reached the target by another merge method still complete.
 _Avoid_: delivery fault

@@ -1,3 +1,4 @@
+import { PullRequestStack } from "../pull-request-stack/main.ts";
 import type { CrewWriter } from "./database.ts";
 import { identityOf } from "./identity.ts";
 import type { BranchSnapshotRow, SnapshotCommit } from "./branch-review.ts";
@@ -64,7 +65,8 @@ export type ReportOutcome =
       reviewId: string;
       gaps: Array<{ axis: string; missing: string[] }>;
     }
-  | { status: "published-text-missing"; reviewId: string };
+  | { status: "published-text-missing"; reviewId: string }
+  | { status: "cut-not-between-commits"; reviewId: string; cuts: string[]; detail: string };
 
 /** The required axes one list does not state exactly once, which is what makes it incomplete. */
 function axesNotStatedOnce(entries: Array<{ axis: string }>): string[] {
@@ -151,6 +153,10 @@ export const BRANCH_REPORT_RULES = [
     refusal: "review_finding_target_unknown",
     rule: "Every target is the full SHA of one commit listed in the branch snapshot above.",
   },
+  {
+    refusal: "review_cut_not_between_commits",
+    rule: "Each cut in `published.cuts` names, in landing order, a commit of the snapshot above that is not the head.",
+  },
 ];
 
 /** The coverage a branch review states. It reads the whole range and names no behavior changes. */
@@ -197,9 +203,17 @@ function targetRefusal(
   const unknown = findings
     .map((one) => ({ ...one, targets: one.targets.filter((target) => !held.has(target)) }))
     .filter((one) => one.targets.length > 0);
-  return unknown.length === 0
+  if (unknown.length > 0) {
+    return { status: "finding-target-unknown", reviewId, findings: unknown };
+  }
+  // The plan refuses the same cuts, so the reviewer learns it now, not after the review counts.
+  const refused = PullRequestStack.cutRefusal({
+    commits: subject.commits.map((one) => one.commit),
+    cuts: subject.input.published.cuts,
+  });
+  return refused === null
     ? null
-    : { status: "finding-target-unknown", reviewId, findings: unknown };
+    : { status: "cut-not-between-commits", reviewId, cuts: refused.cuts, detail: refused.detail };
 }
 
 /** The identity a report states against the identity its subject records. */

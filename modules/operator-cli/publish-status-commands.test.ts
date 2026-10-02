@@ -463,6 +463,60 @@ describe("the merge observation", () => {
     expect(completed.json.reason).toBe("tracker.completed");
     expect(completed.json.data.finish.status).toBe("not-finished");
     expect(gateCheckouts(workspace)).toHaveLength(1);
+
+    // Only the person settles a fault: the read names the approval, and nothing else does.
+    const settlement = read.json.blockers[0].settlement;
+    expect(settlement).toMatchObject({
+      action: "stack-fault",
+      targets: [`${REPOSITORY}#${published.number}`],
+      scope: SOURCE,
+    });
+    expect((await nextActions(workspace)).of("settle_publish").blocker).toBe("stack_fault");
+    const granted = await grantDirection(
+      workspace,
+      published.producer,
+      { approval: settlement },
+      "The squash merge stands.",
+    );
+    expect(granted.json.reason).toBe("approval_granted");
+    expect((await nextActions(workspace)).forAction("settle_publish")).toEqual([]);
+
+    // The settlement binds the reading that recorded the fault, so another merge is a new fault.
+    await mergeOnGithub(workspace, { head: published.commit, method: "squash" });
+    const other = await publishStatus(workspace, published.producer);
+    expect(other.json.reason).toBe("stack_fault");
+    expect(other.json.blockers[0].settlement.requestRevision).not.toBe(settlement.requestRevision);
+    expect((await nextActions(workspace)).of("settle_publish").blocker).toBe("stack_fault");
+    await editPull(workspace, { merge_commit_sha: landed });
+
+    // The settled squash landed every commit of the source, so the next read finishes it.
+    const settled = await publishStatus(workspace, published.producer);
+    expect(settled.json.reason).toBe("publish_observed");
+    expect(settled.json.data.finish).toMatchObject({ status: "finished", gateCheckout: "removed" });
+    expect(gateCheckouts(workspace)).toEqual([]);
+  });
+
+  test("a settled close with no merge ends its part, and the source does not finish", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const published = await publishedOneCommit(workspace);
+    await editPull(workspace, { state: "closed" });
+    const read = await publishStatus(workspace, published.producer);
+    const granted = await grantDirection(
+      workspace,
+      published.producer,
+      { approval: read.json.blockers[0].settlement },
+      "The close stands.",
+    );
+    expect(granted.json.reason).toBe("approval_granted");
+
+    const next = await nextActions(workspace);
+    expect(next.of("settle_publish").blocker).toBe("stack_fault");
+    expect(next.of("settle_publish").detail).toContain("ended with no merge commit");
+    expect(next.waiting).not.toContain("stack_open");
+    expect((await publishStatus(workspace, published.producer)).json.data.finish.status).toBe(
+      "not-finished",
+    );
+    expect(gateCheckouts(workspace)).toHaveLength(1);
   });
 
   test("a close with no merge, a moved head, and a merge into another base complete nothing", async () => {

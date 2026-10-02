@@ -1,4 +1,5 @@
 import {
+  BELOW_SLOT,
   BODY_LIMIT,
   type DeferredFinding,
   type Landed,
@@ -27,12 +28,14 @@ import {
   readPullState,
   readRepository,
   readRules,
+  retargetPull,
 } from "./github.ts";
 
 /** Why one plan cannot publish, in the fixed order of decision 10 that this module checks. */
 type Refusal = { reason: PlanRefusal; detail: string };
 
 type PlanRefusal =
+  | "cut_not_between_commits"
   | "section_missing"
   | "body_too_long"
   | "repository_unread"
@@ -44,8 +47,24 @@ type PlanRefusal =
   | "remote_name_taken"
   | "base_not_on_target";
 
-/** One pull request of the stack, exactly as it is pushed and created. */
-type Part = { name: string; commit: string; base: string; title: string; body: string };
+/** One cut point of the stack: the commit that ends the part below, and why the cut is there. */
+type CutPoint = { after: string; reason: string };
+
+/** The reviewer text of the lowest part, and each cut point with the text of the part above it. */
+type StackText = PublishedText & { cuts: Array<PublishedText & CutPoint> };
+
+/**
+ * One pull request of the stack, exactly as it is pushed and created. Its remote branch ends at
+ * its last commit, and the cut below it is null for the lowest part.
+ */
+type Part = {
+  name: string;
+  commit: string;
+  base: string;
+  title: string;
+  body: string;
+  cut: CutPoint | null;
+};
 
 /**
  * The tracker steps of one item after its pull request merged, with the resolution already
@@ -106,7 +125,10 @@ type Effect =
       base: string;
       title: string;
       body: string;
-    };
+      /** The recorded number of the part below, which fills the one slot of the body. */
+      below: number | null;
+    }
+  | { kind: "retarget"; repository: string; number: number; from: string; base: string };
 
 type WriteOutcome =
   | { status: "done"; how: "observed" | "written"; number: number | null; url: string | null }
@@ -166,6 +188,40 @@ async function targetChecks(repository: string, target: string, refusals: Refusa
 }
 
 /**
+ * The last position of each part below the top, or the cuts that fall inside no gap between two
+ * neighbouring commits: a commit the head does not hold, the last commit, or a cut out of order.
+ */
+function cutEnds(
+  commits: string[],
+  cuts: CutPoint[],
+): { status: "cut"; ends: number[] } | { status: "refused"; cuts: string[] } {
+  const ends: number[] = [];
+  const refused: string[] = [];
+  for (const cut of cuts) {
+    const at = commits.indexOf(cut.after);
+    const previous = ends.at(-1) ?? -1;
+    if (at === -1 || at === commits.length - 1 || at <= previous) {
+      refused.push(cut.after);
+    } else {
+      ends.push(at);
+    }
+  }
+  return refused.length === 0 ? { status: "cut", ends } : { status: "refused", cuts: refused };
+}
+
+/** The refusal of the cuts of one head, worded once for the report and for the plan. */
+function cutRefusal(commits: string[], cuts: CutPoint[]): (Refusal & { cuts: string[] }) | null {
+  const split = cutEnds(commits, cuts);
+  return split.status === "cut"
+    ? null
+    : {
+        reason: "cut_not_between_commits",
+        cuts: split.cuts,
+        detail: `A cut falls only between two neighbouring commits of the head, and these do not: ${split.cuts.join(", ")}.`,
+      };
+}
+
+/**
  * Publishes the integration branch of one source as a pull request stack (ADR 0022). It is the
  * only module that pushes or writes a pull request. It never merges, never asks for auto-merge,
  * never pushes with force, and never deletes a branch: a person merges.
@@ -183,7 +239,7 @@ export const PullRequestStack = {
     publication: number;
     branch: { base: string; head: string };
     commits: Array<Omit<PublishCommit, "subject">>;
-    text: PublishedText | null;
+    text: StackText | null;
     verified: Verified;
     rejected: RejectedFinding[];
     deferred: DeferredFinding[];
@@ -204,27 +260,64 @@ export const PullRequestStack = {
     if (typeof commits === "string") {
       return { status: "unread", detail: commits };
     }
-    let body: string | null = null;
-    if (request.text === null) {
+    const ids = commits.map((one) => one.commit);
+    const cuts = request.text?.cuts ?? [];
+    const badCut = cutRefusal(ids, cuts);
+    if (badCut !== null) {
+      refusals.push(badCut);
+    }
+    const split = cutEnds(ids, cuts);
+    const ends = split.status === "cut" ? [...split.ends, ids.length - 1] : [];
+    // Each part is a contiguous range of the landing order, from the cut below it to its end.
+    const ranges = ends.map((end, index) => commits.slice((ends[index - 1] ?? -1) + 1, end + 1));
+    let bodies: string[] | null = null;
+    const lowest = request.text;
+    if (lowest === null) {
       refusals.push({
         reason: "section_missing",
         detail: "The review that gates this publish recorded no published text.",
       });
-    } else {
-      body = renderBody({
-        repository: request.repository,
-        text: request.text,
-        commits,
-        verified: request.verified,
-        rejected: request.rejected,
-        deferred: request.deferred,
-      });
-      if (body.length > BODY_LIMIT) {
-        refusals.push({
-          reason: "body_too_long",
-          detail: `The body of part 1 holds ${body.length} characters, over the GitHub limit of ${BODY_LIMIT}.`,
+    } else if (badCut === null) {
+      const texts = [lowest, ...cuts];
+      bodies = ranges.map((range, index) => {
+        const held = new Set(range.map((one) => one.commit));
+        return renderBody({
+          repository: request.repository,
+          text: texts[index] ?? lowest,
+          commits: range,
+          verified: {
+            gateCommands: request.verified.gateCommands,
+            gateRuns: request.verified.gateRuns.filter(
+              (one) => one.at === "base" || held.has(one.commit),
+            ),
+            reviews: request.verified.reviews.filter(
+              (one) => one.commit === null || held.has(one.commit),
+            ),
+          },
+          rejected: request.rejected.filter(
+            (one) => one.targets.length === 0 || one.targets.some((target) => held.has(target)),
+          ),
+          deferred: request.deferred,
+          stack:
+            ranges.length === 1
+              ? null
+              : {
+                  part: index + 1,
+                  of: ranges.length,
+                  others: ranges.flatMap((other, at) =>
+                    at === index ? [] : [{ part: at + 1, commits: other.length }],
+                  ),
+                },
         });
-      }
+      });
+      bodies.forEach((body, index) => {
+        if (body.length > BODY_LIMIT) {
+          refusals.push({
+            reason: "body_too_long",
+            detail: `The body of part ${index + 1} holds ${body.length} characters, over the GitHub limit of ${BODY_LIMIT}.`,
+          });
+        }
+      });
     }
 
     const settings = await readRepository(request.repository);
@@ -256,7 +349,9 @@ export const PullRequestStack = {
       refusals.push({ reason: "remote_unread", detail: remote.detail });
     }
 
-    const names = [nameOf(request.sourceSlug, request.publication, 1)];
+    const names = (ranges.length === 0 ? [[]] : ranges).map((_range, index) =>
+      nameOf(request.sourceSlug, request.publication, index + 1),
+    );
     if (remote.status === "found") {
       const taken = await remoteBranches(request.repoRoot, remote.remote.name, names);
       if (taken.status !== "read") {
@@ -295,29 +390,35 @@ export const PullRequestStack = {
       }
     }
 
+    const partOf = new Map(
+      ranges.flatMap((range, index) => range.map((one) => [one.commit, index + 1] as const)),
+    );
+    const texts = request.text === null ? [] : [request.text, ...cuts];
     const ships =
-      remote.status === "found" &&
-      settings.status === "read" &&
-      body !== null &&
-      request.text !== null
+      remote.status === "found" && settings.status === "read" && bodies !== null
         ? {
             remote: remote.remote,
             target: settings.value.target,
             base: request.branch.base,
             head: request.branch.head,
-            parts: names.map((name) => ({
-              name,
-              commit: request.branch.head,
-              base: settings.value.target,
-              title: request.text?.title ?? "",
-              body: body ?? "",
-            })),
+            parts: names.map((name, index) => {
+              const cut = index === 0 ? null : (cuts[index - 1] ?? null);
+              return {
+                name,
+                commit: ranges[index]?.at(-1)?.commit ?? request.branch.head,
+                // The lowest part targets the target, and each higher one the branch below it.
+                base: index === 0 ? settings.value.target : (names[index - 1] ?? ""),
+                title: texts[index]?.title ?? "",
+                body: bodies?.[index] ?? "",
+                cut: cut === null ? null : { after: cut.after, reason: cut.reason },
+              };
+            }),
             trackerSteps: commits.flatMap((one) =>
               one.closes === null
                 ? []
                 : [
                     {
-                      part: 1,
+                      part: partOf.get(one.commit) ?? 1,
                       commit: one.commit,
                       closes: one.closes,
                       behaviorChanges: one.behaviorChanges,
@@ -346,7 +447,18 @@ export const PullRequestStack = {
     if (effect.kind === "push") {
       return writePush(request.repoRoot, effect);
     }
-    return writeCreate(effect);
+    return effect.kind === "create" ? writeCreate(effect) : writeRetarget(effect);
+  },
+
+  /**
+   * Refuses the cut points of a branch review that fall inside no gap between neighbouring
+   * commits of its head. The report and the plan both ask here, so the rule is written once.
+   */
+  cutRefusal(request: {
+    commits: string[];
+    cuts: CutPoint[];
+  }): (Refusal & { cuts: string[] }) | null {
+    return cutRefusal(request.commits, request.cuts);
   },
 
   /**
@@ -547,7 +659,14 @@ async function writeCreate(effect: Extract<Effect, { kind: "create" }>): Promise
           found: found.value.map((one) => `#${one.number} (${one.state})`).join(", "),
         };
   }
-  const created = await createPull(effect.repository, effect);
+  // The body is final at its create: its one slot is the number of the part below.
+  const created = await createPull(effect.repository, {
+    ...effect,
+    body:
+      effect.below === null
+        ? effect.body
+        : effect.body.replaceAll(BELOW_SLOT, String(effect.below)),
+  });
   if (created.status === "created") {
     return {
       status: "done",
@@ -559,4 +678,43 @@ async function writeCreate(effect: Extract<Effect, { kind: "create" }>): Promise
   return created.status === "failed"
     ? { status: "failed", message: created.message }
     : { status: "uncertain", detail: created.detail };
+}
+
+/**
+ * Changes the base of one part to the target after the part below merged by a merge commit
+ * (decision 15). It reads first: a base GitHub already changed is done with no write, and a pull
+ * request that is no longer open, or whose base is neither, is a conflict for a person.
+ */
+async function writeRetarget(effect: Extract<Effect, { kind: "retarget" }>): Promise<WriteOutcome> {
+  const read = async () => readPullState(effect.repository, effect.number);
+  const before = await read();
+  if (before.status !== "read") {
+    return { status: "uncertain", detail: before.detail };
+  }
+  if (before.value.base === effect.base) {
+    return { status: "done", how: "observed", number: effect.number, url: null };
+  }
+  if (before.value.state !== "open" || before.value.base !== effect.from) {
+    return {
+      status: "conflict",
+      found: `#${effect.number} is ${before.value.merged ? "merged" : before.value.state} into ${before.value.base}`,
+    };
+  }
+  const changed = await retargetPull(effect.repository, effect.number, effect.base);
+  if (changed.status === "failed") {
+    return { status: "failed", message: changed.message };
+  }
+  const after = await read();
+  if (after.status === "read" && after.value.base === effect.base) {
+    return { status: "done", how: "written", number: effect.number, url: null };
+  }
+  return {
+    status: "uncertain",
+    detail:
+      after.status === "read"
+        ? `#${effect.number} still targets ${after.value.base}.`
+        : changed.status === "uncertain"
+          ? changed.detail
+          : after.detail,
+  };
 }

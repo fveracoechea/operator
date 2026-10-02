@@ -29,7 +29,7 @@ import { calculateNext, calculateUnowned, isStandingAction } from "./next.ts";
 import { readBrokenLandings } from "./next-landings.ts";
 import { parseInput } from "./input.ts";
 import { applyPublish, planPublish } from "./publish.ts";
-import { finishAfterStep, observePublish } from "./publish-status.ts";
+import { finishAfterStep, observePublish, retargetPublish } from "./publish-status.ts";
 import { preparePlanningRecord, showPlanningRecord } from "./planning-record.ts";
 import { mutate, readState } from "./operations.ts";
 import { claimOwnership, currentOwnership } from "./ownership.ts";
@@ -275,6 +275,14 @@ export const CrewState = {
    */
   async publishStatus(request: Mutation & { sourceId: string }) {
     return { repeated: false, result: await observePublish(request) };
+  },
+
+  /**
+   * Changes the base of one part of a stack to the target after the part below merged by a merge
+   * commit, under the publish approval. It reads GitHub first, and a fault below stops it.
+   */
+  async retargetPublish(request: Mutation & { sourceId: string; part: number }) {
+    return { repeated: false, result: await retargetPublish(request) };
   },
 
   /** Claims one dispatchable assignment. Exactly one concurrent claim wins. */

@@ -274,7 +274,10 @@ async function runStatus(parsed: ParsedArguments): Promise<Handled> {
       lines: [`GitHub could not be read, so nothing was recorded: ${result.detail}`],
     });
   }
-  const faults = result.seen.filter((one) => one.fault !== null);
+  // A fault a person already settled stays in the reading, and it no longer blocks.
+  const faults = result.seen.filter((one) =>
+    result.settlements.some((settle) => settle.part === one.part),
+  );
   report({
     json: parsed.json,
     result: {
@@ -285,6 +288,7 @@ async function runStatus(parsed: ParsedArguments): Promise<Handled> {
         fault: one.fault,
         number: one.number,
         detail: one.detail,
+        settlement: result.settlements.find((settle) => settle.part === one.part)?.approval,
       })),
       operation,
       data: { publication: result.publication, seen: result.seen, finish: result.finish },
@@ -296,13 +300,123 @@ async function runStatus(parsed: ParsedArguments): Promise<Handled> {
           `  part ${one.part}: #${one.number} is ${one.state}${one.method === null ? "" : ` by a ${one.method === "merge" ? "merge commit" : `${one.method} merge`}`}${one.fault === null ? "" : `, stack fault ${one.fault}: ${one.detail ?? ""}`}`,
       ),
       ...(faults.length > 0
-        ? ["A person settles each stack fault on GitHub. Operator adopts nothing from it."]
+        ? [
+            "A person settles each stack fault. Operator adopts nothing from it.",
+            "When the person accepts a fault as GitHub shows it, record their approval of its settlement:",
+            ...faults.map((one) => {
+              const approval = result.settlements.find(
+                (settle) => settle.part === one.part,
+              )?.approval;
+              return `  part ${one.part}: action ${approval?.action ?? ""}, scope ${approval?.scope ?? ""}, targets ${approval?.targets.join(", ") ?? ""}, request revision ${approval?.requestRevision ?? ""}.`;
+            }),
+          ]
         : []),
       finishLine(result.finish),
       "Run `operator crew next` for what follows.",
     ],
   });
   return "reported";
+}
+
+/**
+ * Changes the base of one part to the target after the part below merged by a merge commit. The
+ * report names the part and whether GitHub needed the write, and nothing more (R5).
+ */
+// oxlint-disable-next-line complexity -- Each outcome of a retarget keeps its own reason.
+async function runRetarget(parsed: ParsedArguments): Promise<Handled> {
+  const mutation = readMutation(parsed);
+  const {
+    sourceId,
+    part,
+    requestId: _request,
+    ownerToken: _owner,
+    ...otherCrewFlags
+  } = parsed.crew;
+  const number = Number(part);
+  if (
+    mutation === null ||
+    sourceId === undefined ||
+    !Number.isInteger(number) ||
+    number < 2 ||
+    Object.keys(otherCrewFlags).length > 0
+  ) {
+    return "invalid-arguments";
+  }
+  const operation = "publish_retarget";
+  const { result } = await CrewState.retargetPublish({
+    projectRoot: process.cwd(),
+    ...mutation,
+    sourceId,
+    part: number,
+  });
+  if (reportSharedFailure(parsed, operation, result)) {
+    return "reported";
+  }
+  if (result.status === "retargeted") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "completed",
+        reason: "pull_request_retargeted",
+        blockers: [],
+        operation,
+        data: { part: result.part, number: result.number, how: result.how },
+      },
+      lines: [
+        `Part ${result.part} (#${result.number}) now targets the target branch${result.how === "observed" ? ", as GitHub already showed; nothing was written" : ""}.`,
+        "A person merges it on GitHub with a merge commit. Operator never merges.",
+      ],
+    });
+    return "reported";
+  }
+  if (result.status === "not-due" || result.status === "stack-fault") {
+    return refuse({
+      json: parsed.json,
+      operation,
+      outcome: result.status === "stack-fault" ? "conflict" : "missing-condition",
+      reason: result.status === "stack-fault" ? "stack_fault" : "retarget_not_due",
+      detail: { part: result.part, detail: result.detail },
+      lines: [`${result.detail} Nothing was written.`],
+    });
+  }
+  if (result.status === "approval-required") {
+    return refuse({
+      json: parsed.json,
+      operation,
+      outcome: "missing-condition",
+      reason: "approval_required",
+      detail: { approval: result.approval },
+      lines: [
+        "The publish approval of this stack no longer covers the retarget. Nothing was written.",
+      ],
+    });
+  }
+  if (result.status === "publish-unsettled") {
+    return refuse({
+      json: parsed.json,
+      operation,
+      outcome: "missing-condition",
+      reason: "publish_unsettled",
+      detail: { sourceId: result.sourceId },
+      lines: ["The stack publication has a write with no done outcome. Settle it first."],
+    });
+  }
+  if (result.status === "effect-stopped") {
+    return refuse({
+      json: parsed.json,
+      operation,
+      outcome: result.outcome.status === "uncertain" ? "uncertain" : "conflict",
+      reason: stopReasons[result.outcome.status] ?? "publish_uncertain",
+      detail: { publication: result.publication, effect: result.effect, outcome: result.outcome },
+      lines: [
+        `The retarget stopped: ${result.outcome.status}.`,
+        result.outcome.status === "uncertain"
+          ? "`crew next` offers settle_publish, which reads GitHub first."
+          : "A person settles this. Operator writes nothing over it.",
+      ],
+    });
+  }
+  return reportPlanned(parsed, operation, result);
 }
 
 /** `operator publish`: the plan, the apply that also settles a publication, and the status. */
@@ -315,6 +429,9 @@ export async function runPublish(words: string[], parsed: ParsedArguments): Prom
   }
   if (words[0] === "status") {
     return runStatus(parsed);
+  }
+  if (words[0] === "retarget") {
+    return runRetarget(parsed);
   }
   return words[0] === "apply" ? runApply(parsed) : "invalid-arguments";
 }

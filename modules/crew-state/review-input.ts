@@ -61,10 +61,26 @@ export const publishedTextSchema = z.strictObject({
   mergeDanger: z.string().trim().min(1),
 });
 
-export type PublishedText = z.infer<typeof publishedTextSchema>;
+/**
+ * One cut point of a pull request stack (ADR 0015): the commit that ends the part below, the
+ * reason for the cut, and the text of the part it starts. The branch reviewer read the whole
+ * head, so it proposes each cut, and the person approves it in the publish approval (D1).
+ */
+const cutSchema = publishedTextSchema.extend({
+  after: z.string().regex(/^[0-9a-f]{40}$/),
+  reason: z.string().trim().min(1),
+});
 
+/** The text of a branch review: the lowest part, and each cut point above it in order. */
+export const branchPublishedTextSchema = publishedTextSchema.extend({
+  cuts: z.array(cutSchema).default([]),
+});
+
+export type PublishedText = z.infer<typeof branchPublishedTextSchema>;
+
+// A result review records no cut, so its text reads back as a stack of one.
 export function storedPublishedText(stored: string): PublishedText {
-  return readStored("published text", publishedTextSchema, stored);
+  return readStored("published text", branchPublishedTextSchema, stored);
 }
 
 export const reviewReportInputSchema = z.discriminatedUnion("kind", [
@@ -102,7 +118,7 @@ export const branchReportInputSchema = z.discriminatedUnion("kind", [
     host: z.string().min(1),
     subAgents: z.array(subAgent).length(2),
     reports: z.array(branchAxisReport).length(2),
-    published: publishedTextSchema,
+    published: branchPublishedTextSchema,
   }),
   z.strictObject({
     kind: z.literal("blocked"),

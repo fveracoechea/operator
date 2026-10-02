@@ -41,7 +41,7 @@ import { approvals, assignments, attempts, workSources } from "./schema.ts";
 import type { BrokenLanding, RewriteRead } from "./next-landings.ts";
 import { openPublicationOf, PUBLISH_ACTION, publicationsOf } from "./publish.ts";
 import { publishRecordsOf } from "./publish-gate.ts";
-import { mergeGateOf, stackStateOf } from "./publish-status.ts";
+import { mergeGateOf, retargetsDue, stackStateOf } from "./publish-status.ts";
 import { eq } from "drizzle-orm";
 import { latestSubmission, submittedCommit } from "./submission.ts";
 import { readBinding, TRACKER_STEPS, targetOf, trackerOperationsOf } from "./tracker.ts";
@@ -73,6 +73,7 @@ export const NEXT_ACTIONS = [
   "accept_assignment",
   "resolve_planning",
   "publish_stack",
+  "retarget_pull_request",
   "record_tracker",
   "close_process",
   "remove_worktree",
@@ -286,12 +287,40 @@ function readPublish(db: CrewReader, into: Collector): void {
     // user's report of a merge or a close triggers. This reads only what that read recorded.
     const stack = stackStateOf(db, source.id);
     const status = `operator publish status --source ${source.id}`;
+    const parts = (list: number[]) => list.map((one) => `part ${one}`).join(" and ");
     if (stack.state === "faulted") {
       into.add({
         action: "settle_publish",
         sourceId: source.id,
         blocker: "stack_fault",
-        detail: `Stack publication ${stack.publication} has a stack fault that a person settles on GitHub. Operator adopts nothing from it: ${stack.faults.map((one) => `#${one.number} ${one.fault}: ${one.detail}`).join(" ")} Run the read again when the person reports it settled.`,
+        detail: [
+          `Stack publication ${stack.publication} has a stack fault that a person settles. Operator adopts nothing from it: ${stack.faults.map((one) => `#${one.number} ${one.fault}: ${one.detail}`).join(" ")}`,
+          ...(stack.stopped.length === 0
+            ? []
+            : [`A fault stops every part above it, so ${parts(stack.stopped)} are stopped.`]),
+          `When the person accepts the fault as GitHub shows it, record their approval that \`${status}\` names. Run the read again when the person reports a change on GitHub.`,
+        ].join(" "),
+        command: status,
+      });
+    } else if (stack.state === "ended") {
+      // A settled fault ends its part, and the parts above it stay stopped: only a new stack
+      // publication carries their commits to the target, after a recall or a rebase.
+      into.add({
+        action: "settle_publish",
+        sourceId: source.id,
+        blocker: "stack_fault",
+        detail: [
+          `Stack publication ${stack.publication} is settled, and its commits did not all reach the target.`,
+          ...(stack.ended.length === 0
+            ? []
+            : [
+                `${stack.ended.map((one) => `#${one.number} (${one.fault})`).join(", ")} ended with no merge commit.`,
+              ]),
+          ...(stack.stopped.length === 0
+            ? []
+            : [`A fault stops every part above it, so ${parts(stack.stopped)} are stopped.`]),
+          "Their commits reach the target only through a new stack publication. A person decides the path.",
+        ].join(" "),
         command: status,
       });
     } else if (stack.state === "open") {
@@ -299,8 +328,20 @@ function readPublish(db: CrewReader, into: Collector): void {
         wait: "stack_open",
         sourceId: source.id,
         command: status,
-        detail: `Stack publication ${stack.publication} has open pull request(s) ${stack.open.map((one) => `#${one}`).join(", ")}. A person merges them on GitHub with a merge commit. Run \`${status}\` when the user reports a merge or a close, or asks for the state.`,
+        detail: `Stack publication ${stack.publication} has open pull request(s) ${stack.open.map((one) => `#${one}`).join(", ")}. A person merges them on GitHub with a merge commit, from the bottom up. Run \`${status}\` when the user reports a merge or a close, or asks for the state.`,
       });
+    }
+    for (const due of retargetsDue(db, source.id)) {
+      const retarget: Draft = {
+        action: "retarget_pull_request",
+        sourceId: source.id,
+        detail: `Part ${due.part - 1} merged by a merge commit, so part ${due.part} (#${due.number}) changes its base from ${due.from} to ${due.target}, under the publish approval that showed it. The write reads GitHub first.`,
+        command: `operator publish retarget --request <id> --owner-token <token> --source ${source.id} --part ${due.part}`,
+      };
+      if (!due.approved) {
+        retarget.blocker = "approval_required";
+      }
+      into.add(retarget);
     }
     const publications = publicationsOf(db, source.id);
     if (publications.some((one) => one.headCommit === branch.recordedTip)) {

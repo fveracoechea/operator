@@ -56,7 +56,7 @@ Delegated rework, the limits that bound it, and a defect found after acceptance.
 Read [REWORK.md](REWORK.md), [LIMITS.md](LIMITS.md), and [INVALIDATION.md](INVALIDATION.md) before you act on any of them.
 
 The integrated pull request of a source.
-Read [PUBLISH.md](PUBLISH.md) before you act on `publish_stack`, `settle_publish`, `stack_open`, or `stack_fault`, and when the user reports a merge or a close of a pull request.
+Read [PUBLISH.md](PUBLISH.md) before you act on `publish_stack`, `retarget_pull_request`, `settle_publish`, `stack_open`, or `stack_fault`, and when the user reports a merge or a close of a pull request.
 
 Question routing, answers, and approvals.
 `bun run operator question` and `bun run operator approval` carry them, and the brief tells each Operative how to raise one.

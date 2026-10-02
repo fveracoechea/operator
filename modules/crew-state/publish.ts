@@ -15,7 +15,6 @@ export const PUBLISH_ACTION = "publish";
 
 type ModulePlan = Extract<Awaited<ReturnType<typeof PullRequestStack.plan>>, { status: "planned" }>;
 type Ships = NonNullable<ModulePlan["ships"]>;
-type Effect = Parameters<typeof PullRequestStack.write>[0]["effect"];
 type WriteOutcome = Awaited<ReturnType<typeof PullRequestStack.write>>;
 
 /** One refusal of a publish plan, from the records or from the module, in the order found. */
@@ -57,7 +56,17 @@ const effectSchema = z.discriminatedUnion("kind", [
     title: z.string(),
     body: z.string(),
   }),
+  z.strictObject({
+    kind: z.literal("retarget"),
+    repository: z.string(),
+    number: z.int(),
+    from: z.string(),
+    base: z.string(),
+  }),
 ]);
+
+/** One write as its intent records it. A create learns the number of the part below at run. */
+type StoredEffect = z.infer<typeof effectSchema>;
 
 type PublicationRow = typeof stackPublications.$inferSelect;
 type EffectRow = typeof publishEffects.$inferSelect;
@@ -201,6 +210,7 @@ function previewText(preview: Omit<PublishPreview, "planPath">): string {
     ...(ships?.parts ?? []).flatMap((part, index) => [
       `## Pull request ${index + 1} of ${ships?.parts.length ?? 1}: ${part.name} into ${part.base}`,
       "",
+      ...(part.cut === null ? [] : [`Cut after ${part.cut.after}: ${part.cut.reason}`, ""]),
       `Title: ${part.title}`,
       "",
       "The body, exactly as it is created:",
@@ -347,7 +357,7 @@ function recordPublication(
       trackerSteps: JSON.stringify(preview.ships.trackerSteps),
     })
     .run();
-  const effects: Effect[] = [
+  const effects: StoredEffect[] = [
     {
       kind: "push",
       remote: preview.ships.remote.name,
@@ -447,8 +457,23 @@ export type ApplyResult =
   | { status: "unknown-source"; sourceId: string }
   | { status: "unread"; detail: string };
 
+/**
+ * The recorded number of the part whose remote branch is this base, or null for the lowest part.
+ * The creates run bottom up, so the part below is created and numbered by then.
+ */
+async function belowOf(
+  projectRoot: string,
+  publicationId: string,
+  base: string,
+): Promise<number | null> {
+  const read = await readState(projectRoot, (db) =>
+    pullRequestsOf(db, publicationId).find((one) => one.headName === base),
+  );
+  return read === undefined || "status" in read ? null : read.number;
+}
+
 /** Runs each write of one publication that is not done, in order, and records each outcome. */
-async function runEffects(
+export async function runEffects(
   request: { projectRoot: string; requestId: string; ownerToken: string },
   publicationId: string,
 ): Promise<ApplyResult> {
@@ -475,9 +500,13 @@ async function runEffects(
       );
       return { status: "effect-stopped", publication: number, effect: subject, outcome };
     }
+    const intent = readStored("publish effect", effectSchema, effect.intent);
     const outcome = await PullRequestStack.write({
       repoRoot: request.projectRoot,
-      effect: readStored("publish effect", effectSchema, effect.intent),
+      effect:
+        intent.kind === "create"
+          ? { ...intent, below: await belowOf(request.projectRoot, publicationId, intent.base) }
+          : intent,
     });
     const recorded = await mutate(
       {

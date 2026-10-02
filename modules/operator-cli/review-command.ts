@@ -177,6 +177,23 @@ async function runReport(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
+  if (result.status === "cut-not-between-commits") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "conflict",
+        reason: "review_cut_not_between_commits",
+        blockers: [
+          { reason: "review_cut_not_between_commits", cuts: result.cuts, detail: result.detail },
+        ],
+        operation: "review_report",
+        data: { reviewId: result.reviewId },
+      },
+      lines: [result.detail],
+    });
+    return "reported";
+  }
+
   if (result.status === "finding-target-unknown") {
     report({
       json: parsed.json,

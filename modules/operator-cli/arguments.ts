@@ -28,6 +28,7 @@ const crewFieldByFlag = {
   "--source": "sourceId",
   "--record": "recordId",
   "--plan-revision": "planRevision",
+  "--part": "part",
   "--run": "runId",
   "--root": "projectRoot",
 } as const;

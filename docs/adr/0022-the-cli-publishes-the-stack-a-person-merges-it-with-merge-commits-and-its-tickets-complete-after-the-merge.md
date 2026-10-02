@@ -26,11 +26,12 @@ Recovery reads GitHub: the remote names at their planned commits, and the pull r
 
 Each body is rendered by the CLI from the records, with a closed set of sections that a reviewer writes, and the approval covers the exact text.
 The rendered sections are the commit list, with each subject linked to its commit and a closing keyword for its issue; the behavior changes of each commit with their basis (ADR 0018); the project gate commands and the runs that passed; the reviews by their identity; each rejected finding as what looks wrong and is not; each deferred finding with its follow-up as what is not in this pull request; the concerns the producers recorded; the stack position; and how to merge.
-The branch reviewer writes the title, a summary, where to start reading, and the merge danger in its report, because it read the whole head and no record holds that judgment; for a source with one code commit, the result reviewer of that commit writes it.
+The branch reviewer writes the title, a summary, where to start reading, and the merge danger of each pull request, and each cut point with its reason, in its report, because it read the whole head and no record holds that judgment; for a source with one code commit, the result reviewer of that commit writes it.
 The Operator writes no content of its own, so it only passes this published text on, and `operator publish plan` takes no input from it.
 The published text goes to people and not to a brief, and the person approves it word for word, because the plan revision names every title and body.
 The plan prints a summary and writes every title and body in full to a local file named by its revision, which the person reads before the approval.
 A body is final at its create: it links each commit by its identity, and it names only the pull request below it, whose number is recorded by then.
+A cut falls only between two neighbouring commits of the head, so the branch report and the plan refuse any other cut with the same rule.
 
 A person merges.
 Merging follows the human review on GitHub, and the person who merges is often not the user of the Operator.
@@ -44,6 +45,8 @@ So while a pull request is open, the next actions show the wait `stack_open` tha
 The read records what GitHub shows of each pull request: its state, its head, its base, its merge commit, and its merge method, which the parents of the merge commit tell.
 The next actions then offer what follows, from the recorded readings only.
 After a merge commit of one part, the CLI changes the base of the next part to the target branch, under the same approval, and it reads first, so a base that GitHub already changed is satisfied with no write.
+GitHub reads the closing keywords of a body again once its base is the default branch: a pull request that was opened on another base, never edited, and then based on the default branch closed its issue at its merge (checked with read-only calls on a public repository for ticket #120).
+The completion step still closes a ticket that its keyword did not close.
 
 The three tracker steps of a code result run only after the recorded merge of the pull request that carries its commit into the target branch.
 The resolution is a rendering with no free text: the commit on the target, the pull request, and the behavior changes with their basis, and a free body refuses.
@@ -60,7 +63,11 @@ A planning resolution is still rendered at acceptance (ADR 0019).
 A merge that is not a merge commit, a merge into a base that is not the target, a commit that no review read on a pushed branch, and a close with no merge are each a stack fault that waits on a person with the blocker `stack_fault`.
 Operator adopts nothing from a stack fault, as it adopts no moved integration branch (ADR 0020).
 The items of a pull request that reached the target by another method still complete, and the resolution names the commit that landed.
-A fault on one part stops every part above it.
+A fault on one part stops that part and every part above it: no retarget, and the fault waits on a person.
+So the Operator writes nothing more to a pull request whose head a person moved (decision 21).
+Only the person settles a fault, by an approval of action `stack-fault` whose target is the pull request and whose request revision is the reading that recorded the fault.
+A settled merge by another method counts as landed, because its commits reached the target.
+Any other settled fault ends its part, and the parts above a fault stay stopped, because their commits reach the target only through a new stack publication.
 
 A defect found in an open published range, or a withdrawal of an item whose commit is in one, first recalls that range: with an approval, each open pull request from that part up becomes a draft, which cannot be merged, and gets one comment with the reason.
 The correction or the take-out then runs on the local branch, and a new stack publication closes each recalled pull request with a pointer to its replacement.
@@ -71,7 +78,7 @@ The CLI gates the new base, then rebuilds the branch on it under the tests of th
 A patch that the rebase changes becomes an integration cycle, and the new head needs a new branch review.
 The preview reports whether the head merges cleanly onto the fetched target, as information, so a conflict with another source can be settled by this rebase before anyone reviews on GitHub.
 
-A source is finished when every pull request of its last stack publication merged with a merge commit and every tracker step of its items is verified.
+A source is finished when every pull request of its last stack publication merged with a merge commit, or a person settled its merge by another method, and every tracker step of its items is verified.
 Its gate checkout is removed then, by an unforced Herdr removal with no approval, so a checkout that holds a change stays, and Operator deletes no branch (ADR 0010).
 
 ## Considered options
