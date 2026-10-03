@@ -12,7 +12,6 @@
     {
       "files": [
         "modules/crew-state/acceptance.ts",
-        "modules/crew-state/cleanup-close.ts",
         "modules/crew-state/dispatch-replace.ts",
         "modules/crew-state/frontier.ts",
         "modules/crew-state/integration.ts",

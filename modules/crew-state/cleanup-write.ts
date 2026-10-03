@@ -8,12 +8,7 @@ import {
 import { type CleanupContext, type Shared } from "./cleanup-context.ts";
 import { record } from "./operations.ts";
 import { type CleanupBlocker, type CleanupReport, reportOf } from "./cleanup-report.ts";
-import {
-  openOperation,
-  type OperationRow,
-  type OperationState,
-  settleOperation,
-} from "./dispatch.ts";
+import { openOperation, type OperationState, settleOperation } from "./dispatch.ts";
 
 export type Settlement = {
   state: CleanupState;
@@ -43,11 +38,6 @@ export function cleanupWriter(request: {
   return {
     /** The revision of the inputs this run acts on, which an approval must have been granted against. */
     requestRevision,
-
-    /** The effect this cleanup already opened, if a former run left one behind. */
-    openedOperation(): OperationRow | null {
-      return context.operations.find((one) => one.kind === CLEANUP_OPERATION[kind]) ?? null;
-    },
 
     report(state: CleanupState, row = context.cleanups.get(kind) ?? null): CleanupReport {
       return reportOf({ context, kind, state, requestRevision, row });

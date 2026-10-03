@@ -8,6 +8,7 @@ import {
   heldRetention,
   readCleanup,
 } from "./cleanup.ts";
+import { Cleanup } from "./cleanup-machine.ts";
 import type { CrewReader } from "./database.ts";
 import { everyStageSucceeded } from "./dispatch-context.ts";
 import { liveOperations, readDispatchRow, unsettledOperations } from "./dispatch.ts";
@@ -1176,15 +1177,6 @@ function readTracker(
   }
 }
 
-/** What settles one recorded cleanup outcome that is not done. */
-const cleanupBlockers = {
-  pending: null,
-  blocked: "cleanup_blocked",
-  failed: "cleanup_failed",
-  uncertain: "cleanup_uncertain",
-  done: null,
-} as const satisfies Record<CleanupState, NextBlocker | null>;
-
 /**
  * Whether a removal of the checkout of one ended attempt may be offered. Accepted and withdrawn
  * work may go. A checkout that holds a commit of withdrawn work or a replaced commit holds
@@ -1229,55 +1221,48 @@ function readCleanupOf(
       return row === null ? [] : [[kind, cleanupRecordOf(row).state]];
     }),
   );
-
-  /**
-   * One cleanup outcome the attempt still owes.
-   * A recorded state that a retry cannot clear names the person who settles it, so a stuck
-   * cleanup stops this work instead of being offered on every reading.
-   */
-  function owed(kind: CleanupKind, action: NextActionName, command: string, detail: string) {
-    const state = recorded.get(kind);
-    const stuck = state === undefined ? null : cleanupBlockers[state];
-    const draft: Draft = {
-      action: stuck === null ? action : "settle_cleanup",
-      assignmentId: request.assignmentId,
-      attemptId: request.attemptId,
-      detail: stuck === null ? detail : `The recorded ${kind.replace("_", " ")} is ${state}.`,
-      command,
-    };
-    if (stuck !== null) draft.blocker = stuck;
-    into.add(draft);
-  }
-
-  if (recorded.get("process_closure") !== "done") {
-    owed(
-      "process_closure",
-      "close_process",
-      "operator cleanup close",
-      "This Operative handed its work over and its process is still open.",
-    );
+  const owed = Cleanup.owed(recorded, request.removable);
+  if (owed === null) {
     return;
   }
 
-  if (recorded.get("worktree_removal") === "done" || !request.removable) {
-    return;
-  }
-
-  // Removing a checkout is never this session's decision, so it names a person either way.
-  const removal = recorded.get("worktree_removal");
-  const stuck = removal === undefined ? null : cleanupBlockers[removal];
-  into.add({
-    action: stuck === null ? "remove_worktree" : "settle_cleanup",
+  // A recorded state that a retry cannot clear names the person who settles it, so a stuck
+  // cleanup stops this work instead of being offered on every reading.
+  const step = OWED_STEPS[owed.kind];
+  const draft: Draft = {
+    action: owed.stuck === null ? step.action : "settle_cleanup",
     assignmentId: request.assignmentId,
     attemptId: request.attemptId,
-    blocker: stuck ?? "approval_required",
     detail:
-      stuck === null
-        ? "Removing this checkout needs its own approval against the inspected inputs."
-        : `The recorded worktree removal is ${removal}.`,
-    command: "operator cleanup remove",
-  });
+      owed.stuck === null
+        ? step.detail
+        : `The recorded ${owed.kind.replace("_", " ")} is ${owed.state}.`,
+    command: step.command,
+  };
+  // Removing a checkout is never this session's decision, so it names a person either way.
+  const blocker = owed.stuck ?? step.blocker;
+  if (blocker !== null) draft.blocker = blocker;
+  into.add(draft);
 }
+
+/** The next action each owed cleanup kind is offered as, when its recorded state is not stuck. */
+const OWED_STEPS = {
+  process_closure: {
+    action: "close_process",
+    command: "operator cleanup close",
+    detail: "This Operative handed its work over and its process is still open.",
+    blocker: null,
+  },
+  worktree_removal: {
+    action: "remove_worktree",
+    command: "operator cleanup remove",
+    detail: "Removing this checkout needs its own approval against the inspected inputs.",
+    blocker: "approval_required",
+  },
+} as const satisfies Record<
+  CleanupKind,
+  { action: NextActionName; command: string; detail: string; blocker: NextBlocker | null }
+>;
 
 /** The readiness verdict, reported as the action it is when this selection is not ready. */
 function readReadiness(readiness: Readiness, into: Collector): void {

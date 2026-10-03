@@ -10,7 +10,12 @@ import {
   unclosedBy,
 } from "./question-input.ts";
 import {
-  BLOCKING_STATES,
+  Question,
+  type QuestionFacts,
+  type QuestionNext,
+  type QuestionRefusal,
+} from "./question-machine.ts";
+import {
   insertAnswer,
   insertReusedAnswer,
   readAnswer,
@@ -50,9 +55,7 @@ type Recorded = {
 
 type Refusal =
   | { status: "unknown-question"; questionId: string }
-  | { status: "stale-question-revision"; questionId: string; recordedRevision: number }
-  | { status: "question-closed"; questionId: string; state: string }
-  | { status: "already-answered"; questionId: string; answerId: string }
+  | QuestionRefusal["answer"]
   | {
       status: "escalation-required";
       questionId: string;
@@ -124,16 +127,15 @@ export async function answerQuestion(request: {
       input: { questionId: request.questionId, revision: request.revision, answer: input },
     },
     ({ tx, now }) => {
-      const checked = checkQuestion(tx, request);
-      if (checked.status !== "ok") {
-        return { commit: false, outcome: checked.refusal };
+      const decided = decideOn(tx, request.questionId, "answer", (row) => ({
+        row,
+        revision: request.revision,
+      }));
+      if (decided.status !== "ok") {
+        return { commit: false, outcome: decided.refusal };
       }
 
-      const row = checked.row;
-      const held = unanswered(row);
-      if (held !== null) {
-        return { commit: false, outcome: held };
-      }
+      const { row, next } = decided;
 
       const unclosed = unclosedBy(input.authority, triggersOf(row));
       if (unclosed.length > 0) {
@@ -167,6 +169,7 @@ export async function answerQuestion(request: {
         source,
         reusedFromId: null,
         approvalId: null,
+        state: next,
         now,
       });
       return {
@@ -227,16 +230,15 @@ export async function reapplyAnswer(request: {
       },
     },
     ({ tx, now }) => {
-      const checked = checkQuestion(tx, request);
-      if (checked.status !== "ok") {
-        return { commit: false, outcome: checked.refusal };
+      const decided = decideOn(tx, request.questionId, "answer", (row) => ({
+        row,
+        revision: request.revision,
+      }));
+      if (decided.status !== "ok") {
+        return { commit: false, outcome: decided.refusal };
       }
 
-      const row = checked.row;
-      const held = unanswered(row);
-      if (held !== null) {
-        return { commit: false, outcome: held };
-      }
+      const { row, next } = decided;
 
       const reused = readAnswer(tx, request.reuseAnswerId);
       if (reused === null || reused.questionId !== row.id) {
@@ -307,6 +309,7 @@ export async function reapplyAnswer(request: {
         question: row,
         reused,
         approvalId: approval.id,
+        state: next,
         now,
       });
       return {
@@ -327,58 +330,28 @@ export async function reapplyAnswer(request: {
   return result.status === "answered" ? { ...result, repeated } : result;
 }
 
-type OpenRefusal = Exclude<
-  Refusal,
-  { status: "already-answered" } | { status: "escalation-required" }
->;
-
-type QuestionCheck =
-  | { status: "ok"; row: QuestionRow }
-  | { status: "refused"; refusal: OpenRefusal };
+type UnknownQuestion = { status: "unknown-question"; questionId: string };
 
 /**
- * The preconditions every change to one question shares: the question exists, the caller states
- * the revision it inspected, and something still waits on it.
+ * Reads the question one answer or escalation names, and decides the event on it. A question
+ * that is not recorded is refused before the guards of the question machine run.
  */
-function checkQuestion(
+function decideOn<E extends "answer" | "escalate">(
   tx: CrewReader,
-  request: { questionId: string; revision: number },
-): QuestionCheck {
-  const row = readQuestion(tx, request.questionId);
+  questionId: string,
+  event: E,
+  factsOf: (row: QuestionRow) => QuestionFacts[E],
+):
+  | { status: "ok"; row: QuestionRow; next: QuestionNext[E] }
+  | { status: "refused"; refusal: UnknownQuestion | QuestionRefusal[E] } {
+  const row = readQuestion(tx, questionId);
   if (row === null) {
-    return {
-      status: "refused",
-      refusal: { status: "unknown-question", questionId: request.questionId },
-    };
+    return { status: "refused", refusal: { status: "unknown-question", questionId } };
   }
-  if (row.revision !== request.revision) {
-    return {
-      status: "refused",
-      refusal: {
-        status: "stale-question-revision",
-        questionId: row.id,
-        recordedRevision: row.revision,
-      },
-    };
-  }
-  // A question nobody waits on any more is history. An answer would revive it onto an attempt
-  // that ended, where no Operative can ever acknowledge it.
-  if (!BLOCKING_STATES.some((state) => state === row.state)) {
-    return {
-      status: "refused",
-      refusal: { status: "question-closed", questionId: row.id, state: row.state },
-    };
-  }
-  return { status: "ok", row };
-}
-
-/** One question revision carries one decision, so a second answer to it is refused. */
-function unanswered(
-  row: QuestionRow,
-): { status: "already-answered"; questionId: string; answerId: string } | null {
-  return row.answerId === null
-    ? null
-    : { status: "already-answered", questionId: row.id, answerId: row.answerId };
+  const decision = Question.decide(event, factsOf(row));
+  return "refused" in decision
+    ? { status: "refused", refusal: decision.refused }
+    : { status: "ok", row, next: decision.next };
 }
 
 type Escalated = {
@@ -388,9 +361,7 @@ type Escalated = {
   droppedAnswerId: string | null;
 };
 
-type EscalateRefusal =
-  | OpenRefusal
-  | { status: "delivery-started"; questionId: string; state: string };
+type EscalateRefusal = UnknownQuestion | QuestionRefusal["escalate"];
 
 export type EscalateResult =
   | (Escalated & { repeated: boolean })
@@ -429,29 +400,24 @@ export async function escalateQuestion(request: {
       input: { questionId: request.questionId, revision: request.revision, escalation: input },
     },
     ({ tx, now }) => {
-      const checked = checkQuestion(tx, request);
-      if (checked.status !== "ok") {
-        return { commit: false, outcome: checked.refusal };
-      }
-
-      const row = checked.row;
-      // An answer already on its way cannot be withdrawn, so the escalation comes too late.
-      // A delivery proven to have failed reached nobody, so the question is still open to it.
-      const delivery =
-        row.deliveryOperationId === null ? null : readOperation(tx, row.deliveryOperationId);
-      if (delivery !== null && delivery.state !== "failed") {
+      const decided = decideOn(tx, request.questionId, "escalate", (row) => {
+        // Only an Operator decision falls to an escalation. A person's answer already stands.
+        const recorded = row.answerId === null ? null : readAnswer(tx, row.answerId);
         return {
-          commit: false,
-          outcome: { status: "delivery-started" as const, questionId: row.id, state: row.state },
+          row,
+          revision: request.revision,
+          delivery:
+            row.deliveryOperationId === null ? null : readOperation(tx, row.deliveryOperationId),
+          dropsDecision: recorded !== null && recorded.authority === "operator-decision",
         };
+      });
+      if (decided.status !== "ok") {
+        return { commit: false, outcome: decided.refusal };
       }
 
-      // Only an Operator decision falls to an escalation. A person's answer already stands.
-      const recorded = row.answerId === null ? null : readAnswer(tx, row.answerId);
-      const droppedAnswerId =
-        recorded !== null && recorded.authority === "operator-decision" ? recorded.id : null;
-
-      recordEscalation(tx, { row, input, droppedAnswerId, now });
+      const { row, next } = decided;
+      const droppedAnswerId = next === null ? null : row.answerId;
+      recordEscalation(tx, { row, input, state: next, now });
       return {
         commit: true,
         outcome: {

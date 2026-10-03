@@ -12,6 +12,7 @@ import {
   type QuestionInput,
   questionInputSchema,
 } from "./question-input.ts";
+import { BLOCKING_STATES, type QuestionState } from "./question-machine.ts";
 import { type RecordedSource, SOURCE_KINDS, storedPathOf } from "./requirement-source.ts";
 import { answers, questions } from "./schema.ts";
 import { readStored, readStoredValue } from "./stored.ts";
@@ -141,13 +142,18 @@ export function readAnswer(db: CrewReader, answerId: string): AnswerRow | null {
   return db.select().from(answers).where(eq(answers.id, answerId)).all()[0] ?? null;
 }
 
-/** Reads one answer in the shape a caller can discriminate against a state failure. */
+/**
+ * Reads the answer one question holds now, in the shape a caller can discriminate against a
+ * state failure. A question that holds no answer, or names one that is gone, holds none.
+ */
 export function findAnswer(
   db: CrewReader,
-  answerId: string,
-): { status: "found"; answer: AnswerRow } | { status: "unknown-answer"; answerId: string } {
-  const row = readAnswer(db, answerId);
-  return row === null ? { status: "unknown-answer", answerId } : { status: "found", answer: row };
+  question: QuestionRow,
+): { status: "found"; answer: AnswerRow } | { status: "no-answer"; questionId: string } {
+  const row = question.answerId === null ? null : readAnswer(db, question.answerId);
+  return row === null
+    ? { status: "no-answer", questionId: question.id }
+    : { status: "found", answer: row };
 }
 
 export function answersOf(db: CrewReader, questionId: string): AnswerRow[] {
@@ -171,12 +177,6 @@ export function answerAuthoritiesOf(
     }),
   );
 }
-
-/**
- * The states in which a question still holds its Operative.
- * An acknowledged answer resolves it, and the end of an attempt withdraws it.
- */
-export const BLOCKING_STATES = ["open", "answered", "delivered"] as const;
 
 /** Every question that still holds its Operative. */
 export function blockingQuestions(db: CrewReader): QuestionRow[] {
@@ -253,6 +253,7 @@ export function insertQuestion(
     assignmentId: string;
     attemptId: string;
     input: QuestionInput;
+    state: QuestionState;
     now: string;
   },
 ): void {
@@ -262,7 +263,7 @@ export function insertQuestion(
       assignmentId: request.assignmentId,
       attemptId: request.attemptId,
       revision: 1,
-      state: "open",
+      state: request.state,
       report: JSON.stringify(request.input),
       targetIdentity: targetIdentityOf(request.input),
       operatorEscalation: null,
@@ -282,13 +283,13 @@ export function insertQuestion(
  */
 export function updateQuestion(
   db: CrewWriter,
-  request: { row: QuestionRow; input: QuestionInput; now: string },
+  request: { row: QuestionRow; input: QuestionInput; state: QuestionState; now: string },
 ): number {
   const revision = request.row.revision + 1;
   db.update(questions)
     .set({
       revision,
-      state: "open",
+      state: request.state,
       report: JSON.stringify(request.input),
       targetIdentity: targetIdentityOf(request.input),
       answerId: null,
@@ -311,17 +312,18 @@ export function recordEscalation(
   request: {
     row: QuestionRow;
     input: EscalationInput;
-    droppedAnswerId: string | null;
+    /** The state a dropped Operator decision opens the question to, or null when none drops. */
+    state: QuestionState | null;
     now: string;
   },
 ): void {
   const update =
-    request.droppedAnswerId === null
+    request.state === null
       ? { operatorEscalation: JSON.stringify(request.input), updatedAt: request.now }
       : {
           operatorEscalation: JSON.stringify(request.input),
           answerId: null,
-          state: "open" as const,
+          state: request.state,
           updatedAt: request.now,
         };
   db.update(questions).set(update).where(eq(questions.id, request.row.id)).run();
@@ -337,6 +339,7 @@ export function insertAnswer(
     source: RecordedSource | null;
     reusedFromId: string | null;
     approvalId: string | null;
+    state: QuestionState;
     now: string;
   },
 ): void {
@@ -359,7 +362,7 @@ export function insertAnswer(
     .run();
 
   db.update(questions)
-    .set({ answerId: request.answerId, state: "answered", updatedAt: request.now })
+    .set({ answerId: request.answerId, state: request.state, updatedAt: request.now })
     .where(eq(questions.id, request.question.id))
     .run();
 }
@@ -376,6 +379,7 @@ export function insertReusedAnswer(
     question: QuestionRow;
     reused: AnswerRow;
     approvalId: string;
+    state: QuestionState;
     now: string;
   },
 ): void {
@@ -392,7 +396,7 @@ export function insertReusedAnswer(
     .run();
 
   db.update(questions)
-    .set({ answerId: request.answerId, state: "answered", updatedAt: request.now })
+    .set({ answerId: request.answerId, state: request.state, updatedAt: request.now })
     .where(eq(questions.id, request.question.id))
     .run();
 }
@@ -409,10 +413,10 @@ export function recordDeliveryIntent(
 
 export function recordDelivered(
   db: CrewWriter,
-  request: { questionId: string; now: string },
+  request: { questionId: string; state: QuestionState; now: string },
 ): void {
   db.update(questions)
-    .set({ state: "delivered", deliveredAt: request.now, updatedAt: request.now })
+    .set({ state: request.state, deliveredAt: request.now, updatedAt: request.now })
     .where(eq(questions.id, request.questionId))
     .run();
 }
@@ -420,10 +424,10 @@ export function recordDelivered(
 /** The Operative's own receipt. It resolves the question and releases the work that waited. */
 export function recordQuestionAcknowledgement(
   db: CrewWriter,
-  request: { questionId: string; now: string },
+  request: { questionId: string; state: QuestionState; now: string },
 ): void {
   db.update(questions)
-    .set({ state: "resolved", acknowledgedAt: request.now, updatedAt: request.now })
+    .set({ state: request.state, acknowledgedAt: request.now, updatedAt: request.now })
     .where(eq(questions.id, request.questionId))
     .run();
 }

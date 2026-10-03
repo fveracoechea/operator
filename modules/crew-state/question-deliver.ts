@@ -9,6 +9,7 @@ import {
   settleOperation,
 } from "./dispatch.ts";
 import { mutate, readState } from "./operations.ts";
+import { Question, type QuestionNext } from "./question-machine.ts";
 import {
   type AnswerRow,
   answerRecordOf,
@@ -50,6 +51,7 @@ type Prepared = {
   agentName: string;
   snapshot: Parameters<typeof OperativeDispatch.deliverAnswer>[0]["snapshot"];
   operation: OperationRow | null;
+  next: QuestionNext["deliver"];
 };
 
 /**
@@ -181,7 +183,7 @@ export async function deliverAnswer(request: {
         now,
       });
       if (state === "succeeded") {
-        recordDelivered(tx, { questionId: question.id, now });
+        recordDelivered(tx, { questionId: question.id, state: prepared.next, now });
       }
       // The write states when it happened, so the moment of delivery is never read back.
       return { commit: true, outcome: { status: "settled" as const, now } };
@@ -221,17 +223,9 @@ async function prepare(request: {
   }
 
   const question = found.question;
-  if (question.acknowledgedAt !== null) {
-    return {
-      status: "already-acknowledged",
-      questionId: question.id,
-      acknowledgedAt: question.acknowledgedAt,
-    };
-  }
-
-  const answerId = question.answerId;
-  if (answerId === null) {
-    return { status: "not-answered", questionId: question.id, state: question.state };
+  const decision = Question.decide("deliver", { row: question });
+  if ("refused" in decision) {
+    return decision.refused;
   }
 
   const read = await readContext(request.projectRoot, {
@@ -250,7 +244,7 @@ async function prepare(request: {
   }
 
   // A revision drops the answer it was given, so the recorded one always answers what is asked.
-  const answer = await readState(request.projectRoot, (db) => findAnswer(db, answerId));
+  const answer = await readState(request.projectRoot, (db) => findAnswer(db, question));
   if (answer.status !== "found") {
     return { status: "not-answered", questionId: question.id, state: question.state };
   }
@@ -267,6 +261,7 @@ async function prepare(request: {
     agentName: read.context.dispatch.agentName,
     snapshot: snapshot.snapshot,
     operation,
+    next: decision.next,
   };
 }
 
@@ -303,15 +298,9 @@ export async function acknowledgeAnswer(request: {
   }
 
   const question = found.question;
-  if (question.acknowledgedAt !== null) {
-    return {
-      status: "already-acknowledged",
-      questionId: question.id,
-      acknowledgedAt: question.acknowledgedAt,
-    };
-  }
-  if (question.deliveryOperationId === null) {
-    return { status: "not-delivered", questionId: question.id, state: question.state };
+  const decision = Question.decide("acknowledge", { row: question });
+  if ("refused" in decision) {
+    return decision.refused;
   }
 
   const read = await readContext(request.projectRoot, {
@@ -345,7 +334,7 @@ export async function acknowledgeAnswer(request: {
       input: { questionId: question.id, worktreePath: request.worktreePath },
     },
     ({ tx, now }) => {
-      recordQuestionAcknowledgement(tx, { questionId: question.id, now });
+      recordQuestionAcknowledgement(tx, { questionId: question.id, state: decision.next, now });
       if (delivery !== null && delivery.state !== "succeeded") {
         settleOperation(tx, {
           operationId: delivery.id,

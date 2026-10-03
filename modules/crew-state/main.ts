@@ -1,9 +1,8 @@
 import { readActivity } from "./activity.ts";
 import { grantApproval, matchApproval, revokeApproval } from "./approvals.ts";
 import { migrateState, planMigration } from "./migrate.ts";
-import { closeProcess } from "./cleanup-close.ts";
 import { holdInputSchema, placeHold, releaseHold } from "./cleanup-hold.ts";
-import { removeWorktree } from "./cleanup-remove.ts";
+import { runCleanup } from "./cleanup-run.ts";
 import { showCleanups } from "./cleanup-report.ts";
 import { acknowledgeAttempt } from "./dispatch-acknowledge.ts";
 import { adoptAttempt } from "./dispatch-adopt.ts";
@@ -914,7 +913,7 @@ export const CrewState = {
    * because disposal is a separate outcome with its own approval.
    */
   async close(request: Mutation & { attemptId: string }) {
-    const result = await closeProcess(request);
+    const result = await runCleanup(request, "process_closure");
     return { repeated: "repeated" in result && result.repeated === true, result };
   },
 
@@ -924,7 +923,7 @@ export const CrewState = {
    * accepted result, preserved evidence, remote copies of every commit, and a live approval.
    */
   async remove(request: Mutation & { attemptId: string }) {
-    const result = await removeWorktree(request);
+    const result = await runCleanup(request, "worktree_removal");
     return { repeated: "repeated" in result && result.repeated === true, result };
   },
 
