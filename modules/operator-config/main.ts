@@ -1,31 +1,40 @@
 import { z } from "zod";
-import { ConfigurationChange } from "./change.ts";
+import { ConfigApply } from "./apply.ts";
+import { apply, CONFIG_PATH, plan, recover, show } from "./change.ts";
 import { describeIssue, operatorConfigJsonSchema, operatorConfigSchema } from "./schema.ts";
 
-const SCHEMA_FILE_REFERENCE = "./config.schema.json";
-const CONFIG_PATH = ".operator/config.json";
 const SCHEMA_PATH = ".operator/config.schema.json";
 
 export const OperatorConfig = {
   /** Reads validated project settings and the effective agent selection. */
   async show(projectRoot: string) {
-    return ConfigurationChange.show(projectRoot);
+    return show(projectRoot);
   },
 
   /** Shows the exact bytes a configuration change would write before it is approved. */
-  async planChange(request: Parameters<typeof ConfigurationChange.plan>[0]) {
-    return ConfigurationChange.plan(request);
+  async planChange(request: Parameters<typeof plan>[0]) {
+    return plan(request);
   },
 
   /** Applies the approved change only while its inspected inputs still match. */
-  async applyChange(request: Parameters<typeof ConfigurationChange.apply>[0]) {
-    return ConfigurationChange.apply(request);
+  async applyChange(request: Parameters<typeof apply>[0]) {
+    return apply(request);
   },
 
   /** Reconciles an interrupted config apply without changing the configuration file. */
   async recoverChange(projectRoot: string) {
-    return ConfigurationChange.recover(projectRoot);
+    return recover(projectRoot);
   },
+
+  /**
+   * Pure. The config apply machine over the apply record: `absent | pending | complete | aborted
+   * | unreadable`, moved by `apply`, `write-verified`, `write-mismatch`, `config-stale`, and
+   * `recover`. It gives the next state and whether to record it, or a refusal.
+   */
+  decideApply(...request: Parameters<typeof ConfigApply.decide>) {
+    return ConfigApply.decide(...request);
+  },
+
   /** Validates untrusted configuration input and reports every issue with its field. */
   parse(input: unknown) {
     const result = operatorConfigSchema.safeParse(input);
@@ -56,10 +65,6 @@ export const OperatorConfig = {
 
   // Host and model stay unset so the agreed host user defaults apply.
   defaultFileText(): string {
-    return `${JSON.stringify({ $schema: SCHEMA_FILE_REFERENCE, operator: {}, crew: {} }, null, 2)}\n`;
-  },
-
-  schemaFileReference(): string {
-    return SCHEMA_FILE_REFERENCE;
+    return `${JSON.stringify({ $schema: "./config.schema.json", operator: {}, crew: {} }, null, 2)}\n`;
   },
 };
