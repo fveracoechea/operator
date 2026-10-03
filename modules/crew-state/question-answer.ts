@@ -7,7 +7,7 @@ import {
   answerInputSchema,
   escalationInputSchema,
   type EscalationTrigger,
-  HUMAN_ONLY_TRIGGERS,
+  unclosedBy,
 } from "./question-input.ts";
 import {
   BLOCKING_STATES,
@@ -19,6 +19,15 @@ import {
   recordEscalation,
   triggersOf,
 } from "./questions.ts";
+import {
+  copyRefusal,
+  prepareSource,
+  storeSource,
+  type PrepareOutcome,
+  type QuoteOutcome,
+  quoteSource,
+  type RecordedSource,
+} from "./requirement-source.ts";
 
 type Shared = StateFailure | RequestFailure;
 
@@ -51,23 +60,15 @@ type Refusal =
       authority: string;
     };
 
-/**
- * The subjects one authority cannot close, of those this question names.
- * A person's own answer closes anything. An Operator decision closes none of them. A recorded
- * requirement closes the three an approved source can state, and neither of the other two.
- */
-function unclosedBy(authority: string, triggers: EscalationTrigger[]): EscalationTrigger[] {
-  if (authority === "human-answer") {
-    return [];
-  }
-  if (authority === "operator-decision") {
-    return triggers;
-  }
+type QuoteRefusal = Exclude<QuoteOutcome, { status: "quoted" }>;
 
-  return triggers.filter((one) => HUMAN_ONLY_TRIGGERS.some((human) => human === one));
-}
-
-export type AnswerResult = (Recorded & { repeated: boolean }) | Refusal | InvalidInput | Shared;
+export type AnswerResult =
+  | (Recorded & { repeated: boolean })
+  | Refusal
+  | QuoteRefusal
+  | Exclude<PrepareOutcome, { status: "prepared" }>
+  | InvalidInput
+  | Shared;
 
 /**
  * Records the authoritative answer to one question revision.
@@ -89,7 +90,31 @@ export async function answerQuestion(request: {
   }
 
   const input = parsed.value;
-  const { repeated, result } = await mutate<Recorded | Refusal>(
+  // A quote that the copy refuses stores nothing. A copy that holds the quote is stored before
+  // the transaction, as a submission stores its artifacts. It is named by its content, so a
+  // repeated request writes the same bytes again.
+  const requirement =
+    input.authority === "requirement"
+      ? {
+          exactText: input.exactText,
+          prepared: await prepareSource({ projectRoot: request.projectRoot, source: input.source }),
+        }
+      : null;
+  if (requirement !== null) {
+    if (requirement.prepared.status !== "prepared") {
+      return requirement.prepared;
+    }
+    const refused = copyRefusal({
+      source: requirement.prepared.source,
+      exactText: requirement.exactText,
+    });
+    if (refused !== null) {
+      return refused;
+    }
+    await storeSource({ projectRoot: request.projectRoot, source: requirement.prepared.source });
+  }
+
+  const { repeated, result } = await mutate<Recorded | Refusal | QuoteRefusal>(
     {
       projectRoot: request.projectRoot,
       requestId: request.requestId,
@@ -123,10 +148,23 @@ export async function answerQuestion(request: {
         };
       }
 
+      let source: RecordedSource | null = null;
+      if (requirement !== null && requirement.prepared.status === "prepared") {
+        const quoted = quoteSource(tx, {
+          source: requirement.prepared.source,
+          exactText: requirement.exactText,
+        });
+        if (quoted.status !== "quoted") {
+          return { commit: false, outcome: quoted };
+        }
+        source = quoted.source;
+      }
+
       insertAnswer(tx, {
         answerId: request.answerId,
         question: row,
         input,
+        source,
         reusedFromId: null,
         approvalId: null,
         now,

@@ -22,6 +22,17 @@ export type WorkspaceOptions = {
   files?: Record<string, string>;
   /** Extra executables on the fixture path, such as the agent hosts a readiness check reads. */
   tools?: Record<string, string>;
+  /** The committed `operator-gate.json`, or null for a project that declares no gate. */
+  gate?: unknown;
+};
+
+/**
+ * The project gate each fixture commits, which the default submitted check satisfies. Its one
+ * command passes at once, so a gate run on a fixture base proves the run path and nothing else.
+ */
+export const FIXTURE_GATE = {
+  $schema: "./node_modules/@fveracoechea/operator/gate.schema.json",
+  commands: [{ name: "quality", argv: ["true"], timeoutSeconds: 1800 }],
 };
 
 /**
@@ -46,7 +57,9 @@ export function workspaces() {
         github: `${root}/github`,
         bin: `${root}/bin`,
       };
-      await Bun.$`mkdir -p ${workspace.repo} ${workspace.herdr} ${workspace.github} ${workspace.bin}`.quiet();
+      // Request files go in their own folder, because a file written next to an Operative
+      // worktree during an attempt is an outside change (ADR 0018).
+      await Bun.$`mkdir -p ${workspace.repo} ${workspace.herdr} ${workspace.github} ${workspace.bin} ${root}/inputs`.quiet();
       await Bun.$`cp ${fakeHerdrPath} ${workspace.bin}/herdr`.quiet();
       await Bun.$`chmod +x ${workspace.bin}/herdr`.quiet();
       // The GitHub fake answers as `gh` on the same path, so tracker commands reach it through
@@ -62,6 +75,10 @@ export function workspaces() {
       const config = options.config ?? { crew: { host: "claude-code" } };
       await Bun.write(`${workspace.repo}/.operator/config.json`, `${JSON.stringify(config)}\n`);
       await Bun.write(`${workspace.repo}/README.md`, "# Fixture\n");
+      const gate = options.gate === undefined ? FIXTURE_GATE : options.gate;
+      if (gate !== null) {
+        await Bun.write(`${workspace.repo}/operator-gate.json`, `${JSON.stringify(gate)}\n`);
+      }
       for (const [path, content] of Object.entries(options.files ?? {})) {
         await Bun.write(`${workspace.repo}/${path}`, content, { createPath: true });
       }
@@ -139,6 +156,19 @@ function fixturePath(bin: string): string {
       : directory,
   );
   return [bin, ...usable].join(":");
+}
+
+/**
+ * The environment that puts the GitHub fake on the path of one directory, for a test that
+ * builds its own project instead of a fixture repository. The fake keeps its state under
+ * `<directory>/github`.
+ */
+export async function githubFakeEnvironment(directory: string): Promise<Record<string, string>> {
+  const bin = `${directory}/bin`;
+  await Bun.$`mkdir -p ${bin} ${directory}/github`.quiet();
+  await Bun.write(`${bin}/gh`, `#!/bin/sh\nexec bun ${fakeGithubPath} "$@"\n`);
+  await Bun.$`chmod +x ${bin}/gh`.quiet();
+  return { PATH: fixturePath(bin), GH_FAKE_DIR: `${directory}/github` };
 }
 
 export async function runOperator(
@@ -241,12 +271,14 @@ export function requestId(): string {
 export type NextAction = {
   action: string;
   rank: number;
+  sourceId: string | null;
   assignmentId: string | null;
   attemptId: string | null;
   questionId: string | null;
   reviewId: string | null;
   revision: number | null;
   blocker: string | null;
+  planningRecords: Array<Record<string, unknown>> | null;
   detail: string;
   command: string;
 };
@@ -254,9 +286,11 @@ export type NextAction = {
 /** One wait of the next-actions contract. */
 export type NextWait = {
   wait: string;
-  assignmentId: string;
+  assignmentId: string | null;
+  sourceId: string | null;
   attemptId: string | null;
   agentName: string | null;
+  command: string | null;
   detail: string;
 };
 
@@ -313,4 +347,96 @@ export async function ownCrew(
       : ["--takeover", "--ownership-revision", String(options.takeoverFrom)]),
   ]);
   return taken.json.data.ownerToken;
+}
+
+/**
+ * Runs the project gate on one commit of one source through the real CLI. The Herdr fake types
+ * the runner line into its shell, so the real runner records each outcome before this returns.
+ */
+export async function runGate(
+  workspace: Workspace,
+  request: { ownerToken: string; commit: string; sourceId: string; approvalId?: string },
+) {
+  return runJson(workspace, [
+    "gate",
+    "run",
+    "--request",
+    requestId(),
+    "--owner-token",
+    request.ownerToken,
+    "--source",
+    request.sourceId,
+    "--commit",
+    request.commit,
+    ...(request.approvalId === undefined ? [] : ["--approval", request.approvalId]),
+  ]);
+}
+
+/**
+ * Passes the base gate that the first code dispatch of an attempt waits for, as the Operator
+ * does when `crew next` offers `run_gate`. Any other attempt is left as it is.
+ */
+export async function passBaseGate(
+  workspace: Workspace,
+  request: { ownerToken: string; attemptId: string; commit: string },
+) {
+  const next = await nextActions(workspace);
+  const owed = next.actions.find(
+    (one) => one.action === "run_gate" && one.attemptId === request.attemptId,
+  );
+  if (owed === undefined) {
+    return null;
+  }
+  const entries: Array<{ assignmentId: string; sourceId: string }> =
+    next.json.data.frontier.active ?? [];
+  const sourceId = entries.find((one) => one.assignmentId === owed.assignmentId)?.sourceId;
+  if (sourceId === undefined) {
+    throw new Error(`the frontier names no source for assignment ${owed.assignmentId}`);
+  }
+  const ran = await runGate(workspace, {
+    ownerToken: request.ownerToken,
+    commit: request.commit,
+    sourceId,
+  });
+  // The gate run is setup, so a test that reads the Herdr calls reads only what it drives next.
+  // A gate that cannot start is left for the dispatch to refuse, as a test of that refusal reads.
+  if (ran.json.reason === "gate_run_started") {
+    await rm(`${workspace.herdr}/calls.log`, { force: true });
+  }
+  return ran;
+}
+
+/**
+ * A Git on the fixture path that stops one CLI process at its first patch identity, which a landing
+ * plan reads after the branch tip. Only a process run with `env` stops, so a test can change the
+ * crew state between the plan and the transaction that checks it.
+ */
+export async function pausedGit(workspace: Workspace) {
+  const real = Bun.which("git");
+  const directory = `${workspace.root}/git-pause`;
+  await Bun.$`mkdir -p ${directory}`.quiet();
+  await Bun.write(
+    `${workspace.bin}/git`,
+    [
+      "#!/bin/sh",
+      'if [ -n "$GIT_PAUSE_DIR" ] && [ "$3" = "patch-id" ]; then',
+      '  : > "$GIT_PAUSE_DIR/reached"',
+      '  while [ ! -f "$GIT_PAUSE_DIR/release" ]; do sleep 0.05; done',
+      "fi",
+      `exec ${real} "$@"`,
+      "",
+    ].join("\n"),
+  );
+  await Bun.$`chmod +x ${workspace.bin}/git`.quiet();
+  return {
+    env: { GIT_PAUSE_DIR: directory },
+    async reached() {
+      while (!(await Bun.file(`${directory}/reached`).exists())) {
+        await Bun.sleep(50);
+      }
+    },
+    async release() {
+      await Bun.write(`${directory}/release`, "");
+    },
+  };
 }

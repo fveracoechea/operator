@@ -1,6 +1,10 @@
 import { CrewState } from "../crew-state/main.ts";
 import { runInvalidate } from "./invalidate-command.ts";
+import { runDispose } from "./outside-command.ts";
+import { landingRefusalOf } from "./landing-refusal.ts";
+import { runRebase } from "./rebase-command.ts";
 import { runRework } from "./rework-command.ts";
+import { runTakeOut } from "./take-out-command.ts";
 import { type ParsedArguments, readMutation, readRevision } from "./arguments.ts";
 import {
   readStructuredInput,
@@ -8,12 +12,144 @@ import {
   reportInvalidInput,
   reportSharedFailure,
 } from "./crew-result.ts";
-import { type Handled, refuse, report } from "./result.ts";
+import { type Handled, type Reason, refuse, report } from "./result.ts";
+import { isSourceRefusal, reportSourceRefusal } from "./source-result.ts";
+
+/** The plan and its file, as the preview returns them. The refusal of a registration gives both. */
+type PlanReport = Pick<
+  Extract<Awaited<ReturnType<typeof CrewState.planRegistration>>["result"], { status: "planned" }>,
+  "plan" | "planPath"
+>;
+
+/** Each refusal reason once, in the order it first appears, with how many times it appears. */
+function refusalSummary(refusals: PlanReport["plan"]["refusals"]) {
+  const counts = new Map<Reason, number>();
+  for (const one of refusals) {
+    counts.set(one.reason, (counts.get(one.reason) ?? 0) + 1);
+  }
+  return [...counts].map(([reason, count]) => ({ reason, count }));
+}
+
+/**
+ * Reports one registration plan as a summary and the path of the full plan. The Operator reads
+ * this report, so it carries counts and the path, and the crew or the person opens the file.
+ */
+function reportPlan(
+  parsed: ParsedArguments,
+  operation: "work_register" | "work_register_plan",
+  report_: PlanReport,
+  inputPath: string,
+): Handled {
+  const { plan, planPath } = report_;
+  const summary = refusalSummary(plan.refusals);
+  const refused = plan.refusals.length > 0;
+  const command = `operator work register --request <id> --owner-token <token> --input ${inputPath} --plan-revision ${plan.planRevision}`;
+  const count = (change: string) => plan.items.filter((one) => one.change === change).length;
+  const counts = {
+    new: count("new"),
+    updated: count("updated"),
+    unchanged: count("unchanged"),
+    withdrawn: plan.withdrawals.length,
+  };
+  report({
+    json: parsed.json,
+    result: {
+      outcome: refused ? "invalid" : "completed",
+      reason: refused ? "registration_refused" : "registration_planned",
+      blockers: summary,
+      operation,
+      data: {
+        source: plan.source,
+        planRevision: plan.planRevision,
+        counts: {
+          ...counts,
+          skipped: plan.skipped.length,
+          satisfiedBlockers: plan.satisfiedBlockers.length,
+          refusals: plan.refusals.length,
+        },
+        planPath,
+        approval: plan.approval,
+        command: refused ? null : command,
+      },
+    },
+    lines: [
+      `Plan ${plan.planRevision} for ${plan.source.id}:`,
+      `  ${counts.new} new, ${counts.updated} updated, ${counts.unchanged} unchanged item(s), ${plan.satisfiedBlockers.length} satisfied blocker(s), ${plan.skipped.length} closed sub-issue(s) not registered.`,
+      ...(plan.source.change === "changed"
+        ? ["  The parent issue changed, so this plan records a new source revision."]
+        : []),
+      ...(counts.withdrawn === 0
+        ? []
+        : [
+            `  ${counts.withdrawn} item(s) were removed from the parent, so this plan withdraws them.`,
+          ]),
+      ...(refused
+        ? [
+            `  ${plan.refusals.length} refusal(s): ${summary.map((one) => `${one.reason} x${one.count}`).join(", ")}.`,
+            "Nothing can be registered until each refusal is settled.",
+          ]
+        : [
+            ...(plan.approval === null
+              ? []
+              : [
+                  "Ask the person to approve this plan revision first. Only their approval of this exact revision records a changed source, a changed item, or a withdrawal.",
+                ]),
+            `Register it with: ${command}`,
+          ]),
+      `Every item, blocker, and refusal: ${planPath}`,
+    ],
+  });
+  return "reported";
+}
+
+async function runRegisterPlan(parsed: ParsedArguments, inputPath: string): Promise<Handled> {
+  // A preview changes nothing, so it carries no request identity, ownership, or revision.
+  const { inputPath: _input, ...otherCrewFlags } = parsed.crew;
+  if (Object.keys(otherCrewFlags).length > 0) {
+    return "invalid-arguments";
+  }
+
+  const read = await readStructuredInput({
+    parsed,
+    operation: "work_register_plan",
+    reason: "invalid_work_input",
+    path: inputPath,
+  });
+  if (read.status !== "read") {
+    return "reported";
+  }
+
+  const { result } = await CrewState.planRegistration({
+    projectRoot: process.cwd(),
+    input: read.value,
+  });
+  if (reportSharedFailure(parsed, "work_register_plan", result)) {
+    return "reported";
+  }
+  if (result.status === "invalid-input") {
+    return reportInvalidInput({
+      parsed,
+      operation: "work_register_plan",
+      reason: "invalid_work_input",
+      issues: result.issues,
+    });
+  }
+  return reportPlan(parsed, "work_register_plan", result, inputPath);
+}
 
 async function runRegister(parsed: ParsedArguments): Promise<Handled> {
-  const mutation = readMutation(parsed);
   const inputPath = parsed.crew.inputPath;
-  if (mutation === null || inputPath === undefined) {
+  if (inputPath === undefined) {
+    return "invalid-arguments";
+  }
+  if (parsed.plan) {
+    return runRegisterPlan(parsed, inputPath);
+  }
+
+  // A registration records only a plan that was previewed, so it names that plan's revision.
+  const mutation = readMutation(parsed);
+  const planRevision = parsed.crew.planRevision;
+  if (mutation === null || planRevision === undefined) {
     return "invalid-arguments";
   }
 
@@ -27,10 +163,11 @@ async function runRegister(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
-  const { repeated, result } = await CrewState.register({
+  const { repeated, result, planPath } = await CrewState.register({
     projectRoot: process.cwd(),
     ...mutation,
     input: read.value,
+    planRevision,
   });
 
   if (reportSharedFailure(parsed, "work_register", result)) {
@@ -46,75 +183,51 @@ async function runRegister(parsed: ParsedArguments): Promise<Handled> {
     });
   }
 
-  if (result.status === "source-revision-changed") {
+  if (result.status === "plan-revision-changed") {
     return refuse({
       json: parsed.json,
       operation: "work_register",
       outcome: "conflict",
-      reason: "source_revision_changed",
+      reason: "plan_revision_changed",
       detail: {
-        sourceId: result.sourceId,
-        recordedRevision: result.recordedRevision,
-        requestedRevision: result.requestedRevision,
-        fixedAssignments: result.fixedAssignments,
-      },
-      lines: [
-        `${result.sourceId} is registered at revision ${result.recordedRevision}.`,
-        "Assignment inputs stay fixed, so a changed source needs your decision.",
-      ],
-    });
-  }
-
-  if (result.status === "unknown-dependency") {
-    return refuse({
-      json: parsed.json,
-      operation: "work_register",
-      outcome: "invalid",
-      reason: "unknown_dependency",
-      detail: {
-        sourceKey: result.sourceKey,
-        dependency: result.dependency,
-      },
-      lines: [
-        `Item ${result.sourceKey} depends on ${result.dependency.key}, which is not registered.`,
-      ],
-    });
-  }
-
-  if (result.status === "dependencies-changed") {
-    return refuse({
-      json: parsed.json,
-      operation: "work_register",
-      outcome: "conflict",
-      reason: "dependencies_changed",
-      detail: {
-        sourceKey: result.sourceKey,
-        assignmentId: result.assignmentId,
-        recorded: result.recorded,
         requested: result.requested,
+        found: result.found,
+        differences: result.differences,
       },
       lines: [
-        `Item ${result.sourceKey} is registered with different dependencies.`,
-        "Assignment dependencies stay fixed, so a changed dependency needs your decision.",
+        `The tracker or the input changed since plan ${result.requested}, so nothing was registered.`,
+        ...(result.differences === null
+          ? ["This checkout holds no preview of that plan, so the change cannot be named."]
+          : result.differences.map((one) => `  ${one.part} ${one.key} ${one.change}`)),
+        "Preview it again with --plan, and register the new plan revision.",
       ],
     });
   }
 
-  if (result.status === "dependency-cycle") {
+  if (result.status === "approval-required") {
     report({
       json: parsed.json,
       result: {
-        outcome: "invalid",
-        reason: "dependency_cycle",
-        blockers: [{ reason: "dependency_cycle", cycle: result.cycle }],
+        outcome: "missing-condition",
+        reason: "approval_required",
+        blockers: [{ reason: "approval_required", approval: result.approval }],
         operation: "work_register",
       },
       lines: [
-        "These dependencies form a cycle, so nothing was registered:",
-        `  ${result.cycle.join(" -> ")}`,
+        `Plan ${result.approval.requestRevision} records a changed source, a changed item, or a withdrawal, so nothing was registered.`,
+        "Ask the person to approve this exact plan revision, then register it again.",
       ],
     });
     return "reported";
+  }
+
+  if (result.status === "refused") {
+    return reportPlan(
+      parsed,
+      "work_register",
+      { plan: result.plan, planPath: planPath ?? "" },
+      inputPath,
+    );
   }
 
   report({
@@ -126,20 +239,28 @@ async function runRegister(parsed: ParsedArguments): Promise<Handled> {
       operation: "work_register",
       data: {
         source: result.source,
-        registered: result.registered,
-        existing: result.existing,
+        planRevision: result.planRevision,
+        counts: {
+          registered: result.registered.length,
+          updated: result.updated.length,
+          withdrawn: result.withdrawn.length,
+        },
+        overlaps: result.overlaps,
+        branchReview: result.branchReview,
         repeated,
+        frontier: "operator work frontier",
       },
     },
     lines: [
-      `Registered ${result.registered.length} assignment(s) from ${result.source.id}.`,
-      ...result.registered.map(
-        (one) =>
-          `  ${one.assignmentId} ${one.kind}${one.executable ? "" : " (planning only)"} ${one.title}`,
-      ),
-      ...(result.existing.length === 0
+      `Registered ${result.registered.length} new, ${result.updated.length} updated, and ${result.withdrawn.length} withdrawn assignment(s) from ${result.source.id}.`,
+      "List each assignment with: operator work frontier",
+      ...(result.overlaps.pairCount === 0
         ? []
-        : [`${result.existing.length} item(s) were already registered and stay fixed.`]),
+        : [
+            `${result.overlaps.pairCount} pair(s) of items write overlapping paths: ${result.overlaps.sourceKeys.join(", ")}.`,
+            `List them with: ${result.overlaps.command}`,
+          ]),
+      ...branchReviewLines(result.branchReview),
     ],
   });
   return "reported";
@@ -193,6 +314,20 @@ async function runClaim(parsed: ParsedArguments): Promise<Handled> {
         operation: "work_claim",
       },
       lines: [`Assignment ${result.assignmentId} is already accepted.`],
+    });
+    return "reported";
+  }
+
+  if (result.status === "withdrawn") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "conflict",
+        reason: "assignment_withdrawn",
+        blockers: [{ reason: "assignment_withdrawn", assignmentId: result.assignmentId }],
+        operation: "work_claim",
+      },
+      lines: [`Assignment ${result.assignmentId} was withdrawn, so it never starts again.`],
     });
     return "reported";
   }
@@ -360,28 +495,210 @@ function reportAcceptancePrerequisite(
     });
     return "reported";
   }
+  // A planning acceptance has prerequisites of its own: its dependencies and its record.
+  return reportPlanningRefusal(parsed, result);
+}
+
+/** Planning work names its planning record with --input. Other work names none. */
+async function readPlanningRecord(
+  parsed: ParsedArguments,
+): Promise<{ status: "read"; value: unknown } | { status: "reported" }> {
+  const inputPath = parsed.crew.inputPath;
+  return inputPath === undefined
+    ? { status: "read", value: null }
+    : readStructuredInput({
+        parsed,
+        operation: "work_accept",
+        reason: "invalid_planning_record",
+        path: inputPath,
+      });
+}
+
+/** The refusals of a planning acceptance: its dependencies, its record, and its authority. */
+function reportPlanningRefusal(parsed: ParsedArguments, result: AcceptanceResult): Handled | null {
+  if (result.status === "invalid-input") {
+    return reportInvalidInput({
+      parsed,
+      operation: "work_accept",
+      reason: "invalid_planning_record",
+      issues: result.issues,
+    });
+  }
+  if (isSourceRefusal(result)) {
+    return reportSourceRefusal(parsed, "work_accept", result);
+  }
+  if (result.status === "artifact-unreadable" || result.status === "artifact-identity-changed") {
+    const unreadable = result.status === "artifact-unreadable";
+    return refuse({
+      json: parsed.json,
+      operation: "work_accept",
+      outcome: unreadable ? "missing-condition" : "conflict",
+      reason: unreadable ? "artifact_unreadable" : "artifact_identity_changed",
+      detail: unreadable
+        ? { name: result.name, path: result.path }
+        : { name: result.name, path: result.path, found: result.found },
+      lines: [
+        unreadable
+          ? `Artifact ${result.name} cannot be read at ${result.path}.`
+          : `Artifact ${result.name} at ${result.path} does not match the identity you stated.`,
+        "A planning record holds fixed texts, so nothing was accepted.",
+      ],
+    });
+  }
+
+  if (result.status === "dependency-pending") {
+    return refuse({
+      json: parsed.json,
+      operation: "work_accept",
+      outcome: "missing-condition",
+      reason: "dependency_pending",
+      detail: { assignmentId: result.assignmentId, dependencies: result.dependencies },
+      lines: [
+        `Assignment ${result.assignmentId} waits on work that is not accepted:`,
+        ...result.dependencies.map((one) => `  ${one.assignmentId} (${one.state})`),
+        "A decision is taken only on accepted inputs.",
+      ],
+    });
+  }
+
+  if (result.status === "planning-record-required") {
+    return refuse({
+      json: parsed.json,
+      operation: "work_accept",
+      outcome: "missing-condition",
+      reason: "planning_record_required",
+      detail: { assignmentId: result.assignmentId },
+      lines: [
+        `Assignment ${result.assignmentId} is planning work, so its acceptance records a planning record.`,
+        "Name the record with --input. Its dependents receive it.",
+      ],
+    });
+  }
+
+  if (result.status === "planning-record-not-expected") {
+    return refuse({
+      json: parsed.json,
+      operation: "work_accept",
+      outcome: "invalid",
+      reason: "planning_record_not_expected",
+      detail: { assignmentId: result.assignmentId },
+      lines: [`Assignment ${result.assignmentId} is not planning work, so it records no decision.`],
+    });
+  }
+
+  if (result.status === "operator-decision-not-allowed") {
+    return refuse({
+      json: parsed.json,
+      operation: "work_accept",
+      outcome: "missing-condition",
+      reason: "operator_decision_not_allowed",
+      detail: {
+        assignmentId: result.assignmentId,
+        entry: result.entry,
+        planningType: result.planningType,
+      },
+      lines: [
+        `Entry ${result.entry}: ${result.planningType ?? "this planning work"} is the user's side of a decision, so no entry is an Operator decision.`,
+        "Record the user's answer as a human answer, or quote an approved source as a requirement.",
+      ],
+    });
+  }
+
+  if (result.status === "escalation-required") {
+    return refuse({
+      json: parsed.json,
+      operation: "work_accept",
+      outcome: "missing-condition",
+      reason: "escalation_required",
+      detail: {
+        assignmentId: result.assignmentId,
+        entry: result.entry,
+        authority: result.authority,
+        escalationTriggers: result.escalationTriggers,
+      },
+      lines: [
+        `Entry ${result.entry} names subjects a ${result.authority} cannot settle:`,
+        ...result.escalationTriggers.map((one) => `  ${one}`),
+        "Bring it to the user and record their answer as a human answer.",
+      ],
+    });
+  }
+
   return null;
 }
 
-async function runAccept(parsed: ParsedArguments): Promise<Handled> {
+type AcceptRequest = Parameters<typeof CrewState.accept>[0];
+
+/** Reads every argument of one acceptance, with the planning record that planning work names. */
+async function readAcceptRequest(
+  parsed: ParsedArguments,
+): Promise<{ status: "read"; request: AcceptRequest } | Handled> {
   const mutation = readMutation(parsed);
   const assignmentId = parsed.crew.assignmentId;
-  // Planning work carries no attempt, so the attempt is optional here and checked by kind.
-  const attemptId = parsed.crew.attemptId ?? null;
   const revision = readRevision(parsed);
   if (mutation === null || assignmentId === undefined || revision === null) {
     return "invalid-arguments";
   }
 
-  const { repeated, result } = await CrewState.accept({
-    projectRoot: process.cwd(),
-    ...mutation,
-    assignmentId,
-    attemptId,
-    revision,
-    submissionId: parsed.crew.submissionId ?? null,
-    prHead: parsed.crew.prHead ?? null,
-  });
+  const record = await readPlanningRecord(parsed);
+  if (record.status !== "read") {
+    return "reported";
+  }
+
+  return {
+    status: "read",
+    request: {
+      projectRoot: process.cwd(),
+      ...mutation,
+      assignmentId,
+      // Planning work carries no attempt, so the attempt is optional here and checked by kind.
+      attemptId: parsed.crew.attemptId ?? null,
+      revision,
+      submissionId: parsed.crew.submissionId ?? null,
+      planningRecord: record.value,
+    },
+  };
+}
+
+/** Reports a landing that stopped. Nothing landed and nothing was recorded, except an open intent. */
+function reportLandingRefusal(parsed: ParsedArguments, result: AcceptanceResult): Handled | null {
+  switch (result.status) {
+    case "integration-branch-missing":
+    case "integration-branch-moved":
+    case "integration-branch-checked-out":
+    case "integration-branch-unread":
+    case "landing-conflict":
+    case "landing-patch-changed":
+    case "landing-gate-not-passed":
+    case "landing-pending":
+    case "rebase-pending":
+    case "rewrite-published-range":
+    case "rewrite-tracker-recorded":
+    case "take-out-pending":
+    case "landing-tip-changed": {
+      const { outcome, reason, lines } = landingRefusalOf(result, "accept");
+      const { status: _status, ...detail } = result;
+      return refuse({
+        json: parsed.json,
+        operation: "work_accept",
+        outcome,
+        reason,
+        detail,
+        lines: [...lines, "Nothing was accepted."],
+      });
+    }
+    default:
+      return null;
+  }
+}
+
+async function runAccept(parsed: ParsedArguments): Promise<Handled> {
+  const read = await readAcceptRequest(parsed);
+  if (typeof read === "string") {
+    return read;
+  }
+
+  const { repeated, result } = await CrewState.accept(read.request);
 
   if (
     reportSharedFailure(parsed, "work_accept", result) ||
@@ -452,6 +769,34 @@ async function runAccept(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
+  if (result.status === "outside-changes-undisposed") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "missing-condition",
+        reason: "outside_changes_undisposed",
+        blockers: [
+          {
+            reason: "outside_changes_undisposed",
+            submissionId: result.submissionId,
+            count: result.changeIds.length,
+            security: result.security,
+          },
+        ],
+        operation: "work_accept",
+      },
+      // The Operator reads a summary here, and the review shows each change.
+      lines: [
+        `${result.changeIds.length} outside change(s) of submission ${result.submissionId} carry no disposition.`,
+        ...(result.security === 0
+          ? []
+          : [`${result.security} of them touch a security permission, so the user decides them.`]),
+        "Read them with `operator review show`, then record each one with `operator work dispose`.",
+      ],
+    });
+    return "reported";
+  }
+
   if (result.status === "checks-unproven") {
     report({
       json: parsed.json,
@@ -493,23 +838,6 @@ async function runAccept(parsed: ParsedArguments): Promise<Handled> {
       ],
     });
     return "reported";
-  }
-
-  if (result.status === "pr-authority-missing") {
-    return refuse({
-      json: parsed.json,
-      operation: "work_accept",
-      outcome: "missing-condition",
-      reason: "pr_authority_missing",
-      detail: {
-        assignmentId: result.assignmentId,
-        detail: result.detail,
-      },
-      lines: [
-        "This implementation carries no pull request, so it cannot be accepted.",
-        result.detail,
-      ],
-    });
   }
 
   if (result.status === "direction-required") {
@@ -562,40 +890,19 @@ async function runAccept(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
-  if (result.status === "pr-head-required" || result.status === "pr-head-changed") {
-    const required = result.status === "pr-head-required";
-    const blocker = required
-      ? {
-          reason: "pr_head_required" as const,
-          assignmentId: result.assignmentId,
-          recorded: result.headCommit,
-        }
-      : {
-          reason: "pr_head_changed" as const,
-          assignmentId: result.assignmentId,
-          recorded: result.recorded,
-          stated: result.stated,
-        };
-    report({
-      json: parsed.json,
-      result: {
-        outcome: required ? "missing-condition" : "conflict",
-        reason: required ? "pr_head_required" : "pr_head_changed",
-        blockers: [blocker],
-        operation: "work_accept",
-      },
-      lines: [
-        required
-          ? `Name the pull request head you read with --pr-head. The submission stated ${result.headCommit}.`
-          : `You read head ${result.stated}. The submission stated ${result.recorded}.`,
-        "Evidence binds to the revision it was proven against.",
-        "Operator does not read the pull request itself, so the head you name is the head it checks.",
-      ],
-    });
-    return "reported";
-  }
+  const landing = reportLandingRefusal(parsed, result);
+  if (landing !== null) return landing;
 
-  if (result.status !== "accepted") return "invalid-arguments";
+  return result.status === "accepted"
+    ? reportAccepted(parsed, result, repeated)
+    : "invalid-arguments";
+}
+
+function reportAccepted(
+  parsed: ParsedArguments,
+  result: Extract<AcceptanceResult, { status: "accepted" }>,
+  repeated: boolean,
+): Handled {
   report({
     json: parsed.json,
     result: {
@@ -607,12 +914,45 @@ async function runAccept(parsed: ParsedArguments): Promise<Handled> {
         assignmentId: result.assignmentId,
         attemptId: result.attemptId,
         revision: result.revision,
+        planningRecordId: result.planningRecordId,
+        landing: result.landing,
+        branchReview: result.branchReview,
         repeated,
       },
     },
-    lines: [`Accepted ${result.assignmentId}. Its dependents can now start.`],
+    lines: [
+      `Accepted ${result.assignmentId}. Its dependents can now start.`,
+      ...(result.landing === null
+        ? []
+        : [
+            result.landing.from === result.landing.to
+              ? `The branch ${result.landing.branch} already holds the reviewed patch in ${result.landing.landed}, so nothing landed.`
+              : `Landed ${result.landing.landed} on ${result.landing.branch} (${result.landing.kind}).`,
+          ]),
+      ...(result.planningRecordId === null
+        ? []
+        : [`Recorded planning record ${result.planningRecordId}.`]),
+      ...branchReviewLines(result.branchReview),
+    ],
   });
   return "reported";
+}
+
+/** What one registered branch review owes, in one line or two. */
+export function branchReviewLines(
+  registered: Extract<AcceptanceResult, { status: "accepted" }>["branchReview"],
+): string[] {
+  if (registered === null) {
+    return [];
+  }
+  return [
+    `The integration branch is final, so branch review ${registered.reviewId} is registered as ${registered.assignmentId} at head ${registered.headCommit}.`,
+    ...(registered.direction === null
+      ? []
+      : [
+          `This source already holds ${registered.direction.evidence.used} branch reviews that reported, so this one waits on direction request ${registered.direction.directionRequestId}.`,
+        ]),
+  ];
 }
 
 async function runFrontier(parsed: ParsedArguments): Promise<Handled> {
@@ -679,6 +1019,202 @@ async function runFrontier(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
+async function runOverlaps(parsed: ParsedArguments): Promise<Handled> {
+  const sourceId = parsed.crew.sourceId;
+  if (sourceId === undefined) {
+    return "invalid-arguments";
+  }
+
+  const { result } = await CrewState.overlaps({ projectRoot: process.cwd(), sourceId });
+  if (reportSharedFailure(parsed, "work_overlaps", result)) {
+    return "reported";
+  }
+
+  if (result.status === "unknown-source") {
+    return refuse({
+      json: parsed.json,
+      operation: "work_overlaps",
+      outcome: "invalid",
+      reason: "unknown_source",
+      detail: { sourceId: result.sourceId },
+      lines: [`No source is registered as ${result.sourceId}.`],
+    });
+  }
+
+  report({
+    json: parsed.json,
+    result: {
+      outcome: "completed",
+      reason: "overlaps_reported",
+      blockers: [],
+      operation: "work_overlaps",
+      data: { sourceId: result.sourceId, overlaps: result.overlaps },
+    },
+    lines: [
+      result.overlaps.length === 0
+        ? `No two items of ${result.sourceId} write overlapping paths.`
+        : `These items of ${result.sourceId} write overlapping paths:`,
+      ...result.overlaps.map(
+        (one) =>
+          `  ${one.sourceKeys.join(" and ")}: ${one.paths.map((pair) => pair.join(" with ")).join(", ")}`,
+      ),
+    ],
+  });
+  return "reported";
+}
+
+async function runWritePaths(parsed: ParsedArguments): Promise<Handled> {
+  const { assignmentId, inputPath } = parsed.crew;
+  if (assignmentId === undefined) {
+    return "invalid-arguments";
+  }
+
+  let input: unknown = null;
+  if (inputPath !== undefined) {
+    const read = await readStructuredInput({
+      parsed,
+      operation: "work_write_paths",
+      reason: "invalid_write_paths_input",
+      path: inputPath,
+    });
+    if (read.status !== "read") {
+      return "reported";
+    }
+    input = read.value;
+  }
+
+  const { result } = await CrewState.writePaths({
+    projectRoot: process.cwd(),
+    assignmentId,
+    input,
+  });
+  if (reportSharedFailure(parsed, "work_write_paths", result)) {
+    return "reported";
+  }
+  if (reportAssignmentFailure(parsed, "work_write_paths", result)) {
+    return "reported";
+  }
+  if (result.status === "invalid-input") {
+    return reportInvalidInput({
+      parsed,
+      operation: "work_write_paths",
+      reason: "invalid_write_paths_input",
+      issues: result.issues,
+    });
+  }
+  if (result.status === "not-production") {
+    return refuse({
+      json: parsed.json,
+      operation: "work_write_paths",
+      outcome: "invalid",
+      reason: "not_production_work",
+      detail: { assignmentId: result.assignmentId, kind: result.kind },
+      lines: [
+        `Assignment ${result.assignmentId} is ${result.kind} work, and it holds no write paths.`,
+      ],
+    });
+  }
+
+  const { status: _status, ...data } = result;
+  const grant = result.grant;
+  report({
+    json: parsed.json,
+    result: {
+      outcome: "completed",
+      reason: "write_paths_reported",
+      blockers: [],
+      operation: "work_write_paths",
+      data,
+    },
+    lines: [
+      `Assignment ${result.assignmentId} writes only inside these paths:`,
+      ...result.effective.map(
+        (one) => `  ${one}${result.registered.includes(one) ? "" : " (granted)"}`,
+      ),
+      ...(grant === null
+        ? []
+        : [
+            "Only the person grants more write paths. Ask them with these exact words:",
+            `  action "${grant.approval.action}", targets ${grant.approval.targets.join(", ")}, scope "${grant.approval.scope}", requestRevision "${grant.approval.requestRevision}".`,
+            ...(grant.overlaps.length === 0
+              ? ["The grant overlaps no started assignment of this source."]
+              : [
+                  "The grant overlaps these started assignments of this source. Both keep running, and acceptance can refuse a patch that changed:",
+                  ...grant.overlaps.map(
+                    (one) =>
+                      `  ${one.sourceKey} (${one.assignmentId}): ${one.pathPairCount} pair(s) of paths`,
+                  ),
+                  `After the grant, list each pair with: ${grant.command}`,
+                ]),
+          ]),
+    ],
+  });
+  return "reported";
+}
+
+/** Prints one planning record in full, for the crew. The Operator reads only its pointer. */
+async function runRecord(parsed: ParsedArguments): Promise<Handled> {
+  const assignmentId = parsed.crew.assignmentId;
+  if (assignmentId === undefined) {
+    return "invalid-arguments";
+  }
+
+  const { result } = await CrewState.planningRecord({
+    projectRoot: process.cwd(),
+    assignmentId,
+    recordId: parsed.crew.recordId ?? null,
+  });
+  if (reportSharedFailure(parsed, "work_record", result)) {
+    return "reported";
+  }
+
+  if (result.status === "unknown-assignment") {
+    return refuse({
+      json: parsed.json,
+      operation: "work_record",
+      outcome: "invalid",
+      reason: "unknown_assignment",
+      detail: { assignmentId: result.assignmentId },
+      lines: [`No assignment is registered as ${result.assignmentId}.`],
+    });
+  }
+
+  if (result.status === "planning-record-missing") {
+    return refuse({
+      json: parsed.json,
+      operation: "work_record",
+      outcome: "missing-condition",
+      reason: "planning_record_missing",
+      detail: { assignmentId: result.assignmentId, recordId: result.recordId },
+      lines: [
+        result.recordId === null
+          ? `Assignment ${result.assignmentId} holds no planning record.`
+          : `Assignment ${result.assignmentId} holds no planning record ${result.recordId}.`,
+      ],
+    });
+  }
+
+  const { record } = result;
+  report({
+    json: parsed.json,
+    result: {
+      outcome: "completed",
+      reason: "planning_record_reported",
+      blockers: [],
+      operation: "work_record",
+      data: { record, recordIds: result.recordIds },
+    },
+    lines: [
+      `Planning record ${record.recordId} of ${record.assignmentId}, identity ${record.identity}.`,
+      ...record.entries.map(
+        (entry, index) => `  ${index + 1}. ${entry.question} (${entry.authority})`,
+      ),
+      ...record.artifacts.map((artifact) => `  Artifact ${artifact.name}: ${artifact.storedPath}`),
+    ],
+  });
+  return "reported";
+}
+
 export async function runWork(words: string[], parsed: ParsedArguments): Promise<Handled> {
   if (words.length !== 1) {
     return "invalid-arguments";
@@ -691,17 +1227,35 @@ export async function runWork(words: string[], parsed: ParsedArguments): Promise
   if (subcommand === "claim") {
     return runClaim(parsed);
   }
+  if (subcommand === "rebase") {
+    return runRebase(parsed);
+  }
   if (subcommand === "accept") {
     return runAccept(parsed);
   }
   if (subcommand === "rework") {
     return runRework(parsed);
   }
+  if (subcommand === "take-out") {
+    return runTakeOut(parsed);
+  }
   if (subcommand === "invalidate") {
     return runInvalidate(parsed);
   }
+  if (subcommand === "dispose") {
+    return runDispose(parsed);
+  }
   if (subcommand === "frontier") {
     return runFrontier(parsed);
+  }
+  if (subcommand === "overlaps") {
+    return runOverlaps(parsed);
+  }
+  if (subcommand === "write-paths") {
+    return runWritePaths(parsed);
+  }
+  if (subcommand === "record") {
+    return runRecord(parsed);
   }
 
   return "invalid-arguments";

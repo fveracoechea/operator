@@ -25,6 +25,11 @@ const reasonOfBlocker = {
   cleanup_blocked: "cleanup_blocked",
   cleanup_failed: "cleanup_failed",
   cleanup_uncertain: "cleanup_uncertain",
+  gate_failed: "gate_failed",
+  gate_flaky: "gate_flaky",
+  publish_conflict: "publish_conflict",
+  publish_failed: "publish_failed",
+  stack_fault: "stack_fault",
 } as const satisfies Record<NextBlocker, Reason>;
 
 function actionLines(actions: NextAction[]): string[] {
@@ -48,7 +53,8 @@ function waitLines(waits: Next["waits"]): string[] {
         "Waiting:",
         ...waits.map(
           (one) =>
-            `  ${one.detail}${one.agentName === null ? "" : `\n    Agent: ${one.agentName}`}`,
+            `  ${one.detail}${one.agentName === null ? "" : `\n    Agent: ${one.agentName}`}` +
+            `${one.command === null ? "" : `\n    Run when the user reports it: ${one.command}`}`,
         ),
       ];
 }
@@ -150,9 +156,12 @@ export async function runCrewNext(parsed: ParsedArguments): Promise<Handled> {
     selection.state === "read" && selection.selection.delivery === "jsr"
       ? "bun run operator"
       : "operator";
+  const command = (text: string) => text.replace(/^operator(?=\s|$)/, invocation);
   const actions = result.actions.map((action) => ({
     ...action,
-    command: action.command.replace(/^operator(?=\s|$)/, invocation),
+    command: command(action.command),
+    planningRecords:
+      action.planningRecords?.map((one) => ({ ...one, command: command(one.command) })) ?? null,
   }));
   const { waits } = result;
   report({

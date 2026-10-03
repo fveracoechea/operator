@@ -1,7 +1,10 @@
 import { OperativeDispatch } from "../operative-dispatch/main.ts";
+import { launchedRecordIds } from "./planning-record.ts";
 import { ProjectReadiness } from "../project-readiness/main.ts";
 import {
   type AttemptFailure,
+  briefGate,
+  type GateUnusable,
   briefOf,
   type DispatchPlan,
   type DispatchReport,
@@ -12,12 +15,26 @@ import {
   type Shared,
   type Snapshot,
 } from "./dispatch-context.ts";
+import {
+  type BasePassed,
+  checkBaseGate,
+  type BaseGateRefusal,
+  type BaseUnread,
+} from "./gate-base.ts";
+import {
+  createIntegrationBranch,
+  type IntegrationFix,
+  type IntegrationRefusal,
+  integrationStart,
+  recordIntegrationBranch,
+} from "./integration.ts";
 import { record } from "./operations.ts";
 import {
   DISPATCH_STAGES,
   type DispatchStage,
   type OperationRow,
   openOperation,
+  recordOutsideScan,
   recordPlan,
   settleOperation,
 } from "./dispatch.ts";
@@ -41,8 +58,13 @@ export type DispatchResult =
   | { status: "commit-required"; attemptId: string }
   | { status: "workspace-required"; attemptId: string; detail: string }
   | { status: "review-base-changed"; attemptId: string; recorded: string; requested: string }
+  | { status: "correction-base-changed"; attemptId: string; recorded: string; requested: string }
   | { status: "host-unnamed"; attemptId: string }
   | { status: "effort-unsupported"; attemptId: string; detail: string }
+  | GateUnusable
+  | BaseGateRefusal
+  | BaseUnread
+  | IntegrationRefusal
   | AttemptFailure
   | Shared;
 
@@ -189,13 +211,41 @@ export async function dispatchAttempt(request: {
     }
   }
 
-  const baseCommit = recorded?.baseCommit ?? request.baseCommit;
+  // A production dispatch of a source with an integration branch starts from its recorded tip,
+  // and a branch that moved outside this protocol stops it (ADR 0020).
+  const integration = await integrationStart({
+    projectRoot: request.projectRoot,
+    context: read.context,
+    attemptId,
+    requested: request.baseCommit,
+    planned: recorded !== null,
+  });
+  if (integration.status !== "ok") {
+    return integration;
+  }
+
+  // A correction of a landed commit takes the place of that commit, so it starts on the parent
+  // that the invalidation recorded, and a dispatch that names no commit starts there.
+  const correctionBase = read.context.rework?.brief.invalidation?.startCommit ?? null;
+  // A branch review reads one recorded head and no other, so a dispatch that names no commit
+  // starts there (ADR 0017).
+  const branchHead = read.context.branchReview?.snapshot.headCommit ?? null;
+  const baseCommit =
+    recorded?.baseCommit ?? integration.start ?? request.baseCommit ?? correctionBase ?? branchHead;
   if (baseCommit === null) {
     return { status: "commit-required", attemptId };
   }
+  if (correctionBase !== null && baseCommit !== correctionBase) {
+    return {
+      status: "correction-base-changed",
+      attemptId,
+      recorded: correctionBase,
+      requested: baseCommit,
+    };
+  }
 
   // A review reads the exact commit the result was submitted on, never a later one.
-  const reviewBase = read.context.review?.submission.reviewBase ?? null;
+  const reviewBase = read.context.review?.submission.reviewBase ?? branchHead;
   if (reviewBase !== null && baseCommit !== reviewBase) {
     return {
       status: "review-base-changed",
@@ -221,9 +271,35 @@ export async function dispatchAttempt(request: {
     return { status: "plan-changed", attemptId, recorded: changed[1], computed: changed[0] ?? "" };
   }
 
+  const gate = await briefGate({
+    projectRoot: request.projectRoot,
+    context: read.context,
+    attemptId,
+    baseCommit,
+  });
+  if (gate.status !== "ok") {
+    return gate;
+  }
+
+  // A recorded plan fixed its base already, so only a new launch reads the base gate.
+  let passed: BasePassed | null = null;
+  if (recorded === null) {
+    const base = await checkBaseGate({
+      projectRoot: request.projectRoot,
+      context: read.context,
+      attemptId,
+      baseCommit,
+    });
+    if (base.status !== "ok") {
+      return base;
+    }
+    passed = base.base;
+  }
+
+  const brief = briefOf(read.context, attemptId, gate.gate);
   const launch = OperativeDispatch.plan({
     projectRoot: request.projectRoot,
-    brief: briefOf(read.context, attemptId),
+    brief,
     snapshot,
     baseCommit,
     branch: recorded?.branch ?? request.branch,
@@ -245,6 +321,23 @@ export async function dispatchAttempt(request: {
       recorded: recorded.promptIdentity,
       computed: plan.promptIdentity,
     };
+  }
+
+  // The first code dispatch creates the integration branch at a base that passed, just before its
+  // plan is recorded with it. Nothing pushes the branch.
+  let fix: IntegrationFix | null = null;
+  if (passed !== null) {
+    const created = await createIntegrationBranch({
+      projectRoot: request.projectRoot,
+      sourceId: read.context.assignment.sourceId,
+      attemptId,
+      commit: passed.commit,
+      gate: passed.gate,
+    });
+    if (created.status !== "created") {
+      return created;
+    }
+    fix = created.fix;
   }
 
   if (recorded === null) {
@@ -270,9 +363,13 @@ export async function dispatchAttempt(request: {
           agentName: plan.agentName,
           agentKind: plan.agentKind,
           agentHost: plan.agentHost,
+          planningRecordIds: launchedRecordIds(brief.planningRecords),
           workspaceId: null,
           now,
         });
+        if (fix !== null) {
+          recordIntegrationBranch(tx, { sourceId: read.context.assignment.sourceId, fix, now });
+        }
         return { commit: true, outcome: { status: "recorded" as const } };
       },
     );
@@ -325,6 +422,15 @@ export async function dispatchAttempt(request: {
     // repeated dispatch is never mistaken for a replay of the stage it is about to perform.
     const pass = crypto.randomUUID();
     const operationId = existing?.id ?? pass;
+    // The "before" scan of a production attempt is taken after the worktree exists, so the new
+    // checkout is not an outside change, and it is recorded with the intent of the start.
+    const outsideScan =
+      existing === null && stage === "agent_start" && read.context.assignment.kind === "production"
+        ? await OperativeDispatch.scanOutside({
+            projectRoot: request.projectRoot,
+            worktreePath: plan.worktreePath,
+          })
+        : null;
     if (existing === null) {
       const opened = await record(
         {
@@ -343,6 +449,9 @@ export async function dispatchAttempt(request: {
             intent: { stage, plan: plan.promptIdentity },
             now,
           });
+          if (outsideScan !== null) {
+            recordOutsideScan(tx, { attemptId, scan: outsideScan, now });
+          }
           return { commit: true, outcome: { status: "recorded" as const } };
         },
       );

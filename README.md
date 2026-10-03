@@ -14,6 +14,7 @@ Operator builds on that workflow by coordinating the agents, worktrees, and reco
 ## Status
 
 Every step of the first orchestration workflow works end to end: project setup, release selection and updates, readiness, the live probe, crew state, dispatch, questions, review, rework, tracker completion, cleanup, and the coordination loop.
+The integrated pull request workflow also works end to end: one work source becomes one reviewed pull request stack that a person merges.
 The repository also holds the release build, the Operator-owned JSR client, the Changesets and GitHub Actions workflows, and smoke tests of both delivery paths.
 
 The release workflow publishes a version to JSR and GitHub after its version pull request merges.
@@ -21,13 +22,17 @@ The release workflow publishes a version to JSR and GitHub after its version pul
 ## How it works
 
 1. You work with the Operator to clarify a goal and choose the work to delegate.
-2. The Operator registers the work and assigns each item to a crew member, called an Operative. Each Operative runs in its own Git worktree that Herdr manages.
-3. Operatives use Matt Pocock's skills such as `implement`, `research`, `improve-codebase-architecture`, and `grilling` to do their work.
+   You, or a planning skill such as `to-tickets`, write it as a parent issue with one sub-issue for each ticket. Operator never creates an issue.
+2. The Operator registers the parent issue as a work source, and assigns each item to a crew member, called an Operative. Each Operative runs in its own Git worktree that Herdr manages.
+3. Operatives use Matt Pocock's skills such as `implement`, `research`, `improve-codebase-architecture`, and `grilling` to do their work. A code result is one commit.
 4. An Operative that cannot continue asks the Operator. The Operator answers from recorded decisions, and brings the questions that need your judgment to you.
 5. A separate reviewer uses Matt's `code-review` skill to check each result on the Standards and Spec axes before the Operator presents it for acceptance.
-6. After you accept a result, the Operator closes the crew agent and removes its worktree. Cleanup that is not complete stays visible until it is done or you defer it.
+6. At acceptance, the CLI lands the reviewed commit on the integration branch of the source, after that commit passed the project gate.
+7. When every item is accepted, one branch review reads the whole branch. The CLI then publishes it as an integrated pull request behind your approval.
+8. You, or a teammate, merge the pull request on GitHub. The Operator and the crew never merge. After the merge, the CLI completes the tickets.
+9. After each handoff, the CLI closes the crew agent and removes its worktree behind your approval. A worktree that holds work that did not land stays until you remove it.
 
-You can talk to an Operative directly, but the main workflow goes through the Operator.
+Talk to the Operator. An Operative never addresses you directly, and it raises each question through the Operator.
 
 Herdr supplies the terminal and agent control.
 Operator adds the coordination rules, the skills, and the CLI operations that Herdr does not have.
@@ -84,15 +89,16 @@ Operator does not require `jq` to run.
 
 3. Give the Operator a task in the same project:
 
-   > Load the operator skill. I want to add a search field to the issues list. Help me agree on what it should search, create a ticket, and coordinate the crew through implementation and review.
+   > Load the operator skill. I want to add a search field to the issues list. Help me agree on what it should search. When I have created the parent issue and its sub-issues, register it and coordinate the crew through implementation, review, and the integrated pull request.
 
    Replace the search field with your own goal.
    You can return later and ask the Operator to resume the crew.
 
-For the commands behind these steps, see [Project installation and setup](#project-installation-and-setup), [Project readiness](#project-readiness), and [Coordination and recovery](#coordination-and-recovery).
+For the commands behind these steps, see [Project installation and setup](#project-installation-and-setup), [Project readiness](#project-readiness), [The integrated pull request workflow](#the-integrated-pull-request-workflow), and [Coordination and recovery](#coordination-and-recovery).
 
 ## Contents
 
+- [The integrated pull request workflow](#the-integrated-pull-request-workflow)
 - [CLI conventions](#cli-conventions)
 - [Project installation and setup](#project-installation-and-setup)
 - [Release and updates](#release-and-updates)
@@ -107,6 +113,209 @@ For the commands behind these steps, see [Project installation and setup](#proje
 - [Cleanup](#cleanup)
 - [Coordination and recovery](#coordination-and-recovery)
 - [Development](#development)
+
+## The integrated pull request workflow
+
+Operator runs one approved work source to one reviewed integrated pull request.
+The pull request holds one commit for each accepted code result, in dependency order, and each commit passed the project gate on its own.
+
+The [rules of the person](skills/operator/SKILL.md#the-rules-of-the-person) apply to every step, and they come before a topic, an ADR, and a command report:
+
+- R1. The Operator is read-only. It asks the crew or an Operative to make each change, and it writes no content of its own.
+- R2. Nothing merges a pull request without your explicit approval.
+- R3. Nothing tears down unlanded work.
+- R4. An Operative never addresses you directly.
+- R5. The Operator keeps its own context low. A command that it reads gives a summary and points to the details.
+
+```mermaid
+flowchart TD
+  A[Parent issue with sub-issues] -->|work register| B[Work source]
+  B -->|gate run on the base, first dispatch| C[Integration branch at the integration base]
+  C -->|dispatch from the recorded tip| D[Operative makes one commit]
+  D -->|attempt submit checks the gate commands| E[Result review]
+  E -->|gate run on the candidate, work accept| F[Landing on the recorded tip]
+  F -->|next item| D
+  F -->|every item accepted or withdrawn| G[Branch review of the head]
+  G -->|publish plan, your approval, publish apply| H[Pull request stack]
+  H -->|a person merges with a merge commit| I[publish status]
+  I -->|record_tracker| J[Resolution and completion]
+  J -->|second approval of the rendered text| K[Map amendment]
+  F -.->|work invalidate| L[Correction rewritten in place]
+  B -.->|a person removes a sub-issue| M[Take-out of withdrawn work]
+  H -.->|a change inside an open pull request| N[Recall to drafts]
+  N -.-> L
+  N -.-> M
+  L -.-> G
+  M -.-> G
+  H -.->|target moved, or a settled stack fault| O[Rebase onto a new integration base]
+  O -.-> G
+```
+
+A full run of one source, in the order `crew next` offers the commands:
+
+```sh
+# Ask what to do next. Run it on every turn that touches the crew.
+bun run operator crew next --claude --json
+
+# Read the parent issue and change nothing, then register the plan revision it names.
+bun run operator work register --plan --input work.json --json
+bun run operator work register --request <id> --owner-token <token> --input work.json --plan-revision <revision> --json
+
+# Gate the integration base, then dispatch the first code item from it. This creates the integration branch.
+bun run operator work claim --request <id> --owner-token <token> --assignment <id> --revision <n> --json
+bun run operator gate run --request <id> --owner-token <token> --source <source> --commit <base> --json
+bun run operator attempt dispatch --request <id> --owner-token <token> --attempt <id> --commit <base> --json
+
+# The Operative submits one commit, and a reviewer reports. Dispose of each finding.
+bun run operator review dispose --request <id> --owner-token <token> --review <id> --input dispositions.json --json
+
+# Gate the planned commit of the landing, then accept. The acceptance lands the commit.
+bun run operator gate run --request <id> --owner-token <token> --assignment <id> --json
+bun run operator work accept --request <id> --owner-token <token> --assignment <id> --revision <n> --attempt <id> --submission <id> --json
+
+# Each later item dispatches from the recorded tip, with no --commit.
+# The last acceptance registers the branch review. Claim it, dispatch it with no --commit, and dispose of its findings.
+
+# Preview the publication, record your approval, and publish.
+bun run operator publish plan --source <source> --json
+bun run operator approval grant --request <id> --owner-token <token> --input approval.json --json
+bun run operator publish apply --request <id> --owner-token <token> --source <source> --plan-revision <revision> --json
+
+# A person merges each pull request on GitHub. Then read what GitHub shows, and complete the tickets.
+bun run operator publish status --request <id> --owner-token <token> --source <source> --json
+bun run operator publish retarget --request <id> --owner-token <token> --source <source> --part <k> --json
+bun run operator tracker record --request <id> --owner-token <token> --assignment <id> --revision <n> --input step.json --json
+```
+
+The Operator runs each command that `crew next` names.
+The [operator skill](skills/operator/SKILL.md) tells it which topic to read for each action.
+
+### A work source from a parent issue
+
+A work source is a parent issue with its sub-issues, or one ticket.
+The CLI reads the items, their order, their blocking links, and the text of each one from GitHub.
+Your input holds only what the tracker does not hold: the kind, the acceptance requirements, the permissions, and the fixed inputs of each item.
+`work register --plan` writes the full plan to a local file and reports a summary, its `planRevision`, and its `planPath`.
+The registration records only that plan revision.
+A new read of a registered source adds new sub-issues with no approval.
+A changed parent, a changed item, or a withdrawal needs your approval of the `registration-change` plan revision.
+See [Crew state and the frontier](#crew-state-and-the-frontier) and [ADR 0016](docs/adr/0016-a-source-is-read-from-the-tracker-and-never-created-by-operator.md).
+
+### The integration branch and its recorded tip
+
+The first code dispatch of a source names its integration base with `--commit`.
+That commit must pass the project gate first.
+The dispatch then creates the local branch `operator/integration/<source slug>` at the base, and records the branch name, the base, and the project gate on the source.
+Every later production dispatch of the source starts from the recorded tip, with no `--commit`.
+The branch moves only by a landing, by a rewrite, or by an approved rebase, and only from the tip that the crew last recorded.
+A branch that holds any other commit stops each production dispatch with `integration_branch_moved`, and only a person puts it back.
+Nothing pushes the integration branch before publish.
+See [ADR 0020](docs/adr/0020-the-cli-lands-each-accepted-commit-and-the-integration-branch-moves-only-from-its-recorded-tip.md).
+
+### The project gate at submit and before each landing
+
+The project gate runs at two places.
+At submit, `attempt submit` refuses a code result whose checks do not show each gate command as `passed`.
+Before each landing, `gate run --assignment <id>` runs the gate on the planned commit of the landing, which is the candidate.
+`work accept` refuses with a `gate_` reason until the candidate passed.
+The CLI runs each gate run in the gate checkout of the source, on the branch `operator/gate/<source slug>`, and stores the output under `.operator/local/gate-runs/<run id>/`.
+A failed run blocks, and a pass after a failure is flaky, which also blocks.
+A failed candidate becomes an integration cycle for the crew.
+A failed base waits on you: give a fixed base, or approve a fresh series.
+See [The project gate](#the-project-gate) and [ADR 0021](docs/adr/0021-every-commit-of-an-integration-branch-passes-the-project-gate-before-it-lands.md).
+
+### The landing at acceptance
+
+`work accept` lands a code result as its last step.
+When the parent of the reviewed commit is the recorded tip, the branch moves to that commit.
+Otherwise, the CLI makes one new commit with the reviewed patch, the author, the committer, the dates, and the message of the reviewed commit.
+A commit whose equal patch the branch already holds lands nothing.
+A result that no longer lands with its reviewed patch becomes an integration cycle, which starts from the recorded tip.
+
+### A correction of a landed commit
+
+`work invalidate` records a defect in an accepted result and opens its correction cycle.
+The correction starts at the landed commit, and the Operative makes one commit on top of it.
+At its acceptance, the CLI rewrites the integration branch in place: the correction takes the place of the landed commit, and each later commit lands again with an equal patch.
+Each commit of the rebuilt range passes the project gate first.
+A later commit whose patch changes, that conflicts, that fails the gate, or that depends on a commit that is taken out returns to awaiting review.
+The checkout of the corrected attempt then holds a replaced commit, and only you remove it.
+
+### The take-out of withdrawn work
+
+Only a person withdraws an item, by removing its sub-issue from the parent issue on GitHub.
+The next `work register` records the withdrawal behind your approval of the plan revision.
+When the integration branch holds a commit of the withdrawn item, `crew next` offers `take_out_commit`, and no production work of the source starts until the take-out is done.
+`operator work take-out` rebuilds the branch without each withdrawn commit, bound to the plan revision whose approval recorded the withdrawal.
+Each later commit lands again after it passed the project gate at its new place.
+The checkout of the withdrawn work holds unlanded work, and only you remove it.
+
+### The branch review
+
+The acceptance or the withdrawal that leaves every code item of the source accepted or withdrawn registers one branch review.
+It reads the branch snapshot as a whole: the base, the head, and each commit with its accepted result.
+It looks for what no result review can see, such as a relation between two commits.
+The reviewer also writes the published text: the title, the summary, where to start reading, the merge danger, and each cut point with its reason.
+For a source with one code commit, the result review takes its place, and the result reviewer writes the published text.
+A corrected branch finding invalidates the assignment that it targets, and the next branch review reads the new head.
+
+### Publish behind one approval
+
+`publish plan` changes nothing.
+It names the plan revision, the new remote branches, the target branch, and whether the head merges cleanly onto the target.
+Every title and body is in a file under `.operator/local/publish-plans/`. Read that file.
+The CLI renders each body from the records and the published text, and the Operator writes no word of it.
+Your `publish` approval binds the exact plan revision, so it covers every title, body, and cut point.
+It also names each tracker step after the merge as a target: the resolution and the completion of each ticket, with the resolution text already rendered, and `github:<owner>/<repo>#<n>:map_amendment` when the source has a map issue.
+`publish apply` pushes each part to a new remote branch `operator/<source slug>/<publication>/<k>` in one push with no force option, and opens each pull request from the bottom up.
+A stack of one is the default. A stack of more parts follows the cut points of the branch review, and each higher pull request is based on the one below it.
+See [ADR 0022](docs/adr/0022-the-cli-publishes-the-stack-a-person-merges-it-with-merge-commits-and-its-tickets-complete-after-the-merge.md).
+
+### The merge, by a person
+
+You, or a teammate, merge each pull request on GitHub with a merge commit, from the bottom up.
+A merge by a teammate counts as your approval.
+The Operator and the crew never merge a pull request and never turn on auto-merge.
+`crew next` never reads GitHub, so tell the Operator when a pull request merged or closed.
+It then runs `publish status`, which records what GitHub shows and writes nothing to GitHub.
+After the merge of part `k`, `publish retarget` changes the base of part `k+1` to the target branch.
+A squash, a rebase merge, a moved head, a merge into another base, or a close with no merge is a stack fault.
+Operator adopts nothing from a stack fault, and it waits on you.
+
+### The tracker steps after the merge
+
+After the recorded merge, `crew next` offers `record_tracker` for each item of the pull request.
+The resolution takes no body, because the CLI renders it from the merge and the records.
+The completion closes the ticket with the reason `completed`, or observes the close that the closing keyword made.
+Both run under the `publish` approval, and no tracker write after the merge runs without it.
+The map amendment also needs a second approval, because its text is known only after the merge.
+Its first `tracker record` writes the map amendment text to a local file, writes nothing to the tracker, and refuses with `map_amendment_approval_required`.
+`crew next` then offers `record_tracker` with `approval_required`, and names the file and the request: action `map-amendment`, the map issue as target, and the content identity of that exact text as request revision.
+The map amendment write runs only under that approval. An approval of other text covers nothing.
+The source is finished when every pull request of its last stack publication merged and every tracker step of its items is verified.
+
+### Recall and a new stack publication
+
+A pushed branch is never pushed again, and a published commit is never rewritten in place.
+When a defect or a withdrawal touches a commit inside an open pull request, `crew next` offers `recall_stack` first.
+`publish recall --source <source>` plans the recall and changes nothing.
+The CLI renders one comment for each pull request from the defect or the withdrawal record.
+Your `stack-recall` approval binds that recall plan revision.
+The recall turns each pull request, from the part that holds the commit up, into a draft, and adds its comment.
+The correction or the take-out then runs on the integration branch.
+The next stack publication has a new number and new remote branch names, and it closes each recalled pull request with a pointer to its replacement, under its own `publish` approval.
+A merge before the recall ends the change: the defect becomes a new issue, which a person creates.
+
+### Rebase onto a new integration base
+
+A moved target branch never changes an accepted patch by itself.
+The integration base changes only through a rebase that you approve.
+The Operator proposes a rebase when the head does not merge cleanly onto the target, when you want a newer target, or after you settled each stack fault of a publication.
+`work rebase --source <source> --base <sha>` plans it, changes nothing, and writes every commit to a file under `.operator/local/rebase-plans/`.
+Your `integration-rebase` approval names the old base, the new base, and the plan revision.
+The new base and each commit that lands again pass the project gate first, in order.
+A commit whose pull request merged leaves the branch. A commit whose patch changes on the new base is taken out and comes back through an integration cycle.
+The rebase never runs while a published pull request of the source is open, and the new head gets a new branch review.
 
 ## CLI conventions
 
@@ -214,6 +423,29 @@ Use `--unset probe.githubFixture` to remove the fixture.
 If an apply is interrupted, run `bun run operator config recover --json` to compare the file against its recorded before and after identities.
 Recovery settles that record without editing the configuration file.
 
+### The project gate
+
+A project declares its one project gate in `operator-gate.json` at the repository root, and commits it. Setup does not write it.
+
+```json
+{
+  "$schema": "./node_modules/@fveracoechea/operator/gate.schema.json",
+  "commands": [
+    { "name": "install", "argv": ["bun", "install", "--frozen-lockfile"], "timeoutSeconds": 600 },
+    { "name": "quality", "argv": ["bun", "run", "quality"], "timeoutSeconds": 3600 }
+  ]
+}
+```
+
+Each command has a unique `name`, an `argv` array with no shell, and a required `timeoutSeconds`.
+The release publishes the schema as `gate.schema.json`.
+Operator reads the file at a commit, never from the working tree, so an edit that is not committed has no effect.
+Readiness reads it at HEAD as the `project-gate` check.
+A production dispatch reads it at the base commit and refuses with `project_gate_missing`, `project_gate_invalid`, or `project_gate_unread`.
+The producer brief lists each gate command beside the submit command, and submit refuses a code result whose checks do not show each one as passed.
+A reviewer is permitted to run the gate commands.
+See [ADR 0021](docs/adr/0021-every-commit-of-an-integration-branch-passes-the-project-gate-before-it-lands.md).
+
 ## Release and updates
 
 One release is one matched version of the CLI code and the Operator-owned skills.
@@ -277,7 +509,7 @@ bun scripts/release.ts plan    --out dist --commit <full-commit>
 bun scripts/release.ts publish --out dist --commit <full-commit>
 ```
 
-The artifact holds runnable ESM, the public declarations, the complete owned-skill directories, and the generated configuration schema.
+The artifact holds runnable ESM, the public declarations, the complete owned-skill directories, and the generated configuration and project gate schemas.
 Its identity covers every byte it holds.
 The release identity binds the delivery record to that version, that merged commit, and that content.
 
@@ -324,6 +556,7 @@ Static checks observe these items:
 - The instruction files and the discoverable skill contents.
 - The Operator release, the selected installation, and its lock data.
 - The project settings.
+- The project gate, `operator-gate.json`, read at HEAD. A missing or invalid file is a blocker, and it does not hold back a live probe.
 
 Static checks never prove host termination, the native review sub-agents, or provider compatibility.
 Those need a live probe.
@@ -407,21 +640,33 @@ A takeover names the ownership revision it inspected, so two Operators cannot bo
 It invalidates the former token, so a stale Operator session cannot change crew state.
 
 You register work from an approved specification, a ready ticket, or a wayfinder map.
+A specification and a wayfinder map are a parent issue with its sub-issues, and a ticket is one issue.
+Operator never creates an issue.
 
 ```sh
-bun run operator work register --request <id> --owner-token <token> --input work.json --json
+bun run operator work register --plan --input work.json --json
+bun run operator work register --request <id> --owner-token <token> --input work.json --plan-revision <revision> --json
 ```
 
-Registration records each item with these fields:
+The CLI reads these fields from GitHub:
 
-- The source revision.
-- The approved scope and the acceptance requirements.
-- The permissions and the fixed inputs.
-- The dependencies and the planning boundary.
+- The source revision, from the parent title and body.
+- The approved scope of each item, from its title and body.
+- The item order, from the sub-issue order.
+- The dependencies, from the blocking links.
 
-When you register the same item twice, the CLI names the existing assignment and does not create a second one.
+Your input names each open sub-issue once, with its kind, its acceptance requirements, its permissions, and its fixed inputs.
+`--plan` changes nothing. It writes the full plan to the file at `planPath` and reports a summary and a `planRevision`.
+The registration reads the tracker again and refuses with `plan_revision_changed` when the read or the input changed after the preview.
+A new read of a registered source adds new sub-issues with no approval.
+A changed parent, a changed item that no attempt read, and a withdrawal need the person's approval of the `registration-change` plan revision.
 The CLI refuses a dependency cycle before it dispatches anything.
-It also refuses a re-registration that states different dependencies.
+It refuses a write path that is not in its canonical form, and a production item with no write path.
+The report gives the number of item pairs whose write paths overlap, and this command lists each pair:
+
+```sh
+bun run operator work overlaps --source <id> --json
+```
 
 ```sh
 bun run operator work frontier --json
@@ -441,22 +686,32 @@ The frontier offers queued review before new production work.
 
 A dependent starts only after its dependencies reach accepted completion.
 You accept executable work from the attempt that holds it.
-The Operator resolves planning work itself, so you accept planning work with no attempt.
+Planning work is never dispatched to an Operative.
+A sub-agent of the crew prepares its planning record, and you accept planning work with no attempt and with that record.
 
 ```sh
 bun run operator work accept --request <id> --owner-token <token> --assignment <id> --attempt <id> --revision <n> --json
-bun run operator work accept --request <id> --owner-token <token> --assignment <id> --revision <n> --json
+bun run operator work accept --request <id> --owner-token <token> --assignment <id> --revision <n> --input record.json --json
 ```
+
+Each direct dependent receives the planning record in its brief.
+See [ADR 0019](docs/adr/0019-a-planning-decision-is-recorded-at-acceptance-and-reaches-its-direct-dependents.md).
 
 See [ADR 0003](docs/adr/0003-crew-state-is-one-sqlite-file-created-once.md) and [ADR 0004](docs/adr/0004-the-frontier-is-the-only-dispatch-rule.md).
 
 ## Operative dispatch and recovery
 
 The Operator dispatches a claimed assignment into its own Herdr-managed worktree.
-The dispatch names the commit it starts from, because a worktree never picks up uncommitted work from another checkout.
+A worktree never picks up uncommitted work from another checkout, so each dispatch starts from a commit.
+The CLI fixes that commit:
+
+- The first code dispatch of a source names its integration base with `--commit`, after that commit passed the project gate.
+- Every later production dispatch of the source starts from the recorded tip of its integration branch, with no `--commit`.
+- A findings or diagnostic rework attempt names the submitted commit it reworks with `--commit`.
+- An integration cycle, a correction of a landed commit, and a branch review start with no `--commit`.
 
 ```sh
-bun run operator attempt dispatch --request <id> --owner-token <token> --attempt <id> --commit <sha> --json
+bun run operator attempt dispatch --request <id> --owner-token <token> --attempt <id> [--commit <sha>] --json
 ```
 
 The command fixes the whole launch before it acts: the branch, the checkout, the launch snapshot, the brief, and the prompt.
@@ -597,7 +852,30 @@ The submission fixes these items:
 - Every artifact, with its content identity.
 - Every check, with its outcome.
 - The known concerns and the decisions the Operative made.
+- The behavior changes, each with its basis. `[]` states that there is none.
 - The code revisions, if there are any.
+- Each outside change: a difference that the scans around the worktree found.
+
+Submit reads the worktree with Git before it records anything, and it refuses a result that breaks its authority limits:
+
+- `result_not_one_commit`: a code result is exactly one commit whose parent is the base commit of its dispatch.
+- `uncommitted_work`: a file that is not committed, outside the files Operator wrote. A path artifact of a non-code result inside the write paths is the one exception.
+- `outside_write_paths`: a commit since the base adds, changes, or deletes a file outside the write paths. A rename touches both paths.
+- `result_check_not_run`: a check that could not run, which is never a pass.
+- `behavior_change_basis_missing`: a behavior change names a basis that does not exist. A basis is the approved scope, one acceptance requirement by its position, or one answered question of the assignment whose answer is a requirement or a human answer. An Operator decision is never a basis.
+- `project_gate_not_passed`: a code result whose checks do not show each project gate command, by name, as `passed`. Every check with that name must pass, so a pass beside a failure is refused.
+
+It reports every refusal at once, in that order, and the first one is the reason of the result.
+A refusal records nothing, so the attempt keeps running and its Operative fixes the result.
+A code result names no pull request.
+
+Dispatch records a scan of the folder that holds the worktree and of the controlling checkout before the agent starts.
+After the checks pass, submit scans them again and records each difference as an outside change.
+It never refuses for one.
+`operator work accept` refuses with `outside_changes_undisposed` until `operator work dispose` records each one as `explained` or `removed`.
+Operator never deletes an outside change. The user deletes it, and a new scan proves `removed`.
+A change in `.git/hooks/` or `.git/config` is kept only under an approval of the user.
+See [ADR 0018](docs/adr/0018-a-result-is-checked-at-submit-against-its-authority-limits.md).
 
 The CLI copies each path artifact into a durable store and verifies it, so the reviewer reads a fixed copy and not a worktree that keeps changing.
 
@@ -617,8 +895,9 @@ bun run operator review show --review <id> --json
 ```
 
 A complete report names the submission identity it read, carries both axes exactly once, records a window for each sub-agent, and states what each axis checked.
-A code result requires the diff, the requirements, and the checks.
-A non-code result requires the artifacts, the requirements, the citations, and the provenance of each recorded answer.
+A code result requires the diff, the requirements, the checks, and the behavior changes.
+A non-code result requires the artifacts, the requirements, the citations, the provenance of each recorded answer, and the behavior changes.
+Each axis states `behavior-changes` in `checked` to show that it read the list, and a missing or wrong entry is a blocker finding.
 The CLI refuses two axes that ran one after the other, and a sub-agent that ran outside the reviewer host.
 A host that cannot run the axes records a blocker, not a partial review.
 A blocked review is a stopped review.
@@ -639,7 +918,7 @@ The Operator gives each finding one disposition:
 A blocker is never deferred.
 
 ```sh
-bun run operator work accept --request <id> --owner-token <token> --assignment <id> --attempt <id> --revision <n> --submission <id> --pr-head <sha> --json
+bun run operator work accept --request <id> --owner-token <token> --assignment <id> --attempt <id> --revision <n> --submission <id> --json
 ```
 
 Acceptance verifies these items:
@@ -648,12 +927,12 @@ Acceptance verifies these items:
 - The exact submission and both axis reports.
 - A disposition on every finding, and no correction still waiting for rework.
 - A passing outcome on every recorded check.
-- The pull request head you name, against the head the submission stated.
+- For a code result, a passing gate run on the planned commit of its landing (`operator gate run --assignment <id>`).
+
+The last step lands a code result on the integration branch of its source, as ADR 0020 records.
 
 A check outcome that a review observed for itself outranks the producer's own word, so a contradiction blocks.
-Operator does not read the pull request itself.
-Acceptance compares the head you state against the head the submission recorded, and reading a live head is separate work.
-A stopped reviewer, a missing input, an unavailable review capability, a missing pull-request authority, a failed check, and a flaky check each block acceptance.
+A stopped reviewer, a missing input, an unavailable review capability, a failed check, and a flaky check each block acceptance.
 See [ADR 0007](docs/adr/0007-review-is-crew-work-and-acceptance-reads-only-recorded-evidence.md).
 
 ## Rework, limits, and invalidated results
@@ -677,7 +956,8 @@ Each cycle states the Operator instruction and the conflicts the Operative must 
 A conflict names only work that the cycle carries, so the CLI refuses a finding from any round that no correction in this cycle answers.
 
 The cycle returns the assignment to the frontier.
-Claim it again, and dispatch it from the submitted commit.
+Claim it again.
+Dispatch a `findings` or `diagnostic` cycle from the submitted commit, and an `integration` cycle with no `--commit`, because it starts from the commit its result lands on.
 The brief carries the fixed submission, every accepted correction with its evidence, the conflicts, the revisions to combine, fixed copies of the artifacts, and the original acceptance requirements.
 One cycle produces one combined revision, which registers its own review assignment.
 That reviewer receives every earlier round, its dispositions, and the cycles they delegated, and it checks the revision for regressions.
@@ -705,7 +985,9 @@ bun run operator work invalidate --request <id> --owner-token <token> --assignme
 
 A defect found after acceptance keeps the acceptance, the submission, the review, and every finding.
 The CLI refuses to invalidate review work, because a review holds no result of its own.
-The assignment returns to the frontier as `invalidated`, and only the dependents that consumed the result pause.
+It refuses with `invalidation_merged` a commit whose pull request merged, and the defect then becomes a new issue.
+The assignment returns to the frontier as `invalidated`, the invalidation opens its correction cycle, and only the dependents that consumed the result pause.
+The correction of a code result starts at its landed commit, and its acceptance rewrites the integration branch in place, as [A correction of a landed commit](#a-correction-of-a-landed-commit) shows.
 A dependent that never started stays held by the dependency gate.
 Accepting the corrected result releases the dependents that no other defect still holds, and a dependent that was accepted returns to the step that decided it.
 See [ADR 0008](docs/adr/0008-rework-is-a-delegated-cycle-and-a-limit-blocks-acceptance.md).
@@ -731,6 +1013,13 @@ The request names one step.
 
 The ticket comes from the source the assignment was registered from, so the CLI refuses a request that names another repository or issue.
 GitHub is the only tracker this release supports.
+
+For a code result, the steps run only after the recorded merge of the pull request that carries its commit.
+Before that merge, a step refuses with `merge_not_observed` and writes nothing.
+The resolution of a code result takes no body, because the CLI renders it from the merge and the records.
+The resolution and the completion run under the `publish` approval that named them.
+The map amendment also runs only under a `map-amendment` approval of the exact text that its first record rendered to a local file after the merge.
+See [The tracker steps after the merge](#the-tracker-steps-after-the-merge).
 
 Every step writes its intent, its expected actor, and its exact content before it acts, and records its write attempt and the answer that came back.
 It then reads what the tracker shows and settles the step from that reading.
@@ -776,7 +1065,9 @@ It runs only after a durable handoff, which is a submitted result or the two axi
 Before it stops anything, it copies the brief, the control reference, the release record, and every artifact the submission fixed into the controlling checkout, and reads each copy back.
 
 `bun run operator cleanup remove` disposes of one Operative checkout.
-It needs a closed process, the preserved evidence verified again, and a remote copy of every commit.
+It needs a closed process, the preserved evidence verified again, and a checkout at the commit its handoff names.
+When that commit is an accepted result, the local integration branch must be at its recorded tip and hold the commit that carries it. No remote is read.
+A checkout that holds a commit of withdrawn work or a replaced commit holds unlanded work, and only the person removes it.
 It also needs an approval that names this checkout or the workflow, because acceptance alone does not grant removal.
 
 The two outcomes are separate, so a stop that cannot be proven never holds back a removal that is already safe.
@@ -808,7 +1099,11 @@ It reads these items and reports them as one ranked list of actions:
 - The frontier order, dependency gates, review priority, and capacity.
 - Pending acknowledgements and open questions.
 - Findings with no disposition.
+- Gate runs, landings, take-outs, and rebases of each integration branch.
+- The branch review, the publish, the recall, and the stack faults of each source.
 - Unfinished tracker steps and unfinished cleanup.
+
+It reads only local records. It never reads GitHub or the tracker, so the Operator runs `publish status` when you report a merge or a close.
 
 Each action names the command to run, the record it acts on, and the revision to state.
 `data.waits` says what is running and what has not answered yet, with the Herdr agent that a bounded wait watches.

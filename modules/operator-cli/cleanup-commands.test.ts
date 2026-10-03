@@ -1,15 +1,21 @@
+import { registerSource, withdrawIssues, workspaceTarget } from "./source-fixture.ts";
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
 import {
   acceptProduction,
+  acceptReview,
   commitArtifact,
+  delegateRework,
+  disposeFindings,
   type Host,
   reportBody,
   reportReview,
   startProducer,
   startReviewer,
+  startRework,
+  startSibling,
   submissionBody,
   submit,
   writeInput,
@@ -18,6 +24,7 @@ import {
 import {
   headCommit,
   herdrCalls,
+  nextActions,
   requestId as request,
   runJson,
   runOperator,
@@ -42,7 +49,7 @@ const SKILL_PATH: Record<Host, string> = {
   opencode: ".agents/skills/code-review/SKILL.md",
 };
 
-/** A fixture project with a remote, so a cleanup can prove where the commits also live. */
+/** A fixture project with no remote, because removal proves the work from the local branch. */
 async function makeWorkspace(
   options: { host?: Host; reasoningEffort?: string } = {},
 ): Promise<Workspace> {
@@ -63,17 +70,14 @@ async function makeWorkspace(
   await Bun.$`git -C ${fixture.repo} add -f ${SKILL_PATH[host]}`.quiet();
   await Bun.$`git -C ${fixture.repo} -c user.email=t@example.com -c user.name=Test commit -q -m skill`.quiet();
 
-  await Bun.$`git init --bare -b main ${fixture.root}/remote.git`.quiet();
-  await Bun.$`git -C ${fixture.repo} remote add origin ${fixture.root}/remote.git`.quiet();
   return { ...fixture, host };
 }
 
 /** One production assignment carried to accepted completion, with a reviewed result. */
 async function acceptedCycle(workspace: Workspace) {
   const producer = await startProducer(workspace);
-  const base = await headCommit(workspace);
   const artifact = await commitArtifact(workspace, producer, "# Result\n\nThe finished work.\n");
-  const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+  const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
   const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
 
   await reportReview(
@@ -85,16 +89,10 @@ async function acceptedCycle(workspace: Workspace) {
   const accepted = await acceptProduction(workspace, producer, {
     submissionId: submitted.json.data.submissionId,
     revision: submitted.json.data.revision,
-    prHead: artifact.commit,
   });
   expect(accepted.json.reason).toBe("assignment_accepted");
 
   return { producer, reviewer, submitted, artifact };
-}
-
-/** Publishes the Operative branch, which is what removal reads as remote preservation. */
-async function pushWork(worktreePath: string): Promise<void> {
-  await Bun.$`git -C ${worktreePath} push -q -u origin HEAD`.quiet();
 }
 
 async function close(workspace: Workspace, ownerToken: string, attemptId: string) {
@@ -442,35 +440,11 @@ describe("cleanup identity", () => {
 
     // A second assignment claims the same checkout path. Its launch fails, but the plan it
     // recorded first makes it a live writer of that directory.
-    const registered = await runJson(workspace, [
-      "work",
-      "register",
-      "--request",
-      request(),
-      "--owner-token",
-      producer.ownerToken,
-      "--input",
-      await writeInput(workspace, {
-        sourceKind: "ticket",
-        source: { id: "github:operator#16", revision: "rev-1", tracker: "github" },
-        items: [
-          {
-            key: "16.1",
-            title: "Follow-on work",
-            kind: "production",
-            approvedScope: "Continue in the same checkout.",
-            acceptanceRequirements: ["The quality gate passes."],
-            permissions: {
-              writePaths: ["modules/"],
-              allowedCommands: ["bun test"],
-              network: false,
-            },
-            fixedInputs: [],
-            dependsOn: [],
-          },
-        ],
-      }),
-    ]);
+    const registered = await registerSource(workspaceTarget(workspace), producer.ownerToken, {
+      sourceKind: "ticket",
+      parent: 16,
+      items: [{ key: "16.1", title: "Follow-on work", body: "Continue in the same checkout." }],
+    });
     const claimed = await runJson(workspace, [
       "work",
       "claim",
@@ -479,7 +453,7 @@ describe("cleanup identity", () => {
       "--owner-token",
       producer.ownerToken,
       "--assignment",
-      registered.json.data.registered[0].assignmentId,
+      registered.assignments[0]?.assignmentId ?? "",
       "--revision",
       "1",
     ]);
@@ -544,12 +518,109 @@ describe("cleanup identity", () => {
 });
 
 describe("operator cleanup remove", () => {
-  test("removes an approved checkout and keeps its evidence, branch, and remote work", async () => {
+  test("refuses a withdrawn checkout that holds its commit, and lists it as unlanded", async () => {
     const workspace = await makeWorkspace();
-    const { producer } = await acceptedCycle(workspace);
-    await pushWork(producer.worktreePath);
+    const producer = await startProducer(workspace, undefined, {
+      dependents: [
+        {
+          key: "22.2",
+          kind: "production",
+          title: "Other work",
+          dependsOn: [],
+          writePaths: ["src/"],
+        },
+      ],
+    });
+    const artifact = await commitArtifact(workspace, producer, "# Result\n");
+    await submit(workspace, producer, submissionBody(producer, artifact));
+    const { registered } = await withdrawIssues(workspaceTarget(workspace), producer.ownerToken, {
+      sourceKind: "specification",
+      parent: 15,
+      numbers: [1501],
+    });
+    expect(registered.exitCode).toBe(0);
+
     const closed = await close(workspace, producer.ownerToken, producer.attemptId);
     expect(closed.json.reason).toBe("process_closed");
+
+    // Only the person removes a checkout that holds unlanded work, so none is offered.
+    const next = await nextActions(workspace);
+    expect(
+      next.forAction("remove_worktree").filter((one) => one.attemptId === producer.attemptId),
+    ).toEqual([]);
+    const blocked = await remove(workspace, producer.ownerToken, producer.attemptId);
+    expect(blocked.exitCode).toBe(3);
+    expect(blocked.json.blockers).toEqual([
+      {
+        reason: "unlanded_work",
+        assignmentId: producer.assignmentId,
+        cause: "withdrawn",
+        commits: [artifact.commit],
+      },
+    ]);
+
+    const shown = await runJson(workspace, ["cleanup", "show"]);
+    expect(shown.json.data.unlanded).toEqual([
+      {
+        attemptId: producer.attemptId,
+        assignmentId: producer.assignmentId,
+        worktreePath: producer.worktreePath,
+        branch: producer.dispatched.data.branch,
+        commit: artifact.commit,
+        cause: "withdrawn",
+      },
+    ]);
+  });
+
+  test("offers the removal of a withdrawn checkout that holds no commit, behind an approval", async () => {
+    const workspace = await makeWorkspace();
+    const producer = await startProducer(workspace, undefined, {
+      dependents: [
+        {
+          key: "22.2",
+          kind: "production",
+          title: "Other work",
+          dependsOn: [],
+          writePaths: ["src/"],
+        },
+      ],
+    });
+    // A non-code result hands over no commit, so the withdrawn checkout holds no unlanded work.
+    const text = "The findings.";
+    const artifact = { path: "unused", identity: "unused", commit: producer.baseCommit };
+    const submitted = await submit(workspace, producer, {
+      ...submissionBody(producer, artifact, { resultKind: "non-code", code: null }),
+      artifacts: [{ name: "result", kind: "value", value: text, contentIdentity: null }],
+    });
+    expect(submitted.json.reason).toBe("result_submitted");
+    const { registered } = await withdrawIssues(workspaceTarget(workspace), producer.ownerToken, {
+      sourceKind: "specification",
+      parent: 15,
+      numbers: [1501],
+    });
+    expect(registered.exitCode).toBe(0);
+
+    const closed = await close(workspace, producer.ownerToken, producer.attemptId);
+    expect(closed.json.reason).toBe("process_closed");
+
+    const next = await nextActions(workspace);
+    expect(
+      next.forAction("remove_worktree").filter((one) => one.attemptId === producer.attemptId),
+    ).toHaveLength(1);
+    const unapproved = await remove(workspace, producer.ownerToken, producer.attemptId);
+    expect(unapproved.exitCode).toBe(3);
+    expect(reasons(unapproved)).toEqual(["approval_required", "approval_required"]);
+    const shown = await runJson(workspace, ["cleanup", "show"]);
+    expect(shown.json.data.unlanded).toEqual([]);
+  });
+
+  test("removes an approved checkout with no remote, and keeps its evidence and branch", async () => {
+    const workspace = await makeWorkspace();
+    const { producer } = await acceptedCycle(workspace);
+    const closed = await close(workspace, producer.ownerToken, producer.attemptId);
+    expect(closed.json.reason).toBe("process_closed");
+    // The proof reads no remote, so a project with none removes a checkout of landed work.
+    expect((await Bun.$`git -C ${workspace.repo} remote`.text()).trim()).toBe("");
 
     const unapproved = await remove(workspace, producer.ownerToken, producer.attemptId);
     expect(unapproved.exitCode).toBe(3);
@@ -599,25 +670,12 @@ describe("operator cleanup remove", () => {
   test("refuses a removal while the process closure is not recorded as done", async () => {
     const workspace = await makeWorkspace();
     const { producer } = await acceptedCycle(workspace);
-    await pushWork(producer.worktreePath);
 
     const blocked = await remove(workspace, producer.ownerToken, producer.attemptId);
 
     expect(blocked.exitCode).toBe(3);
     expect(reasons(blocked)).toEqual(["process_live"]);
     expect(blocked.json.blockers[0].state).toBe("none");
-  });
-
-  test("refuses a removal of commits no remote keeps", async () => {
-    const workspace = await makeWorkspace();
-    const { producer } = await acceptedCycle(workspace);
-    await close(workspace, producer.ownerToken, producer.attemptId);
-
-    const blocked = await remove(workspace, producer.ownerToken, producer.attemptId);
-
-    expect(blocked.exitCode).toBe(3);
-    expect(reasons(blocked)).toEqual(["unpushed_commits"]);
-    expect(blocked.json.blockers[0].commits).toHaveLength(1);
   });
 
   test("refuses a removal of a result that was never accepted", async () => {
@@ -636,7 +694,6 @@ describe("operator cleanup remove", () => {
   test("a revoked approval covers nothing", async () => {
     const workspace = await makeWorkspace();
     const { producer } = await acceptedCycle(workspace);
-    await pushWork(producer.worktreePath);
     await close(workspace, producer.ownerToken, producer.attemptId);
 
     const asked = await remove(workspace, producer.ownerToken, producer.attemptId);
@@ -666,7 +723,6 @@ describe("operator cleanup remove", () => {
   test("a workflow approval stops covering once the crew changes owner", async () => {
     const workspace = await makeWorkspace();
     const { producer } = await acceptedCycle(workspace);
-    await pushWork(producer.worktreePath);
     await close(workspace, producer.ownerToken, producer.attemptId);
 
     const asked = await remove(workspace, producer.ownerToken, producer.attemptId);
@@ -703,7 +759,6 @@ describe("operator cleanup remove", () => {
   test("refuses a removal whose preserved evidence is gone", async () => {
     const workspace = await makeWorkspace();
     const { producer } = await acceptedCycle(workspace);
-    await pushWork(producer.worktreePath);
     const closed = await close(workspace, producer.ownerToken, producer.attemptId);
     await rm(`${workspace.repo}/${closed.json.data.evidence[0].storedPath}`);
 
@@ -717,7 +772,6 @@ describe("operator cleanup remove", () => {
   test("refuses a removal when the checkout names another attempt", async () => {
     const workspace = await makeWorkspace();
     const { producer } = await acceptedCycle(workspace);
-    await pushWork(producer.worktreePath);
     await close(workspace, producer.ownerToken, producer.attemptId);
 
     const reference = `${producer.worktreePath}/.operator/local/attempt.json`;
@@ -739,7 +793,6 @@ describe("operator cleanup remove", () => {
   test("refuses a removal when Herdr names no workspace or branch for the checkout", async () => {
     const workspace = await makeWorkspace();
     const { producer } = await acceptedCycle(workspace);
-    await pushWork(producer.worktreePath);
     await close(workspace, producer.ownerToken, producer.attemptId);
     const asked = await remove(workspace, producer.ownerToken, producer.attemptId);
     await grantRemoval(workspace, producer.ownerToken, asked.json.blockers[0]);
@@ -754,7 +807,7 @@ describe("operator cleanup remove", () => {
       { field: "workspace", recorded: "w1", found: "none" },
       {
         field: "branch",
-        recorded: `operator/22-1-${producer.attemptId.slice(0, 8)}`,
+        recorded: `operator/operator-1501-${producer.attemptId.slice(0, 8)}`,
         found: "none",
       },
     ]);
@@ -767,7 +820,6 @@ describe("operator cleanup remove", () => {
   test("refuses a checkout Herdr does not hold", async () => {
     const workspace = await makeWorkspace();
     const { producer } = await acceptedCycle(workspace);
-    await pushWork(producer.worktreePath);
     await close(workspace, producer.ownerToken, producer.attemptId);
     await rm(`${workspace.herdr}/worktrees`);
 
@@ -783,7 +835,6 @@ describe("operator cleanup remove", () => {
   test("settles a removal whose answer was lost from what Herdr shows", async () => {
     const workspace = await makeWorkspace();
     const { producer } = await acceptedCycle(workspace);
-    await pushWork(producer.worktreePath);
     await close(workspace, producer.ownerToken, producer.attemptId);
     const asked = await remove(workspace, producer.ownerToken, producer.attemptId);
     await grantRemoval(workspace, producer.ownerToken, asked.json.blockers[0]);
@@ -802,6 +853,290 @@ describe("operator cleanup remove", () => {
     expect(
       (await herdrCalls(workspace)).filter((line) => line.startsWith("worktree remove")),
     ).toHaveLength(1);
+  });
+});
+
+/** The integration branch of the fixture source, as the first code dispatch named it. */
+async function integrationBranch(workspace: Workspace): Promise<string> {
+  const format = "--format=%(refname:short)";
+  const listed =
+    await Bun.$`git -C ${workspace.repo} for-each-ref ${format} refs/heads/operator/integration/`.text();
+  const name = listed.trim().split("\n")[0];
+  if (name === undefined || name === "") {
+    throw new Error("the fixture source has no integration branch");
+  }
+  return name;
+}
+
+/** Commits as a person would, in one checkout, after the Operative handed its work over. */
+async function commitAfter(worktreePath: string): Promise<string> {
+  await Bun.$`git -C ${worktreePath} -c user.email=t@example.com -c user.name=Test commit -q --allow-empty -m later`.quiet();
+  return (await Bun.$`git -C ${worktreePath} rev-parse HEAD`.text()).trim();
+}
+
+const SIBLING = { key: "22.2", kind: "production" as const, title: "Write the notes" };
+
+/** Two items of one source, each with a reviewed result, so the second lands as a merge. */
+async function twoReviewedResults(workspace: Workspace) {
+  const producer = await startProducer(workspace, undefined, {
+    dependents: [{ ...SIBLING, dependsOn: [], writePaths: ["notes/"] }],
+  });
+  const sibling = await startSibling(workspace, producer, SIBLING.key);
+  const reviewed = async (one: typeof producer, text: string, path: string) => {
+    const artifact = await commitArtifact(workspace, one, text, path);
+    const submitted = await submit(workspace, one, submissionBody(one, artifact));
+    const reviewer = await startReviewer(workspace, one, submitted.json, artifact.commit);
+    await reportReview(
+      workspace,
+      reviewer,
+      submitted.json.data.reviewId,
+      reportBody({ submissionIdentity: submitted.json.data.identity, host: workspace.host }),
+    );
+    return {
+      artifact,
+      submissionId: submitted.json.data.submissionId as string,
+      revision: submitted.json.data.revision as number,
+    };
+  };
+  const first = await reviewed(producer, "# Result\n", "docs/result.md");
+  const second = await reviewed(sibling, "# Notes\n", "notes/notes.md");
+  return { producer, sibling, first, second };
+}
+
+describe("removal proves the result from the integration branch", () => {
+  test("refuses a checkout with a commit after the submission, and names both heads", async () => {
+    const workspace = await makeWorkspace();
+    const { producer, artifact } = await acceptedCycle(workspace);
+    await close(workspace, producer.ownerToken, producer.attemptId);
+    const later = await commitAfter(producer.worktreePath);
+
+    const blocked = await remove(workspace, producer.ownerToken, producer.attemptId);
+
+    expect(blocked.exitCode).toBe(3);
+    expect(blocked.json.blockers).toEqual([
+      {
+        reason: "head_moved",
+        branch: producer.dispatched.data.branch,
+        commit: artifact.commit,
+        foundBranch: producer.dispatched.data.branch,
+        foundHead: later,
+      },
+    ]);
+  });
+
+  test("refuses a checkout with a detached HEAD, even at the submitted commit", async () => {
+    const workspace = await makeWorkspace();
+    const { producer, artifact } = await acceptedCycle(workspace);
+    await close(workspace, producer.ownerToken, producer.attemptId);
+    await Bun.$`git -C ${producer.worktreePath} checkout -q --detach`.quiet();
+
+    const blocked = await remove(workspace, producer.ownerToken, producer.attemptId);
+
+    expect(blocked.json.blockers).toEqual([
+      {
+        reason: "head_moved",
+        branch: producer.dispatched.data.branch,
+        commit: artifact.commit,
+        foundBranch: null,
+        foundHead: artifact.commit,
+      },
+    ]);
+  });
+
+  test("a review checkout passes at its dispatch base, and a later commit there refuses", async () => {
+    const workspace = await makeWorkspace();
+    const { producer, reviewer, submitted, artifact } = await acceptedCycle(workspace);
+    const reviewAccepted = await acceptReview(workspace, producer, {
+      reviewAssignmentId: submitted.json.data.reviewAssignmentId,
+      attemptId: reviewer.attemptId,
+      revision: reviewer.revision,
+    });
+    expect(reviewAccepted.json.reason).toBe("assignment_accepted");
+    await close(workspace, producer.ownerToken, reviewer.attemptId);
+
+    const proven = await remove(workspace, producer.ownerToken, reviewer.attemptId);
+    expect(reasons(proven)).toEqual(["approval_required", "approval_required"]);
+
+    const later = await commitAfter(reviewer.worktreePath);
+    const blocked = await remove(workspace, producer.ownerToken, reviewer.attemptId);
+    expect(blocked.json.blockers).toEqual([
+      {
+        reason: "head_moved",
+        branch: reviewer.dispatched.json.data.branch,
+        commit: artifact.commit,
+        foundBranch: reviewer.dispatched.json.data.branch,
+        foundHead: later,
+      },
+    ]);
+  });
+
+  test("a merge landing passes from the new commit that carries the result", async () => {
+    const workspace = await makeWorkspace();
+    const { producer, sibling, first, second } = await twoReviewedResults(workspace);
+    expect((await acceptProduction(workspace, producer, first)).json.reason).toBe(
+      "assignment_accepted",
+    );
+    const merged = await acceptProduction(workspace, sibling, second);
+    expect(merged.json.data.landing.kind).toBe("merge");
+    expect(merged.json.data.landing.landed).not.toBe(second.artifact.commit);
+    await close(workspace, producer.ownerToken, sibling.attemptId);
+
+    const proven = await remove(workspace, producer.ownerToken, sibling.attemptId);
+
+    expect(reasons(proven)).toEqual(["approval_required", "approval_required"]);
+  });
+
+  test("refuses while a landing of the same source has no recorded outcome", async () => {
+    const workspace = await makeWorkspace();
+    const { producer, sibling, first, second } = await twoReviewedResults(workspace);
+    await acceptProduction(workspace, producer, first);
+    const branch = await integrationBranch(workspace);
+    // A lock file stops every ref write of Git, so the move fails after its intent is recorded.
+    const lock = `${workspace.repo}/.git/refs/heads/${branch}.lock`;
+    await Bun.write(lock, "");
+    const stopped = await acceptProduction(workspace, sibling, second);
+    expect(stopped.json.reason).toBe("integration_branch_unread");
+    await rm(lock);
+    await close(workspace, producer.ownerToken, producer.attemptId);
+
+    const blocked = await remove(workspace, producer.ownerToken, producer.attemptId);
+
+    expect(reasons(blocked)).toEqual(["landing_pending"]);
+    expect(blocked.json.blockers[0].pendingAssignmentId).toBe(sibling.assignmentId);
+  });
+
+  test("refuses a branch away from its recorded tip, even when it still holds the commit", async () => {
+    const workspace = await makeWorkspace();
+    const { producer, artifact } = await acceptedCycle(workspace);
+    await close(workspace, producer.ownerToken, producer.attemptId);
+    const branch = await integrationBranch(workspace);
+    // A person adds a commit on top of the landed one, so the branch still contains it.
+    const tree = `${artifact.commit}^{tree}`;
+    const later = (
+      await Bun.$`git -C ${workspace.repo} -c user.email=t@example.com -c user.name=Test commit-tree -p ${artifact.commit} -m person ${tree}`.text()
+    ).trim();
+    await Bun.$`git -C ${workspace.repo} update-ref ${`refs/heads/${branch}`} ${later}`.quiet();
+
+    const blocked = await remove(workspace, producer.ownerToken, producer.attemptId);
+
+    expect(blocked.json.blockers).toEqual([
+      { reason: "integration_branch_moved", branch, recordedTip: artifact.commit, found: later },
+    ]);
+  });
+
+  test("refuses a deleted integration branch, and falls back to no other ref", async () => {
+    const workspace = await makeWorkspace();
+    const { producer } = await acceptedCycle(workspace);
+    await close(workspace, producer.ownerToken, producer.attemptId);
+    const branch = await integrationBranch(workspace);
+    await Bun.$`git -C ${workspace.repo} update-ref -d ${`refs/heads/${branch}`}`.quiet();
+
+    const blocked = await remove(workspace, producer.ownerToken, producer.attemptId);
+
+    expect(blocked.json.blockers).toEqual([{ reason: "integration_branch_missing", branch }]);
+  });
+
+  test("refuses a replaced commit after its replacement lands, and lists it as unlanded", async () => {
+    const workspace = await makeWorkspace();
+    const producer = await startProducer(workspace);
+    const artifact = await commitArtifact(workspace, producer, "# Result\n");
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
+    const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
+    const reported = await reportReview(
+      workspace,
+      reviewer,
+      submitted.json.data.reviewId,
+      reportBody({
+        submissionIdentity: submitted.json.data.identity,
+        host: workspace.host,
+        standardsFindings: [
+          {
+            key: "missing-gate",
+            severity: "blocker",
+            summary: "The result does not state the gate it passed.",
+            evidence: "docs/result.md:1",
+          },
+        ],
+      }),
+    );
+    await disposeFindings(workspace, producer, submitted.json.data.reviewId, [
+      {
+        findingId: reported.json.data.findings[0].findingId,
+        disposition: "corrected",
+        reason: "The requirement names the gate, so the result must state it.",
+      },
+    ]);
+    await acceptReview(workspace, producer, {
+      reviewAssignmentId: submitted.json.data.reviewAssignmentId,
+      attemptId: reviewer.attemptId,
+      revision: reviewer.revision,
+    });
+    const delegated = await delegateRework(workspace, producer, {
+      revision: submitted.json.data.revision,
+      body: { reason: "findings", reviewId: submitted.json.data.reviewId, conflicts: [] },
+    });
+    const reworked = await startRework(workspace, producer, {
+      revision: delegated.json.data.revision,
+      commit: artifact.commit,
+      worktreePath: `${workspace.root}/rework`,
+    });
+    const revised = await commitArtifact(workspace, reworked, "# Result\n\nThe gate passed.\n");
+    const resubmitted = await submit(
+      workspace,
+      reworked,
+      submissionBody(reworked, revised, { assignmentRevision: reworked.assignmentRevision }),
+    );
+    const secondReviewer = await startReviewer(
+      workspace,
+      producer,
+      resubmitted.json,
+      revised.commit,
+    );
+    await reportReview(
+      workspace,
+      secondReviewer,
+      resubmitted.json.data.reviewId,
+      reportBody({ submissionIdentity: resubmitted.json.data.identity, host: workspace.host }),
+    );
+    const accepted = await acceptProduction(workspace, reworked, {
+      submissionId: resubmitted.json.data.submissionId,
+      revision: resubmitted.json.data.revision,
+    });
+    expect(accepted.json.reason).toBe("assignment_accepted");
+    expect((await close(workspace, producer.ownerToken, producer.attemptId)).json.reason).toBe(
+      "process_closed",
+    );
+    await close(workspace, producer.ownerToken, reworked.attemptId);
+
+    // The replacement landed, so its own checkout passes the proof.
+    const replacement = await remove(workspace, producer.ownerToken, reworked.attemptId);
+    expect(reasons(replacement)).toEqual(["approval_required", "approval_required"]);
+
+    // The replaced commit is on no integration branch, so only the person removes it (D3).
+    const next = await nextActions(workspace);
+    expect(
+      next.forAction("remove_worktree").filter((one) => one.attemptId === producer.attemptId),
+    ).toEqual([]);
+    const blocked = await remove(workspace, producer.ownerToken, producer.attemptId);
+    expect(blocked.json.blockers).toEqual([
+      {
+        reason: "unlanded_work",
+        assignmentId: producer.assignmentId,
+        cause: "replaced",
+        commits: [artifact.commit],
+      },
+    ]);
+    const shown = await runJson(workspace, ["cleanup", "show"]);
+    expect(shown.json.data.unlanded).toEqual([
+      {
+        attemptId: producer.attemptId,
+        assignmentId: producer.assignmentId,
+        worktreePath: producer.worktreePath,
+        branch: producer.dispatched.data.branch,
+        commit: artifact.commit,
+        cause: "replaced",
+      },
+    ]);
   });
 });
 
@@ -846,7 +1181,6 @@ describe("interrupted cleanups", () => {
   test("records a failed removal when Herdr reports success and the checkout stays", async () => {
     const workspace = await makeWorkspace();
     const { producer } = await acceptedCycle(workspace);
-    await pushWork(producer.worktreePath);
     await close(workspace, producer.ownerToken, producer.attemptId);
     const asked = await remove(workspace, producer.ownerToken, producer.attemptId);
     await grantRemoval(workspace, producer.ownerToken, asked.json.blockers[0]);
@@ -872,7 +1206,6 @@ describe("retention holds and recorded cleanups", () => {
   test("a hold stops every cleanup and outlives the session that placed it", async () => {
     const workspace = await makeWorkspace();
     const { producer } = await acceptedCycle(workspace);
-    await pushWork(producer.worktreePath);
 
     const held = await runJson(workspace, [
       "cleanup",

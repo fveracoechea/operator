@@ -18,9 +18,27 @@ async function temporaryDirectory(label: string): Promise<string> {
   return root;
 }
 
-async function makeProject(files: Record<string, string> = {}): Promise<string> {
+const GATE = `${JSON.stringify({
+  $schema: "./node_modules/@fveracoechea/operator/gate.schema.json",
+  commands: [{ name: "test", argv: ["bun", "test"], timeoutSeconds: 600 }],
+})}\n`;
+
+async function commitFile(root: string, path: string, content: string): Promise<void> {
+  await Bun.write(`${root}/${path}`, content, { createPath: true });
+  await Bun.$`git -C ${root} add ${path}`.quiet();
+  await Bun.$`git -C ${root} -c user.name=Readiness -c user.email=readiness@example.test -c commit.gpgsign=false commit -q -m ${path}`.quiet();
+}
+
+/** A project commits its gate itself, so each fixture holds one unless a test names its absence. */
+async function makeProject(
+  files: Record<string, string> = {},
+  options: { gate: boolean } = { gate: true },
+): Promise<string> {
   const root = await temporaryDirectory("readiness");
   await Bun.$`git init -q ${root}`.quiet();
+  if (options.gate) {
+    await commitFile(root, "operator-gate.json", GATE);
+  }
   for (const [path, content] of Object.entries(files)) {
     await Bun.write(`${root}/${path}`, content, { createPath: true });
   }
@@ -276,6 +294,38 @@ describe("operator setup readiness", () => {
       reason: "tool_unavailable",
       nextAction: "Install Herdr, then check again.",
     });
+  });
+
+  test("blocks a Git older than the floor that a landing needs", async () => {
+    // The fake answers an old version, and every other Git call reaches the real Git.
+    const real = Bun.which("git");
+    const path = await makeFullPath({
+      git: `if [ "$1" = "--version" ]; then echo "git version 2.39.5"; else exec ${real} "$@"; fi`,
+    });
+    const root = await makeProject();
+    await configure(root, path, ["--claude"]);
+
+    const result = await runJson(root, path, ["setup", "readiness", "--claude"]);
+
+    expect(result.json.reason).toBe("readiness_blocked");
+    expect(checkNamed(result.json, "git")).toMatchObject({
+      state: "failed",
+      reason: "git_too_old",
+      nextAction: "Install Git 2.40.0 or later, then check again.",
+    });
+  });
+
+  test("accepts a Git at the floor", async () => {
+    const real = Bun.which("git");
+    const path = await makeFullPath({
+      git: `if [ "$1" = "--version" ]; then echo "git version 2.40.0"; else exec ${real} "$@"; fi`,
+    });
+    const root = await makeProject();
+    await configure(root, path, ["--claude"]);
+
+    const result = await runJson(root, path, ["setup", "readiness", "--claude"]);
+
+    expect(checkNamed(result.json, "git")).toMatchObject({ state: "passed" });
   });
 
   test("refuses an unavailable explicit host instead of substituting another", async () => {
@@ -972,6 +1022,85 @@ describe("recorded live readiness evidence", () => {
       reason: "unreadable_evidence",
       conflict: true,
     });
+  });
+});
+
+describe("the project-gate readiness check", () => {
+  const flags = ["--claude", "--operator-host", "claude-code"];
+
+  test("reports a missing gate as a standing precondition, and setup does not write it", async () => {
+    const path = await makeFullPath();
+    const root = await makeProject({}, { gate: false });
+    await commitFile(root, "README.md", "project\n");
+    await configure(root, path, ["--claude"]);
+
+    const result = await runJson(root, path, ["setup", "readiness", ...flags]);
+
+    expect(result.json.data.state).toBe("blocked");
+    expect(checkNamed(result.json, "project-gate")).toMatchObject({
+      kind: "static",
+      state: "failed",
+      reason: "project_gate_missing",
+      paths: ["operator-gate.json"],
+    });
+    // The Operator makes no change of its own, so the next action is the person's commit.
+    expect(checkNamed(result.json, "project-gate")?.nextAction).toStartWith(
+      "The person commits operator-gate.json",
+    );
+    const head = (await Bun.$`git -C ${root} rev-parse HEAD`.text()).trim();
+    expect(checkNamed(result.json, "project-gate")?.detail).toBe(
+      `The commit ${head} at HEAD holds no operator-gate.json, so no code result can show that it passed the project gate.`,
+    );
+    expect(await Bun.file(`${root}/operator-gate.json`).exists()).toBe(false);
+  });
+
+  test("names the wrong field of an invalid gate", async () => {
+    const path = await makeFullPath();
+    const root = await makeProject({}, { gate: false });
+    await commitFile(
+      root,
+      "operator-gate.json",
+      JSON.stringify({ $schema: "x", commands: [{ name: "test", argv: ["bun", "test"] }] }),
+    );
+    await configure(root, path, ["--claude"]);
+
+    const result = await runJson(root, path, ["setup", "readiness", ...flags]);
+
+    expect(checkNamed(result.json, "project-gate")).toMatchObject({
+      state: "failed",
+      reason: "project_gate_invalid",
+    });
+    expect(checkNamed(result.json, "project-gate")?.detail).toContain("commands.0.timeoutSeconds");
+  });
+
+  test("reads the gate at HEAD, so an uncommitted edit has no effect", async () => {
+    const path = await makeFullPath();
+    const root = await makeProject();
+    await configure(root, path, ["--claude"]);
+    await Bun.write(`${root}/operator-gate.json`, "{ not json");
+
+    const result = await runJson(root, path, ["setup", "readiness", ...flags]);
+
+    expect(checkNamed(result.json, "project-gate")?.state).toBe("passed");
+    expect(checkNamed(result.json, "project-gate")?.detail).toContain("declares test");
+  });
+
+  test("a missing gate does not hold back a live probe, which never reads it", async () => {
+    const path = await makeFullPath();
+    const root = await makeProject({}, { gate: false });
+    await commitFile(root, "README.md", "project\n");
+    await configure(root, path, ["--claude"]);
+
+    const result = await runJson(root, path, [
+      "setup",
+      "probe",
+      "plan",
+      ...flags,
+      "--crew-host",
+      "opencode",
+    ]);
+
+    expect(result.json.reason).toBe("probe_plan_ready");
   });
 });
 

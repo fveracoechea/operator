@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { type AssignmentRow, moveAssignment, readAssignment } from "./assignment.ts";
 import { endAttempt, readAttempt } from "./attempt.ts";
 import type { CrewWriter } from "./database.ts";
-import { activeAttempt } from "./frontier.ts";
+import { activeAttempt, unmetDependencies } from "./frontier.ts";
 import {
   corrections,
   findingsOf,
@@ -15,15 +15,43 @@ import {
 } from "./review.ts";
 import { type DirectionRecord, directionRecordOf, openDirectionsOf } from "./direction.ts";
 import { openPauses, resolveInvalidations } from "./invalidate.ts";
+import { outsideChangesOfSubmission, undisposedOutside } from "./outside-changes.ts";
+import {
+  checkPlanningRecord,
+  insertPlanningRecord,
+  type PreparedRecord,
+  type RecordRefusal,
+} from "./planning-record.ts";
+import {
+  insertLandingIntent,
+  intendedLandingOf,
+  type LandingPlan,
+  type LandingRefusal,
+  recordedTipOf,
+  recordLanding,
+  replacedLandingOf,
+} from "./landing.ts";
+import { applyRewrite } from "./rewrite.ts";
 import { blockingQuestionOf } from "./questions.ts";
 import { submissions } from "./schema.ts";
 import { type ReviewBlocker, storedBlocker, storedObservedChecks } from "./review-input.ts";
 import { storedChecks, storedCode } from "./submission-input.ts";
-import { latestSubmission, type SubmissionRow } from "./submission.ts";
+import { latestSubmission, reviewedBaseOf, type SubmissionRow } from "./submission.ts";
 import { isExecutable, isReview } from "./work-input.ts";
+import { registerBranchReview, type RegisteredBranchReview } from "./branch-review.ts";
 
 export type AcceptResult =
-  | { status: "accepted"; assignmentId: string; attemptId: string | null; revision: number }
+  | {
+      status: "accepted";
+      assignmentId: string;
+      attemptId: string | null;
+      revision: number;
+      planningRecordId: string | null;
+      // The landing of a code result, or null for every other acceptance.
+      landing: AcceptedLanding | null;
+      // The branch review this acceptance registered, because it made the branch final.
+      branchReview: RegisteredBranchReview | null;
+    }
   | { status: "unknown-assignment"; assignmentId: string }
   | { status: "stale-revision"; assignmentId: string; recordedRevision: number }
   | { status: "not-claimed"; assignmentId: string; state: string }
@@ -31,6 +59,14 @@ export type AcceptResult =
   | { status: "input-invalidated"; assignmentId: string; invalidated: string[] }
   | { status: "attempt-required"; assignmentId: string }
   | { status: "attempt-not-expected"; assignmentId: string }
+  | {
+      status: "dependency-pending";
+      assignmentId: string;
+      dependencies: Array<{ assignmentId: string; state: string }>;
+    }
+  | { status: "planning-record-required"; assignmentId: string }
+  | { status: "planning-record-not-expected"; assignmentId: string }
+  | RecordRefusal
   | { status: "attempt-mismatch"; assignmentId: string; attemptId: string | null }
   | { status: "question-open"; assignmentId: string; questionId: string; state: string }
   | { status: "submission-required"; assignmentId: string }
@@ -56,16 +92,69 @@ export type AcceptResult =
       reviewId: string;
       checks: Array<{ name: string; axis: string; recorded: string; observed: string }>;
     }
-  | { status: "pr-authority-missing"; assignmentId: string; detail: string }
-  | { status: "pr-head-required"; assignmentId: string; headCommit: string }
-  | { status: "pr-head-changed"; assignmentId: string; recorded: string; stated: string };
+  | {
+      status: "outside-changes-undisposed";
+      assignmentId: string;
+      submissionId: string;
+      changeIds: string[];
+      // How many of them touch a security permission, which only the user releases.
+      security: number;
+    }
+  | {
+      // Every other gate passed, so a code result now plans its landing (ADR 0020).
+      status: "landing-required";
+      assignmentId: string;
+      sourceId: string;
+      submissionId: string;
+      commit: string;
+      reviewedBase: string;
+      // The landing this result replaces when it is a correction of a landed commit, which lands
+      // through a rewrite in place (ADR 0020), or null for an ordinary landing.
+      replaces: string | null;
+    }
+  | { status: "landing-intended"; assignmentId: string; landingId: string }
+  | {
+      status: "landing-tip-changed";
+      assignmentId: string;
+      planned: string;
+      recordedTip: string | null;
+    }
+  | LandingRefusal;
+
+/** The landing of one accepted code result, as acceptance reports it. */
+export type AcceptedLanding = {
+  landingId: string;
+  branch: string;
+  kind: string;
+  from: string;
+  to: string;
+  // The commit on the branch that carries the accepted result.
+  landed: string;
+  // What a rewrite did to the later commits, or null for an ordinary landing.
+  rewrite: {
+    replaced: string;
+    relanded: Array<{ assignmentId: string; from: string; to: string }>;
+    takenOut: Array<{ assignmentId: string; commit: string; cause: string }>;
+  } | null;
+};
+
+/**
+ * What one acceptance does at the landing step, the last gate of a code result. A probe stops
+ * there and records nothing, an intent records the planned move before the branch moves, and a
+ * record completes the acceptance after the move (ADR 0005, ADR 0020).
+ */
+export type LandingStep =
+  | { kind: "probe" }
+  | { kind: "intend"; landingId: string; plan: LandingPlan }
+  | { kind: "record"; landingId: string; intended: boolean; plan: LandingPlan };
 
 type AcceptRequest = {
   assignmentId: string;
   attemptId: string | null;
   revision: number;
   submissionId: string | null;
-  prHead: string | null;
+  landing: LandingStep;
+  record: PreparedRecord | null;
   now: string;
 };
 
@@ -130,12 +219,9 @@ function contradictedChecks(
 /**
  * The review gates of one code or non-code submission.
  * Every gate is a recorded fact, so a process that exited, a missing input, an unavailable
- * review capability, a failed check, or a moved pull request head can never read as acceptance.
+ * review capability, or a failed check can never read as acceptance.
  */
-function reviewGate(
-  db: CrewWriter,
-  request: { submission: SubmissionRow; prHead: string | null },
-): AcceptResult | null {
+function reviewGate(db: CrewWriter, request: { submission: SubmissionRow }): AcceptResult | null {
   const { submission } = request;
   const review = reviewOfSubmission(db, submission.id);
   if (review === null || review.state !== "reported") {
@@ -203,36 +289,151 @@ function reviewGate(
     };
   }
 
-  if (submission.code === null) {
-    return null;
-  }
-
-  const code = storedCode(submission.code);
-  if (code.pullRequest.status !== "open") {
-    return {
-      status: "pr-authority-missing",
-      assignmentId: submission.assignmentId,
-      detail: code.pullRequest.detail,
-    };
-  }
-  // The Operator states the head it read, so a pull request that moved after review is refused.
-  if (request.prHead === null) {
-    return {
-      status: "pr-head-required",
-      assignmentId: submission.assignmentId,
-      headCommit: code.pullRequest.headCommit,
-    };
-  }
-  if (request.prHead !== code.pullRequest.headCommit) {
-    return {
-      status: "pr-head-changed",
-      assignmentId: submission.assignmentId,
-      recorded: code.pullRequest.headCommit,
-      stated: request.prHead,
-    };
-  }
-
   return null;
+}
+
+/**
+ * Accepts planning work with no attempt. Its record is checked and written in the same
+ * transaction as the acceptance, so an accepted decision always carries what it decided.
+ */
+function acceptPlanning(
+  db: CrewWriter,
+  request: AcceptRequest & { row: AssignmentRow },
+): AcceptResult {
+  const { row } = request;
+  if (request.attemptId !== null) {
+    return { status: "attempt-not-expected", assignmentId: row.id };
+  }
+  // An invalidated decision is answered by deciding again, and only that new acceptance
+  // releases the dependents the invalidation paused.
+  if (row.state !== "registered" && row.state !== "invalidated") {
+    return { status: "not-claimed", assignmentId: row.id, state: row.state };
+  }
+
+  // A decision taken before its own inputs are accepted is a decision on inputs that may still
+  // change, so planning work waits on its dependencies as dispatched work does.
+  const unmet = unmetDependencies(db, row.id);
+  if (unmet.length > 0) {
+    return { status: "dependency-pending", assignmentId: row.id, dependencies: unmet };
+  }
+
+  // The record is what the planning work gives to the work that waits on it, so an acceptance
+  // that records nothing would unblock a dependent that then receives nothing.
+  if (request.record === null) {
+    return { status: "planning-record-required", assignmentId: row.id };
+  }
+  const checked = checkPlanningRecord(db, { row, record: request.record });
+  if (checked.status !== "checked") {
+    return checked;
+  }
+
+  const revision = acceptRow(db, { row, now: request.now });
+  return {
+    status: "accepted",
+    assignmentId: row.id,
+    attemptId: null,
+    revision,
+    planningRecordId: insertPlanningRecord(db, {
+      assignmentId: row.id,
+      assignmentRevision: revision,
+      entries: checked.entries,
+      artifacts: request.record.artifacts,
+      now: request.now,
+    }),
+    landing: null,
+    branchReview: null,
+  };
+}
+
+/**
+ * The landing step of one code result. Its plan and its move are Git effects outside this
+ * transaction, so the caller plans first, records the intent here, moves the branch, and then
+ * records the outcome here with the acceptance. The recorded tip is read again here, so a plan
+ * made on a tip that another acceptance moved is never recorded.
+ */
+function landingStep(
+  db: CrewWriter,
+  request: { row: AssignmentRow; submission: SubmissionRow; step: LandingStep; now: string },
+): { status: "landed"; landing: AcceptedLanding | null } | AcceptResult {
+  const { row, submission, step } = request;
+  // A correction of a landed commit takes the place of that commit through a rewrite in place.
+  const replaced = replacedLandingOf(db, { assignmentId: row.id, submissionId: submission.id });
+  if (step.kind === "probe") {
+    return {
+      status: "landing-required",
+      assignmentId: row.id,
+      sourceId: row.sourceId,
+      submissionId: submission.id,
+      commit: storedCode(submission.code ?? "").resultCommit,
+      reviewedBase: reviewedBaseOf(db, submission) ?? "",
+      replaces: replaced?.id ?? null,
+    };
+  }
+
+  const intended = intendedLandingOf(db, row.sourceId);
+  const own = intended !== null && intended.id === step.landingId;
+  if (intended !== null && !own) {
+    return {
+      status: "landing-pending",
+      assignmentId: row.id,
+      landingId: intended.id,
+      pendingAssignmentId: intended.assignmentId,
+    };
+  }
+  const recordedTip = recordedTipOf(db, row.sourceId);
+  if (!own && recordedTip !== step.plan.from) {
+    return {
+      status: "landing-tip-changed",
+      assignmentId: row.id,
+      planned: step.plan.from,
+      recordedTip,
+    };
+  }
+
+  const fields = {
+    landingId: step.landingId,
+    sourceId: row.sourceId,
+    assignmentId: row.id,
+    submissionId: submission.id,
+    plan: step.plan,
+    now: request.now,
+  };
+  if (step.kind === "intend") {
+    insertLandingIntent(db, fields);
+    return { status: "landing-intended", assignmentId: row.id, landingId: step.landingId };
+  }
+  recordLanding(db, { ...fields, intended: own });
+  const { rewrite } = step.plan;
+  if (rewrite !== null) {
+    applyRewrite(db, { rewrite, now: request.now });
+  }
+  return {
+    status: "landed",
+    landing: {
+      landingId: step.landingId,
+      branch: step.plan.name,
+      kind: step.plan.kind,
+      from: step.plan.from,
+      to: step.plan.to,
+      landed: step.plan.landed,
+      rewrite:
+        rewrite === null
+          ? null
+          : {
+              replaced: rewrite.replacedCommit,
+              relanded: rewrite.relanded.map(({ assignmentId, from, to }) => ({
+                assignmentId,
+                from,
+                to,
+              })),
+              takenOut: rewrite.takenOut.map(({ assignmentId, commit, cause }) => ({
+                assignmentId,
+                commit,
+                cause,
+              })),
+            },
+    },
+  };
 }
 
 /**
@@ -267,19 +468,12 @@ export function acceptAssignment(db: CrewWriter, request: AcceptRequest): Accept
   }
 
   if (!isExecutable(row.kind)) {
-    if (request.attemptId !== null) {
-      return { status: "attempt-not-expected", assignmentId: row.id };
-    }
-    if (row.state !== "registered") {
-      return { status: "not-claimed", assignmentId: row.id, state: row.state };
-    }
+    return acceptPlanning(db, { ...request, row });
+  }
 
-    return {
-      status: "accepted",
-      assignmentId: row.id,
-      attemptId: null,
-      revision: acceptRow(db, { row, now: request.now }),
-    };
+  // Only planning work records a decision. Executable work hands over its result instead.
+  if (request.record !== null) {
+    return { status: "planning-record-not-expected", assignmentId: row.id };
   }
 
   if (request.attemptId === null) {
@@ -325,6 +519,9 @@ export function acceptAssignment(db: CrewWriter, request: AcceptRequest): Accept
       assignmentId: row.id,
       attemptId: live.id,
       revision: acceptRow(db, { row, now: request.now }),
+      planningRecordId: null,
+      landing: null,
+      branchReview: null,
     };
   }
 
@@ -349,9 +546,31 @@ export function acceptAssignment(db: CrewWriter, request: AcceptRequest): Accept
     return { status: "attempt-mismatch", assignmentId: row.id, attemptId: submission.attemptId };
   }
 
-  const blocked = reviewGate(db, { submission, prHead: request.prHead });
+  const blocked = reviewGate(db, { submission });
   if (blocked !== null) {
     return blocked;
+  }
+
+  // A recorded fact never passes by silence (ADR 0007), so each outside change is answered.
+  const outside = undisposedOutside(outsideChangesOfSubmission(db, submission.id));
+  if (outside.length > 0) {
+    return {
+      status: "outside-changes-undisposed",
+      assignmentId: row.id,
+      submissionId: submission.id,
+      changeIds: outside.map((one) => one.id),
+      security: outside.filter((one) => one.security === 1).length,
+    };
+  }
+
+  // The landing is the last gate and the last effect, so nothing lands that another gate refuses.
+  let landing: AcceptedLanding | null = null;
+  if (submission.code !== null) {
+    const step = landingStep(db, { row, submission, step: request.landing, now: request.now });
+    if (step.status !== "landed") {
+      return step;
+    }
+    landing = step.landing;
   }
 
   const submitted = readAttempt(db, submission.attemptId);
@@ -363,10 +582,16 @@ export function acceptAssignment(db: CrewWriter, request: AcceptRequest): Accept
     .where(eq(submissions.id, submission.id))
     .run();
 
+  const revision = acceptRow(db, { row, now: request.now });
   return {
     status: "accepted",
     assignmentId: row.id,
     attemptId: submission.attemptId,
-    revision: acceptRow(db, { row, now: request.now }),
+    revision,
+    planningRecordId: null,
+    landing,
+    // The acceptance that makes the integration branch final registers its branch review in the
+    // same change, as a submission registers its result review (ADR 0017).
+    branchReview: registerBranchReview(db, { sourceId: row.sourceId, now: request.now }),
   };
 }

@@ -1,6 +1,9 @@
 import { OperativeDispatch } from "../operative-dispatch/main.ts";
+import { launchedRecordIds } from "./planning-record.ts";
 import {
   type AttemptFailure,
+  briefGate,
+  type GateUnusable,
   briefOf,
   readContext,
   type Shared,
@@ -43,6 +46,7 @@ export type ReplaceResult =
   | { status: "writer-live"; attemptId: string; agentName: string; paneId: string }
   | { status: "writer-unknown"; attemptId: string; detail: string }
   | { status: "snapshot-unreadable"; attemptId: string; detail: string }
+  | GateUnusable
   | { status: "reconciliation-required"; attemptId: string; pending: string[] }
   | { status: "not-dispatched"; attemptId: string }
   | {
@@ -132,7 +136,16 @@ export async function replaceAttempt(request: {
 
   // A stopped or blocked review may be tried again, and a bounded number of times, so a failing
   // review host escalates to the user instead of consuming the crew.
-  const context = read.context.review;
+  // A branch review has no producer, so its own assignment carries the direction it waits on.
+  const context =
+    read.context.review !== null
+      ? {
+          review: read.context.review.review,
+          holderId: read.context.review.submission.assignmentId,
+        }
+      : read.context.branchReview === null
+        ? null
+        : { review: read.context.branchReview.review, holderId: read.context.assignment.id };
   // The replacement inspects the stopped writer before it records anything, so whether it may
   // run at all is read here and the direction it runs under is spent inside that write.
   let producerAtLimit: string | null = null;
@@ -142,7 +155,7 @@ export async function replaceAttempt(request: {
     context.review.state !== "reported" &&
     read.context.attemptsHeld >= REVIEW_ATTEMPT_LIMIT
   ) {
-    const producerId = context.submission.assignmentId;
+    const producerId = context.holderId;
     const direction = await readState(request.projectRoot, (db) =>
       readDirection(db, { assignmentId: producerId, limitKind: "review_attempts" }),
     );
@@ -215,9 +228,19 @@ export async function replaceAttempt(request: {
 
   const snapshot: Snapshot = restored.snapshot;
   const attemptId = crypto.randomUUID();
+  const gate = await briefGate({
+    projectRoot: request.projectRoot,
+    context: read.context,
+    attemptId: request.attemptId,
+    baseCommit: dispatch.baseCommit,
+  });
+  if (gate.status !== "ok") {
+    return gate;
+  }
+  const brief = briefOf(read.context, attemptId, gate.gate);
   const launch = OperativeDispatch.plan({
     projectRoot: request.projectRoot,
-    brief: briefOf(read.context, attemptId),
+    brief,
     snapshot,
     baseCommit: dispatch.baseCommit,
     branch: dispatch.branch,
@@ -279,6 +302,7 @@ export async function replaceAttempt(request: {
         agentName: plan.agentName,
         agentKind: plan.agentKind,
         agentHost: plan.agentHost,
+        planningRecordIds: launchedRecordIds(brief.planningRecords),
         // The inspected checkout is retained, so the replacement never creates a second one.
         workspaceId: dispatch.workspaceId,
         now,

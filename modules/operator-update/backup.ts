@@ -1,5 +1,6 @@
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
+import { ContentIdentity } from "../content-identity/main.ts";
 
 export const BACKUP_ROOT = ".operator/local/backups";
 
@@ -25,9 +26,7 @@ async function identityOf(path: string): Promise<string | null> {
     return null;
   }
 
-  const hasher = new Bun.CryptoHasher("sha256");
-  hasher.update(new Uint8Array(await file.arrayBuffer()));
-  return hasher.digest("hex");
+  return ContentIdentity.ofBytes(new Uint8Array(await file.arrayBuffer()));
 }
 
 /** The files this project actually holds, of the ones an update would put back. */

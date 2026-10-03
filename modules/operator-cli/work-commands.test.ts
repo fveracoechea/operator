@@ -11,7 +11,7 @@ import {
   submit,
   writeInput,
 } from "./review-cycle-fixture.ts";
-import { headCommit, requestId as request, runJson, workspaces } from "./workspace-fixture.ts";
+import { requestId as request, runJson, workspaces } from "./workspace-fixture.ts";
 
 // Work tests create producer and reviewer cycles through separate CLI processes.
 setDefaultTimeout(60_000);
@@ -36,9 +36,8 @@ describe("operator work accept", () => {
   test("refuses acceptance while the review reports nothing", async () => {
     const workspace = await makeWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
 
     // The reviewer process exits with nothing recorded, which is not a review.
     await startReviewer(workspace, producer, submitted.json, artifact.commit);
@@ -46,7 +45,6 @@ describe("operator work accept", () => {
     const accepted = await acceptProduction(workspace, producer, {
       submissionId: submitted.json.data.submissionId,
       revision: submitted.json.data.revision,
-      prHead: artifact.commit,
     });
 
     expect(accepted.exitCode).toBe(3);
@@ -57,9 +55,8 @@ describe("operator work accept", () => {
   test("refuses acceptance when the review host cannot run the axes", async () => {
     const workspace = await makeWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
 
     const blocked = await reportReview(workspace, reviewer, submitted.json.data.reviewId, {
@@ -77,7 +74,6 @@ describe("operator work accept", () => {
     const accepted = await acceptProduction(workspace, producer, {
       submissionId: submitted.json.data.submissionId,
       revision: submitted.json.data.revision,
-      prHead: artifact.commit,
     });
     expect(accepted.exitCode).toBe(3);
     expect(accepted.json.reason).toBe("review_incomplete");
@@ -105,9 +101,8 @@ describe("operator work accept", () => {
   test("refuses acceptance when a review observed a check the producer called passed", async () => {
     const workspace = await makeWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
 
     const reported = await reportReview(
@@ -125,7 +120,6 @@ describe("operator work accept", () => {
     const accepted = await acceptProduction(workspace, producer, {
       submissionId: submitted.json.data.submissionId,
       revision: submitted.json.data.revision,
-      prHead: artifact.commit,
     });
 
     expect(accepted.json.reason).toBe("checks_contradicted");
@@ -141,9 +135,8 @@ describe("operator work accept", () => {
   test("accepts when the review observed the same outcomes the producer recorded", async () => {
     const workspace = await makeWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
     await reportReview(
       workspace,
@@ -159,7 +152,6 @@ describe("operator work accept", () => {
     const accepted = await acceptProduction(workspace, producer, {
       submissionId: submitted.json.data.submissionId,
       revision: submitted.json.data.revision,
-      prHead: artifact.commit,
     });
 
     expect(accepted.json.reason).toBe("assignment_accepted");
@@ -169,12 +161,11 @@ describe("operator work accept", () => {
   test("refuses acceptance while a check did not pass", async () => {
     const workspace = await makeWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
     const submitted = await submit(
       workspace,
       producer,
-      submissionBody(producer, artifact, base, {
+      submissionBody(producer, artifact, {
         checks: [
           { name: "quality", command: "bun run quality", outcome: "passed", detail: "" },
           { name: "integration", command: "bun test", outcome: "flaky", detail: "One rerun." },
@@ -192,7 +183,6 @@ describe("operator work accept", () => {
     const accepted = await acceptProduction(workspace, producer, {
       submissionId: submitted.json.data.submissionId,
       revision: submitted.json.data.revision,
-      prHead: artifact.commit,
     });
 
     expect(accepted.exitCode).toBe(3);
@@ -200,71 +190,11 @@ describe("operator work accept", () => {
     expect(accepted.json.blockers[0]).toMatchObject({ name: "integration", outcome: "flaky" });
   });
 
-  test("refuses acceptance when the pull request head moved after the review", async () => {
-    const workspace = await makeWorkspace();
-    const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
-    const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
-    const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
-    await reportReview(
-      workspace,
-      reviewer,
-      submitted.json.data.reviewId,
-      reportBody({ submissionIdentity: submitted.json.data.identity, host: workspace.host }),
-    );
-
-    const missing = await acceptProduction(workspace, producer, {
-      submissionId: submitted.json.data.submissionId,
-      revision: submitted.json.data.revision,
-    });
-    expect(missing.exitCode).toBe(3);
-    expect(missing.json.reason).toBe("pr_head_required");
-
-    const moved = await acceptProduction(workspace, producer, {
-      submissionId: submitted.json.data.submissionId,
-      revision: submitted.json.data.revision,
-      prHead: "0".repeat(40),
-    });
-    expect(moved.exitCode).toBe(4);
-    expect(moved.json.reason).toBe("pr_head_changed");
-  });
-
-  test("refuses acceptance when the implementation carries no pull request authority", async () => {
-    const workspace = await makeWorkspace();
-    const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
-    const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const submitted = await submit(
-      workspace,
-      producer,
-      submissionBody(producer, artifact, base, {
-        pullRequest: { status: "authority-missing", detail: "No push approval was given." },
-      }),
-    );
-    const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
-    await reportReview(
-      workspace,
-      reviewer,
-      submitted.json.data.reviewId,
-      reportBody({ submissionIdentity: submitted.json.data.identity, host: workspace.host }),
-    );
-
-    const accepted = await acceptProduction(workspace, producer, {
-      submissionId: submitted.json.data.submissionId,
-      revision: submitted.json.data.revision,
-    });
-
-    expect(accepted.exitCode).toBe(3);
-    expect(accepted.json.reason).toBe("pr_authority_missing");
-  });
-
   test("holds acceptance while an accepted correction waits for a fresh Operative", async () => {
     const workspace = await makeWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
     const reported = await reportReview(
       workspace,
@@ -324,7 +254,6 @@ describe("operator work accept", () => {
     const accepted = await acceptProduction(workspace, producer, {
       submissionId: submitted.json.data.submissionId,
       revision: submitted.json.data.revision,
-      prHead: artifact.commit,
     });
     expect(accepted.exitCode).toBe(6);
     expect(accepted.json.reason).toBe("rework_pending");
@@ -335,14 +264,13 @@ describe("operator work frontier", () => {
   test("a one-agent crew hands its only slot from the producer to the reviewer", async () => {
     const workspace = await makeWorkspace({ maxActiveAgents: 1 });
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
 
     const busy = await runJson(workspace, ["work", "frontier"]);
     expect(busy.json.data.capacity.active.total).toBe(1);
     expect(busy.json.data.capacity.freeSlots).toBe(0);
 
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const free = await runJson(workspace, ["work", "frontier"]);
     expect(free.json.data.capacity.active.total).toBe(0);
     expect(

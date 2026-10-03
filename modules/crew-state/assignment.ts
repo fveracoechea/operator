@@ -11,8 +11,9 @@ export type AssignmentRow = typeof assignments.$inferSelect;
  * Every state one assignment can hold.
  * Registered work is dispatchable, claimed work has a writer, awaiting review has handed a
  * result over, rework owes a delegated correction, paused work read an invalid result,
- * invalidated work was accepted and then found defective, and accepted work unblocks a
- * dependent.
+ * invalidated work was accepted and then found defective, accepted work unblocks a dependent,
+ * and withdrawn work was removed from its parent by a person. A withdrawal is terminal and never
+ * unblocks a dependent.
  */
 export const assignmentStateSchema = z.enum([
   "registered",
@@ -22,6 +23,7 @@ export const assignmentStateSchema = z.enum([
   "paused",
   "invalidated",
   "accepted",
+  "withdrawn",
 ]);
 
 export type AssignmentState = z.infer<typeof assignmentStateSchema>;
@@ -44,8 +46,10 @@ export type NewAssignment = {
   trackerBinding: string | null;
   title: string;
   kind: string;
+  planningType: string | null;
   orderIndex: number;
   approvedScope: string;
+  scopeIdentity: string | null;
   acceptanceRequirements: string[];
   permissions: { writePaths: string[]; allowedCommands: string[]; network: boolean };
   fixedInputs: Array<{
@@ -79,8 +83,10 @@ export function insertAssignment(
     trackerBinding: request.trackerBinding,
     title: request.title,
     kind: request.kind,
+    planningType: request.planningType,
     orderIndex: request.orderIndex,
     approvedScope: request.approvedScope,
+    scopeIdentity: request.scopeIdentity,
     acceptanceRequirements: JSON.stringify(request.acceptanceRequirements),
     permissions: JSON.stringify(request.permissions),
     fixedInputs: JSON.stringify(request.fixedInputs),
@@ -89,6 +95,7 @@ export function insertAssignment(
     revision: 1,
     registeredAt: now,
     updatedAt: now,
+    withdrawnUnder: null,
   };
 
   db.insert(assignments).values(row).run();

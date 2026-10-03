@@ -1,8 +1,50 @@
 // Bun has no file removal API.
 import { rm } from "node:fs/promises";
-import { readTextOrNull, sha256 } from "./files.ts";
-import { type Journal, readJournal, writeJournal } from "./journal.ts";
-import { computePlan, type SetupTarget } from "./plan.ts";
+import { ContentIdentity } from "../content-identity/main.ts";
+import {
+  type Journal,
+  readJournal,
+  SetupApply,
+  type SetupApplyState,
+  writeJournal,
+} from "./journal.ts";
+import { computePlan, readTextOrNull, type SetupPlan, type SetupTarget } from "./plan.ts";
+
+type Refused<S extends string> = { [Status in S]: { status: Status; plan: SetupPlan } }[S];
+
+type ApplyResult =
+  | { status: "unreadable"; detail: string }
+  | { status: "recovery-pending" }
+  | Refused<"conflict" | "approval-required" | "approval-stale" | "unchanged">
+  | {
+      status: "interrupted";
+      plan: SetupPlan;
+      failedPath: string;
+      detail: string;
+      written: string[];
+    }
+  | { status: "applied"; plan: SetupPlan };
+
+type RollbackResult =
+  | { status: "unreadable"; detail: string }
+  | { status: "nothing" }
+  | { status: "complete" }
+  | { status: "conflict"; restored: string[]; conflicts: Array<{ path: string; detail: string }> }
+  | { status: "restored"; restored: string[] };
+
+/** The recorded state of the setup apply, or why the record cannot be read. */
+async function readState(
+  projectRoot: string,
+): Promise<{ state: SetupApplyState; journal: Journal | null } | { unreadable: string }> {
+  const read = await readJournal(projectRoot);
+  if (read.state === "unreadable") {
+    return { unreadable: read.detail };
+  }
+
+  return read.state === "missing"
+    ? { state: "absent", journal: null }
+    : { state: read.journal.status, journal: read.journal };
+}
 
 export const ProjectSetup = {
   /** Inspects the project and reports the exact changes setup would make. Writes nothing. */
@@ -15,45 +57,49 @@ export const ProjectSetup = {
     projectRoot: string;
     targets: SetupTarget[];
     approvedPlanId: string | undefined;
-  }) {
-    // A pending recovery record must be resolved first, or rollback would lose the original files.
-    const recorded = await readJournal(request.projectRoot);
-    if (recorded.state === "unreadable") {
-      return { status: "unreadable" as const, detail: recorded.detail };
-    }
-    if (recorded.state === "read" && recorded.journal.status === "in-progress") {
-      return { status: "recovery-pending" as const };
+  }): Promise<ApplyResult> {
+    const recorded = await readState(request.projectRoot);
+    if ("unreadable" in recorded) {
+      return { status: "unreadable", detail: recorded.unreadable };
     }
 
     const plan = await computePlan(request.projectRoot, request.targets);
-    if (plan.conflicts.length > 0) {
-      return { status: "conflict" as const, plan };
-    }
-    if (request.approvedPlanId === undefined) {
-      return { status: "approval-required" as const, plan };
-    }
-    if (request.approvedPlanId !== plan.planId) {
-      return { status: "approval-stale" as const, plan };
-    }
-    if (plan.changes.length === 0) {
-      return { status: "unchanged" as const, plan };
+    const decision = SetupApply.decide(recorded.state, "apply", {
+      plan,
+      approvedPlanId: request.approvedPlanId,
+    });
+    if ("refused" in decision) {
+      return decision.refused === "recovery-pending"
+        ? { status: "recovery-pending" }
+        : { status: decision.refused, plan };
     }
 
     const journal: Journal = {
       schemaVersion: 1,
       planId: plan.planId,
-      status: "in-progress",
+      status: decision.next,
       writes: [],
     };
     await writeJournal(request.projectRoot, journal);
+    // A per-file event writes the journal only when it moves the state.
+    async function advance(decision: { next: Journal["status"] } | { refused: string }) {
+      if ("next" in decision && decision.next !== journal.status) {
+        journal.status = decision.next;
+        await writeJournal(request.projectRoot, journal);
+      }
+    }
 
-    for (const change of plan.changes) {
+    const changes = decision.effects.flatMap((effect) =>
+      effect.kind === "write" ? [effect.change] : [],
+    );
+    for (const [index, change] of changes.entries()) {
       journal.writes.push({
         path: change.path,
         existedBefore: change.previousText !== null,
         previousText: change.previousText,
-        previousSha: change.previousText === null ? null : sha256(change.previousText),
-        writtenSha: sha256(change.nextText),
+        previousSha:
+          change.previousText === null ? null : ContentIdentity.ofText(change.previousText),
+        writtenSha: ContentIdentity.ofText(change.nextText),
       });
       // The record lands before the write, so an interruption is always recoverable.
       await writeJournal(request.projectRoot, journal);
@@ -63,72 +109,74 @@ export const ProjectSetup = {
           createPath: true,
         });
       } catch (error) {
+        await advance(SetupApply.decide(journal.status, "write-failed", {}));
         return {
-          status: "interrupted" as const,
+          status: "interrupted",
           plan,
           failedPath: change.path,
           detail: String(error),
           written: journal.writes.slice(0, -1).map((write) => write.path),
         };
       }
+
+      await advance(
+        SetupApply.decide(journal.status, "file-written", {
+          remaining: changes.length - index - 1,
+        }),
+      );
     }
 
-    journal.status = "complete";
-    await writeJournal(request.projectRoot, journal);
-    return { status: "applied" as const, plan };
+    return { status: "applied", plan };
   },
 
   /** Restores only the files that still hold what setup wrote. Later user edits stay. */
-  async rollback(request: { projectRoot: string }) {
-    const read = await readJournal(request.projectRoot);
-    if (read.state === "missing") {
-      return { status: "nothing" as const };
-    }
-    if (read.state === "unreadable") {
-      return { status: "unreadable" as const, detail: read.detail };
+  async rollback(request: { projectRoot: string }): Promise<RollbackResult> {
+    const recorded = await readState(request.projectRoot);
+    if ("unreadable" in recorded) {
+      return { status: "unreadable", detail: recorded.unreadable };
     }
 
-    const journal = read.journal;
-    if (journal.status === "complete") {
-      return { status: "complete" as const };
-    }
-    if (journal.status === "rolled-back") {
-      return { status: "nothing" as const };
+    const writes = recorded.journal?.writes ?? [];
+    const files = await Promise.all(
+      writes.map(async (write) => {
+        const currentText = await readTextOrNull(`${request.projectRoot}/${write.path}`);
+        return {
+          write,
+          currentSha: currentText === null ? null : ContentIdentity.ofText(currentText),
+        };
+      }),
+    );
+    const decision = SetupApply.decide(recorded.state, "rollback", { files });
+    if ("refused" in decision || recorded.journal === null) {
+      return { status: "refused" in decision ? decision.refused : "nothing" };
     }
 
     const restored: string[] = [];
     const conflicts: Array<{ path: string; detail: string }> = [];
-
-    for (const entry of journal.writes.toReversed()) {
-      const path = `${request.projectRoot}/${entry.path}`;
-      const currentText = await readTextOrNull(path);
-      const currentSha = currentText === null ? null : sha256(currentText);
-
-      if (currentSha === entry.writtenSha) {
-        if (entry.existedBefore && entry.previousText !== null) {
-          await Bun.write(path, entry.previousText);
-        } else {
-          await rm(path, { force: true });
-        }
-        restored.push(entry.path);
-      } else if (currentSha === entry.previousSha) {
-        // The write never landed, so the file already holds its previous contents.
-        restored.push(entry.path);
-      } else {
+    for (const effect of decision.effects) {
+      if (effect.kind !== "rollback") {
+        continue;
+      }
+      const path = `${request.projectRoot}/${effect.path}`;
+      if (effect.verdict === "restore") {
+        await (effect.previousText === null
+          ? rm(path, { force: true })
+          : Bun.write(path, effect.previousText));
+      }
+      if (effect.verdict === "preserve") {
         conflicts.push({
-          path: entry.path,
+          path: effect.path,
           detail: "This file changed after setup wrote it, so it was preserved.",
         });
+      } else {
+        restored.push(effect.path);
       }
     }
 
-    journal.status = "rolled-back";
-    await writeJournal(request.projectRoot, journal);
+    await writeJournal(request.projectRoot, { ...recorded.journal, status: decision.next });
 
-    if (conflicts.length > 0) {
-      return { status: "conflict" as const, restored, conflicts };
-    }
-
-    return { status: "restored" as const, restored };
+    return conflicts.length > 0
+      ? { status: "conflict", restored, conflicts }
+      : { status: "restored", restored };
   },
 };

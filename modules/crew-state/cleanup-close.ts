@@ -99,7 +99,7 @@ export async function closeProcess(request: {
     holdBlocker(context),
     ...stillWritingBlockers({ context, inspection }),
     ...handoffBlockers(context),
-    ...checkoutBlockers(inspection, { requireRemote: false }),
+    ...checkoutBlockers(inspection),
   ].flatMap((one) => (one === null ? [] : [one]));
   if (gates.length > 0) {
     return refuse(gates);
@@ -184,7 +184,7 @@ export async function closeProcess(request: {
   if (after.identity !== inspection.identity) {
     return refuse([
       { reason: "writer_active", state: context.attempt.state, checkout: after.worktreePath },
-      ...checkoutBlockers(after, { requireRemote: false }),
+      ...checkoutBlockers(after),
     ]);
   }
 

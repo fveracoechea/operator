@@ -6,6 +6,14 @@ Shared language for the Operator project's agent coordination workflow.
 
 **Operator**:
 The primary agent that is the user's main point of contact and coordinates the crew. Operator is also the project name; "the Operator" refers to the agent role.
+The Operator writes no content of its own; it asks the crew or an Operative to make each change.
+A ref move that the CLI builds only from reviewed patches, on a command that the Operator runs, is not an Operator change, and neither is the creation of an integration branch at a base that passed the project gate.
+The take-out of a withdrawn commit is such a move, and it is bound to the revision of the registration plan whose approval recorded the withdrawal.
+
+**Rules of the person**:
+The five rules R1 to R5 that override a ticket, a resolution, an ADR, and a skill topic: the Operator is read-only, nothing merges a pull request without the explicit approval of the person, nothing tears down unlanded work, an Operative never addresses the person directly, and the Operator keeps its own context as low as possible.
+The router of the `operator` skill states all five as a whole.
+A conflict with one of them goes to the person, never to a choice of the Operator or the crew.
 
 **Crew**:
 The group of sub-agents coordinated by the Operator.
@@ -20,7 +28,9 @@ An approved unit of work with its inputs, dependencies, questions, and result. I
 **Write path**:
 A file or a folder, named from the repository root, that one assignment may change.
 A folder covers everything under it, each path has one written form, and the letter case counts.
+A path that an earlier release stored is read in that form, or it fails loudly.
 Only a person widens the write paths of an assignment, with an approval; an answer never does.
+The effective write paths are the registered paths plus every current grant, and the brief, submit, and the crew frontier read them.
 _Avoid_: allowed paths, scope paths
 
 **Attempt**:
@@ -36,13 +46,15 @@ _Avoid_: per-assignment review
 
 **Behavior change**:
 A difference, compared with the base, in what changed code does for some input: an output, an error, a record that is dropped or skipped, or a boundary value that falls in another class.
-Every result submission lists each one with the requirement or human answer that permits it, or states that there is none.
+Every result submission lists each one with its basis: the approved scope, one acceptance requirement, or one answered question whose answer is a requirement or a human answer. An empty list states that there is none.
+An Operator decision is never a basis.
 A change to a comment, a private name, or a test is not one.
 _Avoid_: side effect, "no functional change"
 
 **Outside change**:
 A change found outside an Operative worktree between the launch of one attempt and its submission.
 Its writer is not known, so it is never proof of a fault, and it is explained or removed before the result is accepted.
+Only a person deletes one; the CLI proves the removal with a new scan.
 _Avoid_: stray write, out-of-worktree write, violation
 
 **Accepted completion**:
@@ -140,16 +152,21 @@ The approved origin of registered work.
 An approved specification, a ready ticket, and a wayfinder map are the three supported sources, each with its own revision.
 Operator reads each one from the tracker, as a parent issue with its sub-issues or as one issue, and never creates the issues.
 Its revision is the identity of the approved text of that parent issue or that one issue, so a comment or a closed ticket does not change it.
-It is finished when every integrated pull request of its last stack publication merged with a merge commit and every tracker step of its items is verified, or, when it has nothing to publish, when the rest of its work is accepted and its tracker steps are verified.
+It is finished when every integrated pull request of its last stack publication merged with a merge commit, or a person settled its merge by another method, and every tracker step of its items is verified, or, when it has nothing to publish, when the rest of its work is accepted and its tracker steps are verified.
 
 **Registration plan**:
 The preview of what one registration would record, read from the tracker together with the Operator's input.
 It carries a revision, and the registration refuses when a fresh read gives a different one, so an approval covers exactly what gets recorded.
+Its full text is a local file named by that revision, and a command that reports it gives only a summary and the path.
+On a new read of a registered source, it names each item as new, updated, or unchanged, and it records a new source revision or an updated item only under the person's approval of its revision.
 
 **Integration branch**:
 The one branch that collects the accepted commits of one work source, in the order they land.
-A dependent assignment starts from it.
-It moves only by a landing, or by a rewrite that puts a corrected commit in place of the one it corrects or takes a withdrawn commit out, and only from the tip the crew last recorded.
+It is a local branch named `operator/integration/<source slug>`, which the first code dispatch of the source creates at the integration base, and its name is recorded on the source.
+No two sources share a slug, so no two sources share a branch.
+Every later production dispatch of the source starts from its recorded tip, so a dependent assignment starts from it.
+A branch that holds any other commit stops each production dispatch of its source, and only a person puts it back.
+It moves only by a landing, by a rewrite that puts a corrected commit in place of the one it corrects or takes a withdrawn commit out, or by an approved rebase onto a new integration base, and only from the tip the crew last recorded.
 Nothing pushes it before publish, and publish pushes its commits only under new remote names, so a pushed branch is never pushed again.
 A published part of it is rewritten only after its pull requests are recalled, and a part that merged is never rewritten.
 _Avoid_: autosquash, fixup, for the rewrite
@@ -157,11 +174,16 @@ _Avoid_: autosquash, fixup, for the rewrite
 **Integration base**:
 The commit one integration branch starts from.
 It changes only through a rebase onto a new base that a person approves, so a moved main branch never changes an accepted patch by itself, and a patch that the rebase changes is reviewed again.
+The new base is a fetched tip of the target branch, it passes the project gate under the gate declaration fixed on the source before it is recorded, and the old base is below it.
+A rebase runs before publish, or after a recall or a stack fault, and never while a published pull request of the source is open.
+A commit whose pull request merged into the target leaves the branch, and a commit whose patch the rebase changes is taken out and comes back through an integration cycle.
 It is fixed only after it passes the project gate, so a failure it already holds is never blamed on the first result.
 
 **Landing**:
 The move of an integration branch that adds one reviewed commit with its patch unchanged.
 It is the last step of accepting that commit, after the commit it lands as passed the project gate, so the branch never holds a commit that failed another gate.
+A commit whose parent is the tip lands as itself; any other lands as one new commit that copies its author, committer, dates, and message, so every plan of it names the same commit.
+A commit whose equal patch the branch already holds lands nothing.
 _Avoid_: integrate, cherry-pick, merge, for this act
 
 **Project gate**:
@@ -175,35 +197,59 @@ Runs are appended and never rewritten, and a tree passes only with a passing run
 A reported pass from an Operative or a reviewer is not a gate run.
 _Avoid_: spare worktree, rerun, for a fresh series that a person approves
 
+**Gate checkout**:
+The one checkout of a source in which its gate runs.
+Herdr creates it once on its own branch, and its HEAD is detached at each key, so it never commits, never moves a branch, and holds no work.
+_Avoid_: spare worktree
+
 **Integrated pull request**:
 A pull request that carries a contiguous range of one integration branch, with one commit for each accepted code result.
-Operator opens it with a body rendered from the records, and a person merges it with a merge commit, so each of its commits reaches the target branch as it was reviewed and gated.
+Operator opens it with a body rendered from the records and the published text, and a person merges it with a merge commit, so each of its commits reaches the target branch as it was reviewed and gated.
+The Operator and the crew never merge it and never turn on auto-merge; a merge by a teammate of the person counts as the approval of the person.
 _Avoid_: pull request per assignment
+
+**Published text**:
+The title, the summary, where to start reading, and the merge danger of each integrated pull request, and each cut point with its reason, which the branch reviewer writes in its report, or the result reviewer for a work source with one code commit.
+The Operator only passes it on, and the publish approval binds it word for word.
+_Avoid_: Operator sections, PR description
 
 **Pull request stack**:
 The ordered integrated pull requests of one work source, each based on the one below it.
 A stack of one is the default.
-It is published at once and merged from the bottom up, and after each merge the next one is based on the target branch.
+It is published at once and merged from the bottom up, and after each merge commit the CLI changes the base of the next one to the target branch.
 _Avoid_: delivery group
 
+**Cut point**:
+The place between two neighbouring commits of the integration branch where one integrated pull request of a pull request stack ends and the next one starts.
+The branch reviewer proposes each one with a reason, and the person approves it in the publish approval.
+_Avoid_: split, delivery group boundary
+
 **Stack publication**:
-One numbered push and opening of the pull request stack of one work source, at one reviewed head, with the cut points, titles, and bodies that one approval covers.
+One numbered push and opening of the pull request stack of one work source, at one reviewed head, with the cut points, titles, bodies, and tracker steps after the merge that one approval covers.
 A work source can have several, because a change to a published range needs a new one and a pushed branch is never pushed again.
 _Avoid_: release publication, and "publication" alone, for this act
 
 **Recall**:
 The return of the open integrated pull requests of one stack publication, from one part up, to drafts, before a correction or a withdrawal changes that range.
 It keeps the change off the target branch while it is made, and the next stack publication closes what it recalled.
+Its one comment on each pull request is rendered from the defect or the withdrawal record, and one approval binds the recall plan revision that names every comment.
+When every code item above the recalled point is withdrawn, no publication follows, so the recall also closes what it recalled.
+A merge before the recall ends the change: when a person settles that stack fault, the invalidation closes with no correction, and the merged result counts as landed.
 _Avoid_: withdraw, retract, for this act
 
 **Stack fault**:
-An outcome on GitHub that no stack publication planned: a merge that is not a merge commit, a merge into another base, a commit that no review read on a pushed branch, or a close with no merge.
+An outcome on GitHub that no stack publication planned: a merge that is not a merge commit, a merge into another base, a commit that no review read on a pushed branch, a close with no merge, or a merge of a part that held a commit to change before its recall.
 Operator adopts nothing from it, and it waits on a person.
+A fault on one part stops every part above it.
+Only the person settles it, by an approval of the reading: a settled merge by another method counts as landed, and any other settled fault ends its part.
+Operator writes nothing more to a pull request whose head a person moved, also after the person settled that fault: a later stack publication only names it.
+`operator publish status` records it when the user reports a merge or a close, because `operator crew next` never reads GitHub.
+The items of a pull request that reached the target by another merge method still complete.
 _Avoid_: delivery fault
 
 **Branch snapshot**:
 The recorded integration branch of one work source at one head: its base, its head, and its ordered commits with the accepted result of each.
-It is what a branch review reads, and a different head is a different snapshot.
+It is what a branch review reads, and a different head, or a different accepted result of one commit, is a different snapshot.
 _Avoid_: branch state
 
 **Branch review**:
@@ -214,9 +260,11 @@ _Avoid_: integration review, final review, whole-branch review, and "branch revi
 **Planning boundary**:
 The recorded statement of whether an assignment is executable or planning only.
 Planning-only work is registered so dependencies resolve, and it is never dispatched to an Operative.
+A sub-agent of the crew that prepares its planning record works for the Operator and holds no assignment, so preparing the record is not a dispatch.
 
 **Planning record**:
 What the Operator records when it accepts planning work: each decision with the question as it was asked, its answer authority, the exact words, and the reading of them, and the longer texts that the decision names.
+The crew prepares it, and the prose of a decision is one of its text artifacts, never free text of the Operator.
 Each direct dependent receives it in its brief, and the resolution on the tracker is a rendering of it.
 It is fixed once it is accepted, so a changed decision invalidates the planning work.
 _Avoid_: decision record, Decision section
@@ -237,7 +285,7 @@ It transfers who may act on the attempt and changes nothing about the work, so i
 **Crew frontier**:
 The assignments a crew may start now, with the reason every other assignment waits.
 It is a read that changes nothing.
-It never offers an assignment whose write paths overlap the paths that unaccepted work of the same work source holds, and it offers no production work of a work source whose integration branch still holds a withdrawn commit.
+It never offers an assignment that has not started whose write paths overlap the paths that unaccepted work of the same work source holds, and it offers no production work of a work source whose integration branch still holds a withdrawn commit.
 _Avoid_: phase, partial dependency, file lock
 
 **Ownership token**:
@@ -258,6 +306,7 @@ Planning work is not executable, so it carries no kind of its own beyond the pla
 **Dispatch**:
 The staged launch of one claimed assignment into an isolated Operative worktree.
 It fixes the plan first, then records the intent and outcome of each external effect.
+The plan also records the ids of the planning records that its brief carries.
 
 **Launch snapshot**:
 The effective crew host, model, Operator release, lock data, and skill contents that one attempt was launched with.
@@ -286,6 +335,7 @@ Herdr acknowledges a submission, not a turn, so this is the only proof that the 
 **Blocked report**:
 The Operative's statement that it cannot continue, with the question, its evidence, its options, the recommendation, the scope that waits, and the work that continues without the answer.
 It carries no authority of its own.
+A tool that the Claude Code host of an Operative refuses becomes a blocked report, because that host never asks the person.
 
 **Question revision**:
 The recorded number of one question as asked.
@@ -327,24 +377,27 @@ One delegated correction round on one submitted result, or on an accepted result
 It carries the accepted findings or the defect, the conflicts it must settle, the revisions it combines, and what was recorded in the earlier rounds of the assignment, and a fresh Operative answers all of them in one combined revision.
 A fresh Operative is a new attempt, in a new agent session and a new checkout.
 An integration cycle applies a result again, on the commit it lands on, when that result no longer lands with its reviewed patch or no longer passes the project gate there.
+It combines only the submitted commit and the commit it lands on, which the CLI reads from the landing plan, and it carries a failed gate run as a fixed artifact.
 The reviewer that found the problem, the Operator that disposed of it, and the Operative that produced the result are never its writer.
 _Avoid_: send-back, same agent
 
 **Direction request**:
 The recorded statement that one assignment, or the branch review of one work source, reached a limit and now waits on the user.
-It keeps the evidence of what was tried, blocks acceptance while it is open, and is passed only by an approval that names the assignment and the revision of the request it answers.
+It keeps the evidence of what was tried, blocks acceptance, or the dispatch of a branch review, while it is open, and is passed only by an approval that names the assignment and the revision of the request it answers.
 
 **Invalidated result**:
 An accepted result a defect was found in afterwards.
-Its acceptance and evidence stay recorded, and only the dependents that consumed it, and the later results whose patch changes when it is corrected, are paused.
+Its acceptance and evidence stay recorded, and only the dependents that consumed it, and the later results that the rewrite of its correction takes out, are paused.
+A result is taken out when its patch changes, it fails the project gate at its new place, or a result it depends on is taken out; it returns to awaiting review, and its acceptance lands it again on the tip.
 A paused result is not itself invalidated, because nothing was found wrong in it.
-Its correction is a rework cycle that counts against the same limit as every other correction of that assignment.
+Its correction is a rework cycle that counts against the same limit as every other correction of that assignment, and it starts at the commit on the integration branch that carries the result.
 
 **Withdrawal**:
 The end of one registered assignment that a person took out of its work source, by removing its issue from the parent issue.
 It is recorded behind the approval of a registration plan, only when no attempt of it is running and each dependent is withdrawn with it or no longer depends on it.
 A withdrawn assignment never unblocks a dependent, and its history stays.
-A commit of it that the integration branch holds is taken out of that branch.
+It records the registration plan revision whose approval recorded it.
+A commit of it that the integration branch holds is taken out of that branch, bound to that plan revision, and until then no production work of its work source starts.
 _Avoid_: cancel, drop, descope, abandon, revert, for this act
 
 **Review capability**:
@@ -362,12 +415,14 @@ It is fixed at registration, so a later configuration change cannot redirect wor
 
 **Tracker location**:
 Where one work source lives in its tracker: its repository and its parent issue, if it has one.
-An assignment reads its binding from the source it was registered under.
+Each tracker binding names its own repository.
+The source location gives the parent and map issue.
 
 **Tracker step**:
 One of the three outcomes of completing work on a tracker: the recorded resolution, the ticket completion, and the map amendment.
 Each one has its own intent, evidence, outcome, and recovery action.
-For a code result, the three run only after the pull request that carries its commit merged into the target branch, and its resolution is a rendering of the records.
+For a code result, the three run only after the recorded merge of the pull request that carries its commit into the target branch, under the publish approval that named them, and its resolution is a rendering of the records with no free body.
+Its map amendment keeps its stated input, and it also waits for a `map-amendment` approval that binds the exact text the CLI rendered after the merge.
 
 **Logical operation**:
 The name of one intended tracker effect, fixed before the first write and kept through every recovery attempt.
@@ -397,7 +452,8 @@ It never touches the checkout.
 **Worktree removal**:
 The disposal of one approved Herdr-managed checkout.
 Accepted completion is not disposal authority, so it also needs a closed process, preserved evidence, a checkout that holds only the commit its handoff names, and an approval granted against these exact inputs.
-When that commit is the accepted result of its assignment, the integration branch must still hold it; a commit that a later accepted result replaced, or a commit of a withdrawn assignment, needs no such proof, because its record stays.
+When that commit is the accepted result of its assignment, the integration branch must still hold it at its recorded tip.
+A checkout that holds a commit of a withdrawn assignment, or a commit that a later accepted result of the same assignment replaced, holds unlanded work, so it is refused, and only the person removes it.
 _Avoid_: remote copy, pushed, for this proof
 
 **Cleanup request revision**:

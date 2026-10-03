@@ -1,3 +1,4 @@
+import { ProjectGate } from "../project-gate/main.ts";
 import {
   CLAUDE_IMPORT_PATH,
   CONFIG_PATH,
@@ -98,6 +99,9 @@ function toolCheck(
   });
 }
 
+/** The oldest Git that can land a commit with no worktree. */
+const GIT_FLOOR = "2.40.0";
+
 function gitCheck(observation: Observation): Check {
   const observed = toolState(observation, "git");
   if (observed?.state !== "installed") {
@@ -114,6 +118,17 @@ function gitCheck(observation: Observation): Check {
       reason: "git_unavailable",
       detail: unavailable.detail,
       nextAction: "Make the Git index readable in this project, then check again.",
+    });
+  }
+
+  // A landing merges with `merge-tree --merge-base` and proves its patch with
+  // `patch-id --verbatim`, and Git 2.40.0 is the first release that has both (ADR 0020).
+  const version = observed.version ?? "";
+  if (!Bun.semver.satisfies(version, `>=${GIT_FLOOR}`)) {
+    return check("git", null, "", {
+      reason: "git_too_old",
+      detail: `Operator lands commits with no worktree and needs Git ${GIT_FLOOR} or later, and observed ${version || "no version"}.`,
+      nextAction: `Install Git ${GIT_FLOOR} or later, then check again.`,
     });
   }
 
@@ -349,6 +364,39 @@ function instructionCheck(observation: Observation, target: Target): Check {
   );
 }
 
+/**
+ * The project gate is a committed declaration, so it is read at HEAD of this checkout. Setup never
+ * writes it, because only the project knows which commands prove a commit (ADR 0021).
+ */
+function gateCheck(observation: Observation): Check {
+  const gate = observation.gate;
+  switch (gate.status) {
+    case "declared":
+      return check("project-gate", null, ProjectGate.describe(gate, "readiness"), null);
+    case "missing":
+      return check("project-gate", null, "", {
+        reason: "project_gate_missing",
+        detail: ProjectGate.describe(gate, "readiness"),
+        nextAction: `The person commits ${gate.path} at the repository root, with each gate command and its time limit. Then check again.`,
+        paths: [gate.path],
+      });
+    case "invalid":
+      return check("project-gate", null, "", {
+        reason: "project_gate_invalid",
+        detail: ProjectGate.describe(gate, "readiness"),
+        nextAction: `The person corrects ${gate.path} and commits it. Then check again.`,
+        paths: [gate.path],
+      });
+    case "unread":
+      return check("project-gate", null, "", {
+        reason: "project_gate_unread",
+        detail: ProjectGate.describe(gate, "readiness"),
+        nextAction: `The person makes a commit that holds ${gate.path} at HEAD. Then check again.`,
+        paths: [gate.path],
+      });
+  }
+}
+
 /** Derives every check that observes the current machine and project without launching an agent. */
 export function staticChecks(observation: Observation): Check[] {
   return [
@@ -375,6 +423,7 @@ export function staticChecks(observation: Observation): Check[] {
     settingsCheck(observation),
     selectionCheck(observation, "operator"),
     selectionCheck(observation, "crew"),
+    gateCheck(observation),
     ...observation.targets.flatMap((target) => [
       skillCheck(observation, target),
       instructionCheck(observation, target),

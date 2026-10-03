@@ -73,6 +73,10 @@ describe("the release artifact", () => {
     // Bun resolves the CLI's own path through symlinks, such as the macOS temporary directory.
     expect(discoveryOutput.data.path).toBe(`${await realpath(artifactRoot)}/herdr`);
     expect(await Bun.file(`${artifactRoot}/config.schema.json`).exists()).toBe(true);
+    // The release publishes the gate schema that a project names as its `$schema`.
+    expect(await Bun.file(`${artifactRoot}/gate.schema.json`).json()).toMatchObject({
+      required: ["$schema", "commands"],
+    });
     expect(await Bun.file(`${artifactRoot}/jsr.json`).exists()).toBe(true);
     expect(await Bun.file(`${artifactRoot}/README.md`).text()).toBe(
       await Bun.file(`${sourceRoot}/docs/jsr/README.md`).text(),

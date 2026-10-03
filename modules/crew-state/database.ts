@@ -70,13 +70,39 @@ export async function openState(projectRoot: string): Promise<OpenResult> {
     return { status: "unreadable", path, detail: "The state file records no state version." };
   }
 
-  // A file that predates a table this release reads is reported, never repaired in silence.
+  if (stateVersion > STATE_VERSION) {
+    opened.sqlite.close();
+    return { status: "unsupported", path, found: stateVersion, supported: STATE_VERSION };
+  }
+
+  // An older file is left exactly as it is. Only an approved update migrates it, so a command
+  // that happened to run first never rewrites a format the user has not backed up.
+  if (stateVersion < STATE_VERSION) {
+    opened.sqlite.close();
+    return { status: "outdated", path, found: stateVersion, supported: STATE_VERSION };
+  }
+
+  // A file at this version that lacks a table this release reads is damaged, never repaired in
+  // silence. An older file lacks the tables its later migration steps add.
   let tables: unknown[];
   try {
     tables = opened.sqlite.query("select name from sqlite_master where type = 'table'").all();
   } catch (error) {
     opened.sqlite.close();
     return { status: "unreadable", path, detail: String(error) };
+  }
+
+  if (stateVersion > STATE_VERSION) {
+    opened.sqlite.close();
+    return { status: "unsupported", path, found: stateVersion, supported: STATE_VERSION };
+  }
+
+  // An older file is left exactly as it is. Only an approved update migrates it, so a command
+  // that happened to run first never rewrites a format the user has not backed up. The version
+  // is read before the tables, because an older file lacks the tables a later version added.
+  if (stateVersion < STATE_VERSION) {
+    opened.sqlite.close();
+    return { status: "outdated", path, found: stateVersion, supported: STATE_VERSION };
   }
 
   const present = new Set(
@@ -96,18 +122,6 @@ export async function openState(projectRoot: string): Promise<OpenResult> {
       path,
       detail: `The state file is missing the ${missing.toSorted().join(", ")} table(s).`,
     };
-  }
-
-  if (stateVersion > STATE_VERSION) {
-    opened.sqlite.close();
-    return { status: "unsupported", path, found: stateVersion, supported: STATE_VERSION };
-  }
-
-  // An older file is left exactly as it is. Only an approved update migrates it, so a command
-  // that happened to run first never rewrites a format the user has not backed up.
-  if (stateVersion < STATE_VERSION) {
-    opened.sqlite.close();
-    return { status: "outdated", path, found: stateVersion, supported: STATE_VERSION };
   }
 
   return {

@@ -80,71 +80,6 @@ function lookupFrom<Value>(
 }
 
 export const HerdrControl = {
-  /** Checks the enabled wake plugin against the release that runs this CLI. */
-  async wakePlugin(herdrVersion: string) {
-    const invoked = await ToolInvocation.run({
-      tool: "herdr",
-      args: ["plugin", "list", "--json"],
-      timeoutMs: 5_000,
-    });
-    const nextAction =
-      'Run `herdr plugin link "$(operator wake plugin-path)"` and `herdr plugin enable operator.wake`, then check again. Unlink an earlier copy first.';
-    if (invoked.status !== "completed" || invoked.exitCode !== 0) {
-      return {
-        state: "failed" as const,
-        detail:
-          invoked.status === "completed"
-            ? `Herdr plugin list exited ${invoked.exitCode}.`
-            : invoked.detail,
-        nextAction,
-      };
-    }
-    let answer: unknown;
-    try {
-      answer = JSON.parse(invoked.stdout);
-    } catch {
-      return {
-        state: "failed" as const,
-        detail: "Herdr plugin list returned invalid JSON.",
-        nextAction,
-      };
-    }
-    const plugins = ToolInvocation.list(ToolInvocation.record(answer, "result"), "plugins");
-    const plugin = plugins.find((one) => ToolInvocation.text(one, "plugin_id") === "operator.wake");
-    if (plugin === undefined) {
-      return {
-        state: "failed" as const,
-        detail: "The Operator wake plugin is not installed.",
-        nextAction,
-      };
-    }
-    const expected = new URL("../../herdr/herdr-plugin.toml", import.meta.url).pathname;
-    const actual = ToolInvocation.text(plugin, "manifest_path");
-    const minimum = ToolInvocation.text(plugin, "min_herdr_version");
-    const compatible = minimum !== null && Bun.semver.satisfies(herdrVersion, `>=${minimum}`);
-    const enabled = ToolInvocation.record(plugin, "enabled") === true;
-    const warnings = ToolInvocation.record(plugin, "warnings");
-    if (
-      actual !== expected ||
-      !enabled ||
-      !compatible ||
-      (Array.isArray(warnings) && warnings.length > 0)
-    ) {
-      return {
-        state: "failed" as const,
-        detail: `The Operator wake plugin is ${enabled ? "enabled" : "disabled"} at ${actual ?? "an unknown path"}; expected ${expected}. Herdr ${herdrVersion} must meet the plugin minimum ${minimum ?? "unknown"}.${Array.isArray(warnings) && warnings.length > 0 ? " Herdr reports plugin warnings." : ""}`,
-        nextAction:
-          !compatible && minimum !== null
-            ? `Upgrade Herdr to ${minimum} or later, then check again.`
-            : nextAction,
-      };
-    }
-    return {
-      state: "passed" as const,
-      detail: "The enabled Operator wake plugin matches this CLI release.",
-      nextAction: null,
-    };
-  },
   /** A read-only server request. A version string alone cannot prove a server connection. */
   async connection(request: { repoRoot: string }) {
     const result = await invokeHerdr({
@@ -337,21 +272,31 @@ export const HerdrControl = {
       : { status: "succeeded", value: { paneId } };
   },
 
-  /** Starts the agent host in a prepared pane. Success means that host owns that terminal. */
+  /** Starts the agent host in a prepared pane. An allow list makes Claude Code never ask (ADR 0006). */
   async startAgent(request: {
     name: string;
     kind: string;
     paneId: string;
     model?: string | null;
     reasoningEffort?: string | null;
+    allowedTools?: string[] | null;
   }): Promise<HerdrOutcome<Agent>> {
+    const effort = request.reasoningEffort ?? null;
+    const allowed = request.allowedTools ?? null;
+    // `--allowedTools` takes every argument after it, so it closes the list.
+    const hostArgs =
+      request.kind === "claude"
+        ? [
+            ...(effort === null ? [] : ["--effort", effort]),
+            ...(allowed === null ? [] : ["--permission-mode", "dontAsk"]),
+            ...(allowed === null || allowed.length === 0 ? [] : ["--allowedTools", ...allowed]),
+          ]
+        : effort === null
+          ? []
+          : ["--agent", "operator-crew"];
     const agentArgs = [
       ...(request.model === null || request.model === undefined ? [] : ["--model", request.model]),
-      ...(request.reasoningEffort === null || request.reasoningEffort === undefined
-        ? []
-        : request.kind === "claude"
-          ? ["--effort", request.reasoningEffort]
-          : ["--agent", "operator-crew"]),
+      ...hostArgs,
     ];
     const outcome = await invokeHerdr({
       args: [
@@ -404,6 +349,18 @@ export const HerdrControl = {
     return lookupFrom(outcome, ["agent_not_found", "pane_not_found"], (result) =>
       readAgent(ToolInvocation.record(result, "agent")),
     );
+  },
+
+  /**
+   * Types one line into a pane shell. Herdr joins its words with no quoting, so the caller passes
+   * the whole line as one argument, already quoted for the shell. It reports no exit status.
+   */
+  async runInPane(request: { paneId: string; line: string }): Promise<HerdrOutcome<null>> {
+    const outcome = await invokeHerdr({
+      args: ["pane", "run", request.paneId, request.line],
+      timeoutMs: READ_TIMEOUT_MS,
+    });
+    return outcome.status === "succeeded" ? { status: "succeeded", value: null } : outcome;
   },
 
   /** Read-only. Names every agent Herdr holds, so the occupants of a workspace can be counted. */

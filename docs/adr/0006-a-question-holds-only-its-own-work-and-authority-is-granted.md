@@ -4,6 +4,14 @@ An Operative that cannot continue inside its authority limits raises one questio
 The blocked report states the question, its evidence, its options, the Operative's recommendation, the scope that waits, and the work that continues without the answer.
 That report carries no authority of its own: the request shape refuses any other field, so an Operative cannot widen what the Operator may then do.
 
+An Operative never addresses the person, so its agent host must not ask the person for a permission.
+Dispatch starts a Claude Code Operative with `--permission-mode dontAsk` and an allow list.
+The list comes from the brief: the Operator CLI operations it names, its allowed commands, its write paths, the outbox for `--input` files, and the web tools when it permits the network.
+An Operative that produces a result also gets `git status`, `git add`, and `git commit`, because its code result is one commit (ADR 0015).
+A reviewer gets none of them, because it changes nothing.
+The host refuses every other tool, and the Operative reports the refusal as a blocked report.
+A permission prompt would wait for the person in a terminal that nobody watches, and the attempt would stop with no record of why.
+
 One Operative waits on one question at a time.
 A second report would hide the first, so the crew state refuses it and the Operative revises the question it already raised.
 Every other assignment stays dispatchable, because a question holds the assignment that raised it and nothing else.
@@ -66,10 +74,21 @@ An answer delivery is an effect outside the crew state like any other, and givin
 Applying an older answer to a changed question whenever the words still look similar was rejected.
 Similarity is a judgement, and a judgement made by the party that wants the answer is not a check.
 
+Starting a Claude Code Operative in `auto` permission mode was rejected.
+A classifier then approves a tool call that no person approved, and Claude Code 2.1.281 reports auto mode as unavailable for Haiku 4.5.
+Starting it with `bypassPermissions` was rejected too.
+The host then refuses nothing, so a tool outside the authority limits never becomes a question.
+
 A single approval flag that authorizes a class of actions was rejected.
 An approval that does not name its targets cannot be compared against the action about to run.
 
 ## Consequences
+
+A tool outside the allow list of a Claude Code Operative waits for an answer from the Operator, not for a prompt.
+That is the accepted cost: a list that is too narrow costs a question.
+Allow rules in the person's own Claude Code settings still apply, so they can widen what the host runs without a question.
+The live probe starts its agents with no permission mode, so it does not prove this launch.
+An OpenCode Operative receives no allow list.
 
 `operator question revise` refuses to change a question while a delivery could still arrive.
 The Operative acknowledges the answer on its way and raises a new question, rather than changing the question the answer is already in flight for.

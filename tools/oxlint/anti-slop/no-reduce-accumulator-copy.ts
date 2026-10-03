@@ -3,10 +3,31 @@ import type { ESTree, SourceCode, Variable } from "@oxlint/plugins";
 
 import {
   arrayMethodTarget,
+  constInitializer,
   isKnownArrayExpression,
   resolveArrayBinding,
   unwrapArrayExpression,
 } from "./array-method.ts";
+
+type ReducerCallback = ESTree.ArrowFunctionExpression | ESTree.Function;
+
+/** Find the `reduce` or `reduceRight` call that takes this function as its only callback. */
+function reducerCall(callback: ReducerCallback): ESTree.CallExpression | null {
+  let owner: ESTree.Node | null = callback.parent;
+  while (owner !== null && unwrapArrayExpression(owner) === callback) owner = owner.parent;
+  if (owner?.type !== "CallExpression") return null;
+  const method = arrayMethodTarget(owner.callee);
+  const firstArgument = owner.arguments[0];
+  if (
+    method === null ||
+    (method.name !== "reduce" && method.name !== "reduceRight") ||
+    owner.arguments.length > 2 ||
+    firstArgument === undefined ||
+    unwrapArrayExpression(firstArgument) !== callback
+  )
+    return null;
+  return owner;
+}
 
 function enclosingReducer(node: ESTree.Node) {
   let parent = node.parent;
@@ -14,19 +35,8 @@ function enclosingReducer(node: ESTree.Node) {
     if (parent.type === "FunctionDeclaration") return null;
     if (parent.type === "ArrowFunctionExpression" || parent.type === "FunctionExpression") {
       const callback = parent;
-      let owner: ESTree.Node | null = callback.parent;
-      while (owner !== null && unwrapArrayExpression(owner) === callback) owner = owner.parent;
-      if (owner?.type !== "CallExpression") return null;
-      const method = arrayMethodTarget(owner.callee);
-      const firstArgument = owner.arguments[0];
-      if (
-        method === null ||
-        (method.name !== "reduce" && method.name !== "reduceRight") ||
-        owner.arguments.length > 2 ||
-        firstArgument === undefined ||
-        unwrapArrayExpression(firstArgument) !== callback
-      )
-        return null;
+      const owner = reducerCall(callback);
+      if (owner === null) return null;
       const firstParameter = callback.params[0];
       const accumulator =
         firstParameter?.type === "AssignmentPattern" ? firstParameter.left : firstParameter;
@@ -48,20 +58,10 @@ function referencesAccumulator(
   if (variable === null || visited.has(variable)) return false;
   if (variable === accumulator) return true;
   visited.add(variable);
-  if (variable.references.some((reference) => reference.isWrite() && !reference.init)) return false;
-  for (const definition of variable.defs) {
-    if (
-      definition.type === "Variable" &&
-      definition.node.type === "VariableDeclarator" &&
-      definition.node.id.type === "Identifier" &&
-      definition.node.init !== null &&
-      definition.node.parent.type === "VariableDeclaration" &&
-      definition.node.parent.kind === "const"
-    ) {
-      return referencesAccumulator(sourceCode, definition.node.init, accumulator, visited);
-    }
-  }
-  return false;
+  const initializer = constInitializer(variable);
+  return (
+    initializer !== null && referencesAccumulator(sourceCode, initializer, accumulator, visited)
+  );
 }
 
 function isGlobalCopyOwner(sourceCode: SourceCode, node: ESTree.Node, name: string): boolean {

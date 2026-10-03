@@ -251,10 +251,13 @@ type Report = Awaited<ReturnType<typeof buildReport>>;
 /**
  * True when a check the probe cannot fix has failed.
  * A failed live check is the reason to run a probe again, so only a failing static check, or
- * evidence that cannot be read, holds a probe back.
+ * evidence that cannot be read, holds a probe back. The project gate is the one exception, because a probe runs no gate command.
  */
 function staticallyBlocked(report: Report): boolean {
-  return report.blockers.some((one) => one.kind === "static" || one.name === "readiness-evidence");
+  return report.blockers.some(
+    (one) =>
+      (one.kind === "static" && one.name !== "project-gate") || one.name === "readiness-evidence",
+  );
 }
 
 function expectedCosts(report: Report, selected: typeof liveChecks): string[] {

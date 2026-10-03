@@ -26,7 +26,7 @@ A fresh Operative makes one new commit on that tip, and it is a new submission w
 The integration branch is a local branch of the shared repository, in a namespace of its own, and its name is recorded on the source when it is created.
 Its base is the commit that the first code dispatch of the source names, and that base changes only through a rebase onto a new base that a person approves (ADR 0022).
 Every later production dispatch of the source starts from the recorded tip, so its base holds every result it depends on.
-An invalidated assignment whose commit is on the branch starts from that commit instead, on the parent of that commit, because its correction takes the place of that commit.
+An invalidated assignment whose commit is on the branch starts at that commit instead, and its base is the parent of that commit there, because its correction takes the place of that commit.
 Nothing pushes the branch before publish, and publish pushes its commits under new remote names, with the user's approval and never with force (ADR 0022).
 
 A branch that moved outside this protocol stops every landing, rewrite, and production dispatch of its source, and a branch that a worktree has checked out stops every landing and rewrite.
@@ -123,3 +123,56 @@ A rewrite updates that commit for every result it lands again, because removal o
 A landing whose outcome was not recorded is a recovery action of the next actions, ahead of new work, as ADR 0011 orders recovery.
 
 Operator now needs a Git version that can merge without a worktree, and readiness refuses an older one.
+
+The integration branch is named `operator/integration/<source slug>`.
+Two sources never share a slug: a source id that loses a part in the slug, by its punctuation or by the cut at 40 characters, ends with a short identity of the whole id.
+A name that another source records refuses with `integration_branch_held`, so no source loses its record.
+The first code dispatch creates it at the integration base, after that base passed the project gate, and only if no branch of that name exists, so a branch that a person made is never taken over and refuses with `integration_branch_exists`.
+That dispatch records the name, the base, the recorded tip, and the gate declaration on the source in the same step as its launch plan.
+A later production dispatch of the source names no commit, and a `--commit` that differs from the recorded tip refuses with `dispatch_base_not_tip`.
+A rework cycle and a review keep their own start.
+A moved branch stops each production dispatch with `integration_branch_moved`, which names both tips and each worktree that has the branch checked out.
+A source that an earlier release dispatched records no branch, and its later dispatches keep the commit that the caller names.
+
+The module `integration-branch` is the only Operator code that writes a Git ref itself, and `lint:modules` refuses the plumbing command that writes a ref in every other production module.
+Herdr still creates the branch of each checkout that it creates.
+
+`operator work accept` has no option that names a commit, and the former `--pr-head` option is refused as unknown.
+A landing refusal names its cause: `integration_branch_moved` with both tips, `integration_branch_checked_out` with the worktree, `landing_conflict` with the paths, `landing_patch_changed`, `landing_tip_changed` when another acceptance moved the recorded tip after the plan was made, `landing_pending` while another landing of the source has no recorded outcome, and `integration_branch_missing` for a source that records no branch.
+Each one lands nothing and records nothing.
+The patch identity hashes the plumbing diff with three lines of context, no rename detection, and full binary content, so no user setting changes it.
+A landing whose outcome was not recorded is offered as `settle_landing`, right after `reconcile_attempt`, and its command is a repeat of `work accept`.
+A findings cycle and a diagnostic rerun start on the earlier submitted commit, so the patch of their result runs from the base of the first submission of that chain, and it lands as one commit, as an amended commit would.
+A correction of a landed commit starts at the commit that its landing recorded, and the Operative makes one commit on top of it.
+Its reviewed change runs from the parent of that commit, so the commit that takes the place of the landed one carries the landed change and the correction together.
+An integration cycle of a correction starts from the parent of the replaced commit, the commit its result lands on.
+
+The rewrite is a landing of the kind `rewrite`, and its intent records the whole plan: the landing it replaces, each later landing that lands again with its new commit and parent, and each later landing that is taken out with its cause (`patch-changed`, `conflict`, `gate`, or `dependency`).
+The later landings, and the results each one depends on, are read from the crew state, and the plan refuses when Git does not hold them above the replaced commit in the same order.
+`crew next` offers `run_gate` for the first commit of the rebuilt range that has no passing run, one commit at a time, and the plan is made again after each run.
+A later commit whose new tree failed or is flaky is taken out by the next plan, so only the changed part of the range is gated again.
+When every commit of the range passed, `work accept` records the intent, moves the branch once from the old tip to the rebuilt tip, and records the outcome with the acceptance: the replaced landing ends, each later landing names its new commit, and each one taken out ends and returns its assignment to awaiting review.
+An interrupted rewrite is settled by `settle_landing` like any other landing, and while it waits, cleanup refuses each checkout of the source with `rewrite_pending` and a withdrawal of a result it moves refuses with `withdrawal_effect_unsettled`.
+The rewrite is a ref move that the CLI builds only from reviewed patches, on a command that the Operator runs, so it is not an Operator change (`CONTEXT.md`, **Operator**).
+A rewrite or a take-out whose replaced commit is in a published part that people still read, or that merged, refuses with `rewrite_published_range` and names the pull request of that part.
+A part that a recall turned into a draft, or that closed with no merge, no longer guards its range, so the change runs after the recall (ADR 0022), and a merged part guards its range for ever.
+A rewrite that would return a result to awaiting review while a tracker step of that result is recorded refuses with `rewrite_tracker_recorded` and names each step.
+Since ADR 0022, a code result completes only after its merge, so its commit is inside a published range, and only a state that an earlier release recorded holds such a step; its ticket would say the work is done while its commit leaves the branch, so a person decides, and Operator writes no tracker step to undo another one.
+
+The take-out is a landing of the kind `take-out`, and its intent records the same plan with no correction: the lowest withdrawn commit is the replaced one, each other withdrawn commit is removed with it, and the plan names the registration plan revision that recorded the withdrawals.
+`operator work take-out --source <id> --plan-revision <revision>` is bound to that revision (D5): a revision that did not record each withdrawal refuses with `take_out_plan_changed`, so the move is exactly the one the person approved, and the registration plan already listed each later commit that it lands again (`rebuilds`), read from the crew state.
+Each take-out is bound to one revision, so a registration that withdraws more landed work while a take-out of the source waits refuses with `take_out_pending`, and `work accept` of a code result of the source refuses with `take_out_pending` too, so the rebuilt range stays the one the plan listed and no landing is gated twice.
+`crew next` offers `run_gate` with `operator gate run --source <id>` for each commit that lands again, then `take_out_commit`, and the command refuses with the gate blockers of ADR 0021 until the range passed.
+The record ends each withdrawn landing as taken out, moves the recorded tip, and registers the branch review when the branch became final (ADR 0017); the withdrawn commit stays in its checkout, which only the person removes (D3).
+A withdrawn landing on a commit that a result that is not withdrawn also carries leaves the record only, because that commit stays on the branch.
+An interrupted take-out is offered as `settle_landing` with the same command.
+
+The rebase onto a new base is `operator work rebase --source <id> --base <commit>` (ADR 0022).
+Without `--plan-revision` it plans and changes nothing that others read, and its full plan is a local file under `.operator/local/rebase-plans/`.
+It rebuilds the whole branch on the new base in the same order, under the three tests of the rewrite, and its plan revision names the source, the branch, the old base and tip, and the new base.
+A commit whose pull request the recorded observations show merged into the target leaves the branch, its landing becomes `merged`, and removal of its checkout still proves it, because it is below the new base.
+The new base must hold the merge commit of each such pull request, or the plan refuses with `rebase_merge_not_in_base`.
+Each commit that is taken out returns its assignment to awaiting review, as in a rewrite, and a recorded tracker step of such a result refuses with `rewrite_tracker_recorded`.
+The rebase is a separate intent in the crew state, so a landing refuses with `rebase_pending`, cleanup refuses each checkout of the source with `rebase_pending`, and `crew next` offers `settle_rebase`, while its outcome is not recorded.
+It is a ref move that the CLI builds only from reviewed patches, on a command that the Operator runs, so it is not an Operator change (D5).
+Readiness refuses a Git older than 2.40.0 with `git_too_old`, because Git 2.40.0 is the first release that has both `merge-tree --merge-base` and `patch-id --verbatim`.

@@ -6,15 +6,27 @@ import {
   storedChecked,
   storedObservedChecks,
   storedSubAgents,
+  storedTargets,
 } from "./review-input.ts";
-import { storedChecks, storedCode, storedConcerns, storedDecisions } from "./submission-input.ts";
-import { readSubmission } from "./submission.ts";
+import {
+  storedBehaviorChanges,
+  storedChecks,
+  storedCode,
+  storedConcerns,
+  storedDecisions,
+} from "./submission-input.ts";
+import { outsideChangesOfSubmission, outsideRecordOf } from "./outside-changes.ts";
+import { readSubmission, type SubmissionRow } from "./submission.ts";
 import { storedArtifacts } from "./submission-store.ts";
+import { readSnapshot, storedSnapshotCommits } from "./branch-review.ts";
+import type { CrewReader } from "./database.ts";
 
 export type ReviewReport = {
   review: {
     id: string;
-    submissionId: string;
+    // A result review reads one submission and a branch review one branch snapshot.
+    submissionId: string | null;
+    snapshotId: string | null;
     assignmentId: string;
     state: string;
     host: string | null;
@@ -39,8 +51,19 @@ export type ReviewReport = {
     checks: unknown;
     concerns: unknown;
     decisions: unknown;
+    behaviorChanges: unknown;
     code: unknown;
-  };
+    // Each change found outside the worktree, which acceptance waits on until it is disposed.
+    outsideChanges: Array<ReturnType<typeof outsideRecordOf>>;
+  } | null;
+  snapshot: {
+    id: string;
+    sourceId: string;
+    baseCommit: string;
+    headCommit: string;
+    identity: string;
+    commits: ReturnType<typeof storedSnapshotCommits>;
+  } | null;
   reports: Array<{
     axis: string;
     summary: string;
@@ -60,6 +83,9 @@ export type ReviewReport = {
     reason: string | null;
     dispositionEvidence: string | null;
     followUp: string | null;
+    // The commits a branch finding targets, and the assignment its correction names.
+    targets: string[] | null;
+    correctionTarget: string | null;
   }>;
   missingAxes: string[];
   outstanding: string[];
@@ -68,8 +94,30 @@ export type ReviewReport = {
 export type ShowReviewResult =
   | ({ status: "reported" } & ReviewReport)
   | { status: "unknown-review"; reviewId: string }
-  | { status: "submission-missing"; reviewId: string; submissionId: string }
+  | { status: "submission-missing"; reviewId: string; submissionId: string | null }
   | StateFailure;
+
+function submissionOf(db: CrewReader, submission: SubmissionRow): ReviewReport["submission"] {
+  return {
+    id: submission.id,
+    assignmentId: submission.assignmentId,
+    attemptId: submission.attemptId,
+    resultKind: submission.resultKind,
+    assignmentRevision: submission.assignmentRevision,
+    sourceRevision: submission.sourceRevision,
+    requirementsIdentity: submission.requirementsIdentity,
+    identity: submission.identity,
+    state: submission.state,
+    reviewBase: submission.reviewBase,
+    artifacts: storedArtifacts(submission.artifacts),
+    checks: storedChecks(submission.checks),
+    concerns: storedConcerns(submission.concerns),
+    decisions: storedDecisions(submission.decisions),
+    behaviorChanges: storedBehaviorChanges(submission.behaviorChanges),
+    code: submission.code === null ? null : storedCode(submission.code),
+    outsideChanges: outsideChangesOfSubmission(db, submission.id).map(outsideRecordOf),
+  };
+}
 
 /** Reports one review, its two axis reports, and every finding disposition. Writes nothing. */
 export async function showReview(request: {
@@ -82,8 +130,10 @@ export async function showReview(request: {
       return { status: "unknown-review" as const, reviewId: request.reviewId };
     }
 
-    const submission = readSubmission(db, review.submissionId);
-    if (submission === null) {
+    const submission =
+      review.submissionId === null ? null : readSubmission(db, review.submissionId);
+    const snapshot = review.snapshotId === null ? null : readSnapshot(db, review.snapshotId);
+    if (submission === null && snapshot === null) {
       // The review exists. Saying it does not would send the reader looking for the wrong fault.
       return {
         status: "submission-missing" as const,
@@ -100,6 +150,7 @@ export async function showReview(request: {
       review: {
         id: review.id,
         submissionId: review.submissionId,
+        snapshotId: review.snapshotId,
         assignmentId: review.assignmentId,
         state: review.state,
         host: review.host,
@@ -109,23 +160,18 @@ export async function showReview(request: {
         reportedAt: review.reportedAt,
         revision: review.revision,
       },
-      submission: {
-        id: submission.id,
-        assignmentId: submission.assignmentId,
-        attemptId: submission.attemptId,
-        resultKind: submission.resultKind,
-        assignmentRevision: submission.assignmentRevision,
-        sourceRevision: submission.sourceRevision,
-        requirementsIdentity: submission.requirementsIdentity,
-        identity: submission.identity,
-        state: submission.state,
-        reviewBase: submission.reviewBase,
-        artifacts: storedArtifacts(submission.artifacts),
-        checks: storedChecks(submission.checks),
-        concerns: storedConcerns(submission.concerns),
-        decisions: storedDecisions(submission.decisions),
-        code: submission.code === null ? null : storedCode(submission.code),
-      },
+      submission: submission === null ? null : submissionOf(db, submission),
+      snapshot:
+        snapshot === null
+          ? null
+          : {
+              id: snapshot.id,
+              sourceId: snapshot.sourceId,
+              baseCommit: snapshot.baseCommit,
+              headCommit: snapshot.headCommit,
+              identity: snapshot.identity,
+              commits: storedSnapshotCommits(snapshot.commits),
+            },
       reports: reports.map((one) => ({
         axis: one.axis,
         summary: one.summary,
@@ -145,6 +191,8 @@ export async function showReview(request: {
         reason: one.reason,
         dispositionEvidence: one.dispositionEvidence,
         followUp: one.followUp,
+        targets: one.targets === null ? null : storedTargets(one.targets),
+        correctionTarget: one.correctionTarget,
       })),
       missingAxes: missingAxes(reports),
       outstanding: undisposed(findings).map((one) => one.id),

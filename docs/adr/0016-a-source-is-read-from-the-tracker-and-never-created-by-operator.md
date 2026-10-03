@@ -25,6 +25,7 @@ A production item whose blocker is an open production item of another registered
 The commit of that blocker can land only on the integration branch of its own source, so the base of this source could never hold it.
 The user puts both items under one parent, or registers this item after the other source merges.
 A new item of a source whose integration base is already fixed is refused when a production blocker of it in another source was completed after that base was fixed, for the same reason.
+That refusal, `blocker_completed_after_base`, reads only the crew state: the time the base was fixed, and the time the completion step of the blocker succeeded.
 A closed code blocker gates nothing because a code ticket is completed only after the pull request that carries its commit merged into the target branch (ADR 0022), so a base that is fixed after that close holds the commit.
 A parent with no sub-issues is refused, and so is a read that did not cover every sub-issue and every blocker, because an incomplete read is a gap and not a proof of absence.
 
@@ -39,9 +40,15 @@ Blocker sets are sorted, and a carriage return before a line feed is removed bef
 Every refusal is reported at once, in a fixed order, and the output holds no value that changes between runs.
 
 A registration is previewed first.
-The preview changes nothing, and it reports every item it would add, update, or keep, every satisfied blocker, every refusal, and a registration plan revision.
+The preview changes no crew state and no tracker, and it reports every item it would add, update, or keep, every satisfied blocker, every refusal, and a registration plan revision.
 That revision is the content identity of the canonical read and the input.
 The registration reads again and refuses if the revision differs, so what is recorded is exactly what was previewed.
+
+The Operator reads the report of the preview, and it keeps its own context low.
+So the report gives the counts, the revision, and the path of a local file that holds the full plan, and the crew or the person reads that file.
+The file is named by its revision, so the same plan always writes the same bytes, and a registration whose revision differs names the parts that changed against it: the source, an item, or an input entry.
+A registration that is refused writes its plan the same way.
+A registration that records its plan gives only counts and the command that lists each assignment.
 
 Only a new registration reads the tracker again.
 `operator crew next` never reads the tracker, because it runs on every turn and changes nothing.
@@ -50,6 +57,10 @@ A changed parent body is a new source revision, and a changed item that has no a
 Both need an approval bound to the registration plan revision.
 Each recorded assignment keeps the source revision it was registered under, so work that already started is not changed.
 A changed item that has an attempt or is accepted is refused, because its writer read the old text, and the change goes in a new sub-issue.
+A changed item is a changed title or body, kind, blocking link, or input entry, or an item that moved to another repository than its source.
+A renamed repository moves the source and its items together, so it is not a change, and a recorded item keeps its key.
+A closed blocker keeps a dependency that its item already recorded, because work that Operator completes and closes is not a change of the blocking links.
+A new position of a recorded item needs no approval, because the order only breaks ties in the frontier.
 A recorded item that the read no longer finds is a withdrawal, because the person who removed its issue from the parent changed the structure that the tracker owns.
 A withdrawal is recorded only behind the approval bound to the registration plan revision, like every other change that a new read finds.
 A recorded item that the read finds closed, while it is not in accepted completion, is refused, and the person removes it from the parent to withdraw it.
@@ -64,6 +75,7 @@ A withdrawn assignment ends in its own state, and it never unblocks a dependent.
 Its attempts, submissions, reviews, findings, invalidations, and planning record stay as they were recorded.
 Its open cycle, its open invalidation, its open direction request, and each review of it that no attempt holds close with it.
 A withdrawn commit that the integration branch still holds is taken out, as ADR 0020 records.
+The plan lists each withdrawal with its recorded landing and the later commits that the take-out lands again, read from the crew state with no Git read, and the take-out is bound to the plan revision whose approval recorded the withdrawal.
 Operator writes nothing to the tracker for a withdrawal, because the removal that the person made is already there.
 A withdrawn issue that is added to its parent again is refused, because it matches the recorded item by its issue identity, and a new sub-issue carries the work again.
 On a new read, the input names only the new and changed items.

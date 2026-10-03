@@ -14,7 +14,7 @@ export type Activity =
   | { status: "read"; path: string; stateVersion: number; active: ActiveWork[] };
 
 // An assignment resting in one of these states owes the crew nothing right now.
-const SETTLED_ASSIGNMENT_STATES = ["registered", "accepted", "invalidated"];
+const SETTLED_ASSIGNMENT_STATES = ["registered", "accepted", "invalidated", "withdrawn"];
 
 type ActiveRow = {
   assignment_id: string;

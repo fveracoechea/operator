@@ -1,5 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { ContentIdentity } from "../content-identity/main.ts";
+import { z } from "zod";
 import type { CrewReader, CrewWriter } from "./database.ts";
 import {
   type AnswerInput,
@@ -11,8 +12,9 @@ import {
   type QuestionInput,
   questionInputSchema,
 } from "./question-input.ts";
+import { type RecordedSource, SOURCE_KINDS, storedPathOf } from "./requirement-source.ts";
 import { answers, questions } from "./schema.ts";
-import { readStored } from "./stored.ts";
+import { readStored, readStoredValue } from "./stored.ts";
 
 export type QuestionRow = typeof questions.$inferSelect;
 export type AnswerRow = typeof answers.$inferSelect;
@@ -23,7 +25,7 @@ export type AnswerRecord = {
   authority: string;
   exactText: string | null;
   interpretation: AnswerInterpretation;
-  source: { id: string; revision: string } | null;
+  source: RecordedSource | null;
   reusedFromId: string | null;
   approvalId: string | null;
   recordedAt: string;
@@ -91,16 +93,28 @@ export function answerRecordOf(row: AnswerRow, question: QuestionRow): AnswerRec
       answerInterpretationSchema,
       row.interpretation,
     ),
-    source:
-      row.sourceId === null || row.sourceRevision === null
-        ? null
-        : { id: row.sourceId, revision: row.sourceRevision },
+    source: recordedSourceOf(row),
     reusedFromId: row.reusedFromId,
     approvalId: row.approvalId,
     recordedAt: row.recordedAt,
     // An answer applies while the question it was given to still asks the same thing.
     applicable:
       row.questionRevision === question.revision && row.targetIdentity === question.targetIdentity,
+  };
+}
+
+function recordedSourceOf(row: AnswerRow): RecordedSource | null {
+  if (row.sourceId === null || row.sourceRevision === null) {
+    return null;
+  }
+
+  const kind = readStoredValue("answer source kind", z.enum(SOURCE_KINDS), row.sourceKind ?? "");
+  return {
+    kind,
+    id: row.sourceId,
+    revision: row.sourceRevision,
+    storedPath:
+      kind === "copy" || kind === "source-revision" ? storedPathOf(row.sourceRevision) : null,
   };
 }
 
@@ -138,6 +152,24 @@ export function findAnswer(
 
 export function answersOf(db: CrewReader, questionId: string): AnswerRow[] {
   return db.select().from(answers).where(eq(answers.questionId, questionId)).all();
+}
+
+/**
+ * Every question of one assignment, from every attempt, with the authority of the answer that
+ * applies to it now, or null when none applies. A behavior change names its basis from these.
+ */
+export function answerAuthoritiesOf(
+  db: CrewReader,
+  assignmentId: string,
+): Map<string, string | null> {
+  const rows = db.select().from(questions).where(eq(questions.assignmentId, assignmentId)).all();
+  return new Map(
+    rows.map((row) => {
+      const answer = row.answerId === null ? null : readAnswer(db, row.answerId);
+      const applies = answer !== null && answerRecordOf(answer, row).applicable;
+      return [row.id, applies ? answer.authority : null];
+    }),
+  );
 }
 
 /**
@@ -301,12 +333,13 @@ export function insertAnswer(
     answerId: string;
     question: QuestionRow;
     input: AnswerInput;
+    // The checked source of a requirement. The other authorities quote no source.
+    source: RecordedSource | null;
     reusedFromId: string | null;
     approvalId: string | null;
     now: string;
   },
 ): void {
-  const source = request.input.authority === "requirement" ? request.input.source : null;
   db.insert(answers)
     .values({
       id: request.answerId,
@@ -316,8 +349,9 @@ export function insertAnswer(
       authority: request.input.authority,
       exactText: request.input.authority === "operator-decision" ? null : request.input.exactText,
       interpretation: JSON.stringify(request.input.interpretation),
-      sourceId: source?.id ?? null,
-      sourceRevision: source?.revision ?? null,
+      sourceKind: request.source?.kind ?? null,
+      sourceId: request.source?.id ?? null,
+      sourceRevision: request.source?.revision ?? null,
       reusedFromId: request.reusedFromId,
       approvalId: request.approvalId,
       recordedAt: request.now,

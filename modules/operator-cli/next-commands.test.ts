@@ -1,3 +1,4 @@
+import { registerSource, workspaceTarget } from "./source-fixture.ts";
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import {
   acceptProduction,
@@ -5,7 +6,7 @@ import {
   disposeFindings,
   invalidateResult,
   makeReviewWorkspace,
-  registerDependents,
+  passCandidateGate,
   reportBody,
   reportReview,
   startProducer,
@@ -20,6 +21,7 @@ import {
   type NextAction,
   nextActions,
   ownCrew,
+  passBaseGate,
   requestId as request,
   runJson,
   stopFakeAgents,
@@ -140,10 +142,10 @@ describe("the next actions", () => {
 
   test("offers the frontier order and withholds work its dependency gates", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
-    const producer = await startProducer(workspace);
-    const registered = await registerDependents(workspace, producer, [
-      { key: "26.2", kind: "production", title: "Depends on the first item" },
-    ]);
+    const producer = await startProducer(workspace, undefined, {
+      dependents: [{ key: "26.2", kind: "production", title: "Depends on the first item" }],
+    });
+    const registered = producer.dependents;
 
     const reported = await nextActions(workspace);
 
@@ -157,10 +159,18 @@ describe("the next actions", () => {
 
   test("reports the crew limit that decides what a one-agent crew may start", async () => {
     const workspace = await makeReviewWorkspace(fixtures, { maxActiveAgents: 1 });
-    const producer = await startProducer(workspace);
-    const registered = await registerDependents(workspace, producer, [
-      { key: "26.2", kind: "production", title: "Independent work", dependsOn: [] },
-    ]);
+    const producer = await startProducer(workspace, undefined, {
+      dependents: [
+        {
+          key: "26.2",
+          kind: "production",
+          title: "Independent work",
+          dependsOn: [],
+          writePaths: ["notes/independent.md"],
+        },
+      ],
+    });
+    const registered = producer.dependents;
 
     const reported = await nextActions(workspace);
 
@@ -184,41 +194,12 @@ describe("the next actions", () => {
       "operator-session",
     ]);
     const ownerToken = owned.json.data.ownerToken;
-    const path = `${workspace.root}/work.json`;
-    await Bun.write(
-      path,
-      JSON.stringify({
-        sourceKind: "specification",
-        source: { id: "github:operator#26", revision: "rev-1", tracker: "github" },
-        items: [
-          {
-            key: "26.1",
-            title: "Coordinate the workflow",
-            kind: "production",
-            approvedScope: "Coordinate the workflow.",
-            acceptanceRequirements: ["The quality gate passes."],
-            permissions: {
-              writePaths: ["modules/"],
-              allowedCommands: ["bun test"],
-              network: false,
-            },
-            fixedInputs: [],
-            dependsOn: [],
-          },
-        ],
-      }),
-    );
-    const registered = await runJson(workspace, [
-      "work",
-      "register",
-      "--request",
-      request(),
-      "--owner-token",
-      ownerToken,
-      "--input",
-      path,
-    ]);
-    const assignmentId = registered.json.data.registered[0].assignmentId;
+    const registered = await registerSource(workspaceTarget(workspace), ownerToken, {
+      sourceKind: "specification",
+      parent: 26,
+      items: [{ key: "26.1", title: "Coordinate the workflow", body: "Coordinate the workflow." }],
+    });
+    const assignmentId = registered.assignments[0]?.assignmentId ?? "";
 
     const offered = await nextActions(workspace);
     expect(offered.of("claim_assignment").assignmentId).toBe(assignmentId);
@@ -235,6 +216,16 @@ describe("the next actions", () => {
       "--revision",
       "1",
     ]);
+    // The first code dispatch of the source waits for a passing gate run at its base.
+    const gated = await nextActions(workspace);
+    expect(gated.of("run_gate").attemptId).toBe(claimed.json.data.attemptId);
+    expect(gated.names).not.toContain("dispatch_attempt");
+    await passBaseGate(workspace, {
+      ownerToken,
+      attemptId: claimed.json.data.attemptId,
+      commit: await headCommit(workspace),
+    });
+
     const claimedNext = await nextActions(workspace);
     expect(claimedNext.of("dispatch_attempt").attemptId).toBe(claimed.json.data.attemptId);
 
@@ -362,13 +353,20 @@ describe("the next actions", () => {
 
   test("offers the queued review before new production work", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
-    const producer = await startProducer(workspace);
-    const registered = await registerDependents(workspace, producer, [
-      { key: "26.2", kind: "production", title: "Independent work", dependsOn: [] },
-    ]);
-    const base = await headCommit(workspace);
+    const producer = await startProducer(workspace, undefined, {
+      dependents: [
+        {
+          key: "26.2",
+          kind: "production",
+          title: "Independent work",
+          dependsOn: [],
+          writePaths: ["notes/independent.md"],
+        },
+      ],
+    });
+    const registered = producer.dependents;
     const artifact = await commitArtifact(workspace, producer, "the result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
 
     const reported = await nextActions(workspace);
 
@@ -381,9 +379,8 @@ describe("the next actions", () => {
   test("asks for the dispositions, then the acceptance", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "the result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
     await reportReview(
       workspace,
@@ -417,8 +414,17 @@ describe("the next actions", () => {
       },
     ]);
 
+    // A code result lands only after its planned commit passed the project gate.
     const disposed = await nextActions(workspace);
-    const accept = disposed.actions.filter((one) => one.action === "accept_assignment");
+    const gate = disposed.actions.filter((one) => one.action === "run_gate");
+    expect(gate.map((one) => one.assignmentId)).toContain(producer.assignmentId);
+    expect(disposed.forAction("accept_assignment").map((one) => one.assignmentId)).not.toContain(
+      producer.assignmentId,
+    );
+
+    await passCandidateGate(workspace, producer);
+    const gated = await nextActions(workspace);
+    const accept = gated.actions.filter((one) => one.action === "accept_assignment");
     expect(accept.map((one) => one.assignmentId)).toContain(producer.assignmentId);
   });
 });
@@ -479,40 +485,11 @@ describe("adoption", () => {
       "operator-session",
     ]);
     const ownerToken = owned.json.data.ownerToken;
-    const path = `${workspace.root}/work.json`;
-    await Bun.write(
-      path,
-      JSON.stringify({
-        sourceKind: "ticket",
-        source: { id: "github:operator#26", revision: "rev-1", tracker: "github" },
-        items: [
-          {
-            key: "26.1",
-            title: "Coordinate the workflow",
-            kind: "production",
-            approvedScope: "Coordinate the workflow.",
-            acceptanceRequirements: ["The quality gate passes."],
-            permissions: {
-              writePaths: ["modules/"],
-              allowedCommands: ["bun test"],
-              network: false,
-            },
-            fixedInputs: [],
-            dependsOn: [],
-          },
-        ],
-      }),
-    );
-    const registered = await runJson(workspace, [
-      "work",
-      "register",
-      "--request",
-      request(),
-      "--owner-token",
-      ownerToken,
-      "--input",
-      path,
-    ]);
+    const registered = await registerSource(workspaceTarget(workspace), ownerToken, {
+      sourceKind: "ticket",
+      parent: 26,
+      items: [{ key: "26.1", title: "Coordinate the workflow", body: "Coordinate the workflow." }],
+    });
     const claimed = await runJson(workspace, [
       "work",
       "claim",
@@ -521,10 +498,15 @@ describe("adoption", () => {
       "--owner-token",
       ownerToken,
       "--assignment",
-      registered.json.data.registered[0].assignmentId,
+      registered.assignments[0]?.assignmentId ?? "",
       "--revision",
       "1",
     ]);
+    await passBaseGate(workspace, {
+      ownerToken,
+      attemptId: claimed.json.data.attemptId,
+      commit: await headCommit(workspace),
+    });
     await Bun.write(`${workspace.herdr}/agent-start.garbage`, "");
     const uncertain = await runJson(workspace, [
       "attempt",
@@ -557,9 +539,8 @@ describe("the next-actions contract", () => {
   test("never answers exit 3 with nothing for the user to settle", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "the result\n");
-    await submit(workspace, producer, submissionBody(producer, artifact, base));
+    await submit(workspace, producer, submissionBody(producer, artifact));
     // An edit nobody registered blocks the closure, which is the state that has to name a person.
     await Bun.write(`${producer.worktreePath}/notes.md`, "a human edit\n");
     const blocked = await runJson(workspace, [
@@ -588,9 +569,8 @@ describe("the next-actions contract", () => {
   test("stops work on a blocked process closure instead of offering it again", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "the result\n");
-    await submit(workspace, producer, submissionBody(producer, artifact, base));
+    await submit(workspace, producer, submissionBody(producer, artifact));
     await Bun.write(`${producer.worktreePath}/notes.md`, "a human edit\n");
     await runJson(workspace, [
       "cleanup",
@@ -624,13 +604,12 @@ describe("the next-actions contract", () => {
 
   test("reports work that a defect paused rather than answering that nothing waits", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
-    const producer = await startProducer(workspace);
-    const registered = await registerDependents(workspace, producer, [
-      { key: "26.2", kind: "production", title: "Reads the first result" },
-    ]);
-    const base = await headCommit(workspace);
+    const producer = await startProducer(workspace, undefined, {
+      dependents: [{ key: "26.2", kind: "production", title: "Reads the first result" }],
+    });
+    const registered = producer.dependents;
     const artifact = await commitArtifact(workspace, producer, "the result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
     await reportReview(
       workspace,
@@ -641,7 +620,6 @@ describe("the next-actions contract", () => {
     const accepted = await acceptProduction(workspace, producer, {
       submissionId: submitted.json.data.submissionId,
       revision: submitted.json.data.revision,
-      prHead: artifact.commit,
     });
     expect(accepted.json.reason).toBe("assignment_accepted");
     const dependent = String(registered.get("26.2"));

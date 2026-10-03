@@ -1,18 +1,29 @@
 import { OperativeDispatch } from "../operative-dispatch/main.ts";
+import { ProjectGate } from "../project-gate/main.ts";
 import { ProjectReadiness } from "../project-readiness/main.ts";
 import {
   requiredCoverage,
+  storedBehaviorChanges,
   storedChecks,
   storedCode,
   storedConcerns,
   storedDecisions,
   storedResultKind,
 } from "./submission-input.ts";
-import { storedArtifacts } from "./submission-store.ts";
+import {
+  ARTIFACT_RULES,
+  INTERDIFF_INPUT,
+  REVIEWED_PATCH_INPUT,
+  specPathOf,
+  storedArtifacts,
+} from "./submission-store.ts";
+import { reviewReadCommands, SUBMIT_RULES } from "./submission.ts";
+import { BRANCH_REPORT_RULES, branchCoverage, REPORT_RULES } from "./review-report.ts";
 import { storedFixedInputs, storedPermissions, storedRequirements } from "./work-input.ts";
 import { REVIEW_AXES } from "./review.ts";
 import {
   type AttemptContext,
+  type BranchReviewContext,
   type ReviewContext,
   type ReworkContext,
   type AttemptLookup,
@@ -27,6 +38,13 @@ import {
 import { readState, type RequestFailure, type StateFailure } from "./operations.ts";
 import { requireOwnership } from "./ownership.ts";
 import { identityOf } from "./identity.ts";
+import { gateOfAttempt } from "./integration.ts";
+import {
+  BEHAVIOR_CHANGE_RULE,
+  type GateRead,
+  ONE_COMMIT_RULE,
+  PROJECT_GATE_RULE,
+} from "./result-checks.ts";
 
 export type Overrides = Parameters<typeof ProjectReadiness.snapshot>[0]["overrides"];
 
@@ -68,15 +86,38 @@ export type ContextRead =
   | RequestFailure;
 
 type ReviewBrief = NonNullable<Brief["review"]>;
+type BranchReviewBrief = NonNullable<Brief["branchReview"]>;
 type ReworkBrief = NonNullable<Brief["rework"]>;
+
+/**
+ * A writer command reads only an acknowledged attempt, so this line stands beside every command
+ * that `readWriterContext` guards.
+ */
+const ACKNOWLEDGED_RULE = {
+  refusal: "attempt_not_acknowledged",
+  rule: "Run this only after the acknowledgement above succeeded.",
+};
 
 /** The fixed result one review reads, taken from the submission that started it. */
 function reviewBriefOf(
   context: ReviewContext,
-  request: { attemptId: string; producerTitle: string },
+  request: { attemptId: string; producerTitle: string; fixedInputs: Brief["fixedInputs"] },
 ): ReviewBrief {
   const { review, submission } = context;
   const resultKind = storedResultKind(submission.resultKind);
+  const behaviorChanges = storedBehaviorChanges(submission.behaviorChanges);
+  const code = submission.code === null ? null : storedCode(submission.code);
+  const specPath = specPathOf(submission.id);
+  const spec = request.fixedInputs.find((one) => one.kind === "path" && one.value === specPath);
+  // A combined revision of an integration cycle also fixed the reviewed patch and the interdiff.
+  const copyOf = (name: string) => {
+    const input = request.fixedInputs.find((one) => one.kind === "path" && one.name === name);
+    return input?.contentIdentity == null
+      ? null
+      : { storedPath: input.value, contentIdentity: input.contentIdentity };
+  };
+  const reviewedPatch = copyOf(REVIEWED_PATCH_INPUT);
+  const interdiff = copyOf(INTERDIFF_INPUT);
   return {
     reviewId: review.id,
     attemptId: request.attemptId,
@@ -84,32 +125,145 @@ function reviewBriefOf(
     submissionIdentity: submission.identity,
     resultKind,
     axes: [...REVIEW_AXES],
-    requiredCoverage: requiredCoverage(resultKind),
+    requiredCoverage: requiredCoverage(resultKind, behaviorChanges !== null),
     producerAssignmentId: submission.assignmentId,
     producerTitle: request.producerTitle,
     assignmentRevision: submission.assignmentRevision,
     sourceRevision: submission.sourceRevision,
     requirementsIdentity: submission.requirementsIdentity,
     reviewBase: submission.reviewBase,
-    code: submission.code === null ? null : storedCode(submission.code),
+    code,
     checks: storedChecks(submission.checks),
     concerns: storedConcerns(submission.concerns),
     decisions: storedDecisions(submission.decisions),
+    behaviorChanges,
     artifacts: storedArtifacts(submission.artifacts),
+    spec:
+      spec?.contentIdentity == null
+        ? null
+        : { storedPath: spec.value, contentIdentity: spec.contentIdentity },
+    fixedPoint: code?.baseCommit ?? null,
+    readCommands: reviewReadCommands(code?.baseCommit ?? null),
+    integration: reviewedPatch === null || interdiff === null ? null : { reviewedPatch, interdiff },
+    basisQuestions: context.basisQuestions,
     priorRounds: context.priorRounds,
+    publishes: context.publishes,
   };
 }
 
+/**
+ * The fixed snapshot one branch review reads, taken from its registration. The spec copies and
+ * the commands are its registered fixed inputs and permissions, so the brief adds none.
+ */
+function branchReviewBriefOf(
+  context: BranchReviewContext,
+  request: {
+    attemptId: string;
+    fixedInputs: Brief["fixedInputs"];
+    allowedCommands: string[];
+  },
+): BranchReviewBrief {
+  const { review, snapshot } = context;
+  const readCommands = reviewReadCommands(snapshot.baseCommit);
+  return {
+    reviewId: review.id,
+    attemptId: request.attemptId,
+    sourceId: snapshot.sourceId,
+    snapshotId: snapshot.id,
+    snapshotIdentity: snapshot.identity,
+    baseCommit: snapshot.baseCommit,
+    headCommit: snapshot.headCommit,
+    commits: context.commits,
+    axes: [...REVIEW_AXES],
+    requiredCoverage: branchCoverage(),
+    specs: request.fixedInputs.flatMap((one) =>
+      one.kind === "path" && one.name.startsWith("spec ") && one.contentIdentity !== null
+        ? [{ name: one.name, storedPath: one.value, contentIdentity: one.contentIdentity }]
+        : [],
+    ),
+    fixedPoint: snapshot.baseCommit,
+    readCommands,
+    // The registered commands that are neither a reviewer command nor a read command are the
+    // project gate commands fixed on the integration branch.
+    gateCommands: request.allowedCommands.filter(
+      (one) => !readCommands.includes(one) && !one.startsWith("operator "),
+    ),
+    earlierReviews: context.earlierReviews,
+  };
+}
+
+/**
+ * The rules a branch review report refuses. They are the rules of every report, with the
+ * snapshot in place of the submission, and the rules of finding targets.
+ */
+const BRANCH_RULES = [
+  ...REPORT_RULES.map((one) =>
+    one.refusal === "submission_drift"
+      ? {
+          refusal: "snapshot_drift",
+          rule: "`snapshotIdentity` is the identity of the branch snapshot above.",
+        }
+      : one,
+  ),
+  ...BRANCH_REPORT_RULES,
+];
+
 /** The fixed cycle one rework attempt answers, as it was recorded when it was delegated. */
-function reworkBriefOf(context: ReworkContext): ReworkBrief {
-  return { cycleId: context.cycle.id, ...context.brief };
+export function reworkBriefOf(context: ReworkContext): ReworkBrief {
+  // An earlier release recorded an instruction, which is Operator text, and the Operator writes
+  // nothing into a brief.
+  const { instruction: _instruction, ...recorded } = context.brief;
+  return { cycleId: context.cycle.id, ...recorded, rounds: context.rounds };
+}
+
+// A producer cannot show a gate that its base commit does not declare, so nothing launches.
+export type GateUnusable = {
+  status: "project-gate-unusable";
+  attemptId: string;
+  gate: Exclude<GateRead, { status: "declared" }>;
+};
+
+/**
+ * The project gate a producer brief states (ADR 0021): the one fixed on the source with its
+ * integration base, or, before the source has one, the one at the base commit of the launch.
+ * A reviewer reads no gate here, because its registered commands already permit the gate.
+ */
+export async function briefGate(request: {
+  projectRoot: string;
+  context: AttemptContext;
+  attemptId: string;
+  baseCommit: string;
+}): Promise<{ status: "ok"; gate: Brief["gate"] } | GateUnusable> {
+  if (request.context.review !== null || request.context.branchReview !== null) {
+    return { status: "ok", gate: null };
+  }
+  const gate = await gateOfAttempt({
+    projectRoot: request.projectRoot,
+    sourceId: request.context.assignment.sourceId,
+    baseCommit: request.baseCommit,
+  });
+  return gate.status === "declared"
+    ? {
+        status: "ok",
+        gate: {
+          commit: gate.commit,
+          commands: gate.commands.map((one) => ({
+            name: one.name,
+            line: ProjectGate.commandLine(one.argv),
+            timeoutSeconds: one.timeoutSeconds,
+          })),
+        },
+      }
+    : { status: "project-gate-unusable", attemptId: request.attemptId, gate };
 }
 
 /** The fixed brief of one assignment, as the attempt that holds it receives it. */
-export function briefOf(context: AttemptContext, attemptId: string): Brief {
+export function briefOf(context: AttemptContext, attemptId: string, gate: Brief["gate"]): Brief {
   const assignment = context.assignment;
   const review = context.review;
   const acceptanceRequirements = storedRequirements(assignment.acceptanceRequirements);
+  const fixedInputs = storedFixedInputs(assignment.fixedInputs);
+  const permissions = storedPermissions(assignment.permissions);
   return {
     assignmentId: assignment.id,
     assignmentRevision: assignment.revision,
@@ -122,12 +276,41 @@ export function briefOf(context: AttemptContext, attemptId: string): Brief {
     acceptanceRequirements,
     requirementsIdentity: identityOf(acceptanceRequirements),
     approvedScope: assignment.approvedScope,
-    permissions: storedPermissions(assignment.permissions),
-    fixedInputs: storedFixedInputs(assignment.fixedInputs),
+    permissions: { ...permissions, writePaths: context.writePaths },
+    fixedInputs,
+    // The records that the launch plan of this attempt fixed, so a recovery and a replacement
+    // attempt restore the same words. A first launch carries the latest record of each one.
+    planningRecords: context.planning.launched ?? context.planning.latest,
+    // A reviewer reports and never submits, so it receives none of the producer's rules.
+    rules:
+      context.branchReview !== null
+        ? { submit: [], report: [ACKNOWLEDGED_RULE, ...BRANCH_RULES] }
+        : review === null
+          ? {
+              submit: [
+                ACKNOWLEDGED_RULE,
+                ONE_COMMIT_RULE,
+                ...ARTIFACT_RULES,
+                ...SUBMIT_RULES,
+                BEHAVIOR_CHANGE_RULE,
+                PROJECT_GATE_RULE,
+              ],
+              report: [],
+            }
+          : { submit: [], report: [ACKNOWLEDGED_RULE, ...REPORT_RULES] },
+    gate,
     review:
       review === null
         ? null
-        : reviewBriefOf(review, { attemptId, producerTitle: assignment.title }),
+        : reviewBriefOf(review, { attemptId, producerTitle: assignment.title, fixedInputs }),
+    branchReview:
+      context.branchReview === null
+        ? null
+        : branchReviewBriefOf(context.branchReview, {
+            attemptId,
+            fixedInputs,
+            allowedCommands: permissions.allowedCommands,
+          }),
     rework: context.rework === null ? null : reworkBriefOf(context.rework),
   };
 }

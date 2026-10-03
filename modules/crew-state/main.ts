@@ -13,11 +13,33 @@ import { reconcileAttempt } from "./dispatch-reconcile.ts";
 import { replaceAttempt } from "./dispatch-replace.ts";
 import { showAttempt } from "./dispatch-report.ts";
 import { readCapacity } from "./capacity.ts";
-import { acceptAssignment } from "./acceptance.ts";
+import {
+  beginGateRun,
+  type CommandOutcome,
+  recordGateCommand,
+  stopGateRun,
+} from "./gate-record.ts";
+import { checkoutOf, gateRunRecordOf, readGateRun } from "./gate-runs.ts";
+import { startCandidateGateRun } from "./gate-candidate.ts";
+import { startGateRun } from "./gate-start.ts";
+import { readTakeOuts, startTakeOutGateRun, takeOutWithdrawn } from "./take-out.ts";
+import { acceptWithLanding } from "./accept-landing.ts";
 import { claimAssignment } from "./claims.ts";
 import { calculateFrontier } from "./frontier.ts";
 import { calculateNext, calculateUnowned, isStandingAction } from "./next.ts";
+import { readBrokenLandings } from "./next-landings.ts";
 import { parseInput } from "./input.ts";
+import {
+  applyStack,
+  finishAfterStep,
+  observePublish,
+  planStack,
+  retargetPublish,
+} from "./publish-status.ts";
+import { applyRebase, planRebase, startRebaseGateRun } from "./rebase.ts";
+import { applyRecall, planRecall } from "./recall.ts";
+import { STACK_FAULT_ACTION } from "./stack-parts.ts";
+import { preparePlanningRecord, showPlanningRecord } from "./planning-record.ts";
 import { mutate, readState } from "./operations.ts";
 import { claimOwnership, currentOwnership } from "./ownership.ts";
 import { answerQuestion, escalateQuestion, reapplyAnswer } from "./question-answer.ts";
@@ -25,20 +47,36 @@ import { acknowledgeAnswer, deliverAnswer } from "./question-deliver.ts";
 import { approvalCheckSchema, approvalInputSchema } from "./approval-input.ts";
 import { raiseQuestion, reviseQuestion } from "./question-raise.ts";
 import { showQuestion } from "./question-report.ts";
-import { defectInputSchema, type InvalidateOutcome, invalidateResult } from "./invalidate.ts";
-import { registerWork } from "./registration.ts";
+import {
+  closeMergedInvalidations,
+  type InvalidateOutcome,
+  invalidateResult,
+} from "./invalidate.ts";
+import {
+  planRegistration,
+  readPathIdentities,
+  registerWork,
+  showOverlaps,
+} from "./registration.ts";
+import { planDifferences, storePlan } from "./registration-plans.ts";
+import { canonicalRead, readSource } from "./source-read.ts";
+import { storeSourceText } from "./requirement-source.ts";
+import { identityOf } from "./identity.ts";
 import { openReworkCycle, type ReworkOutcome } from "./rework-open.ts";
-import { reworkInputSchema } from "./rework-input.ts";
+import { defectInputSchema, reworkInputSchema } from "./rework-input.ts";
+import { readIntegrationEvidence, stateFailed } from "./rework-integration.ts";
 import { dispositionInputSchema } from "./review-input.ts";
 import { disposeFindings, type DisposeOutcome } from "./review-dispose.ts";
 import { recordReview } from "./review-record.ts";
 import { showReview } from "./review-show.ts";
+import { disposeOutside } from "./outside-dispose.ts";
 import { readReview } from "./review.ts";
 import { submitAttemptResult } from "./submit.ts";
 import { recordTrackerStep, recoverTrackerStep } from "./tracker-apply.ts";
 import { readTrackerMap, showTrackerSteps } from "./tracker-show.ts";
 import { STATE_VERSION } from "./schema.ts";
 import { workInputSchema } from "./work-input.ts";
+import { grantRequestInputSchema, showWritePaths } from "./write-path-grants.ts";
 
 type Located = { projectRoot: string };
 type Mutation = Located & { requestId: string; ownerToken: string };
@@ -100,27 +138,198 @@ export const CrewState = {
   },
 
   /**
-   * Registers approved work from one source, preserving its revision, scope, acceptance
-   * requirements, permissions, fixed inputs, dependencies, and planning boundary.
+   * Previews one registration. It reads the source from the tracker, changes no crew state and
+   * no tracker, and writes the full plan to a local file named by its revision, so its report
+   * stays a summary that points to the detail.
    */
-  async register(request: Mutation & { input: unknown }) {
+  async planRegistration(request: Located & { input: unknown }) {
     const parsed = parseInput(workInputSchema, request.input);
     if (parsed.status !== "parsed") {
       return reported(parsed);
     }
 
     const input = parsed.value;
-    return mutate(
+    const read = await readSource(input);
+    const found = await readPathIdentities(request.projectRoot, input);
+    const plan = await readState(request.projectRoot, (db) =>
+      planRegistration(db, { input, read, found }),
+    );
+    if (!("planRevision" in plan)) {
+      return reported(plan);
+    }
+
+    const planPath = await storePlan(request.projectRoot, plan, {
+      read: canonicalRead(read),
+      input,
+    });
+    return reported({ status: "planned" as const, plan, planPath });
+  },
+
+  /**
+   * Registers exactly the plan that `planRegistration` previewed. It reads the tracker again
+   * and refuses, naming what differs, when the plan revision is not the one stated.
+   */
+  async register(request: Mutation & { input: unknown; planRevision: string }) {
+    const parsed = parseInput(workInputSchema, request.input);
+    if (parsed.status !== "parsed") {
+      return { ...reported(parsed), planPath: null };
+    }
+
+    const input = parsed.value;
+    const read = await readSource(input);
+    // The fixed text of the parent is stored before a record names its revision (ADR 0017).
+    if (read.status === "read") {
+      await storeSourceText({ projectRoot: request.projectRoot, parent: read.parent });
+    }
+    const found = await readPathIdentities(request.projectRoot, input);
+    const basis = { read: canonicalRead(read), input };
+    const differences =
+      identityOf(basis) === request.planRevision
+        ? []
+        : await planDifferences(request.projectRoot, request.planRevision, basis);
+    const outcome = await mutate(
       {
         projectRoot: request.projectRoot,
         requestId: request.requestId,
         ownerToken: request.ownerToken,
         now: new Date().toISOString(),
         operation: "work_register",
-        input,
+        input: { input, planRevision: request.planRevision },
       },
-      ({ tx, now }) => commitOn(registerWork(tx, { input, now }), "registered"),
+      ({ tx, now }) =>
+        commitOn(
+          registerWork(tx, {
+            input,
+            read,
+            found,
+            planRevision: request.planRevision,
+            differences,
+            now,
+          }),
+          "registered",
+        ),
     );
+    // A refused plan is written down too, so its reader finds every refusal in one place.
+    if (outcome.result.status === "refused") {
+      return {
+        ...outcome,
+        planPath: await storePlan(request.projectRoot, outcome.result.plan, basis),
+      };
+    }
+    return { ...outcome, planPath: null };
+  },
+
+  /**
+   * Lists each pair of production items in one source whose write paths overlap and that no
+   * dependency orders, in item order. A registration reports only their count.
+   */
+  async overlaps(request: Located & { sourceId: string }) {
+    const result = await readState(request.projectRoot, (db) => showOverlaps(db, request.sourceId));
+    return { repeated: false, result };
+  },
+
+  /**
+   * Reports the effective write paths of one production assignment. With asked paths it also
+   * gives the exact `write-paths-grant` approval request and each started assignment of the same
+   * source that the grant would overlap. It writes nothing, and only a person grants.
+   */
+  async writePaths(request: Located & { assignmentId: string; input: unknown | null }) {
+    if (request.input === null) {
+      const result = await readState(request.projectRoot, (db) =>
+        showWritePaths(db, { assignmentId: request.assignmentId, paths: null }),
+      );
+      return { repeated: false, result };
+    }
+    const parsed = parseInput(grantRequestInputSchema, request.input);
+    if (parsed.status !== "parsed") {
+      return { repeated: false, result: parsed };
+    }
+    const paths = parsed.value.paths;
+    const result = await readState(request.projectRoot, (db) =>
+      showWritePaths(db, { assignmentId: request.assignmentId, paths }),
+    );
+    return { repeated: false, result };
+  },
+
+  /**
+   * Reads one planning record in full. The crew reads it to prepare dependent planning work, so
+   * the next-actions read carries only a pointer to it.
+   */
+  async planningRecord(request: Located & { assignmentId: string; recordId: string | null }) {
+    const result = await readState(request.projectRoot, (db) =>
+      showPlanningRecord(db, { assignmentId: request.assignmentId, recordId: request.recordId }),
+    );
+    return { repeated: false, result };
+  },
+
+  /**
+   * Previews the stack publication of one source (ADR 0022). It changes nothing, reports every
+   * refusal at once in the fixed order, and writes every title and body in full to a local file
+   * named by its plan revision, so its report stays a summary that points to the text.
+   */
+  async planPublish(request: Located & { sourceId: string }) {
+    return { repeated: false, result: await planStack(request) };
+  },
+
+  /**
+   * Publishes exactly the previewed plan behind one `publish` approval of its revision: one
+   * atomic push of new remote names, then each pull request, ready for review. Each write is a
+   * staged effect, so a repeat settles an unfinished publication by reading GitHub first.
+   * It never merges and never asks GitHub to merge: a person merges.
+   */
+  async publish(request: Mutation & { sourceId: string; planRevision: string }) {
+    return { repeated: false, result: await applyStack(request) };
+  },
+
+  /**
+   * Reads each pull request of the last stack publication of one source from GitHub and records
+   * its state, head, base, merge commit, and merge method, and each stack fault. It writes
+   * nothing to GitHub. A finished source then has its gate checkout removed, unforced.
+   */
+  async publishStatus(request: Mutation & { sourceId: string }) {
+    return { repeated: false, result: await observePublish(request) };
+  },
+
+  /**
+   * Changes the base of one part of a stack to the target after the part below merged by a merge
+   * commit, under the publish approval. It reads GitHub first, and a fault below stops it.
+   */
+  async retargetPublish(request: Mutation & { sourceId: string; part: number }) {
+    return { repeated: false, result: await retargetPublish(request) };
+  },
+
+  /**
+   * Plans the rebase of the integration branch of one source onto a new base, a fetched tip of
+   * its target, and changes nothing that others read. It names what leaves the branch, what lands
+   * again, what is taken out, and the plan revision a person approves (ADR 0022).
+   */
+  async planRebase(request: Located & { sourceId: string; newBase: string }) {
+    return { repeated: false, result: await planRebase(request) };
+  },
+
+  /**
+   * Rebases the integration branch of one source onto its new base behind one
+   * `integration-rebase` approval of the plan revision, after the new base and each commit that
+   * lands again passed the project gate. A repeat settles a rebase whose outcome is not recorded.
+   */
+  async rebase(request: Mutation & { sourceId: string; newBase: string; planRevision: string }) {
+    return { repeated: false, result: await applyRebase(request) };
+  },
+
+  /**
+   * Plans the recall of the open published range of one source and changes nothing. The reason
+   * is rendered from the defect or the withdrawal record (D1).
+   */
+  async planRecall(request: Located & { sourceId: string }) {
+    return { repeated: false, result: await planRecall(request) };
+  },
+
+  /**
+   * Recalls exactly the previewed plan behind one `stack-recall` approval of its revision: each
+   * open pull request from the affected part up becomes a draft with one comment (decision 23).
+   */
+  async recall(request: Mutation & { sourceId: string; planRevision: string }) {
+    return { repeated: false, result: await applyRecall(request) };
   },
 
   /** Claims one dispatchable assignment. Exactly one concurrent claim wins. */
@@ -146,6 +355,7 @@ export const CrewState = {
             revision: request.revision,
             ownerToken: request.ownerToken,
             attemptId: crypto.randomUUID(),
+            cycleId: crypto.randomUUID(),
             capacity: capacity.capacity,
             now,
           }),
@@ -157,7 +367,8 @@ export const CrewState = {
   /**
    * Records accepted completion, which is the only result that unblocks a dependent.
    * Production work reaches it only through a reviewed submission, so every review gate is
-   * checked here rather than on a second path to acceptance.
+   * checked here rather than on a second path to acceptance. A code result lands on the
+   * integration branch of its source as the last step (ADR 0020).
    */
   async accept(
     request: Mutation & {
@@ -165,37 +376,27 @@ export const CrewState = {
       attemptId: string | null;
       revision: number;
       submissionId: string | null;
-      prHead: string | null;
+      /** The planning record of planning work, or null for every other acceptance. */
+      planningRecord: unknown;
     },
   ) {
-    return mutate(
-      {
-        projectRoot: request.projectRoot,
-        requestId: request.requestId,
-        ownerToken: request.ownerToken,
-        now: new Date().toISOString(),
-        operation: "work_accept",
-        input: {
-          assignmentId: request.assignmentId,
-          attemptId: request.attemptId,
-          revision: request.revision,
-          submissionId: request.submissionId,
-          prHead: request.prHead,
-        },
-      },
-      ({ tx, now }) =>
-        commitOn(
-          acceptAssignment(tx, {
-            assignmentId: request.assignmentId,
-            attemptId: request.attemptId,
-            revision: request.revision,
-            submissionId: request.submissionId,
-            prHead: request.prHead,
-            now,
-          }),
-          "accepted",
-        ),
-    );
+    // The sources and artifacts of a record are read and stored before the transaction, as a
+    // submission stores its artifacts, so the transaction holds no file read.
+    const prepared =
+      request.planningRecord === null
+        ? null
+        : await preparePlanningRecord({
+            projectRoot: request.projectRoot,
+            input: request.planningRecord,
+          });
+    if (prepared !== null && prepared.status !== "prepared") {
+      return { repeated: false, result: prepared };
+    }
+
+    return acceptWithLanding({
+      ...request,
+      record: prepared === null ? null : prepared.record,
+    });
   },
 
   /**
@@ -262,6 +463,15 @@ export const CrewState = {
   },
 
   /**
+   * Records what the Operator decided about each outside change of one submission.
+   * Operator never deletes one. A removal passes only when a new scan proves it, and a change
+   * that touches a security permission is kept only under an approval of the user.
+   */
+  async disposeOutside(request: Mutation & { submissionId: string; input: unknown }) {
+    return disposeOutside(request);
+  },
+
+  /**
    * Records a defect found in an accepted result.
    * The acceptance and its evidence stay recorded, because that history is what names the
    * dependents that read the invalid result. Only the work that consumed it is paused.
@@ -286,6 +496,7 @@ export const CrewState = {
         commitOn(
           invalidateResult(tx, {
             invalidationId: crypto.randomUUID(),
+            cycleId: crypto.randomUUID(),
             assignmentId: request.assignmentId,
             revision: request.revision,
             input,
@@ -309,6 +520,18 @@ export const CrewState = {
     }
 
     const input = parsed.value;
+    // An integration cycle plans the landing again, which reads Git, so it is read first and
+    // checked against the recorded tip inside the transaction (ADR 0020).
+    const integration =
+      input.reason === "integration"
+        ? await readIntegrationEvidence({
+            projectRoot: request.projectRoot,
+            assignmentId: request.assignmentId,
+          })
+        : null;
+    if (integration !== null && stateFailed(integration)) {
+      return reported(integration);
+    }
     return mutate<ReworkOutcome>(
       {
         projectRoot: request.projectRoot,
@@ -324,6 +547,7 @@ export const CrewState = {
           assignmentId: request.assignmentId,
           revision: request.revision,
           input,
+          integration,
           now,
         });
         // A reached limit records the direction request it raised, so the refusal is durable.
@@ -356,6 +580,110 @@ export const CrewState = {
     },
   ) {
     return dispatchAttempt(request);
+  },
+
+  /**
+   * Starts one gate run on the integration base of one source (ADR 0021). The run is recorded,
+   * then an Operator runner is typed into the pane of the gate checkout of the source. It takes
+   * no crew slot, and one run of a source runs at a time.
+   */
+  async startGateRun(
+    request: Mutation & {
+      sourceId: string;
+      commit: string;
+      approvalId: string | null;
+      runnerLine: (runId: string) => string;
+    },
+  ) {
+    return startGateRun(request);
+  },
+
+  /**
+   * Starts one gate run on the candidate of one code result: the planned commit of its landing on
+   * the recorded tip. `operator work accept` lands only after the key of that commit passed.
+   */
+  async startCandidateGateRun(
+    request: Mutation & {
+      assignmentId: string;
+      approvalId: string | null;
+      runnerLine: (runId: string) => string;
+    },
+  ) {
+    return startCandidateGateRun(request);
+  },
+
+  /**
+   * Starts one gate run on the rebuilt range of the take-out of one source: the first commit that
+   * lands again whose key has not passed. `operator work take-out` moves only after every commit
+   * of the range passed.
+   */
+  async startTakeOutGateRun(
+    request: Mutation & {
+      sourceId: string;
+      approvalId: string | null;
+      runnerLine: (runId: string) => string;
+    },
+  ) {
+    return startTakeOutGateRun(request);
+  },
+
+  /**
+   * Takes out every withdrawn commit that the integration branch of one source still holds, as
+   * the rewrite of ADR 0020 with no replacement, bound to the plan revision that recorded the
+   * withdrawals (D5). The CLI moves the branch once, from its recorded tip, only from reviewed
+   * patches, so it is not an Operator change.
+   */
+  async takeOut(request: Mutation & { sourceId: string; planRevision: string }) {
+    return takeOutWithdrawn(request);
+  },
+
+  /**
+   * Starts one gate run on the first place of a rebase onto a new base that has not passed: the
+   * new base, then each commit that lands again on it, in order (ADR 0021).
+   */
+  async startRebaseGateRun(
+    request: Mutation & {
+      sourceId: string;
+      newBase: string;
+      approvalId: string | null;
+      runnerLine: (runId: string) => string;
+    },
+  ) {
+    return startRebaseGateRun(request);
+  },
+
+  /**
+   * Reports one gate run, the outcome of each command, and where each output is stored, with the
+   * gate checkout it runs in. It reads no output text, and it writes nothing.
+   */
+  async gateRun(request: Located & { runId: string }) {
+    const result = await readState(request.projectRoot, (db) => {
+      const run = readGateRun(db, request.runId);
+      if (run === null) {
+        return { status: "unknown-gate-run" as const, runId: request.runId };
+      }
+      return {
+        status: "reported" as const,
+        run: gateRunRecordOf(db, run),
+        checkoutPath: checkoutOf(db, run.sourceId)?.path ?? null,
+      };
+    });
+    return { repeated: false, result };
+  },
+
+  /** The first write of the runner of one gate run, under the owner that started the run. */
+  async beginGateRun(request: Located & { runId: string }) {
+    return { repeated: false, result: await beginGateRun(request) };
+  },
+
+  /** Records the outcome of one gate command, read from its process, with its stored output. */
+  async recordGateCommand(request: Located & { runId: string; command: CommandOutcome }) {
+    return { repeated: false, result: await recordGateCommand(request) };
+  },
+
+  /** Records that a runner stopped before an outcome. The run proves nothing. */
+  async stopGateRun(request: Located & { runId: string; detail: string }) {
+    return { repeated: false, result: await stopGateRun(request) };
   },
 
   /** Records the Operative's own acknowledgement, which is the proof that the brief arrived. */
@@ -481,8 +809,14 @@ export const CrewState = {
         operation: "approval_grant",
         input,
       },
-      ({ tx, now }) =>
-        commitOn(grantApproval(tx, { approvalId: crypto.randomUUID(), input, now }), "granted"),
+      ({ tx, now }) => {
+        const granted = grantApproval(tx, { approvalId: crypto.randomUUID(), input, now });
+        // A settled merge before a recall ends the change that invalidation asked for (decision 24).
+        if (input.action === STACK_FAULT_ACTION) {
+          closeMergedInvalidations(tx, { sourceId: input.scope, now });
+        }
+        return commitOn(granted, "granted");
+      },
     );
   },
 
@@ -534,7 +868,13 @@ export const CrewState = {
       input: unknown;
     },
   ) {
-    return reported(await recordTrackerStep(request));
+    const result = await recordTrackerStep(request);
+    if (result.status !== "reported") {
+      return reported(result);
+    }
+    // The last verified step of a published source finishes it, so its gate checkout goes then.
+    const finish = result.report.state === "verified" ? await finishAfterStep(request) : null;
+    return reported({ ...result, finish });
   },
 
   /**
@@ -543,7 +883,15 @@ export const CrewState = {
    * did not apply.
    */
   async recoverTracker(request: Mutation & { operationId: string }) {
-    return reported(await recoverTrackerStep(request));
+    const result = await recoverTrackerStep(request);
+    if (result.status !== "reported") {
+      return reported(result);
+    }
+    const finish =
+      result.report.state === "verified"
+        ? await finishAfterStep({ ...request, assignmentId: result.report.assignmentId })
+        : null;
+    return reported({ ...result, finish });
   },
 
   /** Reports every tracker step of one assignment and what may follow it. Writes nothing. */
@@ -659,9 +1007,12 @@ export const CrewState = {
     }
 
     const input = { capacity: capacity.capacity, readiness: request.readiness };
+    // A landing plan reads Git, so the plans are read before the one read of the order.
+    const { broken, rewrites } = await readBrokenLandings(request.projectRoot);
+    const takeOuts = await readTakeOuts(request.projectRoot);
     const result = await readState(request.projectRoot, (db) => ({
       stateVersion: STATE_VERSION,
-      ...calculateNext(db, input),
+      ...calculateNext(db, { ...input, broken, rewrites, takeOuts }),
     }));
 
     // A project with no crew state owes exactly one crew action, so it is answered here in the

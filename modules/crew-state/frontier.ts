@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import type { CrewReader } from "./database.ts";
 import type { Capacity } from "./capacity.ts";
 import { readAssignment } from "./assignment.ts";
-import { openDirectionsOf } from "./direction.ts";
+import { type DirectionRequestRow, openDirectionsOf, readDirection } from "./direction.ts";
 import { type LimitKind, storedLimitKind } from "./rework.ts";
 import { openPauses } from "./invalidate.ts";
 import type { EscalationTrigger } from "./question-input.ts";
@@ -11,6 +11,9 @@ import { reviewOfSubmission } from "./review.ts";
 import { assignmentDependencies, assignments, attempts, workSources } from "./schema.ts";
 import { latestSubmission } from "./submission.ts";
 import { isExecutable, isReview } from "./work-input.ts";
+import { writePathHolders, writePathsReader } from "./write-path-grants.ts";
+import { overlappingPaths, overlapsCommand } from "./write-paths.ts";
+import { pendingCommitsOf } from "./take-out.ts";
 
 export type FrontierEntry = {
   assignmentId: string;
@@ -30,8 +33,30 @@ export type FrontierBlocker =
   | { reason: "review_pending"; reviewAssignmentId: string | null }
   | { reason: "direction_required"; directionRequestId: string; limitKind: LimitKind }
   | { reason: "input_invalidated"; invalidated: string[] }
+  | { reason: "write_paths_overlap"; holders: WritePathHolder[]; command: string }
+  | {
+      // The integration branch of the source still holds the commit of withdrawn work, so no
+      // dispatch base may hold a commit that no assignment owns until the take-out (ADR 0004).
+      reason: "take_out_pending";
+      commits: Array<{ assignmentId: string; commit: string }>;
+    }
   | { reason: "review_capacity_reserved"; productionLimit: number }
   | { reason: "crew_at_capacity"; limit: number };
+
+/**
+ * One assignment whose held write paths overlap the paths of a withheld one. `started` work
+ * holds from its first claim, and `offered` work holds inside the one reading that offered it.
+ * The Operator reads this, so it gives the number of overlapping pairs of paths and the blocker names the
+ * command that lists them.
+ */
+export type WritePathHolder = {
+  assignmentId: string;
+  sourceKey: string;
+  hold: "started" | "offered";
+  pathPairCount: number;
+};
+
+type WritePathHold = Omit<WritePathHolder, "pathPairCount"> & { sourceId: string };
 
 /** One open question and the work it holds. Every other assignment keeps moving. */
 export type WaitingQuestion = {
@@ -56,6 +81,8 @@ export type Frontier = {
   active: Array<FrontierEntry & { attemptId: string }>;
   planning: FrontierEntry[];
   accepted: FrontierEntry[];
+  // Terminal work that a person removed from its parent. It never satisfies a dependency.
+  withdrawn: FrontierEntry[];
   questions: WaitingQuestion[];
 };
 
@@ -80,13 +107,16 @@ export function unmetDependencies(
     .where(eq(assignmentDependencies.assignmentId, id))
     .all();
 
-  return edges
-    .map((edge) => {
-      const row = readAssignment(db, edge.dependsOnId);
-      return { assignmentId: edge.dependsOnId, state: row?.state ?? "unknown" };
-    })
-    .filter((dependency) => dependency.state !== "accepted")
-    .toSorted((left, right) => left.assignmentId.localeCompare(right.assignmentId));
+  return (
+    edges
+      .map((edge) => {
+        const row = readAssignment(db, edge.dependsOnId);
+        return { assignmentId: edge.dependsOnId, state: row?.state ?? "unknown" };
+      })
+      // Only accepted work satisfies a dependency. A withdrawn result never reaches the base.
+      .filter((dependency) => dependency.state !== "accepted")
+      .toSorted((left, right) => left.assignmentId.localeCompare(right.assignmentId))
+  );
 }
 
 /** The review assignment that holds the latest submission of one producer assignment. */
@@ -106,6 +136,17 @@ export function activeAttempt(db: CrewReader, id: string) {
   );
 }
 
+/** The open direction requests of one assignment that no approval of the user answers yet. */
+export function undirected(db: CrewReader, assignmentId: string): DirectionRequestRow[] {
+  return openDirectionsOf(db, assignmentId).filter(
+    (request) =>
+      readDirection(db, {
+        assignmentId,
+        limitKind: storedLimitKind(request.limitKind),
+      }).status !== "directed",
+  );
+}
+
 /** Reads every ordering, dependency, and capacity input and writes nothing. */
 export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier {
   const sourceOrder = new Map(
@@ -117,11 +158,8 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
   );
 
   const rows = db.select().from(assignments).all();
-  const liveAttempts = db
-    .select()
-    .from(attempts)
-    .all()
-    .filter((attempt) => attempt.state === "active");
+  const recordedAttempts = db.select().from(attempts).all();
+  const liveAttempts = recordedAttempts.filter((attempt) => attempt.state === "active");
   const attemptByAssignment = new Map(liveAttempts.map((one) => [one.assignmentId, one]));
 
   function entry(row: (typeof rows)[number]): FrontierEntry {
@@ -140,7 +178,41 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
     };
   }
 
+  // The hold rule reads no list of states. It lives with the grants, which read the same rule.
+  const started = new Set(recordedAttempts.map((attempt) => attempt.assignmentId));
+  const holds = writePathHolders(db);
+  // The effective write paths: a grant widens what an assignment holds and what it asks for.
+  const effectiveOf = writePathsReader(db);
+  const writePathsOf = new Map(rows.map((row) => [row.id, effectiveOf(row)]));
+  const held: WritePathHold[] = rows.filter(holds).map((row) => ({
+    assignmentId: row.id,
+    sourceId: row.sourceId,
+    sourceKey: row.sourceKey,
+    hold: "started",
+  }));
+
+  function holdersOf(one: FrontierEntry): WritePathHolder[] {
+    const paths = writePathsOf.get(one.assignmentId) ?? [];
+    return (
+      held
+        .filter((holder) => holder.sourceId === one.sourceId)
+        .map((holder) => ({
+          assignmentId: holder.assignmentId,
+          sourceKey: holder.sourceKey,
+          hold: holder.hold,
+          pathPairCount: overlappingPaths(paths, writePathsOf.get(holder.assignmentId) ?? [])
+            .length,
+        }))
+        .filter((holder) => holder.pathPairCount > 0)
+        // A code-unit order, so the order never depends on the locale of the machine.
+        .toSorted((left, right) => (left.assignmentId < right.assignmentId ? -1 : 1))
+    );
+  }
+
   const paused = openPauses(db);
+  const takeOutPending = new Map(
+    [...sourceOrder.keys()].map((sourceId) => [sourceId, pendingCommitsOf(db, sourceId)]),
+  );
   const entries = rows.map(entry).toSorted(byPriority);
   const activeEntries = entries.flatMap((one) => {
     const attempt = attemptByAssignment.get(one.assignmentId);
@@ -158,10 +230,15 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
   const blocked: Array<FrontierEntry & { blockers: FrontierBlocker[] }> = [];
   const planning: FrontierEntry[] = [];
   const accepted: FrontierEntry[] = [];
+  const withdrawn: FrontierEntry[] = [];
 
   for (const one of entries) {
     if (one.state === "accepted") {
       accepted.push(one);
+      continue;
+    }
+    if (one.state === "withdrawn") {
+      withdrawn.push(one);
       continue;
     }
     // Work that read an invalidated result waits for the corrected one, whatever kind it is
@@ -180,8 +257,9 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
       continue;
     }
 
-    // A reached limit waits on the user, whatever state the assignment stopped in.
-    const waiting = openDirectionsOf(db, one.assignmentId);
+    // A reached limit waits on the user, whatever state the assignment stopped in. A direction
+    // the user already gave waits on nobody, and the action it permits spends it.
+    const waiting = undirected(db, one.assignmentId);
     if (waiting.length > 0) {
       blocked.push({
         ...one,
@@ -205,10 +283,36 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
       continue;
     }
 
+    const withdrawnCommits =
+      one.kind === "production" ? takeOutPending.get(one.sourceId) : undefined;
+    if (withdrawnCommits !== undefined && withdrawnCommits.length > 0) {
+      blocked.push({
+        ...one,
+        blockers: [{ reason: "take_out_pending", commits: withdrawnCommits }],
+      });
+      continue;
+    }
+
     const unmet = unmetDependencies(db, one.assignmentId);
     if (unmet.length > 0) {
       blocked.push({ ...one, blockers: [{ reason: "dependency_pending", dependencies: unmet }] });
       continue;
+    }
+
+    // Work that has started keeps the base of its dispatch, so only new work waits for a holder.
+    // An entry held here takes no slot, so the next entry in priority order can still start.
+    const unstartedProduction = one.kind === "production" && !started.has(one.assignmentId);
+    if (unstartedProduction) {
+      const holders = holdersOf(one);
+      if (holders.length > 0) {
+        blocked.push({
+          ...one,
+          blockers: [
+            { reason: "write_paths_overlap", holders, command: overlapsCommand(one.sourceId) },
+          ],
+        });
+        continue;
+      }
     }
 
     if (openSlots === 0) {
@@ -230,6 +334,14 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
     openSlots -= 1;
     if (!isReview(one.kind)) {
       heldProduction += 1;
+    }
+    if (unstartedProduction) {
+      held.push({
+        assignmentId: one.assignmentId,
+        sourceId: one.sourceId,
+        sourceKey: one.sourceKey,
+        hold: "offered",
+      });
     }
   }
 
@@ -265,6 +377,7 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
     active: activeEntries,
     planning,
     accepted,
+    withdrawn,
     questions: waiting,
   };
 }

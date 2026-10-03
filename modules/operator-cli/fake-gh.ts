@@ -7,7 +7,13 @@
  * Its state lives in `$GH_FAKE_DIR/state.json` and the faults it injects in `faults.json`.
  */
 
-import type { FakeComment, FakeFault, FakeIssue, GithubFakeState } from "./github-fake-state.ts";
+import type {
+  FakeComment,
+  FakeFault,
+  FakeIssue,
+  FakePull,
+  GithubFakeState,
+} from "./github-fake-state.ts";
 
 const directory = process.env.GH_FAKE_DIR ?? "";
 const statePath = `${directory}/state.json`;
@@ -117,9 +123,17 @@ await Bun.write(
 );
 
 const { path, query } = parsePath(rawPath);
-const body: { body?: string; state?: string; state_reason?: string } | null = usesStdin
-  ? JSON.parse(await Bun.stdin.text())
-  : null;
+const body: {
+  body?: string;
+  state?: string;
+  state_reason?: string;
+  title?: string;
+  head?: string;
+  base?: string;
+  draft?: boolean;
+  query?: string;
+  variables?: { id?: string };
+} | null = usesStdin ? JSON.parse(await Bun.stdin.text()) : null;
 const state = await readState();
 const now = new Date().toISOString();
 
@@ -129,6 +143,11 @@ const commentsMatch = /^repos\/[^/]+\/[^/]+\/issues\/(\d+)\/comments$/.exec(path
 const eventsMatch = /^repos\/[^/]+\/[^/]+\/issues\/(\d+)\/events$/.exec(path);
 const subIssuesMatch = /^repos\/[^/]+\/[^/]+\/issues\/(\d+)\/sub_issues$/.exec(path);
 const blockedByMatch = /^repos\/[^/]+\/[^/]+\/issues\/(\d+)\/dependencies\/blocked_by$/.exec(path);
+const repositoryMatch = /^repos\/([^/]+\/[^/]+)$/.exec(path);
+const rulesMatch = /^repos\/([^/]+\/[^/]+)\/rules\/branches\/(.+)$/.exec(path);
+const pullsMatch = /^repos\/([^/]+\/[^/]+)\/pulls$/.exec(path);
+const pullMatch = /^repos\/([^/]+\/[^/]+)\/pulls\/(\d+)$/.exec(path);
+const commitMatch = /^repos\/([^/]+\/[^/]+)\/commits\/([0-9a-f]{40})$/.exec(path);
 
 /** Answers with the fault this call was given, or null when it should run normally. */
 /**
@@ -155,7 +174,152 @@ async function faulted(name: string): Promise<"answered" | "applied-lost" | "non
   return "applied-lost";
 }
 
-if (path === "user") {
+if (path === "graphql" && method === "POST") {
+  // The one mutation the recall sends: it marks a pull request as a draft by its node id.
+  const fault = await faulted("convertToDraft");
+  if (fault !== "answered") {
+    const number = Number((body?.variables?.id ?? "").replace("PR_", ""));
+    const [name, held] =
+      Object.entries(state.pulls ?? {}).find(([, pulls]) =>
+        pulls.some((one) => one.number === number),
+      ) ?? [];
+    if (
+      name === undefined ||
+      held === undefined ||
+      !String(body?.query).includes("convertPullRequestToDraft")
+    ) {
+      answer(200, { errors: [{ message: "Could not resolve to a node" }] });
+    } else {
+      state.pulls = {
+        ...state.pulls,
+        [name]: held.map((one) => (one.number === number ? { ...one, draft: true } : one)),
+      };
+      await writeState(state);
+      if (fault === "applied-lost") {
+        lose();
+      } else {
+        answer(200, { data: { convertPullRequestToDraft: { pullRequest: { isDraft: true } } } });
+      }
+    }
+  }
+} else if (repositoryMatch?.[1] !== undefined) {
+  if ((await faulted("readRepository")) === "none") {
+    const name = repositoryMatch[1];
+    answer(200, {
+      full_name: name,
+      ...(state.repositories?.[name] ?? {
+        default_branch: "main",
+        allow_merge_commit: true,
+        allow_squash_merge: true,
+        allow_rebase_merge: true,
+      }),
+    });
+  }
+} else if (rulesMatch?.[1] !== undefined) {
+  if ((await faulted("readRules")) === "none") {
+    answer(200, state.rules?.[`${rulesMatch[1]}:${decodeURIComponent(rulesMatch[2] ?? "")}`] ?? []);
+  }
+} else if (pullsMatch?.[1] !== undefined && method === "POST") {
+  const name = pullsMatch[1];
+  const fault = await faulted("createPull");
+  if (fault !== "answered") {
+    const held = state.pulls?.[name] ?? [];
+    const text = String(body?.body ?? "");
+    if (text.length > 65_536) {
+      answer(422, { message: "Validation Failed: body is too long (maximum is 65536 characters)" });
+    } else {
+      const number = 1000 + Object.values(state.pulls ?? {}).flat().length + 1;
+      const owner = name.split("/")[0] ?? "";
+      const pull: FakePull = {
+        number,
+        html_url: `https://github.com/${name}/pull/${number}`,
+        state: "open",
+        draft: body?.draft === true,
+        title: String(body?.title ?? ""),
+        body: text,
+        head: { ref: String(body?.head ?? ""), label: `${owner}:${String(body?.head ?? "")}` },
+        base: { ref: String(body?.base ?? "") },
+      };
+      state.pulls = { ...state.pulls, [name]: [...held, pull] };
+      await writeState(state);
+      if (fault === "applied-lost") {
+        lose();
+      } else {
+        answer(201, pull);
+      }
+    }
+  }
+} else if (pullsMatch?.[1] !== undefined) {
+  if ((await faulted("listPulls")) === "none") {
+    const wanted = query.get("state") ?? "open";
+    const head = query.get("head");
+    answer(
+      200,
+      (state.pulls?.[pullsMatch[1]] ?? []).filter(
+        (one) =>
+          (wanted === "all" || one.state === wanted) && (head === null || one.head.label === head),
+      ),
+    );
+  }
+} else if (pullMatch?.[1] !== undefined && method === "PATCH") {
+  const name = pullMatch[1];
+  const fault = await faulted("updatePull");
+  if (fault !== "answered") {
+    const held = state.pulls?.[name] ?? [];
+    const found = held.find((one) => one.number === Number(pullMatch[2]));
+    if (found === undefined) {
+      answer(404, { message: "Not Found" });
+    } else {
+      const changed = { ...found };
+      if (body?.base !== undefined) {
+        changed.base = { ref: body.base };
+      }
+      if (body?.state === "closed" || body?.state === "open") {
+        changed.state = body.state;
+      }
+      state.pulls = {
+        ...state.pulls,
+        [name]: held.map((one) => (one.number === changed.number ? changed : one)),
+      };
+      await writeState(state);
+      if (fault === "applied-lost") {
+        lose();
+      } else {
+        answer(200, {
+          merged: false,
+          merge_commit_sha: null,
+          node_id: `PR_${changed.number}`,
+          ...changed,
+        });
+      }
+    }
+  }
+} else if (pullMatch?.[1] !== undefined && method === "GET") {
+  if ((await faulted("readPull")) === "none") {
+    const found = (state.pulls?.[pullMatch[1]] ?? []).find(
+      (one) => one.number === Number(pullMatch[2]),
+    );
+    if (found === undefined) {
+      answer(404, { message: "Not Found" });
+    } else {
+      answer(200, {
+        merged: false,
+        merge_commit_sha: null,
+        node_id: `PR_${found.number}`,
+        ...found,
+      });
+    }
+  }
+} else if (commitMatch?.[2] !== undefined) {
+  if ((await faulted("readCommit")) === "none") {
+    const found = state.commits?.[commitMatch[2]];
+    if (found === undefined) {
+      answer(404, { message: "No commit found for SHA" });
+    } else {
+      answer(200, found);
+    }
+  }
+} else if (path === "user") {
   if ((await faulted("viewer")) === "none") {
     answer(200, { login: state.viewer });
   }

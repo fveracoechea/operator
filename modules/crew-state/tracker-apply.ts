@@ -3,7 +3,23 @@ import { type ApprovalRow, approvalCovers, readApproval } from "./approvals.ts";
 import type { CrewReader } from "./database.ts";
 import { identityOf } from "./identity.ts";
 import { parseInput } from "./input.ts";
+import {
+  latestPlanningRecord,
+  type PlanningRecord,
+  renderPlanningResolution,
+  type RenderOutcome,
+} from "./planning-record.ts";
 import { readState, record, type RequestFailure, type StateFailure } from "./operations.ts";
+import { trackerOperations } from "./schema.ts";
+import { eq } from "drizzle-orm";
+import { type MergeGate, mergeGateOf } from "./publish-status.ts";
+import type { ApprovalRequest } from "./publish.ts";
+import {
+  mapAmendmentApproval,
+  mapAmendmentPath,
+  mapAmendmentText,
+  mapAmendmentWaits,
+} from "./map-amendment.ts";
 import {
   observationsOf,
   openTrackerOperation,
@@ -37,6 +53,7 @@ import {
   type TrackerStepInput,
   trackerStepInputSchema,
 } from "./tracker-input.ts";
+import { isExecutable } from "./work-input.ts";
 
 type Shared = StateFailure | RequestFailure;
 
@@ -109,6 +126,21 @@ export type TrackerResult =
   | { status: "content-changed"; operationId: string; recorded: string; stated: string }
   | { status: "write-blocked"; report: TrackerStepReport; approval: ApprovalBlocker }
   | { status: "unknown-operation"; operationId: string }
+  | { status: "planning-body-not-allowed"; assignmentId: string }
+  | { status: "planning-record-missing"; assignmentId: string }
+  | { status: "resolution-body-required"; assignmentId: string }
+  | { status: "merge-not-observed"; assignmentId: string; detail: string }
+  | { status: "code-resolution-body-not-allowed"; assignmentId: string }
+  | { status: "completion-reason-not-approved"; assignmentId: string; reason: string }
+  | { status: "publish-approval-missing"; assignmentId: string; approvalId: string; step: string }
+  | {
+      status: "map-amendment-approval-required";
+      assignmentId: string;
+      approval: ApprovalRequest;
+      planPath: string;
+    }
+  | { status: "comment-too-long"; size: number; limit: number }
+  | Exclude<RenderOutcome, { status: "rendered" }>
   | Shared;
 
 function reportOf(request: {
@@ -257,6 +289,8 @@ function gateBeforeWriting(request: {
 type Context = {
   binding: TrackerBinding;
   assignmentRevision: number;
+  /** The record a planning resolution is rendered from, or null for executable work. */
+  planning: { record: PlanningRecord | null } | null;
   target: TrackerTarget;
   operation: TrackerOperationRow | null;
   attempts: TrackerWriteRow[];
@@ -294,6 +328,9 @@ function readContext(
     context: {
       binding: bound.binding,
       assignmentRevision: bound.assignment.revision,
+      planning: isExecutable(bound.assignment.kind)
+        ? null
+        : { record: latestPlanningRecord(db, request.assignmentId) },
       target,
       operation,
       attempts: operation === null ? [] : writeAttemptsOf(db, operation.id),
@@ -480,6 +517,144 @@ async function finalReport(projectRoot: string, operationId: string): Promise<Tr
     : { status: "reported", report: read };
 }
 
+type ResolvedStep = Exclude<TrackerStepInput, { step: "resolution" }> | ResolutionStep;
+type ResolutionStep = Extract<TrackerStepInput, { step: "resolution" }> & { body: string };
+
+/**
+ * The step with the body it writes. The resolution of planning work is a rendering of its
+ * planning record and takes no free text, so the tracker and the brief of a dependent carry the
+ * same words. A production resolution keeps its own body.
+ */
+async function resolvedIntent(request: {
+  projectRoot: string;
+  assignmentId: string;
+  input: TrackerStepInput;
+  planning: Context["planning"];
+  code: MergeGate;
+}): Promise<{ status: "resolved"; input: ResolvedStep } | TrackerResult> {
+  const { input, planning, code } = request;
+  if (code.status !== "not-code") {
+    return codeIntent({ assignmentId: request.assignmentId, input, code });
+  }
+  if (input.step !== "resolution") {
+    return { status: "resolved", input };
+  }
+
+  if (planning === null) {
+    return input.body === undefined
+      ? { status: "resolution-body-required", assignmentId: request.assignmentId }
+      : { status: "resolved", input: { ...input, body: input.body } };
+  }
+  if (input.body !== undefined) {
+    return { status: "planning-body-not-allowed", assignmentId: request.assignmentId };
+  }
+  // Planning work that an earlier release accepted keeps no record, so nothing can be rendered.
+  if (planning.record === null) {
+    return { status: "planning-record-missing", assignmentId: request.assignmentId };
+  }
+
+  const rendered = await renderPlanningResolution({
+    projectRoot: request.projectRoot,
+    record: planning.record,
+  });
+  return rendered.status === "rendered"
+    ? { status: "resolved", input: { ...input, body: rendered.body } }
+    : rendered;
+}
+
+/**
+ * The step of a code result. Each one runs only after the recorded merge of its pull request,
+ * and only under the publish approval that named it (D2). The resolution is rendered from the
+ * merge with no free body, and the completion closes the ticket as completed (decision 18). The
+ * map amendment keeps its stated input, and its rendered text waits for a second approval.
+ */
+function codeIntent(request: {
+  assignmentId: string;
+  input: TrackerStepInput;
+  code: Exclude<MergeGate, { status: "not-code" }>;
+}): { status: "resolved"; input: ResolvedStep } | TrackerResult {
+  const { assignmentId, input, code } = request;
+  if (input.step === "resolution" && input.body !== undefined) {
+    return { status: "code-resolution-body-not-allowed", assignmentId };
+  }
+  if (input.step === "completion" && input.reason !== "completed") {
+    return { status: "completion-reason-not-approved", assignmentId, reason: input.reason };
+  }
+  if (code.status === "waiting") {
+    return { status: "merge-not-observed", assignmentId, detail: code.detail };
+  }
+  if (!code.approved[input.step]) {
+    return {
+      status: "publish-approval-missing",
+      assignmentId,
+      approvalId: code.approvalId,
+      step: input.step,
+    };
+  }
+  return input.step === "resolution"
+    ? { status: "resolved", input: { ...input, body: code.resolution } }
+    : { status: "resolved", input };
+}
+
+/**
+ * The planned map amendment of a code result that a new stated text replaces, or null. Only a
+ * step whose text no approval binds yet, and that sent nothing, takes other text: the person may
+ * reject the rendered text before any write.
+ */
+function replacedMapIntent(request: {
+  code: MergeGate;
+  operation: TrackerOperationRow | null;
+  attempts: TrackerWriteRow[];
+  intentIdentity: string;
+  mapApproved: boolean;
+}): string | null {
+  const { operation } = request;
+  return operation !== null &&
+    request.code.status === "merged" &&
+    storedStep(operation.step) === "map_amendment" &&
+    request.attempts.length === 0 &&
+    operation.intentIdentity !== request.intentIdentity &&
+    !request.mapApproved
+    ? operation.id
+    : null;
+}
+
+/**
+ * The map amendment of a code result writes only the exact text a `map-amendment` approval
+ * binds (D2). With no such approval, the record renders the text to a local file and writes
+ * nothing. Null means the step may go on.
+ */
+async function mapAmendmentGate(request: {
+  projectRoot: string;
+  code: MergeGate;
+  operation: TrackerOperationRow;
+  sent: boolean;
+}): Promise<TrackerResult | null> {
+  const { operation } = request;
+  if (request.code.status !== "merged" || storedStep(operation.step) !== "map_amendment") {
+    return null;
+  }
+  const waits = await readState(request.projectRoot, (db) =>
+    mapAmendmentWaits(db, operation, request.sent),
+  );
+  if (typeof waits !== "boolean") {
+    return waits;
+  }
+  if (!waits) {
+    return null;
+  }
+  const planPath = mapAmendmentPath(operation.contentIdentity ?? operation.intentIdentity);
+  await Bun.write(`${request.projectRoot}/${planPath}`, `${mapAmendmentText(operation)}\n`, {
+    createPath: true,
+  });
+  return {
+    status: "map-amendment-approval-required",
+    assignmentId: operation.assignmentId,
+    approval: mapAmendmentApproval(operation),
+    planPath,
+  };
+}
+
 /**
  * Records one step of one assignment's tracker update.
  * The intent is written before the effect, the write carries its own attempt record, and the
@@ -531,6 +706,10 @@ export async function recordTrackerStep(request: {
       status: "ok" as const,
       context: context.context,
       approval: request.approvalId === null ? null : readApproval(db, request.approvalId),
+      code: mergeGateOf(db, request.assignmentId),
+      mapApproved:
+        context.context.operation !== null &&
+        !mapAmendmentWaits(db, context.context.operation, context.context.attempts.length > 0),
     };
   });
 
@@ -538,10 +717,26 @@ export async function recordTrackerStep(request: {
     return read;
   }
 
+  const resolved = await resolvedIntent({
+    projectRoot: request.projectRoot,
+    assignmentId: request.assignmentId,
+    input,
+    planning: read.context.planning,
+    code: read.code,
+  });
+  if (resolved.status !== "resolved") {
+    return resolved;
+  }
+
   const { target } = read.context;
-  const intentIdentity = identityOf({ ...input, target });
+  const intent = resolved.input;
+  const intentIdentity = identityOf({ ...intent, target });
   let attempts = read.context.attempts;
   let operation = read.context.operation;
+  const replaced = replacedMapIntent({ ...read, operation, attempts, intentIdentity });
+  if (replaced !== null) {
+    operation = null;
+  }
 
   if (operation !== null) {
     // A verified step is finished. It is never written again to repair another step.
@@ -576,12 +771,16 @@ export async function recordTrackerStep(request: {
     const planned = await TrackerUpdate.plan({
       provider: read.context.binding.provider,
       operationId,
-      intent: { ...input, target },
+      intent: { ...intent, target },
     });
     if (planned.status === "unsupported-provider") {
       return { status: "unsupported-provider", provider: planned.provider };
     }
-    if (planned.status === "capability-unavailable" || planned.status === "actor-unknown") {
+    if (
+      planned.status === "capability-unavailable" ||
+      planned.status === "actor-unknown" ||
+      planned.status === "comment-too-long"
+    ) {
       return planned;
     }
 
@@ -592,17 +791,20 @@ export async function recordTrackerStep(request: {
         requestId: `${request.requestId}#plan`,
         ownerToken: request.ownerToken,
         operation: "tracker_plan",
-        input: { assignmentId: request.assignmentId, step: input.step, intentIdentity },
+        input: { assignmentId: request.assignmentId, step: intent.step, intentIdentity },
       },
       ({ tx, now }) => {
+        if (replaced !== null) {
+          tx.delete(trackerOperations).where(eq(trackerOperations.id, replaced)).run();
+        }
         openTrackerOperation(tx, {
           operationId,
           assignmentId: request.assignmentId,
-          step: input.step,
+          step: intent.step,
           provider: read.context.binding.provider,
           target,
           expectedActor: planned.expectedActor,
-          intent: { ...input, target },
+          intent: { ...intent, target },
           intentIdentity,
           content: planned.content,
           contentIdentity: planned.contentIdentity,
@@ -623,6 +825,16 @@ export async function recordTrackerStep(request: {
 
     operation = stored.operation;
     attempts = [];
+  }
+
+  const textGate = await mapAmendmentGate({
+    projectRoot: request.projectRoot,
+    code: read.code,
+    operation,
+    sent: attempts.length > 0,
+  });
+  if (textGate !== null) {
+    return textGate;
   }
 
   /**

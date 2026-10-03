@@ -11,8 +11,8 @@
     "./cli": "./cli.ts"
   },
   "scripts": {
-    "format": "bunx --bun --no-install oxfmt cli.ts modules scripts herdr tools/oxlint dependency-cruiser.config.cjs package.json tsconfig.json .oxfmtrc.json .oxlintrc.json .github",
-    "format:check": "bunx --bun --no-install oxfmt --check cli.ts modules scripts herdr tools/oxlint dependency-cruiser.config.cjs package.json tsconfig.json .oxfmtrc.json .oxlintrc.json .github",
+    "format": "bunx --bun --no-install oxfmt cli.ts modules scripts herdr tools/oxlint dependency-cruiser.config.cjs package.json operator-gate.json tsconfig.json .oxfmtrc.json .oxlintrc.json .github",
+    "format:check": "bunx --bun --no-install oxfmt --check cli.ts modules scripts herdr tools/oxlint dependency-cruiser.config.cjs package.json operator-gate.json tsconfig.json .oxfmtrc.json .oxlintrc.json .github",
     "lint": "bunx --bun --no-install oxlint --deny-warnings cli.ts modules scripts herdr tools/oxlint dependency-cruiser.config.cjs",
     "lint:modules": "bun scripts/check-module-shape.ts && bunx --bun --no-install depcruise --config dependency-cruiser.config.cjs cli.ts modules scripts",
     "lint:skills": "bun scripts/check-skill-shape.ts",

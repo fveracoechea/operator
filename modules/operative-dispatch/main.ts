@@ -4,7 +4,8 @@ import { SkillInstall } from "../skill-install/main.ts";
 import { ReleaseInstall } from "../release-install/main.ts";
 import { type AnswerDelivery, answerDocument } from "./answer.ts";
 import { type PrepareOutcome, prepareInputs } from "./inputs.ts";
-import { inspectReviewWork, inspectWork, type WorkInspection } from "./inspect.ts";
+import { inspectCheckout, inspectWork, type WorkInspection } from "./inspect.ts";
+import { type PlanningInput, planningRecordsSection } from "./planning-brief.ts";
 import { readReference } from "./reference.ts";
 import {
   BRIEF_PATH,
@@ -17,6 +18,7 @@ import {
   RELEASE_PATH,
 } from "./plan.ts";
 import { readSnapshot } from "./snapshot.ts";
+import { scanOutside } from "./scan.ts";
 import {
   agentKindFor,
   type Brief,
@@ -115,6 +117,15 @@ export const OperativeDispatch = {
     if (request.agentHost === "opencode")
       prefixes.push(OPENCODE_AGENT_PATH, OPENCODE_EFFORT_PLUGIN_PATH);
     return prefixes;
+  },
+
+  /**
+   * Renders the planning records one brief carries.
+   * The spec copy that a result review reads renders the same section, so the Spec axis reads
+   * the decisions in the words that the producer received.
+   */
+  planningRecordsSection(request: { inputs: PlanningInput[] }): string[] {
+    return planningRecordsSection(request.inputs);
   },
 
   /** Names the branch, checkout, agent, brief, and prompt of one launch before any effect. */
@@ -266,6 +277,7 @@ export const OperativeDispatch = {
       paneId: pane.value.paneId,
       model: request.plan.agentModel,
       reasoningEffort: request.plan.agentReasoningEffort,
+      allowedTools: request.plan.allowedTools,
     });
     if (started.status !== "succeeded") {
       return started.status === "failed"
@@ -309,20 +321,27 @@ export const OperativeDispatch = {
   },
 
   /**
-   * Reads what a reviewer changed in its own checkout.
-   * Operator writes the launch inputs and its own skills there, so those paths are excluded
-   * and whatever remains is an edit a review was never authorized to make.
+   * Reads what one checkout holds since its base: the commits, the files they touch, and the
+   * files not committed. Operator writes the launch inputs and its own skills there, so those
+   * paths are left out, and whatever remains is the occupant's own work.
+   * A submitted result and a review report read this one inspection, so the rules that judge
+   * them read Git the same way.
    */
-  async inspectReviewWorktree(request: {
-    worktreePath: string;
-    baseCommit: string;
-    agentHost: string;
-  }) {
-    return inspectReviewWork({
+  async inspectCheckout(request: { worktreePath: string; baseCommit: string; agentHost: string }) {
+    return inspectCheckout({
       worktreePath: request.worktreePath,
       baseCommit: request.baseCommit,
-      allowedPrefixes: OperativeDispatch.writtenPrefixes({ agentHost: request.agentHost }),
+      writtenPrefixes: OperativeDispatch.writtenPrefixes({ agentHost: request.agentHost }),
     });
+  },
+
+  /**
+   * Scans the folder that holds one Operative worktree and the controlling checkout, as one
+   * snapshot of ADR 0018. It only reads, and it never names a writer: two scans of one attempt
+   * show what changed outside the worktree, whoever changed it.
+   */
+  async scanOutside(request: { projectRoot: string; worktreePath: string }) {
+    return scanOutside(request);
   },
 
   /**

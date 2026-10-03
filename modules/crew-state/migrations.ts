@@ -1,5 +1,15 @@
 import { Database } from "bun:sqlite";
-import { STATE_VERSION } from "./schema.ts";
+import {
+  BRANCH_REVIEW_TABLES,
+  GATE_TABLES,
+  INTEGRATION_TABLES,
+  LANDING_REWRITE_COLUMN,
+  LANDING_TABLES,
+  OBSERVATION_TABLES,
+  PUBLISH_TABLES,
+  REBASE_TABLES,
+  STATE_VERSION,
+} from "./schema.ts";
 
 /**
  * One step from one recorded state version to the next.
@@ -11,7 +21,11 @@ export type MigrationStep = {
   to: number;
   summary: string;
   apply: (sqlite: Database) => void;
+  // What in the file this step cannot carry forward, one line each. Any line stops the step.
+  holds?: (sqlite: Database) => string[];
 };
+
+type WaitingRow = { id: string; assignment_id: string };
 
 export const MIGRATIONS: MigrationStep[] = [
   {
@@ -20,6 +34,251 @@ export const MIGRATIONS: MigrationStep[] = [
     summary: "Record the Operator release this crew coordinates under in the state file.",
     apply: (sqlite) => {
       sqlite.exec("alter table state_meta add column release_identity text");
+    },
+  },
+  {
+    from: 2,
+    to: 3,
+    summary: "Record how the quote of each requirement answer was checked against its source.",
+    apply: (sqlite) => {
+      sqlite.exec("alter table answers add column source_kind text");
+      // An earlier release checked no quote, so its requirements say so rather than claim a copy.
+      sqlite.exec("update answers set source_kind = 'unchecked' where authority = 'requirement'");
+    },
+  },
+  {
+    from: 3,
+    to: 4,
+    summary: "Record each code result as one commit, with no pull request.",
+    // An accepted record keeps its pull request as history, and its reader ignores it. A result
+    // that still waits was produced under the pull request rules, so it finishes under them.
+    holds: (sqlite) =>
+      sqlite
+        .query<WaitingRow, []>(
+          // Rework adds a new submission and leaves the old row as it was, so only the newest
+          // submission of an assignment that still awaits review is work in flight.
+          `select s.id, s.assignment_id from submissions s
+           join assignments a on a.id = s.assignment_id
+           where s.code is not null and s.state = 'awaiting-review' and a.state = 'awaiting-review'
+             and s.assignment_revision = (
+               select max(o.assignment_revision) from submissions o where o.assignment_id = s.assignment_id
+             )
+           order by s.submitted_at, s.id`,
+        )
+        .all()
+        .map(
+          (row) =>
+            `Code submission ${row.id} of assignment ${row.assignment_id} waits for review or acceptance.`,
+        ),
+    apply: () => {},
+  },
+  {
+    from: 4,
+    to: 5,
+    summary: "Record the scan around each Operative worktree and each change found outside it.",
+    // An attempt launched before this step has no "before" scan, so its submission records the
+    // scan as not run and acceptance waits for a disposition, as it does for any outside change.
+    apply: (sqlite) => {
+      sqlite.exec("alter table attempt_dispatch add column outside_scan text");
+      sqlite.exec(`create table outside_changes (
+        id text primary key,
+        submission_id text not null references submissions(id),
+        place text not null,
+        path text not null,
+        change text not null,
+        before text,
+        after text,
+        security integer not null,
+        disposition text,
+        reason text,
+        evidence text,
+        approval_id text,
+        disposed_at text,
+        recorded_at text not null,
+        unique (submission_id, place, path)
+      ) strict`);
+    },
+  },
+  {
+    from: 5,
+    to: 6,
+    summary: "Record the behavior changes of each result submission, each with its basis.",
+    // An earlier submission listed none, so it keeps no list rather than claim "none".
+    apply: (sqlite) => {
+      sqlite.exec("alter table submissions add column behavior_changes text");
+    },
+  },
+  {
+    from: 6,
+    to: 7,
+    summary:
+      "Record the planning record of each planning acceptance and the type of planning work.",
+    apply: (sqlite) => {
+      // Planning work that an earlier release registered keeps no type, so its decisions follow
+      // the stricter rule of a grilling. Planning work it accepted keeps no record: nobody made
+      // the claim that a record would state.
+      sqlite.exec("alter table assignments add column planning_type text");
+      sqlite.exec(`create table planning_records (
+        id text primary key,
+        assignment_id text not null references assignments(id),
+        assignment_revision integer not null,
+        entries text not null,
+        artifacts text not null,
+        identity text not null,
+        recorded_at text not null
+      ) strict`);
+    },
+  },
+  {
+    from: 7,
+    to: 8,
+    summary: "Record the planning records that each launch carried in its brief.",
+    // A launch recorded before this step carried no planning records, so it keeps no list. A
+    // recovery of it reads the latest record of each dependency, as a new launch does.
+    apply: (sqlite) => {
+      sqlite.exec("alter table attempt_dispatch add column planning_record_ids text");
+    },
+  },
+  {
+    from: 8,
+    to: 9,
+    summary:
+      "Record the issue text identity of each assignment and the repository of each tracker binding.",
+    apply: (sqlite) => {
+      sqlite.exec("alter table assignments add column scope_identity text");
+      // An earlier source held one repository for all its items, so each binding takes it. A
+      // binding whose source has no location already refused every tracker update, and it keeps
+      // refusing as a binding with no ticket.
+      sqlite.exec(
+        `update assignments set tracker_binding = case
+           when (select tracker_location from work_sources where id = assignments.source_id) is null
+             then null
+           else json_object(
+             'repository',
+             json_extract(
+               (select tracker_location from work_sources where id = assignments.source_id),
+               '$.repository'
+             ),
+             'issue',
+             json_extract(tracker_binding, '$.issue')
+           )
+         end
+         where tracker_binding is not null`,
+      );
+    },
+  },
+  {
+    from: 9,
+    to: 10,
+    summary: "Record each gate run, its command outcomes, and the gate checkout of each source.",
+    // A source that an earlier release dispatched has its base already in use, so it is not
+    // gated again. Only a source with no production dispatch waits for a gate run at its base.
+    apply: (sqlite) => {
+      for (const statement of GATE_TABLES) {
+        sqlite.exec(statement);
+      }
+    },
+  },
+  {
+    from: 10,
+    to: 11,
+    summary: "Record the registration plan revision under which each assignment was withdrawn.",
+    // An earlier release could not withdraw an assignment, so every row keeps no revision.
+    apply: (sqlite) => {
+      sqlite.exec("alter table assignments add column withdrawn_under text");
+    },
+  },
+  {
+    from: 11,
+    to: 12,
+    summary: "Record the integration branch of each source, its base, its tip, and its gate.",
+    // A source that an earlier release dispatched has no branch, and its later dispatches keep the
+    // commit the caller names. Only a source with no production dispatch gets a branch.
+    apply: (sqlite) => {
+      for (const statement of INTEGRATION_TABLES) {
+        sqlite.exec(statement);
+      }
+    },
+  },
+  {
+    from: 12,
+    to: 13,
+    summary: "Record each landing of an accepted code result on its integration branch.",
+    // An earlier release landed nothing, so no landing is recorded, and an accepted result keeps
+    // its reviewed commit as the commit that carries it.
+    apply: (sqlite) => {
+      for (const statement of LANDING_TABLES) {
+        sqlite.exec(statement);
+      }
+    },
+  },
+  {
+    from: 13,
+    to: 14,
+    summary:
+      "Record each branch snapshot, the subject of each review, and the targets of each finding.",
+    // Every earlier review read one submission, so each keeps it and names no snapshot. SQLite
+    // cannot drop a not-null rule in place, so the review table is built again with its rows.
+    // The migration connection runs with foreign keys off, so the rows that name a review stay.
+    apply: (sqlite) => {
+      const [snapshots, reviewTable] = BRANCH_REVIEW_TABLES;
+      if (snapshots === undefined || reviewTable === undefined) {
+        throw new Error("the branch review tables are not declared");
+      }
+      sqlite.exec(snapshots);
+      sqlite.exec(reviewTable.replace("create table reviews", "create table reviews_next"));
+      const columns = `id, submission_id, assignment_id, axes, state, host, sub_agents, blocker,
+        reported_at, revision, created_at, updated_at`;
+      sqlite.exec(`insert into reviews_next (${columns}) select ${columns} from reviews`);
+      sqlite.exec("drop table reviews");
+      sqlite.exec("alter table reviews_next rename to reviews");
+      sqlite.exec("alter table review_findings add column targets text");
+      sqlite.exec("alter table review_findings add column correction_target text");
+    },
+  },
+  {
+    from: 14,
+    to: 15,
+    summary:
+      "Record the published text of each review, and each stack publication with its writes and pull requests.",
+    // An earlier release published nothing, and no review wrote a published text.
+    apply: (sqlite) => {
+      for (const statement of PUBLISH_TABLES) {
+        sqlite.exec(statement);
+      }
+    },
+  },
+  {
+    from: 15,
+    to: 16,
+    summary:
+      "Record each reading of a published pull request, and the tracker steps each publish approval names.",
+    // An earlier publication named no tracker step, so its approval covers none, and its items
+    // complete only under a new publication.
+    apply: (sqlite) => {
+      for (const statement of OBSERVATION_TABLES) {
+        sqlite.exec(statement);
+      }
+    },
+  },
+  {
+    from: 16,
+    to: 17,
+    summary: "Record the plan of each rewrite of a corrected landed commit.",
+    // An earlier release rewrote nothing, so every recorded landing keeps a null plan.
+    apply: (sqlite) => {
+      sqlite.exec(LANDING_REWRITE_COLUMN);
+    },
+  },
+  {
+    from: 17,
+    to: 18,
+    summary: "Record each approved rebase of an integration branch onto a new base.",
+    // An earlier release rebased nothing, so the table starts empty.
+    apply: (sqlite) => {
+      for (const statement of REBASE_TABLES) {
+        sqlite.exec(statement);
+      }
     },
   },
 ];

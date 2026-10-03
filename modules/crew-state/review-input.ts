@@ -49,6 +49,40 @@ const blocker = z.strictObject({
 
 export type ReviewBlocker = z.infer<typeof blocker>;
 
+/**
+ * The text a reviewer writes for the pull request that publishes what it read (ADR 0022). The
+ * reviewer read the whole subject, so it writes the judgment that no record holds. The Operator
+ * only passes this text on, and the person approves it word for word.
+ */
+export const publishedTextSchema = z.strictObject({
+  title: z.string().trim().min(1).max(256),
+  summary: z.string().trim().min(1),
+  startHere: z.string().trim().min(1),
+  mergeDanger: z.string().trim().min(1),
+});
+
+/**
+ * One cut point of a pull request stack (ADR 0015): the commit that ends the part below, the
+ * reason for the cut, and the text of the part it starts. The branch reviewer read the whole
+ * head, so it proposes each cut, and the person approves it in the publish approval (D1).
+ */
+const cutSchema = publishedTextSchema.extend({
+  after: z.string().regex(/^[0-9a-f]{40}$/),
+  reason: z.string().trim().min(1),
+});
+
+/** The text of a branch review: the lowest part, and each cut point above it in order. */
+export const branchPublishedTextSchema = publishedTextSchema.extend({
+  cuts: z.array(cutSchema).default([]),
+});
+
+export type PublishedText = z.infer<typeof branchPublishedTextSchema>;
+
+// A result review records no cut, so its text reads back as a stack of one.
+export function storedPublishedText(stored: string): PublishedText {
+  return readStored("published text", branchPublishedTextSchema, stored);
+}
+
 export const reviewReportInputSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("reported"),
@@ -56,6 +90,8 @@ export const reviewReportInputSchema = z.discriminatedUnion("kind", [
     host: z.string().min(1),
     subAgents: z.array(subAgent).length(2),
     reports: z.array(axisReport).length(2),
+    // Required for the only code result of a source, which publishes with no branch review.
+    published: publishedTextSchema.optional(),
   }),
   z.strictObject({
     kind: z.literal("blocked"),
@@ -65,7 +101,35 @@ export const reviewReportInputSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
+/**
+ * One finding of a branch review. It names the commits it targets, because a correction of it
+ * invalidates the assignment of one of them. The rule is a named refusal, not a parse error, so
+ * an empty list is read here and refused when the report is recorded.
+ */
+const branchFinding = finding.extend({ targets: z.array(z.string().min(1)) });
+
+const branchAxisReport = axisReport.extend({ findings: z.array(branchFinding) });
+
+/** The report of one branch review. It names the snapshot it read, never a submission. */
+export const branchReportInputSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("reported"),
+    snapshotIdentity: z.string().min(1),
+    host: z.string().min(1),
+    subAgents: z.array(subAgent).length(2),
+    reports: z.array(branchAxisReport).length(2),
+    published: branchPublishedTextSchema,
+  }),
+  z.strictObject({
+    kind: z.literal("blocked"),
+    snapshotIdentity: z.string().min(1),
+    host: z.string().min(1),
+    blocker,
+  }),
+]);
+
 export type ReviewReportInput = z.infer<typeof reviewReportInputSchema>;
+export type BranchReportInput = z.infer<typeof branchReportInputSchema>;
 export type AxisReport = z.infer<typeof axisReport>;
 export type ObservedCheck = z.infer<typeof observedCheck>;
 
@@ -87,6 +151,10 @@ export function storedSubAgents(stored: string): SubAgentRecord[] {
   return readStored("sub-agent list", z.array(subAgent), stored);
 }
 
+export function storedTargets(stored: string): string[] {
+  return readStored("finding target list", z.array(z.string()), stored);
+}
+
 export function storedBlocker(stored: string): ReviewBlocker {
   return readStored("review blocker", blocker, stored);
 }
@@ -97,6 +165,8 @@ const disposition = z.discriminatedUnion("disposition", [
     findingId: z.string().min(1),
     disposition: z.literal("corrected"),
     reason: z.string().min(1),
+    // A correction of a branch finding names the one assignment it invalidates (ADR 0017).
+    target: z.string().min(1).optional(),
   }),
   z.strictObject({
     findingId: z.string().min(1),

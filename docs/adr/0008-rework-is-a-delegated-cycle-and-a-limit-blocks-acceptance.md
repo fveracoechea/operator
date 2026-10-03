@@ -9,7 +9,8 @@ The producer fixes its own work with its own context in one place only: a refusa
 
 A cycle carries one reason.
 A findings cycle answers the corrections the Operator accepted.
-An integration cycle combines the submitted result with other named revisions, when it no longer lands as reviewed: a conflict, a changed patch, or a candidate that failed the project gate (ADR 0021).
+An integration cycle combines the submitted result with the commit it lands on, when it no longer lands as reviewed: a conflict, a changed patch, or a candidate that failed or was flaky at the project gate (ADR 0021).
+The CLI plans the landing again to read these revisions, so the input of the cycle names none, and a commit that would land cleanly with no failed or flaky run opens no cycle.
 A diagnostic rerun runs recorded checks again when a test infrastructure failure is suspected.
 An invalidation cycle corrects the defect that an invalidation recorded.
 A findings cycle needs a reported review whose every finding already carries a disposition, because a cycle that starts on a half-read review leaves the unanswered findings with nothing to return to.
@@ -59,6 +60,8 @@ A work source also holds three branch reviews that reported, and ADR 0017 record
 
 A reached limit records a direction request against the assignment.
 An invalidation that finds the budget spent still records the defect and pauses what consumed it, because a found defect is never refused, and it records the direction request in the same change, which withholds the dispatch of the correction until the user answers.
+When the user answers, the claim of the correction spends that direction and opens the invalidation cycle, with the content that the invalidation recorded, because the claim is the work that the direction permits.
+A direction that the user already gave withholds no dispatch, and the next actions no longer bring it to the user.
 The request blocks acceptance, states the limit and what was already tried, and keeps every attempt, submission, review, and finding that led to it.
 It is passed only by an approval that names this assignment, the scope of that limit, and the revision of the request it answers.
 The cycle that approval permits records it, and the brief of that cycle states it, so work past a limit is visible to the Operative that runs it.
@@ -69,7 +72,7 @@ A limit reached again after a direction was spent opens the request at the next 
 `operator work invalidate` records a defect found after acceptance.
 Review work is refused, because a review holds no result of its own and a review that read the work wrongly is answered by reviewing that work again.
 The assignment moves to invalidated and returns to the frontier, because the fix is work on that assignment, and the invalidation cycle that the same change opens carries that fix.
-Planning work opens no cycle, because it is never dispatched, and the Operator resolves it again, as ADR 0019 records.
+Planning work opens no cycle, because it is never dispatched, and it is decided again with a new planning record, as ADR 0019 records.
 Its acceptance, submission, review, findings, and attempts stay exactly as they were recorded, because that history is what names the dependents that read the invalid result.
 Only work that consumed the result is paused.
 A dependent that never started has read nothing, and the dependency gate already holds it.
@@ -133,11 +136,13 @@ A rework cycle waits for capacity like any other work.
 Each cycle starts from the commit that its reason names, and the brief says which commit that is.
 A findings cycle and a diagnostic rerun start from the submitted commit, on the base of its dispatch.
 An integration cycle starts from the commit that its result lands on: the tip of the integration branch, or, in a rewrite, the parent of the commit it replaces.
-An invalidation cycle of a code result starts from the landed commit that it corrects, on the parent of that commit, as ADR 0020 records.
+An invalidation cycle of a code result starts at the landed commit that it corrects, and its base is the parent of that commit, as ADR 0020 records: the Operative makes one commit on top, and the rewrite at acceptance puts the combined change in the place of the landed commit.
+Its dispatch starts on that parent when it names no commit, and a dispatch that names another commit is refused with `correction_base_changed`.
 Operator moves one branch, the integration branch of a source, and only as ADR 0020 records.
 It never moves an Operative branch, and it changes a pull request only as ADR 0022 records.
 
 An integration cycle names the revisions it combines as commits that Operator read: the submitted commit, and the tip on which it no longer lands as reviewed.
+The combined revision is a new submission with its own result review, and that review also receives the reviewed patch and the interdiff from it to the new patch as fixed inputs (ADR 0017).
 
 The state version stays at 1.
 The new tables are added to a file no release has shipped yet, and a state file that predates them is reported as unreadable rather than repaired in silence.

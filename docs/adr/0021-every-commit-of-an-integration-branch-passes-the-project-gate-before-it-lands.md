@@ -96,6 +96,20 @@ A reviewer observation at a fast-forward candidate in place of a gate run was re
 
 ## Consequences
 
+The first code dispatch records the integration base and the gate declaration at that base on the source together, in the same step that creates the integration branch (ADR 0020).
+From then on, the brief and the submit check of every attempt of the source read that fixed declaration, also when the attempt starts from another commit, such as a rework.
+Before that, the brief and the submit check of an attempt read the gate at the base commit of its dispatch, which is the commit that the producer starts from.
+A review attempt reads no gate at dispatch, because its registered commands already permit the gate commands.
+A missing gate does not hold back a live probe, because a probe runs no gate command.
+
+The integration base is the commit of the first code dispatch of the source, which is the first production attempt of the source with a recorded launch plan.
+That dispatch refuses with `gate_pending`, `gate_running`, `gate_failed`, or `gate_flaky` until the key of its commit passes, and a refusal names the commit and each failed run.
+A source that an earlier release already dispatched keeps the base it started from, and it is not gated again.
+`operator crew next` offers `run_gate` for that attempt in place of `dispatch_attempt`, shows the wait `gate_running` while a run of the source has no outcome, and names the blocker `gate_failed` or `gate_flaky` when only the user can clear the base.
+The approval of a fresh series names the action `gate-fresh-series`, the source as its scope, the key as its request revision, and the key and every failed run at the key as its targets, so an approval that leaves out a later failure covers nothing.
+A runner that stops before an outcome, for example because it cannot prepare the checkout, records the reason, and its run stays with no outcome.
+Herdr ignores `--base` when the branch of a new checkout already exists, so `operator gate run` refuses a gate branch that exists before it calls Herdr, and it verifies the HEAD of a checkout that Herdr created.
+
 Each landing on a moved tip waits for one gate run, and each run installs the project again from nothing.
 One gate run of a source runs at a time, because two candidates on one tip can never both land, and the next actions offer a landing that waits before a new run of the same source.
 A gate run takes no crew slot, because it starts no agent.
@@ -111,8 +125,20 @@ The key does not cover the machine, so a changed tool version outside the tree d
 A failed or flaky key at the base has no assignment to correct it, so only the user can clear it: by a fixed main branch and a new base, or by an approval of a fresh series.
 
 A rebase of the branch onto a moved main branch, which a person approves (ADR 0022), gives every commit a new tree, so every commit is gated again before it is published.
+`operator gate run --source <id> --base <commit>` gates the new base first, as a base run, and then each commit that lands again on it, in order, and the plan is made again after each run.
+The rebase keeps the gate declaration fixed on the source, so a result of the source that already merged into the target never chooses the gate of the later commits.
+A failed or flaky place starts no new run without a fresh series, and a failing new base is never recorded.
 
 Removal of the gate checkout needs no approval, because it holds no work, as ADR 0012 records for the checkout of a probe.
 The branch that Herdr creates for it never moves and stays after the checkout is gone.
 
 ADR 0005, 0007, 0008, 0015, 0017, 0018, and 0020 are amended to refer to this record.
+
+`operator gate run --assignment <id>` starts the run on the candidate of one code result: it plans the landing on the recorded tip and gates the planned commit, keyed by its tree and the gate declaration fixed on the source.
+The run records the submission and the tip as its subject, so `crew next` reads the candidate with no Git read, and a run at an earlier tip proves nothing for a later one.
+For a correction of a landed commit, the same command gates the first commit of the rebuilt range whose key has no passing run, and its subject is `rewrite`, with the submission, the recorded tip, and the commit that place lands on.
+`crew next` plans the rewrite again to read the range, and each commit is read by its key, so a commit below the first failure keeps its pass and only the changed part is gated again.
+A failed or flaky correction itself is answered by an integration cycle from the parent of the replaced commit, and a failed later commit is taken out by the next plan.
+A landing that lands nothing gates nothing, because the tip already passed at its own landing.
+For the take-out of a withdrawn commit, `operator gate run --source <id>` gates the first commit that lands again whose key has no passing run, and its subject is `take-out`, with the source, the recorded tip, and the commit that place lands on.
+A take-out lands nothing in the place of the withdrawn commit, so only the later commits are gated, and a take-out that lands no later commit again gates nothing.

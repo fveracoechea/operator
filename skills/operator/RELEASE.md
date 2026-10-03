@@ -37,6 +37,10 @@ Never repair it by overwriting what the user changed.
 Nothing is migrated until every durable record is copied aside and read back.
 A copy that did not read back as written stops the update before anything moves.
 
+A migration step can hold the update for a record it cannot carry forward, with `code_submission_waiting`.
+The blocker names each code submission that still waits for review or acceptance.
+Finish that review and acceptance under the earlier release, then plan again.
+
 A migration step that cannot finish puts the backed-up records back exactly as they were, and reports what it restored.
 A recorded format this release has no step for is reported, never repaired in silence.
 

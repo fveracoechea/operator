@@ -83,6 +83,8 @@ The next actions already leave out what waits, so every action you are offered i
 
 A question holds the assignment that raised it.
 Its `independentWork` field says what continues without the answer.
+A tool that the host of an Operative refused reaches you as such a question, with the refusal quoted.
+Decide from the question, and do not read the Operative's pane to find the cause.
 
 Work stops for exactly four things, and the CLI names each one:
 
@@ -97,6 +99,27 @@ None of them is repaired by hand.
 
 You do not choose what starts.
 `data.actions` offers `claim_assignment` for exactly the work the frontier allows, in the order it allows it, and `data.capacity` prints the limit and the review reserve that decided it.
+
+## Overlapping write paths
+
+The frontier withholds production work that has not started when its write paths overlap the paths that other unaccepted work of the same source holds.
+It reports this as the blocker `write_paths_overlap`, and the work waits until the holder reaches accepted completion.
+Started production work holds its paths until it is accepted, also when it is invalidated.
+Work that the same reading offers holds its paths too, in priority order.
+Review work and planning work hold nothing, and work of another source is never held.
+While the integration branch of a source still holds a withdrawn commit, the frontier withholds every production assignment of that source with `take_out_pending`, until `take_out_commit` runs.
+
+The blocker lists each holder with its `assignmentId`, its `sourceKey`, `started` or `offered`, and `pathPairCount`, the number of overlapping pairs of paths.
+Its `command` lists each pair.
+Do not run it to list the pairs yourself.
+Tell the person the holders and the command.
+
+A holder holds its effective write paths, so a grant of more paths can withhold work that its registered paths did not (see [QUESTIONS.md](QUESTIONS.md)).
+The `command` reads the effective write paths too, so it lists the pair that a grant caused.
+
+This is no error to repair, and you do not schedule around it.
+Narrow write paths prevent it, and the person sets them at registration (see [REGISTRATION.md](REGISTRATION.md)).
+Tell the person when broad paths make a source run one assignment at a time.
 
 ## Mixed hosts
 

@@ -6,6 +6,7 @@ import {
   reportInvalidInput,
   reportSharedFailure,
 } from "./crew-result.ts";
+import { landingRefusalOf } from "./landing-refusal.ts";
 import { type Handled, refuse, report } from "./result.ts";
 
 export async function runRework(parsed: ParsedArguments): Promise<Handled> {
@@ -196,6 +197,57 @@ export async function runRework(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
+  switch (result.status) {
+    case "integration-branch-missing":
+    case "integration-branch-moved":
+    case "integration-branch-checked-out":
+    case "integration-branch-unread":
+    case "rewrite-published-range":
+    case "rewrite-tracker-recorded":
+    case "landing-tip-changed": {
+      const { outcome, reason, lines } = landingRefusalOf(result, "delegate the cycle");
+      const { status: _status, ...detail } = result;
+      return refuse({
+        json: parsed.json,
+        operation: "work_rework",
+        outcome,
+        reason,
+        detail,
+        lines: [...lines, "No cycle was delegated."],
+      });
+    }
+    case "lands-cleanly":
+      return refuse({
+        json: parsed.json,
+        operation: "work_rework",
+        outcome: "conflict",
+        reason: "lands_cleanly",
+        detail: {
+          assignmentId: result.assignmentId,
+          branch: result.branch,
+          tip: result.tip,
+          planned: result.planned,
+        },
+        lines: [
+          `The submitted result lands cleanly on ${result.tip} of ${result.branch} as ${result.planned}, and no failed or flaky gate run is recorded at that commit.`,
+          "It needs no integration cycle. Read `operator crew next` for the step it owes.",
+        ],
+      });
+    case "no-landing":
+      return refuse({
+        json: parsed.json,
+        operation: "work_rework",
+        outcome: "conflict",
+        reason: "no_landing",
+        detail: { assignmentId: result.assignmentId, submissionId: result.submissionId },
+        lines: [
+          `Submission ${result.submissionId} holds no commit, so it lands nothing and has nothing to combine.`,
+        ],
+      });
+    default:
+      break;
+  }
+
   if (result.status === "limit-reached") {
     const { direction } = result;
     report({
@@ -253,7 +305,9 @@ export async function runRework(parsed: ParsedArguments): Promise<Handled> {
     lines: [
       `Delegated ${result.reason} cycle ${result.cycleIndex} of ${result.limit} on ${result.assignmentId}.`,
       `${result.corrections.length} accepted correction(s) and ${result.conflicts} conflict(s) go to a fresh Operative.`,
-      "Claim the assignment again and dispatch it from the submitted commit.",
+      result.reason === "integration"
+        ? "Claim the assignment again and dispatch it with no --commit. It starts from the recorded tip of its integration branch."
+        : "Claim the assignment again and dispatch it from the submitted commit.",
     ],
   });
   return "reported";

@@ -1,4 +1,6 @@
+import { Database } from "bun:sqlite";
 import { ContentIdentity } from "../content-identity/main.ts";
+import { registerSource } from "./source-fixture.ts";
 import type { FakeFault, FakeIssue, GithubFakeState } from "./github-fake-state.ts";
 import {
   requestId as request,
@@ -60,7 +62,7 @@ export async function setFault(
 }
 
 export async function writeInput(workspace: Workspace, value: unknown): Promise<string> {
-  const path = `${workspace.root}/tracker-input-${crypto.randomUUID()}.json`;
+  const path = `${workspace.root}/inputs/tracker-input-${crypto.randomUUID()}.json`;
   await Bun.write(path, JSON.stringify(value));
   return path;
 }
@@ -71,7 +73,11 @@ export async function writeInput(workspace: Workspace, value: unknown): Promise<
  */
 export async function makeTrackerWorkspace(
   fixtures: Workspaces,
-  options: { mapIssue?: number | null; trackerIssue?: number | null } = {},
+  options: {
+    mapIssue?: number | null;
+    trackerIssue?: number | null;
+    wayfinderType?: "task" | "research" | "grilling" | "prototype";
+  } = {},
 ): Promise<TrackerWorkspace> {
   const workspace = await fixtures.make();
   const mapIssue = options.mapIssue === undefined ? MAP_ISSUE : options.mapIssue;
@@ -98,43 +104,40 @@ export async function makeTrackerWorkspace(
   ]);
   const ownerToken = owned.json.data.ownerToken;
 
-  const item = {
-    key: String(TICKET),
-    title: "Complete and recover GitHub tracker updates",
-    wayfinderType: "task",
-    approvedScope: "Build the tracker completion path.",
-    acceptanceRequirements: ["The quality gate passes."],
-    permissions: { writePaths: ["modules/"], allowedCommands: ["bun test"], network: false },
-    fixedInputs: [],
-    dependsOn: [],
-  };
-  const inputPath = await writeInput(workspace, {
-    sourceKind: "wayfinder",
-    source: {
-      id: `github:${REPOSITORY}#${MAP_ISSUE}`,
-      revision: "rev-1",
-      tracker: "github",
-      location: { repository: REPOSITORY, mapIssue },
+  // A wayfinder source records its map issue. A specification source records none.
+  const parent = mapIssue ?? 2;
+  const wayfinderType = options.wayfinderType ?? "task";
+  const registered = await registerSource(
+    { root: workspace.root, github: workspace.github, run: (args) => runJson(workspace, args) },
+    ownerToken,
+    {
+      sourceKind: mapIssue === null ? "specification" : "wayfinder",
+      parent,
+      items: [
+        {
+          key: "ticket",
+          issue: TICKET,
+          title: "Complete and recover GitHub tracker updates",
+          body: "Build the tracker completion path.",
+          // A specification states the kind that a wayfinder label gives.
+          kind:
+            mapIssue === null ? (wayfinderType === "task" ? "production" : "planning") : undefined,
+          wayfinderType,
+        },
+      ],
     },
-    items: [trackerIssue === null ? item : { ...item, trackerIssue }],
-  });
+  );
+  const assignmentId = registered.keys.get("ticket") ?? "";
 
-  const registered = await runJson(workspace, [
-    "work",
-    "register",
-    "--request",
-    request(),
-    "--owner-token",
-    ownerToken,
-    "--input",
-    inputPath,
-  ]);
+  // Every item read from the tracker is bound to its issue, so an assignment with no ticket can
+  // only be one an earlier release registered from a hand-written structure.
+  if (trackerIssue === null) {
+    const sqlite = new Database(`${workspace.repo}/.operator/local/crew-state.sqlite`);
+    sqlite.query("update assignments set tracker_binding = null where id = ?").run(assignmentId);
+    sqlite.close();
+  }
 
-  return {
-    ...workspace,
-    ownerToken,
-    assignmentId: registered.json.data.registered[0].assignmentId,
-  };
+  return { ...workspace, ownerToken, assignmentId };
 }
 
 /** Fills one issue with ordinary comments, so a scan of it needs more than one page. */

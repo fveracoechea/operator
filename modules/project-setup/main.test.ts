@@ -380,6 +380,19 @@ describe("operator setup rollback", () => {
     expect(result.json.reason).toBe("nothing_to_restore");
   });
 
+  test("refuses apply and rollback while the recovery record cannot be read", async () => {
+    const root = await makeProject({ ".operator/local/setup-journal.json": "{ not json" });
+
+    const applied = await planAndApply(root, ["--opencode"]);
+    const rolledBack = await runJson(root, ["setup", "rollback"]);
+
+    for (const result of [applied, rolledBack]) {
+      expect(result.exitCode).toBe(4);
+      expect(result.json).toMatchObject({ outcome: "conflict", reason: "unreadable_journal" });
+    }
+    expect(await filesUnder(root)).toEqual([".operator/local/setup-journal.json"]);
+  });
+
   test("reports a completed setup as nothing to roll back", async () => {
     const root = await makeProject();
     await planAndApply(root, ["--opencode"]);

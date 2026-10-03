@@ -38,10 +38,16 @@ It never changes an agent that is already running.
 - `unverified`: every required static check passed, and required live evidence is missing or stale.
 - `ready`: every required check passed against the current inputs.
 
-Static checks observe the selected hosts, Bun, Git, Herdr, the GitHub CLI, the instruction files, the discoverable skill contents, the Operator release, the selected installation, its lock data, and the project settings.
+Static checks observe the selected hosts, Bun, Git, Herdr, the GitHub CLI, the instruction files, the discoverable skill contents, the Operator release, the selected installation, its lock data, the project settings, and the project gate.
 
 The `operator-installation` check is unverified until the project selects an exact release, and it is a blocker when the selected release is not the one installed and running.
 Read [RELEASE.md](RELEASE.md) before you act on it.
+
+The `project-gate` check reads `operator-gate.json` at HEAD of this checkout, never the working tree.
+A missing or invalid file is a blocker with the field that is wrong, and it is a standing precondition: it does not hold back a live probe.
+Setup does not write the file, and you do not commit it.
+The person commits it, because only the project knows which commands prove a commit.
+Read [DISPATCH.md](DISPATCH.md) for what the gate refuses.
 
 A static check never proves a live capability.
 Host termination, the native review sub-agents, and provider compatibility are proven only by a live probe.

@@ -138,6 +138,83 @@ async function runReport(parsed: ParsedArguments): Promise<Handled> {
     });
   }
 
+  if (result.status === "snapshot-drift") {
+    return refuse({
+      json: parsed.json,
+      operation: "review_report",
+      outcome: "conflict",
+      reason: "snapshot_drift",
+      detail: {
+        reviewId: result.reviewId,
+        recorded: result.recorded,
+        stated: result.stated,
+      },
+      lines: [
+        "This report names a different branch snapshot than the one under review.",
+        `The review reads snapshot identity ${result.recorded}.`,
+      ],
+    });
+  }
+
+  if (result.status === "finding-untargeted") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "missing-condition",
+        reason: "review_finding_untargeted",
+        blockers: result.findings.map((one) => ({
+          reason: "review_finding_untargeted" as const,
+          ...one,
+        })),
+        operation: "review_report",
+        data: { reviewId: result.reviewId },
+      },
+      lines: [
+        "Each branch finding names the commits it targets. These name none:",
+        ...result.findings.map((one) => `  ${one.axis} ${one.key}`),
+      ],
+    });
+    return "reported";
+  }
+
+  if (result.status === "cut-not-between-commits") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "conflict",
+        reason: "review_cut_not_between_commits",
+        blockers: [
+          { reason: "review_cut_not_between_commits", cuts: result.cuts, detail: result.detail },
+        ],
+        operation: "review_report",
+        data: { reviewId: result.reviewId },
+      },
+      lines: [result.detail],
+    });
+    return "reported";
+  }
+
+  if (result.status === "finding-target-unknown") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "conflict",
+        reason: "review_finding_target_unknown",
+        blockers: result.findings.map((one) => ({
+          reason: "review_finding_target_unknown" as const,
+          ...one,
+        })),
+        operation: "review_report",
+        data: { reviewId: result.reviewId },
+      },
+      lines: [
+        "Each target is a commit of the branch snapshot. These are not:",
+        ...result.findings.map((one) => `  ${one.axis} ${one.key}: ${one.targets.join(", ")}`),
+      ],
+    });
+    return "reported";
+  }
+
   if (result.status === "axes-incomplete") {
     report({
       json: parsed.json,
@@ -261,6 +338,20 @@ async function runReport(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
+  if (result.status === "published-text-missing") {
+    return refuse({
+      json: parsed.json,
+      operation: "review_report",
+      outcome: "missing-condition",
+      reason: "review_published_text_missing",
+      detail: { reviewId: result.reviewId },
+      lines: [
+        "This result is the only code result of its source, so its review writes the pull request text.",
+        "Add `published` with the title, the summary, where to start reading, and the merge danger.",
+      ],
+    });
+  }
+
   if (result.status === "blocked") {
     report({
       json: parsed.json,
@@ -297,6 +388,7 @@ async function runReport(parsed: ParsedArguments): Promise<Handled> {
         reviewId: result.reviewId,
         assignmentId: result.assignmentId,
         submissionId: result.submissionId,
+        snapshotId: result.snapshotId,
         findings: result.findings,
         repeated,
       },
@@ -307,7 +399,9 @@ async function runReport(parsed: ParsedArguments): Promise<Handled> {
       ...result.findings.map(
         (one) => `  ${one.findingId} ${one.axis} ${one.severity} ${one.summary}`,
       ),
-      "Every finding needs a disposition before the result can be accepted.",
+      result.snapshotId === null
+        ? "Every finding needs a disposition before the result can be accepted."
+        : "Every finding needs a disposition before the branch can be published.",
     ],
   });
   return "reported";
@@ -408,6 +502,69 @@ async function runDispose(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
+  if (result.status === "correction-target-required") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "invalid",
+        reason: "correction_target_required",
+        blockers: result.findingIds.map((findingId) => ({
+          reason: "correction_target_required" as const,
+          findingId,
+        })),
+        operation: "review_dispose",
+      },
+      lines: [
+        "A corrected branch finding names in `target` the one assignment it invalidates.",
+        `These findings of review ${result.reviewId} name none: ${result.findingIds.join(", ")}.`,
+      ],
+    });
+    return "reported";
+  }
+
+  if (result.status === "correction-target-not-expected") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "invalid",
+        reason: "correction_target_not_expected",
+        blockers: result.findingIds.map((findingId) => ({
+          reason: "correction_target_not_expected" as const,
+          findingId,
+        })),
+        operation: "review_dispose",
+      },
+      lines: [
+        `Review ${result.reviewId} reads one submission, so its corrections name no target.`,
+        "Only a corrected branch finding names the assignment it invalidates.",
+      ],
+    });
+    return "reported";
+  }
+
+  if (result.status === "correction-target-unknown") {
+    report({
+      json: parsed.json,
+      result: {
+        outcome: "invalid",
+        reason: "correction_target_unknown",
+        blockers: result.findings.map((one) => ({
+          reason: "correction_target_unknown" as const,
+          ...one,
+        })),
+        operation: "review_dispose",
+      },
+      lines: [
+        "The target of a corrected branch finding holds one of the commits the finding targets:",
+        ...result.findings.map(
+          (one) =>
+            `  ${one.findingId}: ${one.target} is not one of ${one.allowed.join(", ") || "none"}`,
+        ),
+      ],
+    });
+    return "reported";
+  }
+
   report({
     json: parsed.json,
     result: {
@@ -428,6 +585,7 @@ async function runDispose(parsed: ParsedArguments): Promise<Handled> {
         disposed: result.disposed,
         outstanding: result.outstanding,
         corrections: result.corrections,
+        invalidated: result.invalidated,
         repeated,
       },
     },
@@ -442,6 +600,10 @@ async function runDispose(parsed: ParsedArguments): Promise<Handled> {
             `${result.corrections.length} correction(s) wait for a fresh Operative.`,
             "Acceptance stays blocked until that rework lands.",
           ]),
+      ...result.invalidated.map(
+        (one) =>
+          `Invalidated ${one.assignmentId} in ${one.invalidationId}, pausing ${one.dependents.length} dependent(s). Its correction runs in an invalidation cycle.`,
+      ),
     ],
   });
   return "reported";
@@ -484,8 +646,10 @@ async function runShow(parsed: ParsedArguments): Promise<Handled> {
       data: result,
     },
     lines: [
-      `Review ${result.review.id} of submission ${result.submission.id} is ${result.review.state}.`,
-      `Result kind ${result.submission.resultKind}, host ${result.review.host ?? "none"}.`,
+      result.submission === null
+        ? `Branch review ${result.review.id} of snapshot ${result.snapshot?.id ?? "unknown"} at head ${result.snapshot?.headCommit ?? "unknown"} is ${result.review.state}.`
+        : `Review ${result.review.id} of submission ${result.submission.id} is ${result.review.state}.`,
+      `Result kind ${result.submission?.resultKind ?? "code"}, host ${result.review.host ?? "none"}.`,
       ...result.reports.map(
         (one) => `  ${one.axis}: ${one.findingCount} finding(s), ${one.summary}`,
       ),
@@ -496,6 +660,15 @@ async function runShow(parsed: ParsedArguments): Promise<Handled> {
         (one) =>
           `  ${one.findingId} ${one.axis} ${one.severity} ${one.disposition ?? "undisposed"} ${one.summary}`,
       ),
+      ...(result.submission === null || result.submission.outsideChanges.length === 0
+        ? []
+        : [
+            `Outside changes of submission ${result.submission.id}:`,
+            ...result.submission.outsideChanges.map(
+              (one) =>
+                `  ${one.changeId} ${one.place} ${one.change}${one.security ? " security" : ""} ${one.disposition ?? "undisposed"} ${one.path}`,
+            ),
+          ]),
     ],
   });
   return "reported";

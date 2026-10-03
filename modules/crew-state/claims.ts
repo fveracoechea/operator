@@ -2,7 +2,10 @@ import type { Capacity } from "./capacity.ts";
 import type { CrewWriter } from "./database.ts";
 import { moveAssignment, readAssignment } from "./assignment.ts";
 import { activeAttempt, calculateFrontier, type FrontierBlocker } from "./frontier.ts";
+import { openDirectedCorrection } from "./invalidate.ts";
+import { spendDirection } from "./direction.ts";
 import { attempts } from "./schema.ts";
+import { isReview } from "./work-input.ts";
 
 export type ClaimResult =
   | {
@@ -18,6 +21,7 @@ export type ClaimResult =
   | { status: "stale-revision"; assignmentId: string; recordedRevision: number }
   | { status: "planning-only"; assignmentId: string; kind: string }
   | { status: "already-accepted"; assignmentId: string }
+  | { status: "withdrawn"; assignmentId: string }
   | { status: "already-claimed"; assignmentId: string; attemptId: string }
   | { status: "not-dispatchable"; assignmentId: string; blockers: FrontierBlocker[] };
 
@@ -28,6 +32,7 @@ export function claimAssignment(
     revision: number;
     ownerToken: string;
     attemptId: string;
+    cycleId: string;
     capacity: Capacity;
     now: string;
   },
@@ -39,6 +44,10 @@ export function claimAssignment(
 
   if (row.state === "accepted") {
     return { status: "already-accepted", assignmentId: row.id };
+  }
+  // A withdrawal is terminal, so no attempt of withdrawn work ever starts again.
+  if (row.state === "withdrawn") {
+    return { status: "withdrawn", assignmentId: row.id };
   }
 
   // A duplicate claim names the attempt that already holds this assignment, before it reports
@@ -71,6 +80,35 @@ export function claimAssignment(
       assignmentId: row.id,
       blockers: blocked?.blockers ?? [],
     };
+  }
+
+  // An invalidation that found the budget spent opens its cycle only after the user directed it,
+  // and the frontier offers it only then, so this claim spends that direction.
+  if (row.state === "invalidated") {
+    const correction = openDirectedCorrection(db, {
+      assignmentId: row.id,
+      cycleId: request.cycleId,
+      now: request.now,
+    });
+    if (correction?.status === "limit-reached") {
+      return {
+        status: "not-dispatchable",
+        assignmentId: row.id,
+        blockers: [
+          {
+            reason: "direction_required",
+            directionRequestId: correction.direction.directionRequestId,
+            limitKind: correction.limitKind,
+          },
+        ],
+      };
+    }
+  }
+
+  // A fourth branch review waits on the user, and the frontier offers it only once the user
+  // directed it, so this claim spends that direction (ADR 0008, ADR 0017).
+  if (isReview(row.kind)) {
+    spendDirection(db, { assignmentId: row.id, limitKind: "branch_reviews", now: request.now });
   }
 
   db.insert(attempts)

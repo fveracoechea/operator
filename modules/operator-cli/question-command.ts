@@ -2,6 +2,7 @@ import { CrewState } from "../crew-state/main.ts";
 import { type ParsedArguments, readRevision } from "./arguments.ts";
 import { readStructuredInput, reportInvalidInput, reportSharedFailure } from "./crew-result.ts";
 import { requireReference } from "./reference.ts";
+import { isSourceRefusal, reportSourceRefusal } from "./source-result.ts";
 import { type Handled, type Operation, type Reason, refuse, report } from "./result.ts";
 
 type QuestionOutcome = {
@@ -427,6 +428,23 @@ async function runAnswer(parsed: ParsedArguments): Promise<Handled> {
   }
   if (reportQuestionOutcome(parsed, "question_answer", result)) {
     return "reported";
+  }
+
+  if (isSourceRefusal(result)) {
+    return reportSourceRefusal(parsed, "question_answer", result);
+  }
+
+  if (result.status === "unknown-assignment") {
+    return refuse({
+      json: parsed.json,
+      operation: "question_answer",
+      outcome: "invalid",
+      reason: "unknown_assignment",
+      detail: { assignmentId: result.assignmentId },
+      lines: [
+        `No assignment is registered as ${result.assignmentId}, so it holds no approved scope.`,
+      ],
+    });
   }
 
   return reportRecordedAnswer(parsed, "question_answer", result);

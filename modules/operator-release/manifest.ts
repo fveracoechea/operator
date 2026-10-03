@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ContentIdentity } from "../content-identity/main.ts";
 import { RELEASE_MANIFEST_PATH } from "./inventory.ts";
 
 /** What the running Operator release says about itself, wherever it was retrieved from. */
@@ -40,12 +41,10 @@ export async function readLockData(root = packageRoot): Promise<LockData> {
   for (const name of LOCK_NAMES) {
     const file = Bun.file(`${directory}/${name}`);
     if (await file.exists()) {
-      const hasher = new Bun.CryptoHasher("sha256");
-      hasher.update(new Uint8Array(await file.arrayBuffer()));
       return {
         name,
         state: "present",
-        identity: hasher.digest("hex"),
+        identity: ContentIdentity.ofBytes(new Uint8Array(await file.arrayBuffer())),
         path: `${directory}/${name}`,
       };
     }

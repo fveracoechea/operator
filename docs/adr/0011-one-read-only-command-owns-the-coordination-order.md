@@ -39,6 +39,7 @@ It prints the order, the gates, and the capacity on their own, and `operator cre
 
 Every new named operation has to appear in the next actions, or a session will not find it.
 The action names and the blockers they carry are a durable contract, held as union types so a rename is a compile error and an unreportable blocker never reaches a caller.
+The refusal `map_amendment_approval_required` is a member of the reason union, and the map amendment of a code result that waits for its `map-amendment` approval is `record_tracker` with `approval_required` (ADR 0022).
 
 The tracker step rule now has one rendering, which both `operator tracker show` and the next actions read.
 

@@ -310,6 +310,14 @@ async function runShow(parsed: ParsedArguments): Promise<Handled> {
           `  ${one.kind} ${one.attemptId}: ${one.state}${one.detail === null ? "" : ` (${one.detail})`}`,
       ),
       ...result.holds.map((one) => `  hold ${one.attemptId}: ${one.state} (${one.reason})`),
+      ...(result.unlanded.length === 0
+        ? []
+        : [
+            `${result.unlanded.length} checkout(s) of withdrawn work hold an unlanded commit. Only the person removes them:`,
+            ...result.unlanded.map(
+              (one) => `  unlanded ${one.attemptId}: ${one.worktreePath} at ${one.commit}`,
+            ),
+          ]),
     ],
   });
   return "reported";
