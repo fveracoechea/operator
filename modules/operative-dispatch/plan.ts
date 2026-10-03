@@ -123,17 +123,24 @@ export const REFERENCE_PATH = ".operator/local/attempt.json";
 export const RELEASE_PATH = ".operator/local/release.json";
 /** Where a launched agent writes each file it passes to `--input`. */
 export const OUTBOX_PATH = ".operator/local/outbox/";
-export const OPENCODE_AGENT_PATH = ".opencode/agents/operator-crew.md";
-export const OPENCODE_EFFORT_PLUGIN_PATH = ".opencode/plugins/operator-crew-effort.ts";
 
-/** The agent is local to one worktree, so its provider options do not change the project model. */
-export function opencodeAgentText(effort: string): string {
-  return `---\ndescription: Operator crew agent\nmode: primary\nvariant: ${effort}\nreasoningEffort: ${effort}\n---\n`;
-}
-
-/** OpenCode's TUI may restore a saved variant after it loads the agent's preferred variant. */
-export function opencodeEffortPluginText(effort: string): string {
-  return `export default async function operatorCrewEffort() {
+/**
+ * The two OpenCode files a launch with a reasoning effort writes into the worktree.
+ * The agent is local to one worktree, so its provider options do not change the project model.
+ * The plugin exists because OpenCode's TUI may restore a saved variant after it loads the agent's
+ * preferred variant. The paths do not depend on the effort.
+ */
+export function opencodeFiles(effort: string): Array<{ name: string; path: string; text: string }> {
+  return [
+    {
+      name: "opencode-agent",
+      path: ".opencode/agents/operator-crew.md",
+      text: `---\ndescription: Operator crew agent\nmode: primary\nvariant: ${effort}\nreasoningEffort: ${effort}\n---\n`,
+    },
+    {
+      name: "opencode-effort-plugin",
+      path: ".opencode/plugins/operator-crew-effort.ts",
+      text: `export default async function operatorCrewEffort() {
   return {
     "chat.params": async (
       input: { agent: string },
@@ -143,7 +150,9 @@ export function opencodeEffortPluginText(effort: string): string {
     },
   };
 }
-`;
+`,
+    },
+  ];
 }
 
 /** The Operator CLI operations a brief tells its agent to run. */

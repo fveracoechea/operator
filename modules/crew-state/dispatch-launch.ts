@@ -1,3 +1,4 @@
+import { HerdrControl } from "../herdr-control/main.ts";
 import { OperativeDispatch } from "../operative-dispatch/main.ts";
 import { launchedRecordIds } from "./planning-record.ts";
 import { ProjectReadiness } from "../project-readiness/main.ts";
@@ -174,7 +175,7 @@ export async function dispatchAttempt(request: {
 
   const parent =
     recorded === null && request.paneId !== null
-      ? await OperativeDispatch.parentWorkspace({ paneId: request.paneId })
+      ? await HerdrControl.findPaneWorkspace({ paneId: request.paneId })
       : null;
   if (recorded === null && (parent === null || parent.status !== "found")) {
     return {

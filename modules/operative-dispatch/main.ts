@@ -7,16 +7,7 @@ import { type PrepareOutcome, prepareInputs } from "./inputs.ts";
 import { inspectCheckout, inspectWork, type WorkInspection } from "./inspect.ts";
 import { type PlanningInput, planningRecordsSection } from "./planning-brief.ts";
 import { readReference } from "./reference.ts";
-import {
-  BRIEF_PATH,
-  LOCAL_ROOT,
-  OPENCODE_AGENT_PATH,
-  OPENCODE_EFFORT_PLUGIN_PATH,
-  opencodeAgentText,
-  opencodeEffortPluginText,
-  REFERENCE_PATH,
-  RELEASE_PATH,
-} from "./plan.ts";
+import { BRIEF_PATH, LOCAL_ROOT, opencodeFiles, REFERENCE_PATH, RELEASE_PATH } from "./plan.ts";
 import { readSnapshot } from "./snapshot.ts";
 import { scanOutside } from "./scan.ts";
 import {
@@ -39,12 +30,19 @@ function describe(value: string | null): string {
   return value ?? "none";
 }
 
-export const OperativeDispatch = {
-  /** Resolves the Operator pane after a move, before its parent workspace is fixed in a launch. */
-  async parentWorkspace(request: { paneId: string }) {
-    return HerdrControl.findPaneWorkspace(request);
-  },
+/** Submits one prompt. Success means Herdr accepted the submission, not a turn. */
+async function submit(target: string, text: string): Promise<LaunchOutcome<{ status: string }>> {
+  const submitted = await HerdrControl.submitPrompt({ target, text });
+  if (submitted.status !== "succeeded") {
+    return submitted.status === "failed"
+      ? { status: "failed", code: submitted.code, detail: submitted.detail }
+      : submitted;
+  }
 
+  return { status: "succeeded", value: { status: submitted.value.status } };
+}
+
+export const OperativeDispatch = {
   /**
    * Reads the control reference one Operative worktree carries.
    * It names the controlling checkout, so an Operative never searches nearby directories for
@@ -84,22 +82,11 @@ export const OperativeDispatch = {
       { name: "brief", path: BRIEF_PATH, expected: request.briefIdentity },
       ...(effort === null || effort === undefined
         ? []
-        : [
-            {
-              name: "opencode-agent",
-              path: OPENCODE_AGENT_PATH,
-              expected: ContentIdentity.ofText(opencodeAgentText(effort)),
-            },
-          ]),
-      ...(effort === null || effort === undefined
-        ? []
-        : [
-            {
-              name: "opencode-effort-plugin",
-              path: OPENCODE_EFFORT_PLUGIN_PATH,
-              expected: ContentIdentity.ofText(opencodeEffortPluginText(effort)),
-            },
-          ]),
+        : opencodeFiles(effort).map((file) => ({
+            name: file.name,
+            path: file.path,
+            expected: ContentIdentity.ofText(file.text),
+          }))),
       { name: "control-reference", path: REFERENCE_PATH, expected: null },
       { name: "release", path: RELEASE_PATH, expected: null },
     ];
@@ -115,7 +102,7 @@ export const OperativeDispatch = {
       prefixes.push(`${SkillInstall.targetRoot({ target: request.agentHost })}/`);
     }
     if (request.agentHost === "opencode")
-      prefixes.push(OPENCODE_AGENT_PATH, OPENCODE_EFFORT_PLUGIN_PATH);
+      prefixes.push(...opencodeFiles("").map((file) => file.path));
     return prefixes;
   },
 
@@ -307,17 +294,7 @@ export const OperativeDispatch = {
 
   /** Delivers the brief pointer. Success means Herdr accepted the submission, not a turn. */
   async deliver(request: { plan: DispatchPlan }): Promise<LaunchOutcome<{ status: string }>> {
-    const submitted = await HerdrControl.submitPrompt({
-      target: request.plan.agentName,
-      text: request.plan.promptText,
-    });
-    if (submitted.status !== "succeeded") {
-      return submitted.status === "failed"
-        ? { status: "failed", code: submitted.code, detail: submitted.detail }
-        : submitted;
-    }
-
-    return { status: "succeeded", value: { status: submitted.value.status } };
+    return submit(request.plan.agentName, request.plan.promptText);
   },
 
   /**
@@ -354,20 +331,13 @@ export const OperativeDispatch = {
     answer: AnswerDelivery;
     snapshot: Snapshot;
   }): Promise<LaunchOutcome<{ status: string }>> {
-    const submitted = await HerdrControl.submitPrompt({
-      target: request.agentName,
-      text: answerDocument(
+    return submit(
+      request.agentName,
+      answerDocument(
         request.answer,
         ReleaseInstall.invocation(request.snapshot.installation ?? {}),
       ),
-    });
-    if (submitted.status !== "succeeded") {
-      return submitted.status === "failed"
-        ? { status: "failed", code: submitted.code, detail: submitted.detail }
-        : submitted;
-    }
-
-    return { status: "succeeded", value: { status: submitted.value.status } };
+    );
   },
 
   /**

@@ -394,22 +394,10 @@ export const ProjectReadiness = {
   },
 
   /**
-   * Shows the hosts, models, provider use, credentials, temporary resources, expected costs, and
-   * cleanup a live probe would need, before anything launches.
+   * Refuses to launch a live probe without an approval that matches the shown plan.
+   * With no approval, the refusal carries the plan: the hosts, models, provider use, credentials,
+   * temporary resources, expected costs, and cleanup a live probe would need.
    */
-  async probePlan(request: Request) {
-    const report = await buildReport(request);
-    if (staticallyBlocked(report)) {
-      return { status: "blocked" as const, report };
-    }
-
-    const plan = probeDetails(report, request.staleOnly ?? false);
-    return plan.checks.length === 0
-      ? { status: "nothing-stale" as const, report }
-      : { status: "ready" as const, report, plan };
-  },
-
-  /** Refuses to launch a live probe without an approval that matches the shown plan. */
   async probe(request: Request & { approvedProbeId: string | undefined }) {
     const report = await buildReport(request);
     if (staticallyBlocked(report)) {

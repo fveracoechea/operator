@@ -7,7 +7,7 @@ import { report } from "./result.ts";
 
 type Blocked = { report: Awaited<ReturnType<typeof ProjectReadiness.check>> };
 type Planned = Blocked & {
-  plan: NonNullable<Awaited<ReturnType<typeof ProjectReadiness.probePlan>>["plan"]>;
+  plan: NonNullable<Awaited<ReturnType<typeof ProjectReadiness.probe>>["plan"]>;
 };
 
 function reportBlocked(
@@ -93,11 +93,12 @@ export async function runProbePlan(parsed: ParsedArguments): Promise<void> {
     return;
   }
 
-  const result = await ProjectReadiness.probePlan({
+  const result = await ProjectReadiness.probe({
     projectRoot: process.cwd(),
     targets: parsed.targets,
     overrides: parsed.overrides,
     staleOnly: parsed.staleOnly,
+    approvedProbeId: undefined,
   });
 
   if (result.status === "blocked") {

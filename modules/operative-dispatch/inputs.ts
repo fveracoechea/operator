@@ -3,10 +3,7 @@ import { ReleaseInstall } from "../release-install/main.ts";
 import { SkillInstall } from "../skill-install/main.ts";
 import {
   type DispatchPlan,
-  OPENCODE_AGENT_PATH,
-  OPENCODE_EFFORT_PLUGIN_PATH,
-  opencodeAgentText,
-  opencodeEffortPluginText,
+  opencodeFiles,
   RELEASE_PATH,
   REFERENCE_PATH,
   type Snapshot,
@@ -49,25 +46,51 @@ async function committedBytes(
   return exitCode === 0 ? bytes : null;
 }
 
-/**
- * The exact files an Operative worktree receives.
- * Credentials are never in this list: the host credential store stays where it is, and no file
- * outside these paths is copied out of the controlling checkout.
- */
-async function intendedWrites(request: {
-  projectRoot: string;
-  plan: DispatchPlan;
-  snapshot: Snapshot;
-}): Promise<{ writes: Write[] } | { failure: PrepareFailure; detail: string }> {
-  const { plan, snapshot } = request;
-  const configuration = await readBytes(`${request.projectRoot}/.operator/config.json`);
-  if (configuration === null) {
+type Request = { projectRoot: string; plan: DispatchPlan; snapshot: Snapshot };
+
+type Failure = { failure: PrepareFailure; detail: string };
+
+type Read = { writes: Write[] } | Failure;
+
+/** One input reader. It sees the writes of the readers before it, and it writes nothing. */
+type Reader = (request: Request, earlier: Write[]) => Promise<Read>;
+
+function lockPath(name: string): string {
+  return `.operator/local/${name}`;
+}
+
+/** The bytes one fixed input holds, refused when they are gone or no longer match its identity. */
+function verifiedBytes(
+  bytes: Uint8Array | null,
+  identity: string,
+  missing: string,
+  changed: string,
+): { bytes: Uint8Array } | Failure {
+  if (bytes === null) return { failure: "input_verification_failed", detail: missing };
+  return ContentIdentity.ofBytes(bytes) === identity
+    ? { bytes }
+    : { failure: "input_verification_failed", detail: changed };
+}
+
+async function configuration({ projectRoot }: Request): Promise<Read> {
+  const bytes = await readBytes(`${projectRoot}/.operator/config.json`);
+  if (bytes === null) {
     return {
       failure: "configuration_missing",
       detail: "The controlling checkout holds no .operator/config.json to copy.",
     };
   }
 
+  const schema = await readBytes(`${projectRoot}/.operator/config.schema.json`);
+  return {
+    writes: [
+      { path: ".operator/config.json", bytes },
+      ...(schema === null ? [] : [{ path: ".operator/config.schema.json", bytes: schema }]),
+    ],
+  };
+}
+
+async function lock({ snapshot }: Request): Promise<Read> {
   if (snapshot.lock.path === null || snapshot.lock.name === null) {
     return {
       failure: "lock_data_missing",
@@ -75,53 +98,61 @@ async function intendedWrites(request: {
     };
   }
 
-  const lock = await readBytes(snapshot.lock.path);
-  if (lock === null) {
-    return {
-      failure: "lock_data_missing",
-      detail: `The recorded lock data is gone from ${snapshot.lock.path}.`,
-    };
-  }
+  const bytes = await readBytes(snapshot.lock.path);
+  return bytes === null
+    ? {
+        failure: "lock_data_missing",
+        detail: `The recorded lock data is gone from ${snapshot.lock.path}.`,
+      }
+    : { writes: [{ path: lockPath(snapshot.lock.name), bytes }] };
+}
+
+/** A jsr installation carries its selected release record, and the worktree must match the lock. */
+async function jsrSelection(
+  { projectRoot, plan, snapshot }: Request,
+  earlier: Write[],
+): Promise<Read> {
+  if (snapshot.installation?.delivery !== "jsr") return { writes: [] };
 
   const selectionPath = ReleaseInstall.paths().selection;
-  const jsr = snapshot.installation?.delivery === "jsr";
-  const selection = jsr ? await readBytes(`${request.projectRoot}/${selectionPath}`) : null;
-  if (jsr && selection === null) {
+  const selection = await readBytes(`${projectRoot}/${selectionPath}`);
+  if (selection === null) {
     return {
       failure: "input_verification_failed",
       detail: `The selected release record at ${selectionPath} is missing.`,
     };
   }
-  if (jsr) {
-    const mismatch = await ReleaseInstall.worktree({
-      worktreeRoot: plan.worktreePath,
-      version: snapshot.installation?.packageVersion ?? snapshot.release.version,
-      lockName: snapshot.lock.name,
-      lockBytes: lock,
-    });
-    if (mismatch !== null) {
-      return {
-        failure: "input_verification_failed",
-        detail: mismatch,
-      };
-    }
+
+  // The lock reader runs first, so a missing lock here is a reader order mistake. It still refuses.
+  const lockName = snapshot.lock.name;
+  const lockWrite = earlier.find((one) => lockName !== null && one.path === lockPath(lockName));
+  if (lockName === null || lockWrite === undefined) {
+    return {
+      failure: "lock_data_missing",
+      detail: "The recorded release has no lock data, so the installation cannot be reproduced.",
+    };
   }
 
-  const schema = await readBytes(`${request.projectRoot}/.operator/config.schema.json`);
-  const opencodeInputs =
-    plan.agentHost === "opencode" && plan.agentReasoningEffort !== null
-      ? [
-          {
-            path: OPENCODE_AGENT_PATH,
-            bytes: encoder.encode(opencodeAgentText(plan.agentReasoningEffort)),
-          },
-          {
-            path: OPENCODE_EFFORT_PLUGIN_PATH,
-            bytes: encoder.encode(opencodeEffortPluginText(plan.agentReasoningEffort)),
-          },
-        ]
-      : [];
-  for (const input of opencodeInputs) {
+  const mismatch = await ReleaseInstall.worktree({
+    worktreeRoot: plan.worktreePath,
+    version: snapshot.installation.packageVersion ?? snapshot.release.version,
+    lockName,
+    lockBytes: lockWrite.bytes,
+  });
+  return mismatch === null
+    ? { writes: [{ path: selectionPath, bytes: selection }] }
+    : { failure: "input_verification_failed", detail: mismatch };
+}
+
+/** An OpenCode launch with a reasoning effort never replaces a different file at its paths. */
+async function opencode({ plan }: Request): Promise<Read> {
+  if (plan.agentHost !== "opencode" || plan.agentReasoningEffort === null) return { writes: [] };
+
+  const writes = opencodeFiles(plan.agentReasoningEffort).map((file) => ({
+    path: file.path,
+    bytes: encoder.encode(file.text),
+  }));
+  for (const input of writes) {
     const existing = await readBytes(`${plan.worktreePath}/${input.path}`);
     if (
       existing !== null &&
@@ -133,101 +164,96 @@ async function intendedWrites(request: {
       };
     }
   }
+  return { writes };
+}
 
-  // A path fixed input is not copied: the Operative reads it at the base commit, so that commit
-  // must hold the exact bytes registration fixed. It is read from Git, not from the disk, because
-  // a replacement keeps the former worktree and the partial work in it. Nothing is repaired.
+// A path fixed input is not copied: the Operative reads it at the base commit, so that commit
+// must hold the exact bytes registration fixed. It is read from Git, not from the disk, because
+// a replacement keeps the former worktree and the partial work in it. Nothing is repaired.
+async function fixedPaths({ plan }: Request): Promise<Read> {
   for (const input of plan.fixedPaths) {
-    const bytes = await committedBytes(plan.worktreePath, plan.baseCommit, input.path);
-    if (bytes === null) {
-      return {
-        failure: "input_verification_failed",
-        detail: `The fixed input ${input.path} is not in the base commit.`,
-      };
-    }
-    if (ContentIdentity.ofBytes(bytes) !== input.identity) {
-      return {
-        failure: "input_verification_failed",
-        detail: `The fixed input ${input.path} at the base commit no longer matches the identity registration fixed.`,
-      };
-    }
+    const verified = verifiedBytes(
+      await committedBytes(plan.worktreePath, plan.baseCommit, input.path),
+      input.identity,
+      `The fixed input ${input.path} is not in the base commit.`,
+      `The fixed input ${input.path} at the base commit no longer matches the identity registration fixed.`,
+    );
+    if ("failure" in verified) return verified;
   }
+  return { writes: [] };
+}
 
-  // A review carries fixed copies of the submitted artifacts, so the reviewer never reads the
-  // producer worktree, which another attempt may still change.
-  const copies: Write[] = [];
+// A review carries fixed copies of the submitted artifacts, so the reviewer never reads the
+// producer worktree, which another attempt may still change.
+async function fixedCopies({ plan }: Request): Promise<Read> {
+  const writes: Write[] = [];
   for (const input of plan.extraInputs) {
-    const bytes = await readBytes(input.sourcePath);
-    if (bytes === null) {
-      return {
-        failure: "input_verification_failed",
-        detail: `The fixed copy at ${input.sourcePath} is gone.`,
-      };
-    }
-    if (ContentIdentity.ofBytes(bytes) !== input.identity) {
-      return {
-        failure: "input_verification_failed",
-        detail: `${input.path} no longer matches the identity the submission fixed.`,
-      };
-    }
-    copies.push({ path: input.path, bytes });
+    const verified = verifiedBytes(
+      await readBytes(input.sourcePath),
+      input.identity,
+      `The fixed copy at ${input.sourcePath} is gone.`,
+      `${input.path} no longer matches the identity the submission fixed.`,
+    );
+    if ("failure" in verified) return verified;
+    writes.push({ path: input.path, bytes: verified.bytes });
   }
+  return { writes };
+}
 
-  return {
-    writes: [
-      ...copies,
-      ...opencodeInputs,
-      ...(selection === null ? [] : [{ path: selectionPath, bytes: selection }]),
-      { path: ".operator/config.json", bytes: configuration },
-      ...(schema === null ? [] : [{ path: ".operator/config.schema.json", bytes: schema }]),
-      { path: `.operator/local/${snapshot.lock.name}`, bytes: lock },
-      {
-        path: RELEASE_PATH,
-        bytes: encoder.encode(
-          `${JSON.stringify(
-            {
-              version: snapshot.release.version,
-              identity: snapshot.release.identity,
-              installation: snapshot.installation ?? null,
-              lock: { name: snapshot.lock.name, identity: snapshot.lock.identity },
-              skills: snapshot.skills,
-            },
-            null,
-            2,
-          )}\n`,
-        ),
-      },
-      {
-        path: REFERENCE_PATH,
-        bytes: encoder.encode(
-          `${JSON.stringify(
-            {
-              controllingCheckout: request.projectRoot,
-              assignmentId: plan.assignmentId,
-              attemptId: plan.attemptId,
-              branch: plan.branch,
-              baseCommit: plan.baseCommit,
-              worktreePath: plan.worktreePath,
-            },
-            null,
-            2,
-          )}\n`,
-        ),
-      },
-      { path: plan.briefPath, bytes: encoder.encode(plan.briefText) },
-    ],
-  };
+function jsonBytes(value: unknown): Uint8Array {
+  return encoder.encode(`${JSON.stringify(value, null, 2)}\n`);
+}
+
+/** The records a launch renders from the plan and the snapshot. They cannot fail. */
+function records({ projectRoot, plan, snapshot }: Request): Write[] {
+  return [
+    {
+      path: RELEASE_PATH,
+      bytes: jsonBytes({
+        version: snapshot.release.version,
+        identity: snapshot.release.identity,
+        installation: snapshot.installation ?? null,
+        lock: { name: snapshot.lock.name, identity: snapshot.lock.identity },
+        skills: snapshot.skills,
+      }),
+    },
+    {
+      path: REFERENCE_PATH,
+      bytes: jsonBytes({
+        controllingCheckout: projectRoot,
+        assignmentId: plan.assignmentId,
+        attemptId: plan.attemptId,
+        branch: plan.branch,
+        baseCommit: plan.baseCommit,
+        worktreePath: plan.worktreePath,
+      }),
+    },
+    { path: plan.briefPath, bytes: encoder.encode(plan.briefText) },
+  ];
+}
+
+/**
+ * The exact files an Operative worktree receives.
+ * Credentials are never in this list: the host credential store stays where it is, and no file
+ * outside these paths is copied out of the controlling checkout.
+ */
+async function intendedWrites(request: Request): Promise<Read> {
+  // The readers run in this order, and the first failure stops the run.
+  const readers: Reader[] = [configuration, lock, jsrSelection, opencode, fixedPaths, fixedCopies];
+  const writes: Write[] = [];
+  for (const reader of readers) {
+    const read = await reader(request, writes);
+    if ("failure" in read) return read;
+    writes.push(...read.writes);
+  }
+  return { writes: [...writes, ...records(request)] };
 }
 
 /**
  * Copies the configuration, release record, lock data, control reference, brief, and skills into
  * one Operative worktree, then reads every copy back. An unverified copy blocks the launch.
  */
-export async function prepareInputs(request: {
-  projectRoot: string;
-  plan: DispatchPlan;
-  snapshot: Snapshot;
-}): Promise<PrepareOutcome> {
+export async function prepareInputs(request: Request): Promise<PrepareOutcome> {
   const intended = await intendedWrites(request);
   if ("failure" in intended) {
     return { status: "failed", reason: intended.failure, detail: intended.detail };

@@ -29,7 +29,6 @@
         "modules/live-probe/main.ts",
         "modules/live-probe/recovery.ts",
         "modules/live-probe/tracker.ts",
-        "modules/operative-dispatch/inputs.ts",
         "modules/operative-dispatch/plan.ts",
         "modules/operator-cli/arguments.ts",
         "modules/operator-cli/attempt-command.ts",
