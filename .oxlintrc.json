@@ -22,9 +22,7 @@
         "modules/operator-cli/run.ts",
         "modules/operator-cli/setup-command.ts",
         "modules/operator-cli/tracker-command.ts",
-        "modules/operator-cli/wake-command.ts",
-        "modules/release-install/inspect.ts",
-        "modules/release-install/worktree.ts"
+        "modules/operator-cli/wake-command.ts"
       ],
       "rules": { "complexity": ["error", { "max": 30 }] }
     }

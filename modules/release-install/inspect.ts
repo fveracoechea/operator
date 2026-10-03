@@ -1,13 +1,14 @@
 import { z } from "zod";
 import {
+  declaresRelease,
   INSTALL_ROOT,
-  JSR_PACKAGE_NAME,
   PACKAGE_NAME,
   PROJECT_COMMAND,
   PROJECT_SCRIPT,
   SELECTION_PATH,
   type ReleaseSelection,
   readSelection,
+  releaseSpecifier,
 } from "./selection.ts";
 
 export type InstallationReason =
@@ -76,6 +77,69 @@ async function hasLockData(projectRoot: string): Promise<boolean> {
   return false;
 }
 
+// The project check reads every script as text and needs devDependencies, unlike the worktree check.
+const projectManifestSchema = z.object({
+  devDependencies: z.record(z.string(), z.string()),
+  scripts: z.record(z.string(), z.string()),
+});
+
+/**
+ * The verdict on a JSR selection: the project declares it, holds that exact version installed,
+ * and keeps lock data. Returns null when all three hold.
+ */
+async function checkJsrInstall(
+  projectRoot: string,
+  selection: ReleaseSelection,
+): Promise<Installation | null> {
+  const wanted = selection.packageVersion ?? selection.version;
+  const manifest = `node_modules/${PACKAGE_NAME}/package.json`;
+  const project = projectManifestSchema.safeParse(
+    await Bun.file(`${projectRoot}/package.json`)
+      .json()
+      .catch(() => null),
+  );
+  if (!project.success || !declaresRelease(project.data, wanted)) {
+    return unmet(
+      "install_missing",
+      selection,
+      `The project must declare ${PACKAGE_NAME} as the exact JSR devDependency ${releaseSpecifier(wanted)} and set scripts.operator to ${PROJECT_SCRIPT}.`,
+      `Add the selected JSR devDependency and Operator script to package.json, then run \`bun install --frozen-lockfile\` from the project root.`,
+      ["package.json"],
+    );
+  }
+  const installed = await readInstalledVersion(`${projectRoot}/${manifest}`);
+  if (installed.state === "absent") {
+    return unmet(
+      "install_missing",
+      selection,
+      `The project holds no installed ${PACKAGE_NAME}, so the selected release is not present.`,
+      "Run `bun install --frozen-lockfile` from the project root, then check again.",
+      [manifest],
+    );
+  }
+  // The selection names one exact published version, so any other one is a different release.
+  if (installed.version !== wanted) {
+    return unmet(
+      "release_mismatch",
+      selection,
+      `This project selected ${PACKAGE_NAME}@${wanted}, and the installation holds ${installed.version ?? "a package that names no version"}.`,
+      `Install ${PACKAGE_NAME}@${wanted} from JSR in the project root, then check again.`,
+      [manifest],
+    );
+  }
+
+  if (!(await hasLockData(projectRoot))) {
+    return unmet(
+      "lock_data_missing",
+      selection,
+      "The project holds no lock data, so a reinstall would resolve its dependencies again instead of repeating them.",
+      "Restore the project bun.lock, then run `bun install --frozen-lockfile` from the project root.",
+      ["bun.lock"],
+    );
+  }
+  return null;
+}
+
 /**
  * Reports whether the recorded release selection is the one actually installed and running.
  * A missing or mismatched devDependency, and missing lock data, stop coordinated work.
@@ -124,60 +188,8 @@ export async function inspectInstallation(request: {
   }
 
   if (selection.delivery === "jsr") {
-    const wanted = selection.packageVersion ?? selection.version;
-    const manifest = `node_modules/${PACKAGE_NAME}/package.json`;
-    const projectManifest = Bun.file(`${request.projectRoot}/package.json`);
-    const project = await projectManifest.json().catch(() => null);
-    const parsed = z
-      .object({
-        devDependencies: z.record(z.string(), z.string()),
-        scripts: z.record(z.string(), z.string()),
-      })
-      .safeParse(project);
-    const expected = `npm:${JSR_PACKAGE_NAME}@${wanted}`;
-    if (
-      !parsed.success ||
-      parsed.data.devDependencies[PACKAGE_NAME] !== expected ||
-      parsed.data.scripts.operator !== PROJECT_SCRIPT
-    ) {
-      return unmet(
-        "install_missing",
-        selection,
-        `The project must declare ${PACKAGE_NAME} as the exact JSR devDependency ${expected} and set scripts.operator to ${PROJECT_SCRIPT}.`,
-        `Add the selected JSR devDependency and Operator script to package.json, then run \`bun install --frozen-lockfile\` from the project root.`,
-        ["package.json"],
-      );
-    }
-    const installed = await readInstalledVersion(`${request.projectRoot}/${manifest}`);
-    if (installed.state === "absent") {
-      return unmet(
-        "install_missing",
-        selection,
-        `The project holds no installed ${PACKAGE_NAME}, so the selected release is not present.`,
-        "Run `bun install --frozen-lockfile` from the project root, then check again.",
-        [manifest],
-      );
-    }
-    // The selection names one exact published version, so any other one is a different release.
-    if (installed.version !== wanted) {
-      return unmet(
-        "release_mismatch",
-        selection,
-        `This project selected ${PACKAGE_NAME}@${wanted}, and the installation holds ${installed.version ?? "a package that names no version"}.`,
-        `Install ${PACKAGE_NAME}@${wanted} from JSR in the project root, then check again.`,
-        [manifest],
-      );
-    }
-
-    if (!(await hasLockData(request.projectRoot))) {
-      return unmet(
-        "lock_data_missing",
-        selection,
-        "The project holds no lock data, so a reinstall would resolve its dependencies again instead of repeating them.",
-        "Restore the project bun.lock, then run `bun install --frozen-lockfile` from the project root.",
-        ["bun.lock"],
-      );
-    }
+    const refusal = await checkJsrInstall(request.projectRoot, selection);
+    if (refusal !== null) return refusal;
   }
 
   if (request.running.lock.state === "missing") {
