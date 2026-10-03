@@ -1,4 +1,5 @@
-import { GithubApi } from "../github-api/main.ts";
+import { CrewWake } from "../crew-wake/main.ts";
+import { GithubTracker } from "../github-tracker/main.ts";
 import { HerdrControl } from "../herdr-control/main.ts";
 import { ProjectReadiness } from "../project-readiness/main.ts";
 import { targetFlag, type ParsedArguments } from "./arguments.ts";
@@ -22,8 +23,8 @@ export async function runHealthcheck(parsed: ParsedArguments): Promise<void> {
   });
   const [herdr, github, plugin] = await Promise.all([
     HerdrControl.connection({ repoRoot: process.cwd() }),
-    GithubApi.connection(readiness.fixture),
-    HerdrControl.wakePlugin(readiness.versions.herdr ?? "missing"),
+    GithubTracker.connection(readiness.fixture),
+    CrewWake.pluginHealth(readiness.versions.herdr ?? "missing"),
   ]);
   const connections: Record<"herdr" | "github", Connection> = { herdr, github };
   const failures = Object.entries(connections).filter(([, value]) => value.state === "failed");

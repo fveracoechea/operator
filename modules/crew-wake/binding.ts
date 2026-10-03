@@ -1,12 +1,9 @@
 import { CrewState } from "../crew-state/main.ts";
-import { WakeState } from "../wake-state/main.ts";
 import { z } from "zod";
 // Bun has no atomic rename or directory creation API.
 import { mkdir, rename } from "node:fs/promises";
-import { command, herdr, type Next, type Agent, type Event } from "./herdr.ts";
-
-export const bindingTable = WakeState.table();
-export type Binding = typeof bindingTable.$inferSelect;
+import { callHerdr, next, type Next, type Agent, type Event } from "./herdr.ts";
+import type { Binding } from "./store.ts";
 
 const watcherSchema = z.array(
   z.object({
@@ -19,26 +16,28 @@ const watcherSchema = z.array(
 
 export async function configDir(): Promise<string> {
   if (process.env.HERDR_PLUGIN_CONFIG_DIR) return process.env.HERDR_PLUGIN_CONFIG_DIR;
-  const response = await command(herdr, ["plugin", "config-dir", "operator.wake"]);
+  const response = await callHerdr(["plugin", "config-dir", "operator.wake"]);
   if (response.exit !== 0 || !response.stdout)
     throw new Error(response.stderr || "Operator wake plugin is not installed");
   return response.stdout;
 }
 
-export function hasCrewAction(value: Next): boolean {
+function hasCrewAction(value: Next): boolean {
   return value.actions.some((entry) => !CrewState.isStandingAction({ action: entry.action }));
 }
 
-export function ownedBy(binding: Binding, next: Next): boolean {
+type Ownership = Pick<Binding, "owner" | "acquired" | "revision">;
+
+function ownedBy(binding: Ownership, schedule: Next): boolean {
   return (
-    next.ownership?.ownerLabel === binding.owner &&
-    next.ownership.acquiredAt === binding.acquired &&
-    next.ownership.revision === binding.revision
+    schedule.ownership?.ownerLabel === binding.owner &&
+    schedule.ownership.acquiredAt === binding.acquired &&
+    schedule.ownership.revision === binding.revision
   );
 }
 
-export function watchersOf(next: Next, live: Agent[]): string {
-  const watchers = next.waits.flatMap((wait) => {
+export function watchersOf(schedule: Next, live: Agent[]): string {
+  const watchers = schedule.waits.flatMap((wait) => {
     if (!wait.attemptId || !wait.agentName) return [];
     const agent = live.find((one) => one.name === wait.agentName);
     return [
@@ -61,7 +60,7 @@ export async function matchesCrewEvent(
   const watchers = watcherSchema.parse(JSON.parse(binding.watchers));
   if (event.data.type === "pane_exited") {
     if (watchers.some((watcher) => watcher.pane === event.data.pane_id)) return true;
-    const response = await command(herdr, ["pane", "get", event.data.pane_id]);
+    const response = await callHerdr(["pane", "get", event.data.pane_id]);
     if (response.exit !== 0) return false;
     const pane = z
       .object({ result: z.object({ pane: z.object({ terminal_id: z.string() }) }) })
@@ -81,6 +80,20 @@ export async function matchesCrewEvent(
   );
 }
 
+/** A crew report can reach Operator after Herdr has reported the status change. */
+export async function scheduleAfterEvent(
+  binding: Binding,
+  schedule: Next,
+  crewEvent: boolean,
+): Promise<Next> {
+  let current = schedule;
+  for (let attempt = 0; crewEvent && attempt < 4 && !hasCrewAction(current); attempt += 1) {
+    await Bun.sleep(500);
+    current = await next(binding);
+  }
+  return current;
+}
+
 export async function registerRunner(dir: string, root: string, binary: string): Promise<void> {
   await mkdir(`${dir}/runners`, { recursive: true });
   const key = new Bun.CryptoHasher("sha256").update(root).digest("hex");
@@ -88,4 +101,210 @@ export async function registerRunner(dir: string, root: string, binary: string):
   const temporary = `${path}.${crypto.randomUUID()}`;
   await Bun.write(temporary, `${JSON.stringify({ root, binary })}\n`);
   await rename(temporary, path);
+}
+
+/** No row is `absent`. The other states are the recorded `bindings.state` values. */
+export type WakeBindingState = "absent" | Binding["state"];
+
+export type WakeBindingEvent =
+  | { kind: "arm"; owner: string }
+  | { kind: "check"; binding: Ownership }
+  | { kind: "herdr-event"; binding: Ownership; pane: string }
+  | { kind: "ownership-changed" };
+
+/**
+ * What the interpreter has read so far, in the order the guards ask for it.
+ * `operator` and `current` are the idle Operator at the first and the last Herdr read.
+ * `settled` is the schedule after the late crew report had its time to arrive.
+ */
+export type WakeBindingFacts = {
+  caller?: Agent | undefined;
+  operator?: Agent | undefined;
+  schedule?: Next;
+  crewEvent?: boolean;
+  settled?: Next;
+  current?: Agent | undefined;
+};
+
+type Fact = keyof WakeBindingFacts;
+
+export type WakeBindingRefusal =
+  | "not-armed"
+  | "not-operator"
+  | "no-crew-wait"
+  | "operator-busy"
+  | "unrelated-event"
+  | "no-crew-action";
+
+/** `arm` records the Operator session and the crew ownership it read. */
+type Effect =
+  | {
+      kind: "arm";
+      operator: Agent;
+      session: string;
+      schedule: Next;
+      acquired: string;
+      revision: number;
+    }
+  | { kind: "prompt"; pane: string };
+
+export type WakeBindingDecision =
+  | { next: WakeBindingState; effects: Effect[] }
+  | { refused: WakeBindingRefusal }
+  | { needs: Fact };
+
+type Guard = {
+  needs: Fact;
+  holds: (facts: WakeBindingFacts) => boolean;
+  otherwise: WakeBindingRefusal | "ownership-changed";
+};
+
+type Row = {
+  from: WakeBindingState[];
+  guards: Guard[];
+  next: WakeBindingState;
+  effects: (facts: WakeBindingFacts) => Effect[];
+};
+
+function armRow(owner: string): Row {
+  return {
+    from: ["absent", "armed", "submitted", "stale"],
+    guards: [
+      {
+        needs: "caller",
+        holds: ({ caller }) =>
+          caller !== undefined &&
+          caller.agent_status === "working" &&
+          ["opencode", "claude"].includes(caller.agent) &&
+          Boolean(caller.agent_session?.value),
+        otherwise: "not-operator",
+      },
+      {
+        needs: "schedule",
+        holds: ({ schedule }) =>
+          schedule !== undefined &&
+          schedule.ownership?.ownerLabel === owner &&
+          schedule.waits.length > 0 &&
+          !hasCrewAction(schedule),
+        otherwise: "no-crew-wait",
+      },
+    ],
+    next: "armed",
+    effects: ({ caller, schedule }) =>
+      caller?.agent_session && schedule?.ownership
+        ? [
+            {
+              kind: "arm",
+              operator: caller,
+              session: caller.agent_session.value,
+              schedule,
+              acquired: schedule.ownership.acquiredAt,
+              revision: schedule.ownership.revision,
+            },
+          ]
+        : [],
+  };
+}
+
+/** A startup check has no event pane, so only a Herdr event asks whether it is relevant. */
+function checkRow(binding: Ownership, pane: string | null): Row {
+  const relevance: Guard[] =
+    pane === null
+      ? []
+      : [
+          {
+            needs: "crewEvent",
+            holds: ({ crewEvent, operator }) => crewEvent === true || operator?.pane_id === pane,
+            otherwise: "unrelated-event",
+          },
+        ];
+  return {
+    from: ["armed"],
+    guards: [
+      {
+        needs: "operator",
+        holds: ({ operator }) => operator !== undefined,
+        otherwise: "operator-busy",
+      },
+      {
+        needs: "schedule",
+        holds: ({ schedule }) => schedule !== undefined && ownedBy(binding, schedule),
+        otherwise: "ownership-changed",
+      },
+      ...relevance,
+      {
+        needs: "settled",
+        holds: ({ settled }) =>
+          settled !== undefined && ownedBy(binding, settled) && hasCrewAction(settled),
+        otherwise: "no-crew-action",
+      },
+      {
+        needs: "current",
+        holds: ({ current }) => current !== undefined,
+        otherwise: "operator-busy",
+      },
+    ],
+    next: "submitted",
+    effects: ({ current }) =>
+      current === undefined ? [] : [{ kind: "prompt", pane: current.pane_id }],
+  };
+}
+
+const staleRow: Row = { from: ["armed"], guards: [], next: "stale", effects: () => [] };
+
+/** The wake binding lifecycle: one row for each event. */
+function rowFor(event: WakeBindingEvent): Row {
+  switch (event.kind) {
+    case "arm":
+      return armRow(event.owner);
+    case "check":
+      return checkRow(event.binding, null);
+    case "herdr-event":
+      return checkRow(event.binding, event.pane);
+    case "ownership-changed":
+      return staleRow;
+  }
+}
+
+export const WakeBinding = {
+  /**
+   * Pure. Gives the next state, a refusal, or the next fact the guards need. The caller reads
+   * that fact, sets it (also when it reads as undefined), and asks again. So each Herdr and
+   * `crew next` read happens only when a guard needs it, in the guard order. A check claims the
+   * binding before its prompt, so one arm wakes the Operator once.
+   */
+  decide(
+    state: WakeBindingState,
+    event: WakeBindingEvent,
+    facts: WakeBindingFacts,
+  ): WakeBindingDecision {
+    const row = rowFor(event);
+    if (!row.from.includes(state)) return { refused: "not-armed" };
+    for (const guard of row.guards) {
+      if (!(guard.needs in facts)) return { needs: guard.needs };
+      if (guard.holds(facts)) continue;
+      return guard.otherwise === "ownership-changed"
+        ? WakeBinding.decide(state, { kind: "ownership-changed" }, facts)
+        : { refused: guard.otherwise };
+    }
+    return { next: row.next, effects: row.effects(facts) };
+  },
+};
+
+type Readers = { [F in Fact]?: (facts: WakeBindingFacts) => Promise<WakeBindingFacts[F]> };
+
+/** Runs `decide` until it has the facts it asks for. Each reader runs at most once. */
+export async function decideWithReads(
+  state: WakeBindingState,
+  event: WakeBindingEvent,
+  readers: Readers,
+): Promise<Exclude<WakeBindingDecision, { needs: Fact }>> {
+  const facts: WakeBindingFacts = {};
+  for (;;) {
+    const decision = WakeBinding.decide(state, event, facts);
+    if (!("needs" in decision)) return decision;
+    const read = readers[decision.needs];
+    if (read === undefined) throw new Error(`No reader for the wake fact ${decision.needs}`);
+    Object.assign(facts, { [decision.needs]: await read(facts) });
+  }
 }

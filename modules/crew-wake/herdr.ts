@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ToolInvocation } from "../tool-invocation/main.ts";
 
 const agentSchema = z.object({
   pane_id: z.string(),
@@ -25,25 +26,27 @@ const eventSchema = z.object({
 });
 export type Event = z.infer<typeof eventSchema>;
 
-export const herdr = process.env.HERDR_BIN_PATH ?? "herdr";
+const herdr = process.env.HERDR_BIN_PATH ?? "herdr";
 
-export async function command(binary: string, args: string[], cwd?: string) {
-  const child = Bun.spawn([binary, ...args], {
-    cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-    env: process.env,
-  });
-  const [stdout, stderr, exit] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
-  return { stdout: stdout.trim(), stderr: stderr.trim(), exit };
+/**
+ * Every call is bounded, so a hung Herdr or `crew next` cannot hold a plugin run open.
+ * A call with no answer throws, because a prompt that timed out may still have landed.
+ */
+const HERDR_TIMEOUT_MS = 30_000;
+const NEXT_TIMEOUT_MS = 120_000;
+
+async function command(request: { tool: string; args: string[]; cwd?: string; timeoutMs: number }) {
+  const invoked = await ToolInvocation.run(request);
+  if (invoked.status !== "completed") throw new Error(invoked.detail);
+  return { stdout: invoked.stdout.trim(), stderr: invoked.stderr.trim(), exit: invoked.exitCode };
+}
+
+export async function callHerdr(args: string[]) {
+  return command({ tool: herdr, args, timeoutMs: HERDR_TIMEOUT_MS });
 }
 
 export async function agents(): Promise<Agent[]> {
-  const response = await command(herdr, ["agent", "list"]);
+  const response = await callHerdr(["agent", "list"]);
   if (response.exit !== 0) throw new Error(response.stderr);
   return z
     .object({ result: z.object({ agents: z.array(agentSchema) }) })
@@ -57,11 +60,12 @@ export async function next(request: {
   root: string;
 }): Promise<Next> {
   const targets = z.array(z.string()).parse(JSON.parse(request.targets));
-  const response = await command(
-    "bun",
-    [request.operatorBin, "crew", "next", ...targets, "--json"],
-    request.root,
-  );
+  const response = await command({
+    tool: "bun",
+    args: [request.operatorBin, "crew", "next", ...targets, "--json"],
+    cwd: request.root,
+    timeoutMs: NEXT_TIMEOUT_MS,
+  });
   if (![0, 3, 6].includes(response.exit)) throw new Error(response.stderr || response.stdout);
   return z.object({ data: nextSchema }).parse(JSON.parse(response.stdout)).data;
 }

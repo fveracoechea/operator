@@ -224,6 +224,40 @@ export const GithubTracker = {
       : { status: "succeeded", value: { login } };
   },
 
+  /** A read-only authentication check. It says nothing about permission to write a fixture. */
+  async connection(fixture: { repository: string; issue: number } | null) {
+    const viewer = await GithubTracker.viewer();
+    if (viewer.status !== "succeeded") {
+      return {
+        state: "failed" as const,
+        detail: viewer.detail,
+        nextAction: "Run `gh auth login`, then check GitHub access again.",
+      };
+    }
+    const login = viewer.value.login;
+    if (fixture === null) {
+      return {
+        state: "passed" as const,
+        detail: `GitHub authenticated as ${login}. Fixture read and write access are not proven without a configured fixture.`,
+        nextAction: null,
+      };
+    }
+    const issue = await GithubTracker.readIssue(fixture);
+    if (issue.status === "found") {
+      return {
+        state: "passed" as const,
+        detail: `GitHub authenticated as ${login} and read fixture ${fixture.repository}#${fixture.issue}. Write access remains unproven.`,
+        nextAction: null,
+      };
+    }
+    return {
+      state: "failed" as const,
+      detail: `Cannot read fixture ${fixture.repository}#${fixture.issue}: ${issue.status === "absent" ? "GitHub found no such issue." : issue.detail}`,
+      nextAction:
+        "Check the fixture repository, issue, and GitHub token permissions, then check again.",
+    };
+  },
+
   /**
    * Adds one comment to an issue.
    * GitHub offers no retry key for this call, so a lost answer stays uncertain and is settled

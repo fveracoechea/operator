@@ -4,6 +4,7 @@ import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { CrewWake } from "./main.ts";
 
 // A test runs the real hook, CLI, and operator path, which is up to ten bun starts in sequence.
 setDefaultTimeout(60_000);
@@ -425,4 +426,94 @@ test("two events that hold the armed binding at the same time send one prompt", 
   const results = await Promise.all([f.run("event", event), f.run("event", event)]);
   expect(results.map((result) => result.exitCode)).toEqual([0, 0]);
   expect((await f.prompts()).split("\n").filter(Boolean)).toHaveLength(1);
+});
+
+const binding = { owner: "owner-1", acquired: "today", revision: 1 };
+const idle = {
+  pane_id: "w1:p1",
+  terminal_id: "terminal-1",
+  agent: "opencode",
+  agent_status: "idle",
+  agent_session: { kind: "id", value: "session-1" },
+};
+const owned = { ownerLabel: "owner-1", acquiredAt: "today", revision: 1 };
+const withAction = {
+  ownership: owned,
+  actions: [{ action: "accept_assignment", blocker: null }],
+  waits: [],
+};
+const withWait = {
+  ownership: owned,
+  actions: [],
+  waits: [{ agentName: "operative", attemptId: "attempt-1" }],
+};
+
+test("the wake binding asks for each fact in guard order before it decides", () => {
+  const event = { kind: "herdr-event", binding, pane: "w1:p2" } as const;
+  expect(CrewWake.decide("armed", event, {})).toEqual({ needs: "operator" });
+  expect(CrewWake.decide("armed", event, { operator: idle })).toEqual({ needs: "schedule" });
+  expect(CrewWake.decide("armed", event, { operator: idle, schedule: withWait })).toEqual({
+    needs: "crewEvent",
+  });
+  // A startup check has no event, so it never asks whether an event is relevant.
+  expect(
+    CrewWake.decide("armed", { kind: "check", binding }, { operator: idle, schedule: withWait }),
+  ).toEqual({ needs: "settled" });
+});
+
+test("a checked binding is submitted once, and only from armed", () => {
+  const facts = {
+    operator: idle,
+    schedule: withWait,
+    crewEvent: true,
+    settled: withAction,
+    current: idle,
+  };
+  const event = { kind: "herdr-event", binding, pane: "w1:p2" } as const;
+  expect(CrewWake.decide("armed", event, facts)).toEqual({
+    next: "submitted",
+    effects: [{ kind: "prompt", pane: "w1:p1" }],
+  });
+  for (const state of ["absent", "submitted", "stale"] as const) {
+    expect(CrewWake.decide(state, event, facts)).toEqual({ refused: "not-armed" });
+  }
+});
+
+test("a changed owner makes an armed binding stale, and a later change refuses", () => {
+  const facts = { operator: idle, schedule: { ...withWait, ownership: null } };
+  expect(CrewWake.decide("armed", { kind: "check", binding }, facts)).toEqual({
+    next: "stale",
+    effects: [],
+  });
+  // An owner change found only after the late report is a refusal, not a stale binding.
+  expect(
+    CrewWake.decide(
+      "armed",
+      { kind: "check", binding },
+      { ...facts, schedule: withWait, settled: { ...withAction, ownership: null } },
+    ),
+  ).toEqual({ refused: "no-crew-action" });
+});
+
+test("an event from an unrelated pane and a busy Operator are refused", () => {
+  const event = { kind: "herdr-event", binding, pane: "w1:p3" } as const;
+  expect(
+    CrewWake.decide("armed", event, { operator: idle, schedule: withWait, crewEvent: false }),
+  ).toEqual({ refused: "unrelated-event" });
+  expect(CrewWake.decide("armed", event, { operator: undefined })).toEqual({
+    refused: "operator-busy",
+  });
+});
+
+test("an arm needs a working Operator that owns a crew with waits and no action", () => {
+  const caller = { ...idle, agent_status: "working" };
+  const arm = { kind: "arm", owner: "owner-1" } as const;
+  expect(CrewWake.decide("stale", arm, { caller: idle })).toEqual({ refused: "not-operator" });
+  expect(CrewWake.decide("stale", arm, { caller, schedule: withAction })).toEqual({
+    refused: "no-crew-wait",
+  });
+  expect(CrewWake.decide("submitted", arm, { caller, schedule: withWait })).toMatchObject({
+    next: "armed",
+    effects: [{ kind: "arm", session: "session-1", acquired: "today", revision: 1 }],
+  });
 });
