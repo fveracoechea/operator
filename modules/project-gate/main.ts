@@ -16,6 +16,34 @@ type Read =
   | { status: "invalid"; commit: string; path: string; issues: string[] }
   | { status: "unread"; commit: string; path: string; detail: string };
 
+/** Where a gate text appears: a submit check, a dispatch refusal, or the readiness check at HEAD. */
+type GateTextPlace = "submit" | "dispatch" | "readiness";
+
+type Unusable = Exclude<Read, { status: "declared" }>;
+
+const UNUSABLE_TEXTS: Record<
+  GateTextPlace,
+  { [S in Unusable["status"]]: (read: Extract<Unusable, { status: S }>) => string }
+> = {
+  submit: {
+    missing: (read) => `${read.path} at ${read.commit} is missing.`,
+    invalid: (read) => `${read.path} at ${read.commit} is invalid: ${read.issues.join("; ")}.`,
+    unread: (read) => `${read.path} at ${read.commit} is unread: ${read.detail}.`,
+  },
+  dispatch: {
+    missing: (read) => `Commit ${read.commit} holds no ${read.path}.`,
+    invalid: (read) => `${read.path} at ${read.commit} is not valid: ${read.issues.join("; ")}.`,
+    unread: (read) => `${read.path} could not be read at ${read.commit}: ${read.detail}`,
+  },
+  readiness: {
+    missing: (read) =>
+      `The commit ${read.commit} at HEAD holds no ${read.path}, so no code result can show that it passed the project gate.`,
+    invalid: (read) =>
+      `${read.path} at ${read.commit} is not a valid project gate: ${read.issues.join("; ")}.`,
+    unread: (read) => `${read.path} could not be read at HEAD: ${read.detail}`,
+  },
+};
+
 async function git(repository: string, args: string[]) {
   return ToolInvocation.run({ tool: "git", args: ["-C", repository, ...args], timeoutMs: 30_000 });
 }
@@ -100,6 +128,23 @@ export const ProjectGate = {
       identity: ContentIdentity.of(commands),
       commands,
     };
+  },
+
+  /**
+   * One read of the gate as the text of one place. Each place keeps its own words, and this table
+   * is the one owner of all of them.
+   */
+  describe(read: Read, place: GateTextPlace): string {
+    switch (read.status) {
+      case "declared":
+        return `${read.path} at ${read.commit} declares ${read.commands.map((one) => one.name).join(", ")}.`;
+      case "missing":
+        return UNUSABLE_TEXTS[place].missing(read);
+      case "invalid":
+        return UNUSABLE_TEXTS[place].invalid(read);
+      case "unread":
+        return UNUSABLE_TEXTS[place].unread(read);
+    }
   },
 
   /** One command as one line of text, for a brief and for a host permission. */

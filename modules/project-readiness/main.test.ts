@@ -1047,6 +1047,10 @@ describe("the project-gate readiness check", () => {
     expect(checkNamed(result.json, "project-gate")?.nextAction).toStartWith(
       "The person commits operator-gate.json",
     );
+    const head = (await Bun.$`git -C ${root} rev-parse HEAD`.text()).trim();
+    expect(checkNamed(result.json, "project-gate")?.detail).toBe(
+      `The commit ${head} at HEAD holds no operator-gate.json, so no code result can show that it passed the project gate.`,
+    );
     expect(await Bun.file(`${root}/operator-gate.json`).exists()).toBe(false);
   });
 

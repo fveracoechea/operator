@@ -358,6 +358,117 @@ function answeredFindings(
 }
 
 /**
+ * The gate records of ADR 0021: a passing gate run at the integration base and at each commit
+ * this publication carries, and the runs that prove it. With no commit, the gate holds nothing.
+ */
+function gateEvidenceOf(
+  db: CrewReader,
+  sourceId: string,
+  branch: NonNullable<ReturnType<typeof integrationBranchOf>>,
+  commits: SnapshotCommit[],
+): Pick<PublishRecords["verified"], "gateCommands" | "gateRuns"> & {
+  headRun: GateRunRow | null;
+  refusals: RecordRefusal[];
+} {
+  const baseGate = baseGateOf(db, sourceId);
+  const commitRuns = commits.map((one) => ({
+    commit: one.commit,
+    run: passingRunAt(db, sourceId, one.commit),
+  }));
+  const baseRefusal =
+    baseGate.status === "passed" && baseGate.commit === branch.baseCommit
+      ? []
+      : [
+          {
+            reason: "gate_base_not_passed" as const,
+            detail: `No passing gate run is recorded at the integration base ${branch.baseCommit}.`,
+          },
+        ];
+  const commitRefusals = commitRuns
+    .filter((one) => one.run === null)
+    .map((one) => ({
+      reason: "gate_commit_not_passed" as const,
+      detail: `No passing gate run is recorded at commit ${one.commit}.`,
+    }));
+  return {
+    gateCommands: fixedGateOf(branch).commands.map((one) => ProjectGate.commandLine(one.argv)),
+    gateRuns: [
+      ...(baseGate.status === "passed"
+        ? [{ runId: baseGate.run.id, commit: baseGate.commit, at: "base" as const }]
+        : []),
+      ...commitRuns.flatMap((one) =>
+        one.run === null ? [] : [{ runId: one.run.id, commit: one.commit, at: "commit" as const }],
+      ),
+    ],
+    headRun: commitRuns.at(-1)?.run ?? null,
+    refusals: commits.length === 0 ? [] : [...baseRefusal, ...commitRefusals],
+  };
+}
+
+/**
+ * The review gate of ADR 0017: the review that gates the publish and wrote its text, its
+ * refusals, the reviews that read this head, and the findings they rejected or deferred. A branch
+ * that is not final has no gating review yet.
+ */
+function reviewEvidenceOf(
+  db: CrewReader,
+  sourceId: string,
+  condition: ReturnType<typeof branchCondition>,
+  commits: SnapshotCommit[],
+  head: { tip: string; run: GateRunRow | null },
+): Pick<PublishRecords, "gatingReview" | "text" | "rejected" | "deferred" | "refusals"> &
+  Pick<PublishRecords["verified"], "reviews"> {
+  const isBranch = condition.status === "due";
+  const final = isBranch || condition.status === "one-commit";
+  const gatingReview = gatingReviewOf(db, sourceId, condition);
+  const notFinal = {
+    reason: "branch_review_missing" as const,
+    detail:
+      condition.status === "not-final"
+        ? `The integration branch is not final: ${condition.pending.map((one) => `${one.assignmentId} is ${one.state}`).join(", ")}.`
+        : "The integration branch is not final.",
+  };
+  const refusals = !final
+    ? [notFinal]
+    : commits.length > 0
+      ? reviewRefusals(db, gatingReview, isBranch, head.run)
+      : [];
+
+  const resultReviews = commits.flatMap((one) => {
+    const review = reviewOfSubmission(db, one.submissionId);
+    return review === null ? [] : [{ review, commit: one.commit }];
+  });
+  const branchReview = isBranch ? gatingReview : null;
+  return {
+    gatingReview,
+    text:
+      gatingReview?.publishedText == null ? null : storedPublishedText(gatingReview.publishedText),
+    reviews: [
+      ...resultReviews.map((one) => ({
+        kind: "result" as const,
+        reviewId: one.review.id,
+        subject: `commit ${one.commit.slice(0, 12)}`,
+        host: one.review.host ?? "an unrecorded host",
+        commit: one.commit,
+      })),
+      ...(branchReview === null
+        ? []
+        : [
+            {
+              kind: "branch" as const,
+              reviewId: branchReview.id,
+              subject: `the head ${head.tip.slice(0, 12)}`,
+              host: branchReview.host ?? "an unrecorded host",
+              commit: null,
+            },
+          ]),
+    ],
+    ...answeredFindings(db, resultReviews, branchReview),
+    refusals,
+  };
+}
+
+/**
  * Reads everything a publish plan of one source takes from the crew state: the head, its
  * commits with their records, the review that gates it and its text, the evidence, and every
  * refusal the records decide (decision 10). `crew next` reads the same gate, so the action and
@@ -400,100 +511,31 @@ export function publishRecordsOf(db: CrewReader, sourceId: string): PublishRecor
     condition.status === "due" || condition.status === "one-commit" ? condition.commits : [];
   // A kept part of an earlier publication already carries the commits up to the publish base.
   const commits = snapshot.slice(snapshot.findIndex((one) => one.commit === publishBase) + 1);
-  const isBranch = condition.status === "due";
-  const gatingReview = gatingReviewOf(db, sourceId, condition);
-
-  const baseGate = baseGateOf(db, sourceId);
-  const commitRuns = commits.map((one) => ({
-    commit: one.commit,
-    run: passingRunAt(db, sourceId, one.commit),
-  }));
-  const headRun = commitRuns.at(-1)?.run ?? null;
-  const gateRefusals: RecordRefusal[] = [
-    ...(baseGate.status === "passed" && baseGate.commit === branch.baseCommit
-      ? []
-      : [
-          {
-            reason: "gate_base_not_passed" as const,
-            detail: `No passing gate run is recorded at the integration base ${branch.baseCommit}.`,
-          },
-        ]),
-    ...commitRuns
-      .filter((one) => one.run === null)
-      .map((one) => ({
-        reason: "gate_commit_not_passed" as const,
-        detail: `No passing gate run is recorded at commit ${one.commit}.`,
-      })),
-  ];
-
-  const final = condition.status === "due" || condition.status === "one-commit";
-  const refusals: RecordRefusal[] = [
-    ...(final && commits.length > 0
-      ? reviewRefusals(db, gatingReview, isBranch, headRun)
-      : final
-        ? []
-        : [
-            {
-              reason: "branch_review_missing" as const,
-              detail:
-                condition.status === "not-final"
-                  ? `The integration branch is not final: ${condition.pending.map((one) => `${one.assignmentId} is ${one.state}`).join(", ")}.`
-                  : "The integration branch is not final.",
-            },
-          ]),
-    ...(commits.length > 0 ? gateRefusals : []),
-    ...openRefusals(db, sourceId, condition),
-    ...stackRefusals(carried),
-    ...nothingRefusal(sourceId, branch, publishBase),
-  ];
-
-  const resultReviews = commits.flatMap((one) => {
-    const review = reviewOfSubmission(db, one.submissionId);
-    return review === null ? [] : [{ review, commit: one.commit }];
+  const {
+    headRun,
+    refusals: gateRefusals,
+    ...gate
+  } = gateEvidenceOf(db, sourceId, branch, commits);
+  const review = reviewEvidenceOf(db, sourceId, condition, commits, {
+    tip: branch.recordedTip,
+    run: headRun,
   });
-  const branchReview = isBranch ? gatingReview : null;
 
   return {
     ...empty,
     publishBase,
     commits: commits.map((one) => gatedCommit(db, one)),
-    gatingReview,
-    text:
-      gatingReview?.publishedText == null ? null : storedPublishedText(gatingReview.publishedText),
-    verified: {
-      gateCommands: fixedGateOf(branch).commands.map((one) => ProjectGate.commandLine(one.argv)),
-      gateRuns: [
-        ...(baseGate.status === "passed"
-          ? [{ runId: baseGate.run.id, commit: baseGate.commit, at: "base" as const }]
-          : []),
-        ...commitRuns.flatMap((one) =>
-          one.run === null
-            ? []
-            : [{ runId: one.run.id, commit: one.commit, at: "commit" as const }],
-        ),
-      ],
-      reviews: [
-        ...resultReviews.map((one) => ({
-          kind: "result" as const,
-          reviewId: one.review.id,
-          subject: `commit ${one.commit.slice(0, 12)}`,
-          host: one.review.host ?? "an unrecorded host",
-          commit: one.commit,
-        })),
-        ...(branchReview === null
-          ? []
-          : [
-              {
-                kind: "branch" as const,
-                reviewId: branchReview.id,
-                subject: `the head ${branch.recordedTip.slice(0, 12)}`,
-                host: branchReview.host ?? "an unrecorded host",
-                commit: null,
-              },
-            ]),
-      ],
-    },
-    ...answeredFindings(db, resultReviews, branchReview),
-    refusals,
+    gatingReview: review.gatingReview,
+    text: review.text,
+    verified: { ...gate, reviews: review.reviews },
+    rejected: review.rejected,
+    deferred: review.deferred,
+    refusals: [
+      ...review.refusals,
+      ...gateRefusals,
+      ...openRefusals(db, sourceId, condition),
+      ...stackRefusals(carried),
+      ...nothingRefusal(sourceId, branch, publishBase),
+    ],
   };
 }

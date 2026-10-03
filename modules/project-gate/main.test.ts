@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 // Bun has no temporary directory API.
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -132,6 +132,50 @@ test("a commit that Git cannot name is unread, never missing", async () => {
   const read = await ProjectGate.read({ repository: root, commit: "0".repeat(40) });
 
   expect(read.status).toBe("unread");
+});
+
+describe("each place states a gate read in its own words", () => {
+  const path = "operator-gate.json";
+  const commit = "abc123";
+  const missing = { status: "missing" as const, commit, path };
+  const invalid = { status: "invalid" as const, commit, path, issues: ["one", "two"] };
+  const unread = { status: "unread" as const, commit, path, detail: "git failed." };
+
+  test.each([
+    ["submit", missing, "operator-gate.json at abc123 is missing."],
+    ["submit", invalid, "operator-gate.json at abc123 is invalid: one; two."],
+    ["submit", unread, "operator-gate.json at abc123 is unread: git failed.."],
+    ["dispatch", missing, "Commit abc123 holds no operator-gate.json."],
+    ["dispatch", invalid, "operator-gate.json at abc123 is not valid: one; two."],
+    ["dispatch", unread, "operator-gate.json could not be read at abc123: git failed."],
+    [
+      "readiness",
+      missing,
+      "The commit abc123 at HEAD holds no operator-gate.json, so no code result can show that it passed the project gate.",
+    ],
+    ["readiness", invalid, "operator-gate.json at abc123 is not a valid project gate: one; two."],
+    ["readiness", unread, "operator-gate.json could not be read at HEAD: git failed."],
+  ] as const)("%s, %o", (place, read, text) => {
+    expect(ProjectGate.describe(read, place)).toBe(text);
+  });
+
+  test("a declared gate names its commands at every place", () => {
+    const declared = {
+      status: "declared" as const,
+      commit,
+      path,
+      identity: "id",
+      commands: [
+        { name: "lint", argv: ["bun", "run", "lint"], timeoutSeconds: 60 },
+        { name: "test", argv: ["bun", "test"], timeoutSeconds: 600 },
+      ],
+    };
+    for (const place of ["submit", "dispatch", "readiness"] as const) {
+      expect(ProjectGate.describe(declared, place)).toBe(
+        "operator-gate.json at abc123 declares lint, test.",
+      );
+    }
+  });
 });
 
 test("the generated schema requires a name, the arguments, and a time limit", () => {

@@ -1,5 +1,5 @@
 import type { OperativeDispatch } from "../operative-dispatch/main.ts";
-import type { ProjectGate } from "../project-gate/main.ts";
+import { ProjectGate } from "../project-gate/main.ts";
 import type { BehaviorChangeBasis, SubmissionInput } from "./submission-input.ts";
 import { outsideWritePaths } from "./write-paths.ts";
 
@@ -97,6 +97,145 @@ function basisGap(basis: BehaviorChangeBasis, bases: RecordedBases): string | nu
   }
 }
 
+type ResultRequest = {
+  inspection: CheckoutInspection;
+  input: SubmissionInput;
+  baseCommit: string;
+  writePaths: string[];
+  bases: RecordedBases;
+  gate: GateRead;
+};
+
+/**
+ * A result with code revisions is one commit. Without them, nothing names a result commit, and
+ * the write paths still read every commit since the base.
+ */
+function commitShape({ inspection, input, baseCommit }: ResultRequest): ResultRefusal[] {
+  if (input.code === null) {
+    return [];
+  }
+  if (inspection.commits.status === "unread") {
+    return [
+      { reason: "result_check_not_run", check: "commit-shape", detail: inspection.commits.detail },
+    ];
+  }
+  const commits = inspection.commits.value;
+  const [newest] = commits;
+  // A second commit is the parent of the newest one, so the parent check also counts them.
+  const shaped =
+    newest !== undefined &&
+    newest.parents.length === 1 &&
+    newest.parents[0] === baseCommit &&
+    input.code.baseCommit === baseCommit &&
+    input.code.resultCommit === newest.commit;
+  return shaped
+    ? []
+    : [
+        {
+          reason: ONE_COMMIT_RULE.refusal,
+          rule: ONE_COMMIT_RULE.rule,
+          baseCommit,
+          commits,
+          statedBase: input.code.baseCommit,
+          statedResult: input.code.resultCommit,
+        },
+      ];
+}
+
+function workingTree({ inspection, input, writePaths }: ResultRequest): ResultRefusal[] {
+  if (inspection.uncommitted.status === "unread") {
+    return [
+      {
+        reason: "result_check_not_run",
+        check: "working-tree",
+        detail: inspection.uncommitted.detail,
+      },
+    ];
+  }
+  // A path artifact of a non-code result is the one file that may stay uncommitted, and only
+  // inside the write paths.
+  const artifacts = new Set(
+    input.resultKind === "non-code"
+      ? input.artifacts
+          .filter((one) => one.kind === "path")
+          .map((one) => one.value)
+          .filter((path) => outsideWritePaths([path], writePaths).length === 0)
+      : [],
+  );
+  const paths = inspection.uncommitted.value.filter((path) => !artifacts.has(path));
+  return paths.length === 0 ? [] : [{ reason: "uncommitted_work", paths }];
+}
+
+function writePathsCheck(request: ResultRequest): ResultRefusal[] {
+  const { inspection, writePaths } = request;
+  // The commit shape check is pure, so this check asks it again whether one result commit exists.
+  if (commitShape(request).length > 0) {
+    return [
+      {
+        reason: "result_check_not_run",
+        check: "write-paths",
+        detail: "There is no one result commit to compare with the base commit.",
+      },
+    ];
+  }
+  if (inspection.changedFiles.status === "unread") {
+    return [
+      {
+        reason: "result_check_not_run",
+        check: "write-paths",
+        detail: inspection.changedFiles.detail,
+      },
+    ];
+  }
+  const paths = outsideWritePaths(inspection.changedFiles.value, writePaths);
+  return paths.length === 0 ? [] : [{ reason: "outside_write_paths", paths, writePaths }];
+}
+
+function behaviorChangeBasis({ input, bases }: ResultRequest): ResultRefusal[] {
+  const entries = input.behaviorChanges.flatMap((entry, index) => {
+    const detail = basisGap(entry.basis, bases);
+    return detail === null
+      ? []
+      : [{ position: index + 1, statement: entry.statement, basis: entry.basis, detail }];
+  });
+  return entries.length === 0 ? [] : [{ reason: BEHAVIOR_CHANGE_RULE.refusal, entries }];
+}
+
+// The producer names its checks, so only the declared gate decides which names must pass.
+function projectGate({ input, gate }: ResultRequest): ResultRefusal[] {
+  if (input.resultKind !== "code") {
+    return [];
+  }
+  if (gate.status !== "declared") {
+    return [
+      {
+        reason: "result_check_not_run",
+        check: "project-gate",
+        detail: ProjectGate.describe(gate, "submit"),
+      },
+    ];
+  }
+  const commands = gate.commands.flatMap(({ name }) => {
+    const recorded = input.checks.filter((one) => one.name === name).map((one) => one.outcome);
+    return recorded.length > 0 && recorded.every((one) => one === "passed")
+      ? []
+      : [{ name, recorded }];
+  });
+  return commands.length === 0
+    ? []
+    : [
+        {
+          reason: PROJECT_GATE_RULE.refusal,
+          rule: PROJECT_GATE_RULE.rule,
+          gateCommit: gate.commit,
+          commands,
+        },
+      ];
+}
+
+/** The checks of ADR 0018 in their fixed order. */
+const RESULT_CHECKS = [commitShape, workingTree, writePathsCheck, behaviorChangeBasis, projectGate];
+
 /**
  * Applies the authority limits of ADR 0018 to one inspection of the Operative checkout.
  * Every refusal is reported at once, in a fixed order: the commit shape, the working tree, the
@@ -104,134 +243,6 @@ function basisGap(basis: BehaviorChangeBasis, bases: RecordedBases): string | nu
  * so and never reports a pass. Operator checks only that a basis exists, and the review checks
  * that it covers the change.
  */
-export function refuseResult(request: {
-  inspection: CheckoutInspection;
-  input: SubmissionInput;
-  baseCommit: string;
-  writePaths: string[];
-  bases: RecordedBases;
-  gate: GateRead;
-}): ResultRefusal[] {
-  const { inspection, input, baseCommit, writePaths, bases, gate } = request;
-  const refusals: ResultRefusal[] = [];
-
-  // A result with code revisions is one commit. Without them, nothing names a result commit,
-  // and the write paths still read every commit since the base.
-  let shaped = true;
-  if (input.code !== null) {
-    if (inspection.commits.status === "unread") {
-      shaped = false;
-      refusals.push({
-        reason: "result_check_not_run",
-        check: "commit-shape",
-        detail: inspection.commits.detail,
-      });
-    } else {
-      const commits = inspection.commits.value;
-      const [newest] = commits;
-      // A second commit is the parent of the newest one, so the parent check also counts them.
-      shaped =
-        newest !== undefined &&
-        newest.parents.length === 1 &&
-        newest.parents[0] === baseCommit &&
-        input.code.baseCommit === baseCommit &&
-        input.code.resultCommit === newest.commit;
-      if (!shaped) {
-        refusals.push({
-          reason: ONE_COMMIT_RULE.refusal,
-          rule: ONE_COMMIT_RULE.rule,
-          baseCommit,
-          commits,
-          statedBase: input.code.baseCommit,
-          statedResult: input.code.resultCommit,
-        });
-      }
-    }
-  }
-
-  if (inspection.uncommitted.status === "unread") {
-    refusals.push({
-      reason: "result_check_not_run",
-      check: "working-tree",
-      detail: inspection.uncommitted.detail,
-    });
-  } else {
-    // A path artifact of a non-code result is the one file that may stay uncommitted, and only
-    // inside the write paths.
-    const artifacts = new Set(
-      input.resultKind === "non-code"
-        ? input.artifacts
-            .filter((one) => one.kind === "path")
-            .map((one) => one.value)
-            .filter((path) => outsideWritePaths([path], writePaths).length === 0)
-        : [],
-    );
-    const paths = inspection.uncommitted.value.filter((path) => !artifacts.has(path));
-    if (paths.length > 0) {
-      refusals.push({ reason: "uncommitted_work", paths });
-    }
-  }
-
-  if (!shaped) {
-    refusals.push({
-      reason: "result_check_not_run",
-      check: "write-paths",
-      detail: "There is no one result commit to compare with the base commit.",
-    });
-  } else if (inspection.changedFiles.status === "unread") {
-    refusals.push({
-      reason: "result_check_not_run",
-      check: "write-paths",
-      detail: inspection.changedFiles.detail,
-    });
-  } else {
-    const paths = outsideWritePaths(inspection.changedFiles.value, writePaths);
-    if (paths.length > 0) {
-      refusals.push({ reason: "outside_write_paths", paths, writePaths });
-    }
-  }
-
-  const entries = input.behaviorChanges.flatMap((entry, index) => {
-    const detail = basisGap(entry.basis, bases);
-    return detail === null
-      ? []
-      : [{ position: index + 1, statement: entry.statement, basis: entry.basis, detail }];
-  });
-  if (entries.length > 0) {
-    refusals.push({ reason: BEHAVIOR_CHANGE_RULE.refusal, entries });
-  }
-
-  // The producer names its checks, so only the declared gate decides which names must pass.
-  if (input.resultKind === "code") {
-    if (gate.status !== "declared") {
-      refusals.push({
-        reason: "result_check_not_run",
-        check: "project-gate",
-        detail: `${gate.path} at ${gate.commit} is ${gate.status}${
-          gate.status === "invalid"
-            ? `: ${gate.issues.join("; ")}`
-            : gate.status === "unread"
-              ? `: ${gate.detail}`
-              : ""
-        }.`,
-      });
-    } else {
-      const commands = gate.commands.flatMap(({ name }) => {
-        const recorded = input.checks.filter((one) => one.name === name).map((one) => one.outcome);
-        return recorded.length > 0 && recorded.every((one) => one === "passed")
-          ? []
-          : [{ name, recorded }];
-      });
-      if (commands.length > 0) {
-        refusals.push({
-          reason: PROJECT_GATE_RULE.refusal,
-          rule: PROJECT_GATE_RULE.rule,
-          gateCommit: gate.commit,
-          commands,
-        });
-      }
-    }
-  }
-
-  return refusals;
+export function refuseResult(request: ResultRequest): ResultRefusal[] {
+  return RESULT_CHECKS.flatMap((check) => check(request));
 }

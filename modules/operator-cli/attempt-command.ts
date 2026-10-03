@@ -1,4 +1,5 @@
 import { CrewState } from "../crew-state/main.ts";
+import { ProjectGate } from "../project-gate/main.ts";
 import type { ParsedArguments } from "./arguments.ts";
 import { readStructuredInput, reportInvalidInput, reportSharedFailure } from "./crew-result.ts";
 import { requireReference } from "./reference.ts";
@@ -74,12 +75,6 @@ function reportGateUnusable(
 ): Handled {
   const { gate } = result;
   const reason = `project_gate_${gate.status}` as const;
-  const why =
-    gate.status === "missing"
-      ? `Commit ${gate.commit} holds no ${gate.path}.`
-      : gate.status === "invalid"
-        ? `${gate.path} at ${gate.commit} is not valid: ${gate.issues.join("; ")}.`
-        : `${gate.path} could not be read at ${gate.commit}: ${gate.detail}`;
   return refuse({
     json: parsed.json,
     operation,
@@ -87,7 +82,7 @@ function reportGateUnusable(
     reason,
     detail: { attemptId: result.attemptId, commit: gate.commit, path: gate.path },
     lines: [
-      why,
+      ProjectGate.describe(gate, "dispatch"),
       "A producer runs the project gate before it submits, so nothing was launched.",
       `The person commits a valid ${gate.path} at the repository root. Then dispatch from a commit that holds it.`,
     ],

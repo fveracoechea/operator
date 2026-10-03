@@ -1,3 +1,4 @@
+import { ProjectGate } from "../project-gate/main.ts";
 import {
   CLAUDE_IMPORT_PATH,
   CONFIG_PATH,
@@ -371,30 +372,25 @@ function gateCheck(observation: Observation): Check {
   const gate = observation.gate;
   switch (gate.status) {
     case "declared":
-      return check(
-        "project-gate",
-        null,
-        `${gate.path} at ${gate.commit} declares ${gate.commands.map((one) => one.name).join(", ")}.`,
-        null,
-      );
+      return check("project-gate", null, ProjectGate.describe(gate, "readiness"), null);
     case "missing":
       return check("project-gate", null, "", {
         reason: "project_gate_missing",
-        detail: `The commit ${gate.commit} at HEAD holds no ${gate.path}, so no code result can show that it passed the project gate.`,
+        detail: ProjectGate.describe(gate, "readiness"),
         nextAction: `The person commits ${gate.path} at the repository root, with each gate command and its time limit. Then check again.`,
         paths: [gate.path],
       });
     case "invalid":
       return check("project-gate", null, "", {
         reason: "project_gate_invalid",
-        detail: `${gate.path} at ${gate.commit} is not a valid project gate: ${gate.issues.join("; ")}.`,
+        detail: ProjectGate.describe(gate, "readiness"),
         nextAction: `The person corrects ${gate.path} and commits it. Then check again.`,
         paths: [gate.path],
       });
     case "unread":
       return check("project-gate", null, "", {
         reason: "project_gate_unread",
-        detail: `${gate.path} could not be read at HEAD: ${gate.detail}`,
+        detail: ProjectGate.describe(gate, "readiness"),
         nextAction: `The person makes a commit that holds ${gate.path} at HEAD. Then check again.`,
         paths: [gate.path],
       });
