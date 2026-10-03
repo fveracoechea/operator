@@ -25,7 +25,6 @@
         "modules/crew-state/result-checks.ts",
         "modules/crew-state/review-report.ts",
         "modules/crew-state/rewrite.ts",
-        "modules/crew-state/stack-parts.ts",
         "modules/crew-state/tracker-apply.ts",
         "modules/crew-state/tracker-show.ts",
         "modules/crew-wake/check.ts",

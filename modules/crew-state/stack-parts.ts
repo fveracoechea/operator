@@ -1,24 +1,28 @@
-import { and, asc, desc, eq } from "drizzle-orm";
-import { z } from "zod";
+import { and, eq } from "drizzle-orm";
 import type { PullRequestStack } from "../pull-request-stack/main.ts";
 import type { ApprovalCheck } from "./approval-input.ts";
 import { matchApproval } from "./approvals.ts";
 import type { CrewReader } from "./database.ts";
 import { identityOf } from "./identity.ts";
 import { currentLandingOf, landedOfSource } from "./landing-record.ts";
+import { assignments, integrationBranches, invalidations } from "./schema.ts";
 import {
-  assignments,
-  integrationBranches,
-  invalidations,
-  publishEffects,
-  stackObservations,
-  stackPublications,
-  stackPullRequests,
-  workSources,
-} from "./schema.ts";
+  type EffectRow,
+  effectsOf,
+  type FaultName,
+  latestObservationOf,
+  type ObservationRow,
+  type PublicationRow,
+  publicationsOf,
+  type PullRow,
+  pullsOf,
+  repositoryOf,
+  storedEffect,
+  writtenPullsOf,
+} from "./stack-records.ts";
 import { readStored } from "./stored.ts";
 import { defectInputSchema } from "./rework-input.ts";
-import { storedTrackerBinding, storedTrackerLocation } from "./work-input.ts";
+import { storedTrackerBinding } from "./work-input.ts";
 
 /**
  * The approval action by which a person settles what GitHub shows and Operator adopts nothing
@@ -32,9 +36,6 @@ export const RECALL_ACTION = "stack-recall";
 
 type RecallCause = Parameters<typeof PullRequestStack.recallComment>[0]["causes"][number];
 type ApprovalRequest = ApprovalCheck;
-type PublicationRow = typeof stackPublications.$inferSelect;
-type PullRow = typeof stackPullRequests.$inferSelect;
-type EffectRow = typeof publishEffects.$inferSelect;
 
 /**
  * Where one published pull request stands for a change after publish. `recalled` is a draft that
@@ -43,54 +44,12 @@ type EffectRow = typeof publishEffects.$inferSelect;
  */
 export type PartStatus = "open" | "recalled" | "closed" | "merged";
 
-function publicationsOf(db: CrewReader, sourceId: string): PublicationRow[] {
-  return db
-    .select()
-    .from(stackPublications)
-    .where(eq(stackPublications.sourceId, sourceId))
-    .orderBy(asc(stackPublications.number))
-    .all();
-}
-
-function pullsOf(db: CrewReader, publicationId: string): PullRow[] {
-  return db
-    .select()
-    .from(stackPullRequests)
-    .where(eq(stackPullRequests.publicationId, publicationId))
-    .orderBy(asc(stackPullRequests.part))
-    .all();
-}
-
-function effectRowsOf(db: CrewReader, publicationId: string): EffectRow[] {
-  return db
-    .select()
-    .from(publishEffects)
-    .where(eq(publishEffects.publicationId, publicationId))
-    .orderBy(asc(publishEffects.position))
-    .all();
-}
-
-const numbered = z.looseObject({ number: z.int() });
-
 /** The pull request numbers one kind of write of one publication reached, with its outcome done. */
 function doneOn(db: CrewReader, publicationId: string, kind: "recall" | "close"): Set<number> {
   return new Set(
-    effectRowsOf(db, publicationId)
+    effectsOf(db, publicationId)
       .filter((one) => one.kind === kind && one.state === "done")
-      .map((one) => readStored("pull request write", numbered, one.intent).number),
-  );
-}
-
-function latestSeen(db: CrewReader, publicationId: string, part: number) {
-  return (
-    db
-      .select()
-      .from(stackObservations)
-      .where(
-        and(eq(stackObservations.publicationId, publicationId), eq(stackObservations.part, part)),
-      )
-      .orderBy(desc(stackObservations.observedAt))
-      .all()[0] ?? null
+      .flatMap((one) => pullTargetOf(one) ?? []),
   );
 }
 
@@ -103,7 +62,7 @@ export function partStatusesOf(
   const closed = doneOn(db, publication.id, "close");
   return new Map(
     pullsOf(db, publication.id).map((pull) => {
-      const seen = latestSeen(db, publication.id, pull.part);
+      const seen = latestObservationOf(db, publication.id, pull.part);
       const number = pull.number ?? -1;
       const status: PartStatus =
         seen?.state === "merged"
@@ -280,13 +239,6 @@ export type MergedHeld = {
   causes: RecallCause[];
 };
 
-function repositoryOf(db: CrewReader, sourceId: string): string {
-  const source = db.select().from(workSources).where(eq(workSources.id, sourceId)).all()[0];
-  return source?.trackerLocation == null
-    ? sourceId
-    : storedTrackerLocation(source.trackerLocation).repository;
-}
-
 const OPEN_WORK = new Set(["accepted", "withdrawn"]);
 
 /** Whether a new publication will carry work above the recalled point (decision 30). */
@@ -370,6 +322,30 @@ export function recallOf(
 }
 
 /**
+ * The lowest part of one publication that a new publication replaces, or infinity for none: a
+ * recalled or closed part, a part with a settled fault that ended it, or the part above a settled
+ * merge by another method, which stays merged.
+ */
+function lowestReplacedOf(
+  pulls: PullRow[],
+  statuses: Map<number, PartStatus>,
+  faults: Fault[],
+): number {
+  const ended = pulls.find((one) => {
+    const status = statuses.get(one.part);
+    return status === "recalled" || status === "closed";
+  });
+  const firstFault = faults[0];
+  const faulted =
+    firstFault === undefined || !firstFault.settled
+      ? Number.POSITIVE_INFINITY
+      : firstFault.fault === "not_merge_commit"
+        ? firstFault.part + 1
+        : firstFault.part;
+  return Math.min(ended?.part ?? Number.POSITIVE_INFINITY, faulted);
+}
+
+/**
  * Where the next stack publication of one source starts (decision 23). The last publication
  * keeps each part below its lowest part that a recall, a close, or a fault ended; the parts above
  * that one are replaced. A kept part must merge first, so the new publication starts on its
@@ -391,26 +367,13 @@ export function publishBaseOf(
   unsettled: Fault[];
 } {
   const publication = publicationsOf(db, sourceId).at(-1);
-  const pulls = publication === undefined ? [] : pullsOf(db, publication.id);
-  if (publication === undefined || pulls.some((one) => one.number === null)) {
+  const pulls = publication === undefined ? null : writtenPullsOf(db, publication.id);
+  if (publication === undefined || pulls === null) {
     return { base: null, replaces: [], waiting: [], superseded: false, unsettled: [] };
   }
   const statuses = partStatusesOf(db, publication);
   const faults = faultsOf(db, publication);
-  // The lowest part a new publication replaces: a recalled or closed part, a part with a settled
-  // fault that ended it, or the part above a settled merge by another method, which stays merged.
-  const firstFault = faults[0];
-  const lowest = Math.min(
-    pulls.find((one) => {
-      const status = statuses.get(one.part);
-      return status === "recalled" || status === "closed";
-    })?.part ?? Number.POSITIVE_INFINITY,
-    firstFault === undefined || !firstFault.settled
-      ? Number.POSITIVE_INFINITY
-      : firstFault.fault === "not_merge_commit"
-        ? firstFault.part + 1
-        : firstFault.part,
-  );
+  const lowest = lowestReplacedOf(pulls, statuses, faults);
   const kept = pulls.filter((one) => one.part < lowest);
   const replaces = pulls
     .filter(
@@ -418,7 +381,7 @@ export function publishBaseOf(
         one.part >= lowest &&
         (statuses.get(one.part) === "recalled" || statuses.get(one.part) === "open"),
     )
-    .map((one) => ({ number: one.number ?? 0, url: one.url, head: one.publishedCommit }));
+    .map((one) => ({ number: one.number, url: one.url, head: one.publishedCommit }));
   const candidate = kept.at(-1)?.publishedCommit ?? publication.baseCommit;
   const branch = branchChain(db, sourceId);
   const onBranch =
@@ -428,7 +391,7 @@ export function publishBaseOf(
     replaces,
     waiting: kept
       .filter((one) => statuses.get(one.part) !== "merged")
-      .map((one) => ({ publication: publication.number, part: one.part, number: one.number ?? 0 })),
+      .map((one) => ({ publication: publication.number, part: one.part, number: one.number })),
     superseded: Number.isFinite(lowest),
     unsettled: faults.filter((one) => !one.settled),
   };
@@ -436,9 +399,8 @@ export function publishBaseOf(
 
 /** The pull request a write on an existing pull request names, or null for a push or a create. */
 function pullTargetOf(effect: EffectRow): number | null {
-  return effect.kind === "retarget" || effect.kind === "recall" || effect.kind === "close"
-    ? readStored("pull request write", numbered, effect.intent).number
-    : null;
+  const intent = storedEffect(effect.intent);
+  return "number" in intent ? intent.number : null;
 }
 
 /**
@@ -470,8 +432,6 @@ export function conflictSettled(db: CrewReader, sourceId: string, effect: Effect
   return settlement !== null && matchApproval(db, settlement).status === "matched";
 }
 
-type ObservationRow = typeof stackObservations.$inferSelect;
-
 /**
  * The approval that settles one fault as one reading recorded it. Its revision is that reading,
  * so a different fault, a moved head, or another merge needs a new settlement.
@@ -480,7 +440,7 @@ function faultSettlementOf(
   db: CrewReader,
   publication: PublicationRow,
   seen: ObservationRow,
-  fault: string,
+  fault: FaultName,
 ): ApprovalRequest {
   return {
     action: STACK_FAULT_ACTION,
@@ -500,7 +460,7 @@ function faultSettlementOf(
 export type Fault = {
   part: number;
   number: number;
-  fault: string;
+  fault: FaultName;
   detail: string;
   settlement: ApprovalRequest;
   settled: boolean;
@@ -523,7 +483,7 @@ export function faultsOf(db: CrewReader, publication: PublicationRow): Fault[] {
     (one) => one.publication.id === publication.id,
   );
   return pullsOf(db, publication.id).flatMap((pull): Fault[] => {
-    const seen = latestSeen(db, publication.id, pull.part);
+    const seen = latestObservationOf(db, publication.id, pull.part);
     if (seen === null) {
       return [];
     }

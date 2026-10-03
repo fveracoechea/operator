@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { HerdrControl } from "../herdr-control/main.ts";
 import { PullRequestStack } from "../pull-request-stack/main.ts";
@@ -15,29 +15,30 @@ import {
   planPublish,
   type ReplacedPull,
   type ApprovalRequest,
-  effectsOf,
   openEffectsOf,
   PUBLISH_ACTION,
-  publicationsOf,
-  pullRequestsOf,
   runEffects,
   trackerStepTarget,
 } from "./publish.ts";
+import { assignments, gateCheckouts, stackObservations, workSources } from "./schema.ts";
 import {
-  assignments,
-  gateCheckouts,
-  publishEffects,
-  stackObservations,
-  stackPublications,
-  workSources,
-} from "./schema.ts";
+  appendEffects,
+  effectsOf,
+  latestObservationOf,
+  type ObservationRow,
+  type PublicationRow,
+  publicationsOf,
+  pullsOf,
+  repositoryOf,
+  type StoredEffect,
+  storedEffect,
+  writtenPullsOf,
+} from "./stack-records.ts";
 import { readStored } from "./stored.ts";
 import { latestSubmission, submittedCommit } from "./submission.ts";
 import { readBinding, TRACKER_STEPS, targetOf, trackerOperationFor } from "./tracker.ts";
 import { storedTrackerBinding, storedTrackerLocation } from "./work-input.ts";
 
-type PublicationRow = typeof stackPublications.$inferSelect;
-type ObservationRow = typeof stackObservations.$inferSelect;
 type Observed = Extract<Awaited<ReturnType<typeof PullRequestStack.observe>>, { status: "read" }>;
 type Seen = Observed["seen"][number];
 
@@ -66,26 +67,8 @@ export function trackerStepsOf(publication: PublicationRow) {
   return readStored("publication tracker steps", trackerStepsSchema, publication.trackerSteps);
 }
 
-/** The latest reading of one part of one publication, or null before the first read. */
-export function latestObservationOf(
-  db: CrewReader,
-  publicationId: string,
-  part: number,
-): ObservationRow | null {
-  return (
-    db
-      .select()
-      .from(stackObservations)
-      .where(
-        and(eq(stackObservations.publicationId, publicationId), eq(stackObservations.part, part)),
-      )
-      .orderBy(desc(stackObservations.observedAt))
-      .all()[0] ?? null
-  );
-}
-
 /** A part reached the target with its commits, so the tracker steps of its items may run. */
-function reachedTarget(seen: ObservationRow | null): boolean {
+function reachedTarget(seen: ObservationRow | null): seen is ObservationRow {
   return (
     seen !== null &&
     seen.state === "merged" &&
@@ -109,11 +92,12 @@ export function publishedPartsOf(
   const merged: Array<{ number: number; publishedCommit: string; mergeCommit: string }> = [];
   const open: Array<{ number: number | null; url: string | null; fault: string | null }> = [];
   for (const publication of publicationsOf(db, sourceId)) {
-    for (const pull of pullRequestsOf(db, publication.id)) {
+    for (const pull of pullsOf(db, publication.id)) {
       const seen = latestObservationOf(db, publication.id, pull.part);
-      if (reachedTarget(seen) && seen?.mergeCommit != null) {
+      if (reachedTarget(seen) && seen.mergeCommit !== null) {
+        // The reading names the number GitHub gave the pull request it read.
         merged.push({
-          number: pull.number ?? 0,
+          number: seen.number,
           publishedCommit: pull.publishedCommit,
           mergeCommit: seen.mergeCommit,
         });
@@ -176,13 +160,14 @@ function replacedSplitOf(
 ): { pulls: ReplacedPull[]; headMoved: ReplacedPull[] } {
   const last = writtenPublicationOf(db, sourceId);
   const moved = new Set(
-    (last?.pulls ?? [])
-      .filter(
-        (pull) =>
-          last !== null &&
-          latestObservationOf(db, last.publication.id, pull.part)?.fault === "head_moved",
-      )
-      .map((pull) => pull.number),
+    last === null || !last.written
+      ? []
+      : last.pulls
+          .filter(
+            (pull) =>
+              latestObservationOf(db, last.publication.id, pull.part)?.fault === "head_moved",
+          )
+          .map((pull) => pull.number),
   );
   const replaced = replacedPullsOf(db, sourceId);
   return {
@@ -246,9 +231,9 @@ export function mergeGateOf(db: CrewReader, assignmentId: string): MergeGate {
     };
   }
   const { publication, step } = found;
-  const pull = pullRequestsOf(db, publication.id).find((one) => one.part === step.part);
+  const pull = pullsOf(db, publication.id).find((one) => one.part === step.part);
   const seen = latestObservationOf(db, publication.id, step.part);
-  if (pull?.number == null || !reachedTarget(seen) || seen === null) {
+  if (pull?.number == null || !reachedTarget(seen)) {
     return {
       status: "waiting",
       detail:
@@ -305,18 +290,10 @@ function writtenPublicationOf(db: CrewReader, sourceId: string) {
   if (publication === undefined) {
     return null;
   }
-  const pulls = pullRequestsOf(db, publication.id);
-  const written =
-    openEffectsOf(db, publication).length === 0 && pulls.every((one) => one.number !== null);
-  return { publication, pulls, written };
-}
-
-/** The repository of one source, which names its pull requests in an approval target. */
-function repositoryOf(db: CrewReader, sourceId: string): string {
-  const source = db.select().from(workSources).where(eq(workSources.id, sourceId)).all()[0];
-  return source?.trackerLocation == null
-    ? sourceId
-    : storedTrackerLocation(source.trackerLocation).repository;
+  const pulls = writtenPullsOf(db, publication.id);
+  return pulls === null || openEffectsOf(db, publication).length > 0
+    ? { publication, written: false as const }
+    : { publication, pulls, written: true as const };
 }
 
 /**
@@ -325,7 +302,7 @@ function repositoryOf(db: CrewReader, sourceId: string): string {
  */
 function partsOf(db: CrewReader, publication: PublicationRow) {
   const statuses = partStatusesOf(db, publication);
-  const pulls = pullRequestsOf(db, publication.id).map((pull) => ({
+  const pulls = pullsOf(db, publication.id).map((pull) => ({
     pull,
     seen: latestObservationOf(db, publication.id, pull.part),
     status: statuses.get(pull.part) ?? "open",
@@ -399,14 +376,19 @@ function retargetApprovalOf(publication: PublicationRow, headName: string): Appr
   };
 }
 
+type RetargetIntent = Extract<StoredEffect, { kind: "retarget" }>;
+
+/** Each retarget write of one publication, with its intent and its recorded outcome. */
+function retargetsOf(db: CrewReader, publicationId: string) {
+  return effectsOf(db, publicationId).flatMap((one) => {
+    const intent = storedEffect(one.intent);
+    return intent.kind === "retarget" ? [{ intent, outcome: one.outcome }] : [];
+  });
+}
+
 /** The pull request numbers one publication already has a retarget write for. */
 function retargetedOf(db: CrewReader, publicationId: string): Set<number> {
-  return new Set(
-    effectsOf(db, publicationId)
-      .filter((one) => one.kind === "retarget")
-      .map((one) => readStored("retarget intent", z.looseObject({ number: z.int() }), one.intent))
-      .map((one) => one.number),
-  );
+  return new Set(retargetsOf(db, publicationId).map((one) => one.intent.number));
 }
 
 export type RetargetDue = {
@@ -669,20 +651,21 @@ export async function observePublish(request: {
   if (read.last === null) {
     return { status: "nothing-published", sourceId: request.sourceId };
   }
-  const { publication, pulls, written } = read.last;
-  if (!written || read.source.trackerLocation === null) {
+  const { last } = read;
+  if (!last.written || read.source.trackerLocation === null) {
     return {
       status: "publish-unsettled",
       sourceId: request.sourceId,
-      publication: publication.number,
+      publication: last.publication.number,
     };
   }
+  const { publication, pulls } = last;
   const observed = await PullRequestStack.observe({
     repository: storedTrackerLocation(read.source.trackerLocation).repository,
     target: publication.target,
     pullRequests: pulls.map((one) => ({
       part: one.part,
-      number: one.number ?? 0,
+      number: one.number,
       publishedCommit: one.publishedCommit,
     })),
   });
@@ -830,26 +813,14 @@ export async function retargetPublish(request: {
       if (retargetedOf(tx, due.publicationId).has(due.number)) {
         return { commit: false, outcome: { status: "recorded" as const } };
       }
-      const position = effectsOf(tx, due.publicationId).length;
-      tx.insert(publishEffects)
-        .values({
-          id: crypto.randomUUID(),
-          publicationId: due.publicationId,
-          position,
-          kind: "retarget",
-          intent: JSON.stringify({
-            kind: "retarget",
-            repository,
-            number: due.number,
-            from: due.from,
-            base: due.target,
-          }),
-          state: "intended",
-          outcome: null,
-          createdAt: now,
-          settledAt: null,
-        })
-        .run();
+      const retarget: RetargetIntent = {
+        kind: "retarget",
+        repository,
+        number: due.number,
+        from: due.from,
+        base: due.target,
+      };
+      appendEffects(tx, { publicationId: due.publicationId, effects: [retarget], now });
       return { commit: true, outcome: { status: "recorded" as const } };
     },
   );
@@ -860,27 +831,20 @@ export async function retargetPublish(request: {
   if (ran.status !== "published") {
     return ran;
   }
-  const outcome = await readState(request.projectRoot, (db) =>
-    effectsOf(db, due.publicationId)
-      .filter((one) => one.kind === "retarget")
-      .map((one) => ({
-        number: readStored("retarget intent", z.looseObject({ number: z.int() }), one.intent)
-          .number,
-        outcome: readStored(
+  const how = await readState(request.projectRoot, (db) => {
+    const retarget = retargetsOf(db, due.publicationId).find(
+      (one) => one.intent.number === due.number,
+    );
+    return retarget === undefined
+      ? "observed"
+      : readStored(
           "retarget outcome",
           z.looseObject({ how: z.enum(["observed", "written"]) }),
-          one.outcome ?? "{}",
-        ),
-      }))
-      .find((one) => one.number === due.number),
-  );
-  if (outcome !== undefined && "status" in outcome) {
-    return outcome;
+          retarget.outcome ?? "{}",
+        ).how;
+  });
+  if (typeof how !== "string") {
+    return how;
   }
-  return {
-    status: "retargeted",
-    part: due.part,
-    number: due.number,
-    how: outcome?.outcome.how ?? "observed",
-  };
+  return { status: "retargeted", part: due.part, number: due.number, how };
 }

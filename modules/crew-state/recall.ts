@@ -3,18 +3,16 @@ import { matchApproval } from "./approvals.ts";
 import type { CrewReader } from "./database.ts";
 import { identityOf } from "./identity.ts";
 import { mutate, readState, type RequestFailure, type StateFailure } from "./operations.ts";
+import { type ApplyResult, type ApprovalRequest, openEffectsOf, runEffects } from "./publish.ts";
+import { workSources } from "./schema.ts";
+import { RECALL_ACTION, recallOf } from "./stack-parts.ts";
 import {
-  type ApplyResult,
-  type ApprovalRequest,
+  appendEffects,
   effectsOf,
-  openEffectsOf,
   publicationsOf,
-  runEffects,
   type StoredEffect,
   storedEffect,
-} from "./publish.ts";
-import { publishEffects, workSources } from "./schema.ts";
-import { RECALL_ACTION, recallOf } from "./stack-parts.ts";
+} from "./stack-records.ts";
 import { eq } from "drizzle-orm";
 
 const PLAN_STORE = ".operator/local/publish-plans";
@@ -271,22 +269,7 @@ export async function applyRecall(request: {
               head: one.head,
             }))),
       ];
-      const start = effectsOf(tx, planned.publicationId).length;
-      effects.forEach((effect, index) => {
-        tx.insert(publishEffects)
-          .values({
-            id: crypto.randomUUID(),
-            publicationId: planned.publicationId,
-            position: start + index,
-            kind: effect.kind,
-            intent: JSON.stringify(effect),
-            state: "intended",
-            outcome: null,
-            createdAt: now,
-            settledAt: null,
-          })
-          .run();
-      });
+      appendEffects(tx, { publicationId: planned.publicationId, effects, now });
       return {
         commit: true,
         outcome: { status: "recorded" as const, publicationId: planned.publicationId },

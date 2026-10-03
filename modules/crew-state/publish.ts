@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { PullRequestStack } from "../pull-request-stack/main.ts";
 import { matchApproval } from "./approvals.ts";
@@ -9,6 +9,16 @@ import { mutate, readState, type RequestFailure, type StateFailure } from "./ope
 import { publishRecordsOf, type RecordRefusal } from "./publish-gate.ts";
 import { conflictSettled, conflictSettlementOf } from "./stack-parts.ts";
 import { publishEffects, stackPublications, stackPullRequests } from "./schema.ts";
+import {
+  appendEffects,
+  effectsOf,
+  type EffectRow,
+  type PublicationRow,
+  publicationsOf,
+  pullsOf,
+  type StoredEffect,
+  storedEffect,
+} from "./stack-records.ts";
 import { readStored } from "./stored.ts";
 
 /** The approval action that covers one stack publication (ADR 0022, decision 9). */
@@ -54,89 +64,6 @@ export function closeTarget(repository: string, number: number): string {
 }
 
 const PLAN_STORE = ".operator/local/publish-plans";
-
-const effectSchema = z.discriminatedUnion("kind", [
-  z.strictObject({
-    kind: z.literal("push"),
-    remote: z.string(),
-    refs: z.array(z.strictObject({ name: z.string(), commit: z.string() })),
-  }),
-  z.strictObject({
-    kind: z.literal("create"),
-    repository: z.string(),
-    head: z.string(),
-    base: z.string(),
-    title: z.string(),
-    body: z.string(),
-  }),
-  z.strictObject({
-    kind: z.literal("retarget"),
-    repository: z.string(),
-    number: z.int(),
-    from: z.string(),
-    base: z.string(),
-  }),
-  z.strictObject({
-    kind: z.literal("recall"),
-    repository: z.string(),
-    number: z.int(),
-    comment: z.string(),
-    marker: z.string(),
-    /** The recall plan revision that the `stack-recall` approval binds (D1). */
-    recall: z.string(),
-  }),
-  z.strictObject({
-    kind: z.literal("close"),
-    repository: z.string(),
-    number: z.int(),
-    /** The publication that replaces it, or null when a recall closes it with no replacement. */
-    publication: z.int().nullable(),
-    /** The recall plan revision when the recall closes it with no replacement. */
-    recall: z.string().optional(),
-    /** The published commit, so a close writes nothing after a person moved the head. */
-    head: z.string().optional(),
-  }),
-]);
-
-/**
- * One write as its intent records it. A create learns the number of the part below at run, and a
- * close learns the number of the first part that replaces it.
- */
-export type StoredEffect = z.infer<typeof effectSchema>;
-
-export function storedEffect(intent: string): StoredEffect {
-  return readStored("publish effect", effectSchema, intent);
-}
-
-type PublicationRow = typeof stackPublications.$inferSelect;
-type EffectRow = typeof publishEffects.$inferSelect;
-
-export function publicationsOf(db: CrewReader, sourceId: string): PublicationRow[] {
-  return db
-    .select()
-    .from(stackPublications)
-    .where(eq(stackPublications.sourceId, sourceId))
-    .orderBy(asc(stackPublications.number))
-    .all();
-}
-
-export function effectsOf(db: CrewReader, publicationId: string): EffectRow[] {
-  return db
-    .select()
-    .from(publishEffects)
-    .where(eq(publishEffects.publicationId, publicationId))
-    .orderBy(asc(publishEffects.position))
-    .all();
-}
-
-export function pullRequestsOf(db: CrewReader, publicationId: string) {
-  return db
-    .select()
-    .from(stackPullRequests)
-    .where(eq(stackPullRequests.publicationId, publicationId))
-    .orderBy(asc(stackPullRequests.part))
-    .all();
-}
 
 /**
  * The writes of one publication that are not done, in order. A conflict that a person settled is
@@ -469,21 +396,7 @@ function recordPublication(
       head: one.head,
     })),
   ];
-  effects.forEach((effect, position) => {
-    db.insert(publishEffects)
-      .values({
-        id: crypto.randomUUID(),
-        publicationId,
-        position,
-        kind: effect.kind,
-        intent: JSON.stringify(effect),
-        state: "intended",
-        outcome: null,
-        createdAt: request.now,
-        settledAt: null,
-      })
-      .run();
-  });
+  appendEffects(db, { publicationId, effects, now: request.now });
   preview.ships.parts.forEach((one, index) => {
     db.insert(stackPullRequests)
       .values({
@@ -558,7 +471,7 @@ export type ApplyResult =
 /** The recorded number of the lowest part of one publication, which a replaced one points to. */
 async function firstPartOf(projectRoot: string, publicationId: string): Promise<number | null> {
   const read = await readState(projectRoot, (db) => ({
-    first: pullRequestsOf(db, publicationId)[0] ?? null,
+    first: pullsOf(db, publicationId)[0] ?? null,
   }));
   return "status" in read ? null : (read.first?.number ?? null);
 }
@@ -573,7 +486,7 @@ async function belowOf(
   base: string,
 ): Promise<number | null> {
   const read = await readState(projectRoot, (db) =>
-    pullRequestsOf(db, publicationId).find((one) => one.headName === base),
+    pullsOf(db, publicationId).find((one) => one.headName === base),
   );
   return read === undefined || "status" in read ? null : read.number;
 }
@@ -687,7 +600,7 @@ export async function runEffects(
     }
   }
   const pullRequests = await readState(request.projectRoot, (db) =>
-    pullRequestsOf(db, publicationId).map((one) => ({
+    pullsOf(db, publicationId).map((one) => ({
       part: one.part,
       headName: one.headName,
       number: one.number,
