@@ -52,28 +52,10 @@ function conflictLines(plan: Plan): string[] {
   ];
 }
 
-function reportConflicts(
-  parsed: ParsedArguments,
-  plan: Plan,
-  operation: "setup_plan" | "setup_apply",
-): void {
-  report({
-    json: parsed.json,
-    result: {
-      outcome: "conflict",
-      reason: "setup_conflict",
-      blockers: plan.conflicts.map((conflict) => ({ ...conflict })),
-      operation,
-      data: planData(plan),
-    },
-    lines: conflictLines(plan),
-  });
-}
-
 async function runPlan(parsed: ParsedArguments): Promise<void> {
   const plan = await ProjectSetup.plan({ projectRoot: process.cwd(), targets: parsed.targets });
   if (plan.conflicts.length > 0) {
-    reportConflicts(parsed, plan, "setup_plan");
+    report({ json: parsed.json, ...conflictReport(plan, "setup_plan") });
     return;
   }
 
@@ -90,114 +72,121 @@ async function runPlan(parsed: ParsedArguments): Promise<void> {
   });
 }
 
-async function runApply(parsed: ParsedArguments): Promise<void> {
-  const result = await ProjectSetup.apply({
-    projectRoot: process.cwd(),
-    targets: parsed.targets,
-    approvedPlanId: parsed.approvedPlan,
-  });
+type Report = Omit<Parameters<typeof report>[0], "json">;
+type ApplyResult = Awaited<ReturnType<typeof ProjectSetup.apply>>;
+type RollbackResult = Awaited<ReturnType<typeof ProjectSetup.rollback>>;
+type ByStatus<R extends { status: string }> = { [S in R["status"]]: Extract<R, { status: S }> };
+type ReportTable<M> = { [S in keyof M]: (result: M[S], parsed: ParsedArguments) => Report };
 
-  if (result.status === "unreadable") {
-    reportUnreadableJournal(parsed, "setup_apply", result.detail);
-    return;
-  }
+/** Reports one setup result through the row of its status. */
+function reportStatus<M, S extends keyof M>(
+  table: ReportTable<M>,
+  status: S,
+  result: M[S],
+  parsed: ParsedArguments,
+): void {
+  report({ json: parsed.json, ...table[status](result, parsed) });
+}
 
-  if (result.status === "recovery-pending") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: "setup_interrupted",
-        blockers: [
-          {
-            reason: "setup_interrupted",
-            detail: "An earlier setup plan is still incomplete. Its recovery record is pending.",
-          },
-        ],
-        operation: "setup_apply",
-      },
-      lines: [
-        "An earlier setup plan is still incomplete. Nothing was written.",
-        "Run `operator setup rollback` first, so the recovery record is not lost.",
+function unreadableJournal(operation: "setup_apply" | "setup_rollback", detail: string): Report {
+  return {
+    result: {
+      outcome: "conflict",
+      reason: "unreadable_journal",
+      blockers: [{ reason: "unreadable_journal", detail }],
+      operation,
+    },
+    lines: [`The setup recovery record cannot be read: ${detail}`],
+  };
+}
+
+function conflictReport(plan: Plan, operation: "setup_plan" | "setup_apply"): Report {
+  return {
+    result: {
+      outcome: "conflict",
+      reason: "setup_conflict",
+      blockers: plan.conflicts.map((conflict) => ({ ...conflict })),
+      operation,
+      data: planData(plan),
+    },
+    lines: conflictLines(plan),
+  };
+}
+
+function approvalReport(stale: boolean, plan: Plan, parsed: ParsedArguments): Report {
+  const reason = stale ? "approval_stale" : "approval_required";
+  return {
+    result: {
+      outcome: "missing-condition",
+      reason,
+      blockers: [
+        { reason, currentPlanId: plan.planId, approvedPlanId: parsed.approvedPlan ?? null },
       ],
-    });
-    return;
-  }
+      operation: "setup_apply",
+      data: planData(plan),
+    },
+    lines: [
+      stale
+        ? "The approved plan no longer matches this project or these targets. Nothing was written."
+        : "Setup needs an approved plan. Nothing was written.",
+      ...planLines(plan),
+    ],
+  };
+}
 
-  if (result.status === "conflict") {
-    reportConflicts(parsed, result.plan, "setup_apply");
-    return;
-  }
-
-  if (result.status === "approval-required" || result.status === "approval-stale") {
-    const stale = result.status === "approval-stale";
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: stale ? "approval_stale" : "approval_required",
-        blockers: [
-          {
-            reason: stale ? "approval_stale" : "approval_required",
-            currentPlanId: result.plan.planId,
-            approvedPlanId: parsed.approvedPlan ?? null,
-          },
-        ],
-        operation: "setup_apply",
-        data: planData(result.plan),
-      },
-      lines: [
-        stale
-          ? "The approved plan no longer matches this project or these targets. Nothing was written."
-          : "Setup needs an approved plan. Nothing was written.",
-        ...planLines(result.plan),
+const APPLY_REPORTS: ReportTable<ByStatus<ApplyResult>> = {
+  unreadable: (result) => unreadableJournal("setup_apply", result.detail),
+  "recovery-pending": () => ({
+    result: {
+      outcome: "missing-condition",
+      reason: "setup_interrupted",
+      blockers: [
+        {
+          reason: "setup_interrupted",
+          detail: "An earlier setup plan is still incomplete. Its recovery record is pending.",
+        },
       ],
-    });
-    return;
-  }
-
-  if (result.status === "unchanged") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "completed",
-        reason: "already_configured",
-        blockers: [],
-        operation: "setup_apply",
-        data: { ...planData(result.plan), applied: [] },
-      },
-      lines: ["The project already matches this Operator release. Nothing was written."],
-    });
-    return;
-  }
-
-  if (result.status === "interrupted") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "failed",
-        reason: "setup_interrupted",
-        blockers: [
-          {
-            reason: "setup_interrupted",
-            path: result.failedPath,
-            detail: result.detail,
-            written: result.written,
-          },
-        ],
-        operation: "setup_apply",
-        data: { ...planData(result.plan), applied: result.written },
-      },
-      lines: [
-        `Setup stopped at ${result.failedPath}: ${result.detail}`,
-        "The plan is incomplete. Run `operator setup rollback` to restore the files setup wrote.",
+      operation: "setup_apply",
+    },
+    lines: [
+      "An earlier setup plan is still incomplete. Nothing was written.",
+      "Run `operator setup rollback` first, so the recovery record is not lost.",
+    ],
+  }),
+  conflict: (result) => conflictReport(result.plan, "setup_apply"),
+  "approval-required": (result, parsed) => approvalReport(false, result.plan, parsed),
+  "approval-stale": (result, parsed) => approvalReport(true, result.plan, parsed),
+  unchanged: (result) => ({
+    result: {
+      outcome: "completed",
+      reason: "already_configured",
+      blockers: [],
+      operation: "setup_apply",
+      data: { ...planData(result.plan), applied: [] },
+    },
+    lines: ["The project already matches this Operator release. Nothing was written."],
+  }),
+  interrupted: (result) => ({
+    result: {
+      outcome: "failed",
+      reason: "setup_interrupted",
+      blockers: [
+        {
+          reason: "setup_interrupted",
+          path: result.failedPath,
+          detail: result.detail,
+          written: result.written,
+        },
       ],
-    });
-    return;
-  }
-
-  report({
-    json: parsed.json,
+      operation: "setup_apply",
+      data: { ...planData(result.plan), applied: result.written },
+    },
+    lines: [
+      `Setup stopped at ${result.failedPath}: ${result.detail}`,
+      "The plan is incomplete. Run `operator setup rollback` to restore the files setup wrote.",
+    ],
+  }),
+  applied: (result) => ({
     result: {
       outcome: "completed",
       reason: "setup_applied",
@@ -209,79 +198,49 @@ async function runApply(parsed: ParsedArguments): Promise<void> {
       "Applied the approved Operator setup plan:",
       ...result.plan.changes.map((change) => `  ${change.kind} ${change.path}`),
     ],
-  });
-}
+  }),
+};
 
-function reportUnreadableJournal(
-  parsed: ParsedArguments,
-  operation: "setup_apply" | "setup_rollback",
-  detail: string,
-): void {
-  report({
-    json: parsed.json,
+const ROLLBACK_REPORTS: ReportTable<ByStatus<RollbackResult>> = {
+  unreadable: (result) => unreadableJournal("setup_rollback", result.detail),
+  nothing: () => ({
+    result: {
+      outcome: "completed",
+      reason: "nothing_to_restore",
+      blockers: [],
+      operation: "setup_rollback",
+    },
+    lines: ["There is no interrupted setup to roll back."],
+  }),
+  complete: () => ({
+    result: {
+      outcome: "completed",
+      reason: "setup_complete",
+      blockers: [],
+      operation: "setup_rollback",
+    },
+    lines: ["The recorded setup plan is complete. There is nothing to roll back."],
+  }),
+  conflict: (result) => ({
     result: {
       outcome: "conflict",
-      reason: "unreadable_journal",
-      blockers: [{ reason: "unreadable_journal", detail }],
-      operation,
+      reason: "restore_conflict",
+      blockers: result.conflicts.map((conflict) => ({
+        reason: "restore_conflict" as const,
+        path: conflict.path,
+        detail: conflict.detail,
+      })),
+      operation: "setup_rollback",
+      data: { restored: result.restored },
     },
-    lines: [`The setup recovery record cannot be read: ${detail}`],
-  });
-}
-
-async function runRollback(parsed: ParsedArguments): Promise<void> {
-  const result = await ProjectSetup.rollback({ projectRoot: process.cwd() });
-
-  if (result.status === "unreadable") {
-    reportUnreadableJournal(parsed, "setup_rollback", result.detail);
-    return;
-  }
-
-  if (result.status === "nothing" || result.status === "complete") {
-    const complete = result.status === "complete";
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "completed",
-        reason: complete ? "setup_complete" : "nothing_to_restore",
-        blockers: [],
-        operation: "setup_rollback",
-      },
-      lines: [
-        complete
-          ? "The recorded setup plan is complete. There is nothing to roll back."
-          : "There is no interrupted setup to roll back.",
-      ],
-    });
-    return;
-  }
-
-  if (result.status === "conflict") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "restore_conflict",
-        blockers: result.conflicts.map((conflict) => ({
-          reason: "restore_conflict" as const,
-          path: conflict.path,
-          detail: conflict.detail,
-        })),
-        operation: "setup_rollback",
-        data: { restored: result.restored },
-      },
-      lines: [
-        "Restored the files setup still owned:",
-        ...result.restored.map((path) => `  ${path}`),
-        "These files changed after setup wrote them and were preserved:",
-        ...result.conflicts.map((conflict) => `  ${conflict.path}`),
-      ],
-    });
-    return;
-  }
-
-  report({
-    json: parsed.json,
+    lines: [
+      "Restored the files setup still owned:",
+      ...result.restored.map((path) => `  ${path}`),
+      "These files changed after setup wrote them and were preserved:",
+      ...result.conflicts.map((conflict) => `  ${conflict.path}`),
+    ],
+  }),
+  restored: (result) => ({
     result: {
       outcome: "completed",
       reason: "restored",
@@ -293,7 +252,21 @@ async function runRollback(parsed: ParsedArguments): Promise<void> {
       "Restored the files the interrupted setup wrote:",
       ...result.restored.map((path) => `  ${path}`),
     ],
+  }),
+};
+
+async function runApply(parsed: ParsedArguments): Promise<void> {
+  const result = await ProjectSetup.apply({
+    projectRoot: process.cwd(),
+    targets: parsed.targets,
+    approvedPlanId: parsed.approvedPlan,
   });
+  reportStatus(APPLY_REPORTS, result.status, result, parsed);
+}
+
+async function runRollback(parsed: ParsedArguments): Promise<void> {
+  const result = await ProjectSetup.rollback({ projectRoot: process.cwd() });
+  reportStatus(ROLLBACK_REPORTS, result.status, result, parsed);
 }
 
 async function runSetupProbe(

@@ -1,3 +1,4 @@
+import { ContentIdentity } from "../content-identity/main.ts";
 import { OperatorRelease } from "../operator-release/main.ts";
 import { createRelease, createTag } from "./github-release.ts";
 import { type PathRecord, type PublicationJournal, readJournal, writeJournal } from "./journal.ts";
@@ -43,10 +44,8 @@ export const ReleasePublish = {
   async pack(request: { artifactRoot: string; prefix?: string }) {
     const entries = await scanArtifact(request.artifactRoot, request.prefix ?? "");
     const bytes = packTarball(entries);
-    const hasher = new Bun.CryptoHasher("sha256");
-    hasher.update(bytes);
 
-    return { bytes, entries: entries.length, identity: hasher.digest("hex") };
+    return { bytes, entries: entries.length, identity: ContentIdentity.ofBytes(bytes) };
   },
 
   /**

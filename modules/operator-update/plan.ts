@@ -1,3 +1,4 @@
+import { ContentIdentity } from "../content-identity/main.ts";
 import { CrewState } from "../crew-state/main.ts";
 import { OperatorRelease } from "../operator-release/main.ts";
 import { ReleaseInstall } from "../release-install/main.ts";
@@ -69,18 +70,12 @@ type UpdatePlanBody = {
   blockers: UpdateBlocker[];
 };
 
-export async function computeUpdatePlan(request: UpdateRequest): Promise<UpdatePlan> {
-  const running = await OperatorRelease.identify();
-  const [recorded, activity, migration, skills, backups] = await Promise.all([
-    ReleaseInstall.selection({ projectRoot: request.projectRoot }),
-    Promise.resolve(CrewState.activity({ projectRoot: request.projectRoot })),
-    Promise.resolve(CrewState.migration({ projectRoot: request.projectRoot })),
-    SkillInstall.inspect({ projectRoot: request.projectRoot, targets: request.targets }),
-    backupTargets(request.projectRoot),
-  ]);
-
+/** The crew state stops an update while work is in flight or its format cannot move forward. */
+function crewStateBlockers(
+  activity: ReturnType<typeof CrewState.activity>,
+  migration: ReturnType<typeof CrewState.migration>,
+): UpdateBlocker[] {
   const blockers: UpdateBlocker[] = [];
-
   if (activity.status === "unreadable") {
     blockers.push(
       blocker(
@@ -133,6 +128,15 @@ export async function computeUpdatePlan(request: UpdateRequest): Promise<UpdateP
     );
   }
 
+  return blockers;
+}
+
+/** The recorded installation stops an update when its selection or a skill copy is not what this release wrote. */
+function installBlockers(
+  recorded: Awaited<ReturnType<typeof ReleaseInstall.selection>>,
+  skills: Awaited<ReturnType<typeof SkillInstall.inspect>>,
+): UpdateBlocker[] {
+  const blockers: UpdateBlocker[] = [];
   if (recorded.state === "unreadable") {
     blockers.push(
       blocker(
@@ -155,6 +159,15 @@ export async function computeUpdatePlan(request: UpdateRequest): Promise<UpdateP
     );
   }
 
+  return blockers;
+}
+
+/** The running release stops an update that names a release it is not. */
+function releaseBlockers(
+  running: Awaited<ReturnType<typeof OperatorRelease.identify>>,
+  request: UpdateRequest,
+): UpdateBlocker[] {
+  const blockers: UpdateBlocker[] = [];
   if (running.lock.state === "missing") {
     blockers.push(
       blocker(
@@ -203,6 +216,25 @@ export async function computeUpdatePlan(request: UpdateRequest): Promise<UpdateP
     );
   }
 
+  return blockers;
+}
+
+export async function computeUpdatePlan(request: UpdateRequest): Promise<UpdatePlan> {
+  const running = await OperatorRelease.identify();
+  const [recorded, activity, migration, skills, backups] = await Promise.all([
+    ReleaseInstall.selection({ projectRoot: request.projectRoot }),
+    Promise.resolve(CrewState.activity({ projectRoot: request.projectRoot })),
+    Promise.resolve(CrewState.migration({ projectRoot: request.projectRoot })),
+    SkillInstall.inspect({ projectRoot: request.projectRoot, targets: request.targets }),
+    backupTargets(request.projectRoot),
+  ]);
+
+  const blockers = [
+    ...crewStateBlockers(activity, migration),
+    ...installBlockers(recorded, skills),
+    ...releaseBlockers(running, request),
+  ];
+
   const to = {
     delivery: request.delivery,
     version: running.version,
@@ -228,16 +260,14 @@ export async function computeUpdatePlan(request: UpdateRequest): Promise<UpdateP
 export type UpdatePlan = UpdatePlanBody & { updateId: string };
 
 function identify(plan: UpdatePlanBody): string {
-  return new Bun.CryptoHasher("sha256")
-    .update(
-      JSON.stringify({
-        from: plan.from,
-        to: plan.to,
-        targets: plan.targets,
-        skills: plan.skills,
-        migration: { found: plan.migration.found, steps: plan.migration.steps },
-        backup: plan.backup.targets,
-      }),
-    )
-    .digest("hex");
+  return ContentIdentity.ofText(
+    JSON.stringify({
+      from: plan.from,
+      to: plan.to,
+      targets: plan.targets,
+      skills: plan.skills,
+      migration: { found: plan.migration.found, steps: plan.migration.steps },
+      backup: plan.backup.targets,
+    }),
+  );
 }

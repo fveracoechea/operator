@@ -1,5 +1,6 @@
 // Bun has no lstat or file removal API.
 import { lstat, rm } from "node:fs/promises";
+import { ContentIdentity } from "../content-identity/main.ts";
 import { readBundledSkills, sameBytes, scanFiles, type SkillAsset } from "./assets.ts";
 import { skillTargets, type SkillTarget } from "./targets.ts";
 
@@ -27,12 +28,6 @@ function hash(assets: SkillAsset[]): string {
     digest.update(asset.path);
     digest.update(asset.bytes);
   }
-  return digest.digest("hex");
-}
-
-function fileHash(bytes: Uint8Array): string {
-  const digest = new Bun.CryptoHasher("sha256");
-  digest.update(bytes);
   return digest.digest("hex");
 }
 
@@ -242,7 +237,7 @@ async function inspect(projectRoot: string, targets: SkillTarget[], commit: stri
           kind: paths.length === 0 ? "install" : "update",
           files: skill.assets.map((asset) => ({
             path: `${path}/${asset.path}`,
-            sha256: fileHash(asset.bytes),
+            sha256: ContentIdentity.ofBytes(asset.bytes),
           })),
           removed: removed.map((one) => `${path}/${one}`),
         });
