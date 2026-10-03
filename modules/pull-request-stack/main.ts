@@ -35,6 +35,7 @@ import {
   commentsOf,
   readRepository,
   readRules,
+  type MergeSettings,
   retargetPull,
 } from "./github.ts";
 
@@ -231,16 +232,266 @@ function cutEnds(
   return refused.length === 0 ? { status: "cut", ends } : { status: "refused", cuts: refused };
 }
 
-/** The refusal of the cuts of one head, worded once for the report and for the plan. */
+/** The refusal of the cuts that fall inside no gap, worded once for the report and for the plan. */
+function cutsRefused(cuts: string[]): Refusal & { cuts: string[] } {
+  return {
+    reason: "cut_not_between_commits",
+    cuts,
+    detail: `A cut falls only between two neighbouring commits of the head, and these do not: ${cuts.join(", ")}.`,
+  };
+}
+
+/** The refusal of the cuts of one head, or null when each cut falls between two commits. */
 function cutRefusal(commits: string[], cuts: CutPoint[]): (Refusal & { cuts: string[] }) | null {
   const split = cutEnds(commits, cuts);
-  return split.status === "cut"
-    ? null
-    : {
-        reason: "cut_not_between_commits",
-        cuts: split.cuts,
-        detail: `A cut falls only between two neighbouring commits of the head, and these do not: ${split.cuts.join(", ")}.`,
-      };
+  return split.status === "cut" ? null : cutsRefused(split.cuts);
+}
+
+type PlanRequest = {
+  repoRoot: string;
+  repository: string;
+  sourceSlug: string;
+  publication: number;
+  branch: { base: string; head: string };
+  commits: Array<Omit<PublishCommit, "subject">>;
+  text: StackText | null;
+  verified: Verified;
+  rejected: RejectedFinding[];
+  deferred: DeferredFinding[];
+};
+
+/** One part of the stack before it has a name: its commits, its reviewer text, and its body. */
+type Piece = { range: PublishCommit[]; text: PublishedText; cut: CutPoint | null; body: string };
+
+/**
+ * Cuts the head into parts and renders the body of each. It refuses, in the order of decision
+ * 10, a cut inside no gap, a review with no published text, and a body over the GitHub limit.
+ * The pieces are null after one of the first two, and the count is the number of names to check.
+ */
+function partsOf(
+  request: PlanRequest,
+  commits: PublishCommit[],
+): { count: number; pieces: Piece[] | null; refusals: Refusal[] } {
+  const cuts = request.text?.cuts ?? [];
+  const split = cutEnds(
+    commits.map((one) => one.commit),
+    cuts,
+  );
+  if (split.status === "refused") {
+    return { count: 1, pieces: null, refusals: [cutsRefused(split.cuts)] };
+  }
+  if (request.text === null) {
+    const detail = "The review that gates this publish recorded no published text.";
+    return { count: 1, pieces: null, refusals: [{ reason: "section_missing", detail }] };
+  }
+  // Each part is a contiguous range of the landing order, from the cut below it to the next one.
+  const starts = [0, ...split.ends.map((end) => end + 1)];
+  const placed = [
+    { text: request.text, cut: null },
+    ...cuts.map((cut) => ({ text: cut, cut: { after: cut.after, reason: cut.reason } })),
+  ].map((section, index) => ({
+    ...section,
+    range: commits.slice(starts[index], starts[index + 1]),
+  }));
+  const pieces = placed.map((piece, index): Piece => {
+    const held = new Set(piece.range.map((one) => one.commit));
+    const body = renderBody({
+      repository: request.repository,
+      text: piece.text,
+      commits: piece.range,
+      verified: {
+        gateCommands: request.verified.gateCommands,
+        gateRuns: request.verified.gateRuns.filter(
+          (one) => one.at === "base" || held.has(one.commit),
+        ),
+        reviews: request.verified.reviews.filter(
+          (one) => one.commit === null || held.has(one.commit),
+        ),
+      },
+      rejected: request.rejected.filter(
+        (one) => one.targets.length === 0 || one.targets.some((target) => held.has(target)),
+      ),
+      deferred: request.deferred,
+      stack:
+        placed.length === 1
+          ? null
+          : {
+              part: index + 1,
+              of: placed.length,
+              others: placed.flatMap((other, at) =>
+                at === index ? [] : [{ part: at + 1, commits: other.range.length }],
+              ),
+            },
+    });
+    return { ...piece, body };
+  });
+  const refusals = pieces.flatMap((piece, index): Refusal[] =>
+    piece.body.length > BODY_LIMIT
+      ? [
+          {
+            reason: "body_too_long",
+            detail: `The body of part ${index + 1} holds ${piece.body.length} characters, over the GitHub limit of ${BODY_LIMIT}.`,
+          },
+        ]
+      : [],
+  );
+  return { count: pieces.length, pieces, refusals };
+}
+
+type TargetRefusal = {
+  reason: "repository_unread" | "remote_missing" | "remote_ambiguous" | "remote_unread";
+  detail: string;
+};
+
+type Reading<Value> =
+  | { status: "read"; value: Value }
+  | { status: "refused"; refusal: TargetRefusal };
+
+/**
+ * The target of one repository: its settings, the one remote whose URL names it (decision 12),
+ * and the tip of its default branch fetched by its commit. Each read gives its own refusal, so a
+ * plan names each one at its place in the order of decision 10. The tip is fetched only after
+ * the other two are read, and otherwise holds the first refusal with the stage that gave it.
+ */
+async function readTarget(
+  repoRoot: string,
+  repository: string,
+): Promise<{
+  settings: Reading<MergeSettings>;
+  remote: Reading<Remote>;
+  fetched:
+    | { status: "read"; target: string; remote: Remote; tip: string }
+    | { status: "refused"; stage: "settings" | "remote" | "fetch"; refusal: TargetRefusal };
+}> {
+  const read = await readRepository(repository);
+  const settings: Reading<MergeSettings> =
+    read.status === "read"
+      ? read
+      : { status: "refused", refusal: { reason: "repository_unread", detail: read.detail } };
+  const found = await remoteOf(repoRoot, repository);
+  const remote: Reading<Remote> =
+    found.status === "found"
+      ? { status: "read", value: found.remote }
+      : {
+          status: "refused",
+          refusal:
+            found.status === "missing"
+              ? { reason: "remote_missing", detail: `No remote URL names ${repository}.` }
+              : found.status === "ambiguous"
+                ? {
+                    reason: "remote_ambiguous",
+                    detail: `Each of these remotes names ${repository}: ${found.remotes.map((one) => one.name).join(", ")}.`,
+                  }
+                : { reason: "remote_unread", detail: found.detail },
+        };
+  if (settings.status === "refused") {
+    return { settings, remote, fetched: { ...settings, stage: "settings" } };
+  }
+  if (remote.status === "refused") {
+    return { settings, remote, fetched: { ...remote, stage: "remote" } };
+  }
+  const target = settings.value.target;
+  const tip = await fetchTarget(repoRoot, remote.value.name, target);
+  const fetched =
+    tip.status === "read"
+      ? { status: "read" as const, target, remote: remote.value, tip: tip.value }
+      : {
+          status: "refused" as const,
+          stage: "fetch" as const,
+          refusal: { reason: "remote_unread" as const, detail: tip.detail },
+        };
+  return { settings, remote, fetched };
+}
+
+/** The repository settings checks, and the merge method and signature checks of the target. */
+async function settingsChecks(
+  repository: string,
+  settings: MergeSettings,
+  refusals: Refusal[],
+  info: Info,
+) {
+  info.otherMethodsAllowed = settings.otherMethods;
+  if (!settings.allowMergeCommit) {
+    refusals.push({
+      reason: "merge_commit_not_allowed",
+      detail: `${repository} does not allow a merge commit.`,
+    });
+  }
+  await targetChecks(repository, settings.target, refusals, info);
+}
+
+/** Whether the integration base is on the fetched target tip, and how the head merges into it. */
+async function baseChecks(
+  repoRoot: string,
+  branch: { base: string; head: string },
+  fetched: { target: string; tip: string },
+  refusals: Refusal[],
+  info: Info,
+) {
+  info.targetTip = fetched.tip;
+  const ancestor = await isAncestor(repoRoot, branch.base, fetched.tip);
+  if (ancestor.status !== "read" || !ancestor.value) {
+    refusals.push({
+      reason: "base_not_on_target",
+      detail:
+        ancestor.status === "read"
+          ? `The integration base ${branch.base} is not an ancestor of ${fetched.target} at ${fetched.tip}.`
+          : ancestor.detail,
+    });
+  }
+  const behind = await commitsBetween(repoRoot, branch.base, fetched.tip);
+  info.commitsBehind = behind.status === "read" ? behind.value : null;
+  const clean = await mergesCleanly(repoRoot, fetched.tip, branch.head);
+  info.mergesCleanly = clean.status === "read" ? clean.value : null;
+}
+
+/** Everything that ships, built only once the remote, the target, and every body are known. */
+function shipsOf(
+  request: PlanRequest,
+  commits: PublishCommit[],
+  pieces: Piece[],
+  remote: Remote,
+  target: string,
+): Ships {
+  const name = (index: number) => nameOf(request.sourceSlug, request.publication, index + 1);
+  const partOf = new Map(
+    pieces.flatMap((piece, index) => piece.range.map((one) => [one.commit, index + 1] as const)),
+  );
+  return {
+    remote,
+    target,
+    base: request.branch.base,
+    head: request.branch.head,
+    parts: pieces.map((piece, index) => ({
+      name: name(index),
+      commit: piece.range.at(-1)?.commit ?? request.branch.head,
+      // The lowest part targets the target, and each higher one the branch below it.
+      base: index === 0 ? target : name(index - 1),
+      title: piece.text.title,
+      body: piece.body,
+      cut: piece.cut,
+    })),
+    trackerSteps: commits.flatMap((one) =>
+      one.closes === null
+        ? []
+        : [
+            {
+              part: partOf.get(one.commit) ?? 1,
+              commit: one.commit,
+              closes: one.closes,
+              behaviorChanges: one.behaviorChanges,
+              resolution: renderResolution({
+                repository: request.repository,
+                target,
+                commit: one.commit,
+                behaviorChanges: one.behaviorChanges,
+                pullRequest: null,
+                landed: null,
+              }),
+            },
+          ],
+    ),
+  };
 }
 
 /**
@@ -254,22 +505,18 @@ export const PullRequestStack = {
    * fetches the target tip by its commit, checks the names, the target settings, and the rules,
    * and renders each title and body. Every refusal it finds is reported at once, in order.
    */
-  async plan(request: {
-    repoRoot: string;
-    repository: string;
-    sourceSlug: string;
-    publication: number;
-    branch: { base: string; head: string };
-    commits: Array<Omit<PublishCommit, "subject">>;
-    text: StackText | null;
-    verified: Verified;
-    rejected: RejectedFinding[];
-    deferred: DeferredFinding[];
-  }): Promise<
+  async plan(
+    request: PlanRequest,
+  ): Promise<
     | { status: "planned"; ships: Ships | null; info: Info; refusals: Refusal[] }
     | { status: "unread"; detail: string }
   > {
-    const refusals: Refusal[] = [];
+    const commits = await withSubjects(request.repoRoot, request.commits);
+    if (typeof commits === "string") {
+      return { status: "unread", detail: commits };
+    }
+    const parts = partsOf(request, commits);
+    const refusals: Refusal[] = [...parts.refusals];
     const info: Info = {
       targetTip: null,
       commitsBehind: null,
@@ -278,184 +525,37 @@ export const PullRequestStack = {
       unverifiedRules: [],
     };
 
-    const commits = await withSubjects(request.repoRoot, request.commits);
-    if (typeof commits === "string") {
-      return { status: "unread", detail: commits };
-    }
-    const ids = commits.map((one) => one.commit);
-    const cuts = request.text?.cuts ?? [];
-    const badCut = cutRefusal(ids, cuts);
-    if (badCut !== null) {
-      refusals.push(badCut);
-    }
-    const split = cutEnds(ids, cuts);
-    const ends = split.status === "cut" ? [...split.ends, ids.length - 1] : [];
-    // Each part is a contiguous range of the landing order, from the cut below it to its end.
-    const ranges = ends.map((end, index) => commits.slice((ends[index - 1] ?? -1) + 1, end + 1));
-    let bodies: string[] | null = null;
-    const lowest = request.text;
-    if (lowest === null) {
-      refusals.push({
-        reason: "section_missing",
-        detail: "The review that gates this publish recorded no published text.",
-      });
-    } else if (badCut === null) {
-      const texts = [lowest, ...cuts];
-      bodies = ranges.map((range, index) => {
-        const held = new Set(range.map((one) => one.commit));
-        return renderBody({
-          repository: request.repository,
-          text: texts[index] ?? lowest,
-          commits: range,
-          verified: {
-            gateCommands: request.verified.gateCommands,
-            gateRuns: request.verified.gateRuns.filter(
-              (one) => one.at === "base" || held.has(one.commit),
-            ),
-            reviews: request.verified.reviews.filter(
-              (one) => one.commit === null || held.has(one.commit),
-            ),
-          },
-          rejected: request.rejected.filter(
-            (one) => one.targets.length === 0 || one.targets.some((target) => held.has(target)),
-          ),
-          deferred: request.deferred,
-          stack:
-            ranges.length === 1
-              ? null
-              : {
-                  part: index + 1,
-                  of: ranges.length,
-                  others: ranges.flatMap((other, at) =>
-                    at === index ? [] : [{ part: at + 1, commits: other.length }],
-                  ),
-                },
-        });
-      });
-      bodies.forEach((body, index) => {
-        if (body.length > BODY_LIMIT) {
-          refusals.push({
-            reason: "body_too_long",
-            detail: `The body of part ${index + 1} holds ${body.length} characters, over the GitHub limit of ${BODY_LIMIT}.`,
-          });
-        }
-      });
-    }
-
-    const settings = await readRepository(request.repository);
-    if (settings.status !== "read") {
-      refusals.push({ reason: "repository_unread", detail: settings.detail });
+    const { settings, remote, fetched } = await readTarget(request.repoRoot, request.repository);
+    if (settings.status === "refused") {
+      refusals.push(settings.refusal);
     } else {
-      info.otherMethodsAllowed = settings.value.otherMethods;
-      if (!settings.value.allowMergeCommit) {
-        refusals.push({
-          reason: "merge_commit_not_allowed",
-          detail: `${request.repository} does not allow a merge commit.`,
-        });
-      }
-      await targetChecks(request.repository, settings.value.target, refusals, info);
+      await settingsChecks(request.repository, settings.value, refusals, info);
+    }
+    if (remote.status === "refused") {
+      refusals.push(remote.refusal);
+    } else {
+      const names = Array.from({ length: parts.count }, (_none, index) =>
+        nameOf(request.sourceSlug, request.publication, index + 1),
+      );
+      const taken = await remoteBranches(request.repoRoot, remote.value.name, names);
+      refusals.push(
+        ...(taken.status === "read"
+          ? [...taken.value].map(([name, commit]): Refusal => ({
+              reason: "remote_name_taken",
+              detail: `The remote ${remote.value.name} already holds ${name} at ${commit}.`,
+            }))
+          : [{ reason: "remote_unread" as const, detail: taken.detail }]),
+      );
+    }
+    if (fetched.status === "read") {
+      await baseChecks(request.repoRoot, request.branch, fetched, refusals, info);
+    } else if (fetched.stage === "fetch") {
+      refusals.push(fetched.refusal);
     }
 
-    const remote = await remoteOf(request.repoRoot, request.repository);
-    if (remote.status === "missing") {
-      refusals.push({
-        reason: "remote_missing",
-        detail: `No remote URL names ${request.repository}.`,
-      });
-    } else if (remote.status === "ambiguous") {
-      refusals.push({
-        reason: "remote_ambiguous",
-        detail: `Each of these remotes names ${request.repository}: ${remote.remotes.map((one) => one.name).join(", ")}.`,
-      });
-    } else if (remote.status === "unread") {
-      refusals.push({ reason: "remote_unread", detail: remote.detail });
-    }
-
-    const names = (ranges.length === 0 ? [[]] : ranges).map((_range, index) =>
-      nameOf(request.sourceSlug, request.publication, index + 1),
-    );
-    if (remote.status === "found") {
-      const taken = await remoteBranches(request.repoRoot, remote.remote.name, names);
-      if (taken.status !== "read") {
-        refusals.push({ reason: "remote_unread", detail: taken.detail });
-      } else {
-        for (const [name, commit] of taken.value) {
-          refusals.push({
-            reason: "remote_name_taken",
-            detail: `The remote ${remote.remote.name} already holds ${name} at ${commit}.`,
-          });
-        }
-      }
-    }
-
-    if (remote.status === "found" && settings.status === "read") {
-      const target = settings.value.target;
-      const tip = await fetchTarget(request.repoRoot, remote.remote.name, target);
-      if (tip.status !== "read") {
-        refusals.push({ reason: "remote_unread", detail: tip.detail });
-      } else {
-        info.targetTip = tip.value;
-        const ancestor = await isAncestor(request.repoRoot, request.branch.base, tip.value);
-        if (ancestor.status !== "read" || !ancestor.value) {
-          refusals.push({
-            reason: "base_not_on_target",
-            detail:
-              ancestor.status === "read"
-                ? `The integration base ${request.branch.base} is not an ancestor of ${target} at ${tip.value}.`
-                : ancestor.detail,
-          });
-        }
-        const behind = await commitsBetween(request.repoRoot, request.branch.base, tip.value);
-        info.commitsBehind = behind.status === "read" ? behind.value : null;
-        const clean = await mergesCleanly(request.repoRoot, tip.value, request.branch.head);
-        info.mergesCleanly = clean.status === "read" ? clean.value : null;
-      }
-    }
-
-    const partOf = new Map(
-      ranges.flatMap((range, index) => range.map((one) => [one.commit, index + 1] as const)),
-    );
-    const texts = request.text === null ? [] : [request.text, ...cuts];
     const ships =
-      remote.status === "found" && settings.status === "read" && bodies !== null
-        ? {
-            remote: remote.remote,
-            target: settings.value.target,
-            base: request.branch.base,
-            head: request.branch.head,
-            parts: names.map((name, index) => {
-              const cut = index === 0 ? null : (cuts[index - 1] ?? null);
-              return {
-                name,
-                commit: ranges[index]?.at(-1)?.commit ?? request.branch.head,
-                // The lowest part targets the target, and each higher one the branch below it.
-                base: index === 0 ? settings.value.target : (names[index - 1] ?? ""),
-                title: texts[index]?.title ?? "",
-                body: bodies?.[index] ?? "",
-                cut: cut === null ? null : { after: cut.after, reason: cut.reason },
-              };
-            }),
-            trackerSteps: commits.flatMap((one) =>
-              one.closes === null
-                ? []
-                : [
-                    {
-                      part: partOf.get(one.commit) ?? 1,
-                      commit: one.commit,
-                      closes: one.closes,
-                      behaviorChanges: one.behaviorChanges,
-                      resolution: renderResolution({
-                        repository: request.repository,
-                        target: settings.value.target,
-                        commit: one.commit,
-                        behaviorChanges: one.behaviorChanges,
-                        pullRequest: null,
-                        landed: null,
-                      }),
-                    },
-                  ],
-            ),
-          }
+      settings.status === "read" && remote.status === "read" && parts.pieces !== null
+        ? shipsOf(request, commits, parts.pieces, remote.value, settings.value.target)
         : null;
     return { status: "planned", ships, info, refusals };
   },
@@ -474,36 +574,13 @@ export const PullRequestStack = {
         detail: string;
       }
   > {
-    const settings = await readRepository(request.repository);
-    if (settings.status !== "read") {
-      return { status: "unread", reason: "repository_unread", detail: settings.detail };
+    const { fetched } = await readTarget(request.repoRoot, request.repository);
+    if (fetched.status === "refused") {
+      return { status: "unread", ...fetched.refusal };
     }
-    const remote = await remoteOf(request.repoRoot, request.repository);
-    if (remote.status === "missing") {
-      return {
-        status: "unread",
-        reason: "remote_missing",
-        detail: `No remote URL names ${request.repository}.`,
-      };
-    }
-    if (remote.status === "ambiguous") {
-      return {
-        status: "unread",
-        reason: "remote_ambiguous",
-        detail: `Each of these remotes names ${request.repository}: ${remote.remotes.map((one) => one.name).join(", ")}.`,
-      };
-    }
-    if (remote.status === "unread") {
-      return { status: "unread", reason: "remote_unread", detail: remote.detail };
-    }
-    const target = settings.value.target;
-    const tip = await fetchTarget(request.repoRoot, remote.remote.name, target);
-    if (tip.status !== "read") {
-      return { status: "unread", reason: "remote_unread", detail: tip.detail };
-    }
-    const on = await isAncestor(request.repoRoot, request.commit, tip.value);
+    const on = await isAncestor(request.repoRoot, request.commit, fetched.tip);
     return on.status === "read"
-      ? { status: "read", target, tip: tip.value, onTarget: on.value }
+      ? { status: "read", target: fetched.target, tip: fetched.tip, onTarget: on.value }
       : { status: "unread", reason: "remote_unread", detail: on.detail };
   },
 
