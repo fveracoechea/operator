@@ -71,3 +71,36 @@ export const item = { name: "a" } as const;
   expect(valid.exitCode).toBe(0);
   expect(valid.codes).toEqual([]);
 });
+
+test("the anti-slop rules follow never-written const bindings and skip reassigned ones", async () => {
+  const followed = await check(`
+export const copied = [1].reduce((acc, item) => {
+  const alias = acc;
+  return alias.concat([item]);
+}, [1].map(Number));
+export function widen() {
+  const { id } = { id: 1 };
+  const widened: unknown = id;
+  const indexed: { [key: string]: unknown } = { id: 1 };
+  return [widened as number, indexed as Record<string, number>];
+}
+`);
+  expect(followed.codes.filter((code) => code.startsWith("anti-slop"))).toEqual([
+    "anti-slop(no-reduce-accumulator-copy)",
+    "anti-slop(no-widen-then-assert)",
+    "anti-slop(no-widen-then-assert)",
+  ]);
+
+  const reassigned = await check(`
+let initial: number[] = [1];
+initial = [2];
+export const copied = [1].reduce((acc, item) => acc.concat([item]), initial);
+export function widen() {
+  let value = 1;
+  value = 2;
+  const widened: unknown = value;
+  return widened as number;
+}
+`);
+  expect(reassigned.codes.filter((code) => code.startsWith("anti-slop"))).toEqual([]);
+});

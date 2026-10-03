@@ -57,6 +57,40 @@ function isArrayAnnotation(type: ESTree.TSType): boolean {
   );
 }
 
+/** True when a binding is written after its declaration. */
+export function isReassigned(variable: Variable): boolean {
+  return variable.references.some((reference) => reference.isWrite() && !reference.init);
+}
+
+/** Read the initializer of a `const name = init` binding that is never written again. */
+export function constInitializer(variable: Variable): ESTree.Expression | null {
+  if (isReassigned(variable)) return null;
+  for (const definition of variable.defs) {
+    if (
+      definition.type === "Variable" &&
+      definition.node.type === "VariableDeclarator" &&
+      definition.node.id.type === "Identifier" &&
+      definition.node.init !== null &&
+      definition.node.parent.type === "VariableDeclaration" &&
+      definition.node.parent.kind === "const"
+    ) {
+      return definition.node.init;
+    }
+  }
+  return null;
+}
+
+const arrayResultMethods = new Set([
+  "map",
+  "filter",
+  "flatMap",
+  "slice",
+  "concat",
+  "toSorted",
+  "toReversed",
+  "toSpliced",
+]);
+
 /** Recognize local array evidence; unknown receivers and iterator pipelines are deliberately excluded. */
 export function isKnownArrayExpression(
   sourceCode: SourceCode,
@@ -69,16 +103,7 @@ export function isKnownArrayExpression(
     const method = arrayMethodTarget(node.callee);
     return (
       method !== null &&
-      [
-        "map",
-        "filter",
-        "flatMap",
-        "slice",
-        "concat",
-        "toSorted",
-        "toReversed",
-        "toSpliced",
-      ].includes(method.name) &&
+      arrayResultMethods.has(method.name) &&
       isKnownArrayExpression(sourceCode, method.object, visited)
     );
   }
@@ -86,22 +111,11 @@ export function isKnownArrayExpression(
   const variable = resolveArrayBinding(sourceCode, node);
   if (variable === null || visited.has(variable)) return false;
   visited.add(variable);
-  if (variable.references.some((reference) => reference.isWrite() && !reference.init)) return false;
+  if (isReassigned(variable)) return false;
   for (const identifier of variable.identifiers) {
     const annotation = identifier.typeAnnotation?.typeAnnotation;
     if (annotation !== undefined) return isArrayAnnotation(annotation);
   }
-  for (const definition of variable.defs) {
-    if (
-      definition.type === "Variable" &&
-      definition.node.type === "VariableDeclarator" &&
-      definition.node.id.type === "Identifier" &&
-      definition.node.init !== null &&
-      definition.node.parent.type === "VariableDeclaration" &&
-      definition.node.parent.kind === "const"
-    ) {
-      return isKnownArrayExpression(sourceCode, definition.node.init, visited);
-    }
-  }
-  return false;
+  const initializer = constInitializer(variable);
+  return initializer !== null && isKnownArrayExpression(sourceCode, initializer, visited);
 }

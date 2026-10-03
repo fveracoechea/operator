@@ -62,10 +62,7 @@
         "modules/release-publish/plan.ts",
         "modules/skill-install/upstream.ts",
         "modules/tracker-update/main.ts",
-        "modules/tracker-update/map.ts",
-        "tools/oxlint/anti-slop/array-method.ts",
-        "tools/oxlint/anti-slop/no-reduce-accumulator-copy.ts",
-        "tools/oxlint/anti-slop/no-widen-then-assert.ts"
+        "modules/tracker-update/map.ts"
       ],
       "rules": { "complexity": ["error", { "max": 30 }] }
     }
