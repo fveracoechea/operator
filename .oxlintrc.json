@@ -49,9 +49,7 @@
         "modules/operator-config/change.ts",
         "modules/release-install/inspect.ts",
         "modules/release-install/worktree.ts",
-        "modules/skill-install/upstream.ts",
-        "modules/tracker-update/main.ts",
-        "modules/tracker-update/map.ts"
+        "modules/skill-install/upstream.ts"
       ],
       "rules": { "complexity": ["error", { "max": 30 }] }
     }

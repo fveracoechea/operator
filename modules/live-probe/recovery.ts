@@ -160,30 +160,94 @@ export async function finishRun(projectRoot: string, runId: string): Promise<voi
   await rm(journal(projectRoot, runId));
 }
 
-async function inspectWrite(
-  fixture: Fixture,
-  state: string,
-  write: Write,
-): Promise<{ status: string; detail: string | null }> {
-  if (write.step === "reopen") {
-    const history = await GithubTracker.readEvents({
-      repository: fixture.repository,
-      issue: write.issue,
-    });
-    const reopened =
-      write.eventCount !== null &&
-      write.eventCount !== undefined &&
-      history.coverage.complete &&
-      history.events.slice(write.eventCount).some((one) => one.event === "reopened");
-    const proven = reopened && state === "open";
-    return {
-      status: `reopen ${proven ? "observed" : "uncertain"}`,
-      detail: proven
+type Inspected = { status: string; detail: string | null };
+type Reading = Awaited<ReturnType<typeof TrackerUpdate.read>>;
+type ClosureReading = Extract<Reading["observation"], { kind: "closure" }>;
+type CommentReading = Extract<Reading["observation"], { kind: "comment" }>;
+
+/** What the tracker answered to a journal outcome. A tool this machine lacks sent no write. */
+const SENT_AS = {
+  succeeded: "succeeded",
+  failed: "failed",
+  unavailable: "failed",
+  uncertain: "uncertain",
+} as const;
+
+/** A reopen is proven only by a reopen event after the recorded count and an open fixture. */
+async function inspectReopen(fixture: Fixture, state: string, write: Write): Promise<Inspected> {
+  const history = await GithubTracker.readEvents({
+    repository: fixture.repository,
+    issue: write.issue,
+  });
+  const reopened =
+    write.eventCount !== null &&
+    write.eventCount !== undefined &&
+    history.coverage.complete &&
+    history.events.slice(write.eventCount).some((one) => one.event === "reopened");
+  const proven = reopened && state === "open";
+  return {
+    status: `reopen ${proven ? "observed" : "uncertain"}`,
+    detail: proven
+      ? null
+      : `The fixture reopen ${write.operationId} for ${fixture.repository}#${write.issue} is not proven. Verify its state and complete event history. Restore the fixture to open only under separate human approval, then inspect cleanup again. Operator will not resend the reopen.`,
+  };
+}
+
+/**
+ * A closure reads its own observation and not the verdict, because the probe reopens the
+ * fixture after the close.
+ */
+function inspectClosure(write: Write, observed: ClosureReading): Inspected {
+  const unsettled =
+    (write.outcome === undefined || write.outcome === "uncertain") &&
+    !(observed.state === "closed" && observed.stateReason === "completed");
+  return {
+    status: `closure ${unsettled ? "uncertain" : (observed.state ?? "unknown")}`,
+    detail:
+      observed.read === "found" && observed.eventCoverage.complete && !unsettled
         ? null
-        : `The fixture reopen ${write.operationId} for ${fixture.repository}#${write.issue} is not proven. Verify its state and complete event history. Restore the fixture to open only under separate human approval, then inspect cleanup again. Operator will not resend the reopen.`,
+        : `The fixture closure ${write.operationId} cannot be settled from its response and a complete read.`,
+  };
+}
+
+/**
+ * A comment takes its outcome from the tracker verdict, but only after a complete, unique scan.
+ * A verdict can verify one clean match on a partial scan, and the probe does not accept that.
+ */
+function inspectComment(
+  write: Write,
+  observed: CommentReading,
+  verdict: Reading["verdict"],
+): Inspected {
+  const unique =
+    observed.coverage.complete &&
+    observed.exactMatches.length <= 1 &&
+    observed.editedMatches.length === 0 &&
+    observed.actorMismatches.length === 0;
+  if (!unique) {
+    return {
+      status: `${write.step} uncertain`,
+      detail: `The fixture write ${write.operationId} cannot be settled from a complete, unique comment scan.`,
     };
   }
-  const observed = await TrackerUpdate.observe({
+  const settled =
+    verdict.state === "verified"
+      ? "written"
+      : verdict.reason === "tracker.write_rejected"
+        ? "absent"
+        : null;
+  return {
+    status: `${write.step} ${settled ?? "uncertain"}`,
+    detail:
+      settled === null
+        ? `The fixture comment ${write.operationId} has no proven outcome. An empty scan does not settle an uncertain write.`
+        : null,
+  };
+}
+
+async function inspectWrite(fixture: Fixture, state: string, write: Write): Promise<Inspected> {
+  if (write.step === "reopen") return inspectReopen(fixture, state, write);
+  const { observation, verdict } = await TrackerUpdate.read({
     provider: "github",
     step: write.step,
     target: { repository: fixture.repository, issue: write.issue },
@@ -191,39 +255,13 @@ async function inspectWrite(
     expectedActor: write.expectedActor,
     contentIdentity: write.contentIdentity,
     resourceId: null,
-    sentWrites: 1,
+    intendedReason: "completed",
+    writes: [SENT_AS[write.outcome ?? "uncertain"]],
     now: new Date().toISOString(),
   });
-  if (observed.kind === "closure") {
-    const unsettled =
-      (write.outcome === undefined || write.outcome === "uncertain") &&
-      !(observed.state === "closed" && observed.stateReason === "completed");
-    return {
-      status: `closure ${unsettled ? "uncertain" : (observed.state ?? "unknown")}`,
-      detail:
-        observed.read === "found" && observed.eventCoverage.complete && !unsettled
-          ? null
-          : `The fixture closure ${write.operationId} cannot be settled from its response and a complete read.`,
-    };
-  }
-  const unique =
-    observed.coverage.complete &&
-    observed.exactMatches.length <= 1 &&
-    observed.editedMatches.length === 0 &&
-    observed.actorMismatches.length === 0;
-  const matched = unique && observed.exactMatches.length === 1;
-  const absent =
-    unique &&
-    observed.exactMatches.length === 0 &&
-    (write.outcome === "failed" || write.outcome === "unavailable");
-  return {
-    status: `${write.step} ${matched ? "written" : absent ? "absent" : "uncertain"}`,
-    detail: !unique
-      ? `The fixture write ${write.operationId} cannot be settled from a complete, unique comment scan.`
-      : matched || absent
-        ? null
-        : `The fixture comment ${write.operationId} has no proven outcome. An empty scan does not settle an uncertain write.`,
-  };
+  return observation.kind === "closure"
+    ? inspectClosure(write, observation)
+    : inspectComment(write, observation, verdict);
 }
 
 /** Reads intended fixture effects by identity, without sending a second write. */

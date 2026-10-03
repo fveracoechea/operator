@@ -1110,6 +1110,24 @@ describe("operator setup probe cleanup", () => {
   );
 
   test(
+    "reads a refused comment write as absent when a complete scan finds no comment",
+    async () => {
+      const workspace = await makeProbeWorkspace();
+      await seedProbeReports(workspace, goodReports({ skills: workspace.skills }));
+      await seedProbePartial(workspace, "partial work");
+      await Bun.write(
+        `${workspace.github}/faults.json`,
+        JSON.stringify({ createComment: { kind: "status:422", remaining: 1 } }),
+      );
+      await applyProbe(workspace);
+      const pending = await runJson(workspace, ["setup", "probe", "cleanup"]);
+      expect(pending.json.data.resources[0].fixture).toContain("resolution absent");
+      expect(pending.json.data.resources[0].fixtureDetail).toBeNull();
+    },
+    PROBE_TIMEOUT_MS,
+  );
+
+  test(
     "records the reopen identity before it restores a closed fixture",
     async () => {
       const workspace = await makeProbeWorkspace();
