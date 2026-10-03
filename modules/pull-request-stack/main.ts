@@ -36,6 +36,7 @@ import {
   readRepository,
   readRules,
   type MergeSettings,
+  type PullState,
   retargetPull,
 } from "./github.ts";
 
@@ -846,43 +847,82 @@ async function writeCreate(effect: Extract<Effect, { kind: "create" }>): Promise
     : { status: "uncertain", detail: created.detail };
 }
 
+/** The answer of one pull request write, or the outcome that stops the routine before it. */
+type PullAnswer =
+  | { status: "changed" | "closed" | "written" }
+  | { status: "failed"; message: string }
+  | { status: "uncertain"; detail: string }
+  | { status: "stopped"; outcome: Exclude<WriteOutcome, { status: "done" }> };
+
+/**
+ * The one recovery rule of a pull request write (ADR 0005). It reads first, and a read that
+ * settles the effect ends it with no write. Otherwise it writes and reads again: the write is
+ * done only when that read shows it, and a lost answer stays uncertain, never assumed.
+ */
+async function pullWrite(
+  repository: string,
+  number: number,
+  step: {
+    /** The outcome that the first read already gives, or null when the write is still needed. */
+    settled(before: PullState): WriteOutcome | null;
+    write(before: PullState): Promise<PullAnswer>;
+    /** Null when the second read shows the effect, or else what that read shows. */
+    confirmed(after: PullState): string | null;
+  },
+): Promise<WriteOutcome> {
+  const before = await readPullState(repository, number);
+  if (before.status !== "read") {
+    return { status: "uncertain", detail: before.detail };
+  }
+  const settled = step.settled(before.value);
+  if (settled !== null) {
+    return settled;
+  }
+  const answer = await step.write(before.value);
+  if (answer.status === "failed") {
+    return { status: "failed", message: answer.message };
+  }
+  if (answer.status === "stopped") {
+    return answer.outcome;
+  }
+  const after = await readPullState(repository, number);
+  if (after.status === "read") {
+    const missing = step.confirmed(after.value);
+    return missing === null
+      ? { status: "done", how: "written", number, url: null }
+      : { status: "uncertain", detail: missing };
+  }
+  return {
+    status: "uncertain",
+    detail: answer.status === "uncertain" ? answer.detail : after.detail,
+  };
+}
+
+/** A pull request that merged or is no longer open, which a person settles. */
+function notOpen(pull: PullState): WriteOutcome {
+  return {
+    status: "conflict",
+    found: `#${pull.number} is ${pull.merged ? "merged" : pull.state} into ${pull.base}`,
+  };
+}
+
 /**
  * Changes the base of one part to the target after the part below merged by a merge commit
  * (decision 15). It reads first: a base GitHub already changed is done with no write, and a pull
  * request that is no longer open, or whose base is neither, is a conflict for a person.
  */
 async function writeRetarget(effect: Extract<Effect, { kind: "retarget" }>): Promise<WriteOutcome> {
-  const read = async () => readPullState(effect.repository, effect.number);
-  const before = await read();
-  if (before.status !== "read") {
-    return { status: "uncertain", detail: before.detail };
-  }
-  if (before.value.base === effect.base) {
-    return { status: "done", how: "observed", number: effect.number, url: null };
-  }
-  if (before.value.state !== "open" || before.value.base !== effect.from) {
-    return {
-      status: "conflict",
-      found: `#${effect.number} is ${before.value.merged ? "merged" : before.value.state} into ${before.value.base}`,
-    };
-  }
-  const changed = await retargetPull(effect.repository, effect.number, effect.base);
-  if (changed.status === "failed") {
-    return { status: "failed", message: changed.message };
-  }
-  const after = await read();
-  if (after.status === "read" && after.value.base === effect.base) {
-    return { status: "done", how: "written", number: effect.number, url: null };
-  }
-  return {
-    status: "uncertain",
-    detail:
-      after.status === "read"
-        ? `#${effect.number} still targets ${after.value.base}.`
-        : changed.status === "uncertain"
-          ? changed.detail
-          : after.detail,
-  };
+  return pullWrite(effect.repository, effect.number, {
+    settled: (before) =>
+      before.base === effect.base
+        ? { status: "done", how: "observed", number: effect.number, url: null }
+        : before.state !== "open" || before.base !== effect.from
+          ? notOpen(before)
+          : null,
+    write: async () => retargetPull(effect.repository, effect.number, effect.base),
+    confirmed: (after) =>
+      after.base === effect.base ? null : `#${effect.number} still targets ${after.base}.`,
+  });
 }
 
 /** The comment that a replaced pull request gets once, with a marker that finds it again. */
@@ -925,36 +965,34 @@ async function ensureComment(
  * Turns one open pull request into a draft and adds the one comment with the reason (decision
  * 23). It reads first: a draft that holds the comment is done with no write. A pull request that
  * merged or closed first is a conflict for a person, because a merge before the recall ends the
- * change (decision 24). It never merges and never closes.
+ * change (decision 24). The comment comes only after a read shows the draft. It never merges and
+ * never closes.
  */
 async function writeRecall(effect: Extract<Effect, { kind: "recall" }>): Promise<WriteOutcome> {
-  const before = await readPullState(effect.repository, effect.number);
-  if (before.status !== "read") {
-    return { status: "uncertain", detail: before.detail };
-  }
-  if (before.value.merged || before.value.state !== "open") {
-    return {
-      status: "conflict",
-      found: `#${effect.number} is ${before.value.merged ? "merged" : before.value.state} into ${before.value.base}`,
-    };
-  }
-  let wrote = false;
-  if (!before.value.draft) {
-    if (before.value.nodeId === null) {
-      return { status: "uncertain", detail: `GitHub answered #${effect.number} with no node id.` };
-    }
-    const drafted = await convertToDraft(before.value.nodeId);
-    if (drafted.status === "failed") {
-      return { status: "failed", message: drafted.message };
-    }
-    wrote = true;
-  }
-  const after = await readPullState(effect.repository, effect.number);
-  if (after.status !== "read" || !after.value.draft) {
-    return {
-      status: "uncertain",
-      detail: after.status === "read" ? `#${effect.number} is not a draft yet.` : after.detail,
-    };
+  const drafted = await pullWrite(effect.repository, effect.number, {
+    settled: (before) =>
+      before.merged || before.state !== "open"
+        ? notOpen(before)
+        : before.draft
+          ? { status: "done", how: "observed", number: effect.number, url: null }
+          : null,
+    write: async (before) =>
+      before.nodeId === null
+        ? {
+            status: "stopped",
+            outcome: {
+              status: "uncertain",
+              detail: `GitHub answered #${effect.number} with no node id.`,
+            },
+          }
+        : convertToDraft(before.nodeId).then((drafted) =>
+            // A recall names what the second read saw, never the lost answer of the draft.
+            drafted.status === "uncertain" ? { status: "written" } : drafted,
+          ),
+    confirmed: (after) => (after.draft ? null : `#${effect.number} is not a draft yet.`),
+  });
+  if (drafted.status !== "done") {
+    return drafted;
   }
   const commented = await ensureComment(effect.repository, effect.number, {
     body: effect.comment,
@@ -963,12 +1001,7 @@ async function writeRecall(effect: Extract<Effect, { kind: "recall" }>): Promise
   if (commented.status !== "found" && commented.status !== "written") {
     return commented;
   }
-  return {
-    status: "done",
-    how: wrote || commented.status === "written" ? "written" : "observed",
-    number: effect.number,
-    url: null,
-  };
+  return commented.status === "written" ? { ...drafted, how: "written" } : drafted;
 }
 
 /**
@@ -980,48 +1013,35 @@ async function writeRecall(effect: Extract<Effect, { kind: "recall" }>): Promise
  * merges and deletes no branch.
  */
 async function writeClose(effect: Extract<Effect, { kind: "close" }>): Promise<WriteOutcome> {
-  const before = await readPullState(effect.repository, effect.number);
-  if (before.status !== "read") {
-    return { status: "uncertain", detail: before.detail };
-  }
-  if (before.value.merged) {
-    return { status: "conflict", found: `#${effect.number} is merged into ${before.value.base}` };
-  }
-  if (before.value.state === "closed") {
-    return { status: "done", how: "observed", number: effect.number, url: null };
-  }
-  // A person moved its head, so Operator writes nothing more to it (decision 21).
-  if (effect.head !== null && before.value.head !== effect.head) {
-    return {
-      status: "conflict",
-      found: `#${effect.number} has head ${before.value.head}, not the published commit ${effect.head}`,
-    };
-  }
-  if (effect.publication !== null) {
-    const comment = replacedComment({ ...effect, publication: effect.publication });
-    const commented = await ensureComment(effect.repository, effect.number, {
-      body: comment,
-      marker: comment.split("\n")[0] ?? "",
-    });
-    if (commented.status !== "found" && commented.status !== "written") {
-      return commented;
-    }
-  }
-  const closed = await closePull(effect.repository, effect.number);
-  if (closed.status === "failed") {
-    return { status: "failed", message: closed.message };
-  }
-  const after = await readPullState(effect.repository, effect.number);
-  if (after.status === "read" && after.value.state === "closed" && !after.value.merged) {
-    return { status: "done", how: "written", number: effect.number, url: null };
-  }
-  return {
-    status: "uncertain",
-    detail:
-      after.status === "read"
-        ? `#${effect.number} is still ${after.value.state}.`
-        : closed.status === "uncertain"
-          ? closed.detail
-          : after.detail,
-  };
+  return pullWrite(effect.repository, effect.number, {
+    settled: (before) =>
+      before.merged
+        ? notOpen(before)
+        : before.state === "closed"
+          ? { status: "done", how: "observed", number: effect.number, url: null }
+          : // A person moved its head, so Operator writes nothing more to it (decision 21).
+            effect.head !== null && before.head !== effect.head
+            ? {
+                status: "conflict",
+                found: `#${effect.number} has head ${before.head}, not the published commit ${effect.head}`,
+              }
+            : null,
+    write: async () => {
+      if (effect.publication !== null) {
+        const comment = replacedComment({ ...effect, publication: effect.publication });
+        const commented = await ensureComment(effect.repository, effect.number, {
+          body: comment,
+          marker: comment.split("\n")[0] ?? "",
+        });
+        if (commented.status !== "found" && commented.status !== "written") {
+          return { status: "stopped", outcome: commented };
+        }
+      }
+      return closePull(effect.repository, effect.number);
+    },
+    confirmed: (after) =>
+      after.state === "closed" && !after.merged
+        ? null
+        : `#${effect.number} is still ${after.state}.`,
+  });
 }
