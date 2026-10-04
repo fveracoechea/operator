@@ -7,6 +7,7 @@ import { runTakeOut } from "./take-out-command.ts";
 import { type ParsedArguments, readMutation, readRevision } from "./arguments.ts";
 import {
   assignmentRefusals,
+  findingsUndisposed,
   invalidInputRefusals,
   landingRefusals,
   readStructuredInput,
@@ -565,18 +566,7 @@ const acceptRefusals = {
     })),
     lines: [`Review ${result.reviewId} is missing the ${result.missing.join(", ")} axis.`],
   }),
-  "findings-undisposed": (result) => ({
-    outcome: "missing-condition",
-    reason: "findings_undisposed",
-    blockers: result.findingIds.map((findingId) => ({
-      reason: "findings_undisposed" as const,
-      findingId,
-      reviewId: result.reviewId,
-    })),
-    lines: [
-      `${result.findingIds.length} finding(s) of review ${result.reviewId} carry no disposition.`,
-    ],
-  }),
+  "findings-undisposed": (result) => findingsUndisposed(result),
   "rework-pending": (result) => ({
     outcome: "pending",
     reason: "rework_pending",

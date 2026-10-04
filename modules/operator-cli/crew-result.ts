@@ -2,6 +2,7 @@ import type { CrewState } from "../crew-state/main.ts";
 import type { ParsedArguments } from "./arguments.ts";
 import {
   answer,
+  countedBlockers,
   type Handled,
   type Operation,
   type Reason,
@@ -40,6 +41,34 @@ export const assignmentRefusals = {
     ],
   }),
 };
+
+/**
+ * The pointer that takes the place of a list of findings. The Operator reads a count, and the
+ * details wait in the review (R5).
+ */
+export function readFindings(reviewId: string): string {
+  return `Read them with \`operator review show --review ${reviewId} --json\`.`;
+}
+
+/**
+ * The refusal of a review whose findings carry no disposition yet, as `work accept` and
+ * `work rework` report it. One blocker counts the findings, and the ids stay in `data` (R5).
+ */
+export function findingsUndisposed(
+  result: { reviewId: string; findingIds: string[] },
+  lines: string[] = [],
+): Refusal {
+  return {
+    outcome: "missing-condition",
+    reason: "findings_undisposed",
+    blockers: countedBlockers("findings_undisposed", result.findingIds),
+    data: { reviewId: result.reviewId, findingIds: result.findingIds },
+    lines: [
+      `${result.findingIds.length} finding(s) of review ${result.reviewId} carry no disposition. ${readFindings(result.reviewId)}`,
+      ...lines,
+    ],
+  };
+}
 
 /** The refusal of a structured request that failed its schema, one blocker for each reason. */
 function invalidInputOf(reason: Reason, issues: string[]): Refusal {

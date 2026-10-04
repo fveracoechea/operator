@@ -276,11 +276,10 @@ describe("operator work dispose", () => {
 
     const refused = await dispose(workspace, producer, submitted.json.data.submissionId, removal);
     expect(refused.exitCode).toBe(3);
-    expect(refused.json.blockers).toEqual([
-      expect.objectContaining({
-        reason: "outside_change_not_removed",
-        path: expect.stringMatching(/\/stray\.txt$/),
-      }),
+    // One blocker counts the changes, and the details stay in data (R5).
+    expect(refused.json.blockers).toEqual([{ reason: "outside_change_not_removed", count: 1 }]);
+    expect(refused.json.data.notRemoved).toEqual([
+      expect.objectContaining({ path: expect.stringMatching(/\/stray\.txt$/) }),
     ]);
     // Only the person deletes a file written outside the worktree.
     expect(await Bun.file(stray).exists()).toBe(true);
@@ -315,8 +314,10 @@ describe("operator work dispose", () => {
     ]);
     expect(refused.exitCode).toBe(3);
     expect(refused.json.blockers).toEqual([
+      { reason: "outside_change_approval_missing", count: 1 },
+    ]);
+    expect(refused.json.data.approvalMissing).toEqual([
       {
-        reason: "outside_change_approval_missing",
         changeId: hook?.changeId,
         approval: {
           action: "outside-change-keep",
@@ -342,7 +343,7 @@ describe("operator work dispose", () => {
       producer.ownerToken,
       "--input",
       await writeInput(workspace, {
-        ...refused.json.blockers[0].approval,
+        ...refused.json.data.approvalMissing[0].approval,
         exactText: "Keep the pre-commit hook.",
         grantedBy: "human",
       }),

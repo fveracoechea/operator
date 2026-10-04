@@ -1,8 +1,208 @@
 import { CrewState } from "../crew-state/main.ts";
 import type { ParsedArguments } from "./arguments.ts";
-import { readStructuredInput, reportInvalidInput, reportSharedFailure } from "./crew-result.ts";
+import {
+  invalidInputRefusals,
+  readFindings,
+  readStructuredInput,
+  reportSharedFailure,
+} from "./crew-result.ts";
 import { requireReference } from "./reference.ts";
-import { type Handled, refuse, report } from "./result.ts";
+import {
+  answer,
+  countedBlockers,
+  type Handled,
+  type Refusal,
+  type Refusals,
+  refuse,
+  report,
+} from "./result.ts";
+
+type ReportResult = Awaited<ReturnType<typeof CrewState.report>>["result"];
+type DisposeResult = Awaited<ReturnType<typeof CrewState.dispose>>["result"];
+
+/** The refusal of a report that changes nothing, with one blocker under its reason. */
+function drift(kind: "submission" | "branch snapshot") {
+  return (result: { reviewId: string; recorded: string; stated: string }): Refusal => ({
+    outcome: "conflict",
+    reason: kind === "submission" ? "submission_drift" : "snapshot_drift",
+    detail: { reviewId: result.reviewId, recorded: result.recorded, stated: result.stated },
+    lines: [
+      `This report names a different ${kind} than the one under review.`,
+      `The review reads ${kind === "submission" ? "submission" : "snapshot"} identity ${result.recorded}.`,
+    ],
+  });
+}
+
+/** The answers of `review report` to every status that records no report. */
+function reportRefusals(repeated: boolean) {
+  return {
+    ...invalidInputRefusals("invalid_review_report"),
+    "reference-mismatch": (result) => ({
+      outcome: "conflict",
+      reason: "attempt_reference_mismatch",
+      detail: { detail: result.detail },
+      lines: [result.detail],
+    }),
+    "worktree-changed": (result) => ({
+      outcome: "conflict",
+      reason: "review_worktree_changed",
+      blockers: [
+        ...result.changes.map((path) => ({ reason: "review_worktree_changed" as const, path })),
+        ...result.commits.map((commit) => ({ reason: "review_worktree_changed" as const, commit })),
+      ],
+      data: { attemptId: result.attemptId },
+      lines: [
+        "This review changed its own checkout, so its report is refused:",
+        ...result.changes.map((path) => `  changed ${path}`),
+        ...result.commits.map((commit) => `  committed ${commit}`),
+        "A review reads and runs checks. Rework is a separate assignment for a fresh Operative.",
+      ],
+    }),
+    "review-not-assigned": (result) => ({
+      outcome: "conflict",
+      reason: "review_not_assigned",
+      detail: { reviewId: result.reviewId, assignmentId: result.assignmentId },
+      lines: [`Review ${result.reviewId} belongs to assignment ${result.assignmentId}.`],
+    }),
+    "review-settled": (result) => ({
+      outcome: "conflict",
+      reason: "review_settled",
+      detail: { reviewId: result.reviewId, state: result.state },
+      lines: [`Review ${result.reviewId} is already ${result.state}, so it takes no new report.`],
+    }),
+    "submission-drift": drift("submission"),
+    "snapshot-drift": drift("branch snapshot"),
+    // The findings of a refused report are not recorded, so the reviewer reads them here.
+    "finding-untargeted": (result) => ({
+      outcome: "missing-condition",
+      reason: "review_finding_untargeted",
+      blockers: result.findings.map((one) => ({
+        reason: "review_finding_untargeted" as const,
+        ...one,
+      })),
+      data: { reviewId: result.reviewId },
+      lines: [
+        "Each branch finding names the commits it targets. These name none:",
+        ...result.findings.map((one) => `  ${one.axis} ${one.key}`),
+      ],
+    }),
+    "cut-not-between-commits": (result) => ({
+      outcome: "conflict",
+      reason: "review_cut_not_between_commits",
+      detail: { cuts: result.cuts, detail: result.detail },
+      data: { reviewId: result.reviewId },
+      lines: [result.detail],
+    }),
+    "finding-target-unknown": (result) => ({
+      outcome: "conflict",
+      reason: "review_finding_target_unknown",
+      blockers: result.findings.map((one) => ({
+        reason: "review_finding_target_unknown" as const,
+        ...one,
+      })),
+      data: { reviewId: result.reviewId },
+      lines: [
+        "Each target is a commit of the branch snapshot. These are not:",
+        ...result.findings.map((one) => `  ${one.axis} ${one.key}: ${one.targets.join(", ")}`),
+      ],
+    }),
+    "axes-incomplete": (result) => ({
+      outcome: "missing-condition",
+      reason: "review_axes_incomplete",
+      blockers: result.missing.map((axis) => ({ reason: "review_axes_incomplete" as const, axis })),
+      data: { reviewId: result.reviewId },
+      lines: [
+        `Each axis is reported exactly once. These are not: ${result.missing.join(", ")}.`,
+        "A partial review accepts nothing.",
+      ],
+    }),
+    "axes-not-parallel": (result) => ({
+      outcome: "conflict",
+      reason: "review_axes_not_parallel",
+      blockers: result.windows.map((one) => ({
+        reason: "review_axes_not_parallel" as const,
+        ...one,
+      })),
+      data: { reviewId: result.reviewId },
+      lines: [
+        "The two axes ran one after the other, so they were not separate parallel contexts.",
+        ...result.windows.map((one) => `  ${one.axis}: ${one.startedAt} to ${one.endedAt}`),
+      ],
+    }),
+    "host-mismatch": (result) => ({
+      outcome: "conflict",
+      reason: "review_host_mismatch",
+      detail: { host: result.stated, recorded: result.recorded },
+      data: { reviewId: result.reviewId },
+      lines: [
+        `This reviewer was launched on ${result.recorded}, and the report names ${result.stated}.`,
+        "A review reports the host it actually ran on.",
+      ],
+    }),
+    "sub-agent-host-mismatch": (result) => ({
+      outcome: "conflict",
+      reason: "review_sub_agent_host_mismatch",
+      blockers: result.stated.map((host) => ({
+        reason: "review_sub_agent_host_mismatch" as const,
+        host,
+        recorded: result.recorded,
+      })),
+      data: { reviewId: result.reviewId },
+      lines: [
+        `This reviewer runs on ${result.recorded}, so its sub-agents are native to that host.`,
+        "A review sub-agent never takes a Herdr crew slot of its own.",
+      ],
+    }),
+    "sub-agent-failed": (result) => ({
+      outcome: "failed",
+      reason: "review_sub_agent_failed",
+      blockers: result.axes.map((axis) => ({ reason: "review_sub_agent_failed" as const, axis })),
+      data: { reviewId: result.reviewId },
+      lines: [
+        `These axes did not complete: ${result.axes.join(", ")}.`,
+        "Record the blocker instead, or run the review again.",
+      ],
+    }),
+    "coverage-incomplete": (result) => ({
+      outcome: "missing-condition",
+      reason: "review_coverage_incomplete",
+      blockers: result.gaps.map((gap) => ({
+        reason: "review_coverage_incomplete" as const,
+        ...gap,
+      })),
+      data: { reviewId: result.reviewId },
+      lines: [
+        "Each axis states what it read, and these inputs were not covered:",
+        ...result.gaps.map((gap) => `  ${gap.axis}: ${gap.missing.join(", ")}`),
+      ],
+    }),
+    "published-text-missing": (result) => ({
+      outcome: "missing-condition",
+      reason: "review_published_text_missing",
+      detail: { reviewId: result.reviewId },
+      lines: [
+        "This result is the only code result of its source, so its review writes the pull request text.",
+        "Add `published` with the title, the summary, where to start reading, and the merge danger.",
+      ],
+    }),
+    blocked: (result) => ({
+      outcome: "missing-condition",
+      reason: "review_blocked",
+      detail: { detail: result.detail, blocker: result.reason },
+      data: {
+        reviewId: result.reviewId,
+        assignmentId: result.assignmentId,
+        reason: result.reason,
+        repeated,
+      },
+      lines: [
+        `Review ${result.reviewId} is blocked: ${result.reason}.`,
+        result.detail,
+        "A blocked review accepts nothing. Bring the blocker to the user.",
+      ],
+    }),
+  } satisfies Refusals<ReportResult>;
+}
 
 async function runReport(parsed: ParsedArguments): Promise<Handled> {
   const { requestId, reviewId, inputPath } = parsed.crew;
@@ -39,340 +239,7 @@ async function runReport(parsed: ParsedArguments): Promise<Handled> {
     input: read.value,
   });
 
-  if (reportSharedFailure(parsed, "review_report", result)) {
-    return "reported";
-  }
-
-  if (result.status === "invalid-input") {
-    return reportInvalidInput({
-      parsed,
-      operation: "review_report",
-      reason: "invalid_review_report",
-      issues: result.issues,
-    });
-  }
-
-  if (result.status === "reference-mismatch") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "attempt_reference_mismatch",
-        blockers: [{ reason: "attempt_reference_mismatch", detail: result.detail }],
-        operation: "review_report",
-      },
-      lines: [result.detail],
-    });
-    return "reported";
-  }
-
-  if (result.status === "worktree-changed") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "review_worktree_changed",
-        blockers: [
-          ...result.changes.map((path) => ({ reason: "review_worktree_changed" as const, path })),
-          ...result.commits.map((commit) => ({
-            reason: "review_worktree_changed" as const,
-            commit,
-          })),
-        ],
-        operation: "review_report",
-        data: { attemptId: result.attemptId },
-      },
-      lines: [
-        "This review changed its own checkout, so its report is refused:",
-        ...result.changes.map((path) => `  changed ${path}`),
-        ...result.commits.map((commit) => `  committed ${commit}`),
-        "A review reads and runs checks. Rework is a separate assignment for a fresh Operative.",
-      ],
-    });
-    return "reported";
-  }
-
-  if (result.status === "review-not-assigned") {
-    return refuse({
-      json: parsed.json,
-      operation: "review_report",
-      outcome: "conflict",
-      reason: "review_not_assigned",
-      detail: {
-        reviewId: result.reviewId,
-        assignmentId: result.assignmentId,
-      },
-      lines: [`Review ${result.reviewId} belongs to assignment ${result.assignmentId}.`],
-    });
-  }
-
-  if (result.status === "review-settled") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "review_settled",
-        blockers: [{ reason: "review_settled", reviewId: result.reviewId, state: result.state }],
-        operation: "review_report",
-      },
-      lines: [`Review ${result.reviewId} is already ${result.state}, so it takes no new report.`],
-    });
-    return "reported";
-  }
-
-  if (result.status === "submission-drift") {
-    return refuse({
-      json: parsed.json,
-      operation: "review_report",
-      outcome: "conflict",
-      reason: "submission_drift",
-      detail: {
-        reviewId: result.reviewId,
-        recorded: result.recorded,
-        stated: result.stated,
-      },
-      lines: [
-        "This report names a different submission than the one under review.",
-        `The review reads submission identity ${result.recorded}.`,
-      ],
-    });
-  }
-
-  if (result.status === "snapshot-drift") {
-    return refuse({
-      json: parsed.json,
-      operation: "review_report",
-      outcome: "conflict",
-      reason: "snapshot_drift",
-      detail: {
-        reviewId: result.reviewId,
-        recorded: result.recorded,
-        stated: result.stated,
-      },
-      lines: [
-        "This report names a different branch snapshot than the one under review.",
-        `The review reads snapshot identity ${result.recorded}.`,
-      ],
-    });
-  }
-
-  if (result.status === "finding-untargeted") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: "review_finding_untargeted",
-        blockers: result.findings.map((one) => ({
-          reason: "review_finding_untargeted" as const,
-          ...one,
-        })),
-        operation: "review_report",
-        data: { reviewId: result.reviewId },
-      },
-      lines: [
-        "Each branch finding names the commits it targets. These name none:",
-        ...result.findings.map((one) => `  ${one.axis} ${one.key}`),
-      ],
-    });
-    return "reported";
-  }
-
-  if (result.status === "cut-not-between-commits") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "review_cut_not_between_commits",
-        blockers: [
-          { reason: "review_cut_not_between_commits", cuts: result.cuts, detail: result.detail },
-        ],
-        operation: "review_report",
-        data: { reviewId: result.reviewId },
-      },
-      lines: [result.detail],
-    });
-    return "reported";
-  }
-
-  if (result.status === "finding-target-unknown") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "review_finding_target_unknown",
-        blockers: result.findings.map((one) => ({
-          reason: "review_finding_target_unknown" as const,
-          ...one,
-        })),
-        operation: "review_report",
-        data: { reviewId: result.reviewId },
-      },
-      lines: [
-        "Each target is a commit of the branch snapshot. These are not:",
-        ...result.findings.map((one) => `  ${one.axis} ${one.key}: ${one.targets.join(", ")}`),
-      ],
-    });
-    return "reported";
-  }
-
-  if (result.status === "axes-incomplete") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: "review_axes_incomplete",
-        blockers: result.missing.map((axis) => ({
-          reason: "review_axes_incomplete" as const,
-          axis,
-        })),
-        operation: "review_report",
-        data: { reviewId: result.reviewId },
-      },
-      lines: [
-        `Each axis is reported exactly once. These are not: ${result.missing.join(", ")}.`,
-        "A partial review accepts nothing.",
-      ],
-    });
-    return "reported";
-  }
-
-  if (result.status === "axes-not-parallel") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "review_axes_not_parallel",
-        blockers: result.windows.map((one) => ({
-          reason: "review_axes_not_parallel" as const,
-          ...one,
-        })),
-        operation: "review_report",
-        data: { reviewId: result.reviewId },
-      },
-      lines: [
-        "The two axes ran one after the other, so they were not separate parallel contexts.",
-        ...result.windows.map((one) => `  ${one.axis}: ${one.startedAt} to ${one.endedAt}`),
-      ],
-    });
-    return "reported";
-  }
-
-  if (result.status === "host-mismatch") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "review_host_mismatch",
-        blockers: [
-          { reason: "review_host_mismatch", host: result.stated, recorded: result.recorded },
-        ],
-        operation: "review_report",
-        data: { reviewId: result.reviewId },
-      },
-      lines: [
-        `This reviewer was launched on ${result.recorded}, and the report names ${result.stated}.`,
-        "A review reports the host it actually ran on.",
-      ],
-    });
-    return "reported";
-  }
-
-  if (result.status === "sub-agent-host-mismatch") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "review_sub_agent_host_mismatch",
-        blockers: result.stated.map((host) => ({
-          reason: "review_sub_agent_host_mismatch" as const,
-          host,
-          recorded: result.recorded,
-        })),
-        operation: "review_report",
-        data: { reviewId: result.reviewId },
-      },
-      lines: [
-        `This reviewer runs on ${result.recorded}, so its sub-agents are native to that host.`,
-        "A review sub-agent never takes a Herdr crew slot of its own.",
-      ],
-    });
-    return "reported";
-  }
-
-  if (result.status === "sub-agent-failed") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "failed",
-        reason: "review_sub_agent_failed",
-        blockers: result.axes.map((axis) => ({ reason: "review_sub_agent_failed" as const, axis })),
-        operation: "review_report",
-        data: { reviewId: result.reviewId },
-      },
-      lines: [
-        `These axes did not complete: ${result.axes.join(", ")}.`,
-        "Record the blocker instead, or run the review again.",
-      ],
-    });
-    return "reported";
-  }
-
-  if (result.status === "coverage-incomplete") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: "review_coverage_incomplete",
-        blockers: result.gaps.map((gap) => ({
-          reason: "review_coverage_incomplete" as const,
-          ...gap,
-        })),
-        operation: "review_report",
-        data: { reviewId: result.reviewId },
-      },
-      lines: [
-        "Each axis states what it read, and these inputs were not covered:",
-        ...result.gaps.map((gap) => `  ${gap.axis}: ${gap.missing.join(", ")}`),
-      ],
-    });
-    return "reported";
-  }
-
-  if (result.status === "published-text-missing") {
-    return refuse({
-      json: parsed.json,
-      operation: "review_report",
-      outcome: "missing-condition",
-      reason: "review_published_text_missing",
-      detail: { reviewId: result.reviewId },
-      lines: [
-        "This result is the only code result of its source, so its review writes the pull request text.",
-        "Add `published` with the title, the summary, where to start reading, and the merge danger.",
-      ],
-    });
-  }
-
-  if (result.status === "blocked") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: "review_blocked",
-        blockers: [{ reason: "review_blocked", detail: result.detail, blocker: result.reason }],
-        operation: "review_report",
-        data: {
-          reviewId: result.reviewId,
-          assignmentId: result.assignmentId,
-          reason: result.reason,
-          repeated,
-        },
-      },
-      lines: [
-        `Review ${result.reviewId} is blocked: ${result.reason}.`,
-        result.detail,
-        "A blocked review accepts nothing. Bring the blocker to the user.",
-      ],
-    });
+  if (answer(parsed, "review_report", result, reportRefusals(repeated))) {
     return "reported";
   }
 
@@ -396,9 +263,7 @@ async function runReport(parsed: ParsedArguments): Promise<Handled> {
     lines: [
       `Recorded both axis reports for review ${result.reviewId}.`,
       `${result.findings.length} finding(s), ${blockers.length} of them blockers.`,
-      ...result.findings.map(
-        (one) => `  ${one.findingId} ${one.axis} ${one.severity} ${one.summary}`,
-      ),
+      ...(result.findings.length === 0 ? [] : [readFindings(result.reviewId)]),
       result.snapshotId === null
         ? "Every finding needs a disposition before the result can be accepted."
         : "Every finding needs a disposition before the branch can be published.",
@@ -406,6 +271,68 @@ async function runReport(parsed: ParsedArguments): Promise<Handled> {
   });
   return "reported";
 }
+
+/**
+ * The refusal of a disposition that names findings. One blocker counts them, and the ids stay
+ * in `data` (R5).
+ */
+function findingsRefused(
+  reason: "unknown_finding" | "blocker_not_deferrable" | "correction_target_not_expected",
+  lines: (reviewId: string) => string[],
+) {
+  return (result: { reviewId: string; findingIds: string[] }): Refusal => ({
+    outcome: "invalid",
+    reason,
+    blockers: countedBlockers(reason, result.findingIds),
+    data: { reviewId: result.reviewId, findingIds: result.findingIds },
+    lines: lines(result.reviewId),
+  });
+}
+
+/** The answers of `review dispose` to every status that records no disposition. */
+const disposeRefusals = {
+  ...invalidInputRefusals("invalid_disposition_input"),
+  "review-not-reported": (result) => ({
+    outcome: "missing-condition",
+    reason: "review_not_reported",
+    detail: { reviewId: result.reviewId, state: result.state },
+    lines: [`Review ${result.reviewId} is ${result.state}, so it carries no findings yet.`],
+  }),
+  "unknown-finding": findingsRefused("unknown_finding", (reviewId) => [
+    `Review ${reviewId} holds no such finding(s).`,
+  ]),
+  "blocker-not-deferrable": findingsRefused("blocker_not_deferrable", () => [
+    "A blocker is corrected, or rejected with a reason and the evidence. It is never deferred.",
+    "Technical judgment does not waive an approved requirement.",
+  ]),
+  "correction-target-required": (result) => ({
+    outcome: "invalid",
+    reason: "correction_target_required",
+    blockers: countedBlockers("correction_target_required", result.findingIds),
+    data: { reviewId: result.reviewId, findingIds: result.findingIds },
+    lines: [
+      "A corrected branch finding names in `target` the one assignment it invalidates.",
+      `${result.findingIds.length} finding(s) of review ${result.reviewId} name none. ${readFindings(result.reviewId)}`,
+    ],
+  }),
+  "correction-target-not-expected": findingsRefused(
+    "correction_target_not_expected",
+    (reviewId) => [
+      `Review ${reviewId} reads one submission, so its corrections name no target.`,
+      "Only a corrected branch finding names the assignment it invalidates.",
+    ],
+  ),
+  "correction-target-unknown": (result) => ({
+    outcome: "invalid",
+    reason: "correction_target_unknown",
+    blockers: countedBlockers("correction_target_unknown", result.findings),
+    data: { reviewId: result.reviewId, findings: result.findings },
+    lines: [
+      "The target of a corrected branch finding holds one of the commits the finding targets.",
+      `${result.findings.length} finding(s) of review ${result.reviewId} name another target. ${readFindings(result.reviewId)}`,
+    ],
+  }),
+} satisfies Refusals<DisposeResult>;
 
 async function runDispose(parsed: ParsedArguments): Promise<Handled> {
   const { requestId, ownerToken, reviewId, inputPath } = parsed.crew;
@@ -436,132 +363,7 @@ async function runDispose(parsed: ParsedArguments): Promise<Handled> {
     input: read.value,
   });
 
-  if (reportSharedFailure(parsed, "review_dispose", result)) {
-    return "reported";
-  }
-
-  if (result.status === "invalid-input") {
-    return reportInvalidInput({
-      parsed,
-      operation: "review_dispose",
-      reason: "invalid_disposition_input",
-      issues: result.issues,
-    });
-  }
-
-  if (result.status === "review-not-reported") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: "review_not_reported",
-        blockers: [
-          { reason: "review_not_reported", reviewId: result.reviewId, state: result.state },
-        ],
-        operation: "review_dispose",
-      },
-      lines: [`Review ${result.reviewId} is ${result.state}, so it carries no findings yet.`],
-    });
-    return "reported";
-  }
-
-  if (result.status === "unknown-finding") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "invalid",
-        reason: "unknown_finding",
-        blockers: result.findingIds.map((findingId) => ({
-          reason: "unknown_finding" as const,
-          findingId,
-        })),
-        operation: "review_dispose",
-      },
-      lines: [`Review ${result.reviewId} holds no such finding(s).`],
-    });
-    return "reported";
-  }
-
-  if (result.status === "blocker-not-deferrable") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "invalid",
-        reason: "blocker_not_deferrable",
-        blockers: result.findingIds.map((findingId) => ({
-          reason: "blocker_not_deferrable" as const,
-          findingId,
-        })),
-        operation: "review_dispose",
-      },
-      lines: [
-        "A blocker is corrected, or rejected with a reason and the evidence. It is never deferred.",
-        "Technical judgment does not waive an approved requirement.",
-      ],
-    });
-    return "reported";
-  }
-
-  if (result.status === "correction-target-required") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "invalid",
-        reason: "correction_target_required",
-        blockers: result.findingIds.map((findingId) => ({
-          reason: "correction_target_required" as const,
-          findingId,
-        })),
-        operation: "review_dispose",
-      },
-      lines: [
-        "A corrected branch finding names in `target` the one assignment it invalidates.",
-        `These findings of review ${result.reviewId} name none: ${result.findingIds.join(", ")}.`,
-      ],
-    });
-    return "reported";
-  }
-
-  if (result.status === "correction-target-not-expected") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "invalid",
-        reason: "correction_target_not_expected",
-        blockers: result.findingIds.map((findingId) => ({
-          reason: "correction_target_not_expected" as const,
-          findingId,
-        })),
-        operation: "review_dispose",
-      },
-      lines: [
-        `Review ${result.reviewId} reads one submission, so its corrections name no target.`,
-        "Only a corrected branch finding names the assignment it invalidates.",
-      ],
-    });
-    return "reported";
-  }
-
-  if (result.status === "correction-target-unknown") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "invalid",
-        reason: "correction_target_unknown",
-        blockers: result.findings.map((one) => ({
-          reason: "correction_target_unknown" as const,
-          ...one,
-        })),
-        operation: "review_dispose",
-      },
-      lines: [
-        "The target of a corrected branch finding holds one of the commits the finding targets:",
-        ...result.findings.map(
-          (one) =>
-            `  ${one.findingId}: ${one.target} is not one of ${one.allowed.join(", ") || "none"}`,
-        ),
-      ],
-    });
+  if (answer(parsed, "review_dispose", result, disposeRefusals)) {
     return "reported";
   }
 
@@ -575,10 +377,7 @@ async function runDispose(parsed: ParsedArguments): Promise<Handled> {
           ? "completed"
           : "pending",
       reason: "findings_disposed",
-      blockers: result.outstanding.map((findingId) => ({
-        reason: "findings_undisposed" as const,
-        findingId,
-      })),
+      blockers: countedBlockers("findings_undisposed", result.outstanding),
       operation: "review_dispose",
       data: {
         reviewId: result.reviewId,

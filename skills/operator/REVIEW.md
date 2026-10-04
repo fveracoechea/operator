@@ -129,6 +129,7 @@ Only the user deletes it.
 A change in `.git/hooks/` or `.git/config` of the checkout touches a security permission, so the user decides it.
 Its action carries the `approval_required` blocker.
 `outside_change_approval_missing` gives the exact approval to bring to the user: the action `outside-change-keep`, the path, the submission, and the change id.
+Its blocker counts the changes, and `data.approvalMissing` holds the approval of each one.
 A change marked `unscanned` is a scan that could not run, which is never a pass.
 
 ## Acceptance reads recorded evidence

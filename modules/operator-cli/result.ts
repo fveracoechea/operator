@@ -624,6 +624,14 @@ export type Refusals<Result extends { status: string }> = {
   [S in Result["status"]]?: (result: Extract<Result, { status: S }>) => Refusal;
 };
 
+/**
+ * One blocker that counts the items under its reason, or none for no items. A command the
+ * Operator reads gives the count and keeps the list in `data` (R5).
+ */
+export function countedBlockers(reason: Reason, items: readonly unknown[]): JsonResult["blockers"] {
+  return items.length === 0 ? [] : [{ reason, count: items.length }];
+}
+
 type SharedFailure = {
   reason: Reason;
   outcome: "failed" | "invalid" | "missing-condition" | "conflict";

@@ -14,11 +14,8 @@
         "modules/crew-state/next.ts",
         "modules/crew-state/registration.ts",
         "modules/operator-cli/arguments.ts",
-        "modules/operator-cli/outside-command.ts",
-        "modules/operator-cli/review-command.ts",
         "modules/operator-cli/run.ts",
         "modules/operator-cli/setup-command.ts",
-        "modules/operator-cli/tracker-command.ts",
         "modules/operator-cli/wake-command.ts"
       ],
       "rules": { "complexity": ["error", { "max": 30 }] }

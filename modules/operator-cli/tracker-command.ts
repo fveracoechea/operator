@@ -1,12 +1,14 @@
 import { CrewState } from "../crew-state/main.ts";
 import { type ParsedArguments, readRevision } from "./arguments.ts";
-import { readStructuredInput, reportInvalidInput, reportSharedFailure } from "./crew-result.ts";
+import { invalidInputRefusals, readStructuredInput, reportSharedFailure } from "./crew-result.ts";
 import { finishLine } from "./source-finish.ts";
 import {
+  answer,
   type Handled,
   type Operation,
   type Outcome,
   type Reason,
+  type Refusals,
   refuse,
   report,
   type TrackerReason,
@@ -272,95 +274,62 @@ function reportStepFailure(request: {
 }
 
 /** The refusals of a resolution body: who writes it, and whether the tracker accepts its size. */
-function reportResolutionRefusal(parsed: ParsedArguments, result: StepResult): Handled | null {
-  const operation = "tracker_record";
-  if (result.status === "planning-body-not-allowed") {
-    return refuse({
-      json: parsed.json,
-      operation,
-      outcome: "invalid",
-      reason: "planning_body_not_allowed",
-      detail: { assignmentId: result.assignmentId },
-      lines: [
-        `Assignment ${result.assignmentId} is planning work, so its resolution is rendered from its planning record.`,
-        "Send the resolution step with no body. Prose belongs in a text artifact of the record.",
-      ],
-    });
-  }
-
-  if (result.status === "planning-record-missing") {
-    return refuse({
-      json: parsed.json,
-      operation,
-      outcome: "missing-condition",
-      reason: "planning_record_missing",
-      detail: { assignmentId: result.assignmentId },
-      lines: [
-        `Assignment ${result.assignmentId} was accepted with no planning record, so no resolution can be rendered.`,
-      ],
-    });
-  }
-
-  if (result.status === "merge-not-observed") {
-    return refuse({
-      json: parsed.json,
-      operation,
-      outcome: "missing-condition",
-      reason: "merge_not_observed",
-      detail: { assignmentId: result.assignmentId, detail: result.detail },
-      lines: [
-        `The tracker steps of ${result.assignmentId} run only after its pull request merged into the target. Nothing was written.`,
-        result.detail,
-      ],
-    });
-  }
-
-  if (result.status === "code-resolution-body-not-allowed") {
-    return refuse({
-      json: parsed.json,
-      operation,
-      outcome: "invalid",
-      reason: "code_resolution_body_not_allowed",
-      detail: { assignmentId: result.assignmentId },
-      lines: [
-        `Assignment ${result.assignmentId} is a code result, so its resolution is rendered from the recorded merge.`,
-        "Send the resolution step with no body.",
-      ],
-    });
-  }
-
-  if (result.status === "completion-reason-not-approved") {
-    return refuse({
-      json: parsed.json,
-      operation,
-      outcome: "invalid",
-      reason: "completion_reason_not_approved",
-      detail: { assignmentId: result.assignmentId, reason: result.reason },
-      lines: [
-        `The publish approval completes the ticket of ${result.assignmentId} as completed, not as ${result.reason}.`,
-      ],
-    });
-  }
-
-  if (result.status === "publish-approval-missing") {
-    return refuse({
-      json: parsed.json,
-      operation,
-      outcome: "missing-condition",
-      reason: "publish_approval_missing",
-      detail: { ...result },
-      lines: [
-        `Publish approval ${result.approvalId} no longer names the ${result.step} step of ${result.assignmentId} with this text. Nothing was written.`,
-        "A person settles it: no tracker write after the merge happens without that approval.",
-      ],
-    });
-  }
-
-  if (result.status === "map-amendment-approval-required") {
+const resolutionRefusals = {
+  "planning-body-not-allowed": (result) => ({
+    outcome: "invalid",
+    reason: "planning_body_not_allowed",
+    detail: { assignmentId: result.assignmentId },
+    lines: [
+      `Assignment ${result.assignmentId} is planning work, so its resolution is rendered from its planning record.`,
+      "Send the resolution step with no body. Prose belongs in a text artifact of the record.",
+    ],
+  }),
+  "planning-record-missing": (result) => ({
+    outcome: "missing-condition",
+    reason: "planning_record_missing",
+    detail: { assignmentId: result.assignmentId },
+    lines: [
+      `Assignment ${result.assignmentId} was accepted with no planning record, so no resolution can be rendered.`,
+    ],
+  }),
+  "merge-not-observed": (result) => ({
+    outcome: "missing-condition",
+    reason: "merge_not_observed",
+    detail: { assignmentId: result.assignmentId, detail: result.detail },
+    lines: [
+      `The tracker steps of ${result.assignmentId} run only after its pull request merged into the target. Nothing was written.`,
+      result.detail,
+    ],
+  }),
+  "code-resolution-body-not-allowed": (result) => ({
+    outcome: "invalid",
+    reason: "code_resolution_body_not_allowed",
+    detail: { assignmentId: result.assignmentId },
+    lines: [
+      `Assignment ${result.assignmentId} is a code result, so its resolution is rendered from the recorded merge.`,
+      "Send the resolution step with no body.",
+    ],
+  }),
+  "completion-reason-not-approved": (result) => ({
+    outcome: "invalid",
+    reason: "completion_reason_not_approved",
+    detail: { assignmentId: result.assignmentId, reason: result.reason },
+    lines: [
+      `The publish approval completes the ticket of ${result.assignmentId} as completed, not as ${result.reason}.`,
+    ],
+  }),
+  "publish-approval-missing": (result) => ({
+    outcome: "missing-condition",
+    reason: "publish_approval_missing",
+    detail: { ...result },
+    lines: [
+      `Publish approval ${result.approvalId} no longer names the ${result.step} step of ${result.assignmentId} with this text. Nothing was written.`,
+      "A person settles it: no tracker write after the merge happens without that approval.",
+    ],
+  }),
+  "map-amendment-approval-required": (result) => {
     const { approval } = result;
-    return refuse({
-      json: parsed.json,
-      operation,
+    return {
       outcome: "missing-condition",
       reason: "map_amendment_approval_required",
       detail: { ...result },
@@ -369,55 +338,42 @@ function reportResolutionRefusal(parsed: ParsedArguments, result: StepResult): H
         `Show the person that text. It is written only after they grant ${approval.action} for ${approval.targets.join(", ")}`,
         `in scope ${approval.scope} at request revision ${approval.requestRevision}, which binds that exact text.`,
       ],
-    });
-  }
-
-  if (result.status === "resolution-body-required") {
-    return refuse({
-      json: parsed.json,
-      operation,
-      outcome: "invalid",
-      reason: "resolution_body_required",
-      detail: { assignmentId: result.assignmentId },
-      lines: [`The resolution of ${result.assignmentId} states its body.`],
-    });
-  }
-
-  if (result.status === "comment-too-long") {
-    return refuse({
-      json: parsed.json,
-      operation,
-      outcome: "invalid",
-      reason: "comment_too_long",
-      detail: { size: result.size, limit: result.limit },
-      lines: [
-        `The comment is ${result.size} characters, and the tracker accepts at most ${result.limit}.`,
-        "Nothing was written.",
-      ],
-    });
-  }
-
-  if (result.status === "artifact-unreadable" || result.status === "artifact-identity-changed") {
-    const unreadable = result.status === "artifact-unreadable";
-    return refuse({
-      json: parsed.json,
-      operation,
-      outcome: unreadable ? "missing-condition" : "conflict",
-      reason: unreadable ? "artifact_unreadable" : "artifact_identity_changed",
-      detail: unreadable
-        ? { name: result.name, path: result.path }
-        : { name: result.name, path: result.path, found: result.found },
-      lines: [
-        unreadable
-          ? `The stored artifact ${result.name} is missing at ${result.path}.`
-          : `The stored artifact ${result.name} at ${result.path} no longer matches its record.`,
-        "Nothing was written.",
-      ],
-    });
-  }
-
-  return null;
-}
+    };
+  },
+  "resolution-body-required": (result) => ({
+    outcome: "invalid",
+    reason: "resolution_body_required",
+    detail: { assignmentId: result.assignmentId },
+    lines: [`The resolution of ${result.assignmentId} states its body.`],
+  }),
+  "comment-too-long": (result) => ({
+    outcome: "invalid",
+    reason: "comment_too_long",
+    detail: { size: result.size, limit: result.limit },
+    lines: [
+      `The comment is ${result.size} characters, and the tracker accepts at most ${result.limit}.`,
+      "Nothing was written.",
+    ],
+  }),
+  "artifact-unreadable": (result) => ({
+    outcome: "missing-condition",
+    reason: "artifact_unreadable",
+    detail: { name: result.name, path: result.path },
+    lines: [
+      `The stored artifact ${result.name} is missing at ${result.path}.`,
+      "Nothing was written.",
+    ],
+  }),
+  "artifact-identity-changed": (result) => ({
+    outcome: "conflict",
+    reason: "artifact_identity_changed",
+    detail: { name: result.name, path: result.path, found: result.found },
+    lines: [
+      `The stored artifact ${result.name} at ${result.path} no longer matches its record.`,
+      "Nothing was written.",
+    ],
+  }),
+} satisfies Refusals<StepResult>;
 
 async function runRecord(parsed: ParsedArguments): Promise<Handled> {
   const { requestId, ownerToken, assignmentId, inputPath } = parsed.crew;
@@ -452,22 +408,16 @@ async function runRecord(parsed: ParsedArguments): Promise<Handled> {
     input: read.value,
   });
 
-  if (reportSharedFailure(parsed, "tracker_record", result)) {
+  if (
+    answer(parsed, "tracker_record", result, {
+      ...invalidInputRefusals("tracker.invalid_request"),
+      ...resolutionRefusals,
+    })
+  ) {
     return "reported";
   }
 
-  if (result.status === "invalid-input") {
-    return reportInvalidInput({
-      parsed,
-      operation: "tracker_record",
-      reason: "tracker.invalid_request",
-      issues: result.issues,
-    });
-  }
-
-  const refused =
-    reportStepFailure({ parsed, operation: "tracker_record", result }) ??
-    reportResolutionRefusal(parsed, result);
+  const refused = reportStepFailure({ parsed, operation: "tracker_record", result });
   if (refused !== null) {
     return refused;
   }

@@ -578,6 +578,117 @@ const STEP_REPORT = {
   problems: [],
 };
 
+const REVIEW_REPORT = [
+  "invalid-input",
+  "reference-mismatch",
+  "worktree-changed",
+  "review-not-assigned",
+  "review-settled",
+  "submission-drift",
+  "snapshot-drift",
+  "finding-untargeted",
+  "cut-not-between-commits",
+  "finding-target-unknown",
+  "axes-incomplete",
+  "axes-not-parallel",
+  "host-mismatch",
+  "sub-agent-failed",
+  "coverage-incomplete",
+  "published-text-missing",
+  "blocked",
+];
+
+const REVIEW_DISPOSE = [
+  "invalid-input",
+  "review-not-reported",
+  "unknown-finding",
+  "blocker-not-deferrable",
+  "correction-target-required",
+  "correction-target-not-expected",
+  "correction-target-unknown",
+];
+
+/** The fields the review report and dispose answers read, beside the shared sink. */
+const REVIEW_SINK = {
+  changes: ["p1", "p2"],
+  commits: ["c1"],
+  findings: [
+    {
+      findingId: "f1",
+      axis: "spec",
+      key: "k1",
+      targets: ["c1", "c2"],
+      severity: "blocker",
+      summary: "s1",
+      target: "a2",
+      allowed: ["a3"],
+    },
+    {
+      findingId: "f2",
+      axis: "standards",
+      key: "k2",
+      targets: [],
+      severity: "note",
+      summary: "s2",
+      target: "a4",
+      allowed: [],
+    },
+  ],
+  cuts: [1],
+  windows: [
+    { axis: "spec", startedAt: "t1", endedAt: "t2" },
+    { axis: "standards", startedAt: "t3", endedAt: "t4" },
+  ],
+  axes: ["spec"],
+  gaps: [{ axis: "spec", missing: ["m1", "m2"] }],
+  snapshotId: "sn1",
+};
+
+const DISPOSED = {
+  disposed: ["f1", "f2"],
+  outstanding: ["f3"],
+  corrections: ["f1"],
+  invalidated: [{ assignmentId: "a2", invalidationId: "iv1", dependents: ["a5", "a6"] }],
+};
+
+const OUTSIDE_DISPOSE = [
+  "invalid-input",
+  "unknown-submission",
+  "submission-settled",
+  "unknown-outside-change",
+  "outside-dispose-refused",
+];
+
+const OUTSIDE_SINK = {
+  notRemoved: [{ changeId: "c1", path: "p1" }],
+  approvalMissing: [{ changeId: "c2", path: "p2", action: "outside-change-keep" }],
+  disposed: ["c1", "c2"],
+  outstanding: ["c3", "c4"],
+};
+
+const RESOLUTION = [
+  "planning-body-not-allowed",
+  "planning-record-missing",
+  "merge-not-observed",
+  "code-resolution-body-not-allowed",
+  "completion-reason-not-approved",
+  "publish-approval-missing",
+  "map-amendment-approval-required",
+  "resolution-body-required",
+  "comment-too-long",
+  "artifact-unreadable",
+  "artifact-identity-changed",
+];
+
+const RESOLUTION_SINK = {
+  approvalId: "ap1",
+  step: "resolution",
+  approval: APPROVAL,
+  planPath: "plans/m1.md",
+  size: 70000,
+  limit: 65536,
+};
+
 const publishMutation = [...mutation, "--source", "s1"];
 /** One command, its arguments, and the results it is answered with. */
 const COMMANDS: Array<{
@@ -865,6 +976,47 @@ const COMMANDS: Array<{
     method: "gateRun",
     args: ["gate", "show", "--run", "g1"],
     results: [...withStatus(["state-missing"]), { status: "unknown-gate-run" }],
+  },
+  {
+    method: "report",
+    args: ["review", "report", "--request", "r", "--review", "rv1", "--input", "in.json"],
+    reference: true,
+    results: [
+      ...withStatus([...SHARED, ...REVIEW_REPORT], REVIEW_SINK),
+      ...withStatus(["sub-agent-host-mismatch"], { ...REVIEW_SINK, stated: ["h1", "h2"] }),
+      ...withStatus(["reported"], REVIEW_SINK),
+      ...withStatus(["reported"], { ...REVIEW_SINK, snapshotId: null }),
+    ],
+  },
+  {
+    method: "dispose",
+    args: ["review", "dispose", ...mutation, "--review", "rv1", "--input", "in.json"],
+    results: [
+      ...withStatus([...SHARED, ...REVIEW_DISPOSE], REVIEW_SINK),
+      ...withStatus(["disposed"], { ...REVIEW_SINK, ...DISPOSED }),
+      ...withStatus(["disposed"], {
+        ...REVIEW_SINK,
+        ...DISPOSED,
+        outstanding: [],
+        corrections: [],
+      }),
+    ],
+  },
+  {
+    method: "disposeOutside",
+    args: ["work", "dispose", ...mutation, "--submission", "sb1", "--input", "in.json"],
+    results: [
+      ...withStatus([...SHARED, ...OUTSIDE_DISPOSE], OUTSIDE_SINK),
+      ...withStatus(["outside-dispose-refused"], { ...OUTSIDE_SINK, notRemoved: [] }),
+      ...withStatus(["outside-dispose-refused"], { ...OUTSIDE_SINK, approvalMissing: [] }),
+      ...withStatus(["disposed"], OUTSIDE_SINK),
+      ...withStatus(["disposed"], { ...OUTSIDE_SINK, outstanding: [] }),
+    ],
+  },
+  {
+    method: "recordTracker",
+    args: ["tracker", "record", ...assignment, "--input", "in.json"],
+    results: withStatus([...SHARED, "invalid-input", ...RESOLUTION], RESOLUTION_SINK),
   },
   {
     method: "recoverTracker",

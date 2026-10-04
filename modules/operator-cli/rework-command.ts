@@ -2,6 +2,7 @@ import { CrewState } from "../crew-state/main.ts";
 import { type ParsedArguments, readAssignmentRequest } from "./arguments.ts";
 import {
   assignmentRefusals,
+  findingsUndisposed,
   invalidInputRefusals,
   landingRefusals,
   readStructuredInput,
@@ -57,19 +58,8 @@ const reworkRefusals = {
     detail: { reviewId: result.reviewId, state: result.state },
     lines: [`Review ${result.reviewId} is ${result.state}, so it carries no findings yet.`],
   }),
-  "findings-undisposed": (result) => ({
-    outcome: "missing-condition",
-    reason: "findings_undisposed",
-    blockers: result.findingIds.map((findingId) => ({
-      reason: "findings_undisposed" as const,
-      findingId,
-      reviewId: result.reviewId,
-    })),
-    lines: [
-      `${result.findingIds.length} finding(s) of review ${result.reviewId} carry no disposition.`,
-      "Every finding is answered before any of them is delegated.",
-    ],
-  }),
+  "findings-undisposed": (result) =>
+    findingsUndisposed(result, ["Every finding is answered before any of them is delegated."]),
   "no-corrections": (result) => ({
     outcome: "invalid",
     reason: "no_corrections",
