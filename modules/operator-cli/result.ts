@@ -27,9 +27,16 @@ type PublishRefusalReason = Extract<
   { status: "planned" }
 >["refusals"][number]["reason"];
 
+/** The refusals of a rebase plan, read from the crew-state result rather than copied. */
+type RebaseRefusalReason = Extract<
+  Awaited<ReturnType<typeof CrewState.planRebase>>["result"],
+  { status: "planned" }
+>["refusals"][number]["reason"];
+
 export type Reason =
   | TrackerReason
   | PublishRefusalReason
+  | RebaseRefusalReason
   | "invalid_arguments"
   | "unsupported_bun"
   | "version_reported"
@@ -298,13 +305,6 @@ export type Reason =
   | "rebased"
   | "rebase_pending"
   | "rebase_stopped"
-  | "rebase_published_range"
-  | "rebase_correction_open"
-  | "rebase_take_out_pending"
-  | "rebase_base_not_on_target"
-  | "rebase_base_unchanged"
-  | "rebase_base_not_ahead"
-  | "rebase_merge_not_in_base"
   | "landing_tip_changed"
   | "lands_cleanly"
   | "no_landing"

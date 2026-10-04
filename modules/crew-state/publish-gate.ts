@@ -14,10 +14,11 @@ import { fixedGateOf, integrationBranchOf, sourceSlug } from "./integration.ts";
 import { publishBaseOf } from "./stack-parts.ts";
 import { storedObservedChecks, storedPublishedText, storedTargets } from "./review-input.ts";
 import { findingsOf, reportsOf, reviewOfSubmission, type ReviewRow } from "./review.ts";
-import { assignments, directionRequests, gateRuns, workSources } from "./schema.ts";
+import { assignments, directionRequests, gateRuns } from "./schema.ts";
+import { repositoryOf } from "./stack-records.ts";
 import { storedBehaviorChanges, storedConcerns } from "./submission-input.ts";
 import { readSubmission } from "./submission.ts";
-import { storedRequirements, storedTrackerBinding, storedTrackerLocation } from "./work-input.ts";
+import { storedRequirements, storedTrackerBinding } from "./work-input.ts";
 
 /**
  * The refusals of a publish plan that the crew records decide, in the fixed order of decision 10
@@ -475,15 +476,11 @@ function reviewEvidenceOf(
  * the plan never disagree.
  */
 export function publishRecordsOf(db: CrewReader, sourceId: string): PublishRecords {
-  const source = db.select().from(workSources).where(eq(workSources.id, sourceId)).all()[0];
   const branch = integrationBranchOf(db, sourceId);
   const condition = branchCondition(db, sourceId);
   const empty: PublishRecords = {
     sourceId,
-    repository:
-      source?.trackerLocation == null
-        ? null
-        : storedTrackerLocation(source.trackerLocation).repository,
+    repository: repositoryOf(db, sourceId),
     slug: sourceSlug(sourceId),
     base: branch?.baseCommit ?? null,
     head: branch?.recordedTip ?? null,

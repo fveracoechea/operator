@@ -11,7 +11,12 @@ import { type GateStartResult, startOnStep, startRun } from "./gate-start.ts";
 import { identityOf } from "./identity.ts";
 import { fixedGateOf, type IntegrationBranchRow, integrationBranchOf } from "./integration.ts";
 import { writeLandingStates } from "./landing.ts";
-import { currentLandingOf, intendedLandingOf, type LandingRow } from "./landing-record.ts";
+import {
+  currentLandingOf,
+  intendedLandingOf,
+  type LandingRow,
+  takeOutCauseSchema,
+} from "./landing-record.ts";
 import { mutate, readState, type RequestFailure, type StateFailure } from "./operations.ts";
 import { type ApprovalRequest, openPublicationOf } from "./publish.ts";
 import { publishedPartsOf, replacedPullsOf } from "./publish-status.ts";
@@ -24,8 +29,8 @@ import {
   withNeeds,
 } from "./rewrite.ts";
 import { assignments, integrationBranches, integrationRebases, workSources } from "./schema.ts";
+import { repositoryOf } from "./stack-records.ts";
 import { readStored } from "./stored.ts";
-import { storedTrackerLocation } from "./work-input.ts";
 
 const PLAN_STORE = ".operator/local/rebase-plans";
 
@@ -52,7 +57,7 @@ const rebaseRecordSchema = z.strictObject({
       landingId: z.string(),
       assignmentId: z.string(),
       commit: z.string(),
-      cause: z.enum(["conflict", "patch-changed", "gate", "dependency"]),
+      cause: takeOutCauseSchema,
     }),
   ),
 });
@@ -60,6 +65,12 @@ const rebaseRecordSchema = z.strictObject({
 export type RebaseRecord = z.infer<typeof rebaseRecordSchema>;
 
 type RebaseRow = typeof integrationRebases.$inferSelect;
+
+/** Why the target branch cannot be read, as the stack names it for a plan and for a rebase. */
+type TargetReason = Extract<
+  Awaited<ReturnType<typeof PullRequestStack.target>>,
+  { status: "unread" }
+>["reason"];
 
 /**
  * The refusals of a rebase plan, members of the durable unions of ADR 0011. Each one moves
@@ -77,10 +88,7 @@ export type RebaseRefusal = {
     | "rebase_published_range"
     | "rebase_correction_open"
     | "rebase_take_out_pending"
-    | "repository_unread"
-    | "remote_missing"
-    | "remote_ambiguous"
-    | "remote_unread"
+    | TargetReason
     | "rebase_base_not_on_target"
     | "rebase_base_unchanged"
     | "rebase_base_not_ahead"
@@ -356,13 +364,13 @@ async function newBaseOf(request: {
   projectRoot: string;
   sourceId: string;
   newBase: string;
-  trackerLocation: string | null;
+  repository: string | null;
 }): Promise<{
   target: RebasePreview["target"];
   newBase: string | null;
   refusal: RebaseRefusal | null;
 }> {
-  if (request.trackerLocation === null) {
+  if (request.repository === null) {
     return {
       target: null,
       newBase: null,
@@ -374,7 +382,7 @@ async function newBaseOf(request: {
   }
   const fetched = await PullRequestStack.target({
     repoRoot: request.projectRoot,
-    repository: storedTrackerLocation(request.trackerLocation).repository,
+    repository: request.repository,
     commit: request.newBase,
   });
   if (fetched.status !== "read") {
@@ -427,6 +435,7 @@ export async function planRebase(request: {
       chain: chain === null ? null : withNeeds(db, chain),
       refused: refusedTrees(db, row),
       parts: publishedPartsOf(db, request.sourceId),
+      repository: repositoryOf(db, request.sourceId),
     };
   });
   if ("status" in read) {
@@ -477,7 +486,7 @@ export async function planRebase(request: {
   }
   const { target, newBase, refusal } = await newBaseOf({
     ...request,
-    trackerLocation: read.source.trackerLocation,
+    repository: read.repository,
   });
   if (refusal !== null) {
     refusals.push(refusal);

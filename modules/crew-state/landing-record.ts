@@ -1,5 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
+import type { IntegrationBranch } from "../integration-branch/main.ts";
 import { CARRYING } from "./branch-move.ts";
 import type { CrewReader } from "./database.ts";
 import { landings } from "./schema.ts";
@@ -11,6 +12,23 @@ import { readStored } from "./stored.ts";
  */
 
 export type LandingRow = typeof landings.$inferSelect;
+
+/** Why a rewrite or a rebase took a later commit out, as the integration branch names it. */
+type TakeOutCause = Extract<
+  Awaited<ReturnType<typeof IntegrationBranch.rebase>>,
+  { status: "ready" }
+>["takenOut"][number]["cause"];
+
+// Each cause the integration branch gives, and no other, so a renamed cause fails the typecheck.
+const TAKE_OUT_CAUSES = {
+  conflict: "conflict",
+  "patch-changed": "patch-changed",
+  gate: "gate",
+  dependency: "dependency",
+} as const satisfies { [Cause in TakeOutCause]: Cause };
+
+/** A take-out cause as a rewrite record and a rebase record store it. */
+export const takeOutCauseSchema = z.enum(TAKE_OUT_CAUSES);
 
 /**
  * The plan of one rewrite, as its intent records it (ADR 0020). It names the landing that the
@@ -37,7 +55,7 @@ const rewriteRecordSchema = z.strictObject({
       landingId: z.string(),
       assignmentId: z.string(),
       commit: z.string(),
-      cause: z.enum(["conflict", "patch-changed", "gate", "dependency"]),
+      cause: takeOutCauseSchema,
     }),
   ),
   takeOut: z

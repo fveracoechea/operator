@@ -123,7 +123,7 @@ export function pullsOf(db: CrewReader, publicationId: string): PullRow[] {
 /** A pull request that its create wrote, so GitHub gave it a number. */
 export type WrittenPull = PullRow & { number: number };
 
-function isWritten(pull: PullRow): pull is WrittenPull {
+export function isWritten(pull: PullRow): pull is WrittenPull {
   return pull.number !== null;
 }
 
@@ -189,10 +189,22 @@ export function latestObservationOf(
   };
 }
 
-/** The repository of one source, which names its pull requests in an approval target. */
-export function repositoryOf(db: CrewReader, sourceId: string): string {
+/**
+ * The tracker repository of one source, the one place that reads it, or null for a source that
+ * is unknown or records no tracker location. A publish plan and a rebase plan refuse on null.
+ */
+export function repositoryOf(db: CrewReader, sourceId: string): string | null {
   const source = db.select().from(workSources).where(eq(workSources.id, sourceId)).all()[0];
   return source?.trackerLocation == null
-    ? sourceId
+    ? null
     : storedTrackerLocation(source.trackerLocation).repository;
+}
+
+/**
+ * The repository that names the pull requests of a published stack in an approval target. A
+ * publish plan refuses a source with no repository, so the source id stands in only for a
+ * record that lost its tracker location after the publish.
+ */
+export function stackRepositoryOf(db: CrewReader, sourceId: string): string {
+  return repositoryOf(db, sourceId) ?? sourceId;
 }

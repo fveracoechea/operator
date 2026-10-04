@@ -11,7 +11,18 @@ import type { SubmissionRow } from "./submission.ts";
 
 export type OutsideScan = Awaited<ReturnType<typeof OperativeDispatch.scanOutside>>;
 
-const place = z.enum(["worktree-parent", "checkout", "git-hooks", "git-config"]);
+/** Where one scanned entry lives, as the outside scan names it. */
+type OutsidePlace = Extract<OutsideScan["parent"], { status: "read" }>["value"][number]["place"];
+
+// Each place the outside scan names, and no other, so a renamed or a new place fails the typecheck.
+const OUTSIDE_PLACES = {
+  "worktree-parent": "worktree-parent",
+  checkout: "checkout",
+  "git-hooks": "git-hooks",
+  "git-config": "git-config",
+} as const satisfies { [Place in OutsidePlace]: Place };
+
+const place = z.enum(OUTSIDE_PLACES);
 
 const reading = z.discriminatedUnion("status", [
   z.strictObject({
@@ -57,12 +68,14 @@ type Part = "parent" | "checkout";
  * Each place an outside scan reads: the scan part that holds it, so a removal is proven by the
  * part that found it, and whether a change there touches a security permission.
  */
-const PLACES = new Map<string, { part: Part; security: boolean }>([
-  ["worktree-parent", { part: "parent", security: false }],
-  ["checkout", { part: "checkout", security: false }],
-  ["git-hooks", { part: "checkout", security: true }],
-  ["git-config", { part: "checkout", security: true }],
-] satisfies Array<[z.infer<typeof place>, { part: Part; security: boolean }]>);
+const PLACES = new Map<string, { part: Part; security: boolean }>(
+  Object.entries({
+    "worktree-parent": { part: "parent", security: false },
+    checkout: { part: "checkout", security: false },
+    "git-hooks": { part: "checkout", security: true },
+    "git-config": { part: "checkout", security: true },
+  } satisfies { [Place in OutsidePlace]: { part: Part; security: boolean } }),
+);
 
 function placeOf(where: string): { part: Part; security: boolean } {
   return PLACES.get(where) ?? { part: "checkout", security: false };

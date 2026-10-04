@@ -47,14 +47,14 @@ type PlanRefusal =
   | "cut_not_between_commits"
   | "section_missing"
   | "body_too_long"
-  | "repository_unread"
   | "merge_commit_not_allowed"
   | "signatures_required"
-  | "remote_missing"
-  | "remote_ambiguous"
-  | "remote_unread"
+  | TargetReason
   | "remote_name_taken"
   | "base_not_on_target";
+
+/** Why the target branch of a repository cannot be read: for a plan, and for a rebase target. */
+type TargetReason = "repository_unread" | "remote_missing" | "remote_ambiguous" | "remote_unread";
 
 /** One cut point of the stack: the commit that ends the part below, and why the cut is there. */
 type CutPoint = { after: string; reason: string };
@@ -339,10 +339,7 @@ function partsOf(
   return { count: pieces.length, pieces, refusals };
 }
 
-type TargetRefusal = {
-  reason: "repository_unread" | "remote_missing" | "remote_ambiguous" | "remote_unread";
-  detail: string;
-};
+type TargetRefusal = { reason: TargetReason; detail: string };
 
 type Reading<Value> =
   | { status: "read"; value: Value }
@@ -567,13 +564,13 @@ export const PullRequestStack = {
    * default branch, and the remote is the one whose URL names the repository, as for a plan. It
    * moves no ref of the project and writes nothing that others read.
    */
-  async target(request: { repoRoot: string; repository: string; commit: string }): Promise<
+  async target(request: {
+    repoRoot: string;
+    repository: string;
+    commit: string;
+  }): Promise<
     | { status: "read"; target: string; tip: string; onTarget: boolean }
-    | {
-        status: "unread";
-        reason: "repository_unread" | "remote_missing" | "remote_ambiguous" | "remote_unread";
-        detail: string;
-      }
+    | ({ status: "unread" } & TargetRefusal)
   > {
     const { fetched } = await readTarget(request.repoRoot, request.repository);
     if (fetched.status === "refused") {

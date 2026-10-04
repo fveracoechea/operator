@@ -356,8 +356,8 @@ export function dependencyRecords(db: CrewReader, assignmentId: string): Depende
 
 /** One planning record as a brief carries it. The launch contract owns this shape. */
 export type BriefRecord = Parameters<
-  typeof OperativeDispatch.plan
->[0]["brief"]["planningRecords"][number];
+  typeof OperativeDispatch.planningRecordsSection
+>[0]["inputs"][number];
 
 /**
  * The planning records that a brief of one assignment carries, derived from its dependency

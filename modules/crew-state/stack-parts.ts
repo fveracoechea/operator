@@ -10,13 +10,14 @@ import {
   type EffectRow,
   effectsOf,
   type FaultName,
+  isWritten,
   latestObservationOf,
   type ObservationRow,
   type PublicationRow,
   publicationsOf,
   type PullRow,
   pullsOf,
-  repositoryOf,
+  stackRepositoryOf,
   storedEffect,
   writtenPullsOf,
 } from "./stack-records.ts";
@@ -284,30 +285,25 @@ export function recallOf(
         .map((one) => one.cause);
       return causes.length === 0 ? [] : [{ pull, causes, status: statuses.get(pull.part) }];
     });
-    for (const one of touched.filter((touch) => touch.status === "merged")) {
-      merged.push({
-        publication,
-        part: one.pull.part,
-        number: one.pull.number ?? 0,
-        causes: one.causes,
-      });
+    // A part reads as merged only from an observation, and only a written part is observed.
+    for (const one of touched) {
+      if (one.status === "merged" && isWritten(one.pull)) {
+        const { part, number } = one.pull;
+        merged.push({ publication, part, number, causes: one.causes });
+      }
     }
     const lowest = touched.find((touch) => touch.status === "open");
     if (due !== null || lowest === undefined) {
       continue;
     }
     const parts = pulls
-      .filter(
-        (pull) =>
-          pull.part >= lowest.pull.part &&
-          statuses.get(pull.part) === "open" &&
-          pull.number !== null,
-      )
-      .map((pull) => ({ part: pull.part, number: pull.number ?? 0, head: pull.publishedCommit }));
+      .filter(isWritten)
+      .filter((pull) => pull.part >= lowest.pull.part && statuses.get(pull.part) === "open")
+      .map((pull) => ({ part: pull.part, number: pull.number, head: pull.publishedCommit }));
     const recalled = new Set(parts.map((one) => one.part));
     due = {
       publication,
-      repository: repositoryOf(db, sourceId),
+      repository: stackRepositoryOf(db, sourceId),
       parts,
       causes: touched
         .filter((touch) => recalled.has(touch.pull.part))
@@ -417,7 +413,7 @@ export function conflictSettlementOf(
   }
   return {
     action: STACK_FAULT_ACTION,
-    targets: [`${repositoryOf(db, sourceId)}#${number}`],
+    targets: [`${stackRepositoryOf(db, sourceId)}#${number}`],
     scope: sourceId,
     requestRevision: identityOf({ effectId: effect.id, outcome: effect.outcome }),
   };
@@ -441,7 +437,7 @@ function faultSettlementOf(
 ): ApprovalRequest {
   return {
     action: STACK_FAULT_ACTION,
-    targets: [`${repositoryOf(db, publication.sourceId)}#${seen.number}`],
+    targets: [`${stackRepositoryOf(db, publication.sourceId)}#${seen.number}`],
     scope: publication.sourceId,
     requestRevision: identityOf({
       publicationId: publication.id,
@@ -479,7 +475,9 @@ export function faultsOf(db: CrewReader, publication: PublicationRow): Fault[] {
   const merged = recallOf(db, publication.sourceId).merged.filter(
     (one) => one.publication.id === publication.id,
   );
-  return pullsOf(db, publication.id).flatMap((pull): Fault[] => {
+  // Only a written part is observed, so a part with no number has no fault.
+  const written = pullsOf(db, publication.id).filter(isWritten);
+  return written.flatMap((pull): Fault[] => {
     const seen = latestObservationOf(db, publication.id, pull.part);
     if (seen === null) {
       return [];
@@ -493,7 +491,7 @@ export function faultsOf(db: CrewReader, publication: PublicationRow): Fault[] {
     return [
       {
         part: pull.part,
-        number: pull.number ?? 0,
+        number: pull.number,
         fault,
         detail:
           seen.fault !== null || held === undefined

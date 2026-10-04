@@ -29,12 +29,14 @@ import { assignments, gateCheckouts, stackObservations, workSources } from "./sc
 import {
   appendEffects,
   effectsOf,
+  type FaultName,
   latestObservationOf,
   type ObservationRow,
   type PublicationRow,
   publicationsOf,
   pullsOf,
   repositoryOf,
+  stackRepositoryOf,
   type StoredEffect,
   storedEffect,
   type WrittenPull,
@@ -43,7 +45,7 @@ import {
 import { readStored } from "./stored.ts";
 import { latestSubmission, submittedCommit } from "./submission.ts";
 import { readBinding, TRACKER_STEPS, targetOf, trackerOperationFor } from "./tracker.ts";
-import { storedTrackerBinding, storedTrackerLocation } from "./work-input.ts";
+import { storedTrackerBinding } from "./work-input.ts";
 
 type Observed = Extract<Awaited<ReturnType<typeof PullRequestStack.observe>>, { status: "read" }>;
 type Seen = Observed["seen"][number];
@@ -93,10 +95,11 @@ export function publishedPartsOf(
   sourceId: string,
 ): {
   merged: Array<{ number: number; publishedCommit: string; mergeCommit: string }>;
-  open: Array<{ number: number | null; url: string | null; fault: string | null }>;
+  open: Array<{ number: number | null; url: string | null; fault: ObservationRow["fault"] }>;
 } {
   const merged: Array<{ number: number; publishedCommit: string; mergeCommit: string }> = [];
-  const open: Array<{ number: number | null; url: string | null; fault: string | null }> = [];
+  const open: Array<{ number: number | null; url: string | null; fault: ObservationRow["fault"] }> =
+    [];
   for (const publication of publicationsOf(db, sourceId)) {
     for (const pull of pullsOf(db, publication.id)) {
       const seen = latestObservationOf(db, publication.id, pull.part);
@@ -616,7 +619,7 @@ export type StatusResult =
       settlements: Array<{
         part: number;
         number: number;
-        fault: string;
+        fault: FaultName;
         detail: string;
         approval: ApprovalRequest;
       }>;
@@ -653,10 +656,7 @@ export async function observePublish(request: {
       known: source !== undefined,
       stack: stackStateOf(db, request.sourceId),
       written: last?.written === true ? { publication: last.publication, pulls: last.pulls } : null,
-      repository:
-        source?.trackerLocation == null
-          ? null
-          : storedTrackerLocation(source.trackerLocation).repository,
+      repository: repositoryOf(db, request.sourceId),
     };
   });
   if ("status" in facts) {
@@ -785,7 +785,7 @@ export async function retargetPublish(request: {
   }
   const { due } = decided.next;
   const repository = await readState(request.projectRoot, (db) =>
-    repositoryOf(db, request.sourceId),
+    stackRepositoryOf(db, request.sourceId),
   );
   if (typeof repository !== "string") {
     return repository;
