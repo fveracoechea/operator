@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, test as bunTest } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test as bunTest,
+} from "bun:test";
 import { z } from "zod";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
@@ -11,7 +19,7 @@ const sourceRoot = new URL("../../", import.meta.url).pathname.replace(/\/$/, ""
 const fakeGhPath = new URL("./fake-gh.ts", import.meta.url).pathname;
 
 // Every test publishes a real artifact, and building one compiles the whole release. That takes
-// far longer than a default test, and longer again on a CI runner.
+// far longer than a default test, and longer again on a CI runner, so the file builds it once.
 // Each test states its own bound, because a process-wide default would set the bound of every
 // file in the bun test process (#179).
 function test(name: string, run: () => Promise<void> | void, timeoutMs = 300_000) {
@@ -23,6 +31,7 @@ const OTHER_COMMIT = "2".repeat(40);
 
 const roots: string[] = [];
 const fakes: JsrFake[] = [];
+let builtRoot = "";
 let root = "";
 let artifactRoot = "";
 let ghDirectory = "";
@@ -31,6 +40,17 @@ let journalPath = "";
 let version = "";
 
 const inheritedPath = process.env.PATH ?? "";
+
+// A hook does not take the bound of its test, so the one build states its own (#186).
+beforeAll(async () => {
+  builtRoot = `${Bun.env.TMPDIR ?? "/tmp"}/operator-publish-built-${crypto.randomUUID()}`;
+  await OperatorRelease.build({ sourceRoot, artifactRoot: builtRoot, commit: COMMIT });
+  version = (await Bun.file(`${builtRoot}/release.json`).json()).version;
+}, 300_000);
+
+afterAll(async () => {
+  await rm(builtRoot, { force: true, recursive: true });
+});
 
 afterEach(async () => {
   process.env.PATH = inheritedPath;
@@ -74,6 +94,8 @@ beforeEach(async () => {
   journalPath = `${root}/publication.json`;
 
   await Bun.$`mkdir -p ${ghDirectory} ${binDirectory}`.quiet();
+  // Each test gets its own copy, because some tests change the artifact.
+  await Bun.$`cp -R ${builtRoot} ${artifactRoot}`.quiet();
   // The fake carries its own directory, so nothing depends on the environment of the caller.
   await Bun.write(
     `${binDirectory}/gh`,
@@ -81,9 +103,6 @@ beforeEach(async () => {
   );
   await Bun.$`chmod +x ${binDirectory}/gh`.quiet();
   process.env.PATH = fixturePath();
-
-  await OperatorRelease.build({ sourceRoot, artifactRoot, commit: COMMIT });
-  version = (await Bun.file(`${artifactRoot}/release.json`).json()).version;
 
   await seedGithub({
     compare: { [COMMIT]: "behind", [OTHER_COMMIT]: "diverged" },
