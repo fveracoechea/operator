@@ -6,6 +6,7 @@ import {
   type Unapproved,
 } from "./direction.ts";
 import { moveAssignment, readAssignment } from "./assignment.ts";
+import { Assignment } from "./assignment-machine.ts";
 import { identityOf } from "./identity.ts";
 import {
   corrections,
@@ -416,17 +417,13 @@ export function openReworkCycle(db: CrewWriter, request: ReworkRequest): ReworkO
   if (row === null) {
     return { status: "unknown-assignment", assignmentId: request.assignmentId };
   }
-  if (row.revision !== request.revision) {
-    return { status: "stale-revision", assignmentId: row.id, recordedRevision: row.revision };
-  }
-
-  const open = openCycleOf(db, row.id);
-  if (open !== null) {
-    return { status: "cycle-open", assignmentId: row.id, cycleId: open.id, reason: open.reason };
-  }
-  // One cycle answers one submitted result, so it starts from a result that is handed over.
-  if (row.state !== "awaiting-review") {
-    return { status: "not-awaiting-review", assignmentId: row.id, state: row.state };
+  const decided = Assignment.decide("rework", {
+    row,
+    revision: request.revision,
+    open: openCycleOf(db, row.id),
+  });
+  if ("refused" in decided) {
+    return decided.refused;
   }
 
   const submission = latestSubmission(db, row.id);
@@ -501,7 +498,7 @@ export function openReworkCycle(db: CrewWriter, request: ReworkRequest): ReworkO
     now: request.now,
   });
 
-  const revision = moveAssignment(db, { row, state: "rework", now: request.now });
+  const revision = moveAssignment(db, { row, next: decided.next, now: request.now });
 
   return {
     status: "delegated",

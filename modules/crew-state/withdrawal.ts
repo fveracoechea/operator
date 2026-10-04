@@ -1,15 +1,16 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { rebuildsBranch } from "./branch-move.ts";
 import type { CrewReader, CrewWriter } from "./database.ts";
 import { type AssignmentRow, moveAssignment, readAssignment } from "./assignment.ts";
+import { Assignment } from "./assignment-machine.ts";
 import { activeAttempt } from "./frontier.ts";
-import { assignments, directionRequests, invalidations, reviews, reworkCycles } from "./schema.ts";
+import { assignments, reviews } from "./schema.ts";
 import { submissionsOf } from "./submission.ts";
 import { trackerOperationsOf } from "./tracker.ts";
-import { branchReviewHoldersOf, closeBranchReviewsOf } from "./branch-review.ts";
+import { branchReviewHoldersOf, branchReviewsHolding } from "./branch-review.ts";
 import { intendedLandingOf, intentTouches } from "./landing-record.ts";
 import { Review } from "./review-machine.ts";
-import { withdrawReview } from "./review.ts";
+import { type ReviewRow, withdrawReview } from "./review.ts";
 
 /**
  * Why one withdrawal waits. A withdrawal never stops work that nobody handed over, and recovery
@@ -116,65 +117,62 @@ export function withdrawalRefusals(db: CrewReader, row: AssignmentRow): Withdraw
   return [...attempts, ...effects, ...moves];
 }
 
+/**
+ * Withdraws one assignment under the plan revision its approval names, as the assignment machine
+ * decides. The move closes its open cycle, its open invalidation, and its open direction requests.
+ */
 function markWithdrawn(
   db: CrewWriter,
-  request: { row: AssignmentRow; planRevision: string; now: string },
+  request: { row: AssignmentRow; as: "item" | "holder"; planRevision: string; now: string },
 ): void {
-  moveAssignment(db, { row: request.row, state: "withdrawn", now: request.now });
+  const { row, now } = request;
+  const decided = Assignment.decide("withdraw", { row, as: request.as });
+  if ("refused" in decided) {
+    return;
+  }
+  moveAssignment(db, { row, next: decided.next, now });
   db.update(assignments)
     .set({ withdrawnUnder: request.planRevision })
-    .where(eq(assignments.id, request.row.id))
+    .where(eq(assignments.id, row.id))
     .run();
+}
+
+/**
+ * Closes one review of withdrawn work, as the review machine decides, and withdraws the
+ * assignment that holds it. A reported review is finished, and a withdrawn branch review is
+ * already closed, so each stays as it is with its holder.
+ * The withdrawal refusals leave no review attempt active, so no review here is still read.
+ */
+function closeReview(
+  db: CrewWriter,
+  request: { review: ReviewRow; planRevision: string; now: string },
+): void {
+  const { review, now } = request;
+  const decided = Review.decide("withdraw", { row: review });
+  if ("refused" in decided || decided.next === "unchanged") {
+    return;
+  }
+  withdrawReview(db, { review, now });
+  const holder = readAssignment(db, review.assignmentId);
+  if (holder !== null) {
+    markWithdrawn(db, { row: holder, as: "holder", planRevision: request.planRevision, now });
+  }
 }
 
 /**
  * Records one withdrawal under the plan revision its approval names. The assignment moves to
  * its terminal state, and its open cycle, its open invalidation, its open direction requests,
- * and each review of it that no attempt holds close in the same change. Every attempt,
- * submission, report, finding, and planning record stays as history.
+ * and each review of it that no attempt holds close in the same change. A registered branch
+ * review whose snapshot holds this commit closes too, and it is not a reported round. Every
+ * attempt, submission, report, finding, and planning record stays as history.
  */
 export function withdrawAssignment(
   db: CrewWriter,
   request: { row: AssignmentRow; planRevision: string; now: string },
 ): void {
-  const { row, now } = request;
-  markWithdrawn(db, request);
-
-  db.update(reworkCycles)
-    .set({ state: "withdrawn", updatedAt: now })
-    .where(and(eq(reworkCycles.assignmentId, row.id), eq(reworkCycles.state, "open")))
-    .run();
-  db.update(invalidations)
-    .set({ state: "withdrawn", resolvedAt: now })
-    .where(and(eq(invalidations.assignmentId, row.id), eq(invalidations.state, "open")))
-    .run();
-  db.update(directionRequests)
-    .set({ state: "withdrawn", updatedAt: now })
-    .where(and(eq(directionRequests.assignmentId, row.id), eq(directionRequests.state, "open")))
-    .run();
-
-  // The refusals above leave no review attempt active, so no review here is still read.
-  for (const review of reviewsOfWork(db, row.id)) {
-    if ("next" in Review.decide("withdraw", { row: review })) {
-      withdrawReview(db, { review, now });
-    }
-    const holder = readAssignment(db, review.assignmentId);
-    if (holder !== null && holder.state !== "accepted" && holder.state !== "withdrawn") {
-      markWithdrawn(db, { row: holder, planRevision: request.planRevision, now });
-    }
-  }
-
-  // A registered branch review whose snapshot holds this commit closes too, and it is not a
-  // reported round. Its direction request, when it waited on one, closes with it.
-  for (const holder of closeBranchReviewsOf(db, { row, now })) {
-    if (holder.state !== "accepted" && holder.state !== "withdrawn") {
-      markWithdrawn(db, { row: holder, planRevision: request.planRevision, now });
-      db.update(directionRequests)
-        .set({ state: "withdrawn", updatedAt: now })
-        .where(
-          and(eq(directionRequests.assignmentId, holder.id), eq(directionRequests.state, "open")),
-        )
-        .run();
-    }
+  const { row, planRevision, now } = request;
+  markWithdrawn(db, { row, as: "item", planRevision, now });
+  for (const review of [...reviewsOfWork(db, row.id), ...branchReviewsHolding(db, row)]) {
+    closeReview(db, { review, planRevision, now });
   }
 }

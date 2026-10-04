@@ -11,9 +11,6 @@
   "overrides": [
     {
       "files": [
-        "modules/crew-state/acceptance.ts",
-        "modules/crew-state/frontier.ts",
-        "modules/crew-state/invalidate.ts",
         "modules/crew-state/next.ts",
         "modules/crew-state/registration.ts",
         "modules/operator-cli/arguments.ts",

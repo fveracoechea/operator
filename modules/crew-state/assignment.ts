@@ -1,9 +1,10 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+import type { AssignmentNext } from "./assignment-machine.ts";
 import type { CrewReader, CrewWriter } from "./database.ts";
 import { assignmentId, identityOf } from "./identity.ts";
 import { readStoredValue } from "./stored.ts";
-import { assignments } from "./schema.ts";
+import { assignments, directionRequests, invalidations, reworkCycles } from "./schema.ts";
 
 export type AssignmentRow = typeof assignments.$inferSelect;
 
@@ -103,18 +104,40 @@ export function insertAssignment(
 }
 
 /**
- * Moves one assignment to its next state and returns the revision that move produced.
+ * Moves one assignment to the next state the assignment machine decided, closes the open
+ * correction records that move closes, and returns the revision the move produced.
  * Every state an assignment reaches is written here, so a caller can never move one without
  * moving its revision, which is what a caller states back when it acts on what it read.
  */
 export function moveAssignment(
   db: CrewWriter,
-  request: { row: AssignmentRow; state: AssignmentState; now: string },
+  request: { row: AssignmentRow; next: AssignmentNext[keyof AssignmentNext]; now: string },
 ): number {
-  const revision = request.row.revision + 1;
+  const { row, next, now } = request;
+  const revision = row.revision + 1;
   db.update(assignments)
-    .set({ state: request.state, revision, updatedAt: request.now })
-    .where(eq(assignments.id, request.row.id))
+    .set({ state: next.state, revision, updatedAt: now })
+    .where(eq(assignments.id, row.id))
     .run();
+
+  const { cycle, invalidation, direction } = next.closes;
+  if (cycle !== undefined) {
+    db.update(reworkCycles)
+      .set({ state: cycle, updatedAt: now })
+      .where(and(eq(reworkCycles.assignmentId, row.id), eq(reworkCycles.state, "open")))
+      .run();
+  }
+  if (invalidation !== undefined) {
+    db.update(invalidations)
+      .set({ state: invalidation, resolvedAt: now })
+      .where(and(eq(invalidations.assignmentId, row.id), eq(invalidations.state, "open")))
+      .run();
+  }
+  if (direction !== undefined) {
+    db.update(directionRequests)
+      .set({ state: direction, updatedAt: now })
+      .where(and(eq(directionRequests.assignmentId, row.id), eq(directionRequests.state, "open")))
+      .run();
+  }
   return revision;
 }

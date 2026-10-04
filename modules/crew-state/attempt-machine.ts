@@ -10,6 +10,8 @@ import type {
 } from "./dispatch-context.ts";
 import type { DirectionCheck, Unapproved } from "./direction.ts";
 import type { AssignmentRow } from "./assignment.ts";
+import { Assignment } from "./assignment-machine.ts";
+import type { AttemptRow } from "./attempt.ts";
 import type {
   AttemptContext,
   AttemptRole,
@@ -39,7 +41,9 @@ export type AttemptEvent =
   | "reconcile"
   | "adopt"
   | "replace"
-  | "submit";
+  | "submit"
+  | "accept"
+  | "reopen";
 
 /** The external effects one launch performs, in the order a dispatch performs them. */
 export const DISPATCH_STAGES = [
@@ -675,9 +679,10 @@ const REPLACE_ROWS: ReadonlyArray<Row<Dispatched<ReplaceFacts>, ReplaceDecision>
   // review host escalates to the user instead of consuming the crew.
   ({ context, direction }) => {
     const held = reviewHeldOf(context);
+    // A reported review is finished, so the review machine refuses to reopen it.
     if (
       held === null ||
-      held.review.state === "reported" ||
+      "refused" in Review.decide("reopen", { row: held.review }) ||
       context.attemptsHeld < REVIEW_ATTEMPT_LIMIT
     ) {
       return null;
@@ -828,12 +833,11 @@ const SUBMIT_ROWS: ReadonlyArray<Row<SubmitFacts, { refused: SubmitRefusal }>> =
       : {
           refused: { status: "planning-only", assignmentId: assignment.id, kind: assignment.kind },
         },
-  ({ assignment }) =>
-    assignment.state === "claimed"
-      ? null
-      : {
-          refused: { status: "not-claimed", assignmentId: assignment.id, state: assignment.state },
-        },
+  // The assignment machine says which state hands a result over.
+  ({ assignment }) => {
+    const decided = Assignment.decide("submit", { row: assignment });
+    return "refused" in decided ? { refused: decided.refused } : null;
+  },
   ({ assignment, stated }) =>
     assignment.revision === stated.assignmentRevision
       ? null
@@ -878,6 +882,10 @@ export type AttemptFacts = {
   reconcile: { attemptId: string; dispatch: DispatchRow | null };
   adopt: AdoptFacts;
   replace: ReplaceFacts;
+  /** The attempt that produced the accepted result: a live review, or a submitted production. */
+  accept: { attempt: AttemptRow };
+  /** The attempt of a result a rewrite took out, whose acceptance is taken again. */
+  reopen: { attempt: AttemptRow };
 };
 
 export type AttemptDecision = {
@@ -890,6 +898,10 @@ export type AttemptDecision = {
   reconcile: { refused: NotDispatched } | { next: "active"; dispatch: DispatchRow };
   adopt: AdoptDecision;
   replace: ReplaceDecision;
+  accept: { next: "accepted" };
+  reopen:
+    | { refused: { status: "attempt-not-accepted"; attemptId: string; state: string } }
+    | { next: "submitted" };
 };
 
 /** The transition table: each event, the decision of its guards in order, and its next state. */
@@ -921,6 +933,15 @@ const ATTEMPT_TABLE: {
   },
   adopt: (facts) => firstOf(ADOPT_ROWS, facts) ?? { next: "active" },
   replace: decideReplace,
+  // The acceptance read names the attempt that produced the result, so it ends from any state.
+  accept: () => ({ next: "accepted" }),
+  // Only an accepted result is taken out, so only its attempt returns to submitted.
+  reopen: ({ attempt }) =>
+    attempt.state === "accepted"
+      ? { next: "submitted" }
+      : {
+          refused: { status: "attempt-not-accepted", attemptId: attempt.id, state: attempt.state },
+        },
 };
 
 export const Attempt = {

@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import {
   type AssignmentRow,
@@ -8,8 +8,9 @@ import {
   readAssignment,
   storedAssignmentState,
 } from "./assignment.ts";
+import { Assignment, type AssignmentNext, type InvalidateRefusal } from "./assignment-machine.ts";
 import type { CrewReader, CrewWriter } from "./database.ts";
-import { assignmentDependencies, invalidations, reworkCycles } from "./schema.ts";
+import { assignmentDependencies, invalidations } from "./schema.ts";
 import { readStored } from "./stored.ts";
 import type { DirectionRecord } from "./direction.ts";
 import { defectInputSchema, type DefectInput } from "./rework-input.ts";
@@ -20,7 +21,6 @@ import {
 } from "./rework-open.ts";
 import { openCycleOf } from "./rework.ts";
 import { latestSubmission, readSubmission } from "./submission.ts";
-import { isReview } from "./work-input.ts";
 import { currentLandingOf } from "./landing-record.ts";
 import { faultsOf, partOfCommit } from "./stack-parts.ts";
 
@@ -67,17 +67,7 @@ export type InvalidateOutcome =
       direction: DirectionRecord | null;
     }
   | { status: "unknown-assignment"; assignmentId: string }
-  | { status: "stale-revision"; assignmentId: string; recordedRevision: number }
-  | { status: "not-accepted"; assignmentId: string; state: string }
-  | { status: "review-not-invalidated"; assignmentId: string }
-  | {
-      // The commit of the result merged into the target, so it is never invalidated (decision 24).
-      status: "merged";
-      assignmentId: string;
-      commit: string;
-      pullRequest: number | null;
-      url: string | null;
-    };
+  | InvalidateRefusal;
 
 /** Every defect that still holds work. A resolved one is history and holds nothing. */
 function openInvalidations(db: CrewReader): InvalidationRow[] {
@@ -180,6 +170,29 @@ function consumingDependents(db: CrewReader, assignmentId: string): Dependent[] 
   );
 }
 
+/** The merged part that holds the landed commit of one result, or null when none merged. */
+function mergedPartOf(db: CrewReader, row: AssignmentRow) {
+  const landing = currentLandingOf(db, row.id);
+  const part = landing === null ? null : partOfCommit(db, row.sourceId, landing.landedCommit);
+  return landing === null || part === null || part.status !== "merged"
+    ? null
+    : { commit: landing.landedCommit, pullRequest: part.pull.number, url: part.pull.url };
+}
+
+/** Pauses each dependent that read the invalid result. Work already paused stays as it is. */
+function pauseDependents(db: CrewWriter, request: { affected: Dependent[]; now: string }): void {
+  for (const one of request.affected) {
+    const row = readAssignment(db, one.assignmentId);
+    if (row === null) {
+      continue;
+    }
+    const decided = Assignment.decide("pause", { row });
+    if ("next" in decided) {
+      moveAssignment(db, { row, next: decided.next, now: request.now });
+    }
+  }
+}
+
 /**
  * Records a defect found in an accepted result.
  * The acceptance, its submission, its review, and every finding stay exactly as they were,
@@ -201,37 +214,17 @@ export function invalidateResult(
   if (row === null) {
     return { status: "unknown-assignment", assignmentId: request.assignmentId };
   }
-  if (row.revision !== request.revision) {
-    return { status: "stale-revision", assignmentId: row.id, recordedRevision: row.revision };
-  }
-  if (row.state !== "accepted") {
-    return { status: "not-accepted", assignmentId: row.id, state: row.state };
-  }
-  // A review carries no result of its own. A review that read the work wrongly is answered by
-  // reviewing that work again, so returning a review assignment to the frontier settles nothing.
-  if (isReview(row.kind)) {
-    return { status: "review-not-invalidated", assignmentId: row.id };
-  }
-  // A merged commit is never invalidated: the defect becomes a new issue (decision 24).
-  const landing = currentLandingOf(db, row.id);
-  const part = landing === null ? null : partOfCommit(db, row.sourceId, landing.landedCommit);
-  if (landing !== null && part !== null && part.status === "merged") {
-    return {
-      status: "merged",
-      assignmentId: row.id,
-      commit: landing.landedCommit,
-      pullRequest: part.pull.number,
-      url: part.pull.url,
-    };
+  const decided = Assignment.decide("invalidate", {
+    row,
+    revision: request.revision,
+    merged: mergedPartOf(db, row),
+  });
+  if ("refused" in decided) {
+    return decided.refused;
   }
 
   const affected = consumingDependents(db, row.id);
-  for (const one of affected) {
-    const dependent = readAssignment(db, one.assignmentId);
-    if (dependent !== null && dependent.state !== "paused") {
-      moveAssignment(db, { row: dependent, state: "paused", now: request.now });
-    }
-  }
+  pauseDependents(db, { affected, now: request.now });
 
   const submission = latestSubmission(db, row.id);
   // Planning work is never dispatched (ADR 0004), so it holds no submission and opens no cycle.
@@ -263,7 +256,7 @@ export function invalidateResult(
   return {
     status: "invalidated",
     assignmentId: row.id,
-    revision: moveAssignment(db, { row, state: "invalidated", now: request.now }),
+    revision: moveAssignment(db, { row, next: decided.next, now: request.now }),
     invalidationId: request.invalidationId,
     submissionId: submission?.id ?? null,
     dependents: affected,
@@ -298,59 +291,64 @@ export function openDirectedCorrection(
   });
 }
 
-/**
- * The state one paused dependent returns to.
- * Work that was accepted returns to the step that decided it, because an acceptance that read
- * an invalid input is a decision to take again, not a state to carry over.
- */
-function resumedState(db: CrewReader, held: Dependent): AssignmentState {
-  if (held.consumedState !== "accepted") {
-    return held.consumedState;
-  }
-
-  return latestSubmission(db, held.assignmentId) === null ? "registered" : "awaiting-review";
+/** The open invalidations of one assignment. */
+function openInvalidationsOf(db: CrewReader, assignmentId: string): InvalidationRow[] {
+  return db
+    .select()
+    .from(invalidations)
+    .where(eq(invalidations.assignmentId, assignmentId))
+    .all()
+    .filter((one) => one.state === "open");
 }
 
 /**
- * Releases the work one invalidated assignment held, now that a corrected result is accepted.
- * A dependent returns to the state it was paused from, and an accepted one to the step that
- * decided it, so its acceptance is decided again against the corrected input.
+ * Returns each dependent the closed invalidations paused to the state the assignment machine
+ * decides. Work that also read another invalid result keeps waiting for that correction.
  */
-export function resolveInvalidations(
+function resumeDependents(
   db: CrewWriter,
-  request: { assignmentId: string; now: string },
+  request: { closed: InvalidationRow[]; cause: "resolved" | "merged"; now: string },
 ): string[] {
-  const open = db
-    .select()
-    .from(invalidations)
-    .where(eq(invalidations.assignmentId, request.assignmentId))
-    .all()
-    .filter((one) => one.state === "open");
-
-  // The defects this result answers close first, so what is still held is read from the rest.
-  for (const one of open) {
-    db.update(invalidations)
-      .set({ state: "resolved", resolvedAt: request.now })
-      .where(eq(invalidations.id, one.id))
-      .run();
-  }
-
   const stillHeld = openPauses(db);
   const resumed: string[] = [];
-  for (const one of open) {
+  for (const one of request.closed) {
     for (const held of storedDependents(one.dependents)) {
       const row = readAssignment(db, held.assignmentId);
-      // Work that also read another invalid result keeps waiting for that correction.
-      if (row === null || row.state !== "paused" || stillHeld.has(held.assignmentId)) {
+      if (row === null) {
         continue;
       }
-
-      moveAssignment(db, { row, state: resumedState(db, held), now: request.now });
-      resumed.push(row.id);
+      const decided = Assignment.decide("resume", {
+        row,
+        consumed: held.consumedState,
+        cause: request.cause,
+        submitted: latestSubmission(db, held.assignmentId) !== null,
+        held: stillHeld.has(held.assignmentId),
+      });
+      if ("next" in decided) {
+        moveAssignment(db, { row, next: decided.next, now: request.now });
+        resumed.push(row.id);
+      }
     }
   }
-
   return resumed;
+}
+
+/**
+ * Records accepted completion of one assignment and releases the work its defects held, now that
+ * a corrected result is accepted. The defects this result answers close first, so what is still
+ * held is read from the rest. A dependent returns to the state it was paused from, and an
+ * accepted one to the step that decided it, so its acceptance is decided again against the
+ * corrected input. A corrected result is the condition those dependents waited on, so nothing
+ * waits for a second decision that says the same thing twice.
+ */
+export function acceptAndRelease(
+  db: CrewWriter,
+  request: { row: AssignmentRow; next: AssignmentNext["accept"]; now: string },
+): number {
+  const closed = openInvalidationsOf(db, request.row.id);
+  const revision = moveAssignment(db, request);
+  resumeDependents(db, { closed, cause: "resolved", now: request.now });
+  return revision;
 }
 
 /**
@@ -383,31 +381,13 @@ export function closeMergedInvalidations(
   });
 
   for (const one of closing) {
-    db.update(invalidations)
-      .set({ state: "merged", resolvedAt: request.now })
-      .where(eq(invalidations.id, one.id))
-      .run();
-    db.update(reworkCycles)
-      .set({ state: "merged", updatedAt: request.now })
-      .where(and(eq(reworkCycles.assignmentId, one.assignmentId), eq(reworkCycles.state, "open")))
-      .run();
     const row = readAssignment(db, one.assignmentId);
-    if (row !== null) {
-      moveAssignment(db, { row, state: "accepted", now: request.now });
+    const decided = row === null ? null : Assignment.decide("accept", { kind: "merged", row });
+    if (row !== null && decided !== null && "next" in decided) {
+      moveAssignment(db, { row, next: decided.next, now: request.now });
     }
   }
-
-  const stillHeld = openPauses(db);
-  for (const one of closing) {
-    for (const held of storedDependents(one.dependents)) {
-      const row = readAssignment(db, held.assignmentId);
-      // Work that also read another invalid result keeps waiting for that correction.
-      if (row === null || row.state !== "paused" || stillHeld.has(held.assignmentId)) {
-        continue;
-      }
-      moveAssignment(db, { row, state: held.consumedState, now: request.now });
-    }
-  }
+  resumeDependents(db, { closed: closing, cause: "merged", now: request.now });
 
   return closing.map((one) => one.assignmentId);
 }

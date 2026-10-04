@@ -461,6 +461,28 @@ describe("the branch review of an integration branch", () => {
     expect(next.actions.filter((one) => one.assignmentId === registered.assignmentId)).toEqual([]);
   });
 
+  test("a withdrawal leaves a branch review that an earlier item already closed as it is", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const { producer, acceptedSecond } = await finalBranch(workspace, { third: "accepted" });
+    const registered = acceptedSecond.json.data.branchReview as Registered;
+    const before = await runJson(workspace, ["review", "show", "--review", registered.reviewId]);
+
+    // The snapshot holds the commits of both items. The first withdrawal closes the review, and
+    // the review machine leaves the closed branch review as it is for the second.
+    const { registered: withdrawn } = await withdrawIssues(
+      workspaceTarget(workspace),
+      producer.ownerToken,
+      { sourceKind: "specification", parent: 15, numbers: [SIBLING_ISSUE, THIRD_ISSUE] },
+    );
+
+    expect(withdrawn.json.reason).toBe("work_registered");
+    const after = await runJson(workspace, ["review", "show", "--review", registered.reviewId]);
+    expect(after.json.data.review).toMatchObject({
+      state: "withdrawn",
+      revision: before.json.data.review.revision + 1,
+    });
+  });
+
   test("a withdrawal on a snapshot that a branch review already reads registers none", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const { producer, acceptedSecond } = await finalBranch(workspace);

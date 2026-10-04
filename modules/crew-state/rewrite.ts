@@ -1,6 +1,9 @@
 import { and, eq } from "drizzle-orm";
 import { IntegrationBranch } from "../integration-branch/main.ts";
 import { moveAssignment, readAssignment } from "./assignment.ts";
+import { Assignment } from "./assignment-machine.ts";
+import { readAttempt, reopenAttempt } from "./attempt.ts";
+import { Attempt } from "./attempt-machine.ts";
 import type { CrewReader, CrewWriter } from "./database.ts";
 import { type GatePlace, type GateStep, gateStepOf, keyStatus } from "./gate-runs.ts";
 import type { IntegrationBranchRow } from "./integration.ts";
@@ -9,7 +12,7 @@ import type { PlannedMove } from "./landing.ts";
 import { landedOfSource, type LandingRow, type RewriteRecord } from "./landing-record.ts";
 import { readState, type StateFailure } from "./operations.ts";
 import { guardedRangesOf } from "./stack-parts.ts";
-import { assignmentDependencies, attempts, gateRuns, landings, submissions } from "./schema.ts";
+import { assignmentDependencies, gateRuns, landings, submissions } from "./schema.ts";
 import { trackerOperationsOf } from "./tracker.ts";
 
 /** One commit of a rebuilt range, in branch order, with the commit it lands on. */
@@ -516,10 +519,11 @@ export function returnTakenOut(
   for (const one of request.takenOut) {
     const landing = db.select().from(landings).where(eq(landings.id, one.landingId)).all()[0];
     const row = readAssignment(db, one.assignmentId);
-    if (landing === undefined || row === null || row.state !== "accepted") {
+    const decided = row === null ? null : Assignment.decide("reopen", { row });
+    if (landing === undefined || row === null || decided === null || "refused" in decided) {
       continue;
     }
-    moveAssignment(db, { row, state: "awaiting-review", now });
+    moveAssignment(db, { row, next: decided.next, now });
     const submission = db
       .select()
       .from(submissions)
@@ -532,9 +536,10 @@ export function returnTakenOut(
       .set({ state: "submitted", revision: submission.revision + 1, updatedAt: now })
       .where(eq(submissions.id, submission.id))
       .run();
-    db.update(attempts)
-      .set({ state: "submitted" })
-      .where(and(eq(attempts.id, submission.attemptId), eq(attempts.state, "accepted")))
-      .run();
+    const attempt = readAttempt(db, submission.attemptId);
+    const reopened = attempt === null ? null : Attempt.decide("reopen", { attempt });
+    if (attempt !== null && reopened !== null && "next" in reopened) {
+      reopenAttempt(db, { attempt, state: reopened.next });
+    }
   }
 }

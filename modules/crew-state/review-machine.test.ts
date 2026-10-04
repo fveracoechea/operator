@@ -258,9 +258,17 @@ test("a disposition is refused in the order of the table, and names each correct
 
 test("a reported review is never withdrawn or reopened, and any other review is", () => {
   for (const state of ["registered", "blocked", "withdrawn"]) {
-    expect(Review.decide("withdraw", { row: reviewRow(state) })).toEqual({ next: "withdrawn" });
+    const result = { ...reviewRow(state), submissionId: "submission-1", snapshotId: null };
+    expect(Review.decide("withdraw", { row: result })).toEqual({ next: "withdrawn" });
     expect(Review.decide("reopen", { row: reviewRow(state) })).toEqual({ next: "registered" });
   }
+  for (const state of ["registered", "blocked"]) {
+    expect(Review.decide("withdraw", { row: reviewRow(state) })).toEqual({ next: "withdrawn" });
+  }
+  // A withdrawn branch review is already closed, so a repeated withdrawal writes nothing.
+  expect(Review.decide("withdraw", { row: reviewRow("withdrawn") })).toEqual({
+    next: "unchanged",
+  });
   const refused = { refused: { status: "review-reported" as const, reviewId: "review-1" } };
   expect(Review.decide("withdraw", { row: reviewRow("reported") })).toEqual(refused);
   expect(Review.decide("reopen", { row: reviewRow("reported") })).toEqual(refused);

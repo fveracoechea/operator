@@ -2,15 +2,21 @@ import { eq } from "drizzle-orm";
 import type { CrewReader } from "./database.ts";
 import type { Capacity } from "./capacity.ts";
 import { readAssignment } from "./assignment.ts";
+import {
+  Assignment,
+  type FrontierBlocker,
+  type Placement,
+  type WritePathHolder,
+} from "./assignment-machine.ts";
 import { type DirectionRequestRow, openDirectionsOf, readDirection } from "./direction.ts";
-import { type LimitKind, storedLimitKind } from "./rework.ts";
+import { storedLimitKind } from "./rework.ts";
 import { openPauses } from "./invalidate.ts";
 import type { EscalationTrigger } from "./question-input.ts";
 import { blockingQuestions, questionReportOf, triggersOf } from "./questions.ts";
 import { reviewOfSubmission } from "./review.ts";
 import { assignmentDependencies, assignments, attempts, workSources } from "./schema.ts";
 import { latestSubmission } from "./submission.ts";
-import { isExecutable, isReview } from "./work-input.ts";
+import { isReview } from "./work-input.ts";
 import { writePathHolders, writePathsReader } from "./write-path-grants.ts";
 import { overlappingPaths, overlapsCommand } from "./write-paths.ts";
 import { pendingCommitsOf } from "./take-out.ts";
@@ -28,33 +34,7 @@ export type FrontierEntry = {
   state: string;
 };
 
-export type FrontierBlocker =
-  | { reason: "dependency_pending"; dependencies: Array<{ assignmentId: string; state: string }> }
-  | { reason: "review_pending"; reviewAssignmentId: string | null }
-  | { reason: "direction_required"; directionRequestId: string; limitKind: LimitKind }
-  | { reason: "input_invalidated"; invalidated: string[] }
-  | { reason: "write_paths_overlap"; holders: WritePathHolder[]; command: string }
-  | {
-      // The integration branch of the source still holds the commit of withdrawn work, so no
-      // dispatch base may hold a commit that no assignment owns until the take-out (ADR 0004).
-      reason: "take_out_pending";
-      commits: Array<{ assignmentId: string; commit: string }>;
-    }
-  | { reason: "review_capacity_reserved"; productionLimit: number }
-  | { reason: "crew_at_capacity"; limit: number };
-
-/**
- * One assignment whose held write paths overlap the paths of a withheld one. `started` work
- * holds from its first claim, and `offered` work holds inside the one reading that offered it.
- * The Operator reads this, so it gives the number of overlapping pairs of paths and the blocker names the
- * command that lists them.
- */
-export type WritePathHolder = {
-  assignmentId: string;
-  sourceKey: string;
-  hold: "started" | "offered";
-  pathPairCount: number;
-};
+export type { FrontierBlocker, WritePathHolder };
 
 type WritePathHold = Omit<WritePathHolder, "pathPairCount"> & { sourceId: string };
 
@@ -147,6 +127,78 @@ export function undirected(db: CrewReader, assignmentId: string): DirectionReque
   );
 }
 
+type Blocked = FrontierEntry & { blockers: FrontierBlocker[] };
+
+/** The settled lists the frontier files an assignment in before any dispatch rule reads it. */
+type Filed = Record<Exclude<Placement, "active" | "open">, FrontierEntry[]> & {
+  blocked: Blocked[];
+};
+
+/** The open questions every reading of the frontier names, each with the work it holds. */
+function waitingQuestions(db: CrewReader): WaitingQuestion[] {
+  return blockingQuestions(db)
+    .map((row) => {
+      const report = questionReportOf(row);
+      return {
+        questionId: row.id,
+        assignmentId: row.assignmentId,
+        attemptId: row.attemptId,
+        revision: row.revision,
+        state: row.state,
+        question: report.question,
+        escalationTriggers: triggersOf(row),
+        affectedScope: report.affectedScope,
+        independentWork: report.independentWork,
+      };
+    })
+    .toSorted((left, right) => left.questionId.localeCompare(right.questionId));
+}
+
+/**
+ * The write path holds of one reading. `started` work holds from its first claim, and `offered`
+ * work holds once this reading offers it, so the next entry in priority order sees it.
+ */
+function writePathHolds(db: CrewReader, rows: Array<typeof assignments.$inferSelect>) {
+  const holds = writePathHolders(db);
+  // The effective write paths: a grant widens what an assignment holds and what it asks for.
+  const effectiveOf = writePathsReader(db);
+  const writePathsOf = new Map(rows.map((row) => [row.id, effectiveOf(row)]));
+  const held: WritePathHold[] = rows.filter(holds).map((row) => ({
+    assignmentId: row.id,
+    sourceId: row.sourceId,
+    sourceKey: row.sourceKey,
+    hold: "started",
+  }));
+
+  return {
+    holdersOf(one: FrontierEntry): WritePathHolder[] {
+      const paths = writePathsOf.get(one.assignmentId) ?? [];
+      return (
+        held
+          .filter((holder) => holder.sourceId === one.sourceId)
+          .map((holder) => ({
+            assignmentId: holder.assignmentId,
+            sourceKey: holder.sourceKey,
+            hold: holder.hold,
+            pathPairCount: overlappingPaths(paths, writePathsOf.get(holder.assignmentId) ?? [])
+              .length,
+          }))
+          .filter((holder) => holder.pathPairCount > 0)
+          // A code-unit order, so the order never depends on the locale of the machine.
+          .toSorted((left, right) => (left.assignmentId < right.assignmentId ? -1 : 1))
+      );
+    },
+    offer(one: FrontierEntry): void {
+      held.push({
+        assignmentId: one.assignmentId,
+        sourceId: one.sourceId,
+        sourceKey: one.sourceKey,
+        hold: "offered",
+      });
+    },
+  };
+}
+
 /** Reads every ordering, dependency, and capacity input and writes nothing. */
 export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier {
   const sourceOrder = new Map(
@@ -180,34 +232,7 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
 
   // The hold rule reads no list of states. It lives with the grants, which read the same rule.
   const started = new Set(recordedAttempts.map((attempt) => attempt.assignmentId));
-  const holds = writePathHolders(db);
-  // The effective write paths: a grant widens what an assignment holds and what it asks for.
-  const effectiveOf = writePathsReader(db);
-  const writePathsOf = new Map(rows.map((row) => [row.id, effectiveOf(row)]));
-  const held: WritePathHold[] = rows.filter(holds).map((row) => ({
-    assignmentId: row.id,
-    sourceId: row.sourceId,
-    sourceKey: row.sourceKey,
-    hold: "started",
-  }));
-
-  function holdersOf(one: FrontierEntry): WritePathHolder[] {
-    const paths = writePathsOf.get(one.assignmentId) ?? [];
-    return (
-      held
-        .filter((holder) => holder.sourceId === one.sourceId)
-        .map((holder) => ({
-          assignmentId: holder.assignmentId,
-          sourceKey: holder.sourceKey,
-          hold: holder.hold,
-          pathPairCount: overlappingPaths(paths, writePathsOf.get(holder.assignmentId) ?? [])
-            .length,
-        }))
-        .filter((holder) => holder.pathPairCount > 0)
-        // A code-unit order, so the order never depends on the locale of the machine.
-        .toSorted((left, right) => (left.assignmentId < right.assignmentId ? -1 : 1))
-    );
-  }
+  const holds = writePathHolds(db, rows);
 
   const paused = openPauses(db);
   const takeOutPending = new Map(
@@ -223,144 +248,53 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
   const activeProduction = activeEntries.length - activeReview;
 
   const freeSlots = Math.max(0, capacity.limit - activeProduction - activeReview);
-  let openSlots = freeSlots;
-  let heldProduction = activeProduction;
+  const slots = { openSlots: freeSlots, heldProduction: activeProduction };
 
   const dispatchable: FrontierEntry[] = [];
-  const blocked: Array<FrontierEntry & { blockers: FrontierBlocker[] }> = [];
-  const planning: FrontierEntry[] = [];
-  const accepted: FrontierEntry[] = [];
-  const withdrawn: FrontierEntry[] = [];
+  const filed: Filed = { accepted: [], withdrawn: [], planning: [], blocked: [] };
 
   for (const one of entries) {
-    if (one.state === "accepted") {
-      accepted.push(one);
+    const placed = Assignment.place({
+      row: one,
+      invalidated: paused.get(one.assignmentId),
+      active: attemptByAssignment.has(one.assignmentId),
+    });
+    if (Array.isArray(placed)) {
+      filed.blocked.push({ ...one, blockers: placed });
       continue;
     }
-    if (one.state === "withdrawn") {
-      withdrawn.push(one);
-      continue;
-    }
-    // Work that read an invalidated result waits for the corrected one, whatever kind it is
-    // and whatever its former writer is still doing.
-    const invalid = paused.get(one.assignmentId);
-    if (invalid !== undefined) {
-      blocked.push({ ...one, blockers: [{ reason: "input_invalidated", invalidated: invalid }] });
-      continue;
-    }
-
-    if (!isExecutable(one.kind)) {
-      planning.push(one);
-      continue;
-    }
-    if (attemptByAssignment.has(one.assignmentId)) {
+    if (placed !== "open") {
+      if (placed !== "active") filed[placed].push(one);
       continue;
     }
 
-    // A reached limit waits on the user, whatever state the assignment stopped in. A direction
-    // the user already gave waits on nobody, and the action it permits spends it.
-    const waiting = undirected(db, one.assignmentId);
-    if (waiting.length > 0) {
-      blocked.push({
-        ...one,
-        blockers: waiting.map((request) => ({
-          reason: "direction_required" as const,
-          directionRequestId: request.id,
-          limitKind: storedLimitKind(request.limitKind),
-        })),
-      });
-      continue;
-    }
-
-    // A submitted result waits for its own review, not for a second attempt at the same work.
-    if (one.state === "awaiting-review") {
-      blocked.push({
-        ...one,
-        blockers: [
-          { reason: "review_pending", reviewAssignmentId: reviewByProducer(db, one.assignmentId) },
-        ],
-      });
-      continue;
-    }
-
-    const withdrawnCommits =
-      one.kind === "production" ? takeOutPending.get(one.sourceId) : undefined;
-    if (withdrawnCommits !== undefined && withdrawnCommits.length > 0) {
-      blocked.push({
-        ...one,
-        blockers: [{ reason: "take_out_pending", commits: withdrawnCommits }],
-      });
-      continue;
-    }
-
-    const unmet = unmetDependencies(db, one.assignmentId);
-    if (unmet.length > 0) {
-      blocked.push({ ...one, blockers: [{ reason: "dependency_pending", dependencies: unmet }] });
-      continue;
-    }
-
-    // Work that has started keeps the base of its dispatch, so only new work waits for a holder.
-    // An entry held here takes no slot, so the next entry in priority order can still start.
     const unstartedProduction = one.kind === "production" && !started.has(one.assignmentId);
-    if (unstartedProduction) {
-      const holders = holdersOf(one);
-      if (holders.length > 0) {
-        blocked.push({
-          ...one,
-          blockers: [
-            { reason: "write_paths_overlap", holders, command: overlapsCommand(one.sourceId) },
-          ],
-        });
-        continue;
-      }
-    }
-
-    if (openSlots === 0) {
-      blocked.push({ ...one, blockers: [{ reason: "crew_at_capacity", limit: capacity.limit }] });
-      continue;
-    }
-
-    if (!isReview(one.kind) && heldProduction >= capacity.productionLimit) {
-      blocked.push({
-        ...one,
-        blockers: [
-          { reason: "review_capacity_reserved", productionLimit: capacity.productionLimit },
-        ],
-      });
+    const blockers = Assignment.blockerOf({
+      row: one,
+      undirected: undirected(db, one.assignmentId).map((request) => ({
+        id: request.id,
+        limitKind: storedLimitKind(request.limitKind),
+      })),
+      reviewAssignmentId: reviewByProducer(db, one.assignmentId),
+      takeOut: takeOutPending.get(one.sourceId) ?? [],
+      unmet: unmetDependencies(db, one.assignmentId),
+      holders: unstartedProduction
+        ? { holders: holds.holdersOf(one), command: overlapsCommand(one.sourceId) }
+        : null,
+      capacity: { ...slots, limit: capacity.limit, productionLimit: capacity.productionLimit },
+    });
+    if (blockers !== null) {
+      filed.blocked.push({ ...one, blockers });
       continue;
     }
 
     dispatchable.push(one);
-    openSlots -= 1;
-    if (!isReview(one.kind)) {
-      heldProduction += 1;
-    }
+    slots.openSlots -= 1;
+    slots.heldProduction += isReview(one.kind) ? 0 : 1;
     if (unstartedProduction) {
-      held.push({
-        assignmentId: one.assignmentId,
-        sourceId: one.sourceId,
-        sourceKey: one.sourceKey,
-        hold: "offered",
-      });
+      holds.offer(one);
     }
   }
-
-  const waiting = blockingQuestions(db)
-    .map((row) => {
-      const report = questionReportOf(row);
-      return {
-        questionId: row.id,
-        assignmentId: row.assignmentId,
-        attemptId: row.attemptId,
-        revision: row.revision,
-        state: row.state,
-        question: report.question,
-        escalationTriggers: triggersOf(row),
-        affectedScope: report.affectedScope,
-        independentWork: report.independentWork,
-      };
-    })
-    .toSorted((left, right) => left.questionId.localeCompare(right.questionId));
 
   return {
     capacity: {
@@ -373,11 +307,11 @@ export function calculateFrontier(db: CrewReader, capacity: Capacity): Frontier 
       freeSlots,
     },
     dispatchable,
-    blocked,
+    blocked: filed.blocked,
     active: activeEntries,
-    planning,
-    accepted,
-    withdrawn,
-    questions: waiting,
+    planning: filed.planning,
+    accepted: filed.accepted,
+    withdrawn: filed.withdrawn,
+    questions: waitingQuestions(db),
   };
 }

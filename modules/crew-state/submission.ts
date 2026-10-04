@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import type { CrewReader, CrewWriter } from "./database.ts";
 import { type AttemptRow, endAttempt } from "./attempt.ts";
 import { Attempt, type SubmitRefusal } from "./attempt-machine.ts";
+import { Assignment } from "./assignment-machine.ts";
 import {
   type AssignmentRow,
   insertAssignment,
@@ -354,6 +355,11 @@ export function submitResult(
   if ("refused" in decision) {
     return decision.refused;
   }
+  // The attempt machine already refused each state the assignment machine hands no result from.
+  const handed = Assignment.decide("submit", { row: assignment });
+  if ("refused" in handed) {
+    return handed.refused;
+  }
 
   const artifacts = request.artifacts;
   const identity = identityOf({
@@ -411,11 +417,7 @@ export function submitResult(
 
   endAttempt(db, { attempt, state: decision.next, now: request.now });
 
-  const revision = moveAssignment(db, {
-    row: assignment,
-    state: "awaiting-review",
-    now: request.now,
-  });
+  const revision = moveAssignment(db, { row: assignment, next: handed.next, now: request.now });
 
   const registered = registerReview(db, {
     producer: assignment,

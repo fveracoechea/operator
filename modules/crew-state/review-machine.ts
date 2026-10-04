@@ -134,7 +134,8 @@ export type ReviewNext = {
   report: "reported";
   block: "blocked";
   dispose: { state: "reported"; targets: Map<string, string> };
-  withdraw: "withdrawn";
+  /** `unchanged` is a no-op: the review keeps its state and nothing is written. */
+  withdraw: "withdrawn" | "unchanged";
   reopen: "registered";
 };
 
@@ -438,8 +439,13 @@ const REVIEW_TABLE: { [E in ReviewEvent]: Entry<E> } = {
           : new Map(corrected(input).map((one) => [one.findingId, one.target ?? ""])),
     }),
   },
-  // A withdrawn review is withdrawn again, so a repeated withdrawal records it again.
-  withdraw: { guards: [unfinished], next: () => "withdrawn" },
+  // A withdrawn review of a result is withdrawn again, so a repeated withdrawal records it again.
+  // A withdrawn branch review is already closed, so a repeated withdrawal leaves it as it is.
+  withdraw: {
+    guards: [unfinished],
+    next: ({ row }) =>
+      row.snapshotId !== null && row.state === "withdrawn" ? "unchanged" : "withdrawn",
+  },
   // A blocked review is a stopped review, so a replacement attempt may report it.
   reopen: { guards: [unfinished], next: () => "registered" },
 };

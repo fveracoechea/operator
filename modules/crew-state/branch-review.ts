@@ -12,8 +12,7 @@ import { type DirectionRecord, raiseDirection } from "./direction.ts";
 import { identityOf } from "./identity.ts";
 import { fixedGateOf, integrationBranchOf } from "./integration.ts";
 import { sourceTextOf } from "./requirement-source.ts";
-import { REVIEW_AXES, reviewOfSubmission, type ReviewRow, withdrawReview } from "./review.ts";
-import { Review } from "./review-machine.ts";
+import { REVIEW_AXES, reviewOfSubmission, type ReviewRow } from "./review.ts";
 import { assignments, branchSnapshots, landings, reviews } from "./schema.ts";
 import { readStored } from "./stored.ts";
 import { type StoredCopy, specPathOf } from "./submission-store.ts";
@@ -470,42 +469,16 @@ export function registerBranchReview(
   };
 }
 
-/**
- * Closes each registered branch review of one source whose snapshot holds a commit of the
- * withdrawn assignment and that no attempt holds. Its head can never be published, so it is
- * not a reported round. The withdrawal refuses while an attempt still holds one.
- */
-export function closeBranchReviewsOf(
-  db: CrewWriter,
-  request: { row: AssignmentRow; now: string },
-): AssignmentRow[] {
-  const closed: AssignmentRow[] = [];
-  for (const { review, snapshot } of branchReviewsOf(db, request.row.sourceId)) {
-    const holds = storedSnapshotCommits(snapshot.commits).some(
-      (one) => one.assignmentId === request.row.id,
-    );
-    // A review already withdrawn is closed, so it closes no holder again.
-    if (
-      !holds ||
-      review.state === "withdrawn" ||
-      "refused" in Review.decide("withdraw", { row: review })
-    ) {
-      continue;
-    }
-    withdrawReview(db, { review, now: request.now });
-    const holder = readAssignment(db, review.assignmentId);
-    if (holder !== null) {
-      closed.push(holder);
-    }
-  }
-  return closed;
-}
-
-/** The branch review assignments of one source whose snapshot holds a commit of one item. */
-export function branchReviewHoldersOf(db: CrewReader, row: AssignmentRow): string[] {
+/** The branch reviews of one source whose snapshot holds a commit of one item. */
+export function branchReviewsHolding(db: CrewReader, row: AssignmentRow): ReviewRow[] {
   return branchReviewsOf(db, row.sourceId)
     .filter(({ snapshot }) =>
       storedSnapshotCommits(snapshot.commits).some((one) => one.assignmentId === row.id),
     )
-    .map(({ review }) => review.assignmentId);
+    .map(({ review }) => review);
+}
+
+/** The branch review assignments of one source whose snapshot holds a commit of one item. */
+export function branchReviewHoldersOf(db: CrewReader, row: AssignmentRow): string[] {
+  return branchReviewsHolding(db, row).map((review) => review.assignmentId);
 }
