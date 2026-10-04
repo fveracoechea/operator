@@ -30,16 +30,7 @@ import { readSubmission, submissionsOf, type SubmissionRow } from "./submission.
 import { effectiveWritePaths } from "./write-path-grants.ts";
 import { type BriefRecord, briefRecords } from "./planning-record.ts";
 import { readStored } from "./stored.ts";
-
-/** The external effects one launch performs, in the order a dispatch performs them. */
-export const DISPATCH_STAGES = [
-  "worktree_create",
-  "input_preparation",
-  "agent_start",
-  "prompt_delivery",
-] as const;
-
-export type DispatchStage = (typeof DISPATCH_STAGES)[number];
+import { DISPATCH_STAGES, type DispatchStage, operationFor } from "./attempt-machine.ts";
 
 /** The external effect that carries one recorded answer to the Operative that asked for it. */
 export const ANSWER_DELIVERY = "answer_delivery";
@@ -52,11 +43,6 @@ export type CleanupEffect = (typeof CLEANUP_EFFECTS)[number];
 export type OperationKind = DispatchStage | typeof ANSWER_DELIVERY | CleanupEffect;
 
 export type OperationState = "intended" | "succeeded" | "failed" | "uncertain";
-
-/** A recorded kind this release still knows how to settle. */
-export function isDispatchStage(kind: string): kind is DispatchStage {
-  return DISPATCH_STAGES.some((stage) => stage === kind);
-}
 
 export type DispatchRow = typeof attemptDispatch.$inferSelect;
 export type OperationRow = typeof externalOperations.$inferSelect;
@@ -90,14 +76,22 @@ export type ReworkContext = {
   rounds: ReturnType<typeof reworkRoundsOf>;
 };
 
+/**
+ * The one role of the agent an attempt runs, which the brief role of the launch matches. A
+ * branch review and a review read a fixed subject, and a rework cycle is open only on a producer.
+ */
+export type AttemptRole =
+  | { kind: "production" }
+  | { kind: "rework"; rework: ReworkContext }
+  | { kind: "review"; review: ReviewContext }
+  | { kind: "branch-review"; branchReview: BranchReviewContext };
+
 export type AttemptContext = {
   attempt: AttemptRow;
   assignment: AssignmentRow;
   dispatch: DispatchRow | null;
   operations: OperationRow[];
-  review: ReviewContext | null;
-  branchReview: BranchReviewContext | null;
-  rework: ReworkContext | null;
+  role: AttemptRole;
   // The planning records this attempt's launch carried, or null when its launch fixed none, and
   // the latest records, which a new launch carries. A review reads the producer's records.
   planning: { launched: BriefRecord[] | null; latest: BriefRecord[] };
@@ -131,24 +125,11 @@ export function liveOperations(db: CrewReader, attemptId: string): OperationRow[
     .all();
 }
 
-/**
- * The operations that recorded an intent and never proved an outcome.
- * An intended or uncertain effect may still have landed, so every reader of that state asks
- * this one question rather than spelling the two states again.
- */
-export function unsettledOperations(operations: OperationRow[]): OperationRow[] {
-  return operations.filter((one) => one.state === "intended" || one.state === "uncertain");
-}
-
 export function readOperation(db: CrewReader, operationId: string): OperationRow | null {
   return (
     db.select().from(externalOperations).where(eq(externalOperations.id, operationId)).all()[0] ??
     null
   );
-}
-
-export function operationFor(operations: OperationRow[], kind: DispatchStage): OperationRow | null {
-  return operations.find((one) => one.kind === kind) ?? null;
 }
 
 /** The rework cycle that delegated each finding as a correction, by finding id. */
@@ -427,6 +408,20 @@ function planningOf(
   };
 }
 
+/** The role of the agent that holds one assignment, read in the order the brief role reads it. */
+function roleOf(db: CrewReader, assignment: AssignmentRow): AttemptRole {
+  const branchReview = readBranchReviewContext(db, assignment);
+  if (branchReview !== null) {
+    return { kind: "branch-review", branchReview };
+  }
+  const review = readReviewContext(db, assignment.id);
+  if (review !== null) {
+    return { kind: "review", review };
+  }
+  const rework = readReworkContext(db, assignment.id);
+  return rework === null ? { kind: "production" } : { kind: "rework", rework };
+}
+
 /**
  * Reads one attempt with everything a change to it needs, and whether it is still the current
  * writer. An attempt that a replaced Operator claimed stays readable and stays blocked until
@@ -451,7 +446,8 @@ export function lookupAttempt(db: CrewReader, attemptId: string): AttemptLookup 
   }
 
   const dispatch = readDispatchRow(db, attempt.id);
-  const review = readReviewContext(db, assignment.id);
+  const role = roleOf(db, assignment);
+  const review = role.kind === "review" ? role.review : null;
   return {
     status: "ok",
     context: {
@@ -459,9 +455,7 @@ export function lookupAttempt(db: CrewReader, attemptId: string): AttemptLookup 
       assignment,
       dispatch,
       operations: liveOperations(db, attempt.id),
-      review,
-      branchReview: readBranchReviewContext(db, assignment),
-      rework: readReworkContext(db, assignment.id),
+      role,
       planning: planningOf(db, { assignmentId: assignment.id, dispatch, review }),
       writePaths: effectiveWritePaths(db, assignment),
       attemptsHeld: attemptCount(db, assignment.id),

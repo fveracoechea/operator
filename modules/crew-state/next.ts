@@ -10,8 +10,8 @@ import {
 } from "./cleanup.ts";
 import { Cleanup } from "./cleanup-machine.ts";
 import type { CrewReader } from "./database.ts";
-import { everyStageSucceeded } from "./dispatch-context.ts";
-import { liveOperations, readDispatchRow, unsettledOperations } from "./dispatch.ts";
+import { Attempt, unsettledOperations } from "./attempt-machine.ts";
+import { liveOperations, readDispatchRow } from "./dispatch.ts";
 import {
   type BaseGate,
   baseGateOf,
@@ -625,6 +625,26 @@ function tipStartOf(
       };
 }
 
+const LAUNCHING = "This launch is planned and has not finished every effect.";
+
+/** What a claimed attempt with no plan starts from, which its dispatch command follows. */
+function claimedDetail(request: {
+  baseGate: { gate: BaseGate } | null;
+  integration: { recordedTip: string; place: string } | null;
+  branchHead: string | null;
+}): string {
+  const base = request.baseGate?.gate;
+  if (base?.status === "passed") {
+    return `This assignment is claimed and has no Operative yet. The integration base passed the gate at commit ${base.commit} in gate run ${base.run.id}, so dispatch from that commit.`;
+  }
+  if (request.integration !== null) {
+    return `This assignment is claimed and has no Operative yet. It starts from ${request.integration.recordedTip}, ${request.integration.place}, so dispatch with no --commit.`;
+  }
+  return request.branchHead === null
+    ? "This assignment is claimed and has no Operative yet."
+    : `This branch review is claimed and has no reviewer yet. It reads the branch snapshot at head ${request.branchHead}, so dispatch with no --commit.`;
+}
+
 /** One active attempt: what it still owes, or what it is waiting for. */
 function readActiveAttempt(
   db: CrewReader,
@@ -643,6 +663,7 @@ function readActiveAttempt(
   into: Collector,
 ): void {
   const dispatch = readDispatchRow(db, request.attemptId);
+  const launch = Attempt.launchState(dispatch, liveOperations(db, request.attemptId));
 
   if (request.unsettled.length > 0) {
     into.add({
@@ -667,41 +688,35 @@ function readActiveAttempt(
   }
 
   // The first code dispatch of a source fixes its integration base, so it waits for the gate.
-  if (dispatch === null && request.baseGate !== null && request.baseGate.gate.status !== "passed") {
+  if (
+    launch === "unplanned" &&
+    request.baseGate !== null &&
+    request.baseGate.gate.status !== "passed"
+  ) {
     readBaseGate(request.baseGate, request, into);
     return;
   }
 
   // A launch that has not finished every effect resumes at the first one that is unfinished,
   // which is the same command that started it.
-  if (dispatch === null || !everyStageSucceeded(liveOperations(db, request.attemptId))) {
-    const base = request.baseGate?.gate;
+  if (launch === "unplanned" || launch === "launching" || dispatch === null) {
     into.add({
       action: "dispatch_attempt",
       assignmentId: request.assignmentId,
       attemptId: request.attemptId,
-      detail:
-        dispatch !== null
-          ? "This launch is planned and has not finished every effect."
-          : base?.status === "passed"
-            ? `This assignment is claimed and has no Operative yet. The integration base passed the gate at commit ${base.commit} in gate run ${base.run.id}, so dispatch from that commit.`
-            : request.integration !== null
-              ? `This assignment is claimed and has no Operative yet. It starts from ${request.integration.recordedTip}, ${request.integration.place}, so dispatch with no --commit.`
-              : request.branchHead !== null
-                ? `This branch review is claimed and has no reviewer yet. It reads the branch snapshot at head ${request.branchHead}, so dispatch with no --commit.`
-                : "This assignment is claimed and has no Operative yet.",
+      detail: launch === "launching" ? LAUNCHING : claimedDetail(request),
       command: "operator attempt dispatch",
     });
     return;
   }
 
   into.wait({
-    wait: dispatch.acknowledgedAt === null ? "acknowledgement_pending" : "operative_working",
+    wait: launch === "awaiting-acknowledgement" ? "acknowledgement_pending" : "operative_working",
     assignmentId: request.assignmentId,
     attemptId: request.attemptId,
     agentName: dispatch.agentName,
     detail:
-      dispatch.acknowledgedAt === null
+      launch === "awaiting-acknowledgement"
         ? "Herdr accepted the submission. The Operative has not acknowledged the brief."
         : "The Operative acknowledged its brief and is working.",
   });

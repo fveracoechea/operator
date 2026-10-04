@@ -3,25 +3,28 @@ import { OperativeDispatch } from "../operative-dispatch/main.ts";
 import { launchedRecordIds } from "./planning-record.ts";
 import { ProjectReadiness } from "../project-readiness/main.ts";
 import {
+  Attempt,
+  type AttemptDecision,
+  type AttemptFacts,
+  DISPATCH_STAGES,
+  type DispatchStage,
+  type DispatchRefusal,
+  type Launch,
+  type StageStep,
+} from "./attempt-machine.ts";
+import {
   type AttemptFailure,
-  briefGate,
-  type GateUnusable,
-  briefOf,
   type DispatchPlan,
   type DispatchReport,
-  everyStageSucceeded,
   type Overrides,
+  planLaunch,
   readContext,
   reportOf,
+  reportOfContext,
   type Shared,
   type Snapshot,
 } from "./dispatch-context.ts";
-import {
-  type BasePassed,
-  checkBaseGate,
-  type BaseGateRefusal,
-  type BaseUnread,
-} from "./gate-base.ts";
+import { checkBaseGate } from "./gate-base.ts";
 import {
   createIntegrationBranch,
   type IntegrationFix,
@@ -31,16 +34,14 @@ import {
 } from "./integration.ts";
 import { record } from "./operations.ts";
 import {
-  DISPATCH_STAGES,
-  type DispatchStage,
+  type AttemptContext,
+  type DispatchRow,
   type OperationRow,
   openOperation,
   recordOutsideScan,
   recordPlan,
   settleOperation,
 } from "./dispatch.ts";
-
-type SnapshotDrift = ReturnType<typeof OperativeDispatch.verifySnapshot>[number];
 
 export type DispatchResult =
   | { status: "acknowledged"; report: DispatchReport; repeated: boolean }
@@ -53,95 +54,12 @@ export type DispatchResult =
       stage: DispatchStage;
       operationState: string;
     }
-  | { status: "snapshot-drift"; attemptId: string; drift: SnapshotDrift[] }
-  | { status: "snapshot-unreadable"; attemptId: string; detail: string }
-  | { status: "plan-changed"; attemptId: string; recorded: string; computed: string }
-  | { status: "commit-required"; attemptId: string }
-  | { status: "workspace-required"; attemptId: string; detail: string }
-  | { status: "review-base-changed"; attemptId: string; recorded: string; requested: string }
-  | { status: "correction-base-changed"; attemptId: string; recorded: string; requested: string }
-  | { status: "host-unnamed"; attemptId: string }
-  | { status: "effort-unsupported"; attemptId: string; detail: string }
-  | GateUnusable
-  | BaseGateRefusal
-  | BaseUnread
+  | DispatchRefusal
   | IntegrationRefusal
   | AttemptFailure
   | Shared;
 
-type StageOutcome =
-  | { status: "succeeded"; detail: string; workspaceId?: string; paneId?: string }
-  | { status: "failed"; detail: string }
-  | { status: "uncertain"; detail: string };
-
-async function runStage(request: {
-  stage: DispatchStage;
-  projectRoot: string;
-  plan: DispatchPlan;
-  snapshot: Snapshot;
-  workspaceId: string | null;
-}): Promise<StageOutcome> {
-  const { stage, plan } = request;
-
-  if (stage === "worktree_create") {
-    const created = await OperativeDispatch.createWorktree({
-      projectRoot: request.projectRoot,
-      plan,
-    });
-    return created.status === "succeeded"
-      ? {
-          status: "succeeded",
-          detail: `Created ${created.value.worktreePath}.`,
-          workspaceId: created.value.workspaceId,
-        }
-      : created.status === "failed"
-        ? { status: "failed", detail: `${created.code}: ${created.detail}` }
-        : { status: "uncertain", detail: created.detail };
-  }
-
-  if (stage === "input_preparation") {
-    const prepared = await OperativeDispatch.prepare({
-      projectRoot: request.projectRoot,
-      plan,
-      snapshot: request.snapshot,
-    });
-    return prepared.status === "prepared"
-      ? { status: "succeeded", detail: `Copied and verified ${prepared.inputs.length} input(s).` }
-      : { status: "failed", detail: `${prepared.reason}: ${prepared.detail}` };
-  }
-
-  if (stage === "agent_start") {
-    if (request.workspaceId === null) {
-      return { status: "failed", detail: "The recorded checkout names no Herdr workspace." };
-    }
-
-    const launched = await OperativeDispatch.launch({ plan, workspaceId: request.workspaceId });
-    return launched.status === "succeeded"
-      ? {
-          status: "succeeded",
-          detail: `Started ${plan.agentName} (${launched.value.status}) in pane ${launched.value.paneId}.${launched.value.labelWarning === null ? "" : ` ${launched.value.labelWarning}`}`,
-          paneId: launched.value.paneId,
-        }
-      : launched.status === "failed"
-        ? { status: "failed", detail: `${launched.code}: ${launched.detail}` }
-        : { status: "uncertain", detail: launched.detail };
-  }
-
-  const delivered = await OperativeDispatch.deliver({ plan });
-  return delivered.status === "succeeded"
-    ? { status: "succeeded", detail: `Submitted the brief to ${plan.agentName}.` }
-    : delivered.status === "failed"
-      ? { status: "failed", detail: `${delivered.code}: ${delivered.detail}` }
-      : { status: "uncertain", detail: delivered.detail };
-}
-
-/**
- * Dispatches one claimed assignment to an isolated Operative.
- * Every stage records its intent before it acts and its outcome after, so an interrupted launch
- * is reconciled against Herdr instead of being repeated into a second writer.
- */
-// oxlint-disable-next-line complexity -- Splitting the launch would hide the recorded stage order.
-export async function dispatchAttempt(request: {
+type DispatchRequest = {
   projectRoot: string;
   requestId: string;
   ownerToken: string;
@@ -151,189 +69,144 @@ export async function dispatchAttempt(request: {
   worktreePath: string | null;
   paneId: string | null;
   overrides: Overrides;
-}): Promise<DispatchResult> {
-  const read = await readContext(request.projectRoot, request);
-  if (read.status !== "ok") {
-    return read;
-  }
+};
 
-  const attemptId = read.context.attempt.id;
-  const recorded = read.context.dispatch;
+type DispatchFacts = AttemptFacts["dispatch"];
+type DispatchNeed = Extract<AttemptDecision["dispatch"], { need: string }>;
 
-  // A finished launch has nothing left to perform, so a repeat reports what it recorded.
-  if (recorded !== null && everyStageSucceeded(read.context.operations)) {
-    const report = reportOf({
-      attempt: read.context.attempt,
-      dispatch: recorded,
-      operations: read.context.operations,
-      acknowledged: recorded.acknowledgedAt !== null,
-    });
-    return recorded.acknowledgedAt !== null
-      ? { status: "acknowledged", report, repeated: true }
-      : { status: "awaiting-acknowledgement", report, repeated: true };
-  }
+type StageOutcome =
+  | { status: "succeeded"; detail: string; workspaceId?: string; paneId?: string }
+  | { status: "failed"; detail: string }
+  | { status: "uncertain"; detail: string };
 
-  const parent =
-    recorded === null && request.paneId !== null
-      ? await HerdrControl.findPaneWorkspace({ paneId: request.paneId })
-      : null;
-  if (recorded === null && (parent === null || parent.status !== "found")) {
-    return {
-      status: "workspace-required",
-      attemptId,
-      detail:
-        parent === null
-          ? "This command is not running in a Herdr pane."
-          : parent.status === "absent"
-            ? "Herdr cannot find the Operator pane."
-            : parent.detail,
-    };
-  }
+type StageRun = {
+  projectRoot: string;
+  plan: DispatchPlan;
+  snapshot: Snapshot;
+  workspaceId: string | null;
+};
 
-  const current = await ProjectReadiness.snapshot({
-    projectRoot: request.projectRoot,
-    overrides: request.overrides,
-  });
-
-  let snapshot: Snapshot =
-    parent?.status === "found"
-      ? { ...current, parentWorkspaceId: parent.value.workspaceId }
-      : current;
-  if (recorded !== null) {
-    const restored = OperativeDispatch.readSnapshot({ recorded: recorded.snapshot });
-    if (restored.status !== "read") {
-      return { status: "snapshot-unreadable", attemptId, detail: restored.detail };
+/** The outside effect of each stage. The machine decides which stage runs, in recorded order. */
+const STAGE_EFFECTS: Record<DispatchStage, (run: StageRun) => Promise<StageOutcome>> = {
+  worktree_create: async ({ projectRoot, plan }) => {
+    const created = await OperativeDispatch.createWorktree({ projectRoot, plan });
+    return created.status === "succeeded"
+      ? {
+          status: "succeeded",
+          detail: `Created ${created.value.worktreePath}.`,
+          workspaceId: created.value.workspaceId,
+        }
+      : created.status === "failed"
+        ? { status: "failed", detail: `${created.code}: ${created.detail}` }
+        : { status: "uncertain", detail: created.detail };
+  },
+  input_preparation: async ({ projectRoot, plan, snapshot }) => {
+    const prepared = await OperativeDispatch.prepare({ projectRoot, plan, snapshot });
+    return prepared.status === "prepared"
+      ? { status: "succeeded", detail: `Copied and verified ${prepared.inputs.length} input(s).` }
+      : { status: "failed", detail: `${prepared.reason}: ${prepared.detail}` };
+  },
+  agent_start: async ({ plan, workspaceId }) => {
+    if (workspaceId === null) {
+      return { status: "failed", detail: "The recorded checkout names no Herdr workspace." };
     }
 
-    snapshot = restored.snapshot;
-    const drift = OperativeDispatch.verifySnapshot({ recorded: snapshot, current });
-    if (drift.length > 0) {
-      return { status: "snapshot-drift", attemptId, drift };
-    }
-  }
+    const launched = await OperativeDispatch.launch({ plan, workspaceId });
+    return launched.status === "succeeded"
+      ? {
+          status: "succeeded",
+          detail: `Started ${plan.agentName} (${launched.value.status}) in pane ${launched.value.paneId}.${launched.value.labelWarning === null ? "" : ` ${launched.value.labelWarning}`}`,
+          paneId: launched.value.paneId,
+        }
+      : launched.status === "failed"
+        ? { status: "failed", detail: `${launched.code}: ${launched.detail}` }
+        : { status: "uncertain", detail: launched.detail };
+  },
+  prompt_delivery: async ({ plan }) => {
+    const delivered = await OperativeDispatch.deliver({ plan });
+    return delivered.status === "succeeded"
+      ? { status: "succeeded", detail: `Submitted the brief to ${plan.agentName}.` }
+      : delivered.status === "failed"
+        ? { status: "failed", detail: `${delivered.code}: ${delivered.detail}` }
+        : { status: "uncertain", detail: delivered.detail };
+  },
+};
 
-  // A production dispatch of a source with an integration branch starts from its recorded tip,
-  // and a branch that moved outside this protocol stops it (ADR 0020).
-  const integration = await integrationStart({
-    projectRoot: request.projectRoot,
-    context: read.context,
-    attemptId,
-    requested: request.baseCommit,
-    planned: recorded !== null,
-  });
-  if (integration.status !== "ok") {
-    return integration;
+/** Reads the one fact the dispatch decision asked for. */
+async function gather(
+  request: DispatchRequest,
+  facts: DispatchFacts,
+  need: DispatchNeed,
+): Promise<DispatchFacts> {
+  const { projectRoot } = request;
+  const { context, attemptId } = facts;
+  switch (need.need) {
+    case "parent":
+      return {
+        ...facts,
+        parent:
+          request.paneId === null
+            ? null
+            : await HerdrControl.findPaneWorkspace({ paneId: request.paneId }),
+      };
+    case "current":
+      return {
+        ...facts,
+        current: await ProjectReadiness.snapshot({ projectRoot, overrides: request.overrides }),
+      };
+    case "integration":
+      return {
+        ...facts,
+        integration: await integrationStart({
+          projectRoot,
+          context,
+          attemptId,
+          requested: request.baseCommit,
+          planned: context.dispatch !== null,
+        }),
+      };
+    case "launch":
+      return {
+        ...facts,
+        launch: await planLaunch({
+          projectRoot,
+          context,
+          attemptId,
+          launchAttemptId: attemptId,
+          snapshot: need.snapshot,
+          baseCommit: need.baseCommit,
+          branch: need.branch,
+          worktreePath: need.worktreePath,
+        }),
+      };
+    case "base":
+      return {
+        ...facts,
+        base: await checkBaseGate({ projectRoot, context, attemptId, baseCommit: need.baseCommit }),
+      };
   }
+}
 
-  // A correction of a landed commit takes the place of that commit, so it starts on the parent
-  // that the invalidation recorded, and a dispatch that names no commit starts there.
-  const correctionBase = read.context.rework?.brief.invalidation?.startCommit ?? null;
-  // A branch review reads one recorded head and no other, so a dispatch that names no commit
-  // starts there (ADR 0017).
-  const branchHead = read.context.branchReview?.snapshot.headCommit ?? null;
-  const baseCommit =
-    recorded?.baseCommit ?? integration.start ?? request.baseCommit ?? correctionBase ?? branchHead;
-  if (baseCommit === null) {
-    return { status: "commit-required", attemptId };
-  }
-  if (correctionBase !== null && baseCommit !== correctionBase) {
-    return {
-      status: "correction-base-changed",
-      attemptId,
-      recorded: correctionBase,
-      requested: baseCommit,
-    };
-  }
+type Planned = { status: "planned"; context: AttemptContext; dispatch: DispatchRow };
 
-  // A review reads the exact commit the result was submitted on, never a later one.
-  const reviewBase = read.context.review?.submission.reviewBase ?? branchHead;
-  if (reviewBase !== null && baseCommit !== reviewBase) {
-    return {
-      status: "review-base-changed",
-      attemptId,
-      recorded: reviewBase,
-      requested: baseCommit,
-    };
-  }
-
-  // A recorded launch keeps the inputs it was planned with, so a request that names different
-  // ones is a conflict rather than a silently ignored argument.
-  const changed =
-    recorded === null
-      ? undefined
-      : (
-          [
-            [request.baseCommit, baseCommit],
-            [request.branch, recorded.branch],
-            [request.worktreePath, recorded.worktreePath],
-          ] satisfies Array<[string | null, string]>
-        ).find(([asked, held]) => asked !== null && asked !== held);
-  if (changed !== undefined) {
-    return { status: "plan-changed", attemptId, recorded: changed[1], computed: changed[0] ?? "" };
-  }
-
-  const gate = await briefGate({
-    projectRoot: request.projectRoot,
-    context: read.context,
-    attemptId,
-    baseCommit,
-  });
-  if (gate.status !== "ok") {
-    return gate;
-  }
-
-  // A recorded plan fixed its base already, so only a new launch reads the base gate.
-  let passed: BasePassed | null = null;
-  if (recorded === null) {
-    const base = await checkBaseGate({
-      projectRoot: request.projectRoot,
-      context: read.context,
-      attemptId,
-      baseCommit,
-    });
-    if (base.status !== "ok") {
-      return base;
-    }
-    passed = base.base;
-  }
-
-  const brief = briefOf(read.context, attemptId, gate.gate);
-  const launch = OperativeDispatch.plan({
-    projectRoot: request.projectRoot,
-    brief,
-    snapshot,
-    baseCommit,
-    branch: recorded?.branch ?? request.branch,
-    worktreePath: recorded?.worktreePath ?? request.worktreePath,
-  });
-  if (launch.status === "host-unnamed") {
-    return { status: "host-unnamed", attemptId };
-  }
-  if (launch.status === "effort-unsupported") {
-    return { status: "effort-unsupported", attemptId, detail: launch.detail };
-  }
-
-  const plan = launch.plan;
-  if (recorded !== null && recorded.promptIdentity !== plan.promptIdentity) {
-    // The brief is fixed at dispatch, so a recomputed brief that differs is never delivered.
-    return {
-      status: "plan-changed",
-      attemptId,
-      recorded: recorded.promptIdentity,
-      computed: plan.promptIdentity,
-    };
-  }
-
+/** Records the plan of a new launch, and reads the attempt again with the plan it holds now. */
+async function recordLaunch(
+  request: DispatchRequest,
+  context: AttemptContext,
+  launch: Launch,
+): Promise<Planned | DispatchResult> {
+  const attemptId = context.attempt.id;
+  const { plan } = launch;
   // The first code dispatch creates the integration branch at a base that passed, just before its
   // plan is recorded with it. Nothing pushes the branch.
   let fix: IntegrationFix | null = null;
-  if (passed !== null) {
+  if (launch.passed !== null) {
     const created = await createIntegrationBranch({
       projectRoot: request.projectRoot,
-      sourceId: read.context.assignment.sourceId,
+      sourceId: context.assignment.sourceId,
       attemptId,
-      commit: passed.commit,
-      gate: passed.gate,
+      commit: launch.passed.commit,
+      gate: launch.passed.gate,
     });
     if (created.status !== "created") {
       return created;
@@ -341,7 +214,7 @@ export async function dispatchAttempt(request: {
     fix = created.fix;
   }
 
-  if (recorded === null) {
+  if (context.dispatch === null) {
     const written = await record(
       {
         projectRoot: request.projectRoot,
@@ -353,23 +226,23 @@ export async function dispatchAttempt(request: {
       ({ tx, now }) => {
         recordPlan(tx, {
           attemptId,
-          assignmentId: read.context.attempt.assignmentId,
+          assignmentId: context.attempt.assignmentId,
           baseCommit: plan.baseCommit,
           branch: plan.branch,
           worktreePath: plan.worktreePath,
-          snapshot,
+          snapshot: launch.snapshot,
           snapshotIdentity: plan.snapshotIdentity,
           briefIdentity: plan.briefIdentity,
           promptIdentity: plan.promptIdentity,
           agentName: plan.agentName,
           agentKind: plan.agentKind,
           agentHost: plan.agentHost,
-          planningRecordIds: launchedRecordIds(brief.planningRecords),
+          planningRecordIds: launchedRecordIds(launch.brief.planningRecords),
           workspaceId: null,
           now,
         });
         if (fix !== null) {
-          recordIntegrationBranch(tx, { sourceId: read.context.assignment.sourceId, fix, now });
+          recordIntegrationBranch(tx, { sourceId: context.assignment.sourceId, fix, now });
         }
         return { commit: true, outcome: { status: "recorded" as const } };
       },
@@ -383,146 +256,171 @@ export async function dispatchAttempt(request: {
   if (planned.status !== "ok") {
     return planned;
   }
-  const dispatchRow = planned.context.dispatch;
-  if (dispatchRow === null) {
-    return { status: "unknown-attempt", attemptId };
-  }
+  return planned.context.dispatch === null
+    ? { status: "unknown-attempt", attemptId }
+    : { status: "planned", context: planned.context, dispatch: planned.context.dispatch };
+}
 
-  const dispatch = dispatchRow;
-  const attempt = planned.context.attempt;
-  const operations = new Map(planned.context.operations.map((one) => [one.kind, one]));
-  let workspaceId = dispatch.workspaceId;
+type Stage = {
+  stage: DispatchStage;
+  step: Extract<StageStep, { run: "open" | "resume" }>;
+  attemptId: string;
+  production: boolean;
+  launch: Launch;
+  workspaceId: string | null;
+};
 
-  function report(acknowledged = false): DispatchReport {
-    return reportOf({
-      attempt,
-      dispatch,
-      operations: [...operations.values()],
-      acknowledged,
-    });
-  }
-
-  for (const stage of DISPATCH_STAGES) {
-    const existing = operations.get(stage) ?? null;
-    if (existing?.state === "succeeded") {
-      continue;
-    }
-
-    // A Herdr effect that never settled may have landed, so it is reconciled, never repeated.
-    const reusable = stage === "input_preparation" && existing?.state === "intended";
-    if (existing !== null && !reusable) {
-      return {
-        status: "reconciliation-required",
-        report: report(),
-        stage,
-        operationState: existing.state,
-      };
-    }
-
-    // The recorded effects decide what runs again, so each pass carries its own identity and a
-    // repeated dispatch is never mistaken for a replay of the stage it is about to perform.
-    const pass = crypto.randomUUID();
-    const operationId = existing?.id ?? pass;
-    // The "before" scan of a production attempt is taken after the worktree exists, so the new
-    // checkout is not an outside change, and it is recorded with the intent of the start.
-    const outsideScan =
-      existing === null && stage === "agent_start" && read.context.assignment.kind === "production"
-        ? await OperativeDispatch.scanOutside({
-            projectRoot: request.projectRoot,
-            worktreePath: plan.worktreePath,
-          })
-        : null;
-    if (existing === null) {
-      const opened = await record(
-        {
+/** Records the intent of one stage before it acts. */
+async function openStage(
+  request: DispatchRequest,
+  pass: Stage & { passId: string; operationId: string },
+) {
+  const { stage, attemptId, operationId, launch } = pass;
+  // The "before" scan of a production attempt is recorded with the intent of the start.
+  const outsideScan =
+    pass.step.run === "open" && pass.step.scansOutside && pass.production
+      ? await OperativeDispatch.scanOutside({
           projectRoot: request.projectRoot,
-          requestId: `${request.requestId}#${stage}.${pass}.open`,
-          ownerToken: request.ownerToken,
-          operation: "attempt_dispatch_stage",
-          input: { attemptId, stage, operationId },
-        },
-        ({ tx, now }) => {
-          openOperation(tx, {
-            operationId,
-            attemptId,
-            kind: stage,
-            requestId: request.requestId,
-            intent: { stage, plan: plan.promptIdentity },
-            now,
-          });
-          if (outsideScan !== null) {
-            recordOutsideScan(tx, { attemptId, scan: outsideScan, now });
-          }
-          return { commit: true, outcome: { status: "recorded" as const } };
-        },
-      );
-      if (opened.status !== "recorded") {
-        return opened;
-      }
-    }
-
-    const outcome = await runStage({
-      stage,
+          worktreePath: launch.plan.worktreePath,
+        })
+      : null;
+  return record(
+    {
       projectRoot: request.projectRoot,
-      plan,
-      snapshot,
-      workspaceId,
-    });
-
-    const settled = await record(
-      {
-        projectRoot: request.projectRoot,
-        requestId: `${request.requestId}#${stage}.${pass}.settle`,
-        ownerToken: request.ownerToken,
-        operation: "attempt_dispatch_stage_result",
-        input: { operationId, state: outcome.status, detail: outcome.detail },
-      },
-      ({ tx, now }) => {
-        const input: Parameters<typeof settleOperation>[1] = {
-          operationId,
-          attemptId,
-          state: outcome.status,
-          detail: outcome.detail,
-          now,
-        };
-        if (outcome.status === "succeeded" && outcome.workspaceId !== undefined) {
-          input.workspaceId = outcome.workspaceId;
-        }
-        if (outcome.status === "succeeded" && outcome.paneId !== undefined) {
-          input.paneId = outcome.paneId;
-        }
-        settleOperation(tx, input);
-        return { commit: true, outcome: { status: "recorded" as const } };
-      },
-    );
-    if (settled.status !== "recorded") {
-      return settled;
-    }
-
-    const kept: OperationRow = {
-      ...(existing ?? {
-        id: operationId,
+      requestId: `${request.requestId}#${stage}.${pass.passId}.open`,
+      ownerToken: request.ownerToken,
+      operation: "attempt_dispatch_stage",
+      input: { attemptId, stage, operationId },
+    },
+    ({ tx, now }) => {
+      openOperation(tx, {
+        operationId,
         attemptId,
         kind: stage,
         requestId: request.requestId,
-        intent: JSON.stringify({ stage, plan: plan.promptIdentity }),
-        startedAt: "",
-        settledAt: null,
-      }),
-      state: outcome.status,
-      detail: outcome.detail,
-    };
-    operations.set(stage, kept);
+        intent: { stage, plan: launch.plan.promptIdentity },
+        now,
+      });
+      if (outsideScan !== null) {
+        recordOutsideScan(tx, { attemptId, scan: outsideScan, now });
+      }
+      return { commit: true, outcome: { status: "recorded" as const } };
+    },
+  );
+}
 
-    if (outcome.status === "succeeded" && outcome.workspaceId !== undefined) {
-      workspaceId = outcome.workspaceId;
+/** Performs one stage: its intent, its outside effect, and its outcome, each recorded. */
+async function performStage(request: DispatchRequest, pass: Stage) {
+  const { stage, attemptId, launch } = pass;
+  const existing = pass.step.run === "resume" ? pass.step.operation : null;
+  // The recorded effects decide what runs again, so each pass carries its own identity and a
+  // repeated dispatch is never mistaken for a replay of the stage it is about to perform.
+  const passId = crypto.randomUUID();
+  const operationId = existing?.id ?? passId;
+  if (existing === null) {
+    const opened = await openStage(request, { ...pass, passId, operationId });
+    if (opened.status !== "recorded") {
+      return opened;
     }
+  }
+
+  const outcome = await STAGE_EFFECTS[stage]({
+    projectRoot: request.projectRoot,
+    plan: launch.plan,
+    snapshot: launch.snapshot,
+    workspaceId: pass.workspaceId,
+  });
+  const settled = await record(
+    {
+      projectRoot: request.projectRoot,
+      requestId: `${request.requestId}#${stage}.${passId}.settle`,
+      ownerToken: request.ownerToken,
+      operation: "attempt_dispatch_stage_result",
+      input: { operationId, state: outcome.status, detail: outcome.detail },
+    },
+    ({ tx, now }) => {
+      const input: Parameters<typeof settleOperation>[1] = {
+        operationId,
+        attemptId,
+        state: outcome.status,
+        detail: outcome.detail,
+        now,
+      };
+      if (outcome.status === "succeeded" && outcome.workspaceId !== undefined) {
+        input.workspaceId = outcome.workspaceId;
+      }
+      if (outcome.status === "succeeded" && outcome.paneId !== undefined) {
+        input.paneId = outcome.paneId;
+      }
+      settleOperation(tx, input);
+      return { commit: true, outcome: { status: "recorded" as const } };
+    },
+  );
+  if (settled.status !== "recorded") {
+    return settled;
+  }
+
+  const operation: OperationRow = {
+    ...(existing ?? {
+      id: operationId,
+      attemptId,
+      kind: stage,
+      requestId: request.requestId,
+      intent: JSON.stringify({ stage, plan: launch.plan.promptIdentity }),
+      startedAt: "",
+      settledAt: null,
+    }),
+    state: outcome.status,
+    detail: outcome.detail,
+  };
+  return { status: "settled" as const, outcome, operation };
+}
+
+/**
+ * Performs every stage a former pass did not finish, in the recorded order.
+ * Every stage records its intent before it acts and its outcome after, so an interrupted launch
+ * is reconciled against Herdr instead of being repeated into a second writer.
+ */
+async function runStages(
+  request: DispatchRequest,
+  planned: Planned,
+  launch: Launch,
+): Promise<DispatchResult> {
+  const { attempt, assignment } = planned.context;
+  const operations = new Map(planned.context.operations.map((one) => [one.kind, one]));
+  let workspaceId = planned.dispatch.workspaceId;
+
+  function report(acknowledged = false): DispatchReport {
+    const recorded = [...operations.values()];
+    return reportOf({ attempt, dispatch: planned.dispatch, operations: recorded, acknowledged });
+  }
+
+  for (const stage of DISPATCH_STAGES) {
+    const step = Attempt.step(stage, operations.get(stage) ?? null);
+    if (step.run === "skip") {
+      continue;
+    }
+    if (step.run === "reconcile") {
+      const { operationState } = step;
+      return { status: "reconciliation-required", report: report(), stage, operationState };
+    }
+
+    const production = assignment.kind === "production";
+    const pass = { stage, step, attemptId: attempt.id, production, launch, workspaceId };
+    const ran = await performStage(request, pass);
+    if (ran.status !== "settled") {
+      return ran;
+    }
+    operations.set(stage, ran.operation);
+
+    const { outcome } = ran;
     if (outcome.status === "failed") {
       return { status: "stage-failed", report: report(), stage, detail: outcome.detail };
     }
     if (outcome.status === "uncertain") {
       return { status: "stage-uncertain", report: report(), stage, detail: outcome.detail };
     }
+    workspaceId = outcome.workspaceId ?? workspaceId;
   }
 
   // The Operative can acknowledge while this dispatch is still delivering, so the answer is read
@@ -533,4 +431,38 @@ export async function dispatchAttempt(request: {
   return acknowledged
     ? { status: "acknowledged", report: report(true), repeated: false }
     : { status: "awaiting-acknowledgement", report: report(), repeated: false };
+}
+
+/**
+ * Dispatches one claimed assignment to an isolated Operative: the base rule, then the plan and
+ * its record, then the stages. The attempt machine decides each refusal before any effect.
+ */
+export async function dispatchAttempt(request: DispatchRequest): Promise<DispatchResult> {
+  const read = await readContext(request.projectRoot, request);
+  if (read.status !== "ok") {
+    return read;
+  }
+
+  const { context } = read;
+  const { baseCommit, branch, worktreePath } = request;
+  let facts: DispatchFacts = {
+    context,
+    attemptId: context.attempt.id,
+    requested: { baseCommit, branch, worktreePath },
+  };
+  let decision = Attempt.decide("dispatch", facts);
+  while ("need" in decision) {
+    facts = await gather(request, facts, decision);
+    decision = Attempt.decide("dispatch", facts);
+  }
+  if ("refused" in decision) {
+    return decision.refused;
+  }
+  if ("repeated" in decision) {
+    const report = reportOfContext(context, decision.dispatch);
+    return { status: decision.repeated, report, repeated: true };
+  }
+
+  const planned = await recordLaunch(request, context, decision.launch);
+  return planned.status === "planned" ? runStages(request, planned, decision.launch) : planned;
 }

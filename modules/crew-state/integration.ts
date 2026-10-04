@@ -196,14 +196,13 @@ export async function integrationStart(request: {
 
   // A recorded launch fixed its base already, and a cycle starts where its own rule says. An
   // integration cycle starts from the commit its result lands on, the recorded tip (ADR 0008).
-  const rework = request.context.rework;
-  if (request.planned || (rework !== null && rework.brief.reason !== "integration")) {
+  const { role } = request.context;
+  if (request.planned || (role.kind === "rework" && role.rework.brief.reason !== "integration")) {
     return { status: "ok", start: null };
   }
+  const replaces = role.kind === "rework" && role.rework.brief.integration?.replaces !== undefined;
   const lands =
-    rework?.brief.integration?.replaces !== undefined && recorded.replaced !== null
-      ? recorded.replaced.landedParent
-      : row.recordedTip;
+    replaces && recorded.replaced !== null ? recorded.replaced.landedParent : row.recordedTip;
   if (request.requested !== null && request.requested !== lands) {
     const resolved = await IntegrationBranch.resolve({
       repoRoot: request.projectRoot,

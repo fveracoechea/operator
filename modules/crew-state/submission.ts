@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import type { CrewReader, CrewWriter } from "./database.ts";
 import { type AttemptRow, endAttempt } from "./attempt.ts";
+import { Attempt, type SubmitRefusal } from "./attempt-machine.ts";
 import {
   type AssignmentRow,
   insertAssignment,
@@ -59,13 +60,7 @@ export type SubmitOutcome =
       // How many outside changes wait for a disposition before acceptance.
       outsideChanges: number;
     }
-  | { status: "review-result-not-submitted"; assignmentId: string }
-  | { status: "planning-only"; assignmentId: string; kind: string }
-  | { status: "not-claimed"; assignmentId: string; state: string }
-  | { status: "stale-revision"; assignmentId: string; recordedRevision: number }
-  | { status: "source-revision-changed"; assignmentId: string; recordedRevision: string }
-  | { status: "requirements-changed"; assignmentId: string; recordedIdentity: string }
-  | { status: "already-submitted"; attemptId: string; submissionId: string };
+  | SubmitRefusal;
 
 export function readSubmission(db: CrewReader, id: string): SubmissionRow | null {
   return db.select().from(submissions).where(eq(submissions.id, id)).all()[0] ?? null;
@@ -349,43 +344,15 @@ export function submitResult(
 ): SubmitOutcome {
   const { assignment, attempt, input } = request;
 
-  if (assignment.kind === "review") {
-    // A review report is not a submitted result, so it never starts another review.
-    return { status: "review-result-not-submitted", assignmentId: assignment.id };
-  }
-  if (assignment.kind !== "production") {
-    return { status: "planning-only", assignmentId: assignment.id, kind: assignment.kind };
-  }
-  if (assignment.state !== "claimed") {
-    return { status: "not-claimed", assignmentId: assignment.id, state: assignment.state };
-  }
-  if (assignment.revision !== input.assignmentRevision) {
-    return {
-      status: "stale-revision",
-      assignmentId: assignment.id,
-      recordedRevision: assignment.revision,
-    };
-  }
-  if (assignment.sourceRevision !== input.sourceRevision) {
-    return {
-      status: "source-revision-changed",
-      assignmentId: assignment.id,
-      recordedRevision: assignment.sourceRevision,
-    };
-  }
-
-  const requirements = requirementsIdentityOf(assignment);
-  if (requirements !== input.requirementsIdentity) {
-    return {
-      status: "requirements-changed",
-      assignmentId: assignment.id,
-      recordedIdentity: requirements,
-    };
-  }
-
-  const held = submissionOfAttempt(db, attempt.id);
-  if (held !== null) {
-    return { status: "already-submitted", attemptId: attempt.id, submissionId: held.id };
+  const decision = Attempt.decide("submit", {
+    attemptId: attempt.id,
+    assignment,
+    stated: input,
+    requirementsIdentity: requirementsIdentityOf(assignment),
+    held: submissionOfAttempt(db, attempt.id),
+  });
+  if ("refused" in decision) {
+    return decision.refused;
   }
 
   const artifacts = request.artifacts;
@@ -442,7 +409,7 @@ export function submitResult(
     closeCycle(db, { cycle, attemptId: attempt.id, now: request.now });
   }
 
-  endAttempt(db, { attempt, state: "submitted", now: request.now });
+  endAttempt(db, { attempt, state: decision.next, now: request.now });
 
   const revision = moveAssignment(db, {
     row: assignment,

@@ -27,14 +27,12 @@ import {
   type ReviewContext,
   type ReworkContext,
   type AttemptLookup,
-  DISPATCH_STAGES,
   type DispatchRow,
-  type DispatchStage,
   dispatchStage,
   lookupAttempt,
   type OperationRow,
-  operationFor,
 } from "./dispatch.ts";
+import { Attempt } from "./attempt-machine.ts";
 import { readState, type RequestFailure, type StateFailure } from "./operations.ts";
 import { requireOwnership } from "./ownership.ts";
 import { identityOf } from "./identity.ts";
@@ -217,27 +215,27 @@ export function reworkBriefOf(context: ReworkContext): ReworkBrief {
   return { cycleId: context.cycle.id, ...recorded, rounds: context.rounds };
 }
 
-/**
- * The one role of the brief. A branch review and a review read a fixed subject, and a rework
- * cycle is open only on a producer assignment.
- */
+/** The one role of the brief, built from the role of the attempt that receives it. */
 function roleOf(
   context: AttemptContext,
   request: { attemptId: string; fixedInputs: Brief["fixedInputs"]; allowedCommands: string[] },
 ): BriefRole {
-  if (context.branchReview !== null) {
-    return {
-      kind: "branch-review",
-      branchReview: branchReviewBriefOf(context.branchReview, request),
-    };
+  const { role } = context;
+  switch (role.kind) {
+    case "branch-review":
+      return {
+        kind: "branch-review",
+        branchReview: branchReviewBriefOf(role.branchReview, request),
+      };
+    case "review": {
+      const producerTitle = context.assignment.title;
+      return { kind: "review", review: reviewBriefOf(role.review, { ...request, producerTitle }) };
+    }
+    case "rework":
+      return { kind: "rework", rework: reworkBriefOf(role.rework) };
+    case "production":
+      return { kind: "production" };
   }
-  if (context.review !== null) {
-    const producerTitle = context.assignment.title;
-    return { kind: "review", review: reviewBriefOf(context.review, { ...request, producerTitle }) };
-  }
-  return context.rework === null
-    ? { kind: "production" }
-    : { kind: "rework", rework: reworkBriefOf(context.rework) };
 }
 
 /** A rework Operative produces a result under the same rules as the producer it corrects. */
@@ -273,13 +271,13 @@ export type GateUnusable = {
  * integration base, or, before the source has one, the one at the base commit of the launch.
  * A reviewer reads no gate here, because its registered commands already permit the gate.
  */
-export async function briefGate(request: {
+async function briefGate(request: {
   projectRoot: string;
   context: AttemptContext;
   attemptId: string;
   baseCommit: string;
 }): Promise<{ status: "ok"; gate: Brief["gate"] } | GateUnusable> {
-  if (request.context.review !== null || request.context.branchReview !== null) {
+  if (request.context.role.kind === "review" || request.context.role.kind === "branch-review") {
     return { status: "ok", gate: null };
   }
   const gate = await gateOfAttempt({
@@ -336,6 +334,46 @@ export function briefOf(context: AttemptContext, attemptId: string, gate: Brief[
   };
 }
 
+/** One launch that may start, or the reason its brief cannot launch. */
+export type LaunchPlan =
+  | { status: "planned"; brief: Brief; plan: DispatchPlan }
+  | GateUnusable
+  | { status: "host-unnamed" }
+  | { status: "effort-unsupported"; detail: string };
+
+/**
+ * Plans the launch of one brief: the project gate it states, the brief, and the branch,
+ * checkout, agent, and prompt. A dispatch and a replacement both plan through it, so one rule
+ * says whether a brief can launch. Each caller maps a refusal to its own status.
+ */
+export async function planLaunch(request: {
+  projectRoot: string;
+  context: AttemptContext;
+  /** The attempt a gate refusal names. */
+  attemptId: string;
+  /** The attempt the brief is for. A replacement plans the brief of the attempt it starts. */
+  launchAttemptId: string;
+  snapshot: Snapshot;
+  baseCommit: string;
+  branch: string | null;
+  worktreePath: string | null;
+}): Promise<LaunchPlan> {
+  const gate = await briefGate(request);
+  if (gate.status !== "ok") {
+    return gate;
+  }
+  const brief = briefOf(request.context, request.launchAttemptId, gate.gate);
+  const launch = OperativeDispatch.plan({
+    projectRoot: request.projectRoot,
+    brief,
+    snapshot: request.snapshot,
+    baseCommit: request.baseCommit,
+    branch: request.branch,
+    worktreePath: request.worktreePath,
+  });
+  return launch.status === "planned" ? { status: "planned", brief, plan: launch.plan } : launch;
+}
+
 export function reportOf(request: {
   attempt: { id: string; assignmentId: string };
   dispatch: DispatchRow;
@@ -374,13 +412,6 @@ export function reportOfContext(context: AttemptContext, dispatch: DispatchRow):
     operations: context.operations,
     acknowledged: dispatch.acknowledgedAt !== null,
   });
-}
-
-/** True when every external effect of one launch is recorded as done. */
-export function everyStageSucceeded(operations: OperationRow[]): boolean {
-  return DISPATCH_STAGES.every(
-    (stage: DispatchStage) => operationFor(operations, stage)?.state === "succeeded",
-  );
 }
 
 /**
@@ -438,21 +469,8 @@ export async function readWriterContext(
     return read;
   }
 
-  const dispatch = read.context.dispatch;
-  if (dispatch === null) {
-    return { status: "not-dispatched", attemptId: request.attemptId };
-  }
-  if (dispatch.worktreePath !== request.worktreePath) {
-    return {
-      status: "reference-mismatch",
-      attemptId: request.attemptId,
-      detail: `This attempt is recorded against ${dispatch.worktreePath}.`,
-    };
-  }
-  // An unacknowledged attempt never proved the brief arrived, so it reports nothing fixed.
-  if (dispatch.acknowledgedAt === null) {
-    return { status: "not-acknowledged", attemptId: request.attemptId };
-  }
-
-  return { status: "ok", context: read.context, dispatch };
+  const decision = Attempt.readWriter({ ...request, dispatch: read.context.dispatch });
+  return "refused" in decision
+    ? decision.refused
+    : { status: "ok", context: read.context, dispatch: decision.dispatch };
 }

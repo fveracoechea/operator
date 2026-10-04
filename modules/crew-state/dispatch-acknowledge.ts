@@ -1,6 +1,7 @@
 import { type AttemptFailure, readContext, type Shared } from "./dispatch-context.ts";
 import { record } from "./operations.ts";
 import { recordAcknowledgement } from "./dispatch.ts";
+import { Attempt } from "./attempt-machine.ts";
 
 export type AcknowledgeResult =
   | {
@@ -34,25 +35,12 @@ export async function acknowledgeAttempt(request: {
     return read;
   }
 
-  const dispatch = read.context.dispatch;
-  if (dispatch === null) {
-    return { status: "not-dispatched", attemptId: request.attemptId };
-  }
-  if (dispatch.worktreePath !== request.worktreePath) {
-    return {
-      status: "reference-mismatch",
-      attemptId: request.attemptId,
-      detail: `This attempt is recorded against ${dispatch.worktreePath}.`,
-    };
-  }
-  if (dispatch.acknowledgedAt !== null) {
-    return {
-      status: "already-acknowledged",
-      attemptId: request.attemptId,
-      acknowledgedAt: dispatch.acknowledgedAt,
-    };
+  const decision = Attempt.decide("acknowledge", { ...request, dispatch: read.context.dispatch });
+  if ("refused" in decision) {
+    return decision.refused;
   }
 
+  const { dispatch } = decision;
   const operations = read.context.operations;
   const written = await record(
     {

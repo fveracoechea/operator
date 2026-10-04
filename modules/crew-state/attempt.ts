@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import type { AttemptState } from "./attempt-machine.ts";
 import type { CrewReader, CrewWriter } from "./database.ts";
 import { withdrawQuestions } from "./questions.ts";
 import { attempts } from "./schema.ts";
@@ -54,7 +55,7 @@ export function reassignAttempt(
  */
 export function endAttempt(
   db: CrewWriter,
-  request: { attempt: AttemptRow; state: string; now: string },
+  request: { attempt: AttemptRow; state: AttemptState; now: string },
 ): void {
   db.update(attempts)
     .set({

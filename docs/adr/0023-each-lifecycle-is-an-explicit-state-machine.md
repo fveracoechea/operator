@@ -28,10 +28,11 @@ The command line stays a thin interpreter: it parses the arguments, calls the mo
 A thing with no lifecycle gets no machine: a pure computation, such as a registration plan, stays a function.
 A machine never changes a refusal code, their order, a field of the JSON output, the meaning of a recorded column, or a command flag. A change of state names needs a crew state migration.
 
-The first two machines are the cleanup and the question:
+The first machines are the cleanup, the question, and the attempt:
 
 - **Cleanup.** One record for each cleanup kind, process closure and worktree removal, with the states `pending`, `blocked`, `failed`, `uncertain`, and `done`, and the events close and remove. Each kind has its own ordered guards, and the preserve, stop, and remove outcomes are rows of the table. A retention hold is a second small machine with the states `held` and `released` and the events hold and release. The coordination order reads the owed cleanup from the machine.
 - **Question.** The states `open`, `answered`, `delivered`, `resolved`, and `withdrawn`, and the events raise, revise, answer, escalate, deliver, and acknowledge. An event on a question that is not recorded is refused by the read that finds no row, before any guard runs.
+- **Attempt.** The states `active`, `submitted`, `accepted`, and `replaced`, and the events dispatch, acknowledge, reconcile, adopt, replace, and submit. Every event starts from `active`, and the read of the attempt refuses an ended one before any guard runs. Each launch stage is one external operation in the states `intended`, `succeeded`, `failed`, and `uncertain`, and one stage table holds the recorded order of ADR-0005, which stages run again in place, and how reconciliation settles each one. A dispatch and a replacement plan a launch through one rule. The coordination order reads the launch state of the attempt from the machine. The attempt context carries one role, `production`, `rework`, `review`, or `branch-review`, which matches the role of the brief.
 
 Later machines:
 
