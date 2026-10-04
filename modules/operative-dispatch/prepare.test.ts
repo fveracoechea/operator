@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ContentIdentity } from "../content-identity/main.ts";
 import { OperativeDispatch } from "./main.ts";
+import type { PrepareFailure } from "./inputs.ts";
 import { type Brief, type DispatchPlan, planDispatch, type Snapshot } from "./plan.ts";
 
 const folders: string[] = [];
@@ -79,8 +80,6 @@ async function launch() {
 
 type Launch = Awaited<ReturnType<typeof launch>>;
 
-type Refused = Extract<Awaited<ReturnType<typeof OperativeDispatch.prepare>>, { status: "failed" }>;
-
 const spec = { path: "spec.md", identity: ContentIdentity.ofText("spec\n") };
 
 // Each case breaks one input and keeps the inputs before it intact, so the reason names the
@@ -88,7 +87,7 @@ const spec = { path: "spec.md", identity: ContentIdentity.ofText("spec\n") };
 const refusals: Array<{
   name: string;
   arrange: (one: Launch) => Promise<{ plan?: Partial<DispatchPlan>; snapshot?: Partial<Snapshot> }>;
-  reason: Refused["reason"];
+  reason: PrepareFailure;
   detail: string;
 }> = [
   {
@@ -174,17 +173,19 @@ for (const refusal of refusals) {
   test(`prepare refuses ${refusal.name} and writes nothing`, async () => {
     const one = await launch();
     const changed = await refusal.arrange(one);
-    const outcome = await OperativeDispatch.prepare({
+    const outcome = await OperativeDispatch.perform({
+      kind: "input_preparation",
       projectRoot: one.projectRoot,
       plan: { ...one.plan, ...changed.plan },
       snapshot: { ...one.snapshot, ...changed.snapshot },
+      workspaceId: null,
     });
 
     expect(outcome).toEqual({
       status: "failed",
-      reason: refusal.reason,
-      detail: expect.stringContaining(refusal.detail),
+      detail: expect.stringMatching(new RegExp(`^${refusal.reason}: `)),
     });
+    expect(outcome.detail).toContain(refusal.detail);
     expect(await Bun.file(join(one.worktreePath, one.plan.briefPath)).exists()).toBe(false);
   });
 }

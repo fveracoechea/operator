@@ -974,6 +974,66 @@ describe("acknowledgement", () => {
     expect(result.exitCode).toBe(4);
     expect(result.json.reason).toBe("attempt_reference_mismatch");
   });
+
+  // The reference file names the project root, so its absence comes first. The mismatch comes
+  // before the request input and before every refusal that the crew state gives.
+  test("refuses in the order: missing reference, mismatch, input, crew state", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await claimedAttempt(workspace);
+    await dispatch(workspace, crew);
+    const other = crypto.randomUUID();
+    const operative = `${workspace.root}/operative`;
+    const unreadable = `${workspace.root}/absent-input.json`;
+    const submitAs = (attemptId: string, cwd: string) =>
+      runJson(
+        workspace,
+        [
+          "attempt",
+          "submit",
+          "--request",
+          request(),
+          "--attempt",
+          attemptId,
+          "--input",
+          unreadable,
+        ],
+        cwd,
+      );
+
+    const missing = await submitAs(other, workspace.repo);
+    expect(missing.exitCode).toBe(3);
+    expect(missing.json.reason).toBe("attempt_reference_missing");
+    expect(missing.json.blockers).toEqual([
+      { reason: "attempt_reference_missing", attemptId: other },
+    ]);
+
+    const mismatch = await submitAs(other, operative);
+    expect(mismatch.exitCode).toBe(4);
+    expect(mismatch.stdout).toBe(
+      `${JSON.stringify({
+        schemaVersion: 1,
+        outcome: "conflict",
+        reason: "attempt_reference_mismatch",
+        blockers: [
+          {
+            reason: "attempt_reference_mismatch",
+            attemptId: other,
+            recordedAttemptId: crew.attemptId,
+          },
+        ],
+        operation: "attempt_submit",
+      })}\n`,
+    );
+    const human = await runOperator(
+      workspace,
+      ["attempt", "acknowledge", "--request", request(), "--attempt", other],
+      operative,
+    );
+    expect(human.stdout).toBe(`This worktree belongs to attempt ${crew.attemptId}.\n`);
+
+    const input = await submitAs(crew.attemptId, operative);
+    expect(input.json.reason).toBe("invalid_submission_input");
+  });
 });
 
 describe("snapshot restoration", () => {

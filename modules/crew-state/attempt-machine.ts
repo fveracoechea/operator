@@ -234,6 +234,30 @@ const sameCheckout: Row<Dispatched<WriterFacts>, { refused: Mismatch }> = (facts
 
 type WriterFacts = { attemptId: string; worktreePath: string; dispatch: DispatchRow | null };
 
+/** The attempt a command names, and the attempt the reference of its worktree names. */
+type ReferenceFacts = { attemptId: string | null; referencedAttemptId: string };
+
+export type ReferenceMismatch = {
+  status: "attempt-reference-mismatch";
+  attemptId: string;
+  recordedAttemptId: string;
+};
+
+/** An Operative reports only against the attempt its worktree carries. */
+const sameAttempt: Row<ReferenceFacts, { refused: ReferenceMismatch }> = ({
+  attemptId,
+  referencedAttemptId,
+}) =>
+  attemptId === null || attemptId === referencedAttemptId
+    ? null
+    : {
+        refused: {
+          status: "attempt-reference-mismatch",
+          attemptId,
+          recordedAttemptId: referencedAttemptId,
+        },
+      };
+
 type Requested = { baseCommit: string | null; branch: string | null; worktreePath: string | null };
 
 type DispatchFacts = {
@@ -924,6 +948,14 @@ export const Attempt = {
           : null,
       "active",
     );
+  },
+
+  /**
+   * The read every command makes that an Operative runs from its worktree. It moves nothing.
+   * The caller reads the reference first, because the reference names the project root.
+   */
+  readReference(facts: ReferenceFacts): { refused: ReferenceMismatch } | { next: "active" } {
+    return firstOf([sameAttempt], facts) ?? { next: "active" };
   },
 
   /** Where the launch of one active attempt stands. */

@@ -14,7 +14,6 @@ import {
 } from "./attempt-machine.ts";
 import {
   type AttemptFailure,
-  type DispatchPlan,
   type DispatchReport,
   type Overrides,
   planLaunch,
@@ -22,7 +21,6 @@ import {
   reportOf,
   reportOfContext,
   type Shared,
-  type Snapshot,
 } from "./dispatch-context.ts";
 import { checkBaseGate } from "./gate-base.ts";
 import {
@@ -73,64 +71,6 @@ type DispatchRequest = {
 
 type DispatchFacts = AttemptFacts["dispatch"];
 type DispatchNeed = Extract<AttemptDecision["dispatch"], { need: string }>;
-
-type StageOutcome =
-  | { status: "succeeded"; detail: string; workspaceId?: string; paneId?: string }
-  | { status: "failed"; detail: string }
-  | { status: "uncertain"; detail: string };
-
-type StageRun = {
-  projectRoot: string;
-  plan: DispatchPlan;
-  snapshot: Snapshot;
-  workspaceId: string | null;
-};
-
-/** The outside effect of each stage. The machine decides which stage runs, in recorded order. */
-const STAGE_EFFECTS: Record<DispatchStage, (run: StageRun) => Promise<StageOutcome>> = {
-  worktree_create: async ({ projectRoot, plan }) => {
-    const created = await OperativeDispatch.createWorktree({ projectRoot, plan });
-    return created.status === "succeeded"
-      ? {
-          status: "succeeded",
-          detail: `Created ${created.value.worktreePath}.`,
-          workspaceId: created.value.workspaceId,
-        }
-      : created.status === "failed"
-        ? { status: "failed", detail: `${created.code}: ${created.detail}` }
-        : { status: "uncertain", detail: created.detail };
-  },
-  input_preparation: async ({ projectRoot, plan, snapshot }) => {
-    const prepared = await OperativeDispatch.prepare({ projectRoot, plan, snapshot });
-    return prepared.status === "prepared"
-      ? { status: "succeeded", detail: `Copied and verified ${prepared.inputs.length} input(s).` }
-      : { status: "failed", detail: `${prepared.reason}: ${prepared.detail}` };
-  },
-  agent_start: async ({ plan, workspaceId }) => {
-    if (workspaceId === null) {
-      return { status: "failed", detail: "The recorded checkout names no Herdr workspace." };
-    }
-
-    const launched = await OperativeDispatch.launch({ plan, workspaceId });
-    return launched.status === "succeeded"
-      ? {
-          status: "succeeded",
-          detail: `Started ${plan.agentName} (${launched.value.status}) in pane ${launched.value.paneId}.${launched.value.labelWarning === null ? "" : ` ${launched.value.labelWarning}`}`,
-          paneId: launched.value.paneId,
-        }
-      : launched.status === "failed"
-        ? { status: "failed", detail: `${launched.code}: ${launched.detail}` }
-        : { status: "uncertain", detail: launched.detail };
-  },
-  prompt_delivery: async ({ plan }) => {
-    const delivered = await OperativeDispatch.deliver({ plan });
-    return delivered.status === "succeeded"
-      ? { status: "succeeded", detail: `Submitted the brief to ${plan.agentName}.` }
-      : delivered.status === "failed"
-        ? { status: "failed", detail: `${delivered.code}: ${delivered.detail}` }
-        : { status: "uncertain", detail: delivered.detail };
-  },
-};
 
 /** Reads the one fact the dispatch decision asked for. */
 async function gather(
@@ -324,7 +264,8 @@ async function performStage(request: DispatchRequest, pass: Stage) {
     }
   }
 
-  const outcome = await STAGE_EFFECTS[stage]({
+  const outcome = await OperativeDispatch.perform({
+    kind: stage,
     projectRoot: request.projectRoot,
     plan: launch.plan,
     snapshot: launch.snapshot,

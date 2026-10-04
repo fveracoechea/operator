@@ -1,5 +1,10 @@
 import { OperativeDispatch } from "../operative-dispatch/main.ts";
-import { type AttemptFailure, readContext, type Shared } from "./dispatch-context.ts";
+import {
+  type AttemptFailure,
+  readContext,
+  type Shared,
+  type Snapshot,
+} from "./dispatch-context.ts";
 import { record } from "./operations.ts";
 import {
   ANSWER_DELIVERY,
@@ -49,7 +54,7 @@ type Prepared = {
   question: QuestionRow;
   answer: AnswerRow;
   agentName: string;
-  snapshot: Parameters<typeof OperativeDispatch.deliverAnswer>[0]["snapshot"];
+  snapshot: Snapshot;
   operation: OperationRow | null;
   next: QuestionNext["deliver"];
 };
@@ -138,7 +143,8 @@ export async function deliverAnswer(request: {
   }
 
   const recordedAnswer = answerRecordOf(answer, question);
-  const submitted = await OperativeDispatch.deliverAnswer({
+  const { status: state, detail } = await OperativeDispatch.perform({
+    kind: ANSWER_DELIVERY,
     agentName,
     snapshot: prepared.snapshot,
     answer: {
@@ -151,19 +157,6 @@ export async function deliverAnswer(request: {
       source: recordedAnswer.source,
     },
   });
-
-  const state =
-    submitted.status === "succeeded"
-      ? "succeeded"
-      : submitted.status === "failed"
-        ? "failed"
-        : "uncertain";
-  const detail =
-    submitted.status === "succeeded"
-      ? `Submitted the answer to ${agentName}.`
-      : submitted.status === "failed"
-        ? `${submitted.code}: ${submitted.detail}`
-        : submitted.detail;
 
   const { result: settled } = await mutate<{ status: "settled"; now: string }>(
     {

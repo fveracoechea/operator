@@ -8,6 +8,7 @@ afterEach(() => {
   spyOn(HerdrControl, "findRootPane").mockRestore();
   spyOn(HerdrControl, "startAgent").mockRestore();
   spyOn(HerdrControl, "labelAgent").mockRestore();
+  spyOn(HerdrControl, "submitPrompt").mockRestore();
 });
 
 test("dispatch groups the worktree under the Operator and labels the launched agent", async () => {
@@ -67,9 +68,14 @@ test("dispatch groups the worktree under the Operator and labels the launched ag
     value: null,
   });
 
+  const stage = { projectRoot: "/projects/renabler", plan, snapshot };
   expect(
-    (await OperativeDispatch.createWorktree({ projectRoot: "/projects/renabler", plan })).status,
-  ).toBe("succeeded");
+    await OperativeDispatch.perform({ ...stage, kind: "worktree_create", workspaceId: null }),
+  ).toEqual({
+    status: "succeeded",
+    detail: `Created ${plan.worktreePath}.`,
+    workspaceId: "w-child",
+  });
   expect(create).toHaveBeenCalledWith(
     expect.objectContaining({
       parentWorkspaceId: "w-renabler",
@@ -77,9 +83,13 @@ test("dispatch groups the worktree under the Operator and labels the launched ag
       tabLabel: "#59 Operative: Migrate customers",
     }),
   );
-  expect((await OperativeDispatch.launch({ plan, workspaceId: "w-child" })).status).toBe(
-    "succeeded",
-  );
+  expect(
+    await OperativeDispatch.perform({ ...stage, kind: "agent_start", workspaceId: "w-child" }),
+  ).toEqual({
+    status: "succeeded",
+    detail: "Started operative-abcdef12 (idle) in pane w-child:p1.",
+    paneId: "w-child:p1",
+  });
   expect(start).toHaveBeenCalledWith(
     expect.objectContaining({ name: "operative-abcdef12", paneId: "w-child:p1" }),
   );
@@ -87,5 +97,48 @@ test("dispatch groups the worktree under the Operator and labels the launched ag
     paneId: "w-child:p1",
     agentName: "operative-abcdef12",
     label: "#59 Operative: Migrate customers",
+  });
+});
+
+test("perform joins a failure code to its detail and gives an unproven submission as uncertain", async () => {
+  const snapshot: Snapshot = {
+    selection: { crew: { host: "claude-code", model: null } },
+    release: { version: "0.4.0", identity: "release" },
+    lock: { name: null, state: "ready", identity: null, path: null },
+    skills: { identity: "skills" },
+  };
+  const delivery = {
+    kind: "answer_delivery" as const,
+    agentName: "operative-abcdef12",
+    snapshot,
+    answer: {
+      questionId: "q1",
+      questionRevision: 1,
+      attemptId: "a1",
+      authority: "operator-decision",
+      exactText: "Yes.",
+      interpretation: { summary: "Yes.", directives: [], appliesTo: [] },
+      source: null,
+    },
+  };
+  const submit = spyOn(HerdrControl, "submitPrompt");
+
+  submit.mockResolvedValueOnce({
+    status: "succeeded",
+    value: { name: "operative-abcdef12", paneId: "w-child:p1", cwd: "/w", status: "working" },
+  });
+  expect(await OperativeDispatch.perform(delivery)).toEqual({
+    status: "succeeded",
+    detail: "Submitted the answer to operative-abcdef12.",
+  });
+  submit.mockResolvedValueOnce({ status: "failed", code: "agent_not_found", detail: "Gone." });
+  expect(await OperativeDispatch.perform(delivery)).toEqual({
+    status: "failed",
+    detail: "agent_not_found: Gone.",
+  });
+  submit.mockResolvedValueOnce({ status: "uncertain", detail: "No answer." });
+  expect(await OperativeDispatch.perform(delivery)).toEqual({
+    status: "uncertain",
+    detail: "No answer.",
   });
 });

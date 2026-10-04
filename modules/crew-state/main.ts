@@ -4,6 +4,7 @@ import { migrateState, planMigration } from "./migrate.ts";
 import { holdInputSchema, placeHold, releaseHold } from "./cleanup-hold.ts";
 import { runCleanup } from "./cleanup-run.ts";
 import { showCleanups } from "./cleanup-report.ts";
+import { Attempt } from "./attempt-machine.ts";
 import { acknowledgeAttempt } from "./dispatch-acknowledge.ts";
 import { adoptAttempt } from "./dispatch-adopt.ts";
 import type { Overrides } from "./dispatch-context.ts";
@@ -652,6 +653,15 @@ export const CrewState = {
   /** Records that a runner stopped before an outcome. The run proves nothing. */
   async stopGateRun(request: Located & { runId: string; detail: string }) {
     return { repeated: false, result: await stopGateRun(request) };
+  },
+
+  /**
+   * Checks the attempt a command names against the attempt its worktree reference carries.
+   * A null names no attempt, so it passes. It reads no state: the reference is the only fact.
+   */
+  checkReference(request: { attemptId: string | null; referencedAttemptId: string }) {
+    const decision = Attempt.readReference(request);
+    return "refused" in decision ? decision.refused : { status: "same-attempt" as const };
   },
 
   /** Records the Operative's own acknowledgement, which is the proof that the brief arrived. */

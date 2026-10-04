@@ -3,7 +3,7 @@ import { ContentIdentity } from "../content-identity/main.ts";
 import { SkillInstall } from "../skill-install/main.ts";
 import { ReleaseInstall } from "../release-install/main.ts";
 import { type AnswerDelivery, answerDocument } from "./answer.ts";
-import { type PrepareOutcome, prepareInputs } from "./inputs.ts";
+import { prepareInputs } from "./inputs.ts";
 import { inspectCheckout, inspectWork, type WorkInspection } from "./inspect.ts";
 import { type PlanningInput, planningRecordsSection } from "./planning-brief.ts";
 import { readReference } from "./reference.ts";
@@ -19,27 +19,150 @@ import {
   type Snapshot,
 } from "./plan.ts";
 
-type LaunchOutcome<Value> =
-  | { status: "succeeded"; value: Value }
+type SnapshotDrift = { input: string; recorded: string; current: string };
+
+/** The recorded kinds of outside effect this module performs. */
+type StageKind = "worktree_create" | "input_preparation" | "agent_start" | "prompt_delivery";
+const ANSWER_DELIVERY = "answer_delivery";
+
+type PerformRequest =
+  | {
+      kind: StageKind;
+      projectRoot: string;
+      plan: DispatchPlan;
+      snapshot: Snapshot;
+      /** The Herdr workspace the recorded checkout holds, or null before one is recorded. */
+      workspaceId: string | null;
+    }
+  | { kind: typeof ANSWER_DELIVERY; agentName: string; answer: AnswerDelivery; snapshot: Snapshot };
+
+type StageRequest = Extract<PerformRequest, { kind: StageKind }>;
+
+/** The outcome event of one performed effect. A failure detail starts with its code. */
+type Performed =
+  | { status: "succeeded"; detail: string; workspaceId?: string; paneId?: string }
+  | { status: "failed"; detail: string }
+  | { status: "uncertain"; detail: string };
+
+type Unsettled =
   | { status: "failed"; code: string; detail: string }
   | { status: "uncertain"; detail: string };
 
-type SnapshotDrift = { input: string; recorded: string; current: string };
+/** Reads one Herdr answer that did not succeed. The one place a failure code joins its detail. */
+function unsettledOf(outcome: Unsettled): Performed {
+  return outcome.status === "failed"
+    ? { status: "failed", detail: `${outcome.code}: ${outcome.detail}` }
+    : { status: "uncertain", detail: outcome.detail };
+}
+
+/** Reads one Herdr answer as an outcome event. */
+function outcomeOf<Value>(
+  outcome: { status: "succeeded"; value: Value } | Unsettled,
+  succeeded: (value: Value) => Performed,
+): Performed {
+  return outcome.status === "succeeded" ? succeeded(outcome.value) : unsettledOf(outcome);
+}
 
 function describe(value: string | null): string {
   return value ?? "none";
 }
 
-/** Submits one prompt. Success means Herdr accepted the submission, not a turn. */
-async function submit(target: string, text: string): Promise<LaunchOutcome<{ status: string }>> {
-  const submitted = await HerdrControl.submitPrompt({ target, text });
-  if (submitted.status !== "succeeded") {
-    return submitted.status === "failed"
-      ? { status: "failed", code: submitted.code, detail: submitted.detail }
-      : submitted;
+async function createWorktree({ projectRoot, plan }: StageRequest): Promise<Performed> {
+  const input: Parameters<typeof HerdrControl.createWorktree>[0] = {
+    repoRoot: projectRoot,
+    path: plan.worktreePath,
+    branch: plan.branch,
+    baseCommit: plan.baseCommit,
+    label: plan.workspaceLabel,
+    tabLabel: plan.tabLabel,
+  };
+  if (plan.parentWorkspaceId !== undefined) {
+    input.parentWorkspaceId = plan.parentWorkspaceId;
+  }
+  return outcomeOf(await HerdrControl.createWorktree(input), (created) => ({
+    status: "succeeded",
+    detail: `Created ${created.worktree.path}.`,
+    workspaceId: created.workspaceId,
+  }));
+}
+
+/** Copies and verifies the fixed inputs one Operative worktree needs, and no credential. */
+async function prepare({ projectRoot, plan, snapshot }: StageRequest): Promise<Performed> {
+  const prepared = await prepareInputs({ projectRoot, plan, snapshot });
+  return prepared.status === "prepared"
+    ? { status: "succeeded", detail: `Copied and verified ${prepared.inputs.length} input(s).` }
+    : { status: "failed", detail: `${prepared.reason}: ${prepared.detail}` };
+}
+
+/** Starts the selected agent host in the checkout's own pane, read fresh from its workspace. */
+async function startAgent({ plan, workspaceId }: StageRequest): Promise<Performed> {
+  if (workspaceId === null) {
+    return { status: "failed", detail: "The recorded checkout names no Herdr workspace." };
+  }
+  const pane = await HerdrControl.findRootPane({ workspaceId });
+  if (pane.status === "absent") {
+    return {
+      status: "failed",
+      detail: `workspace_not_found: Herdr holds no workspace ${workspaceId} to launch in.`,
+    };
+  }
+  if (pane.status === "unknown") {
+    return { status: "uncertain", detail: pane.detail };
   }
 
-  return { status: "succeeded", value: { status: submitted.value.status } };
+  const started = await HerdrControl.startAgent({
+    name: plan.agentName,
+    kind: plan.agentKind,
+    paneId: pane.value.paneId,
+    model: plan.agentModel,
+    reasoningEffort: plan.agentReasoningEffort,
+    allowedTools: plan.allowedTools,
+  });
+  if (started.status !== "succeeded") {
+    return unsettledOf(started);
+  }
+
+  const { paneId, status } = started.value;
+  const labeled = await HerdrControl.labelAgent({
+    paneId,
+    agentName: plan.agentName,
+    label: plan.agentLabel,
+  });
+  const warning =
+    labeled.status === "succeeded"
+      ? ""
+      : labeled.status === "failed"
+        ? ` Display label failed: ${labeled.code}: ${labeled.detail}.`
+        : ` Display label unconfirmed: ${labeled.detail}.`;
+  return {
+    status: "succeeded",
+    detail: `Started ${plan.agentName} (${status}) in pane ${paneId}.${warning}`,
+    paneId,
+  };
+}
+
+/** Submits one prompt. Success means Herdr accepted the submission, not a turn. */
+async function submit(target: string, text: string, subject: string): Promise<Performed> {
+  return outcomeOf(await HerdrControl.submitPrompt({ target, text }), () => ({
+    status: "succeeded",
+    detail: `Submitted the ${subject} to ${target}.`,
+  }));
+}
+
+/** The outside effect of each launch stage. Crew state decides which stage runs, in order. */
+const STAGE_EFFECTS: Record<StageKind, (request: StageRequest) => Promise<Performed>> = {
+  worktree_create: createWorktree,
+  input_preparation: prepare,
+  agent_start: startAgent,
+  prompt_delivery: ({ plan }) => submit(plan.agentName, plan.promptText, "brief"),
+};
+
+/** Carries one recorded answer to the Operative that asked for it. */
+function performAnswerDelivery(
+  request: Extract<PerformRequest, { kind: typeof ANSWER_DELIVERY }>,
+): Promise<Performed> {
+  const invocation = ReleaseInstall.invocation(request.snapshot.installation ?? {});
+  return submit(request.agentName, answerDocument(request.answer, invocation), "answer");
 }
 
 export const OperativeDispatch = {
@@ -199,102 +322,15 @@ export const OperativeDispatch = {
       }));
   },
 
-  /** Copies and verifies the fixed inputs one Operative worktree needs, and no credential. */
-  async prepare(request: {
-    projectRoot: string;
-    plan: DispatchPlan;
-    snapshot: Snapshot;
-  }): Promise<PrepareOutcome> {
-    return prepareInputs(request);
-  },
-
-  /** Creates the isolated Herdr worktree and reports the pane a launch can use. */
-  async createWorktree(request: {
-    projectRoot: string;
-    plan: DispatchPlan;
-  }): Promise<LaunchOutcome<{ workspaceId: string; worktreePath: string }>> {
-    const input: Parameters<typeof HerdrControl.createWorktree>[0] = {
-      repoRoot: request.projectRoot,
-      path: request.plan.worktreePath,
-      branch: request.plan.branch,
-      baseCommit: request.plan.baseCommit,
-      label: request.plan.workspaceLabel,
-      tabLabel: request.plan.tabLabel,
-    };
-    if (request.plan.parentWorkspaceId !== undefined) {
-      input.parentWorkspaceId = request.plan.parentWorkspaceId;
-    }
-    const created = await HerdrControl.createWorktree(input);
-    if (created.status === "failed") {
-      return { status: "failed", code: created.code, detail: created.detail };
-    }
-    if (created.status === "uncertain") {
-      return created;
-    }
-
-    return {
-      status: "succeeded",
-      value: {
-        workspaceId: created.value.workspaceId,
-        worktreePath: created.value.worktree.path,
-      },
-    };
-  },
-
-  /** Starts the selected agent host in the checkout's own pane, read fresh from its workspace. */
-  async launch(request: {
-    plan: DispatchPlan;
-    workspaceId: string;
-  }): Promise<LaunchOutcome<{ paneId: string; status: string; labelWarning: string | null }>> {
-    const pane = await HerdrControl.findRootPane({ workspaceId: request.workspaceId });
-    if (pane.status === "absent") {
-      return {
-        status: "failed",
-        code: "workspace_not_found",
-        detail: `Herdr holds no workspace ${request.workspaceId} to launch in.`,
-      };
-    }
-    if (pane.status === "unknown") {
-      return { status: "uncertain", detail: pane.detail };
-    }
-
-    const started = await HerdrControl.startAgent({
-      name: request.plan.agentName,
-      kind: request.plan.agentKind,
-      paneId: pane.value.paneId,
-      model: request.plan.agentModel,
-      reasoningEffort: request.plan.agentReasoningEffort,
-      allowedTools: request.plan.allowedTools,
-    });
-    if (started.status !== "succeeded") {
-      return started.status === "failed"
-        ? { status: "failed", code: started.code, detail: started.detail }
-        : started;
-    }
-
-    const labeled = await HerdrControl.labelAgent({
-      paneId: started.value.paneId,
-      agentName: request.plan.agentName,
-      label: request.plan.agentLabel,
-    });
-    return {
-      status: "succeeded",
-      value: {
-        paneId: started.value.paneId,
-        status: started.value.status,
-        labelWarning:
-          labeled.status === "succeeded"
-            ? null
-            : labeled.status === "failed"
-              ? `Display label failed: ${labeled.code}: ${labeled.detail}.`
-              : `Display label unconfirmed: ${labeled.detail}.`,
-      },
-    };
-  },
-
-  /** Delivers the brief pointer. Success means Herdr accepted the submission, not a turn. */
-  async deliver(request: { plan: DispatchPlan }): Promise<LaunchOutcome<{ status: string }>> {
-    return submit(request.plan.agentName, request.plan.promptText);
+  /**
+   * Performs one recorded outside effect of a launch or of an answer delivery, and gives the
+   * outcome the crew state settles it with. Success of a submission means Herdr accepted it,
+   * not a turn, so the Operative's own acknowledgement stays the only proof of arrival.
+   */
+  async perform(request: PerformRequest): Promise<Performed> {
+    return request.kind === ANSWER_DELIVERY
+      ? performAnswerDelivery(request)
+      : STAGE_EFFECTS[request.kind](request);
   },
 
   /**
@@ -319,25 +355,6 @@ export const OperativeDispatch = {
    */
   async scanOutside(request: { projectRoot: string; worktreePath: string }) {
     return scanOutside(request);
-  },
-
-  /**
-   * Carries one recorded answer to the Operative that asked for it.
-   * Success means Herdr accepted the submission, so the Operative's own acknowledgement stays
-   * the only proof that the answer arrived.
-   */
-  async deliverAnswer(request: {
-    agentName: string;
-    answer: AnswerDelivery;
-    snapshot: Snapshot;
-  }): Promise<LaunchOutcome<{ status: string }>> {
-    return submit(
-      request.agentName,
-      answerDocument(
-        request.answer,
-        ReleaseInstall.invocation(request.snapshot.installation ?? {}),
-      ),
-    );
   },
 
   /**

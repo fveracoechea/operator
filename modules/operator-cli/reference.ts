@@ -1,3 +1,4 @@
+import { CrewState } from "../crew-state/main.ts";
 import { OperativeDispatch } from "../operative-dispatch/main.ts";
 import type { ParsedArguments } from "./arguments.ts";
 import { type Operation, report } from "./result.ts";
@@ -35,7 +36,11 @@ export async function requireReference(request: {
     return { status: "reported" };
   }
 
-  if (request.expectedAttemptId !== null && reference.attemptId !== request.expectedAttemptId) {
+  const checked = CrewState.checkReference({
+    attemptId: request.expectedAttemptId,
+    referencedAttemptId: reference.attemptId,
+  });
+  if (checked.status === "attempt-reference-mismatch") {
     report({
       json: parsed.json,
       result: {
@@ -44,13 +49,13 @@ export async function requireReference(request: {
         blockers: [
           {
             reason: "attempt_reference_mismatch",
-            attemptId: request.expectedAttemptId,
-            recordedAttemptId: reference.attemptId,
+            attemptId: checked.attemptId,
+            recordedAttemptId: checked.recordedAttemptId,
           },
         ],
         operation,
       },
-      lines: [`This worktree belongs to attempt ${reference.attemptId}.`],
+      lines: [`This worktree belongs to attempt ${checked.recordedAttemptId}.`],
     });
     return { status: "reported" };
   }
