@@ -19,12 +19,14 @@ import {
   submissionBody,
   submit,
   type Workspace,
+  writeInput,
 } from "./review-cycle-fixture.ts";
 import {
   headCommit,
   herdrCalls,
   requestId as request,
   runJson,
+  runOperator,
   stopFakeAgents,
   workspaces,
 } from "./workspace-fixture.ts";
@@ -901,6 +903,33 @@ describe("the recorded rounds of a rework brief", () => {
 
     expect(refused.exitCode).toBe(2);
     expect(refused.json.reason).toBe("invalid_rework_input");
+
+    // A person reads one line for each reason the request failed its schema.
+    const issues: string[] = refused.json.blockers.map((one: { issue: string }) => one.issue);
+    const read = await runOperator(workspace, [
+      "work",
+      "rework",
+      "--request",
+      request(),
+      "--owner-token",
+      producer.ownerToken,
+      "--assignment",
+      producer.assignmentId,
+      "--revision",
+      String(submitted.json.data.revision),
+      "--input",
+      await writeInput(workspace, {
+        reason: "findings",
+        reviewId: submitted.json.data.reviewId,
+        instruction: "State the gate the result passed.",
+        conflicts: [],
+      }),
+    ]);
+    expect(issues.length).toBeGreaterThan(0);
+    expect(read.exitCode).toBe(2);
+    expect(read.stdout).toBe(
+      ["The request is not valid:", ...issues.map((one) => `  ${one}`), ""].join("\n"),
+    );
   });
 
   test("gives a replacement attempt of the cycle the same brief text", async () => {

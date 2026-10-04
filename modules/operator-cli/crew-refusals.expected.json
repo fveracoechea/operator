@@ -1,0 +1,2324 @@
+{
+  "accept 0 state-missing": {
+    "lines": ["This project holds no crew state. Run `operator crew own` to start a crew."],
+    "exitCode": 3
+  },
+  "accept 0 state-missing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"state_missing\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 3
+  },
+  "accept 1 unowned": {
+    "lines": ["No Operator owns this crew. Run `operator crew own` first."],
+    "exitCode": 3
+  },
+  "accept 1 unowned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"crew_unowned\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 3
+  },
+  "accept 2 ownership-stale": {
+    "lines": [
+      "Another Operator took ownership of this crew. This token can no longer change state."
+    ],
+    "exitCode": 4
+  },
+  "accept 2 ownership-stale --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"ownership_stale\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 4
+  },
+  "accept 3 request-input-changed": {
+    "lines": [
+      "This request identity already recorded different input. Use a new request identity."
+    ],
+    "exitCode": 2
+  },
+  "accept 3 request-input-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"request_input_changed\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 2
+  },
+  "accept 4 unknown-assignment": {
+    "lines": ["No assignment is registered as a1."],
+    "exitCode": 2
+  },
+  "accept 4 unknown-assignment --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_assignment\",\"blockers\":[{\"reason\":\"unknown_assignment\",\"assignmentId\":\"a1\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 2
+  },
+  "accept 5 stale-revision": {
+    "lines": [
+      "Assignment a1 is at revision 3.",
+      "Read it again, then state the revision you inspected."
+    ],
+    "exitCode": 4
+  },
+  "accept 5 stale-revision --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"stale_revision\",\"blockers\":[{\"reason\":\"stale_revision\",\"assignmentId\":\"a1\",\"recordedRevision\":3}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 4
+  },
+  "accept 6 not-claimed": {
+    "lines": ["Assignment a1 is st, so nothing can be accepted."],
+    "exitCode": 4
+  },
+  "accept 6 not-claimed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"assignment_not_claimed\",\"blockers\":[{\"reason\":\"assignment_not_claimed\",\"assignmentId\":\"a1\",\"state\":\"st\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 4
+  },
+  "accept 7 attempt-required": {
+    "lines": ["Assignment a1 is executable, so acceptance names the attempt that holds it."],
+    "exitCode": 2
+  },
+  "accept 7 attempt-required --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"attempt_required\",\"blockers\":[{\"reason\":\"attempt_required\",\"assignmentId\":\"a1\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 2
+  },
+  "accept 8 attempt-not-expected": {
+    "lines": ["Assignment a1 is planning work, so acceptance names no attempt."],
+    "exitCode": 2
+  },
+  "accept 8 attempt-not-expected --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"attempt_not_expected\",\"blockers\":[{\"reason\":\"attempt_not_expected\",\"assignmentId\":\"a1\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 2
+  },
+  "accept 9 attempt-mismatch": {
+    "lines": ["Assignment a1 is held by attempt t1."],
+    "exitCode": 4
+  },
+  "accept 9 attempt-mismatch --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"attempt_mismatch\",\"blockers\":[{\"reason\":\"attempt_mismatch\",\"assignmentId\":\"a1\",\"attemptId\":\"t1\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 4
+  },
+  "accept 10 question-open": {
+    "lines": [
+      "Assignment a1 still waits on question q1.",
+      "Deliver the answer and let the Operative acknowledge it before you accept the result."
+    ],
+    "exitCode": 3
+  },
+  "accept 10 question-open --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"question_open\",\"blockers\":[{\"reason\":\"question_open\",\"assignmentId\":\"a1\",\"questionId\":\"q1\",\"state\":\"st\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 3
+  },
+  "accept 11 submission-required": {
+    "lines": [
+      "Assignment a1 has no submitted result to accept.",
+      "Acceptance names the exact submission it read."
+    ],
+    "exitCode": 3
+  },
+  "accept 11 submission-required --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"submission_required\",\"blockers\":[{\"reason\":\"submission_required\",\"assignmentId\":\"a1\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 3
+  },
+  "accept 12 submission-mismatch": {
+    "lines": [
+      "Assignment a1 holds submission sb0.",
+      "Acceptance names the exact submission it read."
+    ],
+    "exitCode": 4
+  },
+  "accept 12 submission-mismatch --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"submission_mismatch\",\"blockers\":[{\"reason\":\"submission_mismatch\",\"assignmentId\":\"a1\",\"recordedSubmissionId\":\"sb0\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 4
+  },
+  "accept 13 invalid-input": {
+    "lines": ["The request is not valid:", "  i1", "  i2"],
+    "exitCode": 2
+  },
+  "accept 13 invalid-input --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"invalid_planning_record\",\"blockers\":[{\"reason\":\"invalid_planning_record\",\"issue\":\"i1\"},{\"reason\":\"invalid_planning_record\",\"issue\":\"i2\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 2
+  },
+  "accept 14 artifact-unreadable": {
+    "lines": [
+      "Artifact art cannot be read at p/x.",
+      "A planning record holds fixed texts, so nothing was accepted."
+    ],
+    "exitCode": 3
+  },
+  "accept 14 artifact-unreadable --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"artifact_unreadable\",\"blockers\":[{\"reason\":\"artifact_unreadable\",\"name\":\"art\",\"path\":\"p/x\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 3
+  },
+  "accept 15 artifact-identity-changed": {
+    "lines": [
+      "Artifact art at p/x does not match the identity you stated.",
+      "A planning record holds fixed texts, so nothing was accepted."
+    ],
+    "exitCode": 4
+  },
+  "accept 15 artifact-identity-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"artifact_identity_changed\",\"blockers\":[{\"reason\":\"artifact_identity_changed\",\"name\":\"art\",\"path\":\"p/x\",\"found\":\"fnd\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 4
+  },
+  "accept 16 dependency-pending": {
+    "lines": [
+      "Assignment a1 waits on work that is not accepted:",
+      "  a2 (ready)",
+      "A decision is taken only on accepted inputs."
+    ],
+    "exitCode": 3
+  },
+  "accept 16 dependency-pending --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"dependency_pending\",\"blockers\":[{\"reason\":\"dependency_pending\",\"assignmentId\":\"a1\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}]}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 3
+  },
+  "accept 17 planning-record-required": {
+    "lines": [
+      "Assignment a1 is planning work, so its acceptance records a planning record.",
+      "Name the record with --input. Its dependents receive it."
+    ],
+    "exitCode": 3
+  },
+  "accept 17 planning-record-required --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"planning_record_required\",\"blockers\":[{\"reason\":\"planning_record_required\",\"assignmentId\":\"a1\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 3
+  },
+  "accept 18 planning-record-not-expected": {
+    "lines": ["Assignment a1 is not planning work, so it records no decision."],
+    "exitCode": 2
+  },
+  "accept 18 planning-record-not-expected --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"planning_record_not_expected\",\"blockers\":[{\"reason\":\"planning_record_not_expected\",\"assignmentId\":\"a1\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 2
+  },
+  "accept 19 operator-decision-not-allowed": {
+    "lines": [
+      "Entry 2: this planning work is the user's side of a decision, so no entry is an Operator decision.",
+      "Record the user's answer as a human answer, or quote an approved source as a requirement."
+    ],
+    "exitCode": 3
+  },
+  "accept 19 operator-decision-not-allowed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"operator_decision_not_allowed\",\"blockers\":[{\"reason\":\"operator_decision_not_allowed\",\"assignmentId\":\"a1\",\"entry\":2,\"planningType\":null}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 3
+  },
+  "accept 20 escalation-required": {
+    "lines": [
+      "Entry 2 names subjects a operator cannot settle:",
+      "  x",
+      "  y",
+      "Bring it to the user and record their answer as a human answer."
+    ],
+    "exitCode": 3
+  },
+  "accept 20 escalation-required --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"escalation_required\",\"blockers\":[{\"reason\":\"escalation_required\",\"assignmentId\":\"a1\",\"entry\":2,\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"]}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 3
+  },
+  "accept 21 review-incomplete": {
+    "lines": [
+      "The review of a1 is st, so nothing is accepted.",
+      "A stopped process, a missing input, or an unavailable review capability is not a pass."
+    ],
+    "exitCode": 3
+  },
+  "accept 21 review-incomplete --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"review_incomplete\",\"blockers\":[{\"reason\":\"review_incomplete\",\"assignmentId\":\"a1\",\"reviewId\":\"rv1\",\"state\":\"st\",\"blocker\":\"blk\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 3
+  },
+  "accept 22 review-axes-incomplete": {
+    "lines": ["Review rv1 is missing the standards, spec axis."],
+    "exitCode": 3
+  },
+  "accept 22 review-axes-incomplete --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"review_axes_incomplete\",\"blockers\":[{\"reason\":\"review_axes_incomplete\",\"axis\":\"standards\",\"reviewId\":\"rv1\"},{\"reason\":\"review_axes_incomplete\",\"axis\":\"spec\",\"reviewId\":\"rv1\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 3
+  },
+  "accept 23 findings-undisposed": {
+    "lines": ["2 finding(s) of review rv1 carry no disposition."],
+    "exitCode": 3
+  },
+  "accept 23 findings-undisposed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"findings_undisposed\",\"blockers\":[{\"reason\":\"findings_undisposed\",\"findingId\":\"f1\",\"reviewId\":\"rv1\"},{\"reason\":\"findings_undisposed\",\"findingId\":\"f2\",\"reviewId\":\"rv1\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 3
+  },
+  "accept 24 rework-pending": {
+    "lines": ["2 accepted correction(s) wait for a fresh Operative."],
+    "exitCode": 6
+  },
+  "accept 24 rework-pending --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"pending\",\"reason\":\"rework_pending\",\"blockers\":[{\"reason\":\"rework_pending\",\"findingId\":\"f1\",\"reviewId\":\"rv1\"},{\"reason\":\"rework_pending\",\"findingId\":\"f2\",\"reviewId\":\"rv1\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 6
+  },
+  "accept 25 outside-changes-undisposed": {
+    "lines": [
+      "2 outside change(s) of submission sb1 carry no disposition.",
+      "1 of them touch a security permission, so the user decides them.",
+      "Read them with `operator review show`, then record each one with `operator work dispose`."
+    ],
+    "exitCode": 3
+  },
+  "accept 25 outside-changes-undisposed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"outside_changes_undisposed\",\"blockers\":[{\"reason\":\"outside_changes_undisposed\",\"submissionId\":\"sb1\",\"count\":2,\"security\":1}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 3
+  },
+  "accept 26 checks-unproven": {
+    "lines": [
+      "These required checks did not pass:",
+      "  n: failed",
+      "A passing rerun does not erase a failure, and a flaky check proves nothing."
+    ],
+    "exitCode": 3
+  },
+  "accept 26 checks-unproven --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"checks_unproven\",\"blockers\":[{\"reason\":\"checks_unproven\",\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 3
+  },
+  "accept 27 checks-contradicted": {
+    "lines": [
+      "The review ran these checks itself and saw a different outcome:",
+      "  n: the producer recorded passed, the spec axis saw failed",
+      "What a reviewer ran outranks what the producer wrote about its own work."
+    ],
+    "exitCode": 4
+  },
+  "accept 27 checks-contradicted --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"checks_contradicted\",\"blockers\":[{\"reason\":\"checks_contradicted\",\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"operation\":\"work_accept\",\"data\":{\"reviewId\":\"rv1\"}}"
+    ],
+    "exitCode": 4
+  },
+  "accept 28 direction-required": {
+    "lines": [
+      "Assignment a1 reached a limit and waits on the user:",
+      "  d1 cycles at 3 (revision 4)",
+      "The recorded evidence is preserved. Acceptance stays blocked until the user directs it."
+    ],
+    "exitCode": 3
+  },
+  "accept 28 direction-required --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"direction_required\",\"blockers\":[{\"reason\":\"direction_required\",\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limit\":3,\"revision\":4}],\"operation\":\"work_accept\",\"data\":{\"assignmentId\":\"a1\",\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}]}}"
+    ],
+    "exitCode": 3
+  },
+  "accept 29 input-invalidated": {
+    "lines": [
+      "Assignment a1 read a result that was found defective:",
+      "  a3",
+      "It moves again when the corrected result is accepted."
+    ],
+    "exitCode": 3
+  },
+  "accept 29 input-invalidated --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"input_invalidated\",\"blockers\":[{\"reason\":\"input_invalidated\",\"assignmentId\":\"a3\"}],\"operation\":\"work_accept\",\"data\":{\"assignmentId\":\"a1\"}}"
+    ],
+    "exitCode": 3
+  },
+  "accept 30 source-unreadable": {
+    "lines": ["Entry 2: The requirement source p/x cannot be read."],
+    "exitCode": 2
+  },
+  "accept 30 source-unreadable --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"source_unreadable\",\"blockers\":[{\"reason\":\"source_unreadable\",\"path\":\"p/x\",\"entry\":2}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 2
+  },
+  "accept 31 source-not-text": {
+    "lines": ["Entry 2: The requirement source p/x is not UTF-8 text, so no quote can match it."],
+    "exitCode": 2
+  },
+  "accept 31 source-not-text --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"source_not_text\",\"blockers\":[{\"reason\":\"source_not_text\",\"path\":\"p/x\",\"entry\":2}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 2
+  },
+  "accept 32 quote-not-in-source": {
+    "lines": [
+      "Entry 2: The exact words do not appear in s1 at revision r9.",
+      "The checked copy is stored/p.",
+      "Quote the exact bytes of the source. Do not wrap the lines again or shorten the words."
+    ],
+    "exitCode": 2
+  },
+  "accept 32 quote-not-in-source --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"quote_not_in_source\",\"blockers\":[{\"reason\":\"quote_not_in_source\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"entry\":2}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 2
+  },
+  "accept 33 source-assignment-unknown": {
+    "lines": ["Entry 2: no assignment is registered as a1, so it holds no approved scope."],
+    "exitCode": 2
+  },
+  "accept 33 source-assignment-unknown --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_assignment\",\"blockers\":[{\"reason\":\"unknown_assignment\",\"assignmentId\":\"a1\",\"entry\":2}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 2
+  },
+  "accept 34 source-unknown": {
+    "lines": ["Entry 2: No work source is registered as src1, so it holds no revision to quote."],
+    "exitCode": 2
+  },
+  "accept 34 source-unknown --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_source\",\"blockers\":[{\"reason\":\"unknown_source\",\"sourceId\":\"src1\",\"entry\":2}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 2
+  },
+  "accept 35 source-revision-changed": {
+    "lines": [
+      "Entry 2: The work source src1 is recorded at revision r1, not r2.",
+      "Quote the recorded revision."
+    ],
+    "exitCode": 4
+  },
+  "accept 35 source-revision-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"source_revision_changed\",\"blockers\":[{\"reason\":\"source_revision_changed\",\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 4
+  },
+  "accept 36 attempt-mismatch": {
+    "lines": ["Assignment a1 has no active attempt."],
+    "exitCode": 4
+  },
+  "accept 36 attempt-mismatch --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"attempt_mismatch\",\"blockers\":[{\"reason\":\"attempt_mismatch\",\"assignmentId\":\"a1\",\"attemptId\":null}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 4
+  },
+  "accept 37 outside-changes-undisposed": {
+    "lines": [
+      "2 outside change(s) of submission sb1 carry no disposition.",
+      "Read them with `operator review show`, then record each one with `operator work dispose`."
+    ],
+    "exitCode": 3
+  },
+  "accept 37 outside-changes-undisposed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"outside_changes_undisposed\",\"blockers\":[{\"reason\":\"outside_changes_undisposed\",\"submissionId\":\"sb1\",\"count\":2,\"security\":0}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 3
+  },
+  "accept 38 operator-decision-not-allowed": {
+    "lines": [
+      "Entry 2: grill is the user's side of a decision, so no entry is an Operator decision.",
+      "Record the user's answer as a human answer, or quote an approved source as a requirement."
+    ],
+    "exitCode": 3
+  },
+  "accept 38 operator-decision-not-allowed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"operator_decision_not_allowed\",\"blockers\":[{\"reason\":\"operator_decision_not_allowed\",\"assignmentId\":\"a1\",\"entry\":2,\"planningType\":\"grill\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 3
+  },
+  "accept 39 quote-not-in-source": {
+    "lines": [
+      "Entry 2: The exact words do not appear in s at revision r.",
+      "Quote the exact bytes of the source. Do not wrap the lines again or shorten the words."
+    ],
+    "exitCode": 2
+  },
+  "accept 39 quote-not-in-source --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"quote_not_in_source\",\"blockers\":[{\"reason\":\"quote_not_in_source\",\"source\":{\"id\":\"s\",\"revision\":\"r\",\"storedPath\":null},\"entry\":2}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 2
+  },
+  "accept 40 source-unreadable": {
+    "lines": ["The requirement source p/x cannot be read."],
+    "exitCode": 2
+  },
+  "accept 40 source-unreadable --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"source_unreadable\",\"blockers\":[{\"reason\":\"source_unreadable\",\"path\":\"p/x\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 2
+  },
+  "accept 41 source-not-text": {
+    "lines": ["The requirement source p/x is not UTF-8 text, so no quote can match it."],
+    "exitCode": 2
+  },
+  "accept 41 source-not-text --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"source_not_text\",\"blockers\":[{\"reason\":\"source_not_text\",\"path\":\"p/x\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 2
+  },
+  "accept 42 quote-not-in-source": {
+    "lines": [
+      "The exact words do not appear in s1 at revision r9.",
+      "The checked copy is stored/p.",
+      "Quote the exact bytes of the source. Do not wrap the lines again or shorten the words."
+    ],
+    "exitCode": 2
+  },
+  "accept 42 quote-not-in-source --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"quote_not_in_source\",\"blockers\":[{\"reason\":\"quote_not_in_source\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"}}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 2
+  },
+  "accept 43 source-assignment-unknown": {
+    "lines": ["Entry undefined: no assignment is registered as a1, so it holds no approved scope."],
+    "exitCode": 2
+  },
+  "accept 43 source-assignment-unknown --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_assignment\",\"blockers\":[{\"reason\":\"unknown_assignment\",\"assignmentId\":\"a1\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 2
+  },
+  "accept 44 source-unknown": {
+    "lines": ["No work source is registered as src1, so it holds no revision to quote."],
+    "exitCode": 2
+  },
+  "accept 44 source-unknown --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_source\",\"blockers\":[{\"reason\":\"unknown_source\",\"sourceId\":\"src1\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 2
+  },
+  "accept 45 source-revision-changed": {
+    "lines": [
+      "The work source src1 is recorded at revision r1, not r2.",
+      "Quote the recorded revision."
+    ],
+    "exitCode": 4
+  },
+  "accept 45 source-revision-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"source_revision_changed\",\"blockers\":[{\"reason\":\"source_revision_changed\",\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 4
+  },
+  "accept 46 landing-refused": {
+    "lines": [
+      "Source s1 records no integration branch, so its code result has nowhere to land.",
+      "Nothing was accepted."
+    ],
+    "exitCode": 3
+  },
+  "accept 46 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"integration_branch_missing\",\"blockers\":[{\"reason\":\"integration_branch_missing\",\"assignmentId\":\"a1\",\"sourceId\":\"s1\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 3
+  },
+  "accept 47 landing-refused": {
+    "lines": [
+      "The branch b holds no commit, and the recorded tip is t.",
+      "Operator never resets or adopts a moved branch. The person puts it back at the recorded tip, then accept again.",
+      "Nothing was accepted."
+    ],
+    "exitCode": 4
+  },
+  "accept 47 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"integration_branch_moved\",\"blockers\":[{\"reason\":\"integration_branch_moved\",\"assignmentId\":\"a1\",\"branch\":\"b\",\"recordedTip\":\"t\",\"found\":null,\"checkedOut\":[]}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 4
+  },
+  "accept 48 landing-refused": {
+    "lines": [
+      "The branch b holds f, and the recorded tip is t.",
+      "It is checked out in w1, w2.",
+      "Operator never resets or adopts a moved branch. The person puts it back at the recorded tip, then accept again.",
+      "Nothing was accepted."
+    ],
+    "exitCode": 4
+  },
+  "accept 48 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"integration_branch_moved\",\"blockers\":[{\"reason\":\"integration_branch_moved\",\"assignmentId\":\"a1\",\"branch\":\"b\",\"recordedTip\":\"t\",\"found\":\"f\",\"checkedOut\":[\"w1\",\"w2\"]}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 4
+  },
+  "accept 49 landing-refused": {
+    "lines": [
+      "The branch b is checked out in w1, so it is not moved under that worktree.",
+      "The person switches that worktree off the branch, then accept again.",
+      "Nothing was accepted."
+    ],
+    "exitCode": 4
+  },
+  "accept 49 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"integration_branch_checked_out\",\"blockers\":[{\"reason\":\"integration_branch_checked_out\",\"assignmentId\":\"a1\",\"branch\":\"b\",\"worktrees\":[\"w1\"]}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 4
+  },
+  "accept 50 landing-refused": {
+    "lines": ["Git cannot read the branch b: d", "Nothing was accepted."],
+    "exitCode": 5
+  },
+  "accept 50 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"uncertain\",\"reason\":\"integration_branch_unread\",\"blockers\":[{\"reason\":\"integration_branch_unread\",\"assignmentId\":\"a1\",\"branch\":\"b\",\"detail\":\"d\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 5
+  },
+  "accept 51 landing-refused": {
+    "lines": [
+      "Commit c conflicts with the tip t of b in x, y.",
+      "Delegate an integration cycle with `operator work rework` and the reason `integration`.",
+      "Nothing was accepted."
+    ],
+    "exitCode": 4
+  },
+  "accept 51 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"landing_conflict\",\"blockers\":[{\"reason\":\"landing_conflict\",\"assignmentId\":\"a1\",\"branch\":\"b\",\"tip\":\"t\",\"commit\":\"c\",\"paths\":[\"x\",\"y\"]}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 4
+  },
+  "accept 52 landing-refused": {
+    "lines": [
+      "Commit c would land on t of b as another patch, so it is not the reviewed result.",
+      "Delegate an integration cycle with `operator work rework` and the reason `integration`.",
+      "Nothing was accepted."
+    ],
+    "exitCode": 4
+  },
+  "accept 52 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"landing_patch_changed\",\"blockers\":[{\"reason\":\"landing_patch_changed\",\"assignmentId\":\"a1\",\"branch\":\"b\",\"tip\":\"t\",\"commit\":\"c\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 4
+  },
+  "accept 53 landing-refused": {
+    "lines": [
+      "The planned commit c on tip t has not passed the project gate.",
+      "No gate run is recorded at its key. Run `operator gate run --assignment <id>` first.",
+      "Nothing was accepted."
+    ],
+    "exitCode": 6
+  },
+  "accept 53 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"pending\",\"reason\":\"gate_pending\",\"blockers\":[{\"reason\":\"gate_pending\",\"assignmentId\":\"a1\",\"gate\":\"gate_pending\",\"commit\":\"c\",\"tip\":\"t\",\"key\":{\"tree\":\"tr\"},\"runIds\":[\"g1\",\"g2\"]}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 6
+  },
+  "accept 54 landing-refused": {
+    "lines": [
+      "The planned commit c on tip t has not passed the project gate.",
+      "Gate run g1, g2 still runs at its key. Wait for its outcome.",
+      "Nothing was accepted."
+    ],
+    "exitCode": 6
+  },
+  "accept 54 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"pending\",\"reason\":\"gate_running\",\"blockers\":[{\"reason\":\"gate_running\",\"assignmentId\":\"a1\",\"gate\":\"gate_running\",\"commit\":\"c\",\"tip\":\"t\",\"key\":{\"tree\":\"tr\"},\"runIds\":[\"g1\",\"g2\"]}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 6
+  },
+  "accept 55 landing-refused": {
+    "lines": [
+      "The planned commit c on tip t has not passed the project gate.",
+      "The key is failed in gate run g1, g2. Read it with `operator gate show --run <id>`.",
+      "Delegate an integration cycle with `operator work rework` and the reason `integration`.",
+      "Nothing was accepted."
+    ],
+    "exitCode": 4
+  },
+  "accept 55 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"gate_failed\",\"blockers\":[{\"reason\":\"gate_failed\",\"assignmentId\":\"a1\",\"gate\":\"gate_failed\",\"commit\":\"c\",\"tip\":\"t\",\"key\":{\"tree\":\"tr\"},\"runIds\":[\"g1\",\"g2\"]}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 4
+  },
+  "accept 56 landing-refused": {
+    "lines": [
+      "The planned commit c on tip t has not passed the project gate.",
+      "The key is flaky in gate run g1, g2. Read it with `operator gate show --run <id>`.",
+      "Delegate an integration cycle with `operator work rework` and the reason `integration`.",
+      "Nothing was accepted."
+    ],
+    "exitCode": 4
+  },
+  "accept 56 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"gate_flaky\",\"blockers\":[{\"reason\":\"gate_flaky\",\"assignmentId\":\"a1\",\"gate\":\"gate_flaky\",\"commit\":\"c\",\"tip\":\"t\",\"key\":{\"tree\":\"tr\"},\"runIds\":[\"g1\",\"g2\"]}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 4
+  },
+  "accept 57 landing-refused": {
+    "lines": [
+      "Commit c of b is inside the range that pull request (number not recorded) published.",
+      "A published commit is never rewritten in place, and nothing pushes with force.",
+      "Nothing was accepted."
+    ],
+    "exitCode": 4
+  },
+  "accept 57 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"rewrite_published_range\",\"blockers\":[{\"reason\":\"rewrite_published_range\",\"assignmentId\":\"a1\",\"branch\":\"b\",\"commit\":\"c\",\"pullRequest\":null,\"url\":null}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 4
+  },
+  "accept 58 landing-refused": {
+    "lines": [
+      "Commit c of b is inside the range that pull request 7 published at u.",
+      "A published commit is never rewritten in place, and nothing pushes with force.",
+      "Nothing was accepted."
+    ],
+    "exitCode": 4
+  },
+  "accept 58 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"rewrite_published_range\",\"blockers\":[{\"reason\":\"rewrite_published_range\",\"assignmentId\":\"a1\",\"branch\":\"b\",\"commit\":\"c\",\"pullRequest\":7,\"url\":\"u\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 4
+  },
+  "accept 59 landing-refused": {
+    "lines": [
+      "A tracker step already ran for a result that this move of b takes back to awaiting review: resolution of a2 (applied).",
+      "Its ticket says the work is done while its commit would leave the branch. Bring it to the person. Operator writes no tracker step to undo another one.",
+      "Nothing was accepted."
+    ],
+    "exitCode": 4
+  },
+  "accept 59 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"rewrite_tracker_recorded\",\"blockers\":[{\"reason\":\"rewrite_tracker_recorded\",\"assignmentId\":\"a1\",\"branch\":\"b\",\"steps\":[{\"assignmentId\":\"a2\",\"step\":\"resolution\",\"state\":\"applied\"}]}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 4
+  },
+  "accept 60 landing-refused": {
+    "lines": [
+      "The integration branch of s1 still holds the withdrawn commit(s) c2.",
+      "Take them out first with `operator work take-out`, as `operator crew next` offers it.",
+      "Nothing was accepted."
+    ],
+    "exitCode": 6
+  },
+  "accept 60 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"pending\",\"reason\":\"take_out_pending\",\"blockers\":[{\"reason\":\"take_out_pending\",\"assignmentId\":\"a1\",\"sourceId\":\"s1\",\"commits\":[{\"assignmentId\":\"a2\",\"commit\":\"c2\"}]}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 6
+  },
+  "accept 61 landing-refused": {
+    "lines": [
+      "Landing l1 of assignment a2 has no recorded outcome. Settle it first with `operator work accept` on that assignment.",
+      "Nothing was accepted."
+    ],
+    "exitCode": 6
+  },
+  "accept 61 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"pending\",\"reason\":\"landing_pending\",\"blockers\":[{\"reason\":\"landing_pending\",\"assignmentId\":\"a1\",\"landingId\":\"l1\",\"pendingAssignmentId\":\"a2\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 6
+  },
+  "accept 62 landing-refused": {
+    "lines": [
+      "Rebase rb1 of this source has no recorded outcome. Settle it first with `operator work rebase` and plan revision pr.",
+      "Nothing was accepted."
+    ],
+    "exitCode": 6
+  },
+  "accept 62 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"pending\",\"reason\":\"rebase_pending\",\"blockers\":[{\"reason\":\"rebase_pending\",\"assignmentId\":\"a1\",\"rebaseId\":\"rb1\",\"planRevision\":\"pr\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 6
+  },
+  "accept 63 landing-refused": {
+    "lines": [
+      "The landing was planned on p, and the recorded tip is now none. Accept again to plan it on the new tip.",
+      "Nothing was accepted."
+    ],
+    "exitCode": 4
+  },
+  "accept 63 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"landing_tip_changed\",\"blockers\":[{\"reason\":\"landing_tip_changed\",\"assignmentId\":\"a1\",\"planned\":\"p\",\"recordedTip\":null}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 4
+  },
+  "accept 64 landing-refused": {
+    "lines": [
+      "The landing was planned on p, and the recorded tip is now rt. Accept again to plan it on the new tip.",
+      "Nothing was accepted."
+    ],
+    "exitCode": 4
+  },
+  "accept 64 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"landing_tip_changed\",\"blockers\":[{\"reason\":\"landing_tip_changed\",\"assignmentId\":\"a1\",\"planned\":\"p\",\"recordedTip\":\"rt\"}],\"operation\":\"work_accept\"}"
+    ],
+    "exitCode": 4
+  },
+  "rework 0 state-missing": {
+    "lines": ["This project holds no crew state. Run `operator crew own` to start a crew."],
+    "exitCode": 3
+  },
+  "rework 0 state-missing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"state_missing\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 3
+  },
+  "rework 1 unowned": {
+    "lines": ["No Operator owns this crew. Run `operator crew own` first."],
+    "exitCode": 3
+  },
+  "rework 1 unowned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"crew_unowned\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 3
+  },
+  "rework 2 ownership-stale": {
+    "lines": [
+      "Another Operator took ownership of this crew. This token can no longer change state."
+    ],
+    "exitCode": 4
+  },
+  "rework 2 ownership-stale --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"ownership_stale\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 4
+  },
+  "rework 3 request-input-changed": {
+    "lines": [
+      "This request identity already recorded different input. Use a new request identity."
+    ],
+    "exitCode": 2
+  },
+  "rework 3 request-input-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"request_input_changed\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 2
+  },
+  "rework 4 unknown-assignment": {
+    "lines": ["No assignment is registered as a1."],
+    "exitCode": 2
+  },
+  "rework 4 unknown-assignment --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_assignment\",\"blockers\":[{\"reason\":\"unknown_assignment\",\"assignmentId\":\"a1\"}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 2
+  },
+  "rework 5 stale-revision": {
+    "lines": [
+      "Assignment a1 is at revision 3.",
+      "Read it again, then state the revision you inspected."
+    ],
+    "exitCode": 4
+  },
+  "rework 5 stale-revision --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"stale_revision\",\"blockers\":[{\"reason\":\"stale_revision\",\"assignmentId\":\"a1\",\"recordedRevision\":3}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 4
+  },
+  "rework 6 invalid-input": {
+    "lines": ["The request is not valid:", "  i1", "  i2"],
+    "exitCode": 2
+  },
+  "rework 6 invalid-input --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"invalid_rework_input\",\"blockers\":[{\"reason\":\"invalid_rework_input\",\"issue\":\"i1\"},{\"reason\":\"invalid_rework_input\",\"issue\":\"i2\"}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 2
+  },
+  "rework 7 not-awaiting-review": {
+    "lines": [
+      "Assignment a1 is st, so it holds no result to rework.",
+      "One cycle answers one submitted result."
+    ],
+    "exitCode": 4
+  },
+  "rework 7 not-awaiting-review --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"assignment_not_awaiting_review\",\"blockers\":[{\"reason\":\"assignment_not_awaiting_review\",\"assignmentId\":\"a1\",\"state\":\"st\"}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 4
+  },
+  "rework 8 submission-required": {
+    "lines": ["Assignment a1 has no submitted result to rework."],
+    "exitCode": 3
+  },
+  "rework 8 submission-required --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"submission_required\",\"blockers\":[{\"reason\":\"submission_required\",\"assignmentId\":\"a1\"}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 3
+  },
+  "rework 9 cycle-open": {
+    "lines": [
+      "Cycle cy1 (integration) is still open on a1.",
+      "One combined revision answers every accepted correction at once."
+    ],
+    "exitCode": 4
+  },
+  "rework 9 cycle-open --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"rework_cycle_open\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"cycleId\":\"cy1\"}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 4
+  },
+  "rework 10 review-not-of-submission": {
+    "lines": [
+      "Review rv1 does not read submission sb1.",
+      "Rework answers the review of the result it is about to change."
+    ],
+    "exitCode": 4
+  },
+  "rework 10 review-not-of-submission --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"review_not_of_submission\",\"blockers\":[{\"reason\":\"review_not_of_submission\",\"reviewId\":\"rv1\",\"submissionId\":\"sb1\"}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 4
+  },
+  "rework 11 review-not-reported": {
+    "lines": ["Review rv1 is st, so it carries no findings yet."],
+    "exitCode": 3
+  },
+  "rework 11 review-not-reported --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"review_not_reported\",\"blockers\":[{\"reason\":\"review_not_reported\",\"reviewId\":\"rv1\",\"state\":\"st\"}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 3
+  },
+  "rework 12 findings-undisposed": {
+    "lines": [
+      "2 finding(s) of review rv1 carry no disposition.",
+      "Every finding is answered before any of them is delegated."
+    ],
+    "exitCode": 3
+  },
+  "rework 12 findings-undisposed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"findings_undisposed\",\"blockers\":[{\"reason\":\"findings_undisposed\",\"findingId\":\"f1\",\"reviewId\":\"rv1\"},{\"reason\":\"findings_undisposed\",\"findingId\":\"f2\",\"reviewId\":\"rv1\"}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 3
+  },
+  "rework 13 no-corrections": {
+    "lines": [
+      "Review rv1 holds no finding the Operator accepted for correction.",
+      "A rejected or deferred finding is already answered, so it delegates nothing."
+    ],
+    "exitCode": 2
+  },
+  "rework 13 no-corrections --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"no_corrections\",\"blockers\":[{\"reason\":\"no_corrections\",\"reviewId\":\"rv1\"}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 2
+  },
+  "rework 14 conflict-not-corrected": {
+    "lines": [
+      "A conflict names work this cycle carries, and these findings are not corrections:",
+      "  f1",
+      "  f2"
+    ],
+    "exitCode": 2
+  },
+  "rework 14 conflict-not-corrected --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"conflict_not_corrected\",\"blockers\":[{\"reason\":\"conflict_not_corrected\",\"findingId\":\"f1\",\"reviewId\":\"rv1\"},{\"reason\":\"conflict_not_corrected\",\"findingId\":\"f2\",\"reviewId\":\"rv1\"}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 2
+  },
+  "rework 15 unknown-check": {
+    "lines": ["The submission records no check named: n1, n2."],
+    "exitCode": 2
+  },
+  "rework 15 unknown-check --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_check\",\"blockers\":[{\"reason\":\"unknown_check\",\"name\":\"n1\"},{\"reason\":\"unknown_check\",\"name\":\"n2\"}],\"operation\":\"work_rework\",\"data\":{\"assignmentId\":\"a1\"}}"
+    ],
+    "exitCode": 2
+  },
+  "rework 16 checks-passed": {
+    "lines": ["These checks passed, so there is nothing to diagnose: n1, n2."],
+    "exitCode": 2
+  },
+  "rework 16 checks-passed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"checks_passed\",\"blockers\":[{\"reason\":\"checks_passed\",\"name\":\"n1\"},{\"reason\":\"checks_passed\",\"name\":\"n2\"}],\"operation\":\"work_rework\",\"data\":{\"assignmentId\":\"a1\"}}"
+    ],
+    "exitCode": 2
+  },
+  "rework 17 lands-cleanly": {
+    "lines": [
+      "The submitted result lands cleanly on tip1 of br as pl1, and no failed or flaky gate run is recorded at that commit.",
+      "It needs no integration cycle. Read `operator crew next` for the step it owes."
+    ],
+    "exitCode": 4
+  },
+  "rework 17 lands-cleanly --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"lands_cleanly\",\"blockers\":[{\"reason\":\"lands_cleanly\",\"assignmentId\":\"a1\",\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\"}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 4
+  },
+  "rework 18 no-landing": {
+    "lines": ["Submission sb1 holds no commit, so it lands nothing and has nothing to combine."],
+    "exitCode": 4
+  },
+  "rework 18 no-landing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"no_landing\",\"blockers\":[{\"reason\":\"no_landing\",\"assignmentId\":\"a1\",\"submissionId\":\"sb1\"}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 4
+  },
+  "rework 19 landing-refused": {
+    "lines": [
+      "Source s1 records no integration branch, so its code result has nowhere to land.",
+      "No cycle was delegated."
+    ],
+    "exitCode": 3
+  },
+  "rework 19 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"integration_branch_missing\",\"blockers\":[{\"reason\":\"integration_branch_missing\",\"assignmentId\":\"a1\",\"sourceId\":\"s1\"}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 3
+  },
+  "rework 20 landing-refused": {
+    "lines": [
+      "The branch b holds no commit, and the recorded tip is t.",
+      "Operator never resets or adopts a moved branch. The person puts it back at the recorded tip, then delegate the cycle again.",
+      "No cycle was delegated."
+    ],
+    "exitCode": 4
+  },
+  "rework 20 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"integration_branch_moved\",\"blockers\":[{\"reason\":\"integration_branch_moved\",\"assignmentId\":\"a1\",\"branch\":\"b\",\"recordedTip\":\"t\",\"found\":null,\"checkedOut\":[]}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 4
+  },
+  "rework 21 landing-refused": {
+    "lines": [
+      "The branch b holds f, and the recorded tip is t.",
+      "It is checked out in w1, w2.",
+      "Operator never resets or adopts a moved branch. The person puts it back at the recorded tip, then delegate the cycle again.",
+      "No cycle was delegated."
+    ],
+    "exitCode": 4
+  },
+  "rework 21 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"integration_branch_moved\",\"blockers\":[{\"reason\":\"integration_branch_moved\",\"assignmentId\":\"a1\",\"branch\":\"b\",\"recordedTip\":\"t\",\"found\":\"f\",\"checkedOut\":[\"w1\",\"w2\"]}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 4
+  },
+  "rework 22 landing-refused": {
+    "lines": [
+      "The branch b is checked out in w1, so it is not moved under that worktree.",
+      "The person switches that worktree off the branch, then delegate the cycle again.",
+      "No cycle was delegated."
+    ],
+    "exitCode": 4
+  },
+  "rework 22 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"integration_branch_checked_out\",\"blockers\":[{\"reason\":\"integration_branch_checked_out\",\"assignmentId\":\"a1\",\"branch\":\"b\",\"worktrees\":[\"w1\"]}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 4
+  },
+  "rework 23 landing-refused": {
+    "lines": ["Git cannot read the branch b: d", "No cycle was delegated."],
+    "exitCode": 5
+  },
+  "rework 23 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"uncertain\",\"reason\":\"integration_branch_unread\",\"blockers\":[{\"reason\":\"integration_branch_unread\",\"assignmentId\":\"a1\",\"branch\":\"b\",\"detail\":\"d\"}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 5
+  },
+  "rework 24 landing-refused": {
+    "lines": [
+      "Commit c conflicts with the tip t of b in x, y.",
+      "Delegate an integration cycle with `operator work rework` and the reason `integration`.",
+      "No cycle was delegated."
+    ],
+    "exitCode": 4
+  },
+  "rework 24 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"landing_conflict\",\"blockers\":[{\"reason\":\"landing_conflict\",\"assignmentId\":\"a1\",\"branch\":\"b\",\"tip\":\"t\",\"commit\":\"c\",\"paths\":[\"x\",\"y\"]}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 4
+  },
+  "rework 25 landing-refused": {
+    "lines": [
+      "Commit c would land on t of b as another patch, so it is not the reviewed result.",
+      "Delegate an integration cycle with `operator work rework` and the reason `integration`.",
+      "No cycle was delegated."
+    ],
+    "exitCode": 4
+  },
+  "rework 25 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"landing_patch_changed\",\"blockers\":[{\"reason\":\"landing_patch_changed\",\"assignmentId\":\"a1\",\"branch\":\"b\",\"tip\":\"t\",\"commit\":\"c\"}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 4
+  },
+  "rework 26 landing-refused": {
+    "lines": [
+      "The planned commit c on tip t has not passed the project gate.",
+      "No gate run is recorded at its key. Run `operator gate run --assignment <id>` first.",
+      "No cycle was delegated."
+    ],
+    "exitCode": 6
+  },
+  "rework 26 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"pending\",\"reason\":\"gate_pending\",\"blockers\":[{\"reason\":\"gate_pending\",\"assignmentId\":\"a1\",\"gate\":\"gate_pending\",\"commit\":\"c\",\"tip\":\"t\",\"key\":{\"tree\":\"tr\"},\"runIds\":[\"g1\",\"g2\"]}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 6
+  },
+  "rework 27 landing-refused": {
+    "lines": [
+      "The planned commit c on tip t has not passed the project gate.",
+      "Gate run g1, g2 still runs at its key. Wait for its outcome.",
+      "No cycle was delegated."
+    ],
+    "exitCode": 6
+  },
+  "rework 27 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"pending\",\"reason\":\"gate_running\",\"blockers\":[{\"reason\":\"gate_running\",\"assignmentId\":\"a1\",\"gate\":\"gate_running\",\"commit\":\"c\",\"tip\":\"t\",\"key\":{\"tree\":\"tr\"},\"runIds\":[\"g1\",\"g2\"]}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 6
+  },
+  "rework 28 landing-refused": {
+    "lines": [
+      "The planned commit c on tip t has not passed the project gate.",
+      "The key is failed in gate run g1, g2. Read it with `operator gate show --run <id>`.",
+      "Delegate an integration cycle with `operator work rework` and the reason `integration`.",
+      "No cycle was delegated."
+    ],
+    "exitCode": 4
+  },
+  "rework 28 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"gate_failed\",\"blockers\":[{\"reason\":\"gate_failed\",\"assignmentId\":\"a1\",\"gate\":\"gate_failed\",\"commit\":\"c\",\"tip\":\"t\",\"key\":{\"tree\":\"tr\"},\"runIds\":[\"g1\",\"g2\"]}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 4
+  },
+  "rework 29 landing-refused": {
+    "lines": [
+      "The planned commit c on tip t has not passed the project gate.",
+      "The key is flaky in gate run g1, g2. Read it with `operator gate show --run <id>`.",
+      "Delegate an integration cycle with `operator work rework` and the reason `integration`.",
+      "No cycle was delegated."
+    ],
+    "exitCode": 4
+  },
+  "rework 29 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"gate_flaky\",\"blockers\":[{\"reason\":\"gate_flaky\",\"assignmentId\":\"a1\",\"gate\":\"gate_flaky\",\"commit\":\"c\",\"tip\":\"t\",\"key\":{\"tree\":\"tr\"},\"runIds\":[\"g1\",\"g2\"]}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 4
+  },
+  "rework 30 landing-refused": {
+    "lines": [
+      "Commit c of b is inside the range that pull request (number not recorded) published.",
+      "A published commit is never rewritten in place, and nothing pushes with force.",
+      "No cycle was delegated."
+    ],
+    "exitCode": 4
+  },
+  "rework 30 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"rewrite_published_range\",\"blockers\":[{\"reason\":\"rewrite_published_range\",\"assignmentId\":\"a1\",\"branch\":\"b\",\"commit\":\"c\",\"pullRequest\":null,\"url\":null}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 4
+  },
+  "rework 31 landing-refused": {
+    "lines": [
+      "Commit c of b is inside the range that pull request 7 published at u.",
+      "A published commit is never rewritten in place, and nothing pushes with force.",
+      "No cycle was delegated."
+    ],
+    "exitCode": 4
+  },
+  "rework 31 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"rewrite_published_range\",\"blockers\":[{\"reason\":\"rewrite_published_range\",\"assignmentId\":\"a1\",\"branch\":\"b\",\"commit\":\"c\",\"pullRequest\":7,\"url\":\"u\"}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 4
+  },
+  "rework 32 landing-refused": {
+    "lines": [
+      "A tracker step already ran for a result that this move of b takes back to awaiting review: resolution of a2 (applied).",
+      "Its ticket says the work is done while its commit would leave the branch. Bring it to the person. Operator writes no tracker step to undo another one.",
+      "No cycle was delegated."
+    ],
+    "exitCode": 4
+  },
+  "rework 32 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"rewrite_tracker_recorded\",\"blockers\":[{\"reason\":\"rewrite_tracker_recorded\",\"assignmentId\":\"a1\",\"branch\":\"b\",\"steps\":[{\"assignmentId\":\"a2\",\"step\":\"resolution\",\"state\":\"applied\"}]}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 4
+  },
+  "rework 33 landing-refused": {
+    "lines": [
+      "The integration branch of s1 still holds the withdrawn commit(s) c2.",
+      "Take them out first with `operator work take-out`, as `operator crew next` offers it.",
+      "No cycle was delegated."
+    ],
+    "exitCode": 6
+  },
+  "rework 33 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"pending\",\"reason\":\"take_out_pending\",\"blockers\":[{\"reason\":\"take_out_pending\",\"assignmentId\":\"a1\",\"sourceId\":\"s1\",\"commits\":[{\"assignmentId\":\"a2\",\"commit\":\"c2\"}]}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 6
+  },
+  "rework 34 landing-refused": {
+    "lines": [
+      "Landing l1 of assignment a2 has no recorded outcome. Settle it first with `operator work accept` on that assignment.",
+      "No cycle was delegated."
+    ],
+    "exitCode": 6
+  },
+  "rework 34 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"pending\",\"reason\":\"landing_pending\",\"blockers\":[{\"reason\":\"landing_pending\",\"assignmentId\":\"a1\",\"landingId\":\"l1\",\"pendingAssignmentId\":\"a2\"}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 6
+  },
+  "rework 35 landing-refused": {
+    "lines": [
+      "Rebase rb1 of this source has no recorded outcome. Settle it first with `operator work rebase` and plan revision pr.",
+      "No cycle was delegated."
+    ],
+    "exitCode": 6
+  },
+  "rework 35 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"pending\",\"reason\":\"rebase_pending\",\"blockers\":[{\"reason\":\"rebase_pending\",\"assignmentId\":\"a1\",\"rebaseId\":\"rb1\",\"planRevision\":\"pr\"}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 6
+  },
+  "rework 36 landing-refused": {
+    "lines": [
+      "The landing was planned on p, and the recorded tip is now none. Delegate the cycle again to plan it on the new tip.",
+      "No cycle was delegated."
+    ],
+    "exitCode": 4
+  },
+  "rework 36 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"landing_tip_changed\",\"blockers\":[{\"reason\":\"landing_tip_changed\",\"assignmentId\":\"a1\",\"planned\":\"p\",\"recordedTip\":null}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 4
+  },
+  "rework 37 landing-refused": {
+    "lines": [
+      "The landing was planned on p, and the recorded tip is now rt. Delegate the cycle again to plan it on the new tip.",
+      "No cycle was delegated."
+    ],
+    "exitCode": 4
+  },
+  "rework 37 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"landing_tip_changed\",\"blockers\":[{\"reason\":\"landing_tip_changed\",\"assignmentId\":\"a1\",\"planned\":\"p\",\"recordedTip\":\"rt\"}],\"operation\":\"work_rework\"}"
+    ],
+    "exitCode": 4
+  },
+  "takeOut 0 state-missing": {
+    "lines": ["This project holds no crew state. Run `operator crew own` to start a crew."],
+    "exitCode": 3
+  },
+  "takeOut 0 state-missing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"state_missing\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_take_out\"}"
+    ],
+    "exitCode": 3
+  },
+  "takeOut 1 unowned": {
+    "lines": ["No Operator owns this crew. Run `operator crew own` first."],
+    "exitCode": 3
+  },
+  "takeOut 1 unowned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"crew_unowned\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_take_out\"}"
+    ],
+    "exitCode": 3
+  },
+  "takeOut 2 ownership-stale": {
+    "lines": [
+      "Another Operator took ownership of this crew. This token can no longer change state."
+    ],
+    "exitCode": 4
+  },
+  "takeOut 2 ownership-stale --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"ownership_stale\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_take_out\"}"
+    ],
+    "exitCode": 4
+  },
+  "takeOut 3 request-input-changed": {
+    "lines": [
+      "This request identity already recorded different input. Use a new request identity."
+    ],
+    "exitCode": 2
+  },
+  "takeOut 3 request-input-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"request_input_changed\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_take_out\"}"
+    ],
+    "exitCode": 2
+  },
+  "takeOut 4 unknown-source": {
+    "lines": ["No source is registered as src1."],
+    "exitCode": 2
+  },
+  "takeOut 4 unknown-source --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_source\",\"blockers\":[{\"reason\":\"unknown_source\",\"sourceId\":\"src1\"}],\"operation\":\"work_take_out\"}"
+    ],
+    "exitCode": 2
+  },
+  "takeOut 5 nothing-to-take-out": {
+    "lines": ["The integration branch of src1 holds no withdrawn commit."],
+    "exitCode": 4
+  },
+  "takeOut 5 nothing-to-take-out --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"nothing_to_take_out\",\"blockers\":[{\"reason\":\"nothing_to_take_out\",\"sourceId\":\"src1\"}],\"operation\":\"work_take_out\"}"
+    ],
+    "exitCode": 4
+  },
+  "takeOut 6 take-out-intended": {
+    "lines": [],
+    "exitCode": 2
+  },
+  "takeOut 6 take-out-intended --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"invalid_arguments\",\"blockers\":[],\"operation\":\"parse_arguments\"}"
+    ],
+    "exitCode": 2
+  },
+  "takeOut 7 take-out-plan-changed": {
+    "lines": [
+      "The withdrawals of src1 were recorded under plan revision r1, r2, not pr1.",
+      "Run the command that `operator crew next` offers, which names that revision."
+    ],
+    "exitCode": 4
+  },
+  "takeOut 7 take-out-plan-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"take_out_plan_changed\",\"blockers\":[{\"reason\":\"take_out_plan_changed\",\"sourceId\":\"src1\",\"stated\":\"pr1\",\"recorded\":[\"r1\",\"r2\"]}],\"operation\":\"work_take_out\"}"
+    ],
+    "exitCode": 4
+  },
+  "takeOut 8 landing-refused": {
+    "lines": [
+      "Source s1 records no integration branch, so its code result has nowhere to land.",
+      "Nothing was taken out."
+    ],
+    "exitCode": 3
+  },
+  "takeOut 8 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"integration_branch_missing\",\"blockers\":[{\"reason\":\"integration_branch_missing\",\"assignmentId\":\"a1\",\"sourceId\":\"s1\"}],\"operation\":\"work_take_out\"}"
+    ],
+    "exitCode": 3
+  },
+  "takeOut 9 landing-refused": {
+    "lines": [
+      "The branch b holds no commit, and the recorded tip is t.",
+      "Operator never resets or adopts a moved branch. The person puts it back at the recorded tip, then accept again.",
+      "Nothing was taken out."
+    ],
+    "exitCode": 4
+  },
+  "takeOut 9 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"integration_branch_moved\",\"blockers\":[{\"reason\":\"integration_branch_moved\",\"assignmentId\":\"a1\",\"branch\":\"b\",\"recordedTip\":\"t\",\"found\":null,\"checkedOut\":[]}],\"operation\":\"work_take_out\"}"
+    ],
+    "exitCode": 4
+  },
+  "takeOut 10 landing-refused": {
+    "lines": [
+      "The branch b holds f, and the recorded tip is t.",
+      "It is checked out in w1, w2.",
+      "Operator never resets or adopts a moved branch. The person puts it back at the recorded tip, then accept again.",
+      "Nothing was taken out."
+    ],
+    "exitCode": 4
+  },
+  "takeOut 10 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"integration_branch_moved\",\"blockers\":[{\"reason\":\"integration_branch_moved\",\"assignmentId\":\"a1\",\"branch\":\"b\",\"recordedTip\":\"t\",\"found\":\"f\",\"checkedOut\":[\"w1\",\"w2\"]}],\"operation\":\"work_take_out\"}"
+    ],
+    "exitCode": 4
+  },
+  "takeOut 11 landing-refused": {
+    "lines": [
+      "The branch b is checked out in w1, so it is not moved under that worktree.",
+      "The person switches that worktree off the branch, then accept again.",
+      "Nothing was taken out."
+    ],
+    "exitCode": 4
+  },
+  "takeOut 11 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"integration_branch_checked_out\",\"blockers\":[{\"reason\":\"integration_branch_checked_out\",\"assignmentId\":\"a1\",\"branch\":\"b\",\"worktrees\":[\"w1\"]}],\"operation\":\"work_take_out\"}"
+    ],
+    "exitCode": 4
+  },
+  "takeOut 12 landing-refused": {
+    "lines": ["Git cannot read the branch b: d", "Nothing was taken out."],
+    "exitCode": 5
+  },
+  "takeOut 12 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"uncertain\",\"reason\":\"integration_branch_unread\",\"blockers\":[{\"reason\":\"integration_branch_unread\",\"assignmentId\":\"a1\",\"branch\":\"b\",\"detail\":\"d\"}],\"operation\":\"work_take_out\"}"
+    ],
+    "exitCode": 5
+  },
+  "takeOut 13 landing-refused": {
+    "lines": [
+      "Commit c conflicts with the tip t of b in x, y.",
+      "Delegate an integration cycle with `operator work rework` and the reason `integration`.",
+      "Nothing was taken out."
+    ],
+    "exitCode": 4
+  },
+  "takeOut 13 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"landing_conflict\",\"blockers\":[{\"reason\":\"landing_conflict\",\"assignmentId\":\"a1\",\"branch\":\"b\",\"tip\":\"t\",\"commit\":\"c\",\"paths\":[\"x\",\"y\"]}],\"operation\":\"work_take_out\"}"
+    ],
+    "exitCode": 4
+  },
+  "takeOut 14 landing-refused": {
+    "lines": [
+      "Commit c would land on t of b as another patch, so it is not the reviewed result.",
+      "Delegate an integration cycle with `operator work rework` and the reason `integration`.",
+      "Nothing was taken out."
+    ],
+    "exitCode": 4
+  },
+  "takeOut 14 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"landing_patch_changed\",\"blockers\":[{\"reason\":\"landing_patch_changed\",\"assignmentId\":\"a1\",\"branch\":\"b\",\"tip\":\"t\",\"commit\":\"c\"}],\"operation\":\"work_take_out\"}"
+    ],
+    "exitCode": 4
+  },
+  "takeOut 15 landing-refused": {
+    "lines": [
+      "The planned commit c on tip t has not passed the project gate.",
+      "No gate run is recorded at its key. Run `operator gate run --source <id>` first.",
+      "Nothing was taken out."
+    ],
+    "exitCode": 6
+  },
+  "takeOut 15 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"pending\",\"reason\":\"gate_pending\",\"blockers\":[{\"reason\":\"gate_pending\",\"assignmentId\":\"a1\",\"gate\":\"gate_pending\",\"commit\":\"c\",\"tip\":\"t\",\"key\":{\"tree\":\"tr\"},\"runIds\":[\"g1\",\"g2\"]}],\"operation\":\"work_take_out\"}"
+    ],
+    "exitCode": 6
+  },
+  "takeOut 16 landing-refused": {
+    "lines": [
+      "The planned commit c on tip t has not passed the project gate.",
+      "Gate run g1, g2 still runs at its key. Wait for its outcome.",
+      "Nothing was taken out."
+    ],
+    "exitCode": 6
+  },
+  "takeOut 16 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"pending\",\"reason\":\"gate_running\",\"blockers\":[{\"reason\":\"gate_running\",\"assignmentId\":\"a1\",\"gate\":\"gate_running\",\"commit\":\"c\",\"tip\":\"t\",\"key\":{\"tree\":\"tr\"},\"runIds\":[\"g1\",\"g2\"]}],\"operation\":\"work_take_out\"}"
+    ],
+    "exitCode": 6
+  },
+  "takeOut 17 landing-refused": {
+    "lines": [
+      "The planned commit c on tip t has not passed the project gate.",
+      "The key is failed in gate run g1, g2. Read it with `operator gate show --run <id>`.",
+      "Delegate an integration cycle with `operator work rework` and the reason `integration`.",
+      "Nothing was taken out."
+    ],
+    "exitCode": 4
+  },
+  "takeOut 17 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"gate_failed\",\"blockers\":[{\"reason\":\"gate_failed\",\"assignmentId\":\"a1\",\"gate\":\"gate_failed\",\"commit\":\"c\",\"tip\":\"t\",\"key\":{\"tree\":\"tr\"},\"runIds\":[\"g1\",\"g2\"]}],\"operation\":\"work_take_out\"}"
+    ],
+    "exitCode": 4
+  },
+  "takeOut 18 landing-refused": {
+    "lines": [
+      "The planned commit c on tip t has not passed the project gate.",
+      "The key is flaky in gate run g1, g2. Read it with `operator gate show --run <id>`.",
+      "Delegate an integration cycle with `operator work rework` and the reason `integration`.",
+      "Nothing was taken out."
+    ],
+    "exitCode": 4
+  },
+  "takeOut 18 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"gate_flaky\",\"blockers\":[{\"reason\":\"gate_flaky\",\"assignmentId\":\"a1\",\"gate\":\"gate_flaky\",\"commit\":\"c\",\"tip\":\"t\",\"key\":{\"tree\":\"tr\"},\"runIds\":[\"g1\",\"g2\"]}],\"operation\":\"work_take_out\"}"
+    ],
+    "exitCode": 4
+  },
+  "takeOut 19 landing-refused": {
+    "lines": [
+      "Commit c of b is inside the range that pull request (number not recorded) published.",
+      "A published commit is never rewritten in place, and nothing pushes with force.",
+      "Nothing was taken out."
+    ],
+    "exitCode": 4
+  },
+  "takeOut 19 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"rewrite_published_range\",\"blockers\":[{\"reason\":\"rewrite_published_range\",\"assignmentId\":\"a1\",\"branch\":\"b\",\"commit\":\"c\",\"pullRequest\":null,\"url\":null}],\"operation\":\"work_take_out\"}"
+    ],
+    "exitCode": 4
+  },
+  "takeOut 20 landing-refused": {
+    "lines": [
+      "Commit c of b is inside the range that pull request 7 published at u.",
+      "A published commit is never rewritten in place, and nothing pushes with force.",
+      "Nothing was taken out."
+    ],
+    "exitCode": 4
+  },
+  "takeOut 20 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"rewrite_published_range\",\"blockers\":[{\"reason\":\"rewrite_published_range\",\"assignmentId\":\"a1\",\"branch\":\"b\",\"commit\":\"c\",\"pullRequest\":7,\"url\":\"u\"}],\"operation\":\"work_take_out\"}"
+    ],
+    "exitCode": 4
+  },
+  "takeOut 21 landing-refused": {
+    "lines": [
+      "A tracker step already ran for a result that this move of b takes back to awaiting review: resolution of a2 (applied).",
+      "Its ticket says the work is done while its commit would leave the branch. Bring it to the person. Operator writes no tracker step to undo another one.",
+      "Nothing was taken out."
+    ],
+    "exitCode": 4
+  },
+  "takeOut 21 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"rewrite_tracker_recorded\",\"blockers\":[{\"reason\":\"rewrite_tracker_recorded\",\"assignmentId\":\"a1\",\"branch\":\"b\",\"steps\":[{\"assignmentId\":\"a2\",\"step\":\"resolution\",\"state\":\"applied\"}]}],\"operation\":\"work_take_out\"}"
+    ],
+    "exitCode": 4
+  },
+  "takeOut 22 landing-refused": {
+    "lines": [
+      "The integration branch of s1 still holds the withdrawn commit(s) c2.",
+      "Take them out first with `operator work take-out`, as `operator crew next` offers it.",
+      "Nothing was taken out."
+    ],
+    "exitCode": 6
+  },
+  "takeOut 22 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"pending\",\"reason\":\"take_out_pending\",\"blockers\":[{\"reason\":\"take_out_pending\",\"assignmentId\":\"a1\",\"sourceId\":\"s1\",\"commits\":[{\"assignmentId\":\"a2\",\"commit\":\"c2\"}]}],\"operation\":\"work_take_out\"}"
+    ],
+    "exitCode": 6
+  },
+  "takeOut 23 landing-refused": {
+    "lines": [
+      "Landing l1 of assignment a2 has no recorded outcome. Settle it first with `operator work accept` on that assignment.",
+      "Nothing was taken out."
+    ],
+    "exitCode": 6
+  },
+  "takeOut 23 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"pending\",\"reason\":\"landing_pending\",\"blockers\":[{\"reason\":\"landing_pending\",\"assignmentId\":\"a1\",\"landingId\":\"l1\",\"pendingAssignmentId\":\"a2\"}],\"operation\":\"work_take_out\"}"
+    ],
+    "exitCode": 6
+  },
+  "takeOut 24 landing-refused": {
+    "lines": [
+      "Rebase rb1 of this source has no recorded outcome. Settle it first with `operator work rebase` and plan revision pr.",
+      "Nothing was taken out."
+    ],
+    "exitCode": 6
+  },
+  "takeOut 24 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"pending\",\"reason\":\"rebase_pending\",\"blockers\":[{\"reason\":\"rebase_pending\",\"assignmentId\":\"a1\",\"rebaseId\":\"rb1\",\"planRevision\":\"pr\"}],\"operation\":\"work_take_out\"}"
+    ],
+    "exitCode": 6
+  },
+  "takeOut 25 landing-refused": {
+    "lines": [
+      "The landing was planned on p, and the recorded tip is now none. Accept again to plan it on the new tip.",
+      "Nothing was taken out."
+    ],
+    "exitCode": 4
+  },
+  "takeOut 25 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"landing_tip_changed\",\"blockers\":[{\"reason\":\"landing_tip_changed\",\"assignmentId\":\"a1\",\"planned\":\"p\",\"recordedTip\":null}],\"operation\":\"work_take_out\"}"
+    ],
+    "exitCode": 4
+  },
+  "takeOut 26 landing-refused": {
+    "lines": [
+      "The landing was planned on p, and the recorded tip is now rt. Accept again to plan it on the new tip.",
+      "Nothing was taken out."
+    ],
+    "exitCode": 4
+  },
+  "takeOut 26 landing-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"landing_tip_changed\",\"blockers\":[{\"reason\":\"landing_tip_changed\",\"assignmentId\":\"a1\",\"planned\":\"p\",\"recordedTip\":\"rt\"}],\"operation\":\"work_take_out\"}"
+    ],
+    "exitCode": 4
+  },
+  "invalidate 0 state-missing": {
+    "lines": ["This project holds no crew state. Run `operator crew own` to start a crew."],
+    "exitCode": 3
+  },
+  "invalidate 0 state-missing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"state_missing\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_invalidate\"}"
+    ],
+    "exitCode": 3
+  },
+  "invalidate 1 unowned": {
+    "lines": ["No Operator owns this crew. Run `operator crew own` first."],
+    "exitCode": 3
+  },
+  "invalidate 1 unowned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"crew_unowned\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_invalidate\"}"
+    ],
+    "exitCode": 3
+  },
+  "invalidate 2 ownership-stale": {
+    "lines": [
+      "Another Operator took ownership of this crew. This token can no longer change state."
+    ],
+    "exitCode": 4
+  },
+  "invalidate 2 ownership-stale --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"ownership_stale\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_invalidate\"}"
+    ],
+    "exitCode": 4
+  },
+  "invalidate 3 request-input-changed": {
+    "lines": [
+      "This request identity already recorded different input. Use a new request identity."
+    ],
+    "exitCode": 2
+  },
+  "invalidate 3 request-input-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"request_input_changed\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_invalidate\"}"
+    ],
+    "exitCode": 2
+  },
+  "invalidate 4 unknown-assignment": {
+    "lines": ["No assignment is registered as a1."],
+    "exitCode": 2
+  },
+  "invalidate 4 unknown-assignment --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_assignment\",\"blockers\":[{\"reason\":\"unknown_assignment\",\"assignmentId\":\"a1\"}],\"operation\":\"work_invalidate\"}"
+    ],
+    "exitCode": 2
+  },
+  "invalidate 5 stale-revision": {
+    "lines": [
+      "Assignment a1 is at revision 3.",
+      "Read it again, then state the revision you inspected."
+    ],
+    "exitCode": 4
+  },
+  "invalidate 5 stale-revision --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"stale_revision\",\"blockers\":[{\"reason\":\"stale_revision\",\"assignmentId\":\"a1\",\"recordedRevision\":3}],\"operation\":\"work_invalidate\"}"
+    ],
+    "exitCode": 4
+  },
+  "invalidate 6 invalid-input": {
+    "lines": ["The request is not valid:", "  i1", "  i2"],
+    "exitCode": 2
+  },
+  "invalidate 6 invalid-input --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"invalid_defect_input\",\"blockers\":[{\"reason\":\"invalid_defect_input\",\"issue\":\"i1\"},{\"reason\":\"invalid_defect_input\",\"issue\":\"i2\"}],\"operation\":\"work_invalidate\"}"
+    ],
+    "exitCode": 2
+  },
+  "claim 0 state-missing": {
+    "lines": ["This project holds no crew state. Run `operator crew own` to start a crew."],
+    "exitCode": 3
+  },
+  "claim 0 state-missing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"state_missing\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_claim\"}"
+    ],
+    "exitCode": 3
+  },
+  "claim 1 unowned": {
+    "lines": ["No Operator owns this crew. Run `operator crew own` first."],
+    "exitCode": 3
+  },
+  "claim 1 unowned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"crew_unowned\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_claim\"}"
+    ],
+    "exitCode": 3
+  },
+  "claim 2 ownership-stale": {
+    "lines": [
+      "Another Operator took ownership of this crew. This token can no longer change state."
+    ],
+    "exitCode": 4
+  },
+  "claim 2 ownership-stale --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"ownership_stale\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_claim\"}"
+    ],
+    "exitCode": 4
+  },
+  "claim 3 request-input-changed": {
+    "lines": [
+      "This request identity already recorded different input. Use a new request identity."
+    ],
+    "exitCode": 2
+  },
+  "claim 3 request-input-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"request_input_changed\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_claim\"}"
+    ],
+    "exitCode": 2
+  },
+  "claim 4 unknown-assignment": {
+    "lines": ["No assignment is registered as a1."],
+    "exitCode": 2
+  },
+  "claim 4 unknown-assignment --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_assignment\",\"blockers\":[{\"reason\":\"unknown_assignment\",\"assignmentId\":\"a1\"}],\"operation\":\"work_claim\"}"
+    ],
+    "exitCode": 2
+  },
+  "claim 5 stale-revision": {
+    "lines": [
+      "Assignment a1 is at revision 3.",
+      "Read it again, then state the revision you inspected."
+    ],
+    "exitCode": 4
+  },
+  "claim 5 stale-revision --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"stale_revision\",\"blockers\":[{\"reason\":\"stale_revision\",\"assignmentId\":\"a1\",\"recordedRevision\":3}],\"operation\":\"work_claim\"}"
+    ],
+    "exitCode": 4
+  },
+  "answerQuestion 0 state-missing": {
+    "lines": ["This project holds no crew state. Run `operator crew own` to start a crew."],
+    "exitCode": 3
+  },
+  "answerQuestion 0 state-missing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"state_missing\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_answer\"}"
+    ],
+    "exitCode": 3
+  },
+  "answerQuestion 1 unowned": {
+    "lines": ["No Operator owns this crew. Run `operator crew own` first."],
+    "exitCode": 3
+  },
+  "answerQuestion 1 unowned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"crew_unowned\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_answer\"}"
+    ],
+    "exitCode": 3
+  },
+  "answerQuestion 2 ownership-stale": {
+    "lines": [
+      "Another Operator took ownership of this crew. This token can no longer change state."
+    ],
+    "exitCode": 4
+  },
+  "answerQuestion 2 ownership-stale --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"ownership_stale\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_answer\"}"
+    ],
+    "exitCode": 4
+  },
+  "answerQuestion 3 request-input-changed": {
+    "lines": [
+      "This request identity already recorded different input. Use a new request identity."
+    ],
+    "exitCode": 2
+  },
+  "answerQuestion 3 request-input-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"request_input_changed\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_answer\"}"
+    ],
+    "exitCode": 2
+  },
+  "answerQuestion 4 invalid-input": {
+    "lines": ["The request is not valid:", "  i1", "  i2"],
+    "exitCode": 2
+  },
+  "answerQuestion 4 invalid-input --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"invalid_answer_input\",\"blockers\":[{\"reason\":\"invalid_answer_input\",\"issue\":\"i1\"},{\"reason\":\"invalid_answer_input\",\"issue\":\"i2\"}],\"operation\":\"question_answer\"}"
+    ],
+    "exitCode": 2
+  },
+  "answerQuestion 5 unknown-question": {
+    "lines": ["No question is recorded as q1."],
+    "exitCode": 2
+  },
+  "answerQuestion 5 unknown-question --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_question\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_answer\",\"data\":{\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"reason\":\"integration\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}}"
+    ],
+    "exitCode": 2
+  },
+  "answerQuestion 6 stale-question-revision": {
+    "lines": [
+      "Question q1 is at revision 3.",
+      "Read the question again, then act on the revision you inspected."
+    ],
+    "exitCode": 4
+  },
+  "answerQuestion 6 stale-question-revision --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"stale_question_revision\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_answer\",\"data\":{\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"reason\":\"integration\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}}"
+    ],
+    "exitCode": 4
+  },
+  "answerQuestion 7 already-answered": {
+    "lines": [
+      "Question q1 already holds answer an1.",
+      "One question revision carries one decision."
+    ],
+    "exitCode": 4
+  },
+  "answerQuestion 7 already-answered --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"already_answered\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_answer\",\"data\":{\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"reason\":\"integration\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}}"
+    ],
+    "exitCode": 4
+  },
+  "answerQuestion 8 escalation-required": {
+    "lines": [
+      "This question names subjects a operator cannot settle:",
+      "  x",
+      "  y",
+      "Bring it to the user and record their answer as a human answer."
+    ],
+    "exitCode": 3
+  },
+  "answerQuestion 8 escalation-required --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"escalation_required\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_answer\",\"data\":{\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"reason\":\"integration\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}}"
+    ],
+    "exitCode": 3
+  },
+  "answerQuestion 9 question-closed": {
+    "lines": [
+      "Question q1 is st, so nothing waits on it.",
+      "Raise a new question instead of changing one the Operative has already acted on."
+    ],
+    "exitCode": 4
+  },
+  "answerQuestion 9 question-closed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"question_closed\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_answer\",\"data\":{\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"reason\":\"integration\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}}"
+    ],
+    "exitCode": 4
+  },
+  "answerQuestion 10 already-acknowledged": {
+    "lines": ["This answer was already acknowledged at 2026-01-01."],
+    "exitCode": 0
+  },
+  "answerQuestion 10 already-acknowledged --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"question_already_acknowledged\",\"blockers\":[],\"operation\":\"question_answer\",\"data\":{\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"reason\":\"integration\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}}"
+    ],
+    "exitCode": 0
+  },
+  "answerQuestion 11 source-unreadable": {
+    "lines": ["Entry 2: The requirement source p/x cannot be read."],
+    "exitCode": 2
+  },
+  "answerQuestion 11 source-unreadable --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"source_unreadable\",\"blockers\":[{\"reason\":\"source_unreadable\",\"path\":\"p/x\",\"entry\":2}],\"operation\":\"question_answer\"}"
+    ],
+    "exitCode": 2
+  },
+  "answerQuestion 12 source-not-text": {
+    "lines": ["Entry 2: The requirement source p/x is not UTF-8 text, so no quote can match it."],
+    "exitCode": 2
+  },
+  "answerQuestion 12 source-not-text --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"source_not_text\",\"blockers\":[{\"reason\":\"source_not_text\",\"path\":\"p/x\",\"entry\":2}],\"operation\":\"question_answer\"}"
+    ],
+    "exitCode": 2
+  },
+  "answerQuestion 13 quote-not-in-source": {
+    "lines": [
+      "Entry 2: The exact words do not appear in s1 at revision r9.",
+      "The checked copy is stored/p.",
+      "Quote the exact bytes of the source. Do not wrap the lines again or shorten the words."
+    ],
+    "exitCode": 2
+  },
+  "answerQuestion 13 quote-not-in-source --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"quote_not_in_source\",\"blockers\":[{\"reason\":\"quote_not_in_source\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"entry\":2}],\"operation\":\"question_answer\"}"
+    ],
+    "exitCode": 2
+  },
+  "answerQuestion 14 source-assignment-unknown": {
+    "lines": ["Entry 2: no assignment is registered as a1, so it holds no approved scope."],
+    "exitCode": 2
+  },
+  "answerQuestion 14 source-assignment-unknown --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_assignment\",\"blockers\":[{\"reason\":\"unknown_assignment\",\"assignmentId\":\"a1\",\"entry\":2}],\"operation\":\"question_answer\"}"
+    ],
+    "exitCode": 2
+  },
+  "answerQuestion 15 source-unknown": {
+    "lines": ["Entry 2: No work source is registered as src1, so it holds no revision to quote."],
+    "exitCode": 2
+  },
+  "answerQuestion 15 source-unknown --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_source\",\"blockers\":[{\"reason\":\"unknown_source\",\"sourceId\":\"src1\",\"entry\":2}],\"operation\":\"question_answer\"}"
+    ],
+    "exitCode": 2
+  },
+  "answerQuestion 16 source-revision-changed": {
+    "lines": [
+      "Entry 2: The work source src1 is recorded at revision r1, not r2.",
+      "Quote the recorded revision."
+    ],
+    "exitCode": 4
+  },
+  "answerQuestion 16 source-revision-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"source_revision_changed\",\"blockers\":[{\"reason\":\"source_revision_changed\",\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2}],\"operation\":\"question_answer\"}"
+    ],
+    "exitCode": 4
+  },
+  "answerQuestion 17 unknown-assignment": {
+    "lines": ["No assignment is registered as a1, so it holds no approved scope."],
+    "exitCode": 2
+  },
+  "answerQuestion 17 unknown-assignment --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_assignment\",\"blockers\":[{\"reason\":\"unknown_assignment\",\"assignmentId\":\"a1\"}],\"operation\":\"question_answer\"}"
+    ],
+    "exitCode": 2
+  },
+  "escalateQuestion 0 state-missing": {
+    "lines": ["This project holds no crew state. Run `operator crew own` to start a crew."],
+    "exitCode": 3
+  },
+  "escalateQuestion 0 state-missing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"state_missing\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_escalate\"}"
+    ],
+    "exitCode": 3
+  },
+  "escalateQuestion 1 unowned": {
+    "lines": ["No Operator owns this crew. Run `operator crew own` first."],
+    "exitCode": 3
+  },
+  "escalateQuestion 1 unowned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"crew_unowned\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_escalate\"}"
+    ],
+    "exitCode": 3
+  },
+  "escalateQuestion 2 ownership-stale": {
+    "lines": [
+      "Another Operator took ownership of this crew. This token can no longer change state."
+    ],
+    "exitCode": 4
+  },
+  "escalateQuestion 2 ownership-stale --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"ownership_stale\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_escalate\"}"
+    ],
+    "exitCode": 4
+  },
+  "escalateQuestion 3 request-input-changed": {
+    "lines": [
+      "This request identity already recorded different input. Use a new request identity."
+    ],
+    "exitCode": 2
+  },
+  "escalateQuestion 3 request-input-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"request_input_changed\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_escalate\"}"
+    ],
+    "exitCode": 2
+  },
+  "escalateQuestion 4 invalid-input": {
+    "lines": ["The request is not valid:", "  i1", "  i2"],
+    "exitCode": 2
+  },
+  "escalateQuestion 4 invalid-input --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"invalid_question_input\",\"blockers\":[{\"reason\":\"invalid_question_input\",\"issue\":\"i1\"},{\"reason\":\"invalid_question_input\",\"issue\":\"i2\"}],\"operation\":\"question_escalate\"}"
+    ],
+    "exitCode": 2
+  },
+  "escalateQuestion 5 unknown-question": {
+    "lines": ["No question is recorded as q1."],
+    "exitCode": 2
+  },
+  "escalateQuestion 5 unknown-question --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_question\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_escalate\",\"data\":{\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"reason\":\"integration\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}}"
+    ],
+    "exitCode": 2
+  },
+  "escalateQuestion 6 stale-question-revision": {
+    "lines": [
+      "Question q1 is at revision 3.",
+      "Read the question again, then act on the revision you inspected."
+    ],
+    "exitCode": 4
+  },
+  "escalateQuestion 6 stale-question-revision --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"stale_question_revision\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_escalate\",\"data\":{\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"reason\":\"integration\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}}"
+    ],
+    "exitCode": 4
+  },
+  "escalateQuestion 7 question-closed": {
+    "lines": [
+      "Question q1 is st, so nothing waits on it.",
+      "Raise a new question instead of changing one the Operative has already acted on."
+    ],
+    "exitCode": 4
+  },
+  "escalateQuestion 7 question-closed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"question_closed\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_escalate\",\"data\":{\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"reason\":\"integration\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}}"
+    ],
+    "exitCode": 4
+  },
+  "escalateQuestion 8 delivery-started": {
+    "lines": [
+      "An answer to this question is already on its way, so it is too late to escalate.",
+      "Let the Operative acknowledge it, then raise the concern as a new question."
+    ],
+    "exitCode": 4
+  },
+  "escalateQuestion 8 delivery-started --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"delivery_started\",\"blockers\":[{\"reason\":\"delivery_started\",\"questionId\":\"q1\",\"state\":\"st\"}],\"operation\":\"question_escalate\"}"
+    ],
+    "exitCode": 4
+  },
+  "reapplyAnswer 0 state-missing": {
+    "lines": ["This project holds no crew state. Run `operator crew own` to start a crew."],
+    "exitCode": 3
+  },
+  "reapplyAnswer 0 state-missing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"state_missing\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_reapply\"}"
+    ],
+    "exitCode": 3
+  },
+  "reapplyAnswer 1 unowned": {
+    "lines": ["No Operator owns this crew. Run `operator crew own` first."],
+    "exitCode": 3
+  },
+  "reapplyAnswer 1 unowned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"crew_unowned\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_reapply\"}"
+    ],
+    "exitCode": 3
+  },
+  "reapplyAnswer 2 ownership-stale": {
+    "lines": [
+      "Another Operator took ownership of this crew. This token can no longer change state."
+    ],
+    "exitCode": 4
+  },
+  "reapplyAnswer 2 ownership-stale --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"ownership_stale\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_reapply\"}"
+    ],
+    "exitCode": 4
+  },
+  "reapplyAnswer 3 request-input-changed": {
+    "lines": [
+      "This request identity already recorded different input. Use a new request identity."
+    ],
+    "exitCode": 2
+  },
+  "reapplyAnswer 3 request-input-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"request_input_changed\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_reapply\"}"
+    ],
+    "exitCode": 2
+  },
+  "reapplyAnswer 4 unknown-question": {
+    "lines": ["No question is recorded as q1."],
+    "exitCode": 2
+  },
+  "reapplyAnswer 4 unknown-question --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_question\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_reapply\",\"data\":{\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"reason\":\"integration\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}}"
+    ],
+    "exitCode": 2
+  },
+  "reapplyAnswer 5 already-answered": {
+    "lines": [
+      "Question q1 already holds answer an1.",
+      "One question revision carries one decision."
+    ],
+    "exitCode": 4
+  },
+  "reapplyAnswer 5 already-answered --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"already_answered\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_reapply\",\"data\":{\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"reason\":\"integration\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}}"
+    ],
+    "exitCode": 4
+  },
+  "reapplyAnswer 6 unknown-answer": {
+    "lines": ["This question holds no answer recorded as an1."],
+    "exitCode": 2
+  },
+  "reapplyAnswer 6 unknown-answer --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_answer\",\"blockers\":[{\"reason\":\"unknown_answer\",\"answerId\":\"an1\"}],\"operation\":\"question_reapply\"}"
+    ],
+    "exitCode": 2
+  },
+  "reapplyAnswer 7 answer-not-earlier": {
+    "lines": [
+      "Answer an1 was recorded for revision 1.",
+      "Only an answer from an earlier revision is reused."
+    ],
+    "exitCode": 2
+  },
+  "reapplyAnswer 7 answer-not-earlier --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"answer_not_earlier\",\"blockers\":[{\"reason\":\"answer_not_earlier\",\"answerId\":\"an1\",\"questionRevision\":1}],\"operation\":\"question_reapply\"}"
+    ],
+    "exitCode": 2
+  },
+  "deliverAnswer 0 state-missing": {
+    "lines": ["This project holds no crew state. Run `operator crew own` to start a crew."],
+    "exitCode": 3
+  },
+  "deliverAnswer 0 state-missing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"state_missing\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_deliver\"}"
+    ],
+    "exitCode": 3
+  },
+  "deliverAnswer 1 unowned": {
+    "lines": ["No Operator owns this crew. Run `operator crew own` first."],
+    "exitCode": 3
+  },
+  "deliverAnswer 1 unowned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"crew_unowned\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_deliver\"}"
+    ],
+    "exitCode": 3
+  },
+  "deliverAnswer 2 ownership-stale": {
+    "lines": [
+      "Another Operator took ownership of this crew. This token can no longer change state."
+    ],
+    "exitCode": 4
+  },
+  "deliverAnswer 2 ownership-stale --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"ownership_stale\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_deliver\"}"
+    ],
+    "exitCode": 4
+  },
+  "deliverAnswer 3 request-input-changed": {
+    "lines": [
+      "This request identity already recorded different input. Use a new request identity."
+    ],
+    "exitCode": 2
+  },
+  "deliverAnswer 3 request-input-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"request_input_changed\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_deliver\"}"
+    ],
+    "exitCode": 2
+  },
+  "deliverAnswer 4 unknown-question": {
+    "lines": ["No question is recorded as q1."],
+    "exitCode": 2
+  },
+  "deliverAnswer 4 unknown-question --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_question\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_deliver\",\"data\":{\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"reason\":\"integration\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}}"
+    ],
+    "exitCode": 2
+  },
+  "deliverAnswer 5 already-acknowledged": {
+    "lines": ["This answer was already acknowledged at 2026-01-01."],
+    "exitCode": 0
+  },
+  "deliverAnswer 5 already-acknowledged --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"question_already_acknowledged\",\"blockers\":[],\"operation\":\"question_deliver\",\"data\":{\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"reason\":\"integration\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}}"
+    ],
+    "exitCode": 0
+  },
+  "deliverAnswer 6 not-answered": {
+    "lines": ["Question q1 holds no answer to deliver."],
+    "exitCode": 3
+  },
+  "deliverAnswer 6 not-answered --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"answer_missing\",\"blockers\":[{\"reason\":\"answer_missing\",\"questionId\":\"q1\",\"state\":\"st\"}],\"operation\":\"question_deliver\"}"
+    ],
+    "exitCode": 3
+  },
+  "deliverAnswer 7 reconciliation-required": {
+    "lines": [
+      "The delivery of this answer is intended, so it may already have arrived.",
+      "Run `operator attempt reconcile` before another delivery."
+    ],
+    "exitCode": 3
+  },
+  "deliverAnswer 7 reconciliation-required --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"reconciliation_required\",\"blockers\":[{\"reason\":\"reconciliation_required\",\"questionId\":\"q1\",\"operationState\":\"intended\"}],\"operation\":\"question_deliver\"}"
+    ],
+    "exitCode": 3
+  },
+  "deliverAnswer 8 delivery-failed": {
+    "lines": ["The answer delivery failed: det"],
+    "exitCode": 1
+  },
+  "deliverAnswer 8 delivery-failed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"failed\",\"reason\":\"delivery_failed\",\"blockers\":[{\"reason\":\"delivery_failed\",\"questionId\":\"q1\",\"detail\":\"det\"}],\"operation\":\"question_deliver\"}"
+    ],
+    "exitCode": 1
+  },
+  "question 0 state-missing": {
+    "lines": ["This project holds no crew state. Run `operator crew own` to start a crew."],
+    "exitCode": 3
+  },
+  "question 0 state-missing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"state_missing\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_show\"}"
+    ],
+    "exitCode": 3
+  },
+  "question 1 unowned": {
+    "lines": ["No Operator owns this crew. Run `operator crew own` first."],
+    "exitCode": 3
+  },
+  "question 1 unowned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"crew_unowned\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_show\"}"
+    ],
+    "exitCode": 3
+  },
+  "question 2 ownership-stale": {
+    "lines": [
+      "Another Operator took ownership of this crew. This token can no longer change state."
+    ],
+    "exitCode": 4
+  },
+  "question 2 ownership-stale --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"ownership_stale\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_show\"}"
+    ],
+    "exitCode": 4
+  },
+  "question 3 request-input-changed": {
+    "lines": [
+      "This request identity already recorded different input. Use a new request identity."
+    ],
+    "exitCode": 2
+  },
+  "question 3 request-input-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"request_input_changed\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_show\"}"
+    ],
+    "exitCode": 2
+  },
+  "question 4 unknown-question": {
+    "lines": ["No question is recorded as q1."],
+    "exitCode": 2
+  },
+  "question 4 unknown-question --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_question\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_show\",\"data\":{\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"reason\":\"integration\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}}"
+    ],
+    "exitCode": 2
+  }
+}

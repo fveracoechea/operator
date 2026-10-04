@@ -1,65 +1,39 @@
 import { CrewState } from "../crew-state/main.ts";
 import { type ParsedArguments, readMutation } from "./arguments.ts";
-import { reportSharedFailure } from "./crew-result.ts";
-import { landingRefusalOf } from "./landing-refusal.ts";
-import { type Handled, refuse, report } from "./result.ts";
+import { landingRefusals } from "./crew-result.ts";
+import { answer, type Handled, type Refusals, report } from "./result.ts";
 
 type TakeOutResult = Awaited<ReturnType<typeof CrewState.takeOut>>["result"];
 
-/** Reports a take-out that does nothing now. Nothing moved and nothing was recorded. */
-function reportRefusal(parsed: ParsedArguments, result: TakeOutResult): Handled | null {
-  const operation = "work_take_out";
-  switch (result.status) {
-    case "unknown-source":
-      return refuse({
-        json: parsed.json,
-        operation,
-        outcome: "invalid",
-        reason: "unknown_source",
-        detail: { sourceId: result.sourceId },
-        lines: [`No source is registered as ${result.sourceId}.`],
-      });
-    case "nothing-to-take-out":
-      return refuse({
-        json: parsed.json,
-        operation,
-        outcome: "conflict",
-        reason: "nothing_to_take_out",
-        detail: { sourceId: result.sourceId },
-        lines: [`The integration branch of ${result.sourceId} holds no withdrawn commit.`],
-      });
-    case "take-out-plan-changed":
-      return refuse({
-        json: parsed.json,
-        operation,
-        outcome: "conflict",
-        reason: "take_out_plan_changed",
-        detail: { sourceId: result.sourceId, stated: result.stated, recorded: result.recorded },
-        lines: [
-          `The withdrawals of ${result.sourceId} were recorded under plan revision ${result.recorded.join(", ")}, not ${result.stated}.`,
-          "Run the command that `operator crew next` offers, which names that revision.",
-        ],
-      });
-    case "landing-refused": {
-      const { refusal } = result;
-      const { outcome, reason, lines } = landingRefusalOf(refusal, {
-        retry: "accept",
-        gateRun: "--source",
-      });
-      const { status: _status, ...detail } = refusal;
-      return refuse({
-        json: parsed.json,
-        operation,
-        outcome,
-        reason,
-        detail,
-        lines: [...lines, "Nothing was taken out."],
-      });
-    }
-    default:
-      return null;
-  }
-}
+/** Every take-out that does nothing now. Nothing moved and nothing was recorded. */
+const takeOutRefusals = {
+  "unknown-source": (result) => ({
+    outcome: "invalid",
+    reason: "unknown_source",
+    detail: { sourceId: result.sourceId },
+    lines: [`No source is registered as ${result.sourceId}.`],
+  }),
+  "nothing-to-take-out": (result) => ({
+    outcome: "conflict",
+    reason: "nothing_to_take_out",
+    detail: { sourceId: result.sourceId },
+    lines: [`The integration branch of ${result.sourceId} holds no withdrawn commit.`],
+  }),
+  "take-out-plan-changed": (result) => ({
+    outcome: "conflict",
+    reason: "take_out_plan_changed",
+    detail: { sourceId: result.sourceId, stated: result.stated, recorded: result.recorded },
+    lines: [
+      `The withdrawals of ${result.sourceId} were recorded under plan revision ${result.recorded.join(", ")}, not ${result.stated}.`,
+      "Run the command that `operator crew next` offers, which names that revision.",
+    ],
+  }),
+  ...landingRefusals({
+    retry: "accept",
+    gateCommand: "operator gate run --source <id>",
+    nothing: "Nothing was taken out.",
+  }),
+} satisfies Refusals<TakeOutResult>;
 
 /**
  * Takes out every withdrawn commit that the integration branch of one source still holds (ADR
@@ -80,12 +54,8 @@ export async function runTakeOut(parsed: ParsedArguments): Promise<Handled> {
     sourceId,
     planRevision,
   });
-  if (reportSharedFailure(parsed, "work_take_out", result)) {
+  if (answer(parsed, "work_take_out", result, takeOutRefusals)) {
     return "reported";
-  }
-  const refused = reportRefusal(parsed, result);
-  if (refused !== null) {
-    return refused;
   }
   if (result.status !== "taken-out") {
     return "invalid-arguments";

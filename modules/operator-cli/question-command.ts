@@ -1,100 +1,78 @@
 import { CrewState } from "../crew-state/main.ts";
 import { type ParsedArguments, readRevision } from "./arguments.ts";
-import { readStructuredInput, reportInvalidInput, reportSharedFailure } from "./crew-result.ts";
+import { invalidInputRefusals, readStructuredInput } from "./crew-result.ts";
 import { requireReference } from "./reference.ts";
-import { isSourceRefusal, reportSourceRefusal } from "./source-result.ts";
-import { type Handled, type Operation, type Reason, refuse, report } from "./result.ts";
+import { sourceRefusals } from "./source-result.ts";
+import {
+  answer,
+  type Handled,
+  type Operation,
+  type Outcome,
+  type Reason,
+  type Refusal,
+  refuse,
+  report,
+} from "./result.ts";
 
-type QuestionOutcome = {
-  reason: Reason;
-  outcome: "completed" | "invalid" | "missing-condition" | "conflict";
-  lines: (detail: Record<string, unknown>) => string[];
-};
-
-function textList(detail: Record<string, unknown>, key: string): string[] {
-  const value = detail[key];
-  return Array.isArray(value) ? value.map(String) : [];
+/** One outcome every question command shares. Its blocker and its data carry the whole result. */
+function shared<Result extends object>(
+  reason: Reason,
+  outcome: Outcome,
+  lines: (result: Result) => string[],
+): (result: Result & { status: string }) => Refusal {
+  return (result) => {
+    const { status: _status, ...detail } = result;
+    return { outcome, reason, lines: lines(result), detail, data: detail };
+  };
 }
 
 /** The outcomes the question commands share. Each one reports the same way from every command. */
-const questionOutcomes = {
-  "unknown-question": {
-    reason: "unknown_question",
-    outcome: "invalid",
-    lines: (detail) => [`No question is recorded as ${String(detail.questionId)}.`],
-  },
-  "stale-question-revision": {
-    reason: "stale_question_revision",
-    outcome: "conflict",
-    lines: (detail) => [
-      `Question ${String(detail.questionId)} is at revision ${String(detail.recordedRevision)}.`,
+const questionRefusals = {
+  "unknown-question": shared("unknown_question", "invalid", (result: { questionId: string }) => [
+    `No question is recorded as ${result.questionId}.`,
+  ]),
+  "stale-question-revision": shared(
+    "stale_question_revision",
+    "conflict",
+    (result: { questionId: string; recordedRevision: number }) => [
+      `Question ${result.questionId} is at revision ${result.recordedRevision}.`,
       "Read the question again, then act on the revision you inspected.",
     ],
-  },
-  "already-answered": {
-    reason: "already_answered",
-    outcome: "conflict",
-    lines: (detail) => [
-      `Question ${String(detail.questionId)} already holds answer ${String(detail.answerId)}.`,
+  ),
+  "already-answered": shared(
+    "already_answered",
+    "conflict",
+    (result: { questionId: string; answerId: string }) => [
+      `Question ${result.questionId} already holds answer ${result.answerId}.`,
       "One question revision carries one decision.",
     ],
-  },
-  "escalation-required": {
-    reason: "escalation_required",
-    outcome: "missing-condition",
-    lines: (detail) => [
-      `This question names subjects a ${String(detail.authority)} cannot settle:`,
-      ...textList(detail, "escalationTriggers").map((one) => `  ${one}`),
+  ),
+  "escalation-required": shared(
+    "escalation_required",
+    "missing-condition",
+    (result: { authority: string; escalationTriggers: string[] }) => [
+      `This question names subjects a ${result.authority} cannot settle:`,
+      ...result.escalationTriggers.map((one) => `  ${one}`),
       "Bring it to the user and record their answer as a human answer.",
     ],
-  },
-  "question-closed": {
-    reason: "question_closed",
-    outcome: "conflict",
-    lines: (detail) => [
-      `Question ${String(detail.questionId)} is ${String(detail.state)}, so nothing waits on it.`,
+  ),
+  "question-closed": shared(
+    "question_closed",
+    "conflict",
+    (result: { questionId: string; state: string }) => [
+      `Question ${result.questionId} is ${result.state}, so nothing waits on it.`,
       "Raise a new question instead of changing one the Operative has already acted on.",
     ],
-  },
-  "already-acknowledged": {
-    reason: "question_already_acknowledged",
-    outcome: "completed",
-    lines: (detail) => [
-      `This answer was already acknowledged at ${String(detail.acknowledgedAt)}.`,
+  ),
+  // A repeated acknowledgement is completed, so it names no blocker.
+  "already-acknowledged": shared(
+    "question_already_acknowledged",
+    "completed",
+    (result: { acknowledgedAt: string }) => [
+      `This answer was already acknowledged at ${result.acknowledgedAt}.`,
     ],
-  },
-} satisfies Record<string, QuestionOutcome>;
-
-type SharedQuestionStatus = keyof typeof questionOutcomes;
-
-const outcomeByStatus: Record<string, QuestionOutcome | undefined> = questionOutcomes;
-
-/** Returns true when it reported, so each command handles only its own outcomes. */
-function reportQuestionOutcome<Result extends { status: string }>(
-  parsed: ParsedArguments,
-  operation: Operation,
-  result: Result,
-): result is Extract<Result, { status: SharedQuestionStatus }> {
-  const shared = outcomeByStatus[result.status];
-  if (shared === undefined) {
-    return false;
-  }
-
-  const { status: _status, ...detail } = result;
-  report({
-    json: parsed.json,
-    result: {
-      outcome: shared.outcome,
-      reason: shared.reason,
-      // A completed outcome names no blocker, so only a refusal carries one.
-      blockers: shared.outcome === "completed" ? [] : [{ reason: shared.reason, ...detail }],
-      operation,
-      data: detail,
-    },
-    lines: shared.lines(detail),
-  });
-  return true;
-}
+  ),
+};
 
 async function runRaise(parsed: ParsedArguments): Promise<Handled> {
   const { requestId, attemptId, inputPath } = parsed.crew;
@@ -128,16 +106,10 @@ async function runRaise(parsed: ParsedArguments): Promise<Handled> {
     input: input.value,
   });
 
-  if (reportSharedFailure(parsed, "question_raise", result)) {
+  if (
+    answer(parsed, "question_raise", result, { ...invalidInputRefusals("invalid_question_input") })
+  ) {
     return "reported";
-  }
-  if (result.status === "invalid-input") {
-    return reportInvalidInput({
-      parsed,
-      operation: "question_raise",
-      reason: "invalid_question_input",
-      issues: result.issues,
-    });
   }
 
   if (result.status === "question-open") {
@@ -225,18 +197,12 @@ async function runRevise(parsed: ParsedArguments): Promise<Handled> {
     input: input.value,
   });
 
-  if (reportSharedFailure(parsed, "question_revise", result)) {
-    return "reported";
-  }
-  if (result.status === "invalid-input") {
-    return reportInvalidInput({
-      parsed,
-      operation: "question_revise",
-      reason: "invalid_question_input",
-      issues: result.issues,
-    });
-  }
-  if (reportQuestionOutcome(parsed, "question_revise", result)) {
+  if (
+    answer(parsed, "question_revise", result, {
+      ...questionRefusals,
+      ...invalidInputRefusals("invalid_question_input"),
+    })
+  ) {
     return "reported";
   }
 
@@ -325,18 +291,12 @@ async function runEscalate(parsed: ParsedArguments): Promise<Handled> {
     input: input.value,
   });
 
-  if (reportSharedFailure(parsed, "question_escalate", result)) {
-    return "reported";
-  }
-  if (result.status === "invalid-input") {
-    return reportInvalidInput({
-      parsed,
-      operation: "question_escalate",
-      reason: "invalid_question_input",
-      issues: result.issues,
-    });
-  }
-  if (reportQuestionOutcome(parsed, "question_escalate", result)) {
+  if (
+    answer(parsed, "question_escalate", result, {
+      ...questionRefusals,
+      ...invalidInputRefusals("invalid_question_input"),
+    })
+  ) {
     return "reported";
   }
 
@@ -415,36 +375,22 @@ async function runAnswer(parsed: ParsedArguments): Promise<Handled> {
     input: input.value,
   });
 
-  if (reportSharedFailure(parsed, "question_answer", result)) {
+  if (
+    answer(parsed, "question_answer", result, {
+      ...questionRefusals,
+      ...invalidInputRefusals("invalid_answer_input"),
+      ...sourceRefusals,
+      "unknown-assignment": (refused) => ({
+        outcome: "invalid",
+        reason: "unknown_assignment",
+        detail: { assignmentId: refused.assignmentId },
+        lines: [
+          `No assignment is registered as ${refused.assignmentId}, so it holds no approved scope.`,
+        ],
+      }),
+    })
+  ) {
     return "reported";
-  }
-  if (result.status === "invalid-input") {
-    return reportInvalidInput({
-      parsed,
-      operation: "question_answer",
-      reason: "invalid_answer_input",
-      issues: result.issues,
-    });
-  }
-  if (reportQuestionOutcome(parsed, "question_answer", result)) {
-    return "reported";
-  }
-
-  if (isSourceRefusal(result)) {
-    return reportSourceRefusal(parsed, "question_answer", result);
-  }
-
-  if (result.status === "unknown-assignment") {
-    return refuse({
-      json: parsed.json,
-      operation: "question_answer",
-      outcome: "invalid",
-      reason: "unknown_assignment",
-      detail: { assignmentId: result.assignmentId },
-      lines: [
-        `No assignment is registered as ${result.assignmentId}, so it holds no approved scope.`,
-      ],
-    });
   }
 
   return reportRecordedAnswer(parsed, "question_answer", result);
@@ -474,10 +420,7 @@ async function runReapply(parsed: ParsedArguments): Promise<Handled> {
     approvalId,
   });
 
-  if (reportSharedFailure(parsed, "question_reapply", result)) {
-    return "reported";
-  }
-  if (reportQuestionOutcome(parsed, "question_reapply", result)) {
+  if (answer(parsed, "question_reapply", result, { ...questionRefusals })) {
     return "reported";
   }
 
@@ -562,10 +505,7 @@ async function runDeliver(parsed: ParsedArguments): Promise<Handled> {
     questionId,
   });
 
-  if (reportSharedFailure(parsed, "question_deliver", result)) {
-    return "reported";
-  }
-  if (reportQuestionOutcome(parsed, "question_deliver", result)) {
+  if (answer(parsed, "question_deliver", result, { ...questionRefusals })) {
     return "reported";
   }
 
@@ -666,10 +606,7 @@ async function runAcknowledge(parsed: ParsedArguments): Promise<Handled> {
     worktreePath: read.reference.worktreePath,
   });
 
-  if (reportSharedFailure(parsed, "question_acknowledge", result)) {
-    return "reported";
-  }
-  if (reportQuestionOutcome(parsed, "question_acknowledge", result)) {
+  if (answer(parsed, "question_acknowledge", result, { ...questionRefusals })) {
     return "reported";
   }
 
@@ -724,10 +661,7 @@ async function runShow(parsed: ParsedArguments): Promise<Handled> {
   }
 
   const { result } = await CrewState.question({ projectRoot: process.cwd(), questionId });
-  if (reportSharedFailure(parsed, "question_show", result)) {
-    return "reported";
-  }
-  if (reportQuestionOutcome(parsed, "question_show", result)) {
+  if (answer(parsed, "question_show", result, { ...questionRefusals })) {
     return "reported";
   }
 

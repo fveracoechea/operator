@@ -1,12 +1,7 @@
 import { CrewState } from "../crew-state/main.ts";
 import { type ParsedArguments, readAssignmentRequest } from "./arguments.ts";
-import {
-  readStructuredInput,
-  reportAssignmentFailure,
-  reportInvalidInput,
-  reportSharedFailure,
-} from "./crew-result.ts";
-import { type Handled, refuse, report } from "./result.ts";
+import { assignmentRefusals, readStructuredInput, reportInvalidInput } from "./crew-result.ts";
+import { answer, type Handled, refuse, report } from "./result.ts";
 
 export async function runInvalidate(parsed: ParsedArguments): Promise<Handled> {
   const request = readAssignmentRequest(parsed);
@@ -33,10 +28,7 @@ export async function runInvalidate(parsed: ParsedArguments): Promise<Handled> {
     input: read.value,
   });
 
-  if (
-    reportSharedFailure(parsed, "work_invalidate", result) ||
-    reportAssignmentFailure(parsed, "work_invalidate", result)
-  ) {
+  if (answer(parsed, "work_invalidate", result, assignmentRefusals)) {
     return "reported";
   }
 

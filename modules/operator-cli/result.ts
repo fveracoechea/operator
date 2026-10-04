@@ -1,4 +1,5 @@
 import type { TrackerUpdate } from "../tracker-update/main.ts";
+import type { ParsedArguments } from "./arguments.ts";
 import { ReleaseInstall } from "../release-install/main.ts";
 
 /** What one command did with its request: it reported a result, or it cannot read the request. */
@@ -618,6 +619,177 @@ export function refuse(request: {
     lines: request.lines,
   });
   return "reported";
+}
+
+/**
+ * One answer to a crew-state status that is not the success of the command. A refusal carries
+ * one blocker under its own reason, built from `detail`, unless it names its `blockers`. A
+ * completed answer, such as a repeated acknowledgement, names no blocker.
+ */
+export type Refusal = {
+  outcome: Outcome;
+  reason: Reason;
+  lines: string[];
+  detail?: Record<string, unknown>;
+  blockers?: JsonResult["blockers"];
+  data?: unknown;
+};
+
+/** The answers of one command, each one typed against its own member of the result union. */
+export type Refusals<Result extends { status: string }> = {
+  [S in Result["status"]]?: (result: Extract<Result, { status: S }>) => Refusal;
+};
+
+type SharedFailure = {
+  reason: Reason;
+  outcome: "failed" | "invalid" | "missing-condition" | "conflict";
+  line: string;
+};
+
+/**
+ * The outcomes every crew-state call shares: a state file that cannot serve a request, a reused
+ * request identity carrying different input, and a missing or replaced ownership token.
+ */
+const sharedFailures = {
+  "state-missing": {
+    reason: "state_missing",
+    outcome: "missing-condition",
+    line: "This project holds no crew state. Run `operator crew own` to start a crew.",
+  },
+  "state-unreadable": {
+    reason: "unreadable_state",
+    outcome: "conflict",
+    line: "The crew state cannot be read. Nothing was dispatched and nothing was replaced.",
+  },
+  "state-outdated": {
+    reason: "state_version_outdated",
+    outcome: "missing-condition",
+    line: "The crew state was written by an earlier Operator release. Run `operator update` to migrate it.",
+  },
+  "state-unsupported": {
+    reason: "state_version_unsupported",
+    outcome: "failed",
+    line: "The crew state was written by a newer Operator release. Update Operator to read it.",
+  },
+  "request-input-changed": {
+    reason: "request_input_changed",
+    outcome: "invalid",
+    line: "This request identity already recorded different input. Use a new request identity.",
+  },
+  unowned: {
+    reason: "crew_unowned",
+    outcome: "missing-condition",
+    line: "No Operator owns this crew. Run `operator crew own` first.",
+  },
+  "ownership-stale": {
+    reason: "ownership_stale",
+    outcome: "conflict",
+    line: "Another Operator took ownership of this crew. This token can no longer change state.",
+  },
+  "unknown-attempt": {
+    reason: "unknown_attempt",
+    outcome: "invalid",
+    line: "No attempt is recorded under that identity.",
+  },
+  "attempt-ended": {
+    reason: "attempt_ended",
+    outcome: "conflict",
+    line: "That attempt has ended, so it can no longer write. Claim the assignment again.",
+  },
+  "attempt-not-current": {
+    reason: "attempt_not_current",
+    outcome: "conflict",
+    line: "Another Operator owns this crew, so this attempt is not the current writer.",
+  },
+  "not-dispatched": {
+    reason: "attempt_not_dispatched",
+    outcome: "missing-condition",
+    line: "That attempt has no recorded launch. Dispatch it first.",
+  },
+  "not-acknowledged": {
+    reason: "attempt_not_acknowledged",
+    outcome: "missing-condition",
+    line: "That attempt never acknowledged its brief, so it has nothing fixed to hand over.",
+  },
+  "unknown-approval": {
+    reason: "unknown_approval",
+    outcome: "missing-condition",
+    line: "No approval is recorded under that identity.",
+  },
+  "approval-revoked": {
+    reason: "approval_revoked",
+    outcome: "missing-condition",
+    line: "That approval was revoked, so it authorizes nothing.",
+  },
+  "approval-mismatch": {
+    reason: "approval_mismatch",
+    outcome: "missing-condition",
+    line: "That approval was granted for a different action, target, scope, or request revision.",
+  },
+  "unknown-review": {
+    reason: "unknown_review",
+    outcome: "invalid",
+    line: "No review is recorded under that identity.",
+  },
+  "invalid-configuration": {
+    reason: "invalid_configuration",
+    outcome: "invalid",
+    line: "The Operator configuration is not valid, so the crew size is unknown.",
+  },
+} satisfies Record<string, SharedFailure>;
+
+/** The statuses that every crew-state call shares. `answer` reports them for every command. */
+export type SharedStatus = keyof typeof sharedFailures;
+
+const sharedByStatus: Record<string, SharedFailure | undefined> = sharedFailures;
+
+/** The shared answer to a status, or the answer of the command's own table. */
+function refusalOf(
+  result: { status: string },
+  refusals: Record<string, ((result: never) => Refusal) | undefined>,
+): Refusal | null {
+  const { status, ...detail } = result;
+  const shared = sharedByStatus[status];
+  if (shared !== undefined) {
+    return { outcome: shared.outcome, reason: shared.reason, lines: [shared.line], detail };
+  }
+
+  const entry = refusals[status];
+  // The table types each entry against the member of the union that carries its status, and the
+  // status was just read from this result, so the result is that member.
+  return entry === undefined ? null : entry(result as never);
+}
+
+/**
+ * Answers every status of a crew-state result that is not the success of the command: the
+ * shared failures, then the command's own table. Returns true when it reported, so the caller
+ * handles only the statuses the table does not hold.
+ */
+export function answer<Result extends { status: string }, Table extends Refusals<Result>>(
+  parsed: ParsedArguments,
+  operation: Operation,
+  result: Result,
+  refusals: Table,
+): result is Extract<Result, { status: SharedStatus | keyof Table }> {
+  const refusal = refusalOf(result, refusals);
+  if (refusal === null) {
+    return false;
+  }
+
+  const { outcome, reason } = refusal;
+  report({
+    json: parsed.json,
+    result: {
+      outcome,
+      reason,
+      blockers:
+        refusal.blockers ?? (outcome === "completed" ? [] : [{ reason, ...refusal.detail }]),
+      operation,
+      data: refusal.data,
+    },
+    lines: refusal.lines,
+  });
+  return true;
 }
 
 /** Reports one command result: JSON for agents on stdout, readable lines for a person. */

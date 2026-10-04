@@ -1,19 +1,20 @@
 import { CrewState } from "../crew-state/main.ts";
 import { runInvalidate } from "./invalidate-command.ts";
 import { runDispose } from "./outside-command.ts";
-import { landingRefusalOf } from "./landing-refusal.ts";
 import { runRebase } from "./rebase-command.ts";
 import { runRework } from "./rework-command.ts";
 import { runTakeOut } from "./take-out-command.ts";
 import { type ParsedArguments, readMutation, readRevision } from "./arguments.ts";
 import {
+  assignmentRefusals,
+  invalidInputRefusals,
+  landingRefusals,
   readStructuredInput,
-  reportAssignmentFailure,
   reportInvalidInput,
   reportSharedFailure,
 } from "./crew-result.ts";
-import { type Handled, type Reason, refuse, report } from "./result.ts";
-import { isSourceRefusal, reportSourceRefusal } from "./source-result.ts";
+import { answer, type Handled, type Reason, type Refusals, refuse, report } from "./result.ts";
+import { sourceRefusals } from "./source-result.ts";
 
 /** The plan and its file, as the preview returns them. The refusal of a registration gives both. */
 type PlanReport = Pick<
@@ -281,10 +282,7 @@ async function runClaim(parsed: ParsedArguments): Promise<Handled> {
     revision,
   });
 
-  if (
-    reportSharedFailure(parsed, "work_claim", result) ||
-    reportAssignmentFailure(parsed, "work_claim", result)
-  ) {
+  if (answer(parsed, "work_claim", result, assignmentRefusals)) {
     return "reported";
   }
 
@@ -393,111 +391,282 @@ async function runClaim(parsed: ParsedArguments): Promise<Handled> {
 
 type AcceptanceResult = Awaited<ReturnType<typeof CrewState.accept>>["result"];
 
-function reportAcceptancePrerequisite(
-  parsed: ParsedArguments,
-  result: AcceptanceResult,
-): Handled | null {
-  if (result.status === "not-claimed") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "assignment_not_claimed",
-        blockers: [
-          {
-            reason: "assignment_not_claimed",
-            assignmentId: result.assignmentId,
-            state: result.state,
-          },
-        ],
-        operation: "work_accept",
-      },
-      lines: [`Assignment ${result.assignmentId} is ${result.state}, so nothing can be accepted.`],
-    });
-    return "reported";
-  }
-
-  if (result.status === "attempt-required" || result.status === "attempt-not-expected") {
-    const required = result.status === "attempt-required";
-    return refuse({
-      json: parsed.json,
-      operation: "work_accept",
-      outcome: "invalid",
-      reason: required ? "attempt_required" : "attempt_not_expected",
-      detail: { assignmentId: result.assignmentId },
-      lines: [
-        required
-          ? `Assignment ${result.assignmentId} is executable, so acceptance names the attempt that holds it.`
-          : `Assignment ${result.assignmentId} is planning work, so acceptance names no attempt.`,
-      ],
-    });
-  }
-
-  if (result.status === "attempt-mismatch") {
-    return refuse({
-      json: parsed.json,
-      operation: "work_accept",
-      outcome: "conflict",
-      reason: "attempt_mismatch",
-      detail: {
-        assignmentId: result.assignmentId,
-        attemptId: result.attemptId,
-      },
-      lines: [
-        result.attemptId === null
-          ? `Assignment ${result.assignmentId} has no active attempt.`
-          : `Assignment ${result.assignmentId} is held by attempt ${result.attemptId}.`,
-      ],
-    });
-  }
-
-  if (result.status === "question-open") {
-    return refuse({
-      json: parsed.json,
-      operation: "work_accept",
-      outcome: "missing-condition",
-      reason: "question_open",
-      detail: {
-        assignmentId: result.assignmentId,
-        questionId: result.questionId,
-        state: result.state,
-      },
-      lines: [
-        `Assignment ${result.assignmentId} still waits on question ${result.questionId}.`,
-        "Deliver the answer and let the Operative acknowledge it before you accept the result.",
-      ],
-    });
-  }
-
-  if (result.status === "submission-required" || result.status === "submission-mismatch") {
-    const required = result.status === "submission-required";
-    const blocker = required
-      ? { reason: "submission_required" as const, assignmentId: result.assignmentId }
-      : {
-          reason: "submission_mismatch" as const,
-          assignmentId: result.assignmentId,
-          recordedSubmissionId: result.recordedSubmissionId,
-        };
-    report({
-      json: parsed.json,
-      result: {
-        outcome: required ? "missing-condition" : "conflict",
-        reason: required ? "submission_required" : "submission_mismatch",
-        blockers: [blocker],
-        operation: "work_accept",
-      },
-      lines: [
-        required
-          ? `Assignment ${result.assignmentId} has no submitted result to accept.`
-          : `Assignment ${result.assignmentId} holds submission ${result.recordedSubmissionId}.`,
-        "Acceptance names the exact submission it read.",
-      ],
-    });
-    return "reported";
-  }
+/**
+ * Every acceptance that accepts nothing: a missing prerequisite, a planning record that cannot be
+ * used, an unfinished review, and a landing that stopped. Nothing was recorded, except the open
+ * intent of a stopped landing.
+ */
+const acceptRefusals = {
+  ...assignmentRefusals,
+  "not-claimed": (result) => ({
+    outcome: "conflict",
+    reason: "assignment_not_claimed",
+    detail: { assignmentId: result.assignmentId, state: result.state },
+    lines: [`Assignment ${result.assignmentId} is ${result.state}, so nothing can be accepted.`],
+  }),
+  "attempt-required": (result) => ({
+    outcome: "invalid",
+    reason: "attempt_required",
+    detail: { assignmentId: result.assignmentId },
+    lines: [
+      `Assignment ${result.assignmentId} is executable, so acceptance names the attempt that holds it.`,
+    ],
+  }),
+  "attempt-not-expected": (result) => ({
+    outcome: "invalid",
+    reason: "attempt_not_expected",
+    detail: { assignmentId: result.assignmentId },
+    lines: [`Assignment ${result.assignmentId} is planning work, so acceptance names no attempt.`],
+  }),
+  "attempt-mismatch": (result) => ({
+    outcome: "conflict",
+    reason: "attempt_mismatch",
+    detail: { assignmentId: result.assignmentId, attemptId: result.attemptId },
+    lines: [
+      result.attemptId === null
+        ? `Assignment ${result.assignmentId} has no active attempt.`
+        : `Assignment ${result.assignmentId} is held by attempt ${result.attemptId}.`,
+    ],
+  }),
+  "question-open": (result) => ({
+    outcome: "missing-condition",
+    reason: "question_open",
+    detail: {
+      assignmentId: result.assignmentId,
+      questionId: result.questionId,
+      state: result.state,
+    },
+    lines: [
+      `Assignment ${result.assignmentId} still waits on question ${result.questionId}.`,
+      "Deliver the answer and let the Operative acknowledge it before you accept the result.",
+    ],
+  }),
+  "submission-required": (result) => ({
+    outcome: "missing-condition",
+    reason: "submission_required",
+    detail: { assignmentId: result.assignmentId },
+    lines: [
+      `Assignment ${result.assignmentId} has no submitted result to accept.`,
+      "Acceptance names the exact submission it read.",
+    ],
+  }),
+  "submission-mismatch": (result) => ({
+    outcome: "conflict",
+    reason: "submission_mismatch",
+    detail: {
+      assignmentId: result.assignmentId,
+      recordedSubmissionId: result.recordedSubmissionId,
+    },
+    lines: [
+      `Assignment ${result.assignmentId} holds submission ${result.recordedSubmissionId}.`,
+      "Acceptance names the exact submission it read.",
+    ],
+  }),
   // A planning acceptance has prerequisites of its own: its dependencies and its record.
-  return reportPlanningRefusal(parsed, result);
-}
+  ...invalidInputRefusals("invalid_planning_record"),
+  ...sourceRefusals,
+  "artifact-unreadable": (result) => ({
+    outcome: "missing-condition",
+    reason: "artifact_unreadable",
+    detail: { name: result.name, path: result.path },
+    lines: [
+      `Artifact ${result.name} cannot be read at ${result.path}.`,
+      "A planning record holds fixed texts, so nothing was accepted.",
+    ],
+  }),
+  "artifact-identity-changed": (result) => ({
+    outcome: "conflict",
+    reason: "artifact_identity_changed",
+    detail: { name: result.name, path: result.path, found: result.found },
+    lines: [
+      `Artifact ${result.name} at ${result.path} does not match the identity you stated.`,
+      "A planning record holds fixed texts, so nothing was accepted.",
+    ],
+  }),
+  "dependency-pending": (result) => ({
+    outcome: "missing-condition",
+    reason: "dependency_pending",
+    detail: { assignmentId: result.assignmentId, dependencies: result.dependencies },
+    lines: [
+      `Assignment ${result.assignmentId} waits on work that is not accepted:`,
+      ...result.dependencies.map((one) => `  ${one.assignmentId} (${one.state})`),
+      "A decision is taken only on accepted inputs.",
+    ],
+  }),
+  "planning-record-required": (result) => ({
+    outcome: "missing-condition",
+    reason: "planning_record_required",
+    detail: { assignmentId: result.assignmentId },
+    lines: [
+      `Assignment ${result.assignmentId} is planning work, so its acceptance records a planning record.`,
+      "Name the record with --input. Its dependents receive it.",
+    ],
+  }),
+  "planning-record-not-expected": (result) => ({
+    outcome: "invalid",
+    reason: "planning_record_not_expected",
+    detail: { assignmentId: result.assignmentId },
+    lines: [`Assignment ${result.assignmentId} is not planning work, so it records no decision.`],
+  }),
+  "operator-decision-not-allowed": (result) => ({
+    outcome: "missing-condition",
+    reason: "operator_decision_not_allowed",
+    detail: {
+      assignmentId: result.assignmentId,
+      entry: result.entry,
+      planningType: result.planningType,
+    },
+    lines: [
+      `Entry ${result.entry}: ${result.planningType ?? "this planning work"} is the user's side of a decision, so no entry is an Operator decision.`,
+      "Record the user's answer as a human answer, or quote an approved source as a requirement.",
+    ],
+  }),
+  "escalation-required": (result) => ({
+    outcome: "missing-condition",
+    reason: "escalation_required",
+    detail: {
+      assignmentId: result.assignmentId,
+      entry: result.entry,
+      authority: result.authority,
+      escalationTriggers: result.escalationTriggers,
+    },
+    lines: [
+      `Entry ${result.entry} names subjects a ${result.authority} cannot settle:`,
+      ...result.escalationTriggers.map((one) => `  ${one}`),
+      "Bring it to the user and record their answer as a human answer.",
+    ],
+  }),
+  "review-incomplete": (result) => ({
+    outcome: "missing-condition",
+    reason: "review_incomplete",
+    detail: {
+      assignmentId: result.assignmentId,
+      reviewId: result.reviewId,
+      state: result.state,
+      blocker: result.blocker,
+    },
+    lines: [
+      `The review of ${result.assignmentId} is ${result.state}, so nothing is accepted.`,
+      "A stopped process, a missing input, or an unavailable review capability is not a pass.",
+    ],
+  }),
+  "review-axes-incomplete": (result) => ({
+    outcome: "missing-condition",
+    reason: "review_axes_incomplete",
+    blockers: result.missing.map((axis) => ({
+      reason: "review_axes_incomplete" as const,
+      axis,
+      reviewId: result.reviewId,
+    })),
+    lines: [`Review ${result.reviewId} is missing the ${result.missing.join(", ")} axis.`],
+  }),
+  "findings-undisposed": (result) => ({
+    outcome: "missing-condition",
+    reason: "findings_undisposed",
+    blockers: result.findingIds.map((findingId) => ({
+      reason: "findings_undisposed" as const,
+      findingId,
+      reviewId: result.reviewId,
+    })),
+    lines: [
+      `${result.findingIds.length} finding(s) of review ${result.reviewId} carry no disposition.`,
+    ],
+  }),
+  "rework-pending": (result) => ({
+    outcome: "pending",
+    reason: "rework_pending",
+    blockers: result.findingIds.map((findingId) => ({
+      reason: "rework_pending" as const,
+      findingId,
+      reviewId: result.reviewId,
+    })),
+    lines: [`${result.findingIds.length} accepted correction(s) wait for a fresh Operative.`],
+  }),
+  "outside-changes-undisposed": (result) => ({
+    outcome: "missing-condition",
+    reason: "outside_changes_undisposed",
+    detail: {
+      submissionId: result.submissionId,
+      count: result.changeIds.length,
+      security: result.security,
+    },
+    // The Operator reads a summary here, and the review shows each change.
+    lines: [
+      `${result.changeIds.length} outside change(s) of submission ${result.submissionId} carry no disposition.`,
+      ...(result.security === 0
+        ? []
+        : [`${result.security} of them touch a security permission, so the user decides them.`]),
+      "Read them with `operator review show`, then record each one with `operator work dispose`.",
+    ],
+  }),
+  "checks-unproven": (result) => ({
+    outcome: "missing-condition",
+    reason: "checks_unproven",
+    blockers: result.checks.map((check) => ({ reason: "checks_unproven" as const, ...check })),
+    lines: [
+      "These required checks did not pass:",
+      ...result.checks.map((check) => `  ${check.name}: ${check.outcome}`),
+      "A passing rerun does not erase a failure, and a flaky check proves nothing.",
+    ],
+  }),
+  "checks-contradicted": (result) => ({
+    outcome: "conflict",
+    reason: "checks_contradicted",
+    blockers: result.checks.map((check) => ({
+      reason: "checks_contradicted" as const,
+      ...check,
+    })),
+    data: { reviewId: result.reviewId },
+    lines: [
+      "The review ran these checks itself and saw a different outcome:",
+      ...result.checks.map(
+        (check) =>
+          `  ${check.name}: the producer recorded ${check.recorded}, the ${check.axis} axis saw ${check.observed}`,
+      ),
+      "What a reviewer ran outranks what the producer wrote about its own work.",
+    ],
+  }),
+  "direction-required": (result) => ({
+    outcome: "missing-condition",
+    reason: "direction_required",
+    blockers: result.directions.map((one) => ({
+      reason: "direction_required" as const,
+      directionRequestId: one.directionRequestId,
+      limitKind: one.limitKind,
+      limit: one.limitValue,
+      revision: one.revision,
+    })),
+    data: { assignmentId: result.assignmentId, directions: result.directions },
+    lines: [
+      `Assignment ${result.assignmentId} reached a limit and waits on the user:`,
+      ...result.directions.map(
+        (one) =>
+          `  ${one.directionRequestId} ${one.limitKind} at ${one.limitValue} (revision ${one.revision})`,
+      ),
+      "The recorded evidence is preserved. Acceptance stays blocked until the user directs it.",
+    ],
+  }),
+  "input-invalidated": (result) => ({
+    outcome: "missing-condition",
+    reason: "input_invalidated",
+    blockers: result.invalidated.map((assignmentId) => ({
+      reason: "input_invalidated" as const,
+      assignmentId,
+    })),
+    data: { assignmentId: result.assignmentId },
+    lines: [
+      `Assignment ${result.assignmentId} read a result that was found defective:`,
+      ...result.invalidated.map((one) => `  ${one}`),
+      "It moves again when the corrected result is accepted.",
+    ],
+  }),
+  // A landing that stopped landed nothing and recorded nothing, except an open intent.
+  ...landingRefusals({
+    retry: "accept",
+    gateCommand: "operator gate run --assignment <id>",
+    nothing: "Nothing was accepted.",
+  }),
+} satisfies Refusals<AcceptanceResult>;
 
 /** Planning work names its planning record with --input. Other work names none. */
 async function readPlanningRecord(
@@ -512,119 +681,6 @@ async function readPlanningRecord(
         reason: "invalid_planning_record",
         path: inputPath,
       });
-}
-
-/** The refusals of a planning acceptance: its dependencies, its record, and its authority. */
-function reportPlanningRefusal(parsed: ParsedArguments, result: AcceptanceResult): Handled | null {
-  if (result.status === "invalid-input") {
-    return reportInvalidInput({
-      parsed,
-      operation: "work_accept",
-      reason: "invalid_planning_record",
-      issues: result.issues,
-    });
-  }
-  if (isSourceRefusal(result)) {
-    return reportSourceRefusal(parsed, "work_accept", result);
-  }
-  if (result.status === "artifact-unreadable" || result.status === "artifact-identity-changed") {
-    const unreadable = result.status === "artifact-unreadable";
-    return refuse({
-      json: parsed.json,
-      operation: "work_accept",
-      outcome: unreadable ? "missing-condition" : "conflict",
-      reason: unreadable ? "artifact_unreadable" : "artifact_identity_changed",
-      detail: unreadable
-        ? { name: result.name, path: result.path }
-        : { name: result.name, path: result.path, found: result.found },
-      lines: [
-        unreadable
-          ? `Artifact ${result.name} cannot be read at ${result.path}.`
-          : `Artifact ${result.name} at ${result.path} does not match the identity you stated.`,
-        "A planning record holds fixed texts, so nothing was accepted.",
-      ],
-    });
-  }
-
-  if (result.status === "dependency-pending") {
-    return refuse({
-      json: parsed.json,
-      operation: "work_accept",
-      outcome: "missing-condition",
-      reason: "dependency_pending",
-      detail: { assignmentId: result.assignmentId, dependencies: result.dependencies },
-      lines: [
-        `Assignment ${result.assignmentId} waits on work that is not accepted:`,
-        ...result.dependencies.map((one) => `  ${one.assignmentId} (${one.state})`),
-        "A decision is taken only on accepted inputs.",
-      ],
-    });
-  }
-
-  if (result.status === "planning-record-required") {
-    return refuse({
-      json: parsed.json,
-      operation: "work_accept",
-      outcome: "missing-condition",
-      reason: "planning_record_required",
-      detail: { assignmentId: result.assignmentId },
-      lines: [
-        `Assignment ${result.assignmentId} is planning work, so its acceptance records a planning record.`,
-        "Name the record with --input. Its dependents receive it.",
-      ],
-    });
-  }
-
-  if (result.status === "planning-record-not-expected") {
-    return refuse({
-      json: parsed.json,
-      operation: "work_accept",
-      outcome: "invalid",
-      reason: "planning_record_not_expected",
-      detail: { assignmentId: result.assignmentId },
-      lines: [`Assignment ${result.assignmentId} is not planning work, so it records no decision.`],
-    });
-  }
-
-  if (result.status === "operator-decision-not-allowed") {
-    return refuse({
-      json: parsed.json,
-      operation: "work_accept",
-      outcome: "missing-condition",
-      reason: "operator_decision_not_allowed",
-      detail: {
-        assignmentId: result.assignmentId,
-        entry: result.entry,
-        planningType: result.planningType,
-      },
-      lines: [
-        `Entry ${result.entry}: ${result.planningType ?? "this planning work"} is the user's side of a decision, so no entry is an Operator decision.`,
-        "Record the user's answer as a human answer, or quote an approved source as a requirement.",
-      ],
-    });
-  }
-
-  if (result.status === "escalation-required") {
-    return refuse({
-      json: parsed.json,
-      operation: "work_accept",
-      outcome: "missing-condition",
-      reason: "escalation_required",
-      detail: {
-        assignmentId: result.assignmentId,
-        entry: result.entry,
-        authority: result.authority,
-        escalationTriggers: result.escalationTriggers,
-      },
-      lines: [
-        `Entry ${result.entry} names subjects a ${result.authority} cannot settle:`,
-        ...result.escalationTriggers.map((one) => `  ${one}`),
-        "Bring it to the user and record their answer as a human answer.",
-      ],
-    });
-  }
-
-  return null;
 }
 
 type AcceptRequest = Parameters<typeof CrewState.accept>[0];
@@ -660,30 +716,6 @@ async function readAcceptRequest(
   };
 }
 
-/** Reports a landing that stopped. Nothing landed and nothing was recorded, except an open intent. */
-function reportLandingRefusal(parsed: ParsedArguments, result: AcceptanceResult): Handled | null {
-  switch (result.status) {
-    case "landing-refused": {
-      const { refusal } = result;
-      const { outcome, reason, lines } = landingRefusalOf(refusal, {
-        retry: "accept",
-        gateRun: "--assignment",
-      });
-      const { status: _status, ...detail } = refusal;
-      return refuse({
-        json: parsed.json,
-        operation: "work_accept",
-        outcome,
-        reason,
-        detail,
-        lines: [...lines, "Nothing was accepted."],
-      });
-    }
-    default:
-      return null;
-  }
-}
-
 async function runAccept(parsed: ParsedArguments): Promise<Handled> {
   const read = await readAcceptRequest(parsed);
   if (typeof read === "string") {
@@ -691,199 +723,9 @@ async function runAccept(parsed: ParsedArguments): Promise<Handled> {
   }
 
   const { repeated, result } = await CrewState.accept(read.request);
-
-  if (
-    reportSharedFailure(parsed, "work_accept", result) ||
-    reportAssignmentFailure(parsed, "work_accept", result)
-  ) {
+  if (answer(parsed, "work_accept", result, acceptRefusals)) {
     return "reported";
   }
-  const prerequisite = reportAcceptancePrerequisite(parsed, result);
-  if (prerequisite !== null) return prerequisite;
-
-  if (result.status === "review-incomplete") {
-    return refuse({
-      json: parsed.json,
-      operation: "work_accept",
-      outcome: "missing-condition",
-      reason: "review_incomplete",
-      detail: {
-        assignmentId: result.assignmentId,
-        reviewId: result.reviewId,
-        state: result.state,
-        blocker: result.blocker,
-      },
-      lines: [
-        `The review of ${result.assignmentId} is ${result.state}, so nothing is accepted.`,
-        "A stopped process, a missing input, or an unavailable review capability is not a pass.",
-      ],
-    });
-  }
-
-  if (result.status === "review-axes-incomplete") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: "review_axes_incomplete",
-        blockers: result.missing.map((axis) => ({
-          reason: "review_axes_incomplete" as const,
-          axis,
-          reviewId: result.reviewId,
-        })),
-        operation: "work_accept",
-      },
-      lines: [`Review ${result.reviewId} is missing the ${result.missing.join(", ")} axis.`],
-    });
-    return "reported";
-  }
-
-  if (result.status === "findings-undisposed" || result.status === "rework-pending") {
-    const undisposed = result.status === "findings-undisposed";
-    report({
-      json: parsed.json,
-      result: {
-        outcome: undisposed ? "missing-condition" : "pending",
-        reason: undisposed ? "findings_undisposed" : "rework_pending",
-        blockers: result.findingIds.map((findingId) => ({
-          reason: undisposed ? ("findings_undisposed" as const) : ("rework_pending" as const),
-          findingId,
-          reviewId: result.reviewId,
-        })),
-        operation: "work_accept",
-      },
-      lines: [
-        undisposed
-          ? `${result.findingIds.length} finding(s) of review ${result.reviewId} carry no disposition.`
-          : `${result.findingIds.length} accepted correction(s) wait for a fresh Operative.`,
-      ],
-    });
-    return "reported";
-  }
-
-  if (result.status === "outside-changes-undisposed") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: "outside_changes_undisposed",
-        blockers: [
-          {
-            reason: "outside_changes_undisposed",
-            submissionId: result.submissionId,
-            count: result.changeIds.length,
-            security: result.security,
-          },
-        ],
-        operation: "work_accept",
-      },
-      // The Operator reads a summary here, and the review shows each change.
-      lines: [
-        `${result.changeIds.length} outside change(s) of submission ${result.submissionId} carry no disposition.`,
-        ...(result.security === 0
-          ? []
-          : [`${result.security} of them touch a security permission, so the user decides them.`]),
-        "Read them with `operator review show`, then record each one with `operator work dispose`.",
-      ],
-    });
-    return "reported";
-  }
-
-  if (result.status === "checks-unproven") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: "checks_unproven",
-        blockers: result.checks.map((check) => ({ reason: "checks_unproven" as const, ...check })),
-        operation: "work_accept",
-      },
-      lines: [
-        "These required checks did not pass:",
-        ...result.checks.map((check) => `  ${check.name}: ${check.outcome}`),
-        "A passing rerun does not erase a failure, and a flaky check proves nothing.",
-      ],
-    });
-    return "reported";
-  }
-
-  if (result.status === "checks-contradicted") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "checks_contradicted",
-        blockers: result.checks.map((check) => ({
-          reason: "checks_contradicted" as const,
-          ...check,
-        })),
-        operation: "work_accept",
-        data: { reviewId: result.reviewId },
-      },
-      lines: [
-        "The review ran these checks itself and saw a different outcome:",
-        ...result.checks.map(
-          (check) =>
-            `  ${check.name}: the producer recorded ${check.recorded}, the ${check.axis} axis saw ${check.observed}`,
-        ),
-        "What a reviewer ran outranks what the producer wrote about its own work.",
-      ],
-    });
-    return "reported";
-  }
-
-  if (result.status === "direction-required") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: "direction_required",
-        blockers: result.directions.map((one) => ({
-          reason: "direction_required" as const,
-          directionRequestId: one.directionRequestId,
-          limitKind: one.limitKind,
-          limit: one.limitValue,
-          revision: one.revision,
-        })),
-        operation: "work_accept",
-        data: { assignmentId: result.assignmentId, directions: result.directions },
-      },
-      lines: [
-        `Assignment ${result.assignmentId} reached a limit and waits on the user:`,
-        ...result.directions.map(
-          (one) =>
-            `  ${one.directionRequestId} ${one.limitKind} at ${one.limitValue} (revision ${one.revision})`,
-        ),
-        "The recorded evidence is preserved. Acceptance stays blocked until the user directs it.",
-      ],
-    });
-    return "reported";
-  }
-
-  if (result.status === "input-invalidated") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: "input_invalidated",
-        blockers: result.invalidated.map((assignmentId) => ({
-          reason: "input_invalidated" as const,
-          assignmentId,
-        })),
-        operation: "work_accept",
-        data: { assignmentId: result.assignmentId },
-      },
-      lines: [
-        `Assignment ${result.assignmentId} read a result that was found defective:`,
-        ...result.invalidated.map((one) => `  ${one}`),
-        "It moves again when the corrected result is accepted.",
-      ],
-    });
-    return "reported";
-  }
-
-  const landing = reportLandingRefusal(parsed, result);
-  if (landing !== null) return landing;
 
   return result.status === "accepted"
     ? reportAccepted(parsed, result, repeated)
@@ -1080,10 +922,7 @@ async function runWritePaths(parsed: ParsedArguments): Promise<Handled> {
     assignmentId,
     input,
   });
-  if (reportSharedFailure(parsed, "work_write_paths", result)) {
-    return "reported";
-  }
-  if (reportAssignmentFailure(parsed, "work_write_paths", result)) {
+  if (answer(parsed, "work_write_paths", result, assignmentRefusals)) {
     return "reported";
   }
   if (result.status === "invalid-input") {
