@@ -4,7 +4,7 @@ import {
   registerSource,
   workspaceTarget,
 } from "./source-fixture.ts";
-import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterEach, describe, expect, test as bunTest } from "bun:test";
 import {
   commitArtifact,
   delegateRework,
@@ -33,7 +33,11 @@ import {
 } from "./workspace-fixture.ts";
 
 // Workflow tests create Git worktrees and run several CLI processes under the parallel CI gate.
-setDefaultTimeout(60_000);
+// Each test states its own bound, because setDefaultTimeout sets the bound of every file in the
+// bun test process (#140).
+function test(name: string, run: () => Promise<void>, timeoutMs = 60_000) {
+  bunTest(name, run, timeoutMs);
+}
 
 const fixtures = workspaces();
 

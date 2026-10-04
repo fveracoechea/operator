@@ -109,10 +109,68 @@ export type NextActionName = (typeof NEXT_ACTIONS)[number];
  * decides whether the crew can advance: settling it starts no work, and a running Operative is
  * unaffected by it.
  */
-export const STANDING_ACTIONS = ["prove_readiness"] as const satisfies NextActionName[];
+const STANDING_ACTIONS: readonly string[] = ["prove_readiness"] satisfies NextActionName[];
 
-export function isStandingAction(action: string): boolean {
-  return STANDING_ACTIONS.some((one) => one === action);
+/**
+ * What a session may do on its own after one schedule, which is what the exit meaning reports.
+ * A crew action that waits on a person outranks a wait, because waiting settles nothing a
+ * person holds and a session would read a wait as permission to do nothing about it.
+ */
+type NextVerdict = {
+  outcome: "completed" | "missing-condition" | "pending";
+  reason:
+    | "next_actions_reported"
+    | "next_actions_blocked"
+    | "next_actions_waiting"
+    | "next_actions_none";
+  /** True when the schedule holds an action this crew owes, blocked or not. */
+  owed: boolean;
+};
+
+/**
+ * The verdict of one schedule. It reads only the action names, their blockers, and the waits, so
+ * the schedule that the CLI prints as JSON gives the same verdict as the one this module reads.
+ */
+export function verdictOf(schedule: {
+  actions: readonly { action: string; blocker: string | null }[];
+  waits: readonly unknown[];
+}): NextVerdict {
+  // A standing precondition is reported and is never the reason the crew cannot advance.
+  const owed = schedule.actions.filter((one) => !STANDING_ACTIONS.includes(one.action));
+  const verdict = (outcome: NextVerdict["outcome"], reason: NextVerdict["reason"]) => ({
+    outcome,
+    reason,
+    owed: owed.length > 0,
+  });
+
+  if (owed.some((one) => one.blocker === null))
+    return verdict("completed", "next_actions_reported");
+  if (owed.length > 0) return verdict("missing-condition", "next_actions_blocked");
+  if (schedule.waits.length > 0) return verdict("pending", "next_actions_waiting");
+  if (schedule.actions.length > 0) return verdict("missing-condition", "next_actions_blocked");
+  return verdict("completed", "next_actions_none");
+}
+
+/**
+ * Every action that names a blocker, under the blocker as its reason. A schedule whose verdict
+ * says a person must decide therefore always names what to decide.
+ */
+function blockersOf(actions: NextAction[]) {
+  return actions.flatMap((one) =>
+    one.blocker === null
+      ? []
+      : [
+          {
+            reason: one.blocker,
+            action: one.action,
+            assignmentId: one.assignmentId,
+            attemptId: one.attemptId,
+            questionId: one.questionId,
+            reviewId: one.reviewId,
+            detail: one.detail,
+          },
+        ],
+  );
 }
 
 /**
@@ -193,6 +251,8 @@ export type CrewNext = {
   actions: NextAction[];
   waits: NextWait[];
   frontier: Frontier;
+  verdict: NextVerdict;
+  blockers: ReturnType<typeof blockersOf>;
 };
 
 export type Readiness = { ready: boolean; detail: string };
@@ -1346,6 +1406,25 @@ function emptyFrontier(capacity: Capacity): Frontier {
   };
 }
 
+/** The collected schedule, with the verdict and the blockers that it gives. */
+function scheduleOf(
+  into: Collector,
+  read: { ownership: CrewNext["ownership"]; frontier: Frontier },
+): CrewNext {
+  const actions = into.actions();
+  const waits = into.waits();
+  return {
+    status: "reported",
+    ownership: read.ownership,
+    capacity: read.frontier.capacity,
+    actions,
+    waits,
+    frontier: read.frontier,
+    verdict: verdictOf({ actions, waits }),
+    blockers: blockersOf(actions),
+  };
+}
+
 /**
  * What a project that holds no crew state may do next.
  * It answers in the same shape as a project that holds one, because a session reads one
@@ -1360,15 +1439,7 @@ export function calculateUnowned(request: { capacity: Capacity; readiness: Readi
     command: "operator crew own",
   });
 
-  const frontier = emptyFrontier(request.capacity);
-  return {
-    status: "reported",
-    ownership: null,
-    capacity: frontier.capacity,
-    actions: into.actions(),
-    waits: into.waits(),
-    frontier,
-  };
+  return scheduleOf(into, { ownership: null, frontier: emptyFrontier(request.capacity) });
 }
 
 /**
@@ -1408,8 +1479,7 @@ export function calculateNext(
   readSourceSteps(db, into);
   readFrontier(db, { frontier, paused }, into);
 
-  return {
-    status: "reported",
+  return scheduleOf(into, {
     ownership:
       ownership === null
         ? null
@@ -1418,11 +1488,8 @@ export function calculateNext(
             acquiredAt: ownership.acquiredAt,
             revision: ownership.revision,
           },
-    capacity: frontier.capacity,
-    actions: into.actions(),
-    waits: into.waits(),
     frontier,
-  };
+  });
 }
 
 type Ownership = ReturnType<typeof currentOwnership>;

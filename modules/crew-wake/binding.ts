@@ -23,10 +23,6 @@ export async function configDir(): Promise<string> {
   return response.stdout;
 }
 
-function hasCrewAction(value: Next): boolean {
-  return value.actions.some((entry) => !CrewState.isStandingAction({ action: entry.action }));
-}
-
 type Ownership = Pick<Binding, "owner" | "acquired" | "revision">;
 
 function ownedBy(binding: Ownership, schedule: Next): boolean {
@@ -88,7 +84,11 @@ export async function scheduleAfterEvent(
   crewEvent: boolean,
 ): Promise<Next> {
   let current = schedule;
-  for (let attempt = 0; crewEvent && attempt < 4 && !hasCrewAction(current); attempt += 1) {
+  for (
+    let attempt = 0;
+    crewEvent && attempt < 4 && !CrewState.verdict(current).owed;
+    attempt += 1
+  ) {
     await Bun.sleep(500);
     current = await next(binding);
   }
@@ -186,7 +186,7 @@ function armRow(owner: string): Row {
           schedule !== undefined &&
           schedule.ownership?.ownerLabel === owner &&
           schedule.waits.length > 0 &&
-          !hasCrewAction(schedule),
+          !CrewState.verdict(schedule).owed,
         otherwise: "no-crew-wait",
       },
     ],
@@ -236,7 +236,7 @@ function checkRow(binding: Ownership, pane: string | null): Row {
       {
         needs: "settled",
         holds: ({ settled }) =>
-          settled !== undefined && ownedBy(binding, settled) && hasCrewAction(settled),
+          settled !== undefined && ownedBy(binding, settled) && CrewState.verdict(settled).owed,
         otherwise: "no-crew-action",
       },
       {

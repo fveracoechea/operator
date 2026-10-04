@@ -22,7 +22,7 @@ import { acceptWithLanding } from "./accept-landing.ts";
 import { landingRefused } from "./branch-move.ts";
 import { claimAssignment } from "./claims.ts";
 import { calculateFrontier } from "./frontier.ts";
-import { calculateNext, calculateUnowned, isStandingAction } from "./next.ts";
+import { calculateNext, calculateUnowned, verdictOf } from "./next.ts";
 import { readBrokenLandings } from "./next-landings.ts";
 import { parseInput } from "./input.ts";
 import {
@@ -964,11 +964,12 @@ export const CrewState = {
   },
 
   /**
-   * True when one next action is a standing precondition rather than work this crew owes.
-   * A caller reads this to decide what the crew can advance on its own.
+   * The verdict of one schedule that `next` reported, also after the CLI printed it as JSON:
+   * the outcome and reason a session reports, and whether the crew owes one of its actions.
+   * `next` gives the same verdict with its report, so no caller reads action names by hand.
    */
-  isStandingAction(request: { action: string }): boolean {
-    return isStandingAction(request.action);
+  verdict(schedule: Parameters<typeof verdictOf>[0]) {
+    return verdictOf(schedule);
   },
 
   /**
