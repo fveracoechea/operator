@@ -1153,8 +1153,9 @@ Start with [AGENTS.md](AGENTS.md) for the engineering skill configuration and [C
 
 ```sh
 bun install
-bun run quality     # The same gate CI runs: format, lint, typecheck, module boundaries, and tests.
-bun run changeset   # Describe a change that reaches a consumer.
+bun run quality       # The same gate CI runs: format, lint, typecheck, module boundaries, and tests.
+bun run test:timings  # Record the time of each test file in test-timings.json, after a test file is added or gets slower.
+bun run changeset     # Describe a change that reaches a consumer.
 ```
 
 Production code lives in flat `modules/<feature-or-capability>/` directories.

@@ -7,6 +7,26 @@ const fakeHerdrPath = new URL("./fake-herdr.sh", import.meta.url).pathname;
 const fakeGithubPath = new URL("./fake-gh.ts", import.meta.url).pathname;
 const wakePluginPath = new URL("../../herdr/herdr-plugin.toml", import.meta.url).pathname;
 
+/**
+ * The `gh` on a fixture path. Every readiness check reads `gh --version`, so the script answers
+ * it without a Bun process, and the fake answers everything else. A `version-new` file in the
+ * fake directory reports an upgraded GitHub CLI: its text, or 2.1.0 when it is empty.
+ */
+const GITHUB_FAKE_SCRIPT = [
+  "#!/bin/sh",
+  'if [ "${1:-}" = "--version" ]; then',
+  "  version=2.0.0",
+  '  if [ -f "$GH_FAKE_DIR/version-new" ]; then',
+  "    version=$(tr -d ' \\t\\r\\n' < \"$GH_FAKE_DIR/version-new\")",
+  '    [ -n "$version" ] || version=2.1.0',
+  "  fi",
+  '  echo "gh version $version"',
+  "  exit 0",
+  "fi",
+  `exec bun ${fakeGithubPath} "$@"`,
+  "",
+].join("\n");
+
 export type Workspace = {
   root: string;
   repo: string;
@@ -64,7 +84,7 @@ export function workspaces() {
       await Bun.$`chmod +x ${workspace.bin}/herdr`.quiet();
       // The GitHub fake answers as `gh` on the same path, so tracker commands reach it through
       // the real external interface instead of a module replaced by path.
-      await Bun.write(`${workspace.bin}/gh`, `#!/bin/sh\nexec bun ${fakeGithubPath} "$@"\n`);
+      await Bun.write(`${workspace.bin}/gh`, GITHUB_FAKE_SCRIPT);
       await Bun.$`chmod +x ${workspace.bin}/gh`.quiet();
 
       for (const [name, script] of Object.entries(options.tools ?? {})) {
@@ -102,8 +122,13 @@ export async function headCommit(workspace: Workspace, cwd = workspace.repo): Pr
   return (await Bun.$`git -C ${cwd} rev-parse HEAD`.quiet()).stdout.toString().trim();
 }
 
-/** The tools a fixture answers itself, and the only ones a fixture PATH hides. */
-const FAKED_TOOLS = ["gh", "herdr"];
+/**
+ * The tools a fixture PATH hides: the two it fakes, and the agent hosts, which a test that needs
+ * one puts in its own fixture `tools`. A host installed on the machine would otherwise answer
+ * every readiness check, so a local run would read a different machine than CI, and one real
+ * host version read costs more than the CLI run that asks for it.
+ */
+const HIDDEN_TOOLS = ["gh", "herdr", "claude", "opencode"];
 
 // Isolated test files reuse a worker process, so each fixture instance needs its own mirror root.
 const mirrorRoot = `${Bun.env.TMPDIR ?? "/tmp"}/operator-path-${crypto.randomUUID()}`;
@@ -121,7 +146,7 @@ function entriesOf(directory: string): string[] {
 }
 
 /**
- * A stand-in for one PATH directory that links everything except the faked tools.
+ * A stand-in for one PATH directory that links everything except the hidden tools.
  * Dropping the whole directory instead would take the rest of the machine with it: on a
  * GitHub runner `gh` sits in `/usr/bin` beside `git`, and a fixture repository needs Git.
  */
@@ -134,7 +159,7 @@ function mirrorOf(directory: string): string {
   const mirror = `${mirrorRoot}/${mirrors.size}`;
   mkdirSync(mirror, { recursive: true });
   for (const name of entriesOf(directory)) {
-    if (!FAKED_TOOLS.includes(name)) {
+    if (!HIDDEN_TOOLS.includes(name)) {
       symlinkSync(`${directory}/${name}`, `${mirror}/${name}`);
     }
   }
@@ -144,14 +169,14 @@ function mirrorOf(directory: string): string {
 
 /**
  * The PATH a fixture command runs with.
- * The fakes come first, and every real `gh` or `herdr` is hidden, so no test can reach the real
- * tool. A test that deletes a fake to prove the tool is absent then proves exactly that,
- * instead of falling through to the one installed on this machine.
+ * The fakes come first, and every real `gh`, `herdr`, or agent host is hidden, so no test can
+ * reach the real tool. A test that deletes a fake to prove the tool is absent then proves exactly
+ * that, instead of falling through to the one installed on this machine.
  */
 function fixturePath(bin: string): string {
   const inherited = (process.env.PATH ?? "").split(":").filter((one) => one.length > 0);
   const usable = inherited.map((directory) =>
-    FAKED_TOOLS.some((tool) => Bun.which(tool, { PATH: directory }) !== null)
+    HIDDEN_TOOLS.some((tool) => Bun.which(tool, { PATH: directory }) !== null)
       ? mirrorOf(directory)
       : directory,
   );
@@ -166,7 +191,7 @@ function fixturePath(bin: string): string {
 export async function githubFakeEnvironment(directory: string): Promise<Record<string, string>> {
   const bin = `${directory}/bin`;
   await Bun.$`mkdir -p ${bin} ${directory}/github`.quiet();
-  await Bun.write(`${bin}/gh`, `#!/bin/sh\nexec bun ${fakeGithubPath} "$@"\n`);
+  await Bun.write(`${bin}/gh`, GITHUB_FAKE_SCRIPT);
   await Bun.$`chmod +x ${bin}/gh`.quiet();
   return { PATH: fixturePath(bin), GH_FAKE_DIR: `${directory}/github` };
 }

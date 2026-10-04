@@ -20,9 +20,11 @@
     "release": "bun scripts/release.ts",
     "changeset": "bunx --bun @changesets/cli@3.0.3",
     "test:module-boundaries": "bun scripts/prove-module-boundaries.ts",
-    "test": "bun test --parallel=4",
+    "test": "bun test --parallel=4 --timeout=30000 --timings=test-timings.json",
+    "test:timings": "bun test --parallel=4 --timeout=30000 --timings=test-timings.json --update-timings",
     "typecheck": "bunx --bun --no-install tsc --noEmit -p tsconfig.json",
-    "quality": "bun run --parallel format:check lint typecheck lint:modules lint:skills test:module-boundaries test"
+    "quality": "bun run --parallel quality:static test",
+    "quality:static": "bun run --parallel format:check lint typecheck lint:modules lint:skills test:module-boundaries"
   },
   "dependencies": {
     "drizzle-orm": "0.44.6",
