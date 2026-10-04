@@ -1,7 +1,6 @@
 import { SkillInstall } from "../skill-install/main.ts";
 import { type ParsedArguments, targetFlag } from "./arguments.ts";
-import { reportMissingTarget } from "./missing-target.ts";
-import { approvalGate, type Handled, type Refusal, report } from "./result.ts";
+import { approvalGate, type Refusal, report } from "./result.ts";
 
 type MattPlan = Awaited<ReturnType<typeof SkillInstall.mattPlan>>;
 type MattOperation = "install_matt_plan" | "install_matt_apply";
@@ -9,24 +8,24 @@ type Verdict = Pick<Refusal, "outcome" | "reason" | "lines"> & {
   blockers: NonNullable<Refusal["blockers"]>;
 };
 
-export async function runMattSkills(words: string[], parsed: ParsedArguments): Promise<Handled> {
-  if (words.length !== 1 || (words[0] !== "plan" && words[0] !== "apply"))
-    return "invalid-arguments";
-  const applying = words[0] === "apply";
-  const commit = parsed.crew.baseCommit;
-  if (
-    (applying && (commit === undefined || !/^[a-f0-9]{40}$/.test(commit))) ||
-    (!applying && (commit !== undefined || parsed.approvedPlan !== undefined))
-  ) {
-    return "invalid-arguments";
-  }
-  const operation = applying ? "install_matt_apply" : "install_matt_plan";
-  if (parsed.targets.length === 0) {
-    reportMissingTarget(parsed, operation);
-    return "reported";
-  }
+export async function runMattPlan(parsed: ParsedArguments): Promise<void> {
+  await checkUpstream(parsed, "install_matt_plan", () => planMatt(parsed));
+}
+
+export async function runMattApply(parsed: ParsedArguments<"--commit">): Promise<void> {
+  await checkUpstream(parsed, "install_matt_apply", () =>
+    applyMatt(parsed, parsed.crew.baseCommit),
+  );
+}
+
+/** Reports an upstream that cannot be read in place of the Matt plan. */
+async function checkUpstream(
+  parsed: ParsedArguments,
+  operation: MattOperation,
+  check: () => Promise<void>,
+): Promise<void> {
   try {
-    await (applying ? runMattApply(parsed, commit!) : runMattPlan(parsed));
+    await check();
   } catch (error) {
     report({
       json: parsed.json,
@@ -39,10 +38,9 @@ export async function runMattSkills(words: string[], parsed: ParsedArguments): P
       lines: [`Matt skills could not be checked: ${String(error)}`],
     });
   }
-  return "reported";
 }
 
-async function runMattPlan(parsed: ParsedArguments): Promise<void> {
+async function planMatt(parsed: ParsedArguments): Promise<void> {
   const plan = await SkillInstall.mattPlan({ projectRoot: process.cwd(), targets: parsed.targets });
   reportMatt(parsed, "install_matt_plan", plan, {
     outcome: "completed",
@@ -52,7 +50,7 @@ async function runMattPlan(parsed: ParsedArguments): Promise<void> {
   });
 }
 
-async function runMattApply(parsed: ParsedArguments, commit: string): Promise<void> {
+async function applyMatt(parsed: ParsedArguments, commit: string): Promise<void> {
   const result = await SkillInstall.mattApply({
     projectRoot: process.cwd(),
     targets: parsed.targets,
@@ -149,11 +147,6 @@ function reportMatt(
 }
 
 export async function runInstall(parsed: ParsedArguments): Promise<void> {
-  if (parsed.targets.length === 0) {
-    reportMissingTarget(parsed, "install");
-    return;
-  }
-
   const result = await SkillInstall.run({
     projectRoot: process.cwd(),
     targets: parsed.targets,

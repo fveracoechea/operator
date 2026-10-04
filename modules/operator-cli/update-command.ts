@@ -1,6 +1,5 @@
 import { OperatorUpdate } from "../operator-update/main.ts";
 import type { ParsedArguments } from "./arguments.ts";
-import { reportMissingTarget } from "./missing-target.ts";
 import {
   answer,
   approvalRefusals,
@@ -79,7 +78,7 @@ function readSelectors(parsed: ParsedArguments) {
     : { delivery, commit, packageVersion: parsed.packageVersion ?? null };
 }
 
-async function runPlan(parsed: ParsedArguments): Promise<Handled> {
+export async function runPlan(parsed: ParsedArguments): Promise<Handled> {
   const selectors = readSelectors(parsed);
   if (selectors === null) {
     return "invalid-arguments";
@@ -175,7 +174,7 @@ function applyRefusals(parsed: ParsedArguments) {
   } satisfies Refusals<Applied>;
 }
 
-async function runApply(parsed: ParsedArguments): Promise<Handled> {
+export async function runApply(parsed: ParsedArguments): Promise<Handled> {
   const selectors = readSelectors(parsed);
   if (selectors === null) {
     return "invalid-arguments";
@@ -220,20 +219,4 @@ async function runApply(parsed: ParsedArguments): Promise<Handled> {
     ],
   });
   return "reported";
-}
-
-export async function runUpdate(words: string[], parsed: ParsedArguments): Promise<Handled> {
-  const [subcommand] = words;
-  if (words.length !== 1 || (subcommand !== "plan" && subcommand !== "apply")) {
-    return "invalid-arguments";
-  }
-  if (subcommand === "plan" && parsed.approvedUpdate !== undefined) {
-    return "invalid-arguments";
-  }
-  if (parsed.targets.length === 0) {
-    reportMissingTarget(parsed, subcommand === "plan" ? "update_plan" : "update_apply");
-    return "reported";
-  }
-
-  return subcommand === "plan" ? runPlan(parsed) : runApply(parsed);
 }

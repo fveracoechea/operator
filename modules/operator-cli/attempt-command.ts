@@ -11,11 +11,12 @@ type DispatchReport = Extract<
   { report: unknown }
 >["report"];
 
-function mutationArguments(parsed: ParsedArguments) {
+/** A mutation of one attempt: the request, the ownership, and the attempt it names. */
+type AttemptMutation = ParsedArguments<"--request" | "--owner-token" | "--attempt">;
+
+function mutationArguments(parsed: AttemptMutation) {
   const { requestId, ownerToken, attemptId } = parsed.crew;
-  return requestId === undefined || ownerToken === undefined || attemptId === undefined
-    ? null
-    : { requestId, ownerToken, attemptId };
+  return { requestId, ownerToken, attemptId };
 }
 
 function launchLines(report: DispatchReport): string[] {
@@ -280,11 +281,8 @@ const dispatchRefusals = {
   "stage-uncertain": stageStopped,
 } satisfies Refusals<DispatchResult>;
 
-async function runDispatch(parsed: ParsedArguments): Promise<Handled> {
+export async function runDispatch(parsed: AttemptMutation): Promise<Handled> {
   const mutation = mutationArguments(parsed);
-  if (mutation === null) {
-    return "invalid-arguments";
-  }
 
   const result = await CrewState.dispatch({
     projectRoot: process.cwd(),
@@ -322,11 +320,10 @@ async function runDispatch(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
-async function runAcknowledge(parsed: ParsedArguments): Promise<Handled> {
+export async function runAcknowledge(
+  parsed: ParsedArguments<"--request" | "--attempt">,
+): Promise<Handled> {
   const { requestId, attemptId } = parsed.crew;
-  if (requestId === undefined || attemptId === undefined) {
-    return "invalid-arguments";
-  }
 
   const read = await requireReference({
     parsed,
@@ -396,11 +393,8 @@ async function runAcknowledge(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
-async function runReconcile(parsed: ParsedArguments): Promise<Handled> {
+export async function runReconcile(parsed: AttemptMutation): Promise<Handled> {
   const mutation = mutationArguments(parsed);
-  if (mutation === null) {
-    return "invalid-arguments";
-  }
 
   const result = await CrewState.reconcile({ projectRoot: process.cwd(), ...mutation });
   if (reportSharedFailure(parsed, "attempt_reconcile", result)) {
@@ -432,11 +426,8 @@ async function runReconcile(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
-async function runAdopt(parsed: ParsedArguments): Promise<Handled> {
+export async function runAdopt(parsed: AttemptMutation): Promise<Handled> {
   const mutation = mutationArguments(parsed);
-  if (mutation === null) {
-    return "invalid-arguments";
-  }
 
   const result = await CrewState.adopt({ projectRoot: process.cwd(), ...mutation });
   if (reportSharedFailure(parsed, "attempt_adopt", result)) {
@@ -599,11 +590,8 @@ const replaceRefusals = {
   }),
 } satisfies Refusals<ReplaceResult>;
 
-async function runReplace(parsed: ParsedArguments): Promise<Handled> {
+export async function runReplace(parsed: AttemptMutation): Promise<Handled> {
   const mutation = mutationArguments(parsed);
-  if (mutation === null) {
-    return "invalid-arguments";
-  }
 
   const result = await CrewState.replace({
     projectRoot: process.cwd(),
@@ -637,11 +625,8 @@ async function runReplace(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
-async function runShow(parsed: ParsedArguments): Promise<Handled> {
+export async function runShow(parsed: ParsedArguments<"--attempt">): Promise<Handled> {
   const attemptId = parsed.crew.attemptId;
-  if (attemptId === undefined) {
-    return "invalid-arguments";
-  }
 
   const result = await CrewState.attempt({ projectRoot: process.cwd(), attemptId });
   if (reportSharedFailure(parsed, "attempt_show", result)) {
@@ -800,11 +785,10 @@ const submitRefusals = {
   "requirements-changed": revisionAnswer,
 } satisfies Refusals<SubmitResult>;
 
-async function runSubmit(parsed: ParsedArguments): Promise<Handled> {
+export async function runSubmit(
+  parsed: ParsedArguments<"--request" | "--attempt" | "--input">,
+): Promise<Handled> {
   const { requestId, attemptId, inputPath } = parsed.crew;
-  if (requestId === undefined || attemptId === undefined || inputPath === undefined) {
-    return "invalid-arguments";
-  }
 
   const located = await requireReference({
     parsed,
@@ -898,35 +882,4 @@ function reportSubmitted(
     ],
   });
   return "reported";
-}
-
-export async function runAttempt(words: string[], parsed: ParsedArguments): Promise<Handled> {
-  if (words.length !== 1) {
-    return "invalid-arguments";
-  }
-
-  const [subcommand] = words;
-  if (subcommand === "dispatch") {
-    return runDispatch(parsed);
-  }
-  if (subcommand === "acknowledge") {
-    return runAcknowledge(parsed);
-  }
-  if (subcommand === "reconcile") {
-    return runReconcile(parsed);
-  }
-  if (subcommand === "adopt") {
-    return runAdopt(parsed);
-  }
-  if (subcommand === "replace") {
-    return runReplace(parsed);
-  }
-  if (subcommand === "show") {
-    return runShow(parsed);
-  }
-  if (subcommand === "submit") {
-    return runSubmit(parsed);
-  }
-
-  return "invalid-arguments";
 }

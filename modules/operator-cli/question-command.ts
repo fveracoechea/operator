@@ -74,11 +74,15 @@ const questionRefusals = {
   ),
 };
 
-async function runRaise(parsed: ParsedArguments): Promise<Handled> {
+/** An owned change of one question with an input file. */
+type OwnedQuestionInput = ParsedArguments<
+  "--request" | "--owner-token" | "--question" | "--revision" | "--input"
+>;
+
+export async function runRaise(
+  parsed: ParsedArguments<"--request" | "--attempt" | "--input">,
+): Promise<Handled> {
   const { requestId, attemptId, inputPath } = parsed.crew;
-  if (requestId === undefined || attemptId === undefined || inputPath === undefined) {
-    return "invalid-arguments";
-  }
 
   const read = await requireReference({
     parsed,
@@ -156,16 +160,12 @@ async function runRaise(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
-async function runRevise(parsed: ParsedArguments): Promise<Handled> {
+export async function runRevise(
+  parsed: ParsedArguments<"--request" | "--attempt" | "--question" | "--revision" | "--input">,
+): Promise<Handled> {
   const { requestId, attemptId, questionId, inputPath } = parsed.crew;
   const revision = readRevision(parsed);
-  if (
-    requestId === undefined ||
-    attemptId === undefined ||
-    questionId === undefined ||
-    inputPath === undefined ||
-    revision === null
-  ) {
+  if (revision === null) {
     return "invalid-arguments";
   }
 
@@ -259,16 +259,10 @@ async function runRevise(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
-async function runEscalate(parsed: ParsedArguments): Promise<Handled> {
+export async function runEscalate(parsed: OwnedQuestionInput): Promise<Handled> {
   const { requestId, ownerToken, questionId, inputPath } = parsed.crew;
   const revision = readRevision(parsed);
-  if (
-    requestId === undefined ||
-    ownerToken === undefined ||
-    questionId === undefined ||
-    inputPath === undefined ||
-    revision === null
-  ) {
+  if (revision === null) {
     return "invalid-arguments";
   }
 
@@ -343,16 +337,10 @@ async function runEscalate(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
-async function runAnswer(parsed: ParsedArguments): Promise<Handled> {
+export async function runAnswer(parsed: OwnedQuestionInput): Promise<Handled> {
   const { requestId, ownerToken, questionId, inputPath } = parsed.crew;
   const revision = readRevision(parsed);
-  if (
-    requestId === undefined ||
-    ownerToken === undefined ||
-    questionId === undefined ||
-    inputPath === undefined ||
-    revision === null
-  ) {
+  if (revision === null) {
     return "invalid-arguments";
   }
 
@@ -396,17 +384,14 @@ async function runAnswer(parsed: ParsedArguments): Promise<Handled> {
   return reportRecordedAnswer(parsed, "question_answer", result);
 }
 
-async function runReapply(parsed: ParsedArguments): Promise<Handled> {
+export async function runReapply(
+  parsed: ParsedArguments<
+    "--request" | "--owner-token" | "--question" | "--revision" | "--answer" | "--approval"
+  >,
+): Promise<Handled> {
   const { requestId, ownerToken, questionId, answerId, approvalId } = parsed.crew;
   const revision = readRevision(parsed);
-  if (
-    requestId === undefined ||
-    ownerToken === undefined ||
-    questionId === undefined ||
-    answerId === undefined ||
-    approvalId === undefined ||
-    revision === null
-  ) {
+  if (revision === null) {
     return "invalid-arguments";
   }
 
@@ -492,11 +477,10 @@ function reportRecordedAnswer(
   return "reported";
 }
 
-async function runDeliver(parsed: ParsedArguments): Promise<Handled> {
+export async function runDeliver(
+  parsed: ParsedArguments<"--request" | "--owner-token" | "--question">,
+): Promise<Handled> {
   const { requestId, ownerToken, questionId } = parsed.crew;
-  if (requestId === undefined || ownerToken === undefined || questionId === undefined) {
-    return "invalid-arguments";
-  }
 
   const { result } = await CrewState.deliverAnswer({
     projectRoot: process.cwd(),
@@ -584,11 +568,10 @@ async function runDeliver(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
-async function runAcknowledge(parsed: ParsedArguments): Promise<Handled> {
+export async function runAcknowledge(
+  parsed: ParsedArguments<"--request" | "--question">,
+): Promise<Handled> {
   const { requestId, questionId } = parsed.crew;
-  if (requestId === undefined || questionId === undefined) {
-    return "invalid-arguments";
-  }
 
   const read = await requireReference({
     parsed,
@@ -654,11 +637,8 @@ async function runAcknowledge(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
-async function runShow(parsed: ParsedArguments): Promise<Handled> {
+export async function runShow(parsed: ParsedArguments<"--question">): Promise<Handled> {
   const questionId = parsed.crew.questionId;
-  if (questionId === undefined) {
-    return "invalid-arguments";
-  }
 
   const { result } = await CrewState.question({ projectRoot: process.cwd(), questionId });
   if (answer(parsed, "question_show", result, { ...questionRefusals })) {
@@ -694,38 +674,4 @@ async function runShow(parsed: ParsedArguments): Promise<Handled> {
     ],
   });
   return "reported";
-}
-
-export async function runQuestion(words: string[], parsed: ParsedArguments): Promise<Handled> {
-  if (words.length !== 1) {
-    return "invalid-arguments";
-  }
-
-  const [subcommand] = words;
-  if (subcommand === "raise") {
-    return runRaise(parsed);
-  }
-  if (subcommand === "revise") {
-    return runRevise(parsed);
-  }
-  if (subcommand === "escalate") {
-    return runEscalate(parsed);
-  }
-  if (subcommand === "answer") {
-    return runAnswer(parsed);
-  }
-  if (subcommand === "reapply") {
-    return runReapply(parsed);
-  }
-  if (subcommand === "deliver") {
-    return runDeliver(parsed);
-  }
-  if (subcommand === "acknowledge") {
-    return runAcknowledge(parsed);
-  }
-  if (subcommand === "show") {
-    return runShow(parsed);
-  }
-
-  return "invalid-arguments";
 }

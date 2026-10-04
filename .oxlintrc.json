@@ -10,13 +10,7 @@
   },
   "overrides": [
     {
-      "files": [
-        "modules/crew-state/next.ts",
-        "modules/operator-cli/arguments.ts",
-        "modules/operator-cli/run.ts",
-        "modules/operator-cli/setup-command.ts",
-        "modules/operator-cli/wake-command.ts"
-      ],
+      "files": ["modules/crew-state/next.ts"],
       "rules": { "complexity": ["error", { "max": 30 }] }
     }
   ]

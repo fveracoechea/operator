@@ -68,16 +68,10 @@ const disposeRefusals = {
  * Records what the Operator decided about each outside change of one submission.
  * The command never deletes a file: the user does, and a new scan proves the removal.
  */
-export async function runDispose(parsed: ParsedArguments): Promise<Handled> {
+export async function runDispose(
+  parsed: ParsedArguments<"--request" | "--owner-token" | "--submission" | "--input">,
+): Promise<Handled> {
   const { requestId, ownerToken, submissionId, inputPath } = parsed.crew;
-  if (
-    requestId === undefined ||
-    ownerToken === undefined ||
-    submissionId === undefined ||
-    inputPath === undefined
-  ) {
-    return "invalid-arguments";
-  }
 
   const read = await readStructuredInput({
     parsed,

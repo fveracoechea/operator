@@ -178,11 +178,8 @@ async function runApply(parsed: ParsedArguments, request: Request): Promise<Hand
  * `operator work rebase`: with no plan revision it plans, and with one it rebases behind the
  * approval of that revision.
  */
-export async function runRebase(parsed: ParsedArguments): Promise<Handled> {
-  const { sourceId, newBase, planRevision, requestId, ownerToken, ...other } = parsed.crew;
-  if (sourceId === undefined || newBase === undefined || Object.keys(other).length > 0) {
-    return "invalid-arguments";
-  }
+export async function runRebase(parsed: ParsedArguments<"--source" | "--base">): Promise<Handled> {
+  const { sourceId, newBase, planRevision, requestId, ownerToken } = parsed.crew;
   if (planRevision === undefined) {
     return requestId === undefined && ownerToken === undefined
       ? runPlan(parsed, sourceId, newBase)

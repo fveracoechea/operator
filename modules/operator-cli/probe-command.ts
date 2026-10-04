@@ -1,7 +1,6 @@
 import { LiveProbe } from "../live-probe/main.ts";
 import { ProjectReadiness } from "../project-readiness/main.ts";
 import { type ParsedArguments, targetFlag } from "./arguments.ts";
-import { reportMissingTarget } from "./missing-target.ts";
 import { blockerData, reportLines } from "./readiness-command.ts";
 import {
   answer,
@@ -98,11 +97,6 @@ function probeData(result: Planned) {
 }
 
 export async function runProbePlan(parsed: ParsedArguments): Promise<void> {
-  if (parsed.targets.length === 0) {
-    reportMissingTarget(parsed, "setup_probe_plan");
-    return;
-  }
-
   const result = await ProjectReadiness.probe({
     projectRoot: process.cwd(),
     targets: parsed.targets,
@@ -196,10 +190,6 @@ async function finishWhenClean(ran: Awaited<ReturnType<typeof LiveProbe.run>>): 
 }
 
 export async function runProbeApply(parsed: ParsedArguments): Promise<void> {
-  if (parsed.targets.length === 0) {
-    reportMissingTarget(parsed, "setup_probe_apply");
-    return;
-  }
   if (await refusesIncompleteRun(parsed)) return;
 
   const result = await ProjectReadiness.probe({

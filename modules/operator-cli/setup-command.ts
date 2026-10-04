@@ -1,8 +1,5 @@
 import { ProjectSetup } from "../project-setup/main.ts";
-import { hasSelectionOrProbeArguments, type ParsedArguments, targetFlag } from "./arguments.ts";
-import { runProbeApply, runProbeCleanup, runProbePlan } from "./probe-command.ts";
-import { runReadiness } from "./readiness-command.ts";
-import { reportMissingTarget } from "./missing-target.ts";
+import { type ParsedArguments, targetFlag } from "./arguments.ts";
 import { approvalGate, refusalReport, report } from "./result.ts";
 
 type Plan = Awaited<ReturnType<typeof ProjectSetup.plan>>;
@@ -52,7 +49,7 @@ function conflictLines(plan: Plan): string[] {
   ];
 }
 
-async function runPlan(parsed: ParsedArguments): Promise<void> {
+export async function runPlan(parsed: ParsedArguments): Promise<void> {
   const plan = await ProjectSetup.plan({ projectRoot: process.cwd(), targets: parsed.targets });
   if (plan.conflicts.length > 0) {
     report({ json: parsed.json, ...conflictReport(plan, "setup_plan") });
@@ -251,7 +248,7 @@ const ROLLBACK_REPORTS: ReportTable<ByStatus<RollbackResult>> = {
   }),
 };
 
-async function runApply(parsed: ParsedArguments): Promise<void> {
+export async function runApply(parsed: ParsedArguments): Promise<void> {
   const result = await ProjectSetup.apply({
     projectRoot: process.cwd(),
     targets: parsed.targets,
@@ -260,96 +257,7 @@ async function runApply(parsed: ParsedArguments): Promise<void> {
   reportStatus(APPLY_REPORTS, result.status, result, parsed);
 }
 
-async function runRollback(parsed: ParsedArguments): Promise<void> {
+export async function runRollback(parsed: ParsedArguments): Promise<void> {
   const result = await ProjectSetup.rollback({ projectRoot: process.cwd() });
   reportStatus(ROLLBACK_REPORTS, result.status, result, parsed);
-}
-
-async function runSetupProbe(
-  second: string | undefined,
-  parsed: ParsedArguments,
-): Promise<"reported" | "invalid-arguments"> {
-  if (second !== "plan" && second !== "apply" && second !== "cleanup") {
-    return "invalid-arguments";
-  }
-  if (parsed.approvedPlan !== undefined) {
-    return "invalid-arguments";
-  }
-  if (second === "cleanup") {
-    // Cleanup names no host and no target; it disposes of what earlier runs recorded.
-    if (
-      parsed.targets.length > 0 ||
-      parsed.staleOnly ||
-      parsed.approvedProbe !== undefined ||
-      parsed.overrides.operator !== undefined ||
-      parsed.overrides.crew !== undefined
-    ) {
-      return "invalid-arguments";
-    }
-    await runProbeCleanup(parsed);
-    return "reported";
-  }
-  if (parsed.approvedCleanup !== undefined) {
-    return "invalid-arguments";
-  }
-  if (second === "plan" && parsed.approvedProbe !== undefined) {
-    return "invalid-arguments";
-  }
-  await (second === "plan" ? runProbePlan(parsed) : runProbeApply(parsed));
-  return "reported";
-}
-
-export async function runSetup(
-  words: string[],
-  parsed: ParsedArguments,
-): Promise<"reported" | "invalid-arguments"> {
-  const [subcommand, second] = words;
-  if (subcommand === "probe") return runSetupProbe(second, parsed);
-
-  if (words.length !== 1) {
-    return "invalid-arguments";
-  }
-
-  if (subcommand === "rollback") {
-    if (
-      parsed.targets.length > 0 ||
-      parsed.approvedPlan !== undefined ||
-      hasSelectionOrProbeArguments(parsed)
-    ) {
-      return "invalid-arguments";
-    }
-    await runRollback(parsed);
-    return "reported";
-  }
-
-  if (subcommand === "readiness") {
-    if (
-      parsed.approvedPlan !== undefined ||
-      parsed.approvedProbe !== undefined ||
-      parsed.staleOnly
-    ) {
-      return "invalid-arguments";
-    }
-    await runReadiness(parsed);
-    return "reported";
-  }
-
-  if (subcommand !== "plan" && subcommand !== "apply") {
-    return "invalid-arguments";
-  }
-
-  if (
-    hasSelectionOrProbeArguments(parsed) ||
-    (subcommand === "plan" && parsed.approvedPlan !== undefined)
-  ) {
-    return "invalid-arguments";
-  }
-
-  if (parsed.targets.length === 0) {
-    reportMissingTarget(parsed, subcommand === "plan" ? "setup_plan" : "setup_apply");
-    return "reported";
-  }
-
-  await (subcommand === "plan" ? runPlan(parsed) : runApply(parsed));
-  return "reported";
 }

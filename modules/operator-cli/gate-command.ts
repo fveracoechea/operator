@@ -1,7 +1,7 @@
 import { CrewState } from "../crew-state/main.ts";
 import { GateRunner } from "../gate-runner/main.ts";
 import { ProjectGate } from "../project-gate/main.ts";
-import { type ParsedArguments, readMutation } from "./arguments.ts";
+import type { ParsedArguments } from "./arguments.ts";
 import {
   answer,
   type Handled,
@@ -327,16 +327,19 @@ const startAnswers: StartAnswers = {
 };
 
 /** Starts one gate run on the subject that the flags name (ADR 0021). */
-async function runStart(parsed: ParsedArguments): Promise<Handled> {
-  const mutation = readMutation(parsed);
+export async function runStart(
+  parsed: ParsedArguments<"--request" | "--owner-token">,
+): Promise<Handled> {
+  const { requestId, ownerToken } = parsed.crew;
   const subject = subjectOf(parsed.crew);
-  if (mutation === null || subject === undefined) {
+  if (subject === undefined) {
     return "invalid-arguments";
   }
   const projectRoot = process.cwd();
   const result = await CrewState.startGateRun({
     projectRoot,
-    ...mutation,
+    requestId,
+    ownerToken,
     subject,
     approvalId: parsed.crew.approvalId ?? null,
     // The typed line holds no gate text and no token: only the runner, its run, and the root.
@@ -362,11 +365,8 @@ const runnerOutcomes: Partial<Record<RunnerStatus, RunnerOutcome>> = {
 };
 
 /** The runner in the pane of the gate checkout. A person never needs to type this line. */
-async function runRunner(parsed: ParsedArguments): Promise<Handled> {
+export async function runRunner(parsed: ParsedArguments<"--run" | "--root">): Promise<Handled> {
   const { runId, projectRoot } = parsed.crew;
-  if (runId === undefined || projectRoot === undefined) {
-    return "invalid-arguments";
-  }
   const done = await GateRunner.run({
     projectRoot,
     runId,
@@ -387,11 +387,8 @@ async function runRunner(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
-async function runShow(parsed: ParsedArguments): Promise<Handled> {
+export async function runShow(parsed: ParsedArguments<"--run">): Promise<Handled> {
   const { runId } = parsed.crew;
-  if (runId === undefined) {
-    return "invalid-arguments";
-  }
   const { result } = await CrewState.gateRun({ projectRoot: process.cwd(), runId });
   if (
     answer(parsed, "gate_show", result, {
@@ -417,13 +414,4 @@ async function runShow(parsed: ParsedArguments): Promise<Handled> {
     lines: runLines(result.run),
   });
   return "reported";
-}
-
-export async function runGate(words: string[], parsed: ParsedArguments): Promise<Handled> {
-  if (words.length !== 1) {
-    return "invalid-arguments";
-  }
-  if (words[0] === "run") return runStart(parsed);
-  if (words[0] === "runner") return runRunner(parsed);
-  return words[0] === "show" ? runShow(parsed) : "invalid-arguments";
 }

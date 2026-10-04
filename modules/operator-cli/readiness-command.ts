@@ -1,6 +1,5 @@
 import { ProjectReadiness } from "../project-readiness/main.ts";
 import type { ParsedArguments } from "./arguments.ts";
-import { reportMissingTarget } from "./missing-target.ts";
 import { type Reason, report } from "./result.ts";
 
 type Report = Awaited<ReturnType<typeof ProjectReadiness.check>>;
@@ -85,11 +84,6 @@ export function reportLines(readiness: Report): string[] {
 }
 
 export async function runReadiness(parsed: ParsedArguments): Promise<void> {
-  if (parsed.targets.length === 0) {
-    reportMissingTarget(parsed, "setup_readiness");
-    return;
-  }
-
   const readiness = await ProjectReadiness.check({
     projectRoot: process.cwd(),
     targets: parsed.targets,

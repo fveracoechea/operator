@@ -548,24 +548,26 @@ type JsonResult = {
 };
 
 let projectInvocation = "operator";
+// The operation words that a project invocation rewrites. It matches nothing until one is chosen.
+let operatorCommandPattern = /(?!)/g;
 
 /** Use the project's selected command when presenting generated follow-up commands. */
 export function useProjectInvocation(
   delivery: "github-source" | "jsr" | null,
-  commit?: string | null,
+  commit: string | null,
+  commandWords: readonly string[],
 ): void {
   projectInvocation = ReleaseInstall.invocation({ delivery, commit });
+  operatorCommandPattern = new RegExp(`\\boperator (?=(?:${commandWords.join("|")})\\b)`, "g");
 }
 
 function commandText(text: string): string {
   return projectInvocation === "operator"
     ? text
-    : text.replace(
-        /\boperator (?=(?:install|setup|config|update|crew|work|attempt|question|approval|review|tracker|cleanup|wake)\b)/g,
-        (match, offset: number) =>
-          text.slice(Math.max(0, offset - 8), offset).endsWith("bun run ")
-            ? match
-            : `${projectInvocation} ${match.slice("operator ".length)}`,
+    : text.replace(operatorCommandPattern, (match, offset: number) =>
+        text.slice(Math.max(0, offset - 8), offset).endsWith("bun run ")
+          ? match
+          : `${projectInvocation} ${match.slice("operator ".length)}`,
       );
 }
 

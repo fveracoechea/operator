@@ -204,11 +204,10 @@ function reportRefusals(repeated: boolean) {
   } satisfies Refusals<ReportResult>;
 }
 
-async function runReport(parsed: ParsedArguments): Promise<Handled> {
+export async function runReport(
+  parsed: ParsedArguments<"--request" | "--review" | "--input">,
+): Promise<Handled> {
   const { requestId, reviewId, inputPath } = parsed.crew;
-  if (requestId === undefined || reviewId === undefined || inputPath === undefined) {
-    return "invalid-arguments";
-  }
 
   const located = await requireReference({
     parsed,
@@ -334,16 +333,10 @@ const disposeRefusals = {
   }),
 } satisfies Refusals<DisposeResult>;
 
-async function runDispose(parsed: ParsedArguments): Promise<Handled> {
+export async function runDispose(
+  parsed: ParsedArguments<"--request" | "--owner-token" | "--review" | "--input">,
+): Promise<Handled> {
   const { requestId, ownerToken, reviewId, inputPath } = parsed.crew;
-  if (
-    requestId === undefined ||
-    ownerToken === undefined ||
-    reviewId === undefined ||
-    inputPath === undefined
-  ) {
-    return "invalid-arguments";
-  }
 
   const read = await readStructuredInput({
     parsed,
@@ -408,11 +401,8 @@ async function runDispose(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
-async function runShow(parsed: ParsedArguments): Promise<Handled> {
+export async function runShow(parsed: ParsedArguments<"--review">): Promise<Handled> {
   const reviewId = parsed.crew.reviewId;
-  if (reviewId === undefined) {
-    return "invalid-arguments";
-  }
 
   const { result } = await CrewState.review({ projectRoot: process.cwd(), reviewId });
   if (reportSharedFailure(parsed, "review_show", result)) {
@@ -471,23 +461,4 @@ async function runShow(parsed: ParsedArguments): Promise<Handled> {
     ],
   });
   return "reported";
-}
-
-export async function runReview(words: string[], parsed: ParsedArguments): Promise<Handled> {
-  if (words.length !== 1) {
-    return "invalid-arguments";
-  }
-
-  const [subcommand] = words;
-  if (subcommand === "report") {
-    return runReport(parsed);
-  }
-  if (subcommand === "dispose") {
-    return runDispose(parsed);
-  }
-  if (subcommand === "show") {
-    return runShow(parsed);
-  }
-
-  return "invalid-arguments";
 }

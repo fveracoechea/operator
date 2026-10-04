@@ -125,7 +125,11 @@ const reworkRefusals = {
   }),
 } satisfies Refusals<ReworkResult>;
 
-export async function runRework(parsed: ParsedArguments): Promise<Handled> {
+export async function runRework(
+  parsed: ParsedArguments<
+    "--request" | "--owner-token" | "--assignment" | "--revision" | "--input"
+  >,
+): Promise<Handled> {
   const request = readAssignmentRequest(parsed);
   if (request === null) {
     return "invalid-arguments";

@@ -3,7 +3,11 @@ import { type ParsedArguments, readAssignmentRequest } from "./arguments.ts";
 import { assignmentRefusals, readStructuredInput, reportInvalidInput } from "./crew-result.ts";
 import { answer, type Handled, refuse, report } from "./result.ts";
 
-export async function runInvalidate(parsed: ParsedArguments): Promise<Handled> {
+export async function runInvalidate(
+  parsed: ParsedArguments<
+    "--request" | "--owner-token" | "--assignment" | "--revision" | "--input"
+  >,
+): Promise<Handled> {
   const request = readAssignmentRequest(parsed);
   if (request === null) {
     return "invalid-arguments";

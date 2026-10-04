@@ -1,5 +1,5 @@
 import { CrewState } from "../crew-state/main.ts";
-import { type ParsedArguments, readMutation } from "./arguments.ts";
+import type { ParsedArguments } from "./arguments.ts";
 import { landingRefusals } from "./crew-result.ts";
 import { answer, type Handled, type Refusals, report } from "./result.ts";
 
@@ -41,16 +41,14 @@ const takeOutRefusals = {
  * moves it once, bound to the plan revision that recorded the withdrawals (D5). The report gives
  * a summary, and the commits travel in the JSON data.
  */
-export async function runTakeOut(parsed: ParsedArguments): Promise<Handled> {
-  const mutation = readMutation(parsed);
-  const { sourceId, planRevision } = parsed.crew;
-  if (mutation === null || sourceId === undefined || planRevision === undefined) {
-    return "invalid-arguments";
-  }
-
+export async function runTakeOut(
+  parsed: ParsedArguments<"--request" | "--owner-token" | "--source" | "--plan-revision">,
+): Promise<Handled> {
+  const { requestId, ownerToken, sourceId, planRevision } = parsed.crew;
   const { repeated, result } = await CrewState.takeOut({
     projectRoot: process.cwd(),
-    ...mutation,
+    requestId,
+    ownerToken,
     sourceId,
     planRevision,
   });

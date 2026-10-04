@@ -1,9 +1,4 @@
 import { CrewState } from "../crew-state/main.ts";
-import { runInvalidate } from "./invalidate-command.ts";
-import { runDispose } from "./outside-command.ts";
-import { runRebase } from "./rebase-command.ts";
-import { runRework } from "./rework-command.ts";
-import { runTakeOut } from "./take-out-command.ts";
 import { type ParsedArguments, readMutation, readRevision } from "./arguments.ts";
 import {
   assignmentRefusals,
@@ -144,11 +139,8 @@ async function runRegisterPlan(parsed: ParsedArguments, inputPath: string): Prom
   return reportPlan(parsed, "work_register_plan", result, inputPath);
 }
 
-async function runRegister(parsed: ParsedArguments): Promise<Handled> {
+export async function runRegister(parsed: ParsedArguments<"--input">): Promise<Handled> {
   const inputPath = parsed.crew.inputPath;
-  if (inputPath === undefined) {
-    return "invalid-arguments";
-  }
   if (parsed.plan) {
     return runRegisterPlan(parsed, inputPath);
   }
@@ -273,17 +265,22 @@ async function runRegister(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
-async function runClaim(parsed: ParsedArguments): Promise<Handled> {
-  const mutation = readMutation(parsed);
-  const assignmentId = parsed.crew.assignmentId;
+/** A mutation of one assignment at the revision the caller read. */
+type AssignmentMutation = ParsedArguments<
+  "--request" | "--owner-token" | "--assignment" | "--revision"
+>;
+
+export async function runClaim(parsed: AssignmentMutation): Promise<Handled> {
+  const { requestId, ownerToken, assignmentId } = parsed.crew;
   const revision = readRevision(parsed);
-  if (mutation === null || assignmentId === undefined || revision === null) {
+  if (revision === null) {
     return "invalid-arguments";
   }
 
   const { repeated, result } = await CrewState.claim({
     projectRoot: process.cwd(),
-    ...mutation,
+    requestId,
+    ownerToken,
     assignmentId,
     revision,
   });
@@ -682,12 +679,11 @@ type AcceptRequest = Parameters<typeof CrewState.accept>[0];
 
 /** Reads every argument of one acceptance, with the planning record that planning work names. */
 async function readAcceptRequest(
-  parsed: ParsedArguments,
+  parsed: AssignmentMutation,
 ): Promise<{ status: "read"; request: AcceptRequest } | Handled> {
-  const mutation = readMutation(parsed);
-  const assignmentId = parsed.crew.assignmentId;
+  const { requestId, ownerToken, assignmentId } = parsed.crew;
   const revision = readRevision(parsed);
-  if (mutation === null || assignmentId === undefined || revision === null) {
+  if (revision === null) {
     return "invalid-arguments";
   }
 
@@ -700,7 +696,8 @@ async function readAcceptRequest(
     status: "read",
     request: {
       projectRoot: process.cwd(),
-      ...mutation,
+      requestId,
+      ownerToken,
       assignmentId,
       // Planning work carries no attempt, so the attempt is optional here and checked by kind.
       attemptId: parsed.crew.attemptId ?? null,
@@ -711,7 +708,7 @@ async function readAcceptRequest(
   };
 }
 
-async function runAccept(parsed: ParsedArguments): Promise<Handled> {
+export async function runAccept(parsed: AssignmentMutation): Promise<Handled> {
   const read = await readAcceptRequest(parsed);
   if (typeof read === "string") {
     return read;
@@ -784,7 +781,7 @@ export function branchReviewLines(
   ];
 }
 
-async function runFrontier(parsed: ParsedArguments): Promise<Handled> {
+export async function runFrontier(parsed: ParsedArguments): Promise<Handled> {
   const { result } = await CrewState.frontier({ projectRoot: process.cwd() });
   if (reportSharedFailure(parsed, "work_frontier", result)) {
     return "reported";
@@ -848,11 +845,8 @@ async function runFrontier(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
-async function runOverlaps(parsed: ParsedArguments): Promise<Handled> {
+export async function runOverlaps(parsed: ParsedArguments<"--source">): Promise<Handled> {
   const sourceId = parsed.crew.sourceId;
-  if (sourceId === undefined) {
-    return "invalid-arguments";
-  }
 
   const { result } = await CrewState.overlaps({ projectRoot: process.cwd(), sourceId });
   if (reportSharedFailure(parsed, "work_overlaps", result)) {
@@ -892,11 +886,8 @@ async function runOverlaps(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
-async function runWritePaths(parsed: ParsedArguments): Promise<Handled> {
+export async function runWritePaths(parsed: ParsedArguments<"--assignment">): Promise<Handled> {
   const { assignmentId, inputPath } = parsed.crew;
-  if (assignmentId === undefined) {
-    return "invalid-arguments";
-  }
 
   let input: unknown = null;
   if (inputPath !== undefined) {
@@ -979,11 +970,8 @@ async function runWritePaths(parsed: ParsedArguments): Promise<Handled> {
 }
 
 /** Prints one planning record in full, for the crew. The Operator reads only its pointer. */
-async function runRecord(parsed: ParsedArguments): Promise<Handled> {
+export async function runRecord(parsed: ParsedArguments<"--assignment">): Promise<Handled> {
   const assignmentId = parsed.crew.assignmentId;
-  if (assignmentId === undefined) {
-    return "invalid-arguments";
-  }
 
   const { result } = await CrewState.planningRecord({
     projectRoot: process.cwd(),
@@ -1039,50 +1027,4 @@ async function runRecord(parsed: ParsedArguments): Promise<Handled> {
     ],
   });
   return "reported";
-}
-
-export async function runWork(words: string[], parsed: ParsedArguments): Promise<Handled> {
-  if (words.length !== 1) {
-    return "invalid-arguments";
-  }
-
-  const [subcommand] = words;
-  if (subcommand === "register") {
-    return runRegister(parsed);
-  }
-  if (subcommand === "claim") {
-    return runClaim(parsed);
-  }
-  if (subcommand === "rebase") {
-    return runRebase(parsed);
-  }
-  if (subcommand === "accept") {
-    return runAccept(parsed);
-  }
-  if (subcommand === "rework") {
-    return runRework(parsed);
-  }
-  if (subcommand === "take-out") {
-    return runTakeOut(parsed);
-  }
-  if (subcommand === "invalidate") {
-    return runInvalidate(parsed);
-  }
-  if (subcommand === "dispose") {
-    return runDispose(parsed);
-  }
-  if (subcommand === "frontier") {
-    return runFrontier(parsed);
-  }
-  if (subcommand === "overlaps") {
-    return runOverlaps(parsed);
-  }
-  if (subcommand === "write-paths") {
-    return runWritePaths(parsed);
-  }
-  if (subcommand === "record") {
-    return runRecord(parsed);
-  }
-
-  return "invalid-arguments";
 }

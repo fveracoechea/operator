@@ -4,7 +4,6 @@ import { ReleaseInstall } from "../release-install/main.ts";
 import type { ParsedArguments } from "./arguments.ts";
 import { reportSharedFailure } from "./crew-result.ts";
 import { blockerData } from "./readiness-command.ts";
-import { reportMissingTarget } from "./missing-target.ts";
 import { type Handled, type Reason, report } from "./result.ts";
 
 type Next = Extract<Awaited<ReturnType<typeof CrewState.next>>["result"], { status: "reported" }>;
@@ -132,11 +131,6 @@ function blockersOf(readiness: Readiness, actions: NextAction[]) {
  * capacity, pending acknowledgements, and every recovery a restart owes are answered here.
  */
 export async function runCrewNext(parsed: ParsedArguments): Promise<Handled> {
-  if (parsed.targets.length === 0) {
-    reportMissingTarget(parsed, "crew_next");
-    return "reported";
-  }
-
   const readiness = await ProjectReadiness.check({
     projectRoot: process.cwd(),
     targets: parsed.targets,

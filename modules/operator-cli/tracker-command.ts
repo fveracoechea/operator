@@ -375,16 +375,14 @@ const resolutionRefusals = {
   }),
 } satisfies Refusals<StepResult>;
 
-async function runRecord(parsed: ParsedArguments): Promise<Handled> {
+export async function runRecord(
+  parsed: ParsedArguments<
+    "--request" | "--owner-token" | "--assignment" | "--revision" | "--input"
+  >,
+): Promise<Handled> {
   const { requestId, ownerToken, assignmentId, inputPath } = parsed.crew;
   const revision = readRevision(parsed);
-  if (
-    requestId === undefined ||
-    ownerToken === undefined ||
-    assignmentId === undefined ||
-    inputPath === undefined ||
-    revision === null
-  ) {
+  if (revision === null) {
     return "invalid-arguments";
   }
 
@@ -443,11 +441,10 @@ async function runRecord(parsed: ParsedArguments): Promise<Handled> {
     : "invalid-arguments";
 }
 
-async function runRecover(parsed: ParsedArguments): Promise<Handled> {
+export async function runRecover(
+  parsed: ParsedArguments<"--request" | "--owner-token" | "--operation">,
+): Promise<Handled> {
   const { requestId, ownerToken, operationId } = parsed.crew;
-  if (requestId === undefined || ownerToken === undefined || operationId === undefined) {
-    return "invalid-arguments";
-  }
 
   const { repeated, result } = await CrewState.recoverTracker({
     projectRoot: process.cwd(),
@@ -476,11 +473,8 @@ async function runRecover(parsed: ParsedArguments): Promise<Handled> {
     : "invalid-arguments";
 }
 
-async function runShow(parsed: ParsedArguments): Promise<Handled> {
+export async function runShow(parsed: ParsedArguments<"--assignment">): Promise<Handled> {
   const assignmentId = parsed.crew.assignmentId;
-  if (assignmentId === undefined) {
-    return "invalid-arguments";
-  }
 
   const { result } = await CrewState.trackerSteps({ projectRoot: process.cwd(), assignmentId });
   if (reportSharedFailure(parsed, "tracker_show", result)) {
@@ -521,11 +515,8 @@ async function runShow(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
-async function runMap(parsed: ParsedArguments): Promise<Handled> {
+export async function runMap(parsed: ParsedArguments<"--assignment">): Promise<Handled> {
   const assignmentId = parsed.crew.assignmentId;
-  if (assignmentId === undefined) {
-    return "invalid-arguments";
-  }
 
   const { result } = await CrewState.trackerMap({ projectRoot: process.cwd(), assignmentId });
   if (reportSharedFailure(parsed, "tracker_map", result)) {
@@ -580,26 +571,4 @@ async function runMap(parsed: ParsedArguments): Promise<Handled> {
     ],
   });
   return "reported";
-}
-
-export async function runTracker(words: string[], parsed: ParsedArguments): Promise<Handled> {
-  if (words.length !== 1) {
-    return "invalid-arguments";
-  }
-
-  const [subcommand] = words;
-  if (subcommand === "record") {
-    return runRecord(parsed);
-  }
-  if (subcommand === "recover") {
-    return runRecover(parsed);
-  }
-  if (subcommand === "show") {
-    return runShow(parsed);
-  }
-  if (subcommand === "map") {
-    return runMap(parsed);
-  }
-
-  return "invalid-arguments";
 }

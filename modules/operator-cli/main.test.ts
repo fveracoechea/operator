@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import packageJson from "../../package.json" with { type: "json" };
-import { usage } from "./usage.ts";
+import { usage } from "./operations.ts";
 
 const repositoryRoot = new URL("../../", import.meta.url).pathname;
 
@@ -132,6 +132,17 @@ describe("Operator CLI", () => {
     ["setup", "probe", "wibble", "--claude"],
     ["setup", "probe", "plan", "--claude", "--approved-probe", "abc"],
     ["setup", "probe", "apply", "--claude", "--approved-plan", "abc"],
+    // A flag the operation does not name.
+    ["work", "frontier", "--source", "source-1"],
+    ["publish", "plan", "--source", "source-1", "--request", "request-1"],
+    // A missing required flag.
+    ["publish", "apply", "--source", "source-1", "--plan-revision", "revision-1"],
+    ["gate", "show"],
+    // A value rule of the operation.
+    ["install", "matt", "apply", "--claude", "--commit", "abc", "--approved-plan", "plan-1"],
+    ["install", "matt", "apply", "--commit", "abc"],
+    ["wake", "check", "--root", ""],
+    ["wake", "arm", "--owner-label", "operator"],
   ];
 
   for (const args of unsupportedRequests) {
@@ -142,6 +153,35 @@ describe("Operator CLI", () => {
       expect(JSON.parse(result.stdout).reason).toBe("invalid_arguments");
     });
   }
+
+  test("refuses an operation with no target before its handler runs", async () => {
+    const result = await runOperator([
+      "install",
+      "matt",
+      "apply",
+      "--commit",
+      "a".repeat(40),
+      "--json",
+    ]);
+
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toBe(`${usage}\n`);
+    expect(JSON.parse(result.stdout)).toEqual({
+      schemaVersion: 1,
+      outcome: "invalid",
+      reason: "missing_target",
+      blockers: [{ reason: "missing_target", required: ["--opencode", "--claude"] }],
+      operation: "install_matt_apply",
+    });
+  });
+
+  test("prints the usage text byte for byte", async () => {
+    const result = await runOperator([]);
+
+    expect(result.stderr).toBe(
+      await Bun.file(new URL("usage.expected.txt", import.meta.url)).text(),
+    );
+  });
 
   test("lists every supported command in its usage", async () => {
     const result = await runOperator([]);

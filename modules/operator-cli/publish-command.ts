@@ -152,27 +152,23 @@ function stopped(result: Extract<Applied, { status: "effect-stopped" }>): Refusa
 
 const MERGE_LINE = "A person merges it on GitHub with a merge commit. Operator never merges.";
 
-async function runPlan(parsed: ParsedArguments): Promise<Handled> {
+export async function runPlan(parsed: ParsedArguments<"--source">): Promise<Handled> {
   // A preview changes nothing, and the Operator writes no text into it (ADR 0022, D1).
-  const { sourceId, ...otherCrewFlags } = parsed.crew;
-  if (sourceId === undefined || Object.keys(otherCrewFlags).length > 0) {
-    return "invalid-arguments";
-  }
+  const { sourceId } = parsed.crew;
   const { result } = await CrewState.planPublish({ projectRoot: process.cwd(), sourceId });
   return answer(parsed, "publish_plan", result, { planned: publishPreview, ...planRefusals })
     ? "reported"
     : "invalid-arguments";
 }
 
-async function runApply(parsed: ParsedArguments): Promise<Handled> {
-  const mutation = readMutation(parsed);
-  const { sourceId, planRevision } = parsed.crew;
-  if (mutation === null || sourceId === undefined || planRevision === undefined) {
-    return "invalid-arguments";
-  }
+export async function runApply(
+  parsed: ParsedArguments<"--request" | "--owner-token" | "--source" | "--plan-revision">,
+): Promise<Handled> {
+  const { requestId, ownerToken, sourceId, planRevision } = parsed.crew;
   const { result } = await CrewState.publish({
     projectRoot: process.cwd(),
-    ...mutation,
+    requestId,
+    ownerToken,
     sourceId,
     planRevision,
   });
@@ -203,12 +199,11 @@ async function runApply(parsed: ParsedArguments): Promise<Handled> {
  * Reports one merge observation as one line for each pull request. The Operator reads this, so
  * it names states and faults and points to `crew next` for what follows (R5).
  */
-async function runStatus(parsed: ParsedArguments): Promise<Handled> {
-  const mutation = readMutation(parsed);
-  const { sourceId, requestId: _request, ownerToken: _owner, ...otherCrewFlags } = parsed.crew;
-  if (mutation === null || sourceId === undefined || Object.keys(otherCrewFlags).length > 0) {
-    return "invalid-arguments";
-  }
+export async function runStatus(
+  parsed: ParsedArguments<"--request" | "--owner-token" | "--source">,
+): Promise<Handled> {
+  const { requestId, ownerToken, sourceId } = parsed.crew;
+  const mutation = { requestId, ownerToken };
   const operation = "publish_status";
   const { result } = await CrewState.publishStatus({
     projectRoot: process.cwd(),
@@ -285,23 +280,13 @@ async function runStatus(parsed: ParsedArguments): Promise<Handled> {
  * Changes the base of one part to the target after the part below merged by a merge commit. The
  * report names the part and whether GitHub needed the write, and nothing more (R5).
  */
-async function runRetarget(parsed: ParsedArguments): Promise<Handled> {
-  const mutation = readMutation(parsed);
-  const {
-    sourceId,
-    part,
-    requestId: _request,
-    ownerToken: _owner,
-    ...otherCrewFlags
-  } = parsed.crew;
+export async function runRetarget(
+  parsed: ParsedArguments<"--request" | "--owner-token" | "--source" | "--part">,
+): Promise<Handled> {
+  const { requestId, ownerToken, sourceId, part } = parsed.crew;
+  const mutation = { requestId, ownerToken };
   const number = Number(part);
-  if (
-    mutation === null ||
-    sourceId === undefined ||
-    !Number.isInteger(number) ||
-    number < 2 ||
-    Object.keys(otherCrewFlags).length > 0
-  ) {
+  if (!Number.isInteger(number) || number < 2) {
     return "invalid-arguments";
   }
   const { result } = await CrewState.retargetPublish({
@@ -423,20 +408,10 @@ const recallAnswers = {
  * plan revision it changes nothing. It never merges and never closes a pull request that a new
  * publication will replace.
  */
-async function runRecall(parsed: ParsedArguments): Promise<Handled> {
-  const {
-    sourceId,
-    planRevision,
-    requestId: _request,
-    ownerToken: _owner,
-    ...otherCrewFlags
-  } = parsed.crew;
+export async function runRecall(parsed: ParsedArguments<"--source">): Promise<Handled> {
+  const { sourceId, planRevision } = parsed.crew;
   const mutation = readMutation(parsed);
-  if (
-    sourceId === undefined ||
-    Object.keys(otherCrewFlags).length > 0 ||
-    (planRevision !== undefined && mutation === null)
-  ) {
+  if (planRevision !== undefined && mutation === null) {
     return "invalid-arguments";
   }
   const projectRoot = process.cwd();
@@ -445,24 +420,4 @@ async function runRecall(parsed: ParsedArguments): Promise<Handled> {
       ? await CrewState.planRecall({ projectRoot, sourceId })
       : await CrewState.recall({ projectRoot, ...mutation, sourceId, planRevision });
   return answer(parsed, "publish_recall", result, recallAnswers) ? "reported" : "invalid-arguments";
-}
-
-/** `operator publish`: the plan, the apply that also settles a publication, and the status. */
-export async function runPublish(words: string[], parsed: ParsedArguments): Promise<Handled> {
-  if (words.length !== 1) {
-    return "invalid-arguments";
-  }
-  if (words[0] === "plan") {
-    return runPlan(parsed);
-  }
-  if (words[0] === "status") {
-    return runStatus(parsed);
-  }
-  if (words[0] === "retarget") {
-    return runRetarget(parsed);
-  }
-  if (words[0] === "recall") {
-    return runRecall(parsed);
-  }
-  return words[0] === "apply" ? runApply(parsed) : "invalid-arguments";
 }

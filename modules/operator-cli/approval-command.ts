@@ -17,16 +17,10 @@ function approvalLines(approval: ApprovalRecord): string[] {
   ];
 }
 
-async function runGrant(parsed: ParsedArguments): Promise<Handled> {
-  const { requestId, ownerToken } = parsed.crew;
-  if (requestId === undefined || ownerToken === undefined) {
-    return "invalid-arguments";
-  }
-
-  const inputPath = parsed.crew.inputPath;
-  if (inputPath === undefined) {
-    return "invalid-arguments";
-  }
+export async function runGrant(
+  parsed: ParsedArguments<"--request" | "--owner-token" | "--input">,
+): Promise<Handled> {
+  const { requestId, ownerToken, inputPath } = parsed.crew;
 
   const input = await readStructuredInput({
     parsed,
@@ -71,15 +65,12 @@ async function runGrant(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
-async function runRevoke(parsed: ParsedArguments): Promise<Handled> {
+export async function runRevoke(
+  parsed: ParsedArguments<"--request" | "--owner-token" | "--approval" | "--revision">,
+): Promise<Handled> {
   const { requestId, ownerToken, approvalId } = parsed.crew;
   const revision = readRevision(parsed);
-  if (
-    requestId === undefined ||
-    ownerToken === undefined ||
-    approvalId === undefined ||
-    revision === null
-  ) {
+  if (revision === null) {
     return "invalid-arguments";
   }
 
@@ -144,11 +135,8 @@ async function runRevoke(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
-async function runCheck(parsed: ParsedArguments): Promise<Handled> {
+export async function runCheck(parsed: ParsedArguments<"--input">): Promise<Handled> {
   const inputPath = parsed.crew.inputPath;
-  if (inputPath === undefined) {
-    return "invalid-arguments";
-  }
 
   const input = await readStructuredInput({
     parsed,
@@ -214,23 +202,4 @@ async function runCheck(parsed: ParsedArguments): Promise<Handled> {
         ],
   });
   return "reported";
-}
-
-export async function runApproval(words: string[], parsed: ParsedArguments): Promise<Handled> {
-  if (words.length !== 1) {
-    return "invalid-arguments";
-  }
-
-  const [subcommand] = words;
-  if (subcommand === "grant") {
-    return runGrant(parsed);
-  }
-  if (subcommand === "revoke") {
-    return runRevoke(parsed);
-  }
-  if (subcommand === "check") {
-    return runCheck(parsed);
-  }
-
-  return "invalid-arguments";
 }

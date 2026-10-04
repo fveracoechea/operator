@@ -1,9 +1,8 @@
 import { OperatorConfig } from "../operator-config/main.ts";
-import { hasConfigArguments, type ParsedArguments } from "./arguments.ts";
+import type { ParsedArguments } from "./arguments.ts";
 import {
   answer,
   approvalRefusals,
-  type Handled,
   type Refusal,
   type Refusals,
   report,
@@ -81,7 +80,7 @@ function locked(detail: string): Refusal {
   };
 }
 
-async function show(parsed: ParsedArguments): Promise<void> {
+export async function runShow(parsed: ParsedArguments): Promise<void> {
   const result = await OperatorConfig.show(process.cwd());
   if (result.status !== "read") {
     reportRefusal(parsed, "config_show", failure(result));
@@ -109,7 +108,7 @@ async function show(parsed: ParsedArguments): Promise<void> {
   });
 }
 
-async function plan(parsed: ParsedArguments): Promise<void> {
+export async function runPlan(parsed: ParsedArguments): Promise<void> {
   const result = await OperatorConfig.planChange({
     projectRoot: process.cwd(),
     sets: parsed.configSets,
@@ -163,7 +162,7 @@ function applyRefusals(parsed: ParsedArguments) {
   } satisfies Refusals<Applied>;
 }
 
-async function apply(parsed: ParsedArguments): Promise<void> {
+export async function runApply(parsed: ParsedArguments): Promise<void> {
   const result = await OperatorConfig.applyChange({
     projectRoot: process.cwd(),
     sets: parsed.configSets,
@@ -195,7 +194,7 @@ async function apply(parsed: ParsedArguments): Promise<void> {
   });
 }
 
-async function recover(parsed: ParsedArguments): Promise<void> {
+export async function runRecover(parsed: ParsedArguments): Promise<void> {
   const result = await OperatorConfig.recoverChange(process.cwd());
   if (result.status === "write-locked") {
     reportRefusal(parsed, "config_recover", locked(result.detail));
@@ -220,28 +219,4 @@ async function recover(parsed: ParsedArguments): Promise<void> {
         : "No configuration apply needs recovery.",
     ],
   });
-}
-
-export async function runConfig(words: string[], parsed: ParsedArguments): Promise<Handled> {
-  if (words.length !== 1) return "invalid-arguments";
-  if (words[0] === "show") {
-    if (hasConfigArguments(parsed) || parsed.approvedPlan !== undefined) return "invalid-arguments";
-    await show(parsed);
-    return "reported";
-  }
-  if (words[0] === "plan") {
-    if (parsed.approvedPlan !== undefined) return "invalid-arguments";
-    await plan(parsed);
-    return "reported";
-  }
-  if (words[0] === "apply") {
-    await apply(parsed);
-    return "reported";
-  }
-  if (words[0] === "recover") {
-    if (hasConfigArguments(parsed) || parsed.approvedPlan !== undefined) return "invalid-arguments";
-    await recover(parsed);
-    return "reported";
-  }
-  return "invalid-arguments";
 }
