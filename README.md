@@ -99,6 +99,7 @@ For the commands behind these steps, see [Project installation and setup](#proje
 ## Contents
 
 - [The integrated pull request workflow](#the-integrated-pull-request-workflow)
+- [The state machines](#the-state-machines)
 - [CLI conventions](#cli-conventions)
 - [Project installation and setup](#project-installation-and-setup)
 - [Release and updates](#release-and-updates)
@@ -316,6 +317,74 @@ Your `integration-rebase` approval names the old base, the new base, and the pla
 The new base and each commit that lands again pass the project gate first, in order.
 A commit whose pull request merged leaves the branch. A commit whose patch changes on the new base is taken out and comes back through an integration cycle.
 The rebase never runs while a published pull request of the source is open, and the new head gets a new branch review.
+
+## The state machines
+
+Each lifecycle that crew state records is one explicit state machine in `modules/crew-state`.
+A machine has one closed set of states, one closed set of events, one transition table, and one pure decision.
+A command gathers the facts, the decision gives the next state or the first refusal, and the command writes the next state before it runs an outside effect.
+`crew next` writes nothing. It reads the recorded state of each machine, and it does not derive a state again.
+See [ADR 0023](docs/adr/0023-each-lifecycle-is-an-explicit-state-machine.md).
+
+Each box is one machine with its states.
+A solid arrow is a main event, with the command that sends it. A dotted arrow between two machines is a correction.
+A dotted arrow to `crew next` names the readers, by number, that read the machine.
+
+```mermaid
+flowchart TD
+  Q["Question<br/>open, answered, delivered, resolved, withdrawn"]
+  AS["Assignment<br/>registered, claimed, awaiting-review, rework,<br/>paused, invalidated, accepted, withdrawn"]
+  AT["Attempt<br/>active, submitted, accepted, replaced"]
+  RV["Review<br/>registered, reported, blocked, withdrawn"]
+  GR["Gate run<br/>running, passed, failed, stopped"]
+  BM["Branch move<br/>landing: intended, landed, replaced, taken-out, merged<br/>rebase: intended, rebased"]
+  AP["Approval<br/>granted, revoked"]
+  SP["Stack publication<br/>none, unwritten, faulted, ended, open, recalled, merged"]
+  TS["Tracker step<br/>unrecorded, intended, pending, verified, conflict, uncertain, failed"]
+  CL["Cleanup<br/>pending, blocked, failed, uncertain, done<br/>hold: held, released"]
+  N{{"crew next reads and writes nothing"}}
+
+  AS -->|claim, attempt dispatch| AT
+  AT -->|raise| Q
+  Q -->|answer, deliver, acknowledge| AT
+  AT -->|submit| RV
+  RV -->|report, review dispose, gate run: start| GR
+  RV -.->|rework| AS
+  GR -->|passed: work accept| AS
+  AS -->|accept lands the commit: land| BM
+  BM -->|every item accepted or withdrawn: branch review| RV
+  RV -->|branch review reported: publish plan, approval grant| AP
+  AS -.->|invalidate, withdraw: take-out| BM
+  AP -->|use: work rebase| BM
+  AP -->|use: publish apply| SP
+  SP -->|observe: merged| TS
+  SP -.->|recall, retarget, settle-fault| SP
+  AT -->|submitted or accepted: close, remove| CL
+
+  AT -.->|1| N
+  CL -.->|1| N
+  GR -.->|1, 3, 4| N
+  Q -.->|2| N
+  BM -.->|3, 4, 5| N
+  AS -.->|4, 6| N
+  RV -.->|4| N
+  TS -.->|4| N
+  AP -.->|5| N
+  SP -.->|5| N
+```
+
+`crew next` first reads the readiness of the project.
+Then it reads the machines by subject, in this order:
+
+1. **Attempts.** The launch state of an active attempt (`unplanned`, `launching`, `awaiting-acknowledgement`, or `acknowledged`) gives `reconcile_attempt`, `adopt_attempt`, `dispatch_attempt`, or a wait for the Operative. The base gate of the first code dispatch gives `run_gate` or the `gate_running` wait. The cleanup of a submitted or accepted attempt gives `close_process`, `remove_worktree`, or the `cleanup_held` wait.
+2. **Questions.** An open or answered question gives `answer_question` or `deliver_answer`. A delivered one waits for its acknowledgement.
+3. **Take-outs.** A source whose branch still holds a withdrawn commit gives `take_out_commit`, `run_gate`, or `settle_landing`.
+4. **Assignments.** An undirected limit gives `direct_limit`, and paused work gives the `input_invalidated` wait. An assignment in `awaiting-review` reads its review, its gate step, and its landing: `dispose_findings`, `dispose_outside_changes`, `delegate_rework`, `replace_attempt`, `run_gate`, `settle_landing`, or `accept_assignment`. A branch review gives `dispose_findings` or `accept_assignment`. An accepted assignment reads each tracker step: `record_tracker` or `recover_tracker`.
+5. **Sources.** The rebase gives `settle_rebase` or `rebase_integration`. Then the stack publication and the approvals that no record used yet give `settle_publish`, `recall_stack`, `retarget_pull_request`, `publish_stack`, or the `stack_open` wait.
+6. **Frontier.** The frontier gives `resolve_planning` and `claim_assignment`.
+
+The report sorts the actions by their rank in `NEXT_ACTIONS`, so a recovery comes before a conversation, and a conversation comes before a pipeline step.
+The waits and the actions of one rank keep the order of the readers.
 
 ## CLI conventions
 
