@@ -22,15 +22,9 @@ import {
   type PreparedRecord,
   type RecordRefusal,
 } from "./planning-record.ts";
-import {
-  insertLandingIntent,
-  intendedLandingOf,
-  type LandingPlan,
-  type LandingRefusal,
-  recordedTipOf,
-  recordLanding,
-  replacedLandingOf,
-} from "./landing.ts";
+import type { LandingRefusal, MoveNext } from "./branch-move.ts";
+import { insertLandingIntent, type LandingPlan, recordedTipOf, recordLanding } from "./landing.ts";
+import { intendedLandingOf, replacedLandingOf } from "./landing-record.ts";
 import { applyRewrite } from "./rewrite.ts";
 import { blockingQuestionOf } from "./questions.ts";
 import { submissions } from "./schema.ts";
@@ -113,12 +107,6 @@ export type AcceptResult =
       replaces: string | null;
     }
   | { status: "landing-intended"; assignmentId: string; landingId: string }
-  | {
-      status: "landing-tip-changed";
-      assignmentId: string;
-      planned: string;
-      recordedTip: string | null;
-    }
   | LandingRefusal;
 
 /** The landing of one accepted code result, as acceptance reports it. */
@@ -146,7 +134,7 @@ export type AcceptedLanding = {
 export type LandingStep =
   | { kind: "probe" }
   | { kind: "intend"; landingId: string; plan: LandingPlan }
-  | { kind: "record"; landingId: string; intended: boolean; plan: LandingPlan };
+  | { kind: "record"; landingId: string; intended: boolean; plan: LandingPlan; next: MoveNext };
 
 type AcceptRequest = {
   assignmentId: string;
@@ -402,7 +390,7 @@ function landingStep(
     insertLandingIntent(db, fields);
     return { status: "landing-intended", assignmentId: row.id, landingId: step.landingId };
   }
-  recordLanding(db, { ...fields, intended: own });
+  recordLanding(db, { ...fields, intended: own, next: step.next });
   const { rewrite } = step.plan;
   if (rewrite !== null) {
     applyRewrite(db, { rewrite, now: request.now });

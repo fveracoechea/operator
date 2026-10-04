@@ -218,7 +218,7 @@ async function runStart(parsed: ParsedArguments): Promise<Handled> {
       ],
     });
   }
-  if (result.status === "nothing-to-take-out" || result.status === "take-out-plan-changed") {
+  if (result.status === "nothing-to-take-out") {
     return refuse({
       json: parsed.json,
       operation: "gate_run",

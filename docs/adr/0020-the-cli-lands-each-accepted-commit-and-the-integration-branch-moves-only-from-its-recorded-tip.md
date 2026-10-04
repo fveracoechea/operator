@@ -165,6 +165,7 @@ Each take-out is bound to one revision, so a registration that withdraws more la
 `crew next` offers `run_gate` with `operator gate run --source <id>` for each commit that lands again, then `take_out_commit`, and the command refuses with the gate blockers of ADR 0021 until the range passed.
 The record ends each withdrawn landing as taken out, moves the recorded tip, and registers the branch review when the branch became final (ADR 0017); the withdrawn commit stays in its checkout, which only the person removes (D3).
 A withdrawn landing on a commit that a result that is not withdrawn also carries leaves the record only, because that commit stays on the branch.
+A take-out whose recorded landings do not lead from the recorded tip to the base refuses with `integration_branch_unread`, as a rewrite does, and records nothing.
 An interrupted take-out is offered as `settle_landing` with the same command.
 
 The rebase onto a new base is `operator work rebase --source <id> --base <commit>` (ADR 0022).

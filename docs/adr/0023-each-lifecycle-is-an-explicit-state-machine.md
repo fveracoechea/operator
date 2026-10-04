@@ -33,6 +33,10 @@ The first two machines are the cleanup and the question:
 - **Cleanup.** One record for each cleanup kind, process closure and worktree removal, with the states `pending`, `blocked`, `failed`, `uncertain`, and `done`, and the events close and remove. Each kind has its own ordered guards, and the preserve, stop, and remove outcomes are rows of the table. A retention hold is a second small machine with the states `held` and `released` and the events hold and release. The coordination order reads the owed cleanup from the machine.
 - **Question.** The states `open`, `answered`, `delivered`, `resolved`, and `withdrawn`, and the events raise, revise, answer, escalate, deliver, and acknowledge. An event on a question that is not recorded is refused by the read that finds no row, before any guard runs.
 
+Later machines:
+
+- **Branch move** (#133). A landing goes from `intended` to `landed`, `replaced`, `taken-out`, or `merged`, and a rebase goes from `intended` to `rebased`. The events land, take out, and rebase each end one recorded move. The move of the ref is the fact the decision reads: a ref that did not move gives the refusal of the event and keeps the intent open, and a moved ref gives the next state of the intent and of each landing that the move ends. The branch ref itself has no state, because it moves only by a compare and swap from the recorded tip. The commands that move the branch give every landing refusal as one `landing-refused` result, so the command line maps no move state.
+
 ## Consequences
 
 - The refusals of one lifecycle are read in one table, and they can be tested with no database.

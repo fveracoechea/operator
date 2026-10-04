@@ -20,8 +20,8 @@ import {
   runningRunOf,
 } from "./gate-runs.ts";
 import { unlandedCommitOf } from "./cleanup-landing.ts";
-import { currentLandingOf, intendedLandingOf, replacedLandingOf, rewriteOf } from "./landing.ts";
-import { pendingTakeOutsOf, type TakeOutRead, takeOutCommand } from "./take-out.ts";
+import { currentLandingOf, intendedLandingOf, replacedLandingOf } from "./landing-record.ts";
+import { pendingTakeOutsOf, type TakeOutRead, takeOutCommand, takeOutOf } from "./take-out.ts";
 import { integrationBranchOf } from "./integration.ts";
 import { directionRecordOf } from "./direction.ts";
 import { calculateFrontier, type Frontier, undirected, unmetDependencies } from "./frontier.ts";
@@ -881,7 +881,7 @@ function readTakeOutsOf(
         action: "settle_landing",
         sourceId: source.id,
         detail: `Take-out ${intended.id} moves ${intended.branch} from ${intended.fromCommit} to ${intended.toCommit}, and its outcome is not recorded. Repeat the take-out: it reads the branch once and moves it again, records the outcome, or names a moved branch.`,
-        command: takeOutCommand(source.id, rewriteOf(intended)?.takeOut?.planRevision ?? ""),
+        command: takeOutCommand(source.id, takeOutOf(intended).takeOut.planRevision),
       });
       continue;
     }

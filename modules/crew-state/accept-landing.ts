@@ -2,15 +2,16 @@ import { eq } from "drizzle-orm";
 import { IntegrationBranch } from "../integration-branch/main.ts";
 import { type AcceptResult, acceptAssignment, type LandingStep } from "./acceptance.ts";
 import { integrationBranchOf } from "./integration.ts";
+import { BranchMove, type MoveOutcome } from "./branch-move.ts";
 import {
   candidateGate,
-  intendedLandingOf,
+  landingIntentInput,
   type LandingPlan,
-  type LandingRefusal,
-  type LandingRow,
+  type PlannedMove,
   planLanding,
   planOfLanding,
 } from "./landing.ts";
+import { intendedLandingOf, type LandingRow } from "./landing-record.ts";
 import { mutate, readState, type RequestFailure, type StateFailure } from "./operations.ts";
 import type { PreparedRecord } from "./planning-record.ts";
 import { intendedRebaseOf } from "./rebase.ts";
@@ -71,7 +72,12 @@ function acceptOnce(request: AcceptCall, step: LandingStep): Promise<Reported> {
  * Records the intent of one move, after every gate of acceptance passed again in its own
  * transaction. Its request identity is derived from the acceptance, so a repeat finds it.
  */
-function intendOnce(request: AcceptCall, landingId: string, plan: LandingPlan): Promise<Reported> {
+function intendOnce(
+  request: AcceptCall,
+  landingId: string,
+  landing: PlannedMove,
+): Promise<Reported> {
+  const { plan } = landing;
   return mutate(
     {
       projectRoot: request.projectRoot,
@@ -79,7 +85,11 @@ function intendOnce(request: AcceptCall, landingId: string, plan: LandingPlan): 
       ownerToken: request.ownerToken,
       now: new Date().toISOString(),
       operation: "work_accept_landing",
-      input: { assignmentId: request.assignmentId, submissionId: request.submissionId, plan },
+      input: landingIntentInput({
+        assignmentId: request.assignmentId,
+        submissionId: request.submissionId,
+        landing,
+      }),
     },
     ({ tx, now }) => {
       const outcome = acceptAssignment(tx, {
@@ -97,6 +107,40 @@ function intendOnce(request: AcceptCall, landingId: string, plan: LandingPlan): 
 }
 
 /**
+ * Records the outcome of one move with the acceptance, as the branch move machine decides it from
+ * the outcome of the ref move. A ref that did not move stops the landing and keeps the intent open.
+ */
+function record(
+  request: AcceptCall,
+  landing: { id: string; intended: boolean; plan: LandingPlan },
+  moved: MoveOutcome,
+): Promise<Reported> {
+  const { plan } = landing;
+  const decided = BranchMove.decide("land", {
+    moved,
+    place: {
+      assignmentId: request.assignmentId,
+      branch: plan.name,
+      recordedTip: plan.from,
+      tip: plan.from,
+      commit: plan.to,
+    },
+    landingId: landing.id,
+    rewrite: plan.rewrite,
+  });
+  if ("refused" in decided) {
+    return Promise.resolve({ repeated: false, result: decided.refused });
+  }
+  return acceptOnce(request, {
+    kind: "record",
+    landingId: landing.id,
+    intended: landing.intended,
+    plan,
+    next: decided.next,
+  });
+}
+
+/**
  * Moves the branch for one recorded intent, then records the outcome with the acceptance.
  * Recovery reads the ref once: the old tip lands again, the planned commit records the outcome,
  * and anything else is a moved branch, which stops the landing and keeps the intent open.
@@ -111,30 +155,7 @@ async function settle(
     from: landing.plan.from,
     to: landing.plan.to,
   });
-  const subject = { assignmentId: request.assignmentId, branch: landing.plan.name };
-  let refusal: LandingRefusal | null = null;
-  if (moved.status === "tip-moved") {
-    refusal = {
-      status: "integration-branch-moved",
-      ...subject,
-      recordedTip: landing.plan.from,
-      found: moved.found,
-      checkedOut: moved.checkedOut,
-    };
-  } else if (moved.status === "checked-out") {
-    refusal = { status: "integration-branch-checked-out", ...subject, worktrees: moved.worktrees };
-  } else if (moved.status === "unread") {
-    refusal = { status: "integration-branch-unread", ...subject, detail: moved.detail };
-  }
-  if (refusal !== null) {
-    return { repeated: false, result: refusal };
-  }
-  return acceptOnce(request, {
-    kind: "record",
-    landingId: landing.id,
-    intended: true,
-    plan: landing.plan,
-  });
+  return record(request, { ...landing, intended: true }, moved);
 }
 
 /**
@@ -235,7 +256,7 @@ export async function acceptWithLanding(request: AcceptCall): Promise<Reported> 
     if (gated !== null) {
       return { repeated: false, result: gated };
     }
-    return land(request, rewritten.rewrite.landing.plan);
+    return land(request, rewritten.rewrite.landing);
   }
 
   const planned = await planLanding({
@@ -253,7 +274,7 @@ export async function acceptWithLanding(request: AcceptCall): Promise<Reported> 
 
   // A commit that the branch already holds with an equal patch lands nothing and is only accepted.
   if (plan.from === plan.to) {
-    return acceptOnce(request, { kind: "record", landingId, intended: false, plan });
+    return record(request, { id: landingId, intended: false, plan }, { status: "moved" });
   }
 
   const gated = await readState(request.projectRoot, (db) =>
@@ -263,14 +284,14 @@ export async function acceptWithLanding(request: AcceptCall): Promise<Reported> 
     return { repeated: false, result: gated };
   }
 
-  return land(request, plan);
+  return land(request, planned.landing);
 }
 
 /** Records the intent of one planned move, then moves the branch and records the outcome. */
-async function land(request: AcceptCall, plan: LandingPlan): Promise<Reported> {
-  const intent = await intendOnce(request, crypto.randomUUID(), plan);
+async function land(request: AcceptCall, landing: PlannedMove): Promise<Reported> {
+  const intent = await intendOnce(request, crypto.randomUUID(), landing);
   if (intent.result.status !== "landing-intended") {
     return intent;
   }
-  return settle(request, { id: intent.result.landingId, plan });
+  return settle(request, { id: intent.result.landingId, plan: landing.plan });
 }

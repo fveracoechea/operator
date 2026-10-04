@@ -198,15 +198,13 @@ export async function runRework(parsed: ParsedArguments): Promise<Handled> {
   }
 
   switch (result.status) {
-    case "integration-branch-missing":
-    case "integration-branch-moved":
-    case "integration-branch-checked-out":
-    case "integration-branch-unread":
-    case "rewrite-published-range":
-    case "rewrite-tracker-recorded":
-    case "landing-tip-changed": {
-      const { outcome, reason, lines } = landingRefusalOf(result, "delegate the cycle");
-      const { status: _status, ...detail } = result;
+    case "landing-refused": {
+      const { refusal } = result;
+      const { outcome, reason, lines } = landingRefusalOf(refusal, {
+        retry: "delegate the cycle",
+        gateRun: "--assignment",
+      });
+      const { status: _status, ...detail } = refusal;
       return refuse({
         json: parsed.json,
         operation: "work_rework",

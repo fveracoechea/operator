@@ -4,12 +4,14 @@ import { IntegrationBranch } from "../integration-branch/main.ts";
 import { PullRequestStack } from "../pull-request-stack/main.ts";
 import { matchApproval } from "./approvals.ts";
 import { type RegisteredBranchReview, registerBranchReview } from "./branch-review.ts";
+import { BranchMove, type MoveNext, type MoveRefusal } from "./branch-move.ts";
 import type { CrewReader, CrewWriter } from "./database.ts";
 import { type GateKey, keyStatus } from "./gate-runs.ts";
 import { type GateStartResult, startRun } from "./gate-start.ts";
 import { identityOf } from "./identity.ts";
 import { fixedGateOf, type IntegrationBranchRow, integrationBranchOf } from "./integration.ts";
-import { currentLandingOf, intendedLandingOf, type LandingRow } from "./landing.ts";
+import { writeLandingStates } from "./landing.ts";
+import { currentLandingOf, intendedLandingOf, type LandingRow } from "./landing-record.ts";
 import { mutate, readState, type RequestFailure, type StateFailure } from "./operations.ts";
 import { type ApprovalRequest, openPublicationOf } from "./publish.ts";
 import { publishedPartsOf, replacedPullsOf } from "./publish-status.ts";
@@ -17,17 +19,11 @@ import {
   laterLandings,
   refusedTrees,
   relandAll,
-  takeOutAll,
+  returnTakenOut,
   trackerHold,
   withNeeds,
 } from "./rewrite.ts";
-import {
-  assignments,
-  integrationBranches,
-  integrationRebases,
-  landings,
-  workSources,
-} from "./schema.ts";
+import { assignments, integrationBranches, integrationRebases, workSources } from "./schema.ts";
 import { readStored } from "./stored.ts";
 import { storedTrackerLocation } from "./work-input.ts";
 
@@ -580,15 +576,7 @@ export type RebaseResult =
       record: RebaseRecord;
       branchReview: RegisteredBranchReview | null;
     }
-  | {
-      status: "rebase-stopped";
-      rebaseId: string;
-      reason:
-        | "integration_branch_moved"
-        | "integration_branch_checked_out"
-        | "integration_branch_unread";
-      detail: string;
-    }
+  | MoveRefusal["rebase"]
   | { status: "rebase-pending"; rebaseId: string; planRevision: string }
   | { status: "unknown-source"; sourceId: string }
   | StateFailure
@@ -602,29 +590,30 @@ type Caller = {
 };
 
 /**
- * Records the outcome of one rebase, in one transaction: the new base and tip, each landing that
- * left the branch, landed again, or was taken out, and the branch review of the new head, which
- * counts against the limit of three (ADR 0017).
+ * Records the outcome of one rebase, in one transaction: the next state of the rebase and of each
+ * landing it ended, the new base and tip, each landing that landed again, each assignment whose
+ * landing was taken out, and the branch review of the new head, which counts against the limit
+ * of three (ADR 0017).
  */
 function recordRebased(
   db: CrewWriter,
-  request: { rebase: RebaseRow; now: string },
+  request: { rebase: RebaseRow; next: MoveNext; now: string },
 ): RegisteredBranchReview | null {
-  const { rebase, now } = request;
+  const { rebase, next, now } = request;
   const record = rebaseRecordOf(rebase);
-  db.update(integrationRebases)
-    .set({ state: "rebased", rebasedAt: now })
-    .where(eq(integrationRebases.id, rebase.id))
-    .run();
+  if (next.rebase !== null) {
+    db.update(integrationRebases)
+      .set({ state: next.rebase, rebasedAt: now })
+      .where(eq(integrationRebases.id, rebase.id))
+      .run();
+  }
   db.update(integrationBranches)
     .set({ baseCommit: rebase.toBase, recordedTip: rebase.toTip, updatedAt: now })
     .where(eq(integrationBranches.sourceId, rebase.sourceId))
     .run();
-  for (const one of record.merged) {
-    db.update(landings).set({ state: "merged" }).where(eq(landings.id, one.landingId)).run();
-  }
+  writeLandingStates(db, { landings: next.landings, now });
   relandAll(db, record.relanded);
-  takeOutAll(db, { takenOut: record.takenOut, now });
+  returnTakenOut(db, { takenOut: record.takenOut, now });
   return registerBranchReview(db, { sourceId: rebase.sourceId, now });
 }
 
@@ -640,25 +629,17 @@ async function settle(request: Caller, rebase: RebaseRow): Promise<RebaseResult>
     from: rebase.fromTip,
     to: rebase.toTip,
   });
-  if (moved.status !== "moved") {
-    const stopped = { status: "rebase-stopped" as const, rebaseId: rebase.id };
-    switch (moved.status) {
-      case "tip-moved":
-        return {
-          ...stopped,
-          reason: "integration_branch_moved",
-          detail: `The branch ${rebase.branch} holds ${moved.found ?? "no commit"}, and the rebase moves it from ${rebase.fromTip} to ${rebase.toTip}. The person puts it back.`,
-        };
-      case "checked-out":
-        return {
-          ...stopped,
-          reason: "integration_branch_checked_out",
-          detail: `The branch ${rebase.branch} is checked out in ${moved.worktrees.join(", ")}.`,
-        };
-      default:
-        return { ...stopped, reason: "integration_branch_unread", detail: moved.detail };
-    }
+  const record = rebaseRecordOf(rebase);
+  const decided = BranchMove.decide("rebase", {
+    moved,
+    rebase,
+    merged: record.merged.map((one) => one.landingId),
+    takenOut: record.takenOut.map((one) => one.landingId),
+  });
+  if ("refused" in decided) {
+    return decided.refused;
   }
+  const { next } = decided;
   const recorded = await mutate(
     {
       projectRoot: request.projectRoot,
@@ -679,7 +660,10 @@ async function settle(request: Caller, rebase: RebaseRow): Promise<RebaseResult>
       }
       return {
         commit: true,
-        outcome: { status: "recorded" as const, branchReview: recordRebased(tx, { rebase, now }) },
+        outcome: {
+          status: "recorded" as const,
+          branchReview: recordRebased(tx, { rebase, next, now }),
+        },
       };
     },
   );

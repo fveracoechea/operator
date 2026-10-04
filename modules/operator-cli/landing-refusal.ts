@@ -5,37 +5,29 @@ import type { refuse } from "./result.ts";
 const INTEGRATION_LINE =
   "Delegate an integration cycle with `operator work rework` and the reason `integration`.";
 
-/** Every refusal of a landing, as `work accept` and `work rework` report it. */
-export type LandingRefusalResult = Extract<
-  | Awaited<ReturnType<typeof CrewState.accept>>["result"]
-  | Awaited<ReturnType<typeof CrewState.rework>>["result"],
-  {
-    status:
-      | "integration-branch-missing"
-      | "integration-branch-moved"
-      | "integration-branch-checked-out"
-      | "integration-branch-unread"
-      | "landing-conflict"
-      | "landing-patch-changed"
-      | "landing-gate-not-passed"
-      | "landing-pending"
-      | "rebase-pending"
-      | "landing-tip-changed"
-      | "rewrite-published-range"
-      | "rewrite-tracker-recorded"
-      | "take-out-pending";
-  }
->;
+/**
+ * Every refusal of a landing, as `work accept`, `work rework`, and `work take-out` report it in
+ * their one `landing-refused` variant.
+ */
+export type LandingRefusal = Extract<
+  Awaited<ReturnType<typeof CrewState.accept>>["result"],
+  { status: "landing-refused" }
+>["refusal"];
 
 /** The lines and the outcome of one refusal of a landing. Each one landed and recorded nothing. */
 export function landingRefusalOf(
-  result: LandingRefusalResult,
-  retry: "accept" | "delegate the cycle",
+  result: LandingRefusal,
+  command: {
+    retry: "accept" | "delegate the cycle";
+    // The flag of the gate run that the command owes: an assignment, or the source of a take-out.
+    gateRun: "--assignment" | "--source";
+  },
 ): {
   outcome: "missing-condition" | "conflict" | "pending" | "uncertain";
   reason: Parameters<typeof refuse>[0]["reason"];
   lines: string[];
 } {
+  const { retry } = command;
   switch (result.status) {
     case "integration-branch-missing":
       return {
@@ -98,7 +90,7 @@ export function landingRefusalOf(
         lines: [
           `The planned commit ${result.commit} on tip ${result.tip} has not passed the project gate.`,
           result.gate === "gate_pending"
-            ? "No gate run is recorded at its key. Run `operator gate run --assignment <id>` first."
+            ? `No gate run is recorded at its key. Run \`operator gate run ${command.gateRun} <id>\` first.`
             : result.gate === "gate_running"
               ? `Gate run ${result.runIds.join(", ")} still runs at its key. Wait for its outcome.`
               : `The key is ${result.gate === "gate_flaky" ? "flaky" : "failed"} in gate run ${result.runIds.join(", ")}. Read it with \`operator gate show --run <id>\`.`,

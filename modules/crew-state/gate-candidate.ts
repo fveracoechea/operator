@@ -1,7 +1,9 @@
 import { readAssignment } from "./assignment.ts";
 import { type GateStartResult, startRun } from "./gate-start.ts";
 import { fixedGateOf, integrationBranchOf } from "./integration.ts";
-import { candidateKey, type LandingRefusal, planLanding, replacedLandingOf } from "./landing.ts";
+import type { LandingRefusal } from "./branch-move.ts";
+import { candidateKey, planLanding } from "./landing.ts";
+import { replacedLandingOf } from "./landing-record.ts";
 import { readState, type StateFailure } from "./operations.ts";
 import { planRewrite, rangeGateOf } from "./rewrite.ts";
 import { latestSubmission, reviewedBaseOf, submittedCommit } from "./submission.ts";
@@ -11,7 +13,10 @@ export type CandidateStartResult =
   | { status: "unknown-assignment"; assignmentId: string }
   | { status: "candidate-missing"; assignmentId: string; state: string }
   | { status: "landing-lands-nothing"; assignmentId: string; branch: string; landed: string }
-  | Exclude<LandingRefusal, { status: "landing-gate-not-passed" | "landing-pending" }>
+  | Exclude<
+      LandingRefusal,
+      { status: "landing-gate-not-passed" | "landing-pending" | "landing-tip-changed" }
+    >
   | StateFailure;
 
 /**

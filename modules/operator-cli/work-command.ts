@@ -663,21 +663,13 @@ async function readAcceptRequest(
 /** Reports a landing that stopped. Nothing landed and nothing was recorded, except an open intent. */
 function reportLandingRefusal(parsed: ParsedArguments, result: AcceptanceResult): Handled | null {
   switch (result.status) {
-    case "integration-branch-missing":
-    case "integration-branch-moved":
-    case "integration-branch-checked-out":
-    case "integration-branch-unread":
-    case "landing-conflict":
-    case "landing-patch-changed":
-    case "landing-gate-not-passed":
-    case "landing-pending":
-    case "rebase-pending":
-    case "rewrite-published-range":
-    case "rewrite-tracker-recorded":
-    case "take-out-pending":
-    case "landing-tip-changed": {
-      const { outcome, reason, lines } = landingRefusalOf(result, "accept");
-      const { status: _status, ...detail } = result;
+    case "landing-refused": {
+      const { refusal } = result;
+      const { outcome, reason, lines } = landingRefusalOf(refusal, {
+        retry: "accept",
+        gateRun: "--assignment",
+      });
+      const { status: _status, ...detail } = refusal;
       return refuse({
         json: parsed.json,
         operation: "work_accept",

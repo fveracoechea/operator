@@ -454,6 +454,20 @@ describe("an integration cycle", () => {
     const refused = await stale;
 
     expect(refused.json.reason).toBe("landing_tip_changed");
+    expect(refused.json.blockers).toEqual([
+      {
+        reason: "landing_tip_changed",
+        assignmentId: producer.assignmentId,
+        planned: tip,
+        recordedTip: moved.tip,
+      },
+    ]);
+    expect(Object.keys(refused.json.blockers[0])).toEqual([
+      "reason",
+      "assignmentId",
+      "planned",
+      "recordedTip",
+    ]);
     // The refusal names the tip the evidence was read on and the recorded tip now.
     expect(refused.stdout).toContain(tip);
     expect(refused.stdout).toContain(moved.tip);

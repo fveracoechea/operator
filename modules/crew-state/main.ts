@@ -23,6 +23,7 @@ import { startCandidateGateRun } from "./gate-candidate.ts";
 import { startGateRun } from "./gate-start.ts";
 import { readTakeOuts, startTakeOutGateRun, takeOutWithdrawn } from "./take-out.ts";
 import { acceptWithLanding } from "./accept-landing.ts";
+import { landingRefused } from "./branch-move.ts";
 import { claimAssignment } from "./claims.ts";
 import { calculateFrontier } from "./frontier.ts";
 import { calculateNext, calculateUnowned, isStandingAction } from "./next.ts";
@@ -85,6 +86,17 @@ function reported<Result extends { status: string }>(
   result: Result,
 ): { repeated: boolean; result: Result } {
   return { repeated: "repeated" in result && result.repeated === true, result };
+}
+
+/**
+ * One answer of a command that moves the branch, with every landing refusal given as the one
+ * `landing-refused` variant, so the caller maps no move state of its own.
+ */
+async function refusingLandings<Result extends { status: string }>(
+  pending: Promise<{ repeated: boolean; result: Result }>,
+) {
+  const { repeated, result } = await pending;
+  return { repeated, result: landingRefused(result) };
 }
 
 /** Only the named final status commits; every other status leaves the state unchanged. */
@@ -392,10 +404,12 @@ export const CrewState = {
       return { repeated: false, result: prepared };
     }
 
-    return acceptWithLanding({
-      ...request,
-      record: prepared === null ? null : prepared.record,
-    });
+    return refusingLandings(
+      acceptWithLanding({
+        ...request,
+        record: prepared === null ? null : prepared.record,
+      }),
+    );
   },
 
   /**
@@ -531,7 +545,7 @@ export const CrewState = {
     if (integration !== null && stateFailed(integration)) {
       return reported(integration);
     }
-    return mutate<ReworkOutcome>(
+    const delegated = mutate<ReworkOutcome>(
       {
         projectRoot: request.projectRoot,
         requestId: request.requestId,
@@ -556,6 +570,7 @@ export const CrewState = {
         };
       },
     );
+    return refusingLandings(delegated);
   },
 
   /** Reports one review, its two axis reports, and every finding disposition. Writes nothing. */
@@ -633,7 +648,7 @@ export const CrewState = {
    * patches, so it is not an Operator change.
    */
   async takeOut(request: Mutation & { sourceId: string; planRevision: string }) {
-    return takeOutWithdrawn(request);
+    return refusingLandings(takeOutWithdrawn(request));
   },
 
   /**

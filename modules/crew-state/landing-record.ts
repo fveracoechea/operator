@@ -1,5 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
+import { CARRYING } from "./branch-move.ts";
 import type { CrewReader } from "./database.ts";
 import { landings } from "./schema.ts";
 import { readStored } from "./stored.ts";
@@ -51,12 +52,6 @@ const rewriteRecordSchema = z.strictObject({
 });
 
 export type RewriteRecord = z.infer<typeof rewriteRecordSchema>;
-
-/**
- * The states of a landing whose commit still carries its accepted result: on the branch, or
- * merged into the target by its pull request, which a rebase then leaves below the new base.
- */
-const CARRYING = ["landed", "merged"];
 
 /** The landing that carries the accepted result of one assignment now, or null. */
 export function currentLandingOf(db: CrewReader, assignmentId: string): LandingRow | null {

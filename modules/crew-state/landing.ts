@@ -1,135 +1,61 @@
 import { eq } from "drizzle-orm";
 import { IntegrationBranch } from "../integration-branch/main.ts";
 import type { CrewReader, CrewWriter } from "./database.ts";
+import {
+  branchRefusalOf,
+  type LandingKind,
+  landingKindOf,
+  type LandingRefusal,
+  type LandingWrite,
+  type MoveNext,
+  type PlanRefusal,
+} from "./branch-move.ts";
 import { type GateKey, keyStatus } from "./gate-runs.ts";
 import { type IntegrationBranchRow, integrationBranchOf } from "./integration.ts";
 import { type LandingRow, rewriteOf, type RewriteRecord } from "./landing-record.ts";
 import { integrationBranches, landings } from "./schema.ts";
 
-export {
-  currentLandingOf,
-  intendedLandingOf,
-  intentTouches,
-  landedOfSource,
-  landingOfSubmission,
-  type LandingRow,
-  replacedLandingOf,
-  rewriteOf,
-  type RewriteRecord,
-} from "./landing-record.ts";
-
-/** One planned landing or rewrite. A plain landing carries no rewrite record. */
+/**
+ * One planned landing or rewrite, as its intent records it. A plain landing carries no rewrite
+ * record. The tree of the planned tip is no part of it: only the candidate gate of a plain
+ * landing reads it.
+ */
 export type LandingPlan = Omit<
   Extract<Awaited<ReturnType<typeof IntegrationBranch.plan>>, { status: "ready" }>,
-  "kind"
+  "kind" | "tree"
 > & {
-  kind: "fast-forward" | "merge" | "held" | "rewrite" | "take-out";
+  kind: LandingKind;
   rewrite: RewriteRecord | null;
 };
 
 /**
- * The refusals of a landing, members of the durable unions of ADR 0011. Each one lands nothing
- * and records nothing. Operator never resets the branch and never adopts a tip it did not
- * record, so a person puts a moved branch back.
+ * One planned move of the branch of one source, with the tree of its last gated commit. The tree
+ * keys the candidate gate of a plain landing (ADR 0021). A move that gates nothing, a take-out
+ * with no later commit, has an empty tree.
  */
-export type LandingRefusal =
-  | { status: "integration-branch-missing"; assignmentId: string; sourceId: string }
-  | {
-      status: "integration-branch-moved";
-      assignmentId: string;
-      branch: string;
-      recordedTip: string;
-      found: string | null;
-      checkedOut: string[];
-    }
-  | {
-      status: "integration-branch-checked-out";
-      assignmentId: string;
-      branch: string;
-      worktrees: string[];
-    }
-  | { status: "integration-branch-unread"; assignmentId: string; branch: string; detail: string }
-  | {
-      status: "landing-conflict";
-      assignmentId: string;
-      branch: string;
-      tip: string;
-      commit: string;
-      paths: string[];
-    }
-  | {
-      status: "landing-patch-changed";
-      assignmentId: string;
-      branch: string;
-      tip: string;
-      commit: string;
-    }
-  | {
-      status: "landing-gate-not-passed";
-      assignmentId: string;
-      gate: "gate_pending" | "gate_running" | "gate_failed" | "gate_flaky";
-      // The planned commit is the candidate, and its key is its tree and the fixed gate.
-      commit: string;
-      tip: string;
-      key: GateKey;
-      runIds: string[];
-    }
-  | {
-      // A rewrite of a commit inside a published range, which is never rewritten in place.
-      status: "rewrite-published-range";
-      assignmentId: string;
-      branch: string;
-      commit: string;
-      pullRequest: number | null;
-      url: string | null;
-    }
-  | {
-      // A rewrite that would move back a result whose tracker step already ran. The ticket would
-      // say the work is done while its commit leaves the branch, so a person decides (#114).
-      status: "rewrite-tracker-recorded";
-      assignmentId: string;
-      branch: string;
-      steps: Array<{ assignmentId: string; step: string; state: string }>;
-    }
-  | {
-      // A landing of a source whose integration branch still holds a withdrawn commit. The
-      // take-out rebuilds the branch first, so no landing is gated twice (ADR 0020).
-      status: "take-out-pending";
-      assignmentId: string;
-      sourceId: string;
-      commits: Array<{ assignmentId: string; commit: string }>;
-    }
-  | {
-      status: "landing-pending";
-      assignmentId: string;
-      landingId: string;
-      pendingAssignmentId: string;
-    }
-  | {
-      // A rebase of the source moves the branch, and its outcome is not recorded (ADR 0022).
-      status: "rebase-pending";
-      assignmentId: string;
-      rebaseId: string;
-      planRevision: string;
-    };
+export type PlannedMove = { row: IntegrationBranchRow; plan: LandingPlan; tree: string };
 
-/** The refusals that a landing plan itself gives. */
-export type PlanRefusal = Extract<
-  LandingRefusal,
-  {
-    status:
-      | "integration-branch-moved"
-      | "integration-branch-checked-out"
-      | "integration-branch-unread"
-      | "landing-conflict"
-      | "landing-patch-changed"
-      | "rewrite-published-range"
-      | "rewrite-tracker-recorded";
-  }
->;
+/**
+ * The plan that the request input of the intent of one move hashes. Earlier releases hashed the
+ * plan with the tree of the move in it, so the identity of a recorded intent request stays the
+ * same and a repeat still finds it.
+ */
+export function intentPlanOf(landing: PlannedMove): LandingPlan & { tree: string } {
+  return { ...landing.plan, tree: landing.tree };
+}
 
-/** The landing of one reviewed commit as `crew-state` asks Git for it. */
-export type PlannedLanding = { row: IntegrationBranchRow; plan: LandingPlan };
+/** The request input of the intent of one landing that `work accept` records. */
+export function landingIntentInput(request: {
+  assignmentId: string;
+  submissionId: string | null;
+  landing: PlannedMove;
+}) {
+  return {
+    assignmentId: request.assignmentId,
+    submissionId: request.submissionId,
+    plan: intentPlanOf(request.landing),
+  };
+}
 
 /**
  * Plans the landing of one reviewed commit on the recorded tip of its source (ADR 0020). It
@@ -141,7 +67,7 @@ export async function planLanding(request: {
   row: IntegrationBranchRow;
   commit: string;
   reviewedBase: string;
-}): Promise<{ status: "planned"; landing: PlannedLanding } | PlanRefusal> {
+}): Promise<{ status: "planned"; landing: PlannedMove } | PlanRefusal> {
   const { row } = request;
   const plan = await IntegrationBranch.plan({
     repoRoot: request.projectRoot,
@@ -151,43 +77,22 @@ export async function planLanding(request: {
     commit: request.commit,
     reviewedBase: request.reviewedBase,
   });
-  const subject = { assignmentId: request.assignmentId, branch: row.name };
-  switch (plan.status) {
-    case "ready":
-      return { status: "planned", landing: { row, plan: { ...plan, rewrite: null } } };
-    case "tip-moved":
-      return {
-        status: "integration-branch-moved",
-        ...subject,
-        recordedTip: row.recordedTip,
-        found: plan.found,
-        checkedOut: plan.checkedOut,
-      };
-    case "checked-out":
-      return { status: "integration-branch-checked-out", ...subject, worktrees: plan.worktrees };
-    case "conflict":
-      return {
-        status: "landing-conflict",
-        ...subject,
-        tip: row.recordedTip,
-        commit: request.commit,
-        paths: plan.paths,
-      };
-    case "patch-changed":
-      return {
-        status: "landing-patch-changed",
-        ...subject,
-        tip: row.recordedTip,
-        commit: request.commit,
-      };
-    default:
-      return { status: "integration-branch-unread", ...subject, detail: plan.detail };
+  if (plan.status !== "ready") {
+    return branchRefusalOf(plan, {
+      assignmentId: request.assignmentId,
+      branch: row.name,
+      recordedTip: row.recordedTip,
+      tip: row.recordedTip,
+      commit: request.commit,
+    });
   }
+  const { tree, ...planned } = plan;
+  return { status: "planned", landing: { row, plan: { ...planned, rewrite: null }, tree } };
 }
 
 /** The key of a planned commit: its tree and the gate declaration fixed on its source. */
-export function candidateKey(landing: PlannedLanding): GateKey {
-  return { tree: landing.plan.tree, declarationIdentity: landing.row.gateIdentity };
+export function candidateKey(landing: PlannedMove): GateKey {
+  return { tree: landing.tree, declarationIdentity: landing.row.gateIdentity };
 }
 
 /**
@@ -196,7 +101,7 @@ export function candidateKey(landing: PlannedLanding): GateKey {
  */
 export function candidateGate(
   db: CrewReader,
-  request: { assignmentId: string; landing: PlannedLanding },
+  request: { assignmentId: string; landing: PlannedMove },
 ): LandingRefusal | null {
   const { plan } = request.landing;
   if (plan.from === plan.to) {
@@ -245,14 +150,7 @@ export function planOfLanding(landing: LandingRow): LandingPlan {
     to: landing.toCommit,
     landed: landing.landedCommit,
     landedParent: landing.landedParent,
-    kind:
-      landing.kind === "merge" ||
-      landing.kind === "held" ||
-      landing.kind === "rewrite" ||
-      landing.kind === "take-out"
-        ? landing.kind
-        : "fast-forward",
-    tree: "",
+    kind: landingKindOf(landing.kind),
     patch: landing.patch,
     rewrite: rewriteOf(landing),
   };
@@ -295,9 +193,9 @@ export function insertLandingIntent(
 }
 
 /**
- * Records the outcome of one landing in the same transaction as its acceptance: the landing, the
- * new recorded tip, and the commit on the branch that carries the result. A landing that lands
- * nothing has no intent, so its record is written here at once.
+ * Records the outcome of one landing in the same transaction as its acceptance: the next state of
+ * each landing that the move ends, the new recorded tip, and the commit on the branch that carries
+ * the result. A landing that lands nothing has no intent, so its record is written here at once.
  */
 export function recordLanding(
   db: CrewWriter,
@@ -308,25 +206,34 @@ export function recordLanding(
     assignmentId: string;
     submissionId: string;
     plan: LandingPlan;
+    next: MoveNext;
     now: string;
   },
 ): void {
-  if (request.intended) {
-    db.update(landings)
-      .set({ state: "landed", landedAt: request.now })
-      .where(eq(landings.id, request.landingId))
-      .run();
-  } else {
+  if (!request.intended) {
     insertLandingIntent(db, request);
-    db.update(landings)
-      .set({ state: "landed", landedAt: request.now })
-      .where(eq(landings.id, request.landingId))
-      .run();
   }
+  writeLandingStates(db, { landings: request.next.landings, now: request.now });
   db.update(integrationBranches)
     .set({ recordedTip: request.plan.to, updatedAt: request.now })
     .where(eq(integrationBranches.sourceId, request.sourceId))
     .run();
+}
+
+/**
+ * Writes the next state of each landing that one move ends, in the transaction that records the
+ * outcome of the move. A stamped landing records the move time as its landing time.
+ */
+export function writeLandingStates(
+  db: CrewWriter,
+  request: { landings: LandingWrite[]; now: string },
+): void {
+  for (const one of request.landings) {
+    db.update(landings)
+      .set(one.stamped ? { state: one.state, landedAt: request.now } : { state: one.state })
+      .where(eq(landings.id, one.landingId))
+      .run();
+  }
 }
 
 /** The recorded tip of one source, read again inside the transaction that moves it. */

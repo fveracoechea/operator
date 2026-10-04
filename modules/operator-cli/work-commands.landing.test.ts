@@ -23,6 +23,7 @@ import {
   pausedGit,
   requestId as request,
   runJson,
+  runOperator,
   workspaces,
 } from "./workspace-fixture.ts";
 
@@ -317,11 +318,48 @@ describe("operator work accept lands the reviewed commit", () => {
     const refused = await acceptProduction(workspace, producer, { ...result, gate: false });
 
     expect(refused.json.reason).toBe("integration_branch_moved");
-    expect(refused.json.blockers[0]).toMatchObject({
-      branch,
-      recordedTip: producer.baseCommit,
-      found: person,
-    });
+    expect(refused.json.blockers).toEqual([
+      {
+        reason: "integration_branch_moved",
+        assignmentId: producer.assignmentId,
+        branch,
+        recordedTip: producer.baseCommit,
+        found: person,
+        checkedOut: [],
+      },
+    ]);
+    expect(Object.keys(refused.json.blockers[0])).toEqual([
+      "reason",
+      "assignmentId",
+      "branch",
+      "recordedTip",
+      "found",
+      "checkedOut",
+    ]);
+    const text = await runOperator(workspace, [
+      "work",
+      "accept",
+      "--request",
+      request(),
+      "--owner-token",
+      producer.ownerToken,
+      "--assignment",
+      producer.assignmentId,
+      "--attempt",
+      producer.attemptId,
+      "--revision",
+      String(result.revision),
+      "--submission",
+      result.submissionId,
+    ]);
+    expect(text.stdout).toBe(
+      [
+        `The branch ${branch} holds ${person}, and the recorded tip is ${producer.baseCommit}.`,
+        "Operator never resets or adopts a moved branch. The person puts it back at the recorded tip, then accept again.",
+        "Nothing was accepted.",
+        "",
+      ].join("\n"),
+    );
     expect(await tipOf(workspace, branch)).toBe(person);
     expect(await assignmentState(workspace, producer.assignmentId)).toBe("awaiting-review");
   });

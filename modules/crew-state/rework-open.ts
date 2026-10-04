@@ -39,6 +39,7 @@ import {
   submissionsOf,
 } from "./submission.ts";
 import { storedArtifacts } from "./submission-store.ts";
+import type { LandingRefusal } from "./branch-move.ts";
 import { recordedTipOf } from "./landing.ts";
 import { replacedLandingOf } from "./landing-record.ts";
 import type {
@@ -75,12 +76,7 @@ export type ReworkOutcome =
   | { status: "no-corrections"; reviewId: string }
   | { status: "conflict-not-corrected"; reviewId: string; findingIds: string[] }
   | IntegrationRefusal
-  | {
-      status: "landing-tip-changed";
-      assignmentId: string;
-      planned: string;
-      recordedTip: string | null;
-    }
+  | Extract<LandingRefusal, { status: "landing-tip-changed" }>
   | { status: "unknown-check"; assignmentId: string; names: string[] }
   | { status: "checks-passed"; assignmentId: string; names: string[] }
   | {

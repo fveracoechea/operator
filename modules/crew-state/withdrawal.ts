@@ -1,4 +1,5 @@
 import { and, eq, inArray } from "drizzle-orm";
+import { rebuildsBranch } from "./branch-move.ts";
 import type { CrewReader, CrewWriter } from "./database.ts";
 import { type AssignmentRow, moveAssignment, readAssignment } from "./assignment.ts";
 import { activeAttempt } from "./frontier.ts";
@@ -6,7 +7,7 @@ import { assignments, directionRequests, invalidations, reviews, reworkCycles } 
 import { submissionsOf } from "./submission.ts";
 import { trackerOperationsOf } from "./tracker.ts";
 import { branchReviewHoldersOf, closeBranchReviewsOf } from "./branch-review.ts";
-import { intendedLandingOf, intentTouches } from "./landing.ts";
+import { intendedLandingOf, intentTouches } from "./landing-record.ts";
 
 /**
  * Why one withdrawal waits. A withdrawal never stops work that nobody handed over, and recovery
@@ -105,10 +106,7 @@ export function withdrawalRefusals(db: CrewReader, row: AssignmentRow): Withdraw
             reason: "withdrawal_effect_unsettled",
             key: row.sourceKey,
             assignmentId: row.id,
-            effect:
-              intent.kind === "rewrite" || intent.kind === "take-out"
-                ? "rewrite_intent"
-                : "landing_intent",
+            effect: rebuildsBranch(intent.kind) ? "rewrite_intent" : "landing_intent",
             landingId: intent.id,
             pendingAssignmentId: intent.assignmentId,
           },

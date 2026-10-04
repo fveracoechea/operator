@@ -1,9 +1,10 @@
 import { IntegrationBranch } from "../integration-branch/main.ts";
 import type { CleanupContext } from "./cleanup-context.ts";
 import type { CleanupBlocker } from "./cleanup-report.ts";
+import { rebuildsBranch } from "./branch-move.ts";
 import type { CrewReader } from "./database.ts";
 import { type IntegrationBranchRow, integrationBranchOf } from "./integration.ts";
-import { intendedLandingOf, landingOfSubmission, type LandingRow } from "./landing.ts";
+import { intendedLandingOf, landingOfSubmission, type LandingRow } from "./landing-record.ts";
 import { intendedRebaseOf } from "./rebase.ts";
 import { submissionOfAttempt, submittedCommit } from "./submission.ts";
 
@@ -83,10 +84,7 @@ export async function landingBlockers(request: {
   if (openLanding !== null) {
     return [
       {
-        reason:
-          openLanding.kind === "rewrite" || openLanding.kind === "take-out"
-            ? "rewrite_pending"
-            : "landing_pending",
+        reason: rebuildsBranch(openLanding.kind) ? "rewrite_pending" : "landing_pending",
         landingId: openLanding.id,
         pendingAssignmentId: openLanding.assignmentId,
       },

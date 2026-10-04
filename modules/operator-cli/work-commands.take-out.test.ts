@@ -18,7 +18,13 @@ import {
   type Workspace,
   writeInput,
 } from "./review-cycle-fixture.ts";
-import { nextActions, requestId as request, runJson, workspaces } from "./workspace-fixture.ts";
+import {
+  nextActions,
+  requestId as request,
+  runJson,
+  runOperator,
+  workspaces,
+} from "./workspace-fixture.ts";
 
 // Each test lands several results and takes one out through separate CLI processes.
 setDefaultTimeout(240_000);
@@ -265,6 +271,38 @@ describe("operator work take-out takes the commits of withdrawn work out of the 
     // The take-out refuses until each commit of the rebuilt range passed the gate.
     const early = await takeOut(workspace, producer, planRevision);
     expect(early.json.reason).toBe("gate_pending");
+    const pending = early.json.blockers[0];
+    expect(Object.keys(pending)).toEqual([
+      "reason",
+      "assignmentId",
+      "gate",
+      "commit",
+      "tip",
+      "key",
+      "runIds",
+    ]);
+    const earlyText = await runOperator(workspace, [
+      "work",
+      "take-out",
+      "--request",
+      request(),
+      "--owner-token",
+      producer.ownerToken,
+      "--source",
+      SOURCE,
+      "--plan-revision",
+      planRevision,
+    ]);
+    // A take-out names the gate run of its source, not of an assignment.
+    expect(earlyText.stdout).toBe(
+      [
+        `The planned commit ${pending.commit} on tip ${pending.tip} has not passed the project gate.`,
+        "No gate run is recorded at its key. Run `operator gate run --source <id>` first.",
+        "Nothing was taken out.",
+        "",
+      ].join("\n"),
+    );
+    expect(pending).toMatchObject({ assignmentId: notes.assignmentId, tip: before[0] });
     expect(await commitsOf(workspace, branch, producer.baseCommit)).toEqual(before);
     expect(await passTakeOutGate(workspace, producer)).toBe(1);
 
@@ -605,5 +643,43 @@ describe("operator work take-out takes the commits of withdrawn work out of the 
     const accepted = await acceptProduction(workspace, other, reviewed);
     expect(accepted.json.reason).toBe("assignment_accepted");
     expect(accepted.json.data.landing.from).toBe(before[0]);
+  });
+
+  test("a take-out whose recorded landings do not lead to the base refuses and records nothing", async () => {
+    const workspace = await makeReviewWorkspace(fixtures, { maxActiveAgents: 8 });
+    const producer = await startProducer(workspace, undefined, {
+      dependents: [{ ...NOTES, dependsOn: [], writePaths: ["notes/"] }],
+    });
+    const branch = await branchOf(workspace);
+    await landResult(workspace, producer, { text: "# Result\n", path: "docs/result.md" });
+    const notes = await startSibling(workspace, producer, NOTES.key);
+    await landResult(workspace, notes, { text: "# Notes\n", path: "notes/notes.md" });
+    const before = await commitsOf(workspace, branch, producer.baseCommit);
+    const { planRevision } = await withdraw(workspace, producer, 1502);
+    // The lowest landing names a parent that no landing and no base holds, so the chain breaks.
+    const setParent = (parent: string) => {
+      const sqlite = new Database(statePath(workspace), { readwrite: true });
+      sqlite
+        .query("update landings set landed_parent = ? where landed_commit = ?")
+        .run(parent, before[0] ?? "");
+      sqlite.close();
+    };
+    setParent("0".repeat(40));
+    const moved = await movesOf(workspace, branch);
+
+    const refused = await takeOut(workspace, producer, planRevision);
+
+    expect(refused.json.reason).toBe("integration_branch_unread");
+    expect(refused.json.outcome).toBe("uncertain");
+    expect(await commitsOf(workspace, branch, producer.baseCommit)).toEqual(before);
+    expect(await movesOf(workspace, branch)).toBe(moved);
+    expect(await assignmentState(workspace, notes.assignmentId)).toBe("withdrawn");
+
+    // Nothing was recorded, so the take-out runs once the record leads to the base again.
+    setParent(producer.baseCommit);
+    expect(await passTakeOutGate(workspace, producer)).toBe(0);
+    const taken = await takeOut(workspace, producer, planRevision);
+    expect(taken.json.reason).toBe("commits_taken_out");
+    expect(await commitsOf(workspace, branch, producer.baseCommit)).toEqual([before[0] ?? ""]);
   });
 });

@@ -40,33 +40,20 @@ function reportRefusal(parsed: ParsedArguments, result: TakeOutResult): Handled 
           "Run the command that `operator crew next` offers, which names that revision.",
         ],
       });
-    case "integration-branch-moved":
-    case "integration-branch-checked-out":
-    case "integration-branch-unread":
-    case "landing-conflict":
-    case "landing-patch-changed":
-    case "landing-gate-not-passed":
-    case "landing-pending":
-    case "rewrite-published-range":
-    case "rewrite-tracker-recorded":
-    case "landing-tip-changed": {
-      const { outcome, reason, lines } = landingRefusalOf(result, "accept");
-      const { status: _status, ...detail } = result;
+    case "landing-refused": {
+      const { refusal } = result;
+      const { outcome, reason, lines } = landingRefusalOf(refusal, {
+        retry: "accept",
+        gateRun: "--source",
+      });
+      const { status: _status, ...detail } = refusal;
       return refuse({
         json: parsed.json,
         operation,
         outcome,
         reason,
         detail,
-        lines: [
-          ...lines.map((line) =>
-            line.replace(
-              "`operator gate run --assignment <id>`",
-              "`operator gate run --source <id>`",
-            ),
-          ),
-          "Nothing was taken out.",
-        ],
+        lines: [...lines, "Nothing was taken out."],
       });
     }
     default:
