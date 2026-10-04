@@ -148,6 +148,7 @@ describe("Operator CLI", () => {
     // A flag the operation does not name.
     ["work", "frontier", "--source", "source-1"],
     ["publish", "plan", "--source", "source-1", "--request", "request-1"],
+    ["crew", "next", "--claude", "--request", "request-1"],
     // A missing required flag.
     ["publish", "apply", "--source", "source-1", "--plan-revision", "revision-1"],
     ["gate", "show"],
@@ -156,6 +157,8 @@ describe("Operator CLI", () => {
     ["install", "matt", "apply", "--commit", "abc"],
     ["wake", "check", "--root", ""],
     ["wake", "arm", "--owner-label", "operator"],
+    // A host that is not one of the choices.
+    ["wake", "arm", "--owner-label", "operator", "--claude", "--operator-host", "bogus"],
   ];
 
   for (const args of unsupportedRequests) {

@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CrewState } from "../crew-state/main.ts";
+import { GateRunner } from "../gate-runner/main.ts";
 import { OperativeDispatch } from "../operative-dispatch/main.ts";
 import { OperatorCli } from "./main.ts";
 
@@ -18,6 +19,8 @@ export type RefusalCase = {
   bare?: boolean;
   // The command runs from an Operative worktree, so it reads the reference of attempt t1.
   reference?: boolean;
+  // The method is a member of `GateRunner`, not of `CrewState`.
+  runner?: boolean;
 };
 
 /** Every field that some refusal reads, so one result can carry any status. */
@@ -690,6 +693,109 @@ const RESOLUTION_SINK = {
 };
 
 const publishMutation = [...mutation, "--source", "s1"];
+
+const GATE_KEY = { tree: "tr", declarationIdentity: "di" };
+
+/** A recorded gate run, with each form of a command line. */
+const GATE_RUN = {
+  runId: "g1",
+  sourceId: "s1",
+  key: GATE_KEY,
+  commit: "cm",
+  state: "running",
+  commands: [
+    { name: "lint", outcome: "passed", reason: null, outputPath: "out/lint" },
+    { name: "test", outcome: "failed", reason: "timeout", outputPath: null },
+    { name: "build", outcome: null, reason: null, outputPath: null },
+  ],
+};
+
+/** Every field that some gate start answer reads, so one result can carry any status. */
+const GATE_START_SINK: Record<string, unknown> = {
+  run: GATE_RUN,
+  line: "ln",
+  repeated: false,
+  detail: "det",
+  uncertain: false,
+  sourceId: "s1",
+  assignmentId: "a1",
+  state: "st",
+  branch: "br",
+  landed: "ld",
+  recordedTip: "rt",
+  found: "fnd",
+  worktrees: ["w1", "w2"],
+  commit: "cm",
+  tip: "tp",
+  paths: ["x", "y"],
+  pullRequest: 7,
+  steps: [{ assignmentId: "a2", step: "resolution", state: "applied" }],
+  key: GATE_KEY,
+  runIds: ["g1", "g2"],
+  declarationIdentity: "di",
+  runId: "g1",
+  request: { action: "fresh-gate-series", scope: "s1", targets: ["t1", "t2"] },
+  path: "p/x",
+  planned: "pl",
+  preview: { sourceId: "s1", refusals: [{ reason: "r1" }, { reason: "r2" }], planPath: "pp" },
+};
+
+/**
+ * Each status of a gate start, in the order of its answer table. The variants below hold the
+ * statuses whose `gate` field has another shape.
+ */
+const GATE_START = [
+  "started",
+  "runner-not-typed",
+  "rebase-refused",
+  "nothing-to-take-out",
+  "unknown-assignment",
+  "candidate-missing",
+  "landing-lands-nothing",
+  "integration-branch-missing",
+  "integration-branch-moved",
+  "integration-branch-checked-out",
+  "integration-branch-unread",
+  "landing-conflict",
+  "landing-patch-changed",
+  "rewrite-published-range",
+  "rewrite-tracker-recorded",
+  "unknown-source",
+  "commit-unread",
+  "gate-passed",
+  "nothing-to-gate",
+  "gate-running",
+  "gate-runner-unknown",
+  "fresh-series-not-needed",
+  "fresh-series-not-approved",
+  "gate-branch-exists",
+  "gate-checkout-failed",
+  "gate-checkout-unplanned",
+  // No answer holds these, so they read as invalid arguments.
+  "take-out-pending",
+  "rebase-pending",
+];
+
+/** The gate start answers whose words change with a field. */
+const GATE_START_VARIANTS: Array<Record<string, unknown>> = [
+  { status: "started", repeated: true, run: { ...GATE_RUN, commands: [] } },
+  { status: "runner-not-typed", uncertain: true },
+  {
+    status: "rebase-gate-failed",
+    gate: { status: "failed", commit: "gc", parent: null, key: GATE_KEY, runIds: ["g1"] },
+  },
+  {
+    status: "rebase-gate-failed",
+    gate: { status: "flaky", commit: "gc", parent: "b1", key: GATE_KEY, runIds: ["g1", "g2"] },
+  },
+  { status: "integration-branch-moved", found: null },
+  { status: "rewrite-published-range", pullRequest: null },
+  { status: "gate-checkout-failed", uncertain: true },
+  ...GATE_READS.map((gate) => ({ status: "project-gate-unusable", gate })),
+];
+
+/** Each end of a gate runner. Every status that is not a run end reads as not running. */
+const RUNNER_ENDS = ["passed", "failed", "stopped", "running", "state-missing", "unknown-gate-run"];
 /** One command, its arguments, and the results it is answered with. */
 const COMMANDS: Array<{
   method: string;
@@ -697,6 +803,7 @@ const COMMANDS: Array<{
   results: Array<Record<string, unknown>>;
   bare?: boolean;
   reference?: boolean;
+  runner?: boolean;
 }> = [
   {
     method: "accept",
@@ -978,6 +1085,23 @@ const COMMANDS: Array<{
     results: [...withStatus(["state-missing"]), { status: "unknown-gate-run" }],
   },
   {
+    method: "startGateRun",
+    args: ["gate", "run", ...mutation, "--source", "s1", "--commit", "cm"],
+    bare: true,
+    results: [
+      ...withStatus(SHARED, GATE_START_SINK),
+      ...withStatus(GATE_START, GATE_START_SINK),
+      ...GATE_START_VARIANTS.map((variant) => ({ ...GATE_START_SINK, ...variant })),
+    ],
+  },
+  {
+    method: "run",
+    args: ["gate", "runner", "--run", "g1", "--root", "root"],
+    bare: true,
+    runner: true,
+    results: RUNNER_ENDS.map((status) => ({ status, lines: ["Runner line.", "Wake check: ok"] })),
+  },
+  {
     method: "report",
     args: ["review", "report", "--request", "r", "--review", "rv1", "--input", "in.json"],
     reference: true,
@@ -1041,7 +1165,7 @@ function landingRefused(): Array<Record<string, unknown>> {
 
 /** Every case, as text and as JSON, each with a name that is unique and stable. */
 export function refusalCases(): Array<RefusalCase & { json: boolean }> {
-  return COMMANDS.flatMap(({ method, args, results, bare, reference }) =>
+  return COMMANDS.flatMap(({ method, args, results, bare, reference, runner }) =>
     results.flatMap((result, index) =>
       [false, true].map((json) => ({
         name: `${method} ${index} ${String(result.status)}${json ? " --json" : ""}`,
@@ -1050,6 +1174,7 @@ export function refusalCases(): Array<RefusalCase & { json: boolean }> {
         result: { ...result, status: String(result.status) },
         bare,
         reference,
+        runner,
         json,
       })),
     ),
@@ -1064,7 +1189,7 @@ export type Answered = { lines: string[]; exitCode: number | null };
  * command runs in an empty project, so no release selection or crew state is read.
  */
 export async function answerOf(one: RefusalCase): Promise<Answered> {
-  const methods: Record<string, unknown> = CrewState;
+  const methods: Record<string, unknown> = one.runner === true ? GateRunner : CrewState;
   const original = methods[one.method];
   const readReference = OperativeDispatch.readReference;
   const log = console.log;

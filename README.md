@@ -354,7 +354,8 @@ flowchart TD
   AS -->|accept lands the commit: land| BM
   BM -->|every item accepted or withdrawn: branch review| RV
   RV -->|branch review reported: publish plan, approval grant| AP
-  AS -.->|invalidate, withdraw: take-out| BM
+  AS -.->|withdraw: take-out| BM
+  AS -.->|invalidate: rework, land with rewrite (replaced)| BM
   AP -->|use: work rebase| BM
   AP -->|use: publish apply| SP
   SP -->|observe: merged| TS
@@ -376,7 +377,7 @@ flowchart TD
 `crew next` first reads the readiness of the project.
 Then it reads the machines by subject, in this order:
 
-1. **Attempts.** The launch state of an active attempt (`unplanned`, `launching`, `awaiting-acknowledgement`, or `acknowledged`) gives `reconcile_attempt`, `adopt_attempt`, `dispatch_attempt`, or a wait for the Operative. The base gate of the first code dispatch gives `run_gate` or the `gate_running` wait. The cleanup of a submitted or accepted attempt gives `close_process`, `remove_worktree`, or the `cleanup_held` wait.
+1. **Attempts.** An unsettled operation gives `reconcile_attempt`. An attempt that a replaced Operator owns gives `adopt_attempt`. A launch that is `unplanned` or `launching` gives `dispatch_attempt`. A launch that is `awaiting-acknowledgement` or `acknowledged` waits for the Operative. The base gate of the first code dispatch gives `run_gate` or the `gate_running` wait. The cleanup of a submitted or accepted attempt gives `close_process`, `remove_worktree`, `settle_cleanup`, or the `cleanup_held` wait.
 2. **Questions.** An open or answered question gives `answer_question` or `deliver_answer`. A delivered one waits for its acknowledgement.
 3. **Take-outs.** A source whose branch still holds a withdrawn commit gives `take_out_commit`, `run_gate`, or `settle_landing`.
 4. **Assignments.** An undirected limit gives `direct_limit`, and paused work gives the `input_invalidated` wait. An assignment in `awaiting-review` reads its review, its gate step, and its landing: `dispose_findings`, `dispose_outside_changes`, `delegate_rework`, `replace_attempt`, `run_gate`, `settle_landing`, or `accept_assignment`. A branch review gives `dispose_findings` or `accept_assignment`. An accepted assignment reads each tracker step: `record_tracker` or `recover_tracker`.

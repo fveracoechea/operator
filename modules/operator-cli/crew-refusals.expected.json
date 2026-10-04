@@ -6095,5 +6095,547 @@
       "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"tracker.completed\",\"blockers\":[],\"operation\":\"tracker_recover\",\"data\":{\"step\":\"resolution\",\"assignmentId\":\"a1\",\"state\":\"applied\",\"reason\":\"tracker.completed\",\"operationId\":\"op1\",\"provider\":\"github\",\"target\":{\"repository\":\"o/r\",\"issue\":3},\"resourceUrl\":null,\"writeAttempts\":[],\"observations\":[{}],\"problems\":[],\"repeated\":false,\"finish\":null}}"
     ],
     "exitCode": 0
+  },
+  "startGateRun 0 state-missing": {
+    "lines": ["This project holds no crew state. Run `operator crew own` to start a crew."],
+    "exitCode": 3
+  },
+  "startGateRun 0 state-missing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"state_missing\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"s1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tp\",\"planned\":\"pl\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1,\"run\":{\"runId\":\"g1\",\"sourceId\":\"s1\",\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"commit\":\"cm\",\"state\":\"running\",\"commands\":[{\"name\":\"lint\",\"outcome\":\"passed\",\"reason\":null,\"outputPath\":\"out/lint\"},{\"name\":\"test\",\"outcome\":\"failed\",\"reason\":\"timeout\",\"outputPath\":null},{\"name\":\"build\",\"outcome\":null,\"reason\":null,\"outputPath\":null}]},\"line\":\"ln\",\"repeated\":false,\"uncertain\":false,\"landed\":\"ld\",\"recordedTip\":\"rt\",\"worktrees\":[\"w1\",\"w2\"],\"commit\":\"cm\",\"paths\":[\"x\",\"y\"],\"pullRequest\":7,\"steps\":[{\"assignmentId\":\"a2\",\"step\":\"resolution\",\"state\":\"applied\"}],\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"declarationIdentity\":\"di\",\"runId\":\"g1\",\"request\":{\"action\":\"fresh-gate-series\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"]},\"preview\":{\"sourceId\":\"s1\",\"refusals\":[{\"reason\":\"r1\"},{\"reason\":\"r2\"}],\"planPath\":\"pp\"}}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 3
+  },
+  "startGateRun 1 unowned": {
+    "lines": ["No Operator owns this crew. Run `operator crew own` first."],
+    "exitCode": 3
+  },
+  "startGateRun 1 unowned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"crew_unowned\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"s1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tp\",\"planned\":\"pl\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1,\"run\":{\"runId\":\"g1\",\"sourceId\":\"s1\",\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"commit\":\"cm\",\"state\":\"running\",\"commands\":[{\"name\":\"lint\",\"outcome\":\"passed\",\"reason\":null,\"outputPath\":\"out/lint\"},{\"name\":\"test\",\"outcome\":\"failed\",\"reason\":\"timeout\",\"outputPath\":null},{\"name\":\"build\",\"outcome\":null,\"reason\":null,\"outputPath\":null}]},\"line\":\"ln\",\"repeated\":false,\"uncertain\":false,\"landed\":\"ld\",\"recordedTip\":\"rt\",\"worktrees\":[\"w1\",\"w2\"],\"commit\":\"cm\",\"paths\":[\"x\",\"y\"],\"pullRequest\":7,\"steps\":[{\"assignmentId\":\"a2\",\"step\":\"resolution\",\"state\":\"applied\"}],\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"declarationIdentity\":\"di\",\"runId\":\"g1\",\"request\":{\"action\":\"fresh-gate-series\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"]},\"preview\":{\"sourceId\":\"s1\",\"refusals\":[{\"reason\":\"r1\"},{\"reason\":\"r2\"}],\"planPath\":\"pp\"}}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 3
+  },
+  "startGateRun 2 ownership-stale": {
+    "lines": [
+      "Another Operator took ownership of this crew. This token can no longer change state."
+    ],
+    "exitCode": 4
+  },
+  "startGateRun 2 ownership-stale --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"ownership_stale\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"s1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tp\",\"planned\":\"pl\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1,\"run\":{\"runId\":\"g1\",\"sourceId\":\"s1\",\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"commit\":\"cm\",\"state\":\"running\",\"commands\":[{\"name\":\"lint\",\"outcome\":\"passed\",\"reason\":null,\"outputPath\":\"out/lint\"},{\"name\":\"test\",\"outcome\":\"failed\",\"reason\":\"timeout\",\"outputPath\":null},{\"name\":\"build\",\"outcome\":null,\"reason\":null,\"outputPath\":null}]},\"line\":\"ln\",\"repeated\":false,\"uncertain\":false,\"landed\":\"ld\",\"recordedTip\":\"rt\",\"worktrees\":[\"w1\",\"w2\"],\"commit\":\"cm\",\"paths\":[\"x\",\"y\"],\"pullRequest\":7,\"steps\":[{\"assignmentId\":\"a2\",\"step\":\"resolution\",\"state\":\"applied\"}],\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"declarationIdentity\":\"di\",\"runId\":\"g1\",\"request\":{\"action\":\"fresh-gate-series\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"]},\"preview\":{\"sourceId\":\"s1\",\"refusals\":[{\"reason\":\"r1\"},{\"reason\":\"r2\"}],\"planPath\":\"pp\"}}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 4
+  },
+  "startGateRun 3 request-input-changed": {
+    "lines": [
+      "This request identity already recorded different input. Use a new request identity."
+    ],
+    "exitCode": 2
+  },
+  "startGateRun 3 request-input-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"request_input_changed\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"s1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tp\",\"planned\":\"pl\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1,\"run\":{\"runId\":\"g1\",\"sourceId\":\"s1\",\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"commit\":\"cm\",\"state\":\"running\",\"commands\":[{\"name\":\"lint\",\"outcome\":\"passed\",\"reason\":null,\"outputPath\":\"out/lint\"},{\"name\":\"test\",\"outcome\":\"failed\",\"reason\":\"timeout\",\"outputPath\":null},{\"name\":\"build\",\"outcome\":null,\"reason\":null,\"outputPath\":null}]},\"line\":\"ln\",\"repeated\":false,\"uncertain\":false,\"landed\":\"ld\",\"recordedTip\":\"rt\",\"worktrees\":[\"w1\",\"w2\"],\"commit\":\"cm\",\"paths\":[\"x\",\"y\"],\"pullRequest\":7,\"steps\":[{\"assignmentId\":\"a2\",\"step\":\"resolution\",\"state\":\"applied\"}],\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"declarationIdentity\":\"di\",\"runId\":\"g1\",\"request\":{\"action\":\"fresh-gate-series\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"]},\"preview\":{\"sourceId\":\"s1\",\"refusals\":[{\"reason\":\"r1\"},{\"reason\":\"r2\"}],\"planPath\":\"pp\"}}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 2
+  },
+  "startGateRun 4 started": {
+    "lines": [
+      "Gate run g1 of source s1 at commit cm is running.",
+      "  lint: passed, output in out/lint",
+      "  test: failed (timeout)",
+      "  build: no outcome yet",
+      "The runner records each outcome itself and wakes the Operator at the end. `operator crew next` shows `gate_running` until then."
+    ],
+    "exitCode": 6
+  },
+  "startGateRun 4 started --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"pending\",\"reason\":\"gate_run_started\",\"blockers\":[{\"reason\":\"gate_running\",\"runId\":\"g1\"}],\"operation\":\"gate_run\",\"data\":{\"runId\":\"g1\",\"sourceId\":\"s1\",\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"commit\":\"cm\",\"state\":\"running\",\"commands\":[{\"name\":\"lint\",\"outcome\":\"passed\",\"reason\":null,\"outputPath\":\"out/lint\"},{\"name\":\"test\",\"outcome\":\"failed\",\"reason\":\"timeout\",\"outputPath\":null},{\"name\":\"build\",\"outcome\":null,\"reason\":null,\"outputPath\":null}],\"repeated\":false}}"
+    ],
+    "exitCode": 6
+  },
+  "startGateRun 5 runner-not-typed": {
+    "lines": [
+      "Gate run g1 is recorded, and Herdr did not take its runner line: det",
+      "The run proves nothing. Run `operator gate run` again; it replaces the run once its pane shows no runner."
+    ],
+    "exitCode": 1
+  },
+  "startGateRun 5 runner-not-typed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"failed\",\"reason\":\"gate_runner_not_typed\",\"blockers\":[{\"reason\":\"gate_runner_not_typed\",\"runId\":\"g1\",\"detail\":\"det\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 1
+  },
+  "startGateRun 6 rebase-refused": {
+    "lines": [
+      "The rebase of s1 is refused, so no place of it is gated: r1, r2.",
+      "Every refusal: pp"
+    ],
+    "exitCode": 2
+  },
+  "startGateRun 6 rebase-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"r1\",\"blockers\":[{\"reason\":\"r1\",\"refusals\":[{\"reason\":\"r1\"},{\"reason\":\"r2\"}],\"planPath\":\"pp\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 2
+  },
+  "startGateRun 7 nothing-to-take-out": {
+    "lines": [
+      "The integration branch of s1 holds no withdrawn commit, so no take-out range is gated."
+    ],
+    "exitCode": 4
+  },
+  "startGateRun 7 nothing-to-take-out --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"nothing_to_take_out\",\"blockers\":[{\"reason\":\"nothing_to_take_out\",\"sourceId\":\"s1\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 4
+  },
+  "startGateRun 8 unknown-assignment": {
+    "lines": ["No assignment a1 is recorded."],
+    "exitCode": 2
+  },
+  "startGateRun 8 unknown-assignment --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_assignment\",\"blockers\":[{\"reason\":\"unknown_assignment\",\"assignmentId\":\"a1\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 2
+  },
+  "startGateRun 9 candidate-missing": {
+    "lines": ["Assignment a1 is st and holds no code result to land, so it has no candidate."],
+    "exitCode": 2
+  },
+  "startGateRun 9 candidate-missing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"assignment_not_awaiting_review\",\"blockers\":[{\"reason\":\"assignment_not_awaiting_review\",\"assignmentId\":\"a1\",\"state\":\"st\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 2
+  },
+  "startGateRun 10 landing-lands-nothing": {
+    "lines": [
+      "The branch br already holds the reviewed patch in ld, so nothing lands and nothing is gated. Accept it."
+    ],
+    "exitCode": 4
+  },
+  "startGateRun 10 landing-lands-nothing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"gate_passed\",\"blockers\":[{\"reason\":\"gate_passed\",\"assignmentId\":\"a1\",\"branch\":\"br\",\"landed\":\"ld\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 4
+  },
+  "startGateRun 11 integration-branch-missing": {
+    "lines": ["Source s1 records no integration branch, so there is no candidate."],
+    "exitCode": 3
+  },
+  "startGateRun 11 integration-branch-missing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"integration_branch_missing\",\"blockers\":[{\"reason\":\"integration_branch_missing\",\"assignmentId\":\"a1\",\"sourceId\":\"s1\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 3
+  },
+  "startGateRun 12 integration-branch-moved": {
+    "lines": ["The branch br holds fnd, and the recorded tip is rt. The person puts it back."],
+    "exitCode": 4
+  },
+  "startGateRun 12 integration-branch-moved --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"integration_branch_moved\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"s1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tp\",\"planned\":\"pl\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1,\"run\":{\"runId\":\"g1\",\"sourceId\":\"s1\",\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"commit\":\"cm\",\"state\":\"running\",\"commands\":[{\"name\":\"lint\",\"outcome\":\"passed\",\"reason\":null,\"outputPath\":\"out/lint\"},{\"name\":\"test\",\"outcome\":\"failed\",\"reason\":\"timeout\",\"outputPath\":null},{\"name\":\"build\",\"outcome\":null,\"reason\":null,\"outputPath\":null}]},\"line\":\"ln\",\"repeated\":false,\"uncertain\":false,\"landed\":\"ld\",\"recordedTip\":\"rt\",\"worktrees\":[\"w1\",\"w2\"],\"commit\":\"cm\",\"paths\":[\"x\",\"y\"],\"pullRequest\":7,\"steps\":[{\"assignmentId\":\"a2\",\"step\":\"resolution\",\"state\":\"applied\"}],\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"declarationIdentity\":\"di\",\"runId\":\"g1\",\"request\":{\"action\":\"fresh-gate-series\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"]},\"preview\":{\"sourceId\":\"s1\",\"refusals\":[{\"reason\":\"r1\"},{\"reason\":\"r2\"}],\"planPath\":\"pp\"},\"status\":\"integration-branch-moved\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 4
+  },
+  "startGateRun 13 integration-branch-checked-out": {
+    "lines": ["The branch br is checked out in w1, w2."],
+    "exitCode": 4
+  },
+  "startGateRun 13 integration-branch-checked-out --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"integration_branch_checked_out\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"s1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tp\",\"planned\":\"pl\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1,\"run\":{\"runId\":\"g1\",\"sourceId\":\"s1\",\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"commit\":\"cm\",\"state\":\"running\",\"commands\":[{\"name\":\"lint\",\"outcome\":\"passed\",\"reason\":null,\"outputPath\":\"out/lint\"},{\"name\":\"test\",\"outcome\":\"failed\",\"reason\":\"timeout\",\"outputPath\":null},{\"name\":\"build\",\"outcome\":null,\"reason\":null,\"outputPath\":null}]},\"line\":\"ln\",\"repeated\":false,\"uncertain\":false,\"landed\":\"ld\",\"recordedTip\":\"rt\",\"worktrees\":[\"w1\",\"w2\"],\"commit\":\"cm\",\"paths\":[\"x\",\"y\"],\"pullRequest\":7,\"steps\":[{\"assignmentId\":\"a2\",\"step\":\"resolution\",\"state\":\"applied\"}],\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"declarationIdentity\":\"di\",\"runId\":\"g1\",\"request\":{\"action\":\"fresh-gate-series\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"]},\"preview\":{\"sourceId\":\"s1\",\"refusals\":[{\"reason\":\"r1\"},{\"reason\":\"r2\"}],\"planPath\":\"pp\"},\"status\":\"integration-branch-checked-out\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 4
+  },
+  "startGateRun 14 integration-branch-unread": {
+    "lines": ["Git cannot read the branch br: det"],
+    "exitCode": 5
+  },
+  "startGateRun 14 integration-branch-unread --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"uncertain\",\"reason\":\"integration_branch_unread\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"s1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tp\",\"planned\":\"pl\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1,\"run\":{\"runId\":\"g1\",\"sourceId\":\"s1\",\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"commit\":\"cm\",\"state\":\"running\",\"commands\":[{\"name\":\"lint\",\"outcome\":\"passed\",\"reason\":null,\"outputPath\":\"out/lint\"},{\"name\":\"test\",\"outcome\":\"failed\",\"reason\":\"timeout\",\"outputPath\":null},{\"name\":\"build\",\"outcome\":null,\"reason\":null,\"outputPath\":null}]},\"line\":\"ln\",\"repeated\":false,\"uncertain\":false,\"landed\":\"ld\",\"recordedTip\":\"rt\",\"worktrees\":[\"w1\",\"w2\"],\"commit\":\"cm\",\"paths\":[\"x\",\"y\"],\"pullRequest\":7,\"steps\":[{\"assignmentId\":\"a2\",\"step\":\"resolution\",\"state\":\"applied\"}],\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"declarationIdentity\":\"di\",\"runId\":\"g1\",\"request\":{\"action\":\"fresh-gate-series\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"]},\"preview\":{\"sourceId\":\"s1\",\"refusals\":[{\"reason\":\"r1\"},{\"reason\":\"r2\"}],\"planPath\":\"pp\"},\"status\":\"integration-branch-unread\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 5
+  },
+  "startGateRun 15 landing-conflict": {
+    "lines": ["Commit cm conflicts with the tip tp in x, y, so there is no candidate to gate."],
+    "exitCode": 4
+  },
+  "startGateRun 15 landing-conflict --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"landing_conflict\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"s1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tp\",\"planned\":\"pl\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1,\"run\":{\"runId\":\"g1\",\"sourceId\":\"s1\",\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"commit\":\"cm\",\"state\":\"running\",\"commands\":[{\"name\":\"lint\",\"outcome\":\"passed\",\"reason\":null,\"outputPath\":\"out/lint\"},{\"name\":\"test\",\"outcome\":\"failed\",\"reason\":\"timeout\",\"outputPath\":null},{\"name\":\"build\",\"outcome\":null,\"reason\":null,\"outputPath\":null}]},\"line\":\"ln\",\"repeated\":false,\"uncertain\":false,\"landed\":\"ld\",\"recordedTip\":\"rt\",\"worktrees\":[\"w1\",\"w2\"],\"commit\":\"cm\",\"paths\":[\"x\",\"y\"],\"pullRequest\":7,\"steps\":[{\"assignmentId\":\"a2\",\"step\":\"resolution\",\"state\":\"applied\"}],\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"declarationIdentity\":\"di\",\"runId\":\"g1\",\"request\":{\"action\":\"fresh-gate-series\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"]},\"preview\":{\"sourceId\":\"s1\",\"refusals\":[{\"reason\":\"r1\"},{\"reason\":\"r2\"}],\"planPath\":\"pp\"},\"status\":\"landing-conflict\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 4
+  },
+  "startGateRun 16 landing-patch-changed": {
+    "lines": ["Commit cm would land on tp as another patch, so there is no candidate to gate."],
+    "exitCode": 4
+  },
+  "startGateRun 16 landing-patch-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"landing_patch_changed\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"s1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tp\",\"planned\":\"pl\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1,\"run\":{\"runId\":\"g1\",\"sourceId\":\"s1\",\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"commit\":\"cm\",\"state\":\"running\",\"commands\":[{\"name\":\"lint\",\"outcome\":\"passed\",\"reason\":null,\"outputPath\":\"out/lint\"},{\"name\":\"test\",\"outcome\":\"failed\",\"reason\":\"timeout\",\"outputPath\":null},{\"name\":\"build\",\"outcome\":null,\"reason\":null,\"outputPath\":null}]},\"line\":\"ln\",\"repeated\":false,\"uncertain\":false,\"landed\":\"ld\",\"recordedTip\":\"rt\",\"worktrees\":[\"w1\",\"w2\"],\"commit\":\"cm\",\"paths\":[\"x\",\"y\"],\"pullRequest\":7,\"steps\":[{\"assignmentId\":\"a2\",\"step\":\"resolution\",\"state\":\"applied\"}],\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"declarationIdentity\":\"di\",\"runId\":\"g1\",\"request\":{\"action\":\"fresh-gate-series\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"]},\"preview\":{\"sourceId\":\"s1\",\"refusals\":[{\"reason\":\"r1\"},{\"reason\":\"r2\"}],\"planPath\":\"pp\"},\"status\":\"landing-patch-changed\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 4
+  },
+  "startGateRun 17 rewrite-published-range": {
+    "lines": [
+      "Commit cm is inside the range that pull request 7 published, so it is never rewritten in place."
+    ],
+    "exitCode": 4
+  },
+  "startGateRun 17 rewrite-published-range --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"rewrite_published_range\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"s1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tp\",\"planned\":\"pl\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1,\"run\":{\"runId\":\"g1\",\"sourceId\":\"s1\",\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"commit\":\"cm\",\"state\":\"running\",\"commands\":[{\"name\":\"lint\",\"outcome\":\"passed\",\"reason\":null,\"outputPath\":\"out/lint\"},{\"name\":\"test\",\"outcome\":\"failed\",\"reason\":\"timeout\",\"outputPath\":null},{\"name\":\"build\",\"outcome\":null,\"reason\":null,\"outputPath\":null}]},\"line\":\"ln\",\"repeated\":false,\"uncertain\":false,\"landed\":\"ld\",\"recordedTip\":\"rt\",\"worktrees\":[\"w1\",\"w2\"],\"commit\":\"cm\",\"paths\":[\"x\",\"y\"],\"pullRequest\":7,\"steps\":[{\"assignmentId\":\"a2\",\"step\":\"resolution\",\"state\":\"applied\"}],\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"declarationIdentity\":\"di\",\"runId\":\"g1\",\"request\":{\"action\":\"fresh-gate-series\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"]},\"preview\":{\"sourceId\":\"s1\",\"refusals\":[{\"reason\":\"r1\"},{\"reason\":\"r2\"}],\"planPath\":\"pp\"},\"status\":\"rewrite-published-range\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 4
+  },
+  "startGateRun 18 rewrite-tracker-recorded": {
+    "lines": [
+      "A tracker step already ran for a result that this move of br takes back: resolution of a2. Bring it to the person."
+    ],
+    "exitCode": 4
+  },
+  "startGateRun 18 rewrite-tracker-recorded --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"rewrite_tracker_recorded\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"s1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tp\",\"planned\":\"pl\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1,\"run\":{\"runId\":\"g1\",\"sourceId\":\"s1\",\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"commit\":\"cm\",\"state\":\"running\",\"commands\":[{\"name\":\"lint\",\"outcome\":\"passed\",\"reason\":null,\"outputPath\":\"out/lint\"},{\"name\":\"test\",\"outcome\":\"failed\",\"reason\":\"timeout\",\"outputPath\":null},{\"name\":\"build\",\"outcome\":null,\"reason\":null,\"outputPath\":null}]},\"line\":\"ln\",\"repeated\":false,\"uncertain\":false,\"landed\":\"ld\",\"recordedTip\":\"rt\",\"worktrees\":[\"w1\",\"w2\"],\"commit\":\"cm\",\"paths\":[\"x\",\"y\"],\"pullRequest\":7,\"steps\":[{\"assignmentId\":\"a2\",\"step\":\"resolution\",\"state\":\"applied\"}],\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"declarationIdentity\":\"di\",\"runId\":\"g1\",\"request\":{\"action\":\"fresh-gate-series\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"]},\"preview\":{\"sourceId\":\"s1\",\"refusals\":[{\"reason\":\"r1\"},{\"reason\":\"r2\"}],\"planPath\":\"pp\"},\"status\":\"rewrite-tracker-recorded\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 4
+  },
+  "startGateRun 19 unknown-source": {
+    "lines": ["No source s1 is registered."],
+    "exitCode": 2
+  },
+  "startGateRun 19 unknown-source --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_source\",\"blockers\":[{\"reason\":\"unknown_source\",\"sourceId\":\"s1\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 2
+  },
+  "startGateRun 20 commit-unread": {
+    "lines": ["Git cannot read the tree of cm: det"],
+    "exitCode": 2
+  },
+  "startGateRun 20 commit-unread --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"gate_commit_unread\",\"blockers\":[{\"reason\":\"gate_commit_unread\",\"commit\":\"cm\",\"detail\":\"det\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 2
+  },
+  "startGateRun 21 gate-passed": {
+    "lines": ["The key of commit cm already passed in gate run g1, g2. Nothing was started."],
+    "exitCode": 4
+  },
+  "startGateRun 21 gate-passed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"gate_passed\",\"blockers\":[{\"reason\":\"gate_passed\",\"commit\":\"cm\",\"tree\":\"tr\",\"declarationIdentity\":\"di\",\"runIds\":[\"g1\",\"g2\"]}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 4
+  },
+  "startGateRun 22 nothing-to-gate": {
+    "lines": ["The key of commit cm already passed in gate run . Nothing was started."],
+    "exitCode": 4
+  },
+  "startGateRun 22 nothing-to-gate --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"gate_passed\",\"blockers\":[{\"reason\":\"gate_passed\",\"commit\":\"cm\",\"tree\":\"\",\"declarationIdentity\":\"di\",\"runIds\":[]}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 4
+  },
+  "startGateRun 23 gate-running": {
+    "lines": ["det", "One gate run of a source runs at a time. Wait for its outcome."],
+    "exitCode": 6
+  },
+  "startGateRun 23 gate-running --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"pending\",\"reason\":\"gate_running\",\"blockers\":[{\"reason\":\"gate_running\",\"runId\":\"g1\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 6
+  },
+  "startGateRun 24 gate-runner-unknown": {
+    "lines": [
+      "Herdr cannot show whether the runner of gate run g1 stopped: det",
+      "A run is replaced only after its pane shows that its runner stopped."
+    ],
+    "exitCode": 5
+  },
+  "startGateRun 24 gate-runner-unknown --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"uncertain\",\"reason\":\"gate_runner_unknown\",\"blockers\":[{\"reason\":\"gate_runner_unknown\",\"runId\":\"g1\",\"detail\":\"det\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 5
+  },
+  "startGateRun 25 fresh-series-not-needed": {
+    "lines": ["This key holds no failed run, so there is nothing a fresh series answers."],
+    "exitCode": 2
+  },
+  "startGateRun 25 fresh-series-not-needed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"fresh_series_not_needed\",\"blockers\":[{\"reason\":\"fresh_series_not_needed\",\"tree\":\"tr\",\"declarationIdentity\":\"di\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 2
+  },
+  "startGateRun 26 fresh-series-not-approved": {
+    "lines": [
+      "fnd",
+      "Only a person starts a fresh series. The approval names the key and each failed run it answers:",
+      "  action fresh-gate-series, scope s1, targets t1, t2"
+    ],
+    "exitCode": 3
+  },
+  "startGateRun 26 fresh-series-not-approved --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"fresh_series_not_approved\",\"blockers\":[{\"reason\":\"fresh_series_not_approved\",\"tree\":\"tr\",\"declarationIdentity\":\"di\",\"request\":{\"action\":\"fresh-gate-series\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"]},\"found\":\"fnd\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 3
+  },
+  "startGateRun 27 gate-branch-exists": {
+    "lines": [
+      "The branch br already exists, and Herdr would ignore the planned commit for it.",
+      "Nothing was created. The person decides what to do with that branch."
+    ],
+    "exitCode": 4
+  },
+  "startGateRun 27 gate-branch-exists --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"gate_branch_exists\",\"blockers\":[{\"reason\":\"gate_branch_exists\",\"branch\":\"br\",\"path\":\"p/x\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 4
+  },
+  "startGateRun 28 gate-checkout-failed": {
+    "lines": ["Herdr did not make the gate checkout: det"],
+    "exitCode": 1
+  },
+  "startGateRun 28 gate-checkout-failed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"failed\",\"reason\":\"gate_checkout_failed\",\"blockers\":[{\"reason\":\"gate_checkout_failed\",\"detail\":\"det\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 1
+  },
+  "startGateRun 29 gate-checkout-unplanned": {
+    "lines": [
+      "Herdr made the gate checkout p/x at fnd, not at the planned commit pl.",
+      "No run was recorded."
+    ],
+    "exitCode": 4
+  },
+  "startGateRun 29 gate-checkout-unplanned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"gate_checkout_unplanned\",\"blockers\":[{\"reason\":\"gate_checkout_unplanned\",\"branch\":\"br\",\"path\":\"p/x\",\"planned\":\"pl\",\"found\":\"fnd\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 4
+  },
+  "startGateRun 30 take-out-pending": {
+    "lines": [],
+    "exitCode": 2
+  },
+  "startGateRun 30 take-out-pending --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"invalid_arguments\",\"blockers\":[],\"operation\":\"parse_arguments\"}"
+    ],
+    "exitCode": 2
+  },
+  "startGateRun 31 rebase-pending": {
+    "lines": [],
+    "exitCode": 2
+  },
+  "startGateRun 31 rebase-pending --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"invalid_arguments\",\"blockers\":[],\"operation\":\"parse_arguments\"}"
+    ],
+    "exitCode": 2
+  },
+  "startGateRun 32 started": {
+    "lines": [
+      "Gate run g1 of source s1 at commit cm is running.",
+      "The runner records each outcome itself and wakes the Operator at the end. `operator crew next` shows `gate_running` until then."
+    ],
+    "exitCode": 6
+  },
+  "startGateRun 32 started --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"pending\",\"reason\":\"gate_run_started\",\"blockers\":[{\"reason\":\"gate_running\",\"runId\":\"g1\"}],\"operation\":\"gate_run\",\"data\":{\"runId\":\"g1\",\"sourceId\":\"s1\",\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"commit\":\"cm\",\"state\":\"running\",\"commands\":[],\"repeated\":true}}"
+    ],
+    "exitCode": 6
+  },
+  "startGateRun 33 runner-not-typed": {
+    "lines": [
+      "Gate run g1 is recorded, and Herdr did not take its runner line: det",
+      "The run proves nothing. Run `operator gate run` again; it replaces the run once its pane shows no runner."
+    ],
+    "exitCode": 5
+  },
+  "startGateRun 33 runner-not-typed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"uncertain\",\"reason\":\"gate_runner_not_typed\",\"blockers\":[{\"reason\":\"gate_runner_not_typed\",\"runId\":\"g1\",\"detail\":\"det\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 5
+  },
+  "startGateRun 34 rebase-gate-failed": {
+    "lines": [
+      "The key of the new base gc is failed in gate run g1, so nothing was started.",
+      "Nothing reruns a failed key by itself. Only the person starts a fresh series, with an approval."
+    ],
+    "exitCode": 4
+  },
+  "startGateRun 34 rebase-gate-failed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"gate_failed\",\"blockers\":[{\"reason\":\"gate_failed\",\"commit\":\"gc\",\"parent\":null,\"tree\":\"tr\",\"declarationIdentity\":\"di\",\"runIds\":[\"g1\"]}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 4
+  },
+  "startGateRun 35 rebase-gate-failed": {
+    "lines": [
+      "The key of commit gc is flaky in gate run g1, g2, so nothing was started.",
+      "Nothing reruns a failed key by itself. Only the person starts a fresh series, with an approval."
+    ],
+    "exitCode": 4
+  },
+  "startGateRun 35 rebase-gate-failed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"gate_flaky\",\"blockers\":[{\"reason\":\"gate_flaky\",\"commit\":\"gc\",\"parent\":\"b1\",\"tree\":\"tr\",\"declarationIdentity\":\"di\",\"runIds\":[\"g1\",\"g2\"]}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 4
+  },
+  "startGateRun 36 integration-branch-moved": {
+    "lines": [
+      "The branch br holds no commit, and the recorded tip is rt. The person puts it back."
+    ],
+    "exitCode": 4
+  },
+  "startGateRun 36 integration-branch-moved --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"integration_branch_moved\",\"blockers\":[{\"reason\":\"integration_branch_moved\",\"run\":{\"runId\":\"g1\",\"sourceId\":\"s1\",\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"commit\":\"cm\",\"state\":\"running\",\"commands\":[{\"name\":\"lint\",\"outcome\":\"passed\",\"reason\":null,\"outputPath\":\"out/lint\"},{\"name\":\"test\",\"outcome\":\"failed\",\"reason\":\"timeout\",\"outputPath\":null},{\"name\":\"build\",\"outcome\":null,\"reason\":null,\"outputPath\":null}]},\"line\":\"ln\",\"repeated\":false,\"detail\":\"det\",\"uncertain\":false,\"sourceId\":\"s1\",\"assignmentId\":\"a1\",\"state\":\"st\",\"branch\":\"br\",\"landed\":\"ld\",\"recordedTip\":\"rt\",\"found\":null,\"worktrees\":[\"w1\",\"w2\"],\"commit\":\"cm\",\"tip\":\"tp\",\"paths\":[\"x\",\"y\"],\"pullRequest\":7,\"steps\":[{\"assignmentId\":\"a2\",\"step\":\"resolution\",\"state\":\"applied\"}],\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"declarationIdentity\":\"di\",\"runId\":\"g1\",\"request\":{\"action\":\"fresh-gate-series\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"]},\"path\":\"p/x\",\"planned\":\"pl\",\"preview\":{\"sourceId\":\"s1\",\"refusals\":[{\"reason\":\"r1\"},{\"reason\":\"r2\"}],\"planPath\":\"pp\"},\"status\":\"integration-branch-moved\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 4
+  },
+  "startGateRun 37 rewrite-published-range": {
+    "lines": [
+      "Commit cm is inside the range that pull request (number not recorded) published, so it is never rewritten in place."
+    ],
+    "exitCode": 4
+  },
+  "startGateRun 37 rewrite-published-range --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"rewrite_published_range\",\"blockers\":[{\"reason\":\"rewrite_published_range\",\"run\":{\"runId\":\"g1\",\"sourceId\":\"s1\",\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"commit\":\"cm\",\"state\":\"running\",\"commands\":[{\"name\":\"lint\",\"outcome\":\"passed\",\"reason\":null,\"outputPath\":\"out/lint\"},{\"name\":\"test\",\"outcome\":\"failed\",\"reason\":\"timeout\",\"outputPath\":null},{\"name\":\"build\",\"outcome\":null,\"reason\":null,\"outputPath\":null}]},\"line\":\"ln\",\"repeated\":false,\"detail\":\"det\",\"uncertain\":false,\"sourceId\":\"s1\",\"assignmentId\":\"a1\",\"state\":\"st\",\"branch\":\"br\",\"landed\":\"ld\",\"recordedTip\":\"rt\",\"found\":\"fnd\",\"worktrees\":[\"w1\",\"w2\"],\"commit\":\"cm\",\"tip\":\"tp\",\"paths\":[\"x\",\"y\"],\"pullRequest\":null,\"steps\":[{\"assignmentId\":\"a2\",\"step\":\"resolution\",\"state\":\"applied\"}],\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"declarationIdentity\":\"di\",\"runId\":\"g1\",\"request\":{\"action\":\"fresh-gate-series\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"]},\"path\":\"p/x\",\"planned\":\"pl\",\"preview\":{\"sourceId\":\"s1\",\"refusals\":[{\"reason\":\"r1\"},{\"reason\":\"r2\"}],\"planPath\":\"pp\"},\"status\":\"rewrite-published-range\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 4
+  },
+  "startGateRun 38 gate-checkout-failed": {
+    "lines": ["Herdr did not make the gate checkout: det"],
+    "exitCode": 5
+  },
+  "startGateRun 38 gate-checkout-failed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"uncertain\",\"reason\":\"gate_checkout_failed\",\"blockers\":[{\"reason\":\"gate_checkout_failed\",\"detail\":\"det\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 5
+  },
+  "startGateRun 39 project-gate-unusable": {
+    "lines": [
+      "Commit cm declares no usable operator-gate.json, so there is no gate to run.",
+      "The person commits a valid operator-gate.json at the repository root."
+    ],
+    "exitCode": 3
+  },
+  "startGateRun 39 project-gate-unusable --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"project_gate_missing\",\"blockers\":[{\"reason\":\"project_gate_missing\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 3
+  },
+  "startGateRun 40 project-gate-unusable": {
+    "lines": [
+      "Commit cm declares no usable operator-gate.json, so there is no gate to run.",
+      "The person commits a valid operator-gate.json at the repository root."
+    ],
+    "exitCode": 3
+  },
+  "startGateRun 40 project-gate-unusable --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"project_gate_invalid\",\"blockers\":[{\"reason\":\"project_gate_invalid\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 3
+  },
+  "startGateRun 41 project-gate-unusable": {
+    "lines": [
+      "Commit cm declares no usable operator-gate.json, so there is no gate to run.",
+      "The person commits a valid operator-gate.json at the repository root."
+    ],
+    "exitCode": 3
+  },
+  "startGateRun 41 project-gate-unusable --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"project_gate_unread\",\"blockers\":[{\"reason\":\"project_gate_unread\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"}],\"operation\":\"gate_run\"}"
+    ],
+    "exitCode": 3
+  },
+  "run 0 passed": {
+    "lines": ["Runner line.", "Wake check: ok"],
+    "exitCode": 0
+  },
+  "run 0 passed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"gate_run_finished\",\"blockers\":[],\"operation\":\"gate_runner\",\"data\":{\"runId\":\"g1\",\"state\":\"passed\"}}"
+    ],
+    "exitCode": 0
+  },
+  "run 1 failed": {
+    "lines": ["Runner line.", "Wake check: ok"],
+    "exitCode": 0
+  },
+  "run 1 failed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"gate_run_finished\",\"blockers\":[],\"operation\":\"gate_runner\",\"data\":{\"runId\":\"g1\",\"state\":\"failed\"}}"
+    ],
+    "exitCode": 0
+  },
+  "run 2 stopped": {
+    "lines": ["Runner line.", "Wake check: ok"],
+    "exitCode": 1
+  },
+  "run 2 stopped --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"failed\",\"reason\":\"gate_run_stopped\",\"blockers\":[],\"operation\":\"gate_runner\",\"data\":{\"runId\":\"g1\",\"state\":\"stopped\"}}"
+    ],
+    "exitCode": 1
+  },
+  "run 3 running": {
+    "lines": ["Runner line.", "Wake check: ok"],
+    "exitCode": 1
+  },
+  "run 3 running --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"failed\",\"reason\":\"gate_run_not_running\",\"blockers\":[],\"operation\":\"gate_runner\",\"data\":{\"runId\":\"g1\",\"state\":\"running\"}}"
+    ],
+    "exitCode": 1
+  },
+  "run 4 state-missing": {
+    "lines": ["Runner line.", "Wake check: ok"],
+    "exitCode": 1
+  },
+  "run 4 state-missing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"failed\",\"reason\":\"gate_run_not_running\",\"blockers\":[],\"operation\":\"gate_runner\",\"data\":{\"runId\":\"g1\",\"state\":\"state-missing\"}}"
+    ],
+    "exitCode": 1
+  },
+  "run 5 unknown-gate-run": {
+    "lines": ["Runner line.", "Wake check: ok"],
+    "exitCode": 1
+  },
+  "run 5 unknown-gate-run --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"failed\",\"reason\":\"gate_run_not_running\",\"blockers\":[],\"operation\":\"gate_runner\",\"data\":{\"runId\":\"g1\",\"state\":\"unknown-gate-run\"}}"
+    ],
+    "exitCode": 1
   }
 }
