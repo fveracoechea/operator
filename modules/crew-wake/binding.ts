@@ -1,3 +1,4 @@
+import { ContentIdentity } from "../content-identity/main.ts";
 import { CrewState } from "../crew-state/main.ts";
 import { z } from "zod";
 // Bun has no atomic rename or directory creation API.
@@ -96,7 +97,7 @@ export async function scheduleAfterEvent(
 
 export async function registerRunner(dir: string, root: string, binary: string): Promise<void> {
   await mkdir(`${dir}/runners`, { recursive: true });
-  const key = new Bun.CryptoHasher("sha256").update(root).digest("hex");
+  const key = ContentIdentity.ofText(root);
   const path = `${dir}/runners/${key}.json`;
   const temporary = `${path}.${crypto.randomUUID()}`;
   await Bun.write(temporary, `${JSON.stringify({ root, binary })}\n`);

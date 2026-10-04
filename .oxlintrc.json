@@ -44,8 +44,7 @@
         "modules/operator-cli/wake-command.ts",
         "modules/operator-cli/work-command.ts",
         "modules/release-install/inspect.ts",
-        "modules/release-install/worktree.ts",
-        "modules/skill-install/upstream.ts"
+        "modules/release-install/worktree.ts"
       ],
       "rules": { "complexity": ["error", { "max": 30 }] }
     }
