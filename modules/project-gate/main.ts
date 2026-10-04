@@ -43,10 +43,6 @@ const UNUSABLE_TEXTS: Record<
   },
 };
 
-async function git(repository: string, args: string[]) {
-  return ToolInvocation.run({ tool: "git", args: ["-C", repository, ...args], timeoutMs: 30_000 });
-}
-
 /**
  * The project gate of ADR 0021: the one ordered list of commands that the project declares in a
  * committed file. It is read from a commit and never from a working tree, so an edit that is not
@@ -64,27 +60,26 @@ export const ProjectGate = {
 
   /** Reads and validates the declaration that one commit holds, and names every wrong field. */
   async read(request: { repository: string; commit: string }): Promise<Read> {
-    const resolved = await git(request.repository, [
-      "rev-parse",
-      "--verify",
-      "--quiet",
-      `${request.commit}^{commit}`,
-    ]);
-    if (resolved.status !== "completed" || resolved.exitCode !== 0) {
-      return {
-        status: "unread",
-        commit: request.commit,
-        path: GATE_PATH,
-        detail:
-          resolved.status === "completed"
-            ? `Git names no commit ${request.commit}.`
-            : resolved.detail,
-      };
+    const resolved = await ToolInvocation.git({
+      repoRoot: request.repository,
+      args: ["rev-parse", "--verify", "--quiet", `${request.commit}^{commit}`],
+      failed: (failure) =>
+        failure.kind === "exit"
+          ? `Git names no commit ${request.commit}.`
+          : ToolInvocation.gitFailure(failure),
+    });
+    if (resolved.status !== "read") {
+      return { status: "unread", commit: request.commit, path: GATE_PATH, detail: resolved.detail };
     }
 
-    const commit = resolved.stdout.trim();
-    const blob = await git(request.repository, ["cat-file", "blob", `${commit}:${GATE_PATH}`]);
-    if (blob.status !== "completed") {
+    const commit = resolved.value;
+    const blob = await ToolInvocation.git({
+      repoRoot: request.repository,
+      args: ["cat-file", "blob", `${commit}:${GATE_PATH}`],
+      raw: true,
+      answers: "any",
+    });
+    if (blob.status !== "read") {
       return { status: "unread", commit, path: GATE_PATH, detail: blob.detail };
     }
     if (blob.exitCode !== 0) {
@@ -93,7 +88,7 @@ export const ProjectGate = {
 
     let value: unknown;
     try {
-      value = JSON.parse(blob.stdout);
+      value = JSON.parse(blob.value);
     } catch (error) {
       return {
         status: "invalid",

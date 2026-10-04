@@ -46,7 +46,8 @@ Submit does not refuse for it, because the scan cannot name the writer, and the 
 Acceptance blocks until the Operator disposes each outside change: explained, with a reason and the evidence, or removed, which a new scan proves.
 Only a person deletes an outside change, and the CLI only proves the delete with a new scan, because the scan cannot name the writer and the Operator changes nothing itself.
 An outside change that touches a security permission, such as a changed hook or config of the checkout, is kept only under an approval of the user (ADR 0006).
-The scan runs Git with the file system monitor off and with no optional lock, so a planted command in the checkout config never runs before the user decides on it.
+Every Git call of Operator runs with the file system monitor off and with no optional lock, so a planted command in the checkout config never runs before the user decides on it.
+The guard is part of the one Git call that every module uses, so no module can forget it.
 A part of the scan that could not run is recorded as an outside change too, because a check that did not run never reports a pass.
 
 ## Considered options

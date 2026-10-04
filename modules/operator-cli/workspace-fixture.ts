@@ -444,7 +444,8 @@ export async function pausedGit(workspace: Workspace) {
     `${workspace.bin}/git`,
     [
       "#!/bin/sh",
-      'if [ -n "$GIT_PAUSE_DIR" ] && [ "$3" = "patch-id" ]; then',
+      // The guard of ADR 0018 and `-C <repo>` come before the subcommand.
+      'if [ -n "$GIT_PAUSE_DIR" ] && [ "$6" = "patch-id" ]; then',
       '  : > "$GIT_PAUSE_DIR/reached"',
       '  while [ ! -f "$GIT_PAUSE_DIR/release" ]; do sleep 0.05; done',
       "fi",

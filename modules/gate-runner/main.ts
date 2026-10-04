@@ -14,20 +14,15 @@ type Outcome = {
 };
 
 async function git(checkout: string, args: string[]) {
-  const invoked = await ToolInvocation.run({
-    tool: "git",
-    args: ["-C", checkout, ...args],
+  return ToolInvocation.git({
+    repoRoot: checkout,
+    args,
     timeoutMs: 120_000,
+    failed: (failure) =>
+      failure.kind === "exit"
+        ? `git ${args.join(" ")} exited ${failure.exitCode}: ${failure.stderr.trim()}`
+        : ToolInvocation.gitFailure(failure),
   });
-  return invoked.status === "completed" && invoked.exitCode === 0
-    ? { ok: true as const, stdout: invoked.stdout.trim() }
-    : {
-        ok: false as const,
-        detail:
-          invoked.status === "completed"
-            ? `git ${args.join(" ")} exited ${invoked.exitCode}: ${invoked.stderr.trim()}`
-            : invoked.detail,
-      };
 }
 
 /**
@@ -40,14 +35,14 @@ async function prepare(checkout: string, commit: string): Promise<string | null>
     ["clean", "-ffdx", "--quiet"],
   ]) {
     const done = await git(checkout, args);
-    if (!done.ok) return done.detail;
+    if (done.status !== "read") return done.detail;
   }
   const head = await git(checkout, ["rev-parse", "HEAD"]);
-  if (!head.ok) return head.detail;
-  if (head.stdout !== commit) return `The gate checkout is at ${head.stdout}, not at ${commit}.`;
+  if (head.status !== "read") return head.detail;
+  if (head.value !== commit) return `The gate checkout is at ${head.value}, not at ${commit}.`;
   const status = await git(checkout, ["status", "--porcelain", "--ignored"]);
-  if (!status.ok) return status.detail;
-  return status.stdout === "" ? null : `The gate checkout still holds files: ${status.stdout}`;
+  if (status.status !== "read") return status.detail;
+  return status.value === "" ? null : `The gate checkout still holds files: ${status.value}`;
 }
 
 /**

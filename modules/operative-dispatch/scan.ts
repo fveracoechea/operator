@@ -2,7 +2,7 @@
 import { lstat, readdir, readlink, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { ContentIdentity } from "../content-identity/main.ts";
-import type { Reading } from "./inspect.ts";
+import { type Reading, readGit } from "./inspect.ts";
 
 /** Where one scanned entry lives. Each place is read on its own and can fail on its own. */
 export type OutsidePlace = "worktree-parent" | "checkout" | "git-hooks" | "git-config";
@@ -19,28 +19,6 @@ export type OutsideScan = {
   parent: Reading<OutsideEntry[]>;
   checkout: Reading<OutsideEntry[]>;
 };
-
-/**
- * Runs one read-only Git command. The checkout config can name a command that Git runs, and a
- * planted one waits for the person, so the scan turns off the file system monitor. It takes no
- * optional lock, so it never writes the index of the checkout either.
- */
-async function git(cwd: string, args: string[]): Promise<Reading<string>> {
-  const guarded = ["--no-optional-locks", "-c", "core.fsmonitor=false", "-C", cwd];
-  const child = Bun.spawn(["git", ...guarded, ...args], {
-    stdout: "pipe",
-    stderr: "pipe",
-    timeout: 30_000,
-  });
-  const [exitCode, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ]);
-  return exitCode === 0
-    ? { status: "read", value: stdout }
-    : { status: "unread", detail: `git ${args[0]} failed: ${stderr.trim() || `exit ${exitCode}`}` };
-}
 
 /** The real path, or the path itself when it is gone, so a removed worktree still compares. */
 async function real(path: string): Promise<string> {
@@ -110,8 +88,8 @@ async function identityOf(path: string): Promise<string> {
 async function scanCheckout(projectRoot: string, worktrees: string[]): Promise<OutsideEntry[]> {
   const root = await real(projectRoot);
   const [status, common] = await Promise.all([
-    git(root, ["status", "--porcelain=v1", "-z", "--no-renames", "-uall"]),
-    git(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
+    readGit(root, ["status", "--porcelain=v1", "-z", "--no-renames", "-uall"]),
+    readGit(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
   ]);
   if (status.status === "unread") {
     throw new Error(status.detail);
@@ -175,7 +153,7 @@ export async function scanOutside(request: {
   projectRoot: string;
   worktreePath: string;
 }): Promise<OutsideScan> {
-  const listed = await git(request.projectRoot, ["worktree", "list", "--porcelain"]);
+  const listed = await readGit(request.projectRoot, ["worktree", "list", "--porcelain"]);
   if (listed.status === "unread") {
     return { parent: listed, checkout: listed };
   }

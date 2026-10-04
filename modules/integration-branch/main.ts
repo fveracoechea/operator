@@ -3,58 +3,13 @@ import { ToolInvocation } from "../tool-invocation/main.ts";
 /** The namespace of every integration branch, so no branch of a person or an Operative is one. */
 const NAMESPACE = "operator/integration";
 
-async function git(
-  repoRoot: string,
-  args: string[],
-): Promise<{ status: "read"; value: string } | { status: "unread"; detail: string }> {
-  const invoked = await ToolInvocation.run({
-    tool: "git",
-    args: ["-C", repoRoot, ...args],
-    timeoutMs: 30_000,
-  });
-  return invoked.status === "completed" && invoked.exitCode === 0
-    ? { status: "read", value: invoked.stdout.trim() }
-    : {
-        status: "unread",
-        detail:
-          invoked.status === "completed"
-            ? `git ${args[0] ?? ""} exited ${invoked.exitCode}: ${invoked.stderr.trim()}`
-            : invoked.detail,
-      };
-}
-
-/** One Git call whose output is kept byte for byte, as a commit object must be. */
-async function gitRaw(
-  repoRoot: string,
-  args: string[],
-  input?: string,
-): Promise<
-  | { status: "completed"; exitCode: number; stdout: string; stderr: string }
-  | { status: "unread"; detail: string }
-> {
-  const call: Parameters<typeof ToolInvocation.run>[0] = {
-    tool: "git",
-    args: ["-C", repoRoot, ...args],
-    timeoutMs: 120_000,
-  };
-  if (input !== undefined) {
-    call.input = input;
-  }
-  const invoked = await ToolInvocation.run(call);
-  return invoked.status === "completed" ? invoked : { status: "unread", detail: invoked.detail };
-}
-
-/** The output of one raw Git call that exited 0, or why it did not. */
-function gitOut(
-  called: Awaited<ReturnType<typeof gitRaw>>,
-): { status: "read"; stdout: string } | { status: "unread"; detail: string } {
-  if (called.status !== "completed") {
-    return called;
-  }
-  return called.exitCode === 0
-    ? { status: "read", stdout: called.stdout }
-    : { status: "unread", detail: called.stderr.trim() };
-}
+/** A Git call whose output is kept byte for byte, as a commit object must be. */
+const RAW = {
+  raw: true,
+  timeoutMs: 120_000,
+  failed: (failure: Parameters<typeof ToolInvocation.gitFailure>[0]) =>
+    failure.kind === "exit" ? failure.stderr.trim() : ToolInvocation.gitFailure(failure),
+};
 
 /** The headers and the message of one commit object, as Git stores them. */
 type CommitObject = { headers: string[]; message: string; parents: string[]; tree: string };
@@ -63,13 +18,13 @@ async function readCommit(
   repoRoot: string,
   commit: string,
 ): Promise<{ status: "read"; value: CommitObject } | { status: "unread"; detail: string }> {
-  const read = gitOut(await gitRaw(repoRoot, ["cat-file", "commit", commit]));
+  const read = await ToolInvocation.git({ ...RAW, repoRoot, args: ["cat-file", "commit", commit] });
   if (read.status !== "read") {
     return read;
   }
-  const split = read.stdout.indexOf("\n\n");
-  const head = split === -1 ? read.stdout : read.stdout.slice(0, split);
-  const message = split === -1 ? "" : read.stdout.slice(split + 2);
+  const split = read.value.indexOf("\n\n");
+  const head = split === -1 ? read.value : read.value.slice(0, split);
+  const message = split === -1 ? "" : read.value.slice(split + 2);
   // A continued header line starts with a space and belongs to the header above it.
   const headers: string[] = [];
   for (const line of head.split("\n")) {
@@ -97,8 +52,10 @@ async function canonicalDiff(
   parent: string,
   commit: string,
 ): Promise<{ status: "read"; diff: string } | { status: "unread"; detail: string }> {
-  const diff = gitOut(
-    await gitRaw(repoRoot, [
+  const diff = await ToolInvocation.git({
+    ...RAW,
+    repoRoot,
+    args: [
       "diff-tree",
       "-p",
       "--no-renames",
@@ -110,9 +67,9 @@ async function canonicalDiff(
       "--no-textconv",
       parent,
       commit,
-    ]),
-  );
-  return diff.status === "read" ? { status: "read", diff: diff.stdout } : diff;
+    ],
+  });
+  return diff.status === "read" ? { status: "read", diff: diff.value } : diff;
 }
 
 /** The patch identity of one commit against one parent: `git patch-id --verbatim` over its diff. */
@@ -128,11 +85,16 @@ async function patchBetween(
   if (diff.diff === "") {
     return { status: "read", patch: "empty" };
   }
-  const id = gitOut(await gitRaw(repoRoot, ["patch-id", "--verbatim"], diff.diff));
+  const id = await ToolInvocation.git({
+    ...RAW,
+    repoRoot,
+    args: ["patch-id", "--verbatim"],
+    input: diff.diff,
+  });
   if (id.status !== "read") {
     return id;
   }
-  return { status: "read", patch: id.stdout.trim().split(" ")[0] ?? "" };
+  return { status: "read", patch: id.value.trim().split(" ")[0] ?? "" };
 }
 
 /** The canonical diff of one commit against its one parent. */
@@ -157,12 +119,10 @@ async function commitsOf(
   base: string,
   tip: string,
 ): Promise<{ status: "read"; commits: string[] } | { status: "unread"; detail: string }> {
-  const listed = await git(repoRoot, [
-    "rev-list",
-    "--reverse",
-    "--first-parent",
-    `${base}..${tip}`,
-  ]);
+  const listed = await ToolInvocation.git({
+    repoRoot,
+    args: ["rev-list", "--reverse", "--first-parent", `${base}..${tip}`],
+  });
   return listed.status === "read"
     ? { status: "read", commits: listed.value === "" ? [] : listed.value.split("\n") }
     : listed;
@@ -218,18 +178,16 @@ type Tip =
 
 /** The commit one local branch holds, or `absent` when the branch does not exist. */
 async function tipOf(repoRoot: string, name: string): Promise<Tip> {
-  const invoked = await ToolInvocation.run({
-    tool: "git",
-    args: ["-C", repoRoot, "rev-parse", "--verify", "--quiet", `refs/heads/${name}^{commit}`],
-    timeoutMs: 30_000,
+  const invoked = await ToolInvocation.git({
+    repoRoot,
+    args: ["rev-parse", "--verify", "--quiet", `refs/heads/${name}^{commit}`],
+    answers: "any",
   });
-  if (invoked.status !== "completed") {
-    return { status: "unread", detail: invoked.detail };
+  if (invoked.status !== "read") {
+    return invoked;
   }
   // `--verify --quiet` exits 1 with no output when the ref does not exist.
-  return invoked.exitCode === 0
-    ? { status: "found", commit: invoked.stdout.trim() }
-    : { status: "absent" };
+  return invoked.exitCode === 0 ? { status: "found", commit: invoked.value } : { status: "absent" };
 }
 
 /** Every worktree of the shared repository that has the branch checked out. */
@@ -237,7 +195,7 @@ async function checkedOut(
   repoRoot: string,
   name: string,
 ): Promise<{ status: "read"; paths: string[] } | { status: "unread"; detail: string }> {
-  const listed = await git(repoRoot, ["worktree", "list", "--porcelain"]);
+  const listed = await ToolInvocation.git({ repoRoot, args: ["worktree", "list", "--porcelain"] });
   if (listed.status !== "read") {
     return listed;
   }
@@ -281,41 +239,46 @@ async function landOn(
     };
   }
 
-  const merged = await gitRaw(repoRoot, [
-    "merge-tree",
-    "--write-tree",
-    "--name-only",
-    "--no-messages",
-    `--merge-base=${request.reviewedBase}`,
-    request.tip,
-    request.commit,
-  ]);
-  if (merged.status !== "completed") {
+  // Exit 1 is a merge with conflicts, and its paths follow the tree line.
+  const merged = await ToolInvocation.git({
+    repoRoot,
+    args: [
+      "merge-tree",
+      "--write-tree",
+      "--name-only",
+      "--no-messages",
+      `--merge-base=${request.reviewedBase}`,
+      request.tip,
+      request.commit,
+    ],
+    raw: true,
+    timeoutMs: 120_000,
+    answers: [0, 1],
+  });
+  if (merged.status !== "read") {
     return merged;
   }
-  const lines = merged.stdout.split("\n").filter((one) => one !== "");
-  // Exit 1 is a merge with conflicts, and its paths follow the tree line.
+  const lines = merged.value.split("\n").filter((one) => one !== "");
   if (merged.exitCode === 1) {
     return { status: "conflict", paths: [...new Set(lines.slice(1))] };
   }
-  if (merged.exitCode !== 0 || lines[0] === undefined) {
+  if (lines[0] === undefined) {
     return {
       status: "unread",
       detail: `git merge-tree exited ${merged.exitCode}: ${merged.stderr.trim()}`,
     };
   }
 
-  const written = gitOut(
-    await gitRaw(
-      repoRoot,
-      ["hash-object", "-t", "commit", "-w", "--stdin"],
-      landedObject(request.reviewed, lines[0], request.tip),
-    ),
-  );
+  const written = await ToolInvocation.git({
+    ...RAW,
+    repoRoot,
+    args: ["hash-object", "-t", "commit", "-w", "--stdin"],
+    input: landedObject(request.reviewed, lines[0], request.tip),
+  });
   if (written.status !== "read") {
     return written;
   }
-  const landed = written.stdout.trim();
+  const landed = written.value.trim();
   const planned = await patchBetween(repoRoot, request.tip, landed);
   if (planned.status !== "read") {
     return planned;
@@ -439,22 +402,13 @@ async function isAncestor(
   commit: string,
   of: string,
 ): Promise<{ status: "read"; value: boolean } | { status: "unread"; detail: string }> {
-  const ancestor = await ToolInvocation.run({
-    tool: "git",
-    args: ["-C", repoRoot, "merge-base", "--is-ancestor", commit, of],
-    timeoutMs: 30_000,
-  });
-  if (ancestor.status !== "completed") {
-    return { status: "unread", detail: ancestor.detail };
-  }
   // Exit 1 is a commit that is not an ancestor. Any other exit is a commit Git cannot read.
-  if (ancestor.exitCode === 0 || ancestor.exitCode === 1) {
-    return { status: "read", value: ancestor.exitCode === 0 };
-  }
-  return {
-    status: "unread",
-    detail: `git merge-base exited ${ancestor.exitCode}: ${ancestor.stderr.trim()}`,
-  };
+  const ancestor = await ToolInvocation.git({
+    repoRoot,
+    args: ["merge-base", "--is-ancestor", commit, of],
+    answers: [0, 1],
+  });
+  return ancestor.status === "read" ? { status: "read", value: ancestor.exitCode === 0 } : ancestor;
 }
 
 /** Why one rewrite cannot be planned. Each one moves nothing. */
@@ -561,12 +515,10 @@ export const IntegrationBranch = {
     repoRoot: string;
     commit: string;
   }): Promise<{ status: "resolved"; commit: string } | { status: "unresolved"; detail: string }> {
-    const read = await git(request.repoRoot, [
-      "rev-parse",
-      "--verify",
-      "--quiet",
-      `${request.commit}^{commit}`,
-    ]);
+    const read = await ToolInvocation.git({
+      repoRoot: request.repoRoot,
+      args: ["rev-parse", "--verify", "--quiet", `${request.commit}^{commit}`],
+    });
     return read.status === "read"
       ? { status: "resolved", commit: read.value }
       : { status: "unresolved", detail: `Git names no commit ${request.commit}.` };
@@ -597,14 +549,17 @@ export const IntegrationBranch = {
     }
 
     // An empty old value makes Git refuse when the ref appeared since the read above.
-    const written = await git(request.repoRoot, [
-      "update-ref",
-      "-m",
-      "operator: create the integration branch at its base",
-      `refs/heads/${request.name}`,
-      request.commit,
-      "",
-    ]);
+    const written = await ToolInvocation.git({
+      repoRoot: request.repoRoot,
+      args: [
+        "update-ref",
+        "-m",
+        "operator: create the integration branch at its base",
+        `refs/heads/${request.name}`,
+        request.commit,
+        "",
+      ],
+    });
     if (written.status === "read") {
       return { status: "created", name: request.name, commit: request.commit };
     }
@@ -705,22 +660,22 @@ export const IntegrationBranch = {
     }
     const blobs: string[] = [];
     for (const text of [reviewed.diff, current.diff]) {
-      const stored = gitOut(await gitRaw(request.repoRoot, ["hash-object", "-w", "--stdin"], text));
+      const stored = await ToolInvocation.git({
+        ...RAW,
+        repoRoot: request.repoRoot,
+        args: ["hash-object", "-w", "--stdin"],
+        input: text,
+      });
       if (stored.status !== "read") {
         return stored;
       }
-      blobs.push(stored.stdout.trim());
+      blobs.push(stored.value.trim());
     }
-    const compared = gitOut(
-      await gitRaw(request.repoRoot, [
-        "diff",
-        "--no-color",
-        "--no-ext-diff",
-        "--no-textconv",
-        "--unified=3",
-        ...blobs,
-      ]),
-    );
+    const compared = await ToolInvocation.git({
+      ...RAW,
+      repoRoot: request.repoRoot,
+      args: ["diff", "--no-color", "--no-ext-diff", "--no-textconv", "--unified=3", ...blobs],
+    });
     if (compared.status !== "read") {
       return compared;
     }
@@ -728,7 +683,7 @@ export const IntegrationBranch = {
       status: "read",
       reviewedPatch: reviewed.diff,
       currentPatch: current.diff,
-      interdiff: compared.stdout,
+      interdiff: compared.value,
     };
   },
 
@@ -1047,14 +1002,17 @@ export const IntegrationBranch = {
     if (read.checkedOut.length > 0) {
       return { status: "checked-out", worktrees: read.checkedOut };
     }
-    const written = await git(request.repoRoot, [
-      "update-ref",
-      "-m",
-      "operator: land an accepted commit",
-      `refs/heads/${request.name}`,
-      request.to,
-      request.from,
-    ]);
+    const written = await ToolInvocation.git({
+      repoRoot: request.repoRoot,
+      args: [
+        "update-ref",
+        "-m",
+        "operator: land an accepted commit",
+        `refs/heads/${request.name}`,
+        request.to,
+        request.from,
+      ],
+    });
     const after = await IntegrationBranch.read({ ...request, recordedTip: request.to });
     if (after.status === "at-tip") {
       return { status: "moved" };

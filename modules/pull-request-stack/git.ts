@@ -2,26 +2,9 @@ import { ToolInvocation } from "../tool-invocation/main.ts";
 
 type Read<Value> = { status: "read"; value: Value } | { status: "unread"; detail: string };
 
-async function git(repoRoot: string, args: string[], timeoutMs = 60_000) {
-  const invoked = await ToolInvocation.run({
-    tool: "git",
-    args: ["-C", repoRoot, ...args],
-    timeoutMs,
-  });
-  return invoked;
-}
-
-async function gitRead(repoRoot: string, args: string[]): Promise<Read<string>> {
-  const invoked = await git(repoRoot, args);
-  return invoked.status === "completed" && invoked.exitCode === 0
-    ? { status: "read", value: invoked.stdout.trim() }
-    : {
-        status: "unread",
-        detail:
-          invoked.status === "completed"
-            ? `git ${args[0] ?? ""} exited ${invoked.exitCode}: ${invoked.stderr.trim()}`
-            : invoked.detail,
-      };
+/** The detail of a Git failure, as this module words it. */
+function failed(failure: Parameters<typeof ToolInvocation.gitFailure>[0]): string {
+  return failure.kind === "exit" ? failure.stderr.trim() : ToolInvocation.gitFailure(failure);
 }
 
 /** The `<owner>/<repo>` one GitHub remote URL names, lowercase, or null for any other URL. */
@@ -47,15 +30,19 @@ export async function remoteOf(
   | { status: "ambiguous"; remotes: Remote[] }
   | { status: "unread"; detail: string }
 > {
-  const invoked = await git(repoRoot, ["config", "--get-regexp", "^remote\\..*\\.url$"]);
-  if (invoked.status !== "completed" || invoked.exitCode > 1) {
-    return {
-      status: "unread",
-      detail: invoked.status === "completed" ? invoked.stderr.trim() : invoked.detail,
-    };
-  }
   // `git config --get-regexp` exits 1 when no remote is configured.
-  const remotes = invoked.stdout
+  const invoked = await ToolInvocation.git({
+    repoRoot,
+    args: ["config", "--get-regexp", "^remote\\..*\\.url$"],
+    raw: true,
+    timeoutMs: 60_000,
+    answers: [0, 1],
+    failed,
+  });
+  if (invoked.status !== "read") {
+    return invoked;
+  }
+  const remotes = invoked.value
     .split("\n")
     .filter((line) => line.length > 0)
     .map((line) => {
@@ -78,12 +65,11 @@ export async function remoteBranches(
   remote: string,
   names: string[],
 ): Promise<Read<Map<string, string>>> {
-  const listed = await gitRead(repoRoot, [
-    "ls-remote",
-    "--heads",
-    remote,
-    ...names.map((one) => `refs/heads/${one}`),
-  ]);
+  const listed = await ToolInvocation.git({
+    repoRoot,
+    args: ["ls-remote", "--heads", remote, ...names.map((one) => `refs/heads/${one}`)],
+    timeoutMs: 60_000,
+  });
   if (listed.status !== "read") {
     return listed;
   }
@@ -115,14 +101,11 @@ export async function fetchTarget(
   if (tip === undefined) {
     return { status: "unread", detail: `The remote ${remote} holds no branch ${target}.` };
   }
-  const fetched = await gitRead(repoRoot, [
-    "fetch",
-    "--quiet",
-    "--no-tags",
-    "--no-write-fetch-head",
-    remote,
-    tip,
-  ]);
+  const fetched = await ToolInvocation.git({
+    repoRoot,
+    args: ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", remote, tip],
+    timeoutMs: 60_000,
+  });
   return fetched.status === "read" ? { status: "read", value: tip } : fetched;
 }
 
@@ -131,14 +114,14 @@ export async function isAncestor(
   base: string,
   tip: string,
 ): Promise<Read<boolean>> {
-  const invoked = await git(repoRoot, ["merge-base", "--is-ancestor", base, tip]);
-  if (invoked.status !== "completed" || invoked.exitCode > 1) {
-    return {
-      status: "unread",
-      detail: invoked.status === "completed" ? invoked.stderr.trim() : invoked.detail,
-    };
-  }
-  return { status: "read", value: invoked.exitCode === 0 };
+  const invoked = await ToolInvocation.git({
+    repoRoot,
+    args: ["merge-base", "--is-ancestor", base, tip],
+    timeoutMs: 60_000,
+    answers: [0, 1],
+    failed,
+  });
+  return invoked.status === "read" ? { status: "read", value: invoked.exitCode === 0 } : invoked;
 }
 
 export async function commitsBetween(
@@ -146,7 +129,11 @@ export async function commitsBetween(
   base: string,
   tip: string,
 ): Promise<Read<number>> {
-  const counted = await gitRead(repoRoot, ["rev-list", "--count", `${base}..${tip}`]);
+  const counted = await ToolInvocation.git({
+    repoRoot,
+    args: ["rev-list", "--count", `${base}..${tip}`],
+    timeoutMs: 60_000,
+  });
   return counted.status === "read" ? { status: "read", value: Number(counted.value) } : counted;
 }
 
@@ -156,18 +143,23 @@ export async function mergesCleanly(
   tip: string,
   head: string,
 ): Promise<Read<boolean>> {
-  const merged = await git(repoRoot, ["merge-tree", "--write-tree", "--no-messages", tip, head]);
-  if (merged.status !== "completed" || merged.exitCode > 1) {
-    return {
-      status: "unread",
-      detail: merged.status === "completed" ? merged.stderr.trim() : merged.detail,
-    };
-  }
-  return { status: "read", value: merged.exitCode === 0 };
+  const merged = await ToolInvocation.git({
+    repoRoot,
+    args: ["merge-tree", "--write-tree", "--no-messages", tip, head],
+    timeoutMs: 60_000,
+    answers: [0, 1],
+    failed,
+  });
+  return merged.status === "read" ? { status: "read", value: merged.exitCode === 0 } : merged;
 }
 
 export async function subjectOf(repoRoot: string, commit: string): Promise<Read<string>> {
-  return gitRead(repoRoot, ["log", "-1", "--format=%s", commit]);
+  const subject = await ToolInvocation.git({
+    repoRoot,
+    args: ["log", "-1", "--format=%s", commit],
+    timeoutMs: 60_000,
+  });
+  return subject.status === "read" ? { status: "read", value: subject.value } : subject;
 }
 
 /**
@@ -183,9 +175,9 @@ export async function pushNew(
   | { status: "rejected"; message: string }
   | { status: "no-answer"; detail: string }
 > {
-  const invoked = await git(
+  const invoked = await ToolInvocation.git({
     repoRoot,
-    [
+    args: [
       "push",
       "--atomic",
       "--porcelain",
@@ -193,12 +185,13 @@ export async function pushNew(
       remote,
       ...refs.map((one) => `${one.commit}:refs/heads/${one.name}`),
     ],
-    300_000,
-  );
-  if (invoked.status !== "completed") {
+    timeoutMs: 300_000,
+    answers: "any",
+  });
+  if (invoked.status !== "read") {
     return { status: "no-answer", detail: invoked.detail };
   }
   return invoked.exitCode === 0
     ? { status: "pushed" }
-    : { status: "rejected", message: `${invoked.stdout.trim()}\n${invoked.stderr.trim()}`.trim() };
+    : { status: "rejected", message: `${invoked.value}\n${invoked.stderr.trim()}`.trim() };
 }

@@ -1,4 +1,5 @@
 import { ContentIdentity } from "../content-identity/main.ts";
+import { ToolInvocation } from "../tool-invocation/main.ts";
 
 export type CheckoutInspection = {
   worktreePath: string;
@@ -14,13 +15,8 @@ export type CheckoutInspection = {
 };
 
 async function git(worktreePath: string, args: string[]): Promise<string | null> {
-  const child = Bun.spawn(["git", "-C", worktreePath, ...args], {
-    stdout: "pipe",
-    stderr: "pipe",
-    timeout: 30_000,
-  });
-  const [exitCode, stdout] = await Promise.all([child.exited, new Response(child.stdout).text()]);
-  return exitCode === 0 ? stdout : null;
+  const read = await ToolInvocation.git({ repoRoot: worktreePath, args, raw: true });
+  return read.status === "read" ? read.value : null;
 }
 
 function lines(output: string | null): string[] {

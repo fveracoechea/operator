@@ -1,4 +1,5 @@
 import { ContentIdentity } from "../content-identity/main.ts";
+import { ToolInvocation } from "../tool-invocation/main.ts";
 
 export type WorkInspection = {
   worktreePath: string;
@@ -11,7 +12,7 @@ export type WorkInspection = {
 };
 
 async function git(worktreePath: string, args: string[]): Promise<string | null> {
-  const reading = await read(worktreePath, args);
+  const reading = await readGit(worktreePath, args);
   return reading.status === "read" ? reading.value : null;
 }
 
@@ -78,20 +79,22 @@ export type CheckoutInspection = {
   uncommitted: Reading<string[]>;
 };
 
-async function read(worktreePath: string, args: string[]): Promise<Reading<string>> {
-  const child = Bun.spawn(["git", "-C", worktreePath, ...args], {
-    stdout: "pipe",
-    stderr: "pipe",
-    timeout: 30_000,
+/**
+ * One Git reading of a checkout, as the checks of a result and the outside scan word it. The
+ * output stays byte for byte, so a NUL-separated list stays whole.
+ */
+export async function readGit(repoRoot: string, args: string[]): Promise<Reading<string>> {
+  const read = await ToolInvocation.git({
+    repoRoot,
+    args,
+    raw: true,
+    // A Git that is not on the path is the one failure with no exit to name.
+    failed: (failure) =>
+      failure.kind === "unavailable"
+        ? failure.detail
+        : `git ${args[0]} failed: ${failure.stderr.trim() || `exit ${failure.exitCode}`}`,
   });
-  const [exitCode, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ]);
-  return exitCode === 0
-    ? { status: "read", value: stdout }
-    : { status: "unread", detail: `git ${args[0]} failed: ${stderr.trim() || `exit ${exitCode}`}` };
+  return read.status === "read" ? { status: "read", value: read.value } : read;
 }
 
 function mapped<Value>(reading: Reading<string>, map: (output: string) => Value): Reading<Value> {
@@ -115,8 +118,8 @@ export async function inspectCheckout(request: {
 }): Promise<CheckoutInspection> {
   const range = `${request.baseCommit}..HEAD`;
   const [log, diff, status] = await Promise.all([
-    read(request.worktreePath, ["log", "--format=%H %P", range]),
-    read(request.worktreePath, [
+    readGit(request.worktreePath, ["log", "--format=%H %P", range]),
+    readGit(request.worktreePath, [
       "diff",
       "--name-only",
       "-z",
@@ -125,7 +128,7 @@ export async function inspectCheckout(request: {
       "HEAD",
     ]),
     // Every untracked file is listed on its own, so a collapsed directory cannot hide an edit.
-    read(request.worktreePath, ["status", "--porcelain=v1", "-z", "--no-renames", "-uall"]),
+    readGit(request.worktreePath, ["status", "--porcelain=v1", "-z", "--no-renames", "-uall"]),
   ]);
 
   return {

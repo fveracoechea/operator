@@ -39,6 +39,40 @@ async function commit(root: string, message: string, date: string): Promise<stri
   return head(root, "HEAD");
 }
 
+/**
+ * Runs one call with a Git on the path that fails one subcommand. `term` ends it on SIGTERM, as
+ * a timeout does, and `exit` ends it with exit 3. Each one writes `stderr` first.
+ */
+async function withFailingGit<Value>(
+  folder: string,
+  fault: { subcommand: string; end: "term" | "exit"; stderr: string },
+  run: () => Promise<Value>,
+): Promise<Value> {
+  const real = Bun.which("git");
+  const bin = `${folder}/failing-git`;
+  await Bun.write(
+    `${bin}/git`,
+    [
+      "#!/bin/sh",
+      // The guard of ADR 0018 and `-C <repo>` come before the subcommand.
+      `if [ "$6" = "${fault.subcommand}" ]; then`,
+      `  printf '%s' '${fault.stderr}' >&2`,
+      fault.end === "term" ? "  kill -TERM $$" : "  exit 3",
+      "fi",
+      `exec ${real} "$@"`,
+      "",
+    ].join("\n"),
+  );
+  await Bun.$`chmod +x ${bin}/git`.quiet();
+  const inherited = process.env.PATH ?? "";
+  process.env.PATH = `${bin}:${inherited}`;
+  try {
+    return await run();
+  } finally {
+    process.env.PATH = inherited;
+  }
+}
+
 async function head(root: string, ref: string): Promise<string> {
   return (await Bun.$`git -C ${root} rev-parse ${ref}`.text()).trim();
 }
@@ -1009,5 +1043,30 @@ describe("IntegrationBranch interdiff", () => {
     const read = await IntegrationBranch.interdiff({ repoRoot: root, reviewed, current: again });
 
     expect(read).toMatchObject({ status: "read", interdiff: "" });
+  });
+});
+
+describe("IntegrationBranch Git failures", () => {
+  test("words a Git timeout and a Git exit as before", async () => {
+    const root = await repository();
+    const tip = await head(root, "HEAD");
+    const request = { repoRoot: root, name: NAME, recordedTip: tip };
+
+    const timedOut = await withFailingGit(
+      root,
+      { subcommand: "rev-parse", end: "term", stderr: "stuck" },
+      () => IntegrationBranch.read(request),
+    );
+    const exited = await withFailingGit(
+      root,
+      { subcommand: "worktree", end: "exit", stderr: "boom" },
+      () => IntegrationBranch.read(request),
+    );
+
+    expect(timedOut).toEqual({
+      status: "unread",
+      detail: "git -C ended on SIGTERM with no answer.",
+    });
+    expect(exited).toEqual({ status: "unread", detail: "git worktree exited 3: boom" });
   });
 });

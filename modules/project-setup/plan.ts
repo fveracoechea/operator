@@ -235,20 +235,26 @@ async function planClaudeImport(projectRoot: string): Promise<PlanStep> {
 
 /** Reads which .operator paths Git already tracks. Setup never writes to the Git index. */
 async function inspectGitIndex(projectRoot: string): Promise<SetupConflict | undefined> {
-  const listed = await ToolInvocation.run({
-    tool: "git",
+  const listed = await ToolInvocation.git({
+    repoRoot: projectRoot,
     args: ["ls-files", "-z", "--", ".operator"],
-    cwd: projectRoot,
+    raw: true,
     timeoutMs: GIT_TIMEOUT_MS,
+    answers: "any",
+    // This call once ran in the project folder with no `-C`, so its detail names `ls-files`.
+    failed: (failure) =>
+      failure.kind === "no-answer"
+        ? `git ls-files ended on ${failure.signal} with no answer.`
+        : ToolInvocation.gitFailure(failure),
   });
-  if (listed.status !== "completed") {
+  if (listed.status !== "read") {
     return {
       reason: "git_unavailable",
       detail: `Setup cannot read the Git index, so it cannot check for tracked Operator files: ${listed.detail.replace(/\.$/, "")}. Install Git yourself, then plan again.`,
     };
   }
   // A failed listing means the project is not a Git repository, so it has no index and tracks nothing.
-  const paths = listed.exitCode === 0 ? listed.stdout.split("\0").filter(Boolean).toSorted() : [];
+  const paths = listed.exitCode === 0 ? listed.value.split("\0").filter(Boolean).toSorted() : [];
   if (paths.length === 0) {
     return undefined;
   }

@@ -56,19 +56,11 @@ export type GateStartResult =
   | StateFailure
   | RequestFailure;
 
-async function git(repository: string, args: string[]) {
-  const invoked = await ToolInvocation.run({
-    tool: "git",
-    args: ["-C", repository, ...args],
-    timeoutMs: 30_000,
-  });
-  return invoked.status === "completed" && invoked.exitCode === 0
-    ? { status: "read" as const, value: invoked.stdout.trim() }
-    : {
-        status: "unread" as const,
-        detail:
-          invoked.status === "completed" ? invoked.stderr.trim() || "git refused" : invoked.detail,
-      };
+/** The detail of a Git failure, as a gate start words it. */
+function failed(failure: Parameters<typeof ToolInvocation.gitFailure>[0]): string {
+  return failure.kind === "exit"
+    ? failure.stderr.trim() || "git refused"
+    : ToolInvocation.gitFailure(failure);
 }
 
 /**
@@ -87,7 +79,11 @@ export async function readGateKey(request: { projectRoot: string; commit: string
   if (gate.status !== "declared") {
     return { status: "project-gate-unusable", gate };
   }
-  const tree = await git(request.projectRoot, ["rev-parse", `${gate.commit}^{tree}`]);
+  const tree = await ToolInvocation.git({
+    repoRoot: request.projectRoot,
+    args: ["rev-parse", `${gate.commit}^{tree}`],
+    failed,
+  });
   return tree.status === "read"
     ? { status: "read", gate, key: { tree: tree.value, declarationIdentity: gate.identity } }
     : { status: "commit-unread", commit: request.commit, detail: tree.detail };
@@ -141,12 +137,11 @@ async function ensureCheckout(request: {
     // An earlier start created it and stopped before it recorded it.
     workspaceId = found.value.workspaceId;
   } else {
-    const exists = await git(request.projectRoot, [
-      "rev-parse",
-      "--verify",
-      "--quiet",
-      `refs/heads/${branch}`,
-    ]);
+    const exists = await ToolInvocation.git({
+      repoRoot: request.projectRoot,
+      args: ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`],
+      failed,
+    });
     if (exists.status === "read" || found.status === "found") {
       return { status: "gate-branch-exists", branch, path };
     }
@@ -186,7 +181,7 @@ async function ensureCheckout(request: {
     paneId: pane.value.paneId,
   };
   if (created) {
-    const head = await git(path, ["rev-parse", "HEAD"]);
+    const head = await ToolInvocation.git({ repoRoot: path, args: ["rev-parse", "HEAD"], failed });
     if (head.status !== "read" || head.value !== request.commit) {
       return {
         status: "gate-checkout-unplanned",

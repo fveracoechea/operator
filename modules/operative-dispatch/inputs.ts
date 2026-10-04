@@ -1,6 +1,7 @@
 import { ContentIdentity } from "../content-identity/main.ts";
 import { ReleaseInstall } from "../release-install/main.ts";
 import { SkillInstall } from "../skill-install/main.ts";
+import { ToolInvocation } from "../tool-invocation/main.ts";
 import {
   type DispatchPlan,
   opencodeFiles,
@@ -37,13 +38,11 @@ async function committedBytes(
   commit: string,
   path: string,
 ): Promise<Uint8Array | null> {
-  const child = Bun.spawn(["git", "-C", worktreePath, "cat-file", "blob", `${commit}:${path}`], {
-    stdout: "pipe",
-    stderr: "ignore",
-    timeout: 30_000,
+  const read = await ToolInvocation.git({
+    repoRoot: worktreePath,
+    args: ["cat-file", "blob", `${commit}:${path}`],
   });
-  const [exitCode, bytes] = await Promise.all([child.exited, new Response(child.stdout).bytes()]);
-  return exitCode === 0 ? bytes : null;
+  return read.status === "read" ? read.bytes : null;
 }
 
 type Request = { projectRoot: string; plan: DispatchPlan; snapshot: Snapshot };
