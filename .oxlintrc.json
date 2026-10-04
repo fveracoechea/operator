@@ -22,7 +22,6 @@
         "modules/crew-state/review-report.ts",
         "modules/crew-state/tracker-apply.ts",
         "modules/crew-state/tracker-show.ts",
-        "modules/integration-branch/main.ts",
         "modules/live-probe/main.ts",
         "modules/live-probe/recovery.ts",
         "modules/live-probe/tracker.ts",

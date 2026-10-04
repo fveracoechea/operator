@@ -55,6 +55,14 @@ async function result(
   return made;
 }
 
+/** The patch identity of one commit against its parent, with plain Git (ADR 0020). */
+async function patchId(root: string, commit: string): Promise<string> {
+  const diff =
+    await Bun.$`git -C ${root} diff-tree -p --no-renames --unified=3 --binary --full-index --no-color --no-ext-diff --no-textconv ${commit}^ ${commit}`.text();
+  const id = await Bun.$`git -C ${root} patch-id --verbatim < ${new Response(diff)}`.text();
+  return id.trim().split(" ")[0] ?? "";
+}
+
 async function branchAt(root: string, commit: string): Promise<void> {
   await Bun.$`git -C ${root} update-ref refs/heads/${NAME} ${commit}`.quiet();
 }
@@ -140,8 +148,7 @@ describe("IntegrationBranch landing", () => {
       Bun.$`git -C ${root} show -s --format=%an%n%ae%n%ad%n%cn%n%ce%n%cd%n%B --date=raw ${sha}`.text();
     expect(await shown(plan.to)).toBe(await shown(second));
     expect((await Bun.$`git -C ${root} rev-parse ${plan.to}^`.text()).trim()).toBe(first);
-    const patch = await IntegrationBranch.patchOf({ repoRoot: root, commit: plan.to });
-    expect(patch).toEqual({ status: "read", patch: plan.patch });
+    expect(await patchId(root, plan.to)).toBe(plan.patch);
     // Planning moves no ref.
     expect(await head(root, NAME)).toBe(first);
   });
@@ -292,6 +299,51 @@ describe("IntegrationBranch landing", () => {
       landed: landed.to,
       landedParent: other,
     });
+  });
+
+  test("a plan that reads neither the commit nor the base names the unread commit", async () => {
+    const root = await repository();
+    const tip = await head(root, "main");
+    await branchAt(root, tip);
+    const missing = "1111111111111111111111111111111111111111";
+    const unknownBase = "2222222222222222222222222222222222222222";
+
+    const plan = await IntegrationBranch.plan({
+      repoRoot: root,
+      name: NAME,
+      base: unknownBase,
+      recordedTip: tip,
+      commit: missing,
+      reviewedBase: tip,
+    });
+
+    // The commit is read first, so its Git message is the detail, not the one of the base.
+    const read = await Bun.$`git -C ${root} cat-file commit ${missing}`.nothrow().quiet();
+    expect(plan).toEqual({ status: "unread", detail: read.stderr.toString().trim() });
+  });
+
+  test("a commit on the tip lands as itself when the base cannot be listed", async () => {
+    const root = await repository();
+    const tip = await head(root, "main");
+    await branchAt(root, tip);
+    const reviewed = await result(root, {
+      start: tip,
+      branch: "work-a",
+      path: "a.txt",
+      text: lines("a", 20, { 0: "A0" }),
+      date: "2002-01-01T00:00:00Z",
+    });
+
+    const plan = await IntegrationBranch.plan({
+      repoRoot: root,
+      name: NAME,
+      base: "2222222222222222222222222222222222222222",
+      recordedTip: tip,
+      commit: reviewed,
+      reviewedBase: tip,
+    });
+
+    expect(plan).toMatchObject({ status: "ready", kind: "fast-forward", to: reviewed });
   });
 
   test("a move from a tip that is not the branch moves nothing and names the tip it found", async () => {

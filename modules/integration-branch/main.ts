@@ -44,6 +44,18 @@ async function gitRaw(
   return invoked.status === "completed" ? invoked : { status: "unread", detail: invoked.detail };
 }
 
+/** The output of one raw Git call that exited 0, or why it did not. */
+function gitOut(
+  called: Awaited<ReturnType<typeof gitRaw>>,
+): { status: "read"; stdout: string } | { status: "unread"; detail: string } {
+  if (called.status !== "completed") {
+    return called;
+  }
+  return called.exitCode === 0
+    ? { status: "read", stdout: called.stdout }
+    : { status: "unread", detail: called.stderr.trim() };
+}
+
 /** The headers and the message of one commit object, as Git stores them. */
 type CommitObject = { headers: string[]; message: string; parents: string[]; tree: string };
 
@@ -51,12 +63,9 @@ async function readCommit(
   repoRoot: string,
   commit: string,
 ): Promise<{ status: "read"; value: CommitObject } | { status: "unread"; detail: string }> {
-  const read = await gitRaw(repoRoot, ["cat-file", "commit", commit]);
-  if (read.status !== "completed" || read.exitCode !== 0) {
-    return {
-      status: "unread",
-      detail: read.status === "completed" ? read.stderr.trim() : read.detail,
-    };
+  const read = gitOut(await gitRaw(repoRoot, ["cat-file", "commit", commit]));
+  if (read.status !== "read") {
+    return read;
   }
   const split = read.stdout.indexOf("\n\n");
   const head = split === -1 ? read.stdout : read.stdout.slice(0, split);
@@ -88,26 +97,22 @@ async function canonicalDiff(
   parent: string,
   commit: string,
 ): Promise<{ status: "read"; diff: string } | { status: "unread"; detail: string }> {
-  const diff = await gitRaw(repoRoot, [
-    "diff-tree",
-    "-p",
-    "--no-renames",
-    "--unified=3",
-    "--binary",
-    "--full-index",
-    "--no-color",
-    "--no-ext-diff",
-    "--no-textconv",
-    parent,
-    commit,
-  ]);
-  if (diff.status !== "completed" || diff.exitCode !== 0) {
-    return {
-      status: "unread",
-      detail: diff.status === "completed" ? diff.stderr.trim() : diff.detail,
-    };
-  }
-  return { status: "read", diff: diff.stdout };
+  const diff = gitOut(
+    await gitRaw(repoRoot, [
+      "diff-tree",
+      "-p",
+      "--no-renames",
+      "--unified=3",
+      "--binary",
+      "--full-index",
+      "--no-color",
+      "--no-ext-diff",
+      "--no-textconv",
+      parent,
+      commit,
+    ]),
+  );
+  return diff.status === "read" ? { status: "read", diff: diff.stdout } : diff;
 }
 
 /** The patch identity of one commit against one parent: `git patch-id --verbatim` over its diff. */
@@ -123,9 +128,9 @@ async function patchBetween(
   if (diff.diff === "") {
     return { status: "read", patch: "empty" };
   }
-  const id = await gitRaw(repoRoot, ["patch-id", "--verbatim"], diff.diff);
-  if (id.status !== "completed" || id.exitCode !== 0) {
-    return { status: "unread", detail: id.status === "completed" ? id.stderr.trim() : id.detail };
+  const id = gitOut(await gitRaw(repoRoot, ["patch-id", "--verbatim"], diff.diff));
+  if (id.status !== "read") {
+    return id;
   }
   return { status: "read", patch: id.stdout.trim().split(" ")[0] ?? "" };
 }
@@ -300,16 +305,15 @@ async function landOn(
     };
   }
 
-  const written = await gitRaw(
-    repoRoot,
-    ["hash-object", "-t", "commit", "-w", "--stdin"],
-    landedObject(request.reviewed, lines[0], request.tip),
+  const written = gitOut(
+    await gitRaw(
+      repoRoot,
+      ["hash-object", "-t", "commit", "-w", "--stdin"],
+      landedObject(request.reviewed, lines[0], request.tip),
+    ),
   );
-  if (written.status !== "completed" || written.exitCode !== 0) {
-    return {
-      status: "unread",
-      detail: written.status === "completed" ? written.stderr.trim() : written.detail,
-    };
+  if (written.status !== "read") {
+    return written;
   }
   const landed = written.stdout.trim();
   const planned = await patchBetween(repoRoot, request.tip, landed);
@@ -509,6 +513,36 @@ type RebasePlan = {
 };
 
 /**
+ * Reads a branch that a plan can rebuild: at its recorded tip, checked out in no worktree, with
+ * its commits from the base to that tip, oldest first. Each refusal moves nothing. The list of
+ * commits is its own reading, so a caller that needs it later reports a failed list there.
+ */
+async function readMovable(request: {
+  repoRoot: string;
+  name: string;
+  base: string;
+  recordedTip: string;
+}): Promise<
+  | {
+      status: "movable";
+      listed: { status: "read"; commits: string[] } | { status: "unread"; detail: string };
+    }
+  | Extract<LandingRefusal, { status: "tip-moved" | "checked-out" | "unread" }>
+> {
+  const read = await IntegrationBranch.read(request);
+  if (read.status !== "at-tip") {
+    return read;
+  }
+  if (read.checkedOut.length > 0) {
+    return { status: "checked-out", worktrees: read.checkedOut };
+  }
+  return {
+    status: "movable",
+    listed: await commitsOf(request.repoRoot, request.base, request.recordedTip),
+  };
+}
+
+/**
  * The integration branch of one source (ADR 0020). This module is the only writer of it: a plain
  * local branch that it creates once at the integration base and moves only from its recorded
  * tip. It never resets a branch, never adopts a tip that it did not record, and never pushes.
@@ -640,39 +674,11 @@ export const IntegrationBranch = {
     if (found.commit !== request.recordedTip) {
       return { status: "tip-moved", found: found.commit };
     }
-    const ancestor = await ToolInvocation.run({
-      tool: "git",
-      args: ["-C", request.repoRoot, "merge-base", "--is-ancestor", request.commit, found.commit],
-      timeoutMs: 30_000,
-    });
-    if (ancestor.status !== "completed") {
-      return { status: "unread", detail: ancestor.detail };
+    const ancestor = await isAncestor(request.repoRoot, request.commit, found.commit);
+    if (ancestor.status !== "read") {
+      return ancestor;
     }
-    // Exit 1 is a commit that is not an ancestor. Any other exit is a commit Git cannot read.
-    if (ancestor.exitCode === 0) {
-      return { status: "held" };
-    }
-    return ancestor.exitCode === 1
-      ? { status: "not-held" }
-      : {
-          status: "unread",
-          detail: `git merge-base exited ${ancestor.exitCode}: ${ancestor.stderr.trim()}`,
-        };
-  },
-  /** The patch identity of one commit against its parent (ADR 0020). */
-  async patchOf(request: {
-    repoRoot: string;
-    commit: string;
-  }): Promise<{ status: "read"; patch: string } | { status: "unread"; detail: string }> {
-    const reviewed = await readCommit(request.repoRoot, request.commit);
-    if (reviewed.status !== "read") {
-      return reviewed;
-    }
-    const [parent] = reviewed.value.parents;
-    if (parent === undefined || reviewed.value.parents.length > 1) {
-      return { status: "unread", detail: `Commit ${request.commit} does not have one parent.` };
-    }
-    return patchBetween(request.repoRoot, parent, request.commit);
+    return ancestor.value ? { status: "held" } : { status: "not-held" };
   },
 
   /**
@@ -699,28 +705,24 @@ export const IntegrationBranch = {
     }
     const blobs: string[] = [];
     for (const text of [reviewed.diff, current.diff]) {
-      const stored = await gitRaw(request.repoRoot, ["hash-object", "-w", "--stdin"], text);
-      if (stored.status !== "completed" || stored.exitCode !== 0) {
-        return {
-          status: "unread",
-          detail: stored.status === "completed" ? stored.stderr.trim() : stored.detail,
-        };
+      const stored = gitOut(await gitRaw(request.repoRoot, ["hash-object", "-w", "--stdin"], text));
+      if (stored.status !== "read") {
+        return stored;
       }
       blobs.push(stored.stdout.trim());
     }
-    const compared = await gitRaw(request.repoRoot, [
-      "diff",
-      "--no-color",
-      "--no-ext-diff",
-      "--no-textconv",
-      "--unified=3",
-      ...blobs,
-    ]);
-    if (compared.status !== "completed" || compared.exitCode !== 0) {
-      return {
-        status: "unread",
-        detail: compared.status === "completed" ? compared.stderr.trim() : compared.detail,
-      };
+    const compared = gitOut(
+      await gitRaw(request.repoRoot, [
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--unified=3",
+        ...blobs,
+      ]),
+    );
+    if (compared.status !== "read") {
+      return compared;
     }
     return {
       status: "read",
@@ -749,15 +751,9 @@ export const IntegrationBranch = {
      */
     reviewedBase: string;
   }): Promise<LandingPlan | LandingRefusal> {
-    const read = await IntegrationBranch.read(request);
-    if (read.status === "unread") {
-      return read;
-    }
-    if (read.status === "tip-moved") {
-      return read;
-    }
-    if (read.checkedOut.length > 0) {
-      return { status: "checked-out", worktrees: read.checkedOut };
+    const movable = await readMovable(request);
+    if (movable.status !== "movable") {
+      return movable;
     }
 
     const reviewed = await readCommit(request.repoRoot, request.commit);
@@ -793,12 +789,11 @@ export const IntegrationBranch = {
     }
 
     // A commit that the branch already holds with an equal patch lands nothing.
-    const held = await commitsOf(request.repoRoot, request.base, request.recordedTip);
-    if (held.status !== "read") {
-      return held;
+    if (movable.listed.status !== "read") {
+      return movable.listed;
     }
     let below = request.base;
-    for (const one of held.commits) {
+    for (const one of movable.listed.commits) {
       const onBranch = await patchBetween(request.repoRoot, below, one);
       if (onBranch.status !== "read") {
         return onBranch;
@@ -867,22 +862,15 @@ export const IntegrationBranch = {
     /** The head of each published range, with the pull request that carries it. */
     published: Array<{ head: string; pullRequest: number | null; url: string | null }>;
   }): Promise<RewritePlan | RewriteRefusal> {
-    const read = await IntegrationBranch.read(request);
-    if (read.status === "unread") {
-      return read;
+    const movable = await readMovable(request);
+    if (movable.status !== "movable") {
+      return movable;
     }
-    if (read.status === "tip-moved") {
-      return read;
-    }
-    if (read.checkedOut.length > 0) {
-      return { status: "checked-out", worktrees: read.checkedOut };
-    }
-
-    // The record names the branch from the replaced commit to the tip, and Git must agree.
-    const held = await commitsOf(request.repoRoot, request.base, request.recordedTip);
+    const held = movable.listed;
     if (held.status !== "read") {
       return held;
     }
+    // The record names the branch from the replaced commit to the tip, and Git must agree.
     const at = held.commits.indexOf(request.replaces);
     const above = at === -1 ? [] : held.commits.slice(at + 1);
     if (at === -1 || above.join(" ") !== request.later.map((one) => one.commit).join(" ")) {
@@ -967,17 +955,11 @@ export const IntegrationBranch = {
     mergeCommits: string[];
     refused: string[];
   }): Promise<RebasePlan | RebaseRefusal> {
-    const read = await IntegrationBranch.read(request);
-    if (read.status === "unread") {
-      return read;
+    const movable = await readMovable(request);
+    if (movable.status !== "movable") {
+      return movable;
     }
-    if (read.status === "tip-moved") {
-      return read;
-    }
-    if (read.checkedOut.length > 0) {
-      return { status: "checked-out", worktrees: read.checkedOut };
-    }
-    const held = await commitsOf(request.repoRoot, request.base, request.recordedTip);
+    const held = movable.listed;
     if (held.status !== "read") {
       return held;
     }
