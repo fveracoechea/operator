@@ -1,58 +1,26 @@
 import { CrewState } from "../crew-state/main.ts";
 import { type ParsedArguments, readMutation } from "./arguments.ts";
-import { reportSharedFailure } from "./crew-result.ts";
-import { type Handled, type Operation, refuse, report } from "./result.ts";
+import { approvalRequired, planPreview, planRevisionChanged } from "./plan-preview.ts";
+import { answer, type Handled, type Refusal } from "./result.ts";
 
 type Planned = Awaited<ReturnType<typeof CrewState.planRebase>>["result"];
 type Preview = Extract<Planned, { status: "planned" }>;
+type Rebased = Awaited<ReturnType<typeof CrewState.rebase>>["result"];
 
 /**
- * Reports one rebase plan as a summary and the path of the full plan. The Operator reads this
- * report, so it names the counts, the gate, the approval, and the path, and never lists every
- * commit (R5).
+ * One rebase plan as a summary and the path of the full plan. The Operator reads this report, so
+ * it names the counts, the gate, the approval, and the path, and never lists every commit (R5).
  */
-function reportPreview(parsed: ParsedArguments, operation: Operation, preview: Preview): Handled {
+function rebasePreview(preview: Preview): Refusal {
   const refused = preview.refusals.length > 0;
-  const { record, gate } = preview;
-  const command =
-    preview.planRevision === null || preview.to === null
-      ? null
-      : `operator work rebase --request <id> --owner-token <token> --source ${preview.sourceId} --base ${preview.to.base} --plan-revision ${preview.planRevision}`;
-  report({
-    json: parsed.json,
-    result: {
-      outcome: refused ? "invalid" : "completed",
-      reason: refused ? (preview.refusals[0]?.reason ?? "rebase_planned") : "rebase_planned",
-      blockers: preview.refusals.map((one) => ({ reason: one.reason, detail: one.detail })),
-      operation,
-      data: {
-        sourceId: preview.sourceId,
-        branch: preview.branch,
-        planRevision: preview.planRevision,
-        planPath: preview.planPath,
-        from: preview.from,
-        to: preview.to,
-        target: preview.target,
-        counts:
-          record === null
-            ? null
-            : {
-                merged: record.merged.length,
-                relanded: record.relanded.length,
-                takenOut: record.takenOut.length,
-              },
-        gate,
-        approval: refused ? null : preview.approval,
-        command: refused ? null : command,
-      },
-    },
-    lines: [
+  const { record, gate, from, to } = preview;
+  return planPreview({
+    planned: "rebase_planned",
+    summary: [
       `Rebase plan ${preview.planRevision ?? "(no revision)"} for ${preview.sourceId}:`,
-      ...(preview.from === null || preview.to === null
+      ...(from === null || to === null
         ? []
-        : [
-            `  ${preview.branch ?? ""} moves from base ${preview.from.base} to ${preview.to.base}.`,
-          ]),
+        : [`  ${preview.branch ?? ""} moves from base ${from.base} to ${to.base}.`]),
       ...(record === null
         ? []
         : [
@@ -61,165 +29,149 @@ function reportPreview(parsed: ParsedArguments, operation: Operation, preview: P
       ...(gate === null || gate.status === "passed"
         ? []
         : [`  The project gate is ${gate.status} at ${gate.commit}, the next place to gate.`]),
-      ...(refused
-        ? [
-            `  ${preview.refusals.length} refusal(s): ${preview.refusals.map((one) => one.reason).join(", ")}.`,
-            "Nothing can be rebased until each refusal is settled.",
-          ]
-        : [
-            "Ask the person to read the plan and to approve this exact plan revision.",
-            `Rebase with: ${command ?? ""}`,
-          ]),
-      `Every commit and refusal: ${preview.planPath}`,
     ],
+    refusals: {
+      reason: preview.refusals[0]?.reason ?? "rebase_planned",
+      count: preview.refusals.length,
+      list: preview.refusals.map((one) => one.reason).join(", "),
+      blockers: preview.refusals.map((one) => ({ reason: one.reason, detail: one.detail })),
+      nothing: "rebased",
+    },
+    ask: "Ask the person to read the plan and to approve this exact plan revision.",
+    apply: {
+      label: "Rebase with",
+      command:
+        preview.planRevision === null || to === null
+          ? null
+          : `operator work rebase --request <id> --owner-token <token> --source ${preview.sourceId} --base ${to.base} --plan-revision ${preview.planRevision}`,
+    },
+    path: { label: "Every commit and refusal", planPath: preview.planPath },
+    data: {
+      sourceId: preview.sourceId,
+      branch: preview.branch,
+      planRevision: preview.planRevision,
+      planPath: preview.planPath,
+      from,
+      to,
+      target: preview.target,
+      counts:
+        record === null
+          ? null
+          : {
+              merged: record.merged.length,
+              relanded: record.relanded.length,
+              takenOut: record.takenOut.length,
+            },
+      gate,
+      approval: refused ? null : preview.approval,
+    },
   });
-  return "reported";
 }
 
-function reportUnknown(parsed: ParsedArguments, operation: Operation, sourceId: string): Handled {
-  return refuse({
-    json: parsed.json,
-    operation,
+const unknownSource = {
+  "unknown-source": (result: { sourceId: string }): Refusal => ({
     outcome: "invalid",
     reason: "unknown_source",
-    detail: { sourceId },
-    lines: [`No source ${sourceId} is recorded.`],
-  });
-}
+    detail: { sourceId: result.sourceId },
+    lines: [`No source ${result.sourceId} is recorded.`],
+  }),
+};
 
 async function runPlan(parsed: ParsedArguments, sourceId: string, newBase: string) {
   // A plan changes nothing that others read, so it needs no request and no ownership.
-  const operation = "work_rebase_plan";
   const { result } = await CrewState.planRebase({ projectRoot: process.cwd(), sourceId, newBase });
-  if (reportSharedFailure(parsed, operation, result)) {
-    return "reported";
-  }
-  return result.status === "planned"
-    ? reportPreview(parsed, operation, result)
-    : reportUnknown(parsed, operation, result.sourceId);
+  return answer(parsed, "work_rebase_plan", result, { planned: rebasePreview, ...unknownSource })
+    ? "reported"
+    : "invalid-arguments";
 }
 
-// oxlint-disable-next-line complexity -- Each outcome of a rebase keeps its own reason.
-async function runApply(
-  parsed: ParsedArguments,
-  request: { sourceId: string; newBase: string; planRevision: string },
-): Promise<Handled> {
+type Request = { sourceId: string; newBase: string; planRevision: string };
+
+/** The project gate has not passed at the new base or at a commit that lands again. */
+function gateNotPassed(
+  request: Request,
+  { gate, preview }: Extract<Rebased, { status: "gate-not-passed" }>,
+): Refusal {
+  const place = gate.parent === null ? "the new base" : `commit ${gate.commit} on ${gate.parent}`;
+  const next =
+    gate.status === "pending"
+      ? `Run \`operator gate run --source ${request.sourceId} --base ${preview.to?.base ?? request.newBase}\` first.`
+      : gate.status === "running"
+        ? `Gate run ${gate.runIds.join(", ")} still runs. Wait for its outcome.`
+        : `It is ${gate.status} in gate run ${gate.runIds.join(", ")}. Read it with \`operator gate show --run <id>\`.${gate.parent === null ? " Only the person clears a failing base: by a fixed target and a new base, or a fresh series." : ""}`;
+  return {
+    outcome: gate.status === "pending" || gate.status === "running" ? "pending" : "conflict",
+    reason: `gate_${gate.status}`,
+    detail: { commit: gate.commit, parent: gate.parent, key: gate.key, runIds: gate.runIds },
+    lines: [
+      `The project gate has not passed at ${place}, so nothing was recorded and the branch did not move.`,
+      next,
+    ],
+  };
+}
+
+/** The rebase record: what left the branch, what landed again, and the new branch review. */
+function rebased(result: Extract<Rebased, { status: "rebased" }>): Refusal {
+  const { record } = result;
+  return {
+    outcome: "completed",
+    reason: "rebased",
+    data: {
+      rebaseId: result.rebaseId,
+      branch: result.branch,
+      from: result.from,
+      to: result.to,
+      record,
+      branchReview: result.branchReview,
+    },
+    lines: [
+      `${result.branch} is rebased from base ${result.from.base} to ${result.to.base}, tip ${result.to.tip}.`,
+      `  ${record.merged.length} landing(s) left the branch, ${record.relanded.length} landed again, and ${record.takenOut.length} were taken out and wait for an integration cycle.`,
+      ...(result.branchReview === null
+        ? []
+        : [`  Branch review ${result.branchReview.reviewId} is registered on the new head.`]),
+      "Run `operator crew next` for what follows.",
+    ],
+  };
+}
+
+async function runApply(parsed: ParsedArguments, request: Request): Promise<Handled> {
   const mutation = readMutation(parsed);
   if (mutation === null) {
     return "invalid-arguments";
   }
-  const operation = "work_rebase";
   const { result } = await CrewState.rebase({
     projectRoot: process.cwd(),
     ...mutation,
     ...request,
   });
-  if (reportSharedFailure(parsed, operation, result)) {
-    return "reported";
-  }
-  switch (result.status) {
-    case "unknown-source":
-      return reportUnknown(parsed, operation, result.sourceId);
-    case "refused":
-      return reportPreview(parsed, operation, result.preview);
-    case "plan-revision-changed":
-      return refuse({
-        json: parsed.json,
-        operation,
-        outcome: "conflict",
-        reason: "plan_revision_changed",
-        detail: { ...result },
-        lines: [
-          `The plan is now ${result.planned ?? "refused"}, not ${result.stated}. Nothing was rebased.`,
-          ...(result.planPath === null ? [] : [`Read the new plan: ${result.planPath}`]),
-        ],
-      });
-    case "approval-required":
-      return refuse({
-        json: parsed.json,
-        operation,
-        outcome: "missing-condition",
-        reason: "approval_required",
-        detail: { approval: result.approval, planPath: result.planPath },
-        lines: [
-          "Nothing was rebased. Ask the person to read the plan and approve this exact request:",
-          `  action ${result.approval.action}, scope ${result.approval.scope}, targets ${result.approval.targets.join(", ")}, request revision ${result.approval.requestRevision}.`,
-          `The plan: ${result.planPath}`,
-        ],
-      });
-    case "gate-not-passed": {
-      const { gate } = result;
-      const place =
-        gate.parent === null ? "the new base" : `commit ${gate.commit} on ${gate.parent}`;
-      return refuse({
-        json: parsed.json,
-        operation,
-        outcome: gate.status === "pending" || gate.status === "running" ? "pending" : "conflict",
-        reason: `gate_${gate.status}`,
-        detail: { commit: gate.commit, parent: gate.parent, key: gate.key, runIds: gate.runIds },
-        lines: [
-          `The project gate has not passed at ${place}, so nothing was recorded and the branch did not move.`,
-          gate.status === "pending"
-            ? `Run \`operator gate run --source ${request.sourceId} --base ${result.preview.to?.base ?? request.newBase}\` first.`
-            : gate.status === "running"
-              ? `Gate run ${gate.runIds.join(", ")} still runs. Wait for its outcome.`
-              : `It is ${gate.status} in gate run ${gate.runIds.join(", ")}. Read it with \`operator gate show --run <id>\`.${gate.parent === null ? " Only the person clears a failing base: by a fixed target and a new base, or a fresh series." : ""}`,
-        ],
-      });
-    }
-    case "rebase-pending":
-      return refuse({
-        json: parsed.json,
-        operation,
-        outcome: "pending",
-        reason: "rebase_pending",
-        detail: { rebaseId: result.rebaseId, planRevision: result.planRevision },
-        lines: [
-          `Rebase ${result.rebaseId} of this source has no recorded outcome. Repeat it with plan revision ${result.planRevision} first.`,
-        ],
-      });
-    case "rebase-stopped":
-      return refuse({
-        json: parsed.json,
-        operation,
-        outcome: result.reason === "integration_branch_unread" ? "uncertain" : "conflict",
-        reason: result.reason,
-        detail: { rebaseId: result.rebaseId, detail: result.detail },
-        lines: [
-          `Rebase ${result.rebaseId} is recorded, and the branch did not move: ${result.detail}`,
-          "Repeat the same command when it is settled. Operator never resets or adopts a moved branch.",
-        ],
-      });
-    default: {
-      const { record } = result;
-      report({
-        json: parsed.json,
-        result: {
-          outcome: "completed",
-          reason: "rebased",
-          blockers: [],
-          operation,
-          data: {
-            rebaseId: result.rebaseId,
-            branch: result.branch,
-            from: result.from,
-            to: result.to,
-            record,
-            branchReview: result.branchReview,
-          },
-        },
-        lines: [
-          `${result.branch} is rebased from base ${result.from.base} to ${result.to.base}, tip ${result.to.tip}.`,
-          `  ${record.merged.length} landing(s) left the branch, ${record.relanded.length} landed again, and ${record.takenOut.length} were taken out and wait for an integration cycle.`,
-          ...(result.branchReview === null
-            ? []
-            : [`  Branch review ${result.branchReview.reviewId} is registered on the new head.`]),
-          "Run `operator crew next` for what follows.",
-        ],
-      });
-      return "reported";
-    }
-  }
+  return answer(parsed, "work_rebase", result, {
+    ...unknownSource,
+    refused: ({ preview }) => rebasePreview(preview),
+    "plan-revision-changed": planRevisionChanged("rebased"),
+    "approval-required": approvalRequired("rebased"),
+    "gate-not-passed": (one) => gateNotPassed(request, one),
+    "rebase-pending": (one) => ({
+      outcome: "pending",
+      reason: "rebase_pending",
+      detail: { rebaseId: one.rebaseId, planRevision: one.planRevision },
+      lines: [
+        `Rebase ${one.rebaseId} of this source has no recorded outcome. Repeat it with plan revision ${one.planRevision} first.`,
+      ],
+    }),
+    "rebase-stopped": (one) => ({
+      outcome: one.reason === "integration_branch_unread" ? "uncertain" : "conflict",
+      reason: one.reason,
+      detail: { rebaseId: one.rebaseId, detail: one.detail },
+      lines: [
+        `Rebase ${one.rebaseId} is recorded, and the branch did not move: ${one.detail}`,
+        "Repeat the same command when it is settled. Operator never resets or adopts a moved branch.",
+      ],
+    }),
+    rebased,
+  })
+    ? "reported"
+    : "invalid-arguments";
 }
 
 /**

@@ -3371,5 +3371,1926 @@
       "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"uncommitted_work\",\"blockers\":[{\"reason\":\"uncommitted_work\",\"paths\":[\"u1\"]}],\"operation\":\"attempt_submit\",\"data\":{\"attemptId\":\"t1\"}}"
     ],
     "exitCode": 4
+  },
+  "planPublish 0 state-missing": {
+    "lines": ["This project holds no crew state. Run `operator crew own` to start a crew."],
+    "exitCode": 3
+  },
+  "planPublish 0 state-missing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"state_missing\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"publish_plan\"}"
+    ],
+    "exitCode": 3
+  },
+  "planPublish 1 unowned": {
+    "lines": ["No Operator owns this crew. Run `operator crew own` first."],
+    "exitCode": 3
+  },
+  "planPublish 1 unowned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"crew_unowned\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"publish_plan\"}"
+    ],
+    "exitCode": 3
+  },
+  "planPublish 2 ownership-stale": {
+    "lines": [
+      "Another Operator took ownership of this crew. This token can no longer change state."
+    ],
+    "exitCode": 4
+  },
+  "planPublish 2 ownership-stale --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"ownership_stale\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"publish_plan\"}"
+    ],
+    "exitCode": 4
+  },
+  "planPublish 3 request-input-changed": {
+    "lines": [
+      "This request identity already recorded different input. Use a new request identity."
+    ],
+    "exitCode": 2
+  },
+  "planPublish 3 request-input-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"request_input_changed\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"publish_plan\"}"
+    ],
+    "exitCode": 2
+  },
+  "planPublish 4 planned": {
+    "lines": [
+      "Publish plan pv1 for s1, stack publication 2:",
+      "  2 pull request(s) from n1, n2 into main through origin.",
+      "  It closes #4, #6, which it replaces, each with one comment that names the replacement.",
+      "  It writes nothing to #5: a person moved its head (decision 21). A person closes it.",
+      "  The target is at tt, 3 commit(s) past the base; the head merges cleanly.",
+      "  1 rule reading(s) are unverified, not passed.",
+      "Ask the person to read every title and body in the file below and to approve this exact plan revision.",
+      "Publish it with: operator publish apply --request <id> --owner-token <token> --source s1 --plan-revision pv1",
+      "Every title, body, and refusal: plans/p1.md"
+    ],
+    "exitCode": 0
+  },
+  "planPublish 4 planned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"publish_planned\",\"blockers\":[],\"operation\":\"publish_plan\",\"data\":{\"sourceId\":\"s1\",\"publication\":2,\"planRevision\":\"pv1\",\"planPath\":\"plans/p1.md\",\"remote\":{\"name\":\"origin\"},\"target\":\"main\",\"names\":[\"n1\",\"n2\"],\"closes\":[4,6],\"headMoved\":[5],\"info\":{\"targetTip\":\"tt\",\"commitsBehind\":3,\"mergesCleanly\":true,\"unverifiedRules\":[\"u1\"]},\"approval\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"},\"command\":\"operator publish apply --request <id> --owner-token <token> --source s1 --plan-revision pv1\"}}"
+    ],
+    "exitCode": 0
+  },
+  "planPublish 5 planned": {
+    "lines": [
+      "Publish plan (no revision) for s1, stack publication 2:",
+      "  The target is at an unread tip, an unread number of commit(s) past the base; the head has no clean-merge reading.",
+      "  2 refusal(s): source_unfinished, branch_review_missing.",
+      "Nothing can be published until each refusal is settled.",
+      "Every title, body, and refusal: plans/p1.md"
+    ],
+    "exitCode": 2
+  },
+  "planPublish 5 planned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"publish_refused\",\"blockers\":[{\"reason\":\"source_unfinished\",\"detail\":\"d1\"},{\"reason\":\"branch_review_missing\",\"detail\":\"d2\"}],\"operation\":\"publish_plan\",\"data\":{\"sourceId\":\"s1\",\"publication\":2,\"planRevision\":null,\"planPath\":\"plans/p1.md\",\"remote\":null,\"target\":null,\"names\":[],\"closes\":[],\"headMoved\":[],\"info\":{\"targetTip\":null,\"commitsBehind\":null,\"mergesCleanly\":null,\"unverifiedRules\":[]},\"approval\":null,\"command\":null}}"
+    ],
+    "exitCode": 2
+  },
+  "planPublish 6 planned": {
+    "lines": [
+      "Publish plan pv1 for s1, stack publication 2:",
+      "  2 pull request(s) from n1, n2 into main through origin.",
+      "  It closes #4, #6, which it replaces, each with one comment that names the replacement.",
+      "  It writes nothing to #5: a person moved its head (decision 21). A person closes it.",
+      "Ask the person to read every title and body in the file below and to approve this exact plan revision.",
+      "Publish it with: operator publish apply --request <id> --owner-token <token> --source s1 --plan-revision pv1",
+      "Every title, body, and refusal: plans/p1.md"
+    ],
+    "exitCode": 0
+  },
+  "planPublish 6 planned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"publish_planned\",\"blockers\":[],\"operation\":\"publish_plan\",\"data\":{\"sourceId\":\"s1\",\"publication\":2,\"planRevision\":\"pv1\",\"planPath\":\"plans/p1.md\",\"remote\":{\"name\":\"origin\"},\"target\":\"main\",\"names\":[\"n1\",\"n2\"],\"closes\":[4,6],\"headMoved\":[5],\"info\":null,\"approval\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"},\"command\":\"operator publish apply --request <id> --owner-token <token> --source s1 --plan-revision pv1\"}}"
+    ],
+    "exitCode": 0
+  },
+  "planPublish 7 planned": {
+    "lines": [
+      "Publish plan pv1 for s1, stack publication 2:",
+      "  2 pull request(s) from n1, n2 into main through origin.",
+      "  It closes #4, #6, which it replaces, each with one comment that names the replacement.",
+      "  It writes nothing to #5: a person moved its head (decision 21). A person closes it.",
+      "  The target is at tt, 3 commit(s) past the base; the head does not merge cleanly.",
+      "  1 rule reading(s) are unverified, not passed.",
+      "Ask the person to read every title and body in the file below and to approve this exact plan revision.",
+      "Publish it with: operator publish apply --request <id> --owner-token <token> --source s1 --plan-revision pv1",
+      "Every title, body, and refusal: plans/p1.md"
+    ],
+    "exitCode": 0
+  },
+  "planPublish 7 planned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"publish_planned\",\"blockers\":[],\"operation\":\"publish_plan\",\"data\":{\"sourceId\":\"s1\",\"publication\":2,\"planRevision\":\"pv1\",\"planPath\":\"plans/p1.md\",\"remote\":{\"name\":\"origin\"},\"target\":\"main\",\"names\":[\"n1\",\"n2\"],\"closes\":[4,6],\"headMoved\":[5],\"info\":{\"targetTip\":\"tt\",\"commitsBehind\":3,\"mergesCleanly\":false,\"unverifiedRules\":[\"u1\"]},\"approval\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"},\"command\":\"operator publish apply --request <id> --owner-token <token> --source s1 --plan-revision pv1\"}}"
+    ],
+    "exitCode": 0
+  },
+  "planPublish 8 unknown-source": {
+    "lines": ["No source s1 is recorded."],
+    "exitCode": 2
+  },
+  "planPublish 8 unknown-source --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_source\",\"blockers\":[{\"reason\":\"unknown_source\",\"sourceId\":\"s1\"}],\"operation\":\"publish_plan\"}"
+    ],
+    "exitCode": 2
+  },
+  "planPublish 9 unread": {
+    "lines": ["Git cannot read the integration branch: det"],
+    "exitCode": 5
+  },
+  "planPublish 9 unread --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"uncertain\",\"reason\":\"integration_branch_unread\",\"blockers\":[{\"reason\":\"integration_branch_unread\",\"detail\":\"det\"}],\"operation\":\"publish_plan\"}"
+    ],
+    "exitCode": 5
+  },
+  "publish 0 state-missing": {
+    "lines": ["This project holds no crew state. Run `operator crew own` to start a crew."],
+    "exitCode": 3
+  },
+  "publish 0 state-missing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"state_missing\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"publish_apply\"}"
+    ],
+    "exitCode": 3
+  },
+  "publish 1 unowned": {
+    "lines": ["No Operator owns this crew. Run `operator crew own` first."],
+    "exitCode": 3
+  },
+  "publish 1 unowned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"crew_unowned\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"publish_apply\"}"
+    ],
+    "exitCode": 3
+  },
+  "publish 2 ownership-stale": {
+    "lines": [
+      "Another Operator took ownership of this crew. This token can no longer change state."
+    ],
+    "exitCode": 4
+  },
+  "publish 2 ownership-stale --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"ownership_stale\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"publish_apply\"}"
+    ],
+    "exitCode": 4
+  },
+  "publish 3 request-input-changed": {
+    "lines": [
+      "This request identity already recorded different input. Use a new request identity."
+    ],
+    "exitCode": 2
+  },
+  "publish 3 request-input-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"request_input_changed\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"publish_apply\"}"
+    ],
+    "exitCode": 2
+  },
+  "publish 4 refused": {
+    "lines": [
+      "Publish plan pv1 for s1, stack publication 2:",
+      "  2 pull request(s) from n1, n2 into main through origin.",
+      "  It closes #4, #6, which it replaces, each with one comment that names the replacement.",
+      "  It writes nothing to #5: a person moved its head (decision 21). A person closes it.",
+      "  The target is at tt, 3 commit(s) past the base; the head merges cleanly.",
+      "  1 rule reading(s) are unverified, not passed.",
+      "Ask the person to read every title and body in the file below and to approve this exact plan revision.",
+      "Publish it with: operator publish apply --request <id> --owner-token <token> --source s1 --plan-revision pv1",
+      "Every title, body, and refusal: plans/p1.md"
+    ],
+    "exitCode": 0
+  },
+  "publish 4 refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"publish_planned\",\"blockers\":[],\"operation\":\"publish_apply\",\"data\":{\"sourceId\":\"s1\",\"publication\":2,\"planRevision\":\"pv1\",\"planPath\":\"plans/p1.md\",\"remote\":{\"name\":\"origin\"},\"target\":\"main\",\"names\":[\"n1\",\"n2\"],\"closes\":[4,6],\"headMoved\":[5],\"info\":{\"targetTip\":\"tt\",\"commitsBehind\":3,\"mergesCleanly\":true,\"unverifiedRules\":[\"u1\"]},\"approval\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"},\"command\":\"operator publish apply --request <id> --owner-token <token> --source s1 --plan-revision pv1\"}}"
+    ],
+    "exitCode": 0
+  },
+  "publish 5 refused": {
+    "lines": [
+      "Publish plan (no revision) for s1, stack publication 2:",
+      "  The target is at an unread tip, an unread number of commit(s) past the base; the head has no clean-merge reading.",
+      "  2 refusal(s): source_unfinished, branch_review_missing.",
+      "Nothing can be published until each refusal is settled.",
+      "Every title, body, and refusal: plans/p1.md"
+    ],
+    "exitCode": 2
+  },
+  "publish 5 refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"publish_refused\",\"blockers\":[{\"reason\":\"source_unfinished\",\"detail\":\"d1\"},{\"reason\":\"branch_review_missing\",\"detail\":\"d2\"}],\"operation\":\"publish_apply\",\"data\":{\"sourceId\":\"s1\",\"publication\":2,\"planRevision\":null,\"planPath\":\"plans/p1.md\",\"remote\":null,\"target\":null,\"names\":[],\"closes\":[],\"headMoved\":[],\"info\":{\"targetTip\":null,\"commitsBehind\":null,\"mergesCleanly\":null,\"unverifiedRules\":[]},\"approval\":null,\"command\":null}}"
+    ],
+    "exitCode": 2
+  },
+  "publish 6 refused": {
+    "lines": [
+      "Publish plan pv1 for s1, stack publication 2:",
+      "  2 pull request(s) from n1, n2 into main through origin.",
+      "  It closes #4, #6, which it replaces, each with one comment that names the replacement.",
+      "  It writes nothing to #5: a person moved its head (decision 21). A person closes it.",
+      "Ask the person to read every title and body in the file below and to approve this exact plan revision.",
+      "Publish it with: operator publish apply --request <id> --owner-token <token> --source s1 --plan-revision pv1",
+      "Every title, body, and refusal: plans/p1.md"
+    ],
+    "exitCode": 0
+  },
+  "publish 6 refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"publish_planned\",\"blockers\":[],\"operation\":\"publish_apply\",\"data\":{\"sourceId\":\"s1\",\"publication\":2,\"planRevision\":\"pv1\",\"planPath\":\"plans/p1.md\",\"remote\":{\"name\":\"origin\"},\"target\":\"main\",\"names\":[\"n1\",\"n2\"],\"closes\":[4,6],\"headMoved\":[5],\"info\":null,\"approval\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"},\"command\":\"operator publish apply --request <id> --owner-token <token> --source s1 --plan-revision pv1\"}}"
+    ],
+    "exitCode": 0
+  },
+  "publish 7 refused": {
+    "lines": [
+      "Publish plan pv1 for s1, stack publication 2:",
+      "  2 pull request(s) from n1, n2 into main through origin.",
+      "  It closes #4, #6, which it replaces, each with one comment that names the replacement.",
+      "  It writes nothing to #5: a person moved its head (decision 21). A person closes it.",
+      "  The target is at tt, 3 commit(s) past the base; the head does not merge cleanly.",
+      "  1 rule reading(s) are unverified, not passed.",
+      "Ask the person to read every title and body in the file below and to approve this exact plan revision.",
+      "Publish it with: operator publish apply --request <id> --owner-token <token> --source s1 --plan-revision pv1",
+      "Every title, body, and refusal: plans/p1.md"
+    ],
+    "exitCode": 0
+  },
+  "publish 7 refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"publish_planned\",\"blockers\":[],\"operation\":\"publish_apply\",\"data\":{\"sourceId\":\"s1\",\"publication\":2,\"planRevision\":\"pv1\",\"planPath\":\"plans/p1.md\",\"remote\":{\"name\":\"origin\"},\"target\":\"main\",\"names\":[\"n1\",\"n2\"],\"closes\":[4,6],\"headMoved\":[5],\"info\":{\"targetTip\":\"tt\",\"commitsBehind\":3,\"mergesCleanly\":false,\"unverifiedRules\":[\"u1\"]},\"approval\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"},\"command\":\"operator publish apply --request <id> --owner-token <token> --source s1 --plan-revision pv1\"}}"
+    ],
+    "exitCode": 0
+  },
+  "publish 8 plan-revision-changed": {
+    "lines": ["The plan is now refused, not pr1. Nothing was published."],
+    "exitCode": 4
+  },
+  "publish 8 plan-revision-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"plan_revision_changed\",\"blockers\":[{\"reason\":\"plan_revision_changed\",\"status\":\"plan-revision-changed\",\"stated\":\"pr1\",\"planned\":null,\"planPath\":null}],\"operation\":\"publish_apply\"}"
+    ],
+    "exitCode": 4
+  },
+  "publish 9 plan-revision-changed": {
+    "lines": [
+      "The plan is now pr2, not pr1. Nothing was published.",
+      "Read the new plan: plans/p2.md"
+    ],
+    "exitCode": 4
+  },
+  "publish 9 plan-revision-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"plan_revision_changed\",\"blockers\":[{\"reason\":\"plan_revision_changed\",\"status\":\"plan-revision-changed\",\"stated\":\"pr1\",\"planned\":\"pr2\",\"planPath\":\"plans/p2.md\"}],\"operation\":\"publish_apply\"}"
+    ],
+    "exitCode": 4
+  },
+  "publish 10 approval-required": {
+    "lines": [
+      "Nothing was published. Ask the person to read the plan and approve this exact request:",
+      "  action publish, scope s1, targets t1, t2, request revision pv1.",
+      "The plan: plans/p1.md"
+    ],
+    "exitCode": 3
+  },
+  "publish 10 approval-required --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"approval_required\",\"blockers\":[{\"reason\":\"approval_required\",\"approval\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"},\"planPath\":\"plans/p1.md\"}],\"operation\":\"publish_apply\"}"
+    ],
+    "exitCode": 3
+  },
+  "publish 11 effect-stopped": {
+    "lines": [
+      "Stack publication 2 stopped at its push write: uncertain.",
+      "Run the same command again. It reads GitHub first and writes only what is missing."
+    ],
+    "exitCode": 5
+  },
+  "publish 11 effect-stopped --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"uncertain\",\"reason\":\"publish_uncertain\",\"blockers\":[{\"reason\":\"publish_uncertain\",\"publication\":2,\"effect\":{\"id\":\"e1\",\"kind\":\"push\",\"position\":1},\"outcome\":{\"status\":\"uncertain\",\"detail\":\"d\"},\"settlement\":null}],\"operation\":\"publish_apply\"}"
+    ],
+    "exitCode": 5
+  },
+  "publish 12 effect-stopped": {
+    "lines": [
+      "Stack publication 2 stopped at its push write: uncertain.",
+      "Run the same command again. It reads GitHub first and writes only what is missing.",
+      "When the person accepts it as GitHub shows it, record their approval of this exact request:",
+      "  action publish, scope s1, targets t1, t2, request revision pv1."
+    ],
+    "exitCode": 5
+  },
+  "publish 12 effect-stopped --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"uncertain\",\"reason\":\"publish_uncertain\",\"blockers\":[{\"reason\":\"publish_uncertain\",\"publication\":2,\"effect\":{\"id\":\"e1\",\"kind\":\"push\",\"position\":1},\"outcome\":{\"status\":\"uncertain\",\"detail\":\"d\"},\"settlement\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"}}],\"operation\":\"publish_apply\"}"
+    ],
+    "exitCode": 5
+  },
+  "publish 13 effect-stopped": {
+    "lines": [
+      "Stack publication 2 stopped at its push write: conflict.",
+      "A person settles this. Operator writes nothing over it."
+    ],
+    "exitCode": 4
+  },
+  "publish 13 effect-stopped --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"publish_conflict\",\"blockers\":[{\"reason\":\"publish_conflict\",\"publication\":2,\"effect\":{\"id\":\"e1\",\"kind\":\"push\",\"position\":1},\"outcome\":{\"status\":\"conflict\",\"detail\":\"d\"},\"settlement\":null}],\"operation\":\"publish_apply\"}"
+    ],
+    "exitCode": 4
+  },
+  "publish 14 effect-stopped": {
+    "lines": [
+      "Stack publication 2 stopped at its push write: conflict.",
+      "A person settles this. Operator writes nothing over it.",
+      "When the person accepts it as GitHub shows it, record their approval of this exact request:",
+      "  action publish, scope s1, targets t1, t2, request revision pv1."
+    ],
+    "exitCode": 4
+  },
+  "publish 14 effect-stopped --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"publish_conflict\",\"blockers\":[{\"reason\":\"publish_conflict\",\"publication\":2,\"effect\":{\"id\":\"e1\",\"kind\":\"push\",\"position\":1},\"outcome\":{\"status\":\"conflict\",\"detail\":\"d\"},\"settlement\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"}}],\"operation\":\"publish_apply\"}"
+    ],
+    "exitCode": 4
+  },
+  "publish 15 effect-stopped": {
+    "lines": [
+      "Stack publication 2 stopped at its push write: failed.",
+      "A person settles this. Operator writes nothing over it."
+    ],
+    "exitCode": 4
+  },
+  "publish 15 effect-stopped --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"publish_failed\",\"blockers\":[{\"reason\":\"publish_failed\",\"publication\":2,\"effect\":{\"id\":\"e1\",\"kind\":\"push\",\"position\":1},\"outcome\":{\"status\":\"failed\",\"detail\":\"d\"},\"settlement\":null}],\"operation\":\"publish_apply\"}"
+    ],
+    "exitCode": 4
+  },
+  "publish 16 effect-stopped": {
+    "lines": [
+      "Stack publication 2 stopped at its push write: failed.",
+      "A person settles this. Operator writes nothing over it.",
+      "When the person accepts it as GitHub shows it, record their approval of this exact request:",
+      "  action publish, scope s1, targets t1, t2, request revision pv1."
+    ],
+    "exitCode": 4
+  },
+  "publish 16 effect-stopped --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"publish_failed\",\"blockers\":[{\"reason\":\"publish_failed\",\"publication\":2,\"effect\":{\"id\":\"e1\",\"kind\":\"push\",\"position\":1},\"outcome\":{\"status\":\"failed\",\"detail\":\"d\"},\"settlement\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"}}],\"operation\":\"publish_apply\"}"
+    ],
+    "exitCode": 4
+  },
+  "publish 17 published": {
+    "lines": [
+      "Stack publication 2 is published, ready for review:",
+      "  part 1: https://x/7 from n1",
+      "  part 2: #? from n2",
+      "A person merges it on GitHub with a merge commit. Operator never merges."
+    ],
+    "exitCode": 0
+  },
+  "publish 17 published --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"published\",\"blockers\":[],\"operation\":\"publish_apply\",\"data\":{\"publication\":2,\"pullRequests\":[{\"part\":1,\"headName\":\"n1\",\"number\":7,\"url\":\"https://x/7\"},{\"part\":2,\"headName\":\"n2\",\"number\":null,\"url\":null}]}}"
+    ],
+    "exitCode": 0
+  },
+  "publish 18 unknown-source": {
+    "lines": ["No source s1 is recorded."],
+    "exitCode": 2
+  },
+  "publish 18 unknown-source --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_source\",\"blockers\":[{\"reason\":\"unknown_source\",\"sourceId\":\"s1\"}],\"operation\":\"publish_apply\"}"
+    ],
+    "exitCode": 2
+  },
+  "publish 19 unread": {
+    "lines": ["Git cannot read the integration branch: det"],
+    "exitCode": 5
+  },
+  "publish 19 unread --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"uncertain\",\"reason\":\"integration_branch_unread\",\"blockers\":[{\"reason\":\"integration_branch_unread\",\"detail\":\"det\"}],\"operation\":\"publish_apply\"}"
+    ],
+    "exitCode": 5
+  },
+  "publishStatus 0 state-missing": {
+    "lines": ["This project holds no crew state. Run `operator crew own` to start a crew."],
+    "exitCode": 3
+  },
+  "publishStatus 0 state-missing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"state_missing\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"publish_status\"}"
+    ],
+    "exitCode": 3
+  },
+  "publishStatus 1 unowned": {
+    "lines": ["No Operator owns this crew. Run `operator crew own` first."],
+    "exitCode": 3
+  },
+  "publishStatus 1 unowned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"crew_unowned\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"publish_status\"}"
+    ],
+    "exitCode": 3
+  },
+  "publishStatus 2 ownership-stale": {
+    "lines": [
+      "Another Operator took ownership of this crew. This token can no longer change state."
+    ],
+    "exitCode": 4
+  },
+  "publishStatus 2 ownership-stale --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"ownership_stale\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"publish_status\"}"
+    ],
+    "exitCode": 4
+  },
+  "publishStatus 3 request-input-changed": {
+    "lines": [
+      "This request identity already recorded different input. Use a new request identity."
+    ],
+    "exitCode": 2
+  },
+  "publishStatus 3 request-input-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"request_input_changed\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"publish_status\"}"
+    ],
+    "exitCode": 2
+  },
+  "publishStatus 4 observed": {
+    "lines": [
+      "Stack publication 2 as GitHub shows it now:",
+      "  part 1: #7 is merged by a merge commit",
+      "  part 2: #8 is merged by a squash merge, stack fault squashed: fd",
+      "  part 3: #9 is open",
+      "The source is not finished: two parts are open",
+      "Run `operator crew next` for what follows."
+    ],
+    "exitCode": 0
+  },
+  "publishStatus 4 observed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"publish_observed\",\"blockers\":[],\"operation\":\"publish_status\",\"data\":{\"publication\":2,\"seen\":[{\"part\":1,\"number\":7,\"state\":\"merged\",\"method\":\"merge\",\"fault\":null,\"detail\":null},{\"part\":2,\"number\":8,\"state\":\"merged\",\"method\":\"squash\",\"fault\":\"squashed\",\"detail\":\"fd\"},{\"part\":3,\"number\":9,\"state\":\"open\",\"method\":null,\"fault\":null,\"detail\":null}],\"finish\":{\"status\":\"not-finished\",\"detail\":\"two parts are open\"}}}"
+    ],
+    "exitCode": 0
+  },
+  "publishStatus 5 observed": {
+    "lines": [
+      "Stack publication 2 as GitHub shows it now:",
+      "  part 1: #7 is merged by a merge commit",
+      "  part 2: #8 is merged by a squash merge, stack fault squashed: fd",
+      "  part 3: #9 is open",
+      "The source is finished. Its gate checkout stays: Herdr did not remove it.",
+      "Run `operator crew next` for what follows."
+    ],
+    "exitCode": 0
+  },
+  "publishStatus 5 observed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"publish_observed\",\"blockers\":[],\"operation\":\"publish_status\",\"data\":{\"publication\":2,\"seen\":[{\"part\":1,\"number\":7,\"state\":\"merged\",\"method\":\"merge\",\"fault\":null,\"detail\":null},{\"part\":2,\"number\":8,\"state\":\"merged\",\"method\":\"squash\",\"fault\":\"squashed\",\"detail\":\"fd\"},{\"part\":3,\"number\":9,\"state\":\"open\",\"method\":null,\"fault\":null,\"detail\":null}],\"finish\":{\"status\":\"finished\",\"gateCheckout\":\"kept\",\"detail\":null}}}"
+    ],
+    "exitCode": 0
+  },
+  "publishStatus 6 observed": {
+    "lines": [
+      "Stack publication 2 as GitHub shows it now:",
+      "  part 1: #7 is merged by a merge commit",
+      "  part 2: #8 is merged by a squash merge, stack fault squashed: fd",
+      "  part 3: #9 is open",
+      "The source is finished. Its gate checkout stays: dirty",
+      "Run `operator crew next` for what follows."
+    ],
+    "exitCode": 0
+  },
+  "publishStatus 6 observed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"publish_observed\",\"blockers\":[],\"operation\":\"publish_status\",\"data\":{\"publication\":2,\"seen\":[{\"part\":1,\"number\":7,\"state\":\"merged\",\"method\":\"merge\",\"fault\":null,\"detail\":null},{\"part\":2,\"number\":8,\"state\":\"merged\",\"method\":\"squash\",\"fault\":\"squashed\",\"detail\":\"fd\"},{\"part\":3,\"number\":9,\"state\":\"open\",\"method\":null,\"fault\":null,\"detail\":null}],\"finish\":{\"status\":\"finished\",\"gateCheckout\":\"kept\",\"detail\":\"dirty\"}}}"
+    ],
+    "exitCode": 0
+  },
+  "publishStatus 7 observed": {
+    "lines": [
+      "Stack publication 2 as GitHub shows it now:",
+      "  part 1: #7 is merged by a merge commit",
+      "  part 2: #8 is merged by a squash merge, stack fault squashed: fd",
+      "  part 3: #9 is open",
+      "The source is finished, and its gate checkout is removed. Every branch stays.",
+      "Run `operator crew next` for what follows."
+    ],
+    "exitCode": 0
+  },
+  "publishStatus 7 observed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"publish_observed\",\"blockers\":[],\"operation\":\"publish_status\",\"data\":{\"publication\":2,\"seen\":[{\"part\":1,\"number\":7,\"state\":\"merged\",\"method\":\"merge\",\"fault\":null,\"detail\":null},{\"part\":2,\"number\":8,\"state\":\"merged\",\"method\":\"squash\",\"fault\":\"squashed\",\"detail\":\"fd\"},{\"part\":3,\"number\":9,\"state\":\"open\",\"method\":null,\"fault\":null,\"detail\":null}],\"finish\":{\"status\":\"finished\",\"gateCheckout\":\"removed\",\"detail\":null}}}"
+    ],
+    "exitCode": 0
+  },
+  "publishStatus 8 observed": {
+    "lines": [
+      "Stack publication 2 as GitHub shows it now:",
+      "  part 1: #7 is merged by a merge commit",
+      "  part 2: #8 is merged by a squash merge, stack fault squashed: fd",
+      "  part 3: #9 is open",
+      "A person settles each stack fault. Operator adopts nothing from it.",
+      "When the person accepts a fault as GitHub shows it, record their approval of its settlement:",
+      "  part 2, squashed: action publish, scope s1, targets t1, t2, request revision pv1.",
+      "The source is not finished: two parts are open",
+      "Run `operator crew next` for what follows."
+    ],
+    "exitCode": 4
+  },
+  "publishStatus 8 observed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"stack_fault\",\"blockers\":[{\"reason\":\"stack_fault\",\"fault\":\"squashed\",\"number\":8,\"detail\":\"fd\",\"settlement\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"}}],\"operation\":\"publish_status\",\"data\":{\"publication\":2,\"seen\":[{\"part\":1,\"number\":7,\"state\":\"merged\",\"method\":\"merge\",\"fault\":null,\"detail\":null},{\"part\":2,\"number\":8,\"state\":\"merged\",\"method\":\"squash\",\"fault\":\"squashed\",\"detail\":\"fd\"},{\"part\":3,\"number\":9,\"state\":\"open\",\"method\":null,\"fault\":null,\"detail\":null}],\"finish\":{\"status\":\"not-finished\",\"detail\":\"two parts are open\"}}}"
+    ],
+    "exitCode": 4
+  },
+  "publishStatus 9 nothing-published": {
+    "lines": ["Source s1 has no stack publication to read."],
+    "exitCode": 3
+  },
+  "publishStatus 9 nothing-published --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"nothing_published\",\"blockers\":[{\"reason\":\"nothing_published\",\"sourceId\":\"s1\"}],\"operation\":\"publish_status\"}"
+    ],
+    "exitCode": 3
+  },
+  "publishStatus 10 publish-unsettled": {
+    "lines": [
+      "Stack publication 2 has a write with no done outcome. Settle it first, as `crew next` names."
+    ],
+    "exitCode": 3
+  },
+  "publishStatus 10 publish-unsettled --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"publish_unsettled\",\"blockers\":[{\"reason\":\"publish_unsettled\",\"sourceId\":\"s1\",\"publication\":2}],\"operation\":\"publish_status\"}"
+    ],
+    "exitCode": 3
+  },
+  "publishStatus 11 unknown-source": {
+    "lines": ["No source s1 is recorded."],
+    "exitCode": 2
+  },
+  "publishStatus 11 unknown-source --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_source\",\"blockers\":[{\"reason\":\"unknown_source\",\"sourceId\":\"s1\"}],\"operation\":\"publish_status\"}"
+    ],
+    "exitCode": 2
+  },
+  "publishStatus 12 unread": {
+    "lines": ["GitHub could not be read, so nothing was recorded: det"],
+    "exitCode": 5
+  },
+  "publishStatus 12 unread --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"uncertain\",\"reason\":\"publish_unread\",\"blockers\":[{\"reason\":\"publish_unread\",\"detail\":\"det\"}],\"operation\":\"publish_status\"}"
+    ],
+    "exitCode": 5
+  },
+  "retargetPublish 0 state-missing": {
+    "lines": ["This project holds no crew state. Run `operator crew own` to start a crew."],
+    "exitCode": 3
+  },
+  "retargetPublish 0 state-missing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"state_missing\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"publish_retarget\"}"
+    ],
+    "exitCode": 3
+  },
+  "retargetPublish 1 unowned": {
+    "lines": ["No Operator owns this crew. Run `operator crew own` first."],
+    "exitCode": 3
+  },
+  "retargetPublish 1 unowned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"crew_unowned\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"publish_retarget\"}"
+    ],
+    "exitCode": 3
+  },
+  "retargetPublish 2 ownership-stale": {
+    "lines": [
+      "Another Operator took ownership of this crew. This token can no longer change state."
+    ],
+    "exitCode": 4
+  },
+  "retargetPublish 2 ownership-stale --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"ownership_stale\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"publish_retarget\"}"
+    ],
+    "exitCode": 4
+  },
+  "retargetPublish 3 request-input-changed": {
+    "lines": [
+      "This request identity already recorded different input. Use a new request identity."
+    ],
+    "exitCode": 2
+  },
+  "retargetPublish 3 request-input-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"request_input_changed\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"publish_retarget\"}"
+    ],
+    "exitCode": 2
+  },
+  "retargetPublish 4 retargeted": {
+    "lines": [
+      "Part 2 (#8) now targets the target branch, as GitHub already showed; nothing was written.",
+      "A person merges it on GitHub with a merge commit. Operator never merges."
+    ],
+    "exitCode": 0
+  },
+  "retargetPublish 4 retargeted --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"pull_request_retargeted\",\"blockers\":[],\"operation\":\"publish_retarget\",\"data\":{\"part\":2,\"number\":8,\"how\":\"observed\"}}"
+    ],
+    "exitCode": 0
+  },
+  "retargetPublish 5 retargeted": {
+    "lines": [
+      "Part 2 (#8) now targets the target branch.",
+      "A person merges it on GitHub with a merge commit. Operator never merges."
+    ],
+    "exitCode": 0
+  },
+  "retargetPublish 5 retargeted --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"pull_request_retargeted\",\"blockers\":[],\"operation\":\"publish_retarget\",\"data\":{\"part\":2,\"number\":8,\"how\":\"written\"}}"
+    ],
+    "exitCode": 0
+  },
+  "retargetPublish 6 not-due": {
+    "lines": ["Part 1 is open. Nothing was written."],
+    "exitCode": 3
+  },
+  "retargetPublish 6 not-due --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"retarget_not_due\",\"blockers\":[{\"reason\":\"retarget_not_due\",\"part\":2,\"detail\":\"Part 1 is open.\"}],\"operation\":\"publish_retarget\"}"
+    ],
+    "exitCode": 3
+  },
+  "retargetPublish 7 stack-fault": {
+    "lines": ["Part 1 was squashed. Nothing was written."],
+    "exitCode": 4
+  },
+  "retargetPublish 7 stack-fault --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"stack_fault\",\"blockers\":[{\"reason\":\"stack_fault\",\"part\":2,\"detail\":\"Part 1 was squashed.\"}],\"operation\":\"publish_retarget\"}"
+    ],
+    "exitCode": 4
+  },
+  "retargetPublish 8 approval-required": {
+    "lines": [
+      "The publish approval of this stack no longer covers the retarget. Nothing was written."
+    ],
+    "exitCode": 3
+  },
+  "retargetPublish 8 approval-required --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"approval_required\",\"blockers\":[{\"reason\":\"approval_required\",\"approval\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"}}],\"operation\":\"publish_retarget\"}"
+    ],
+    "exitCode": 3
+  },
+  "retargetPublish 9 publish-unsettled": {
+    "lines": ["The stack publication has a write with no done outcome. Settle it first."],
+    "exitCode": 3
+  },
+  "retargetPublish 9 publish-unsettled --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"publish_unsettled\",\"blockers\":[{\"reason\":\"publish_unsettled\",\"sourceId\":\"s1\"}],\"operation\":\"publish_retarget\"}"
+    ],
+    "exitCode": 3
+  },
+  "retargetPublish 10 effect-stopped": {
+    "lines": [
+      "Stack publication 2 stopped at its push write: uncertain.",
+      "Run the same command again. It reads GitHub first and writes only what is missing."
+    ],
+    "exitCode": 5
+  },
+  "retargetPublish 10 effect-stopped --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"uncertain\",\"reason\":\"publish_uncertain\",\"blockers\":[{\"reason\":\"publish_uncertain\",\"publication\":2,\"effect\":{\"id\":\"e1\",\"kind\":\"push\",\"position\":1},\"outcome\":{\"status\":\"uncertain\",\"detail\":\"d\"},\"settlement\":null}],\"operation\":\"publish_retarget\"}"
+    ],
+    "exitCode": 5
+  },
+  "retargetPublish 11 effect-stopped": {
+    "lines": [
+      "Stack publication 2 stopped at its push write: uncertain.",
+      "Run the same command again. It reads GitHub first and writes only what is missing.",
+      "When the person accepts it as GitHub shows it, record their approval of this exact request:",
+      "  action publish, scope s1, targets t1, t2, request revision pv1."
+    ],
+    "exitCode": 5
+  },
+  "retargetPublish 11 effect-stopped --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"uncertain\",\"reason\":\"publish_uncertain\",\"blockers\":[{\"reason\":\"publish_uncertain\",\"publication\":2,\"effect\":{\"id\":\"e1\",\"kind\":\"push\",\"position\":1},\"outcome\":{\"status\":\"uncertain\",\"detail\":\"d\"},\"settlement\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"}}],\"operation\":\"publish_retarget\"}"
+    ],
+    "exitCode": 5
+  },
+  "retargetPublish 12 effect-stopped": {
+    "lines": [
+      "Stack publication 2 stopped at its push write: conflict.",
+      "A person settles this. Operator writes nothing over it."
+    ],
+    "exitCode": 4
+  },
+  "retargetPublish 12 effect-stopped --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"publish_conflict\",\"blockers\":[{\"reason\":\"publish_conflict\",\"publication\":2,\"effect\":{\"id\":\"e1\",\"kind\":\"push\",\"position\":1},\"outcome\":{\"status\":\"conflict\",\"detail\":\"d\"},\"settlement\":null}],\"operation\":\"publish_retarget\"}"
+    ],
+    "exitCode": 4
+  },
+  "retargetPublish 13 effect-stopped": {
+    "lines": [
+      "Stack publication 2 stopped at its push write: conflict.",
+      "A person settles this. Operator writes nothing over it.",
+      "When the person accepts it as GitHub shows it, record their approval of this exact request:",
+      "  action publish, scope s1, targets t1, t2, request revision pv1."
+    ],
+    "exitCode": 4
+  },
+  "retargetPublish 13 effect-stopped --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"publish_conflict\",\"blockers\":[{\"reason\":\"publish_conflict\",\"publication\":2,\"effect\":{\"id\":\"e1\",\"kind\":\"push\",\"position\":1},\"outcome\":{\"status\":\"conflict\",\"detail\":\"d\"},\"settlement\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"}}],\"operation\":\"publish_retarget\"}"
+    ],
+    "exitCode": 4
+  },
+  "retargetPublish 14 effect-stopped": {
+    "lines": [
+      "Stack publication 2 stopped at its push write: failed.",
+      "A person settles this. Operator writes nothing over it."
+    ],
+    "exitCode": 4
+  },
+  "retargetPublish 14 effect-stopped --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"publish_failed\",\"blockers\":[{\"reason\":\"publish_failed\",\"publication\":2,\"effect\":{\"id\":\"e1\",\"kind\":\"push\",\"position\":1},\"outcome\":{\"status\":\"failed\",\"detail\":\"d\"},\"settlement\":null}],\"operation\":\"publish_retarget\"}"
+    ],
+    "exitCode": 4
+  },
+  "retargetPublish 15 effect-stopped": {
+    "lines": [
+      "Stack publication 2 stopped at its push write: failed.",
+      "A person settles this. Operator writes nothing over it.",
+      "When the person accepts it as GitHub shows it, record their approval of this exact request:",
+      "  action publish, scope s1, targets t1, t2, request revision pv1."
+    ],
+    "exitCode": 4
+  },
+  "retargetPublish 15 effect-stopped --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"publish_failed\",\"blockers\":[{\"reason\":\"publish_failed\",\"publication\":2,\"effect\":{\"id\":\"e1\",\"kind\":\"push\",\"position\":1},\"outcome\":{\"status\":\"failed\",\"detail\":\"d\"},\"settlement\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"}}],\"operation\":\"publish_retarget\"}"
+    ],
+    "exitCode": 4
+  },
+  "retargetPublish 16 unknown-source": {
+    "lines": ["No source s1 is recorded."],
+    "exitCode": 2
+  },
+  "retargetPublish 16 unknown-source --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_source\",\"blockers\":[{\"reason\":\"unknown_source\",\"sourceId\":\"s1\"}],\"operation\":\"publish_retarget\"}"
+    ],
+    "exitCode": 2
+  },
+  "retargetPublish 17 unread": {
+    "lines": ["Git cannot read the integration branch: det"],
+    "exitCode": 5
+  },
+  "retargetPublish 17 unread --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"uncertain\",\"reason\":\"integration_branch_unread\",\"blockers\":[{\"reason\":\"integration_branch_unread\",\"detail\":\"det\"}],\"operation\":\"publish_retarget\"}"
+    ],
+    "exitCode": 5
+  },
+  "retargetPublish 18 refused": {
+    "lines": [],
+    "exitCode": 2
+  },
+  "retargetPublish 18 refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"invalid_arguments\",\"blockers\":[],\"operation\":\"parse_arguments\"}"
+    ],
+    "exitCode": 2
+  },
+  "retargetPublish 19 plan-revision-changed": {
+    "lines": [],
+    "exitCode": 2
+  },
+  "retargetPublish 19 plan-revision-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"invalid_arguments\",\"blockers\":[],\"operation\":\"parse_arguments\"}"
+    ],
+    "exitCode": 2
+  },
+  "retargetPublish 20 plan-revision-changed": {
+    "lines": [],
+    "exitCode": 2
+  },
+  "retargetPublish 20 plan-revision-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"invalid_arguments\",\"blockers\":[],\"operation\":\"parse_arguments\"}"
+    ],
+    "exitCode": 2
+  },
+  "planRecall 0 state-missing": {
+    "lines": ["This project holds no crew state. Run `operator crew own` to start a crew."],
+    "exitCode": 3
+  },
+  "planRecall 0 state-missing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"state_missing\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"publish_recall\"}"
+    ],
+    "exitCode": 3
+  },
+  "planRecall 1 unowned": {
+    "lines": ["No Operator owns this crew. Run `operator crew own` first."],
+    "exitCode": 3
+  },
+  "planRecall 1 unowned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"crew_unowned\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"publish_recall\"}"
+    ],
+    "exitCode": 3
+  },
+  "planRecall 2 ownership-stale": {
+    "lines": [
+      "Another Operator took ownership of this crew. This token can no longer change state."
+    ],
+    "exitCode": 4
+  },
+  "planRecall 2 ownership-stale --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"ownership_stale\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"publish_recall\"}"
+    ],
+    "exitCode": 4
+  },
+  "planRecall 3 request-input-changed": {
+    "lines": [
+      "This request identity already recorded different input. Use a new request identity."
+    ],
+    "exitCode": 2
+  },
+  "planRecall 3 request-input-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"request_input_changed\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"publish_recall\"}"
+    ],
+    "exitCode": 2
+  },
+  "planRecall 4 planned": {
+    "lines": [
+      "Recall plan rc1 for s1, stack publication 2:",
+      "  #7, #8 become drafts with one comment each.",
+      "Ask the person to read every comment in the file below and to approve this exact plan revision.",
+      "Recall with: operator publish recall --request <id> --owner-token <token> --source s1 --plan-revision rc1",
+      "Every comment: plans/r1.md"
+    ],
+    "exitCode": 0
+  },
+  "planRecall 4 planned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"recall_planned\",\"blockers\":[],\"operation\":\"publish_recall\",\"data\":{\"sourceId\":\"s1\",\"publication\":2,\"planRevision\":\"rc1\",\"planPath\":\"plans/r1.md\",\"pullRequests\":[7,8],\"replaced\":true,\"approval\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"},\"command\":\"operator publish recall --request <id> --owner-token <token> --source s1 --plan-revision rc1\"}}"
+    ],
+    "exitCode": 0
+  },
+  "planRecall 5 planned": {
+    "lines": [
+      "Recall plan rc1 for s1, stack publication 2:",
+      "  #7, #8 become drafts with one comment each, and close, because no new stack publication will replace them.",
+      "Ask the person to read every comment in the file below and to approve this exact plan revision.",
+      "Recall with: operator publish recall --request <id> --owner-token <token> --source s1 --plan-revision rc1",
+      "Every comment: plans/r1.md"
+    ],
+    "exitCode": 0
+  },
+  "planRecall 5 planned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"recall_planned\",\"blockers\":[],\"operation\":\"publish_recall\",\"data\":{\"sourceId\":\"s1\",\"publication\":2,\"planRevision\":\"rc1\",\"planPath\":\"plans/r1.md\",\"pullRequests\":[7,8],\"replaced\":false,\"approval\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"},\"command\":\"operator publish recall --request <id> --owner-token <token> --source s1 --plan-revision rc1\"}}"
+    ],
+    "exitCode": 0
+  },
+  "planRecall 6 nothing-to-recall": {
+    "lines": ["No commit to change is inside an open pull request of s1."],
+    "exitCode": 3
+  },
+  "planRecall 6 nothing-to-recall --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"nothing_to_recall\",\"blockers\":[{\"reason\":\"nothing_to_recall\",\"sourceId\":\"s1\"}],\"operation\":\"publish_recall\"}"
+    ],
+    "exitCode": 3
+  },
+  "planRecall 7 unknown-source": {
+    "lines": ["No source s1 is recorded."],
+    "exitCode": 2
+  },
+  "planRecall 7 unknown-source --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_source\",\"blockers\":[{\"reason\":\"unknown_source\",\"sourceId\":\"s1\"}],\"operation\":\"publish_recall\"}"
+    ],
+    "exitCode": 2
+  },
+  "planRecall 8 unread": {
+    "lines": ["Git cannot read the integration branch: det"],
+    "exitCode": 5
+  },
+  "planRecall 8 unread --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"uncertain\",\"reason\":\"integration_branch_unread\",\"blockers\":[{\"reason\":\"integration_branch_unread\",\"detail\":\"det\"}],\"operation\":\"publish_recall\"}"
+    ],
+    "exitCode": 5
+  },
+  "recall 0 state-missing": {
+    "lines": ["This project holds no crew state. Run `operator crew own` to start a crew."],
+    "exitCode": 3
+  },
+  "recall 0 state-missing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"state_missing\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"publish_recall\"}"
+    ],
+    "exitCode": 3
+  },
+  "recall 1 unowned": {
+    "lines": ["No Operator owns this crew. Run `operator crew own` first."],
+    "exitCode": 3
+  },
+  "recall 1 unowned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"crew_unowned\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"publish_recall\"}"
+    ],
+    "exitCode": 3
+  },
+  "recall 2 ownership-stale": {
+    "lines": [
+      "Another Operator took ownership of this crew. This token can no longer change state."
+    ],
+    "exitCode": 4
+  },
+  "recall 2 ownership-stale --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"ownership_stale\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"publish_recall\"}"
+    ],
+    "exitCode": 4
+  },
+  "recall 3 request-input-changed": {
+    "lines": [
+      "This request identity already recorded different input. Use a new request identity."
+    ],
+    "exitCode": 2
+  },
+  "recall 3 request-input-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"request_input_changed\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"publish_recall\"}"
+    ],
+    "exitCode": 2
+  },
+  "recall 4 planned": {
+    "lines": [
+      "Recall plan rc1 for s1, stack publication 2:",
+      "  #7, #8 become drafts with one comment each.",
+      "Ask the person to read every comment in the file below and to approve this exact plan revision.",
+      "Recall with: operator publish recall --request <id> --owner-token <token> --source s1 --plan-revision rc1",
+      "Every comment: plans/r1.md"
+    ],
+    "exitCode": 0
+  },
+  "recall 4 planned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"recall_planned\",\"blockers\":[],\"operation\":\"publish_recall\",\"data\":{\"sourceId\":\"s1\",\"publication\":2,\"planRevision\":\"rc1\",\"planPath\":\"plans/r1.md\",\"pullRequests\":[7,8],\"replaced\":true,\"approval\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"},\"command\":\"operator publish recall --request <id> --owner-token <token> --source s1 --plan-revision rc1\"}}"
+    ],
+    "exitCode": 0
+  },
+  "recall 5 nothing-to-recall": {
+    "lines": ["No commit to change is inside an open pull request of s1."],
+    "exitCode": 3
+  },
+  "recall 5 nothing-to-recall --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"nothing_to_recall\",\"blockers\":[{\"reason\":\"nothing_to_recall\",\"sourceId\":\"s1\"}],\"operation\":\"publish_recall\"}"
+    ],
+    "exitCode": 3
+  },
+  "recall 6 plan-revision-changed": {
+    "lines": ["The recall plan is now different, not pr1. Nothing was recalled. Plan it again."],
+    "exitCode": 4
+  },
+  "recall 6 plan-revision-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"plan_revision_changed\",\"blockers\":[{\"reason\":\"plan_revision_changed\",\"status\":\"plan-revision-changed\",\"stated\":\"pr1\",\"planned\":null,\"planPath\":null}],\"operation\":\"publish_recall\"}"
+    ],
+    "exitCode": 4
+  },
+  "recall 7 plan-revision-changed": {
+    "lines": ["The recall plan is now pr2, not pr1. Nothing was recalled. Plan it again."],
+    "exitCode": 4
+  },
+  "recall 7 plan-revision-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"plan_revision_changed\",\"blockers\":[{\"reason\":\"plan_revision_changed\",\"status\":\"plan-revision-changed\",\"stated\":\"pr1\",\"planned\":\"pr2\",\"planPath\":\"plans/p2.md\"}],\"operation\":\"publish_recall\"}"
+    ],
+    "exitCode": 4
+  },
+  "recall 8 approval-required": {
+    "lines": [
+      "Nothing was recalled. Ask the person to read the plan and approve this exact request:",
+      "  action publish, scope s1, targets t1, t2, request revision pv1.",
+      "The plan: plans/p1.md"
+    ],
+    "exitCode": 3
+  },
+  "recall 8 approval-required --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"approval_required\",\"blockers\":[{\"reason\":\"approval_required\",\"approval\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"},\"planPath\":\"plans/p1.md\"}],\"operation\":\"publish_recall\"}"
+    ],
+    "exitCode": 3
+  },
+  "recall 9 recalled": {
+    "lines": [
+      "Stack publication 2: #7, #8 are drafts with the reason.",
+      "The change can run on the integration branch now. Run `operator crew next`."
+    ],
+    "exitCode": 0
+  },
+  "recall 9 recalled --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"stack_recalled\",\"blockers\":[],\"operation\":\"publish_recall\",\"data\":{\"status\":\"recalled\",\"publication\":2,\"pullRequests\":[7,8],\"closed\":false}}"
+    ],
+    "exitCode": 0
+  },
+  "recall 10 recalled": {
+    "lines": [
+      "Stack publication 2: #7, #8 are drafts with the reason, and closed.",
+      "No new stack publication replaces them. No branch is deleted."
+    ],
+    "exitCode": 0
+  },
+  "recall 10 recalled --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"stack_recalled\",\"blockers\":[],\"operation\":\"publish_recall\",\"data\":{\"status\":\"recalled\",\"publication\":2,\"pullRequests\":[7,8],\"closed\":true}}"
+    ],
+    "exitCode": 0
+  },
+  "recall 11 effect-stopped": {
+    "lines": [
+      "Stack publication 2 stopped at its push write: uncertain.",
+      "Run the same command again. It reads GitHub first and writes only what is missing."
+    ],
+    "exitCode": 5
+  },
+  "recall 11 effect-stopped --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"uncertain\",\"reason\":\"publish_uncertain\",\"blockers\":[{\"reason\":\"publish_uncertain\",\"publication\":2,\"effect\":{\"id\":\"e1\",\"kind\":\"push\",\"position\":1},\"outcome\":{\"status\":\"uncertain\",\"detail\":\"d\"},\"settlement\":null}],\"operation\":\"publish_recall\"}"
+    ],
+    "exitCode": 5
+  },
+  "recall 12 effect-stopped": {
+    "lines": [
+      "Stack publication 2 stopped at its push write: uncertain.",
+      "Run the same command again. It reads GitHub first and writes only what is missing.",
+      "When the person accepts it as GitHub shows it, record their approval of this exact request:",
+      "  action publish, scope s1, targets t1, t2, request revision pv1."
+    ],
+    "exitCode": 5
+  },
+  "recall 12 effect-stopped --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"uncertain\",\"reason\":\"publish_uncertain\",\"blockers\":[{\"reason\":\"publish_uncertain\",\"publication\":2,\"effect\":{\"id\":\"e1\",\"kind\":\"push\",\"position\":1},\"outcome\":{\"status\":\"uncertain\",\"detail\":\"d\"},\"settlement\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"}}],\"operation\":\"publish_recall\"}"
+    ],
+    "exitCode": 5
+  },
+  "recall 13 effect-stopped": {
+    "lines": [
+      "Stack publication 2 stopped at its push write: conflict.",
+      "A person settles this. Operator writes nothing over it."
+    ],
+    "exitCode": 4
+  },
+  "recall 13 effect-stopped --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"publish_conflict\",\"blockers\":[{\"reason\":\"publish_conflict\",\"publication\":2,\"effect\":{\"id\":\"e1\",\"kind\":\"push\",\"position\":1},\"outcome\":{\"status\":\"conflict\",\"detail\":\"d\"},\"settlement\":null}],\"operation\":\"publish_recall\"}"
+    ],
+    "exitCode": 4
+  },
+  "recall 14 effect-stopped": {
+    "lines": [
+      "Stack publication 2 stopped at its push write: conflict.",
+      "A person settles this. Operator writes nothing over it.",
+      "When the person accepts it as GitHub shows it, record their approval of this exact request:",
+      "  action publish, scope s1, targets t1, t2, request revision pv1."
+    ],
+    "exitCode": 4
+  },
+  "recall 14 effect-stopped --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"publish_conflict\",\"blockers\":[{\"reason\":\"publish_conflict\",\"publication\":2,\"effect\":{\"id\":\"e1\",\"kind\":\"push\",\"position\":1},\"outcome\":{\"status\":\"conflict\",\"detail\":\"d\"},\"settlement\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"}}],\"operation\":\"publish_recall\"}"
+    ],
+    "exitCode": 4
+  },
+  "recall 15 effect-stopped": {
+    "lines": [
+      "Stack publication 2 stopped at its push write: failed.",
+      "A person settles this. Operator writes nothing over it."
+    ],
+    "exitCode": 4
+  },
+  "recall 15 effect-stopped --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"publish_failed\",\"blockers\":[{\"reason\":\"publish_failed\",\"publication\":2,\"effect\":{\"id\":\"e1\",\"kind\":\"push\",\"position\":1},\"outcome\":{\"status\":\"failed\",\"detail\":\"d\"},\"settlement\":null}],\"operation\":\"publish_recall\"}"
+    ],
+    "exitCode": 4
+  },
+  "recall 16 effect-stopped": {
+    "lines": [
+      "Stack publication 2 stopped at its push write: failed.",
+      "A person settles this. Operator writes nothing over it.",
+      "When the person accepts it as GitHub shows it, record their approval of this exact request:",
+      "  action publish, scope s1, targets t1, t2, request revision pv1."
+    ],
+    "exitCode": 4
+  },
+  "recall 16 effect-stopped --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"publish_failed\",\"blockers\":[{\"reason\":\"publish_failed\",\"publication\":2,\"effect\":{\"id\":\"e1\",\"kind\":\"push\",\"position\":1},\"outcome\":{\"status\":\"failed\",\"detail\":\"d\"},\"settlement\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"}}],\"operation\":\"publish_recall\"}"
+    ],
+    "exitCode": 4
+  },
+  "recall 17 unknown-source": {
+    "lines": ["No source s1 is recorded."],
+    "exitCode": 2
+  },
+  "recall 17 unknown-source --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_source\",\"blockers\":[{\"reason\":\"unknown_source\",\"sourceId\":\"s1\"}],\"operation\":\"publish_recall\"}"
+    ],
+    "exitCode": 2
+  },
+  "recall 18 unread": {
+    "lines": ["Git cannot read the integration branch: det"],
+    "exitCode": 5
+  },
+  "recall 18 unread --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"uncertain\",\"reason\":\"integration_branch_unread\",\"blockers\":[{\"reason\":\"integration_branch_unread\",\"detail\":\"det\"}],\"operation\":\"publish_recall\"}"
+    ],
+    "exitCode": 5
+  },
+  "recall 19 refused": {
+    "lines": [],
+    "exitCode": 2
+  },
+  "recall 19 refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"invalid_arguments\",\"blockers\":[],\"operation\":\"parse_arguments\"}"
+    ],
+    "exitCode": 2
+  },
+  "planRebase 0 state-missing": {
+    "lines": ["This project holds no crew state. Run `operator crew own` to start a crew."],
+    "exitCode": 3
+  },
+  "planRebase 0 state-missing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"state_missing\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_rebase_plan\"}"
+    ],
+    "exitCode": 3
+  },
+  "planRebase 1 planned": {
+    "lines": [
+      "Rebase plan rb1 for s1:",
+      "  operator/s1 moves from base b0 to b1.",
+      "  1 landing(s) leave the branch because their pull request merged, 2 land again, and 0 are taken out.",
+      "Ask the person to read the plan and to approve this exact plan revision.",
+      "Rebase with: operator work rebase --request <id> --owner-token <token> --source s1 --base b1 --plan-revision rb1",
+      "Every commit and refusal: plans/b1.md"
+    ],
+    "exitCode": 0
+  },
+  "planRebase 1 planned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"rebase_planned\",\"blockers\":[],\"operation\":\"work_rebase_plan\",\"data\":{\"sourceId\":\"s1\",\"branch\":\"operator/s1\",\"planRevision\":\"rb1\",\"planPath\":\"plans/b1.md\",\"from\":{\"base\":\"b0\",\"tip\":\"t0\"},\"to\":{\"base\":\"b1\",\"tip\":\"t1\"},\"target\":{\"name\":\"main\",\"tip\":\"tt\"},\"counts\":{\"merged\":1,\"relanded\":2,\"takenOut\":0},\"gate\":{\"status\":\"passed\",\"commit\":\"gc\",\"parent\":null},\"approval\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"},\"command\":\"operator work rebase --request <id> --owner-token <token> --source s1 --base b1 --plan-revision rb1\"}}"
+    ],
+    "exitCode": 0
+  },
+  "planRebase 2 planned": {
+    "lines": [
+      "Rebase plan (no revision) for s1:",
+      "  2 refusal(s): integration_branch_moved, rebase_conflict.",
+      "Nothing can be rebased until each refusal is settled.",
+      "Every commit and refusal: plans/b1.md"
+    ],
+    "exitCode": 2
+  },
+  "planRebase 2 planned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"integration_branch_moved\",\"blockers\":[{\"reason\":\"integration_branch_moved\",\"detail\":\"d1\"},{\"reason\":\"rebase_conflict\",\"detail\":\"d2\"}],\"operation\":\"work_rebase_plan\",\"data\":{\"sourceId\":\"s1\",\"branch\":null,\"planRevision\":null,\"planPath\":\"plans/b1.md\",\"from\":null,\"to\":null,\"target\":{\"name\":\"main\",\"tip\":\"tt\"},\"counts\":null,\"gate\":null,\"approval\":null,\"command\":null}}"
+    ],
+    "exitCode": 2
+  },
+  "planRebase 3 planned": {
+    "lines": [
+      "Rebase plan rb1 for s1:",
+      "  operator/s1 moves from base b0 to b1.",
+      "  1 landing(s) leave the branch because their pull request merged, 2 land again, and 0 are taken out.",
+      "  The project gate is failed at gc, the next place to gate.",
+      "Ask the person to read the plan and to approve this exact plan revision.",
+      "Rebase with: operator work rebase --request <id> --owner-token <token> --source s1 --base b1 --plan-revision rb1",
+      "Every commit and refusal: plans/b1.md"
+    ],
+    "exitCode": 0
+  },
+  "planRebase 3 planned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"rebase_planned\",\"blockers\":[],\"operation\":\"work_rebase_plan\",\"data\":{\"sourceId\":\"s1\",\"branch\":\"operator/s1\",\"planRevision\":\"rb1\",\"planPath\":\"plans/b1.md\",\"from\":{\"base\":\"b0\",\"tip\":\"t0\"},\"to\":{\"base\":\"b1\",\"tip\":\"t1\"},\"target\":{\"name\":\"main\",\"tip\":\"tt\"},\"counts\":{\"merged\":1,\"relanded\":2,\"takenOut\":0},\"gate\":{\"status\":\"failed\",\"commit\":\"gc\",\"parent\":\"b1\"},\"approval\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"},\"command\":\"operator work rebase --request <id> --owner-token <token> --source s1 --base b1 --plan-revision rb1\"}}"
+    ],
+    "exitCode": 0
+  },
+  "planRebase 4 unknown-source": {
+    "lines": ["No source s1 is recorded."],
+    "exitCode": 2
+  },
+  "planRebase 4 unknown-source --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_source\",\"blockers\":[{\"reason\":\"unknown_source\",\"sourceId\":\"s1\"}],\"operation\":\"work_rebase_plan\"}"
+    ],
+    "exitCode": 2
+  },
+  "rebase 0 state-missing": {
+    "lines": ["This project holds no crew state. Run `operator crew own` to start a crew."],
+    "exitCode": 3
+  },
+  "rebase 0 state-missing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"state_missing\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_rebase\"}"
+    ],
+    "exitCode": 3
+  },
+  "rebase 1 unowned": {
+    "lines": ["No Operator owns this crew. Run `operator crew own` first."],
+    "exitCode": 3
+  },
+  "rebase 1 unowned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"crew_unowned\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_rebase\"}"
+    ],
+    "exitCode": 3
+  },
+  "rebase 2 ownership-stale": {
+    "lines": [
+      "Another Operator took ownership of this crew. This token can no longer change state."
+    ],
+    "exitCode": 4
+  },
+  "rebase 2 ownership-stale --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"ownership_stale\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_rebase\"}"
+    ],
+    "exitCode": 4
+  },
+  "rebase 3 request-input-changed": {
+    "lines": [
+      "This request identity already recorded different input. Use a new request identity."
+    ],
+    "exitCode": 2
+  },
+  "rebase 3 request-input-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"request_input_changed\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_rebase\"}"
+    ],
+    "exitCode": 2
+  },
+  "rebase 4 unknown-source": {
+    "lines": ["No source s1 is recorded."],
+    "exitCode": 2
+  },
+  "rebase 4 unknown-source --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_source\",\"blockers\":[{\"reason\":\"unknown_source\",\"sourceId\":\"s1\"}],\"operation\":\"work_rebase\"}"
+    ],
+    "exitCode": 2
+  },
+  "rebase 5 refused": {
+    "lines": [
+      "Rebase plan rb1 for s1:",
+      "  operator/s1 moves from base b0 to b1.",
+      "  1 landing(s) leave the branch because their pull request merged, 2 land again, and 0 are taken out.",
+      "Ask the person to read the plan and to approve this exact plan revision.",
+      "Rebase with: operator work rebase --request <id> --owner-token <token> --source s1 --base b1 --plan-revision rb1",
+      "Every commit and refusal: plans/b1.md"
+    ],
+    "exitCode": 0
+  },
+  "rebase 5 refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"rebase_planned\",\"blockers\":[],\"operation\":\"work_rebase\",\"data\":{\"sourceId\":\"s1\",\"branch\":\"operator/s1\",\"planRevision\":\"rb1\",\"planPath\":\"plans/b1.md\",\"from\":{\"base\":\"b0\",\"tip\":\"t0\"},\"to\":{\"base\":\"b1\",\"tip\":\"t1\"},\"target\":{\"name\":\"main\",\"tip\":\"tt\"},\"counts\":{\"merged\":1,\"relanded\":2,\"takenOut\":0},\"gate\":{\"status\":\"passed\",\"commit\":\"gc\",\"parent\":null},\"approval\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"},\"command\":\"operator work rebase --request <id> --owner-token <token> --source s1 --base b1 --plan-revision rb1\"}}"
+    ],
+    "exitCode": 0
+  },
+  "rebase 6 refused": {
+    "lines": [
+      "Rebase plan (no revision) for s1:",
+      "  2 refusal(s): integration_branch_moved, rebase_conflict.",
+      "Nothing can be rebased until each refusal is settled.",
+      "Every commit and refusal: plans/b1.md"
+    ],
+    "exitCode": 2
+  },
+  "rebase 6 refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"integration_branch_moved\",\"blockers\":[{\"reason\":\"integration_branch_moved\",\"detail\":\"d1\"},{\"reason\":\"rebase_conflict\",\"detail\":\"d2\"}],\"operation\":\"work_rebase\",\"data\":{\"sourceId\":\"s1\",\"branch\":null,\"planRevision\":null,\"planPath\":\"plans/b1.md\",\"from\":null,\"to\":null,\"target\":{\"name\":\"main\",\"tip\":\"tt\"},\"counts\":null,\"gate\":null,\"approval\":null,\"command\":null}}"
+    ],
+    "exitCode": 2
+  },
+  "rebase 7 refused": {
+    "lines": [
+      "Rebase plan rb1 for s1:",
+      "  operator/s1 moves from base b0 to b1.",
+      "  1 landing(s) leave the branch because their pull request merged, 2 land again, and 0 are taken out.",
+      "  The project gate is failed at gc, the next place to gate.",
+      "Ask the person to read the plan and to approve this exact plan revision.",
+      "Rebase with: operator work rebase --request <id> --owner-token <token> --source s1 --base b1 --plan-revision rb1",
+      "Every commit and refusal: plans/b1.md"
+    ],
+    "exitCode": 0
+  },
+  "rebase 7 refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"rebase_planned\",\"blockers\":[],\"operation\":\"work_rebase\",\"data\":{\"sourceId\":\"s1\",\"branch\":\"operator/s1\",\"planRevision\":\"rb1\",\"planPath\":\"plans/b1.md\",\"from\":{\"base\":\"b0\",\"tip\":\"t0\"},\"to\":{\"base\":\"b1\",\"tip\":\"t1\"},\"target\":{\"name\":\"main\",\"tip\":\"tt\"},\"counts\":{\"merged\":1,\"relanded\":2,\"takenOut\":0},\"gate\":{\"status\":\"failed\",\"commit\":\"gc\",\"parent\":\"b1\"},\"approval\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"},\"command\":\"operator work rebase --request <id> --owner-token <token> --source s1 --base b1 --plan-revision rb1\"}}"
+    ],
+    "exitCode": 0
+  },
+  "rebase 8 plan-revision-changed": {
+    "lines": ["The plan is now refused, not pr1. Nothing was rebased."],
+    "exitCode": 4
+  },
+  "rebase 8 plan-revision-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"plan_revision_changed\",\"blockers\":[{\"reason\":\"plan_revision_changed\",\"status\":\"plan-revision-changed\",\"stated\":\"pr1\",\"planned\":null,\"planPath\":null}],\"operation\":\"work_rebase\"}"
+    ],
+    "exitCode": 4
+  },
+  "rebase 9 plan-revision-changed": {
+    "lines": [
+      "The plan is now pr2, not pr1. Nothing was rebased.",
+      "Read the new plan: plans/p2.md"
+    ],
+    "exitCode": 4
+  },
+  "rebase 9 plan-revision-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"plan_revision_changed\",\"blockers\":[{\"reason\":\"plan_revision_changed\",\"status\":\"plan-revision-changed\",\"stated\":\"pr1\",\"planned\":\"pr2\",\"planPath\":\"plans/p2.md\"}],\"operation\":\"work_rebase\"}"
+    ],
+    "exitCode": 4
+  },
+  "rebase 10 approval-required": {
+    "lines": [
+      "Nothing was rebased. Ask the person to read the plan and approve this exact request:",
+      "  action publish, scope s1, targets t1, t2, request revision pv1.",
+      "The plan: plans/p1.md"
+    ],
+    "exitCode": 3
+  },
+  "rebase 10 approval-required --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"approval_required\",\"blockers\":[{\"reason\":\"approval_required\",\"approval\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"},\"planPath\":\"plans/p1.md\"}],\"operation\":\"work_rebase\"}"
+    ],
+    "exitCode": 3
+  },
+  "rebase 11 gate-not-passed": {
+    "lines": [
+      "The project gate has not passed at the new base, so nothing was recorded and the branch did not move.",
+      "Run `operator gate run --source s1 --base b1` first."
+    ],
+    "exitCode": 6
+  },
+  "rebase 11 gate-not-passed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"pending\",\"reason\":\"gate_pending\",\"blockers\":[{\"reason\":\"gate_pending\",\"commit\":\"gc\",\"parent\":null,\"key\":{\"tree\":\"tr\"},\"runIds\":[\"g1\",\"g2\"]}],\"operation\":\"work_rebase\"}"
+    ],
+    "exitCode": 6
+  },
+  "rebase 12 gate-not-passed": {
+    "lines": [
+      "The project gate has not passed at commit gc on p1, so nothing was recorded and the branch did not move.",
+      "Run `operator gate run --source s1 --base b1` first."
+    ],
+    "exitCode": 6
+  },
+  "rebase 12 gate-not-passed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"pending\",\"reason\":\"gate_pending\",\"blockers\":[{\"reason\":\"gate_pending\",\"commit\":\"gc\",\"parent\":\"p1\",\"key\":{\"tree\":\"tr\"},\"runIds\":[\"g1\",\"g2\"]}],\"operation\":\"work_rebase\"}"
+    ],
+    "exitCode": 6
+  },
+  "rebase 13 gate-not-passed": {
+    "lines": [
+      "The project gate has not passed at the new base, so nothing was recorded and the branch did not move.",
+      "Gate run g1, g2 still runs. Wait for its outcome."
+    ],
+    "exitCode": 6
+  },
+  "rebase 13 gate-not-passed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"pending\",\"reason\":\"gate_running\",\"blockers\":[{\"reason\":\"gate_running\",\"commit\":\"gc\",\"parent\":null,\"key\":{\"tree\":\"tr\"},\"runIds\":[\"g1\",\"g2\"]}],\"operation\":\"work_rebase\"}"
+    ],
+    "exitCode": 6
+  },
+  "rebase 14 gate-not-passed": {
+    "lines": [
+      "The project gate has not passed at commit gc on p1, so nothing was recorded and the branch did not move.",
+      "Gate run g1, g2 still runs. Wait for its outcome."
+    ],
+    "exitCode": 6
+  },
+  "rebase 14 gate-not-passed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"pending\",\"reason\":\"gate_running\",\"blockers\":[{\"reason\":\"gate_running\",\"commit\":\"gc\",\"parent\":\"p1\",\"key\":{\"tree\":\"tr\"},\"runIds\":[\"g1\",\"g2\"]}],\"operation\":\"work_rebase\"}"
+    ],
+    "exitCode": 6
+  },
+  "rebase 15 gate-not-passed": {
+    "lines": [
+      "The project gate has not passed at the new base, so nothing was recorded and the branch did not move.",
+      "It is failed in gate run g1, g2. Read it with `operator gate show --run <id>`. Only the person clears a failing base: by a fixed target and a new base, or a fresh series."
+    ],
+    "exitCode": 4
+  },
+  "rebase 15 gate-not-passed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"gate_failed\",\"blockers\":[{\"reason\":\"gate_failed\",\"commit\":\"gc\",\"parent\":null,\"key\":{\"tree\":\"tr\"},\"runIds\":[\"g1\",\"g2\"]}],\"operation\":\"work_rebase\"}"
+    ],
+    "exitCode": 4
+  },
+  "rebase 16 gate-not-passed": {
+    "lines": [
+      "The project gate has not passed at commit gc on p1, so nothing was recorded and the branch did not move.",
+      "It is failed in gate run g1, g2. Read it with `operator gate show --run <id>`."
+    ],
+    "exitCode": 4
+  },
+  "rebase 16 gate-not-passed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"gate_failed\",\"blockers\":[{\"reason\":\"gate_failed\",\"commit\":\"gc\",\"parent\":\"p1\",\"key\":{\"tree\":\"tr\"},\"runIds\":[\"g1\",\"g2\"]}],\"operation\":\"work_rebase\"}"
+    ],
+    "exitCode": 4
+  },
+  "rebase 17 gate-not-passed": {
+    "lines": [
+      "The project gate has not passed at the new base, so nothing was recorded and the branch did not move.",
+      "It is flaky in gate run g1, g2. Read it with `operator gate show --run <id>`. Only the person clears a failing base: by a fixed target and a new base, or a fresh series."
+    ],
+    "exitCode": 4
+  },
+  "rebase 17 gate-not-passed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"gate_flaky\",\"blockers\":[{\"reason\":\"gate_flaky\",\"commit\":\"gc\",\"parent\":null,\"key\":{\"tree\":\"tr\"},\"runIds\":[\"g1\",\"g2\"]}],\"operation\":\"work_rebase\"}"
+    ],
+    "exitCode": 4
+  },
+  "rebase 18 gate-not-passed": {
+    "lines": [
+      "The project gate has not passed at commit gc on p1, so nothing was recorded and the branch did not move.",
+      "It is flaky in gate run g1, g2. Read it with `operator gate show --run <id>`."
+    ],
+    "exitCode": 4
+  },
+  "rebase 18 gate-not-passed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"gate_flaky\",\"blockers\":[{\"reason\":\"gate_flaky\",\"commit\":\"gc\",\"parent\":\"p1\",\"key\":{\"tree\":\"tr\"},\"runIds\":[\"g1\",\"g2\"]}],\"operation\":\"work_rebase\"}"
+    ],
+    "exitCode": 4
+  },
+  "rebase 19 gate-not-passed": {
+    "lines": [
+      "The project gate has not passed at the new base, so nothing was recorded and the branch did not move.",
+      "Run `operator gate run --source s1 --base b1` first."
+    ],
+    "exitCode": 6
+  },
+  "rebase 19 gate-not-passed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"pending\",\"reason\":\"gate_pending\",\"blockers\":[{\"reason\":\"gate_pending\",\"commit\":\"gc\",\"parent\":null,\"key\":{\"tree\":\"tr\"},\"runIds\":[\"g1\",\"g2\"]}],\"operation\":\"work_rebase\"}"
+    ],
+    "exitCode": 6
+  },
+  "rebase 20 rebase-pending": {
+    "lines": [
+      "Rebase rb0 of this source has no recorded outcome. Repeat it with plan revision rb0 first."
+    ],
+    "exitCode": 6
+  },
+  "rebase 20 rebase-pending --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"pending\",\"reason\":\"rebase_pending\",\"blockers\":[{\"reason\":\"rebase_pending\",\"rebaseId\":\"rb0\",\"planRevision\":\"rb0\"}],\"operation\":\"work_rebase\"}"
+    ],
+    "exitCode": 6
+  },
+  "rebase 21 rebase-stopped": {
+    "lines": [
+      "Rebase rb1 is recorded, and the branch did not move: d",
+      "Repeat the same command when it is settled. Operator never resets or adopts a moved branch."
+    ],
+    "exitCode": 5
+  },
+  "rebase 21 rebase-stopped --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"uncertain\",\"reason\":\"integration_branch_unread\",\"blockers\":[{\"reason\":\"integration_branch_unread\",\"rebaseId\":\"rb1\",\"detail\":\"d\"}],\"operation\":\"work_rebase\"}"
+    ],
+    "exitCode": 5
+  },
+  "rebase 22 rebase-stopped": {
+    "lines": [
+      "Rebase rb1 is recorded, and the branch did not move: d",
+      "Repeat the same command when it is settled. Operator never resets or adopts a moved branch."
+    ],
+    "exitCode": 4
+  },
+  "rebase 22 rebase-stopped --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"integration_branch_moved\",\"blockers\":[{\"reason\":\"integration_branch_moved\",\"rebaseId\":\"rb1\",\"detail\":\"d\"}],\"operation\":\"work_rebase\"}"
+    ],
+    "exitCode": 4
+  },
+  "rebase 23 rebased": {
+    "lines": [
+      "operator/s1 is rebased from base b0 to b1, tip t1.",
+      "  1 landing(s) left the branch, 1 landed again, and 1 were taken out and wait for an integration cycle.",
+      "Run `operator crew next` for what follows."
+    ],
+    "exitCode": 0
+  },
+  "rebase 23 rebased --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"rebased\",\"blockers\":[],\"operation\":\"work_rebase\",\"data\":{\"rebaseId\":\"rb1\",\"branch\":\"operator/s1\",\"from\":{\"base\":\"b0\",\"tip\":\"t0\"},\"to\":{\"base\":\"b1\",\"tip\":\"t1\"},\"record\":{\"merged\":[\"m1\"],\"relanded\":[\"l1\"],\"takenOut\":[\"o1\"]},\"branchReview\":null}}"
+    ],
+    "exitCode": 0
+  },
+  "rebase 24 rebased": {
+    "lines": [
+      "operator/s1 is rebased from base b0 to b1, tip t1.",
+      "  1 landing(s) left the branch, 1 landed again, and 1 were taken out and wait for an integration cycle.",
+      "  Branch review rv1 is registered on the new head.",
+      "Run `operator crew next` for what follows."
+    ],
+    "exitCode": 0
+  },
+  "rebase 24 rebased --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"rebased\",\"blockers\":[],\"operation\":\"work_rebase\",\"data\":{\"rebaseId\":\"rb1\",\"branch\":\"operator/s1\",\"from\":{\"base\":\"b0\",\"tip\":\"t0\"},\"to\":{\"base\":\"b1\",\"tip\":\"t1\"},\"record\":{\"merged\":[\"m1\"],\"relanded\":[\"l1\"],\"takenOut\":[\"o1\"]},\"branchReview\":{\"reviewId\":\"rv1\"}}}"
+    ],
+    "exitCode": 0
+  },
+  "planRegistration 0 state-missing": {
+    "lines": ["This project holds no crew state. Run `operator crew own` to start a crew."],
+    "exitCode": 3
+  },
+  "planRegistration 0 state-missing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"state_missing\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_register_plan\"}"
+    ],
+    "exitCode": 3
+  },
+  "planRegistration 1 unowned": {
+    "lines": ["No Operator owns this crew. Run `operator crew own` first."],
+    "exitCode": 3
+  },
+  "planRegistration 1 unowned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"crew_unowned\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_register_plan\"}"
+    ],
+    "exitCode": 3
+  },
+  "planRegistration 2 ownership-stale": {
+    "lines": [
+      "Another Operator took ownership of this crew. This token can no longer change state."
+    ],
+    "exitCode": 4
+  },
+  "planRegistration 2 ownership-stale --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"ownership_stale\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_register_plan\"}"
+    ],
+    "exitCode": 4
+  },
+  "planRegistration 3 request-input-changed": {
+    "lines": [
+      "This request identity already recorded different input. Use a new request identity."
+    ],
+    "exitCode": 2
+  },
+  "planRegistration 3 request-input-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"request_input_changed\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_register_plan\"}"
+    ],
+    "exitCode": 2
+  },
+  "planRegistration 4 invalid-input": {
+    "lines": ["The request is not valid:", "  i1", "  i2"],
+    "exitCode": 2
+  },
+  "planRegistration 4 invalid-input --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"invalid_work_input\",\"blockers\":[{\"reason\":\"invalid_work_input\",\"issue\":\"i1\"},{\"reason\":\"invalid_work_input\",\"issue\":\"i2\"}],\"operation\":\"work_register_plan\"}"
+    ],
+    "exitCode": 2
+  },
+  "planRegistration 5 planned": {
+    "lines": [
+      "Plan rg1 for s1:",
+      "  2 new, 1 updated, 1 unchanged item(s), 2 satisfied blocker(s), 1 closed sub-issue(s) not registered.",
+      "Register it with: operator work register --request <id> --owner-token <token> --input in.json --plan-revision rg1",
+      "Every item, blocker, and refusal: plans/g1.md"
+    ],
+    "exitCode": 0
+  },
+  "planRegistration 5 planned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"registration_planned\",\"blockers\":[],\"operation\":\"work_register_plan\",\"data\":{\"source\":{\"id\":\"s1\",\"change\":\"unchanged\"},\"planRevision\":\"rg1\",\"counts\":{\"new\":2,\"updated\":1,\"unchanged\":1,\"withdrawn\":0,\"skipped\":1,\"satisfiedBlockers\":2,\"refusals\":0},\"planPath\":\"plans/g1.md\",\"approval\":null,\"command\":\"operator work register --request <id> --owner-token <token> --input in.json --plan-revision rg1\"}}"
+    ],
+    "exitCode": 0
+  },
+  "planRegistration 6 planned": {
+    "lines": [
+      "Plan rg1 for s1:",
+      "  2 new, 1 updated, 1 unchanged item(s), 2 satisfied blocker(s), 1 closed sub-issue(s) not registered.",
+      "  The parent issue changed, so this plan records a new source revision.",
+      "  1 item(s) were removed from the parent, so this plan withdraws them.",
+      "Ask the person to approve this plan revision first. Only their approval of this exact revision records a changed source, a changed item, or a withdrawal.",
+      "Register it with: operator work register --request <id> --owner-token <token> --input in.json --plan-revision rg1",
+      "Every item, blocker, and refusal: plans/g1.md"
+    ],
+    "exitCode": 0
+  },
+  "planRegistration 6 planned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"registration_planned\",\"blockers\":[],\"operation\":\"work_register_plan\",\"data\":{\"source\":{\"id\":\"s1\",\"change\":\"changed\"},\"planRevision\":\"rg1\",\"counts\":{\"new\":2,\"updated\":1,\"unchanged\":1,\"withdrawn\":1,\"skipped\":1,\"satisfiedBlockers\":2,\"refusals\":0},\"planPath\":\"plans/g1.md\",\"approval\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"},\"command\":\"operator work register --request <id> --owner-token <token> --input in.json --plan-revision rg1\"}}"
+    ],
+    "exitCode": 0
+  },
+  "planRegistration 7 planned": {
+    "lines": [
+      "Plan rg1 for s1:",
+      "  2 new, 1 updated, 1 unchanged item(s), 2 satisfied blocker(s), 1 closed sub-issue(s) not registered.",
+      "  3 refusal(s): blocker_unknown x2, item_unreadable x1.",
+      "Nothing can be registered until each refusal is settled.",
+      "Every item, blocker, and refusal: plans/g1.md"
+    ],
+    "exitCode": 2
+  },
+  "planRegistration 7 planned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"registration_refused\",\"blockers\":[{\"reason\":\"blocker_unknown\",\"count\":2},{\"reason\":\"item_unreadable\",\"count\":1}],\"operation\":\"work_register_plan\",\"data\":{\"source\":{\"id\":\"s1\",\"change\":\"unchanged\"},\"planRevision\":\"rg1\",\"counts\":{\"new\":2,\"updated\":1,\"unchanged\":1,\"withdrawn\":0,\"skipped\":1,\"satisfiedBlockers\":2,\"refusals\":3},\"planPath\":\"plans/g1.md\",\"approval\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"},\"command\":null}}"
+    ],
+    "exitCode": 2
+  },
+  "register 0 state-missing": {
+    "lines": ["This project holds no crew state. Run `operator crew own` to start a crew."],
+    "exitCode": 3
+  },
+  "register 0 state-missing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"state_missing\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_register\"}"
+    ],
+    "exitCode": 3
+  },
+  "register 1 unowned": {
+    "lines": ["No Operator owns this crew. Run `operator crew own` first."],
+    "exitCode": 3
+  },
+  "register 1 unowned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"crew_unowned\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_register\"}"
+    ],
+    "exitCode": 3
+  },
+  "register 2 ownership-stale": {
+    "lines": [
+      "Another Operator took ownership of this crew. This token can no longer change state."
+    ],
+    "exitCode": 4
+  },
+  "register 2 ownership-stale --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"ownership_stale\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_register\"}"
+    ],
+    "exitCode": 4
+  },
+  "register 3 request-input-changed": {
+    "lines": [
+      "This request identity already recorded different input. Use a new request identity."
+    ],
+    "exitCode": 2
+  },
+  "register 3 request-input-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"request_input_changed\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"work_register\"}"
+    ],
+    "exitCode": 2
+  },
+  "register 4 invalid-input": {
+    "lines": ["The request is not valid:", "  i1", "  i2"],
+    "exitCode": 2
+  },
+  "register 4 invalid-input --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"invalid_work_input\",\"blockers\":[{\"reason\":\"invalid_work_input\",\"issue\":\"i1\"},{\"reason\":\"invalid_work_input\",\"issue\":\"i2\"}],\"operation\":\"work_register\"}"
+    ],
+    "exitCode": 2
+  },
+  "register 5 refused": {
+    "lines": [
+      "Plan rg1 for s1:",
+      "  2 new, 1 updated, 1 unchanged item(s), 2 satisfied blocker(s), 1 closed sub-issue(s) not registered.",
+      "Register it with: operator work register --request <id> --owner-token <token> --input in.json --plan-revision rg1",
+      "Every item, blocker, and refusal: "
+    ],
+    "exitCode": 0
+  },
+  "register 5 refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"registration_planned\",\"blockers\":[],\"operation\":\"work_register\",\"data\":{\"source\":{\"id\":\"s1\",\"change\":\"unchanged\"},\"planRevision\":\"rg1\",\"counts\":{\"new\":2,\"updated\":1,\"unchanged\":1,\"withdrawn\":0,\"skipped\":1,\"satisfiedBlockers\":2,\"refusals\":0},\"planPath\":\"\",\"approval\":null,\"command\":\"operator work register --request <id> --owner-token <token> --input in.json --plan-revision rg1\"}}"
+    ],
+    "exitCode": 0
+  },
+  "register 6 refused": {
+    "lines": [
+      "Plan rg1 for s1:",
+      "  2 new, 1 updated, 1 unchanged item(s), 2 satisfied blocker(s), 1 closed sub-issue(s) not registered.",
+      "  The parent issue changed, so this plan records a new source revision.",
+      "  1 item(s) were removed from the parent, so this plan withdraws them.",
+      "Ask the person to approve this plan revision first. Only their approval of this exact revision records a changed source, a changed item, or a withdrawal.",
+      "Register it with: operator work register --request <id> --owner-token <token> --input in.json --plan-revision rg1",
+      "Every item, blocker, and refusal: "
+    ],
+    "exitCode": 0
+  },
+  "register 6 refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"registration_planned\",\"blockers\":[],\"operation\":\"work_register\",\"data\":{\"source\":{\"id\":\"s1\",\"change\":\"changed\"},\"planRevision\":\"rg1\",\"counts\":{\"new\":2,\"updated\":1,\"unchanged\":1,\"withdrawn\":1,\"skipped\":1,\"satisfiedBlockers\":2,\"refusals\":0},\"planPath\":\"\",\"approval\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"},\"command\":\"operator work register --request <id> --owner-token <token> --input in.json --plan-revision rg1\"}}"
+    ],
+    "exitCode": 0
+  },
+  "register 7 refused": {
+    "lines": [
+      "Plan rg1 for s1:",
+      "  2 new, 1 updated, 1 unchanged item(s), 2 satisfied blocker(s), 1 closed sub-issue(s) not registered.",
+      "  3 refusal(s): blocker_unknown x2, item_unreadable x1.",
+      "Nothing can be registered until each refusal is settled.",
+      "Every item, blocker, and refusal: "
+    ],
+    "exitCode": 2
+  },
+  "register 7 refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"registration_refused\",\"blockers\":[{\"reason\":\"blocker_unknown\",\"count\":2},{\"reason\":\"item_unreadable\",\"count\":1}],\"operation\":\"work_register\",\"data\":{\"source\":{\"id\":\"s1\",\"change\":\"unchanged\"},\"planRevision\":\"rg1\",\"counts\":{\"new\":2,\"updated\":1,\"unchanged\":1,\"withdrawn\":0,\"skipped\":1,\"satisfiedBlockers\":2,\"refusals\":3},\"planPath\":\"\",\"approval\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"},\"command\":null}}"
+    ],
+    "exitCode": 2
+  },
+  "register 8 approval-required": {
+    "lines": [
+      "Plan pv1 records a changed source, a changed item, or a withdrawal, so nothing was registered.",
+      "Ask the person to approve this exact plan revision, then register it again."
+    ],
+    "exitCode": 3
+  },
+  "register 8 approval-required --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"approval_required\",\"blockers\":[{\"reason\":\"approval_required\",\"approval\":{\"action\":\"publish\",\"scope\":\"s1\",\"targets\":[\"t1\",\"t2\"],\"requestRevision\":\"pv1\"}}],\"operation\":\"work_register\"}"
+    ],
+    "exitCode": 3
+  },
+  "register 9 plan-revision-changed": {
+    "lines": [
+      "The tracker or the input changed since plan rg1, so nothing was registered.",
+      "  item k1 updated",
+      "Preview it again with --plan, and register the new plan revision."
+    ],
+    "exitCode": 4
+  },
+  "register 9 plan-revision-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"plan_revision_changed\",\"blockers\":[{\"reason\":\"plan_revision_changed\",\"requested\":\"rg1\",\"found\":\"rg2\",\"differences\":[{\"part\":\"item\",\"key\":\"k1\",\"change\":\"updated\"}]}],\"operation\":\"work_register\"}"
+    ],
+    "exitCode": 4
+  },
+  "register 10 plan-revision-changed": {
+    "lines": [
+      "The tracker or the input changed since plan rg1, so nothing was registered.",
+      "This checkout holds no preview of that plan, so the change cannot be named.",
+      "Preview it again with --plan, and register the new plan revision."
+    ],
+    "exitCode": 4
+  },
+  "register 10 plan-revision-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"plan_revision_changed\",\"blockers\":[{\"reason\":\"plan_revision_changed\",\"requested\":\"rg1\",\"found\":\"rg2\",\"differences\":null}],\"operation\":\"work_register\"}"
+    ],
+    "exitCode": 4
+  },
+  "gateRun 0 state-missing": {
+    "lines": ["This project holds no crew state. Run `operator crew own` to start a crew."],
+    "exitCode": 3
+  },
+  "gateRun 0 state-missing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"state_missing\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"gate_show\"}"
+    ],
+    "exitCode": 3
+  },
+  "gateRun 1 unknown-gate-run": {
+    "lines": ["No gate run g1 is recorded."],
+    "exitCode": 2
+  },
+  "gateRun 1 unknown-gate-run --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_gate_run\",\"blockers\":[{\"reason\":\"unknown_gate_run\",\"runId\":\"g1\"}],\"operation\":\"gate_show\"}"
+    ],
+    "exitCode": 2
+  },
+  "recoverTracker 0 reported": {
+    "lines": [
+      "Step completion of assignment a1 is applied (tracker.completed).",
+      "Operation op1 on github:o/r#3.",
+      "0 write attempt(s), 1 observation(s).",
+      "The observed state is evidence of completion, not proof that Operator caused it."
+    ],
+    "exitCode": 0
+  },
+  "recoverTracker 0 reported --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"tracker.completed\",\"blockers\":[],\"operation\":\"tracker_recover\",\"data\":{\"step\":\"completion\",\"assignmentId\":\"a1\",\"state\":\"applied\",\"reason\":\"tracker.completed\",\"operationId\":\"op1\",\"provider\":\"github\",\"target\":{\"repository\":\"o/r\",\"issue\":3},\"resourceUrl\":null,\"writeAttempts\":[],\"observations\":[{}],\"problems\":[],\"repeated\":false,\"finish\":{\"status\":\"not-finished\",\"detail\":\"two parts are open\"}}}"
+    ],
+    "exitCode": 0
+  },
+  "recoverTracker 1 reported": {
+    "lines": [
+      "Step completion of assignment a1 is applied (tracker.completed).",
+      "Operation op1 on github:o/r#3.",
+      "0 write attempt(s), 1 observation(s).",
+      "The observed state is evidence of completion, not proof that Operator caused it.",
+      "The source is finished. Its gate checkout stays: Herdr did not remove it."
+    ],
+    "exitCode": 0
+  },
+  "recoverTracker 1 reported --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"tracker.completed\",\"blockers\":[],\"operation\":\"tracker_recover\",\"data\":{\"step\":\"completion\",\"assignmentId\":\"a1\",\"state\":\"applied\",\"reason\":\"tracker.completed\",\"operationId\":\"op1\",\"provider\":\"github\",\"target\":{\"repository\":\"o/r\",\"issue\":3},\"resourceUrl\":null,\"writeAttempts\":[],\"observations\":[{}],\"problems\":[],\"repeated\":false,\"finish\":{\"status\":\"finished\",\"gateCheckout\":\"kept\",\"detail\":null}}}"
+    ],
+    "exitCode": 0
+  },
+  "recoverTracker 2 reported": {
+    "lines": [
+      "Step completion of assignment a1 is applied (tracker.completed).",
+      "Operation op1 on github:o/r#3.",
+      "0 write attempt(s), 1 observation(s).",
+      "The observed state is evidence of completion, not proof that Operator caused it.",
+      "The source is finished. Its gate checkout stays: dirty"
+    ],
+    "exitCode": 0
+  },
+  "recoverTracker 2 reported --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"tracker.completed\",\"blockers\":[],\"operation\":\"tracker_recover\",\"data\":{\"step\":\"completion\",\"assignmentId\":\"a1\",\"state\":\"applied\",\"reason\":\"tracker.completed\",\"operationId\":\"op1\",\"provider\":\"github\",\"target\":{\"repository\":\"o/r\",\"issue\":3},\"resourceUrl\":null,\"writeAttempts\":[],\"observations\":[{}],\"problems\":[],\"repeated\":false,\"finish\":{\"status\":\"finished\",\"gateCheckout\":\"kept\",\"detail\":\"dirty\"}}}"
+    ],
+    "exitCode": 0
+  },
+  "recoverTracker 3 reported": {
+    "lines": [
+      "Step completion of assignment a1 is applied (tracker.completed).",
+      "Operation op1 on github:o/r#3.",
+      "0 write attempt(s), 1 observation(s).",
+      "The observed state is evidence of completion, not proof that Operator caused it.",
+      "The source is finished, and its gate checkout is removed. Every branch stays."
+    ],
+    "exitCode": 0
+  },
+  "recoverTracker 3 reported --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"tracker.completed\",\"blockers\":[],\"operation\":\"tracker_recover\",\"data\":{\"step\":\"completion\",\"assignmentId\":\"a1\",\"state\":\"applied\",\"reason\":\"tracker.completed\",\"operationId\":\"op1\",\"provider\":\"github\",\"target\":{\"repository\":\"o/r\",\"issue\":3},\"resourceUrl\":null,\"writeAttempts\":[],\"observations\":[{}],\"problems\":[],\"repeated\":false,\"finish\":{\"status\":\"finished\",\"gateCheckout\":\"removed\",\"detail\":null}}}"
+    ],
+    "exitCode": 0
+  },
+  "recoverTracker 4 reported": {
+    "lines": [
+      "Step resolution of assignment a1 is applied (tracker.completed).",
+      "Operation op1 on github:o/r#3.",
+      "0 write attempt(s), 1 observation(s)."
+    ],
+    "exitCode": 0
+  },
+  "recoverTracker 4 reported --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"tracker.completed\",\"blockers\":[],\"operation\":\"tracker_recover\",\"data\":{\"step\":\"resolution\",\"assignmentId\":\"a1\",\"state\":\"applied\",\"reason\":\"tracker.completed\",\"operationId\":\"op1\",\"provider\":\"github\",\"target\":{\"repository\":\"o/r\",\"issue\":3},\"resourceUrl\":null,\"writeAttempts\":[],\"observations\":[{}],\"problems\":[],\"repeated\":false,\"finish\":null}}"
+    ],
+    "exitCode": 0
   }
 }

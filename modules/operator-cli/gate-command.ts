@@ -2,13 +2,11 @@ import { CrewState } from "../crew-state/main.ts";
 import { GateRunner } from "../gate-runner/main.ts";
 import { ProjectGate } from "../project-gate/main.ts";
 import { type ParsedArguments, readMutation } from "./arguments.ts";
-import { reportSharedFailure } from "./crew-result.ts";
 import {
   answer,
   type Handled,
   type Reason,
   type Refusal,
-  refuse,
   report,
   type SharedStatus,
 } from "./result.ts";
@@ -395,18 +393,17 @@ async function runShow(parsed: ParsedArguments): Promise<Handled> {
     return "invalid-arguments";
   }
   const { result } = await CrewState.gateRun({ projectRoot: process.cwd(), runId });
-  if (reportSharedFailure(parsed, "gate_show", result)) {
+  if (
+    answer(parsed, "gate_show", result, {
+      "unknown-gate-run": () => ({
+        outcome: "invalid",
+        reason: "unknown_gate_run",
+        detail: { runId },
+        lines: [`No gate run ${runId} is recorded.`],
+      }),
+    })
+  ) {
     return "reported";
-  }
-  if (result.status === "unknown-gate-run") {
-    return refuse({
-      json: parsed.json,
-      operation: "gate_show",
-      outcome: "invalid",
-      reason: "unknown_gate_run",
-      detail: { runId },
-      lines: [`No gate run ${runId} is recorded.`],
-    });
   }
   report({
     json: parsed.json,

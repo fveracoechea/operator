@@ -13,7 +13,16 @@ import {
   reportInvalidInput,
   reportSharedFailure,
 } from "./crew-result.ts";
-import { answer, type Handled, type Reason, type Refusals, refuse, report } from "./result.ts";
+import { planPreview } from "./plan-preview.ts";
+import {
+  answer,
+  type Handled,
+  type Reason,
+  type Refusals,
+  refuse,
+  report,
+  reportRefusal,
+} from "./result.ts";
 import { sourceRefusals } from "./source-result.ts";
 
 /** The plan and its file, as the preview returns them. The refusal of a registration gives both. */
@@ -43,8 +52,6 @@ function reportPlan(
 ): Handled {
   const { plan, planPath } = report_;
   const summary = refusalSummary(plan.refusals);
-  const refused = plan.refusals.length > 0;
-  const command = `operator work register --request <id> --owner-token <token> --input ${inputPath} --plan-revision ${plan.planRevision}`;
   const count = (change: string) => plan.items.filter((one) => one.change === change).length;
   const counts = {
     new: count("new"),
@@ -52,13 +59,39 @@ function reportPlan(
     unchanged: count("unchanged"),
     withdrawn: plan.withdrawals.length,
   };
-  report({
-    json: parsed.json,
-    result: {
-      outcome: refused ? "invalid" : "completed",
-      reason: refused ? "registration_refused" : "registration_planned",
-      blockers: summary,
-      operation,
+  return reportRefusal(
+    parsed,
+    operation,
+    planPreview({
+      planned: "registration_planned",
+      summary: [
+        `Plan ${plan.planRevision} for ${plan.source.id}:`,
+        `  ${counts.new} new, ${counts.updated} updated, ${counts.unchanged} unchanged item(s), ${plan.satisfiedBlockers.length} satisfied blocker(s), ${plan.skipped.length} closed sub-issue(s) not registered.`,
+        ...(plan.source.change === "changed"
+          ? ["  The parent issue changed, so this plan records a new source revision."]
+          : []),
+        ...(counts.withdrawn === 0
+          ? []
+          : [
+              `  ${counts.withdrawn} item(s) were removed from the parent, so this plan withdraws them.`,
+            ]),
+      ],
+      refusals: {
+        reason: "registration_refused",
+        count: plan.refusals.length,
+        list: summary.map((one) => `${one.reason} x${one.count}`).join(", "),
+        blockers: summary,
+        nothing: "registered",
+      },
+      ask:
+        plan.approval === null
+          ? null
+          : "Ask the person to approve this plan revision first. Only their approval of this exact revision records a changed source, a changed item, or a withdrawal.",
+      apply: {
+        label: "Register it with",
+        command: `operator work register --request <id> --owner-token <token> --input ${inputPath} --plan-revision ${plan.planRevision}`,
+      },
+      path: { label: "Every item, blocker, and refusal", planPath },
       data: {
         source: plan.source,
         planRevision: plan.planRevision,
@@ -70,37 +103,9 @@ function reportPlan(
         },
         planPath,
         approval: plan.approval,
-        command: refused ? null : command,
       },
-    },
-    lines: [
-      `Plan ${plan.planRevision} for ${plan.source.id}:`,
-      `  ${counts.new} new, ${counts.updated} updated, ${counts.unchanged} unchanged item(s), ${plan.satisfiedBlockers.length} satisfied blocker(s), ${plan.skipped.length} closed sub-issue(s) not registered.`,
-      ...(plan.source.change === "changed"
-        ? ["  The parent issue changed, so this plan records a new source revision."]
-        : []),
-      ...(counts.withdrawn === 0
-        ? []
-        : [
-            `  ${counts.withdrawn} item(s) were removed from the parent, so this plan withdraws them.`,
-          ]),
-      ...(refused
-        ? [
-            `  ${plan.refusals.length} refusal(s): ${summary.map((one) => `${one.reason} x${one.count}`).join(", ")}.`,
-            "Nothing can be registered until each refusal is settled.",
-          ]
-        : [
-            ...(plan.approval === null
-              ? []
-              : [
-                  "Ask the person to approve this plan revision first. Only their approval of this exact revision records a changed source, a changed item, or a withdrawal.",
-                ]),
-            `Register it with: ${command}`,
-          ]),
-      `Every item, blocker, and refusal: ${planPath}`,
-    ],
-  });
-  return "reported";
+    }),
+  );
 }
 
 async function runRegisterPlan(parsed: ParsedArguments, inputPath: string): Promise<Handled> {

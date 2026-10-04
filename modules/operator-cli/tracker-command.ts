@@ -1,6 +1,7 @@
 import { CrewState } from "../crew-state/main.ts";
 import { type ParsedArguments, readRevision } from "./arguments.ts";
 import { readStructuredInput, reportInvalidInput, reportSharedFailure } from "./crew-result.ts";
+import { finishLine } from "./source-finish.ts";
 import {
   type Handled,
   type Operation,
@@ -127,13 +128,7 @@ function reportStep(request: {
         : []),
       ...step.problems.map((problem) => `  ${problem.reason}: ${problem.detail}`),
       ...(blocked === null ? [] : blocked.lines),
-      ...(request.finish?.status === "finished"
-        ? [
-            request.finish.gateCheckout === "kept"
-              ? `The source is finished. Its gate checkout stays: ${request.finish.detail ?? "Herdr did not remove it."}`
-              : "The source is finished, and its gate checkout is removed. Every branch stays.",
-          ]
-        : []),
+      ...(request.finish?.status === "finished" ? [finishLine(request.finish)] : []),
     ],
   });
   return "reported";

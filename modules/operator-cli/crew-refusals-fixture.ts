@@ -385,6 +385,200 @@ const mutation = ["--request", "r", "--owner-token", "o"];
 const assignment = [...mutation, "--assignment", "a1", "--revision", "1"];
 const question = [...mutation, "--question", "q1", "--revision", "1"];
 
+const APPROVAL = { action: "publish", scope: "s1", targets: ["t1", "t2"], requestRevision: "pv1" };
+
+/** A publish plan that ships, and the variants that change its words. */
+const PUBLISH_PLANNED = {
+  status: "planned",
+  sourceId: "s1",
+  repository: "o/r",
+  publication: 2,
+  planRevision: "pv1",
+  planPath: "plans/p1.md",
+  ships: { remote: { name: "origin" }, target: "main", parts: [{ name: "n1" }, { name: "n2" }] },
+  approval: APPROVAL,
+  info: { targetTip: "tt", commitsBehind: 3, mergesCleanly: true, unverifiedRules: ["u1"] },
+  refusals: [],
+  closes: [{ number: 4 }, { number: 6 }],
+  headMoved: [{ number: 5 }],
+};
+
+const PUBLISH_REFUSED = {
+  ...PUBLISH_PLANNED,
+  planRevision: null,
+  ships: null,
+  approval: null,
+  info: { targetTip: null, commitsBehind: null, mergesCleanly: null, unverifiedRules: [] },
+  refusals: [
+    { reason: "source_unfinished", detail: "d1" },
+    { reason: "branch_review_missing", detail: "d2" },
+  ],
+  closes: [],
+  headMoved: [],
+};
+
+const PUBLISH_PREVIEWS = [
+  PUBLISH_PLANNED,
+  PUBLISH_REFUSED,
+  { ...PUBLISH_PLANNED, info: null },
+  { ...PUBLISH_PLANNED, info: { ...PUBLISH_PLANNED.info, mergesCleanly: false } },
+];
+
+const PLAN_MOVED = [
+  { status: "plan-revision-changed", stated: "pr1", planned: null, planPath: null },
+  { status: "plan-revision-changed", stated: "pr1", planned: "pr2", planPath: "plans/p2.md" },
+];
+
+const APPROVAL_REQUIRED = {
+  status: "approval-required",
+  approval: APPROVAL,
+  planPath: "plans/p1.md",
+};
+
+const STOPPED = [
+  { status: "uncertain", detail: "d" },
+  { status: "conflict", detail: "d" },
+  { status: "failed", detail: "d" },
+].flatMap((outcome) =>
+  [null, APPROVAL].map((settlement) => ({
+    status: "effect-stopped",
+    publication: 2,
+    effect: { id: "e1", kind: "push", position: 1 },
+    outcome,
+    settlement,
+  })),
+);
+
+const PLAN_UNREAD = [
+  { status: "unknown-source", sourceId: "s1" },
+  { status: "unread", detail: "det" },
+];
+
+const FINISHES = [
+  { status: "not-finished", detail: "two parts are open" },
+  { status: "finished", gateCheckout: "kept", detail: null },
+  { status: "finished", gateCheckout: "kept", detail: "dirty" },
+  { status: "finished", gateCheckout: "removed", detail: null },
+];
+
+const SEEN = [
+  { part: 1, number: 7, state: "merged", method: "merge", fault: null, detail: null },
+  { part: 2, number: 8, state: "merged", method: "squash", fault: "squashed", detail: "fd" },
+  { part: 3, number: 9, state: "open", method: null, fault: null, detail: null },
+];
+
+const RECALL_PLANNED = {
+  status: "planned",
+  sourceId: "s1",
+  publication: 2,
+  planRevision: "rc1",
+  parts: [{ number: 7 }, { number: 8 }],
+  replaced: true,
+  approval: APPROVAL,
+  planPath: "plans/r1.md",
+};
+
+const REBASE_PLANNED = {
+  status: "planned",
+  sourceId: "s1",
+  target: { name: "main", tip: "tt" },
+  refusals: [],
+  places: [],
+  branch: "operator/s1",
+  planRevision: "rb1",
+  from: { base: "b0", tip: "t0" },
+  to: { base: "b1", tip: "t1" },
+  record: { merged: ["m1"], relanded: ["l1", "l2"], takenOut: [] },
+  gate: { status: "passed", commit: "gc", parent: null },
+  approval: APPROVAL,
+  planPath: "plans/b1.md",
+};
+
+const REBASE_REFUSED = {
+  ...REBASE_PLANNED,
+  branch: null,
+  planRevision: null,
+  from: null,
+  to: null,
+  record: null,
+  gate: null,
+  approval: null,
+  refusals: [
+    { reason: "integration_branch_moved", detail: "d1" },
+    { reason: "rebase_conflict", detail: "d2" },
+  ],
+};
+
+const REBASE_PREVIEWS = [
+  REBASE_PLANNED,
+  REBASE_REFUSED,
+  { ...REBASE_PLANNED, gate: { status: "failed", commit: "gc", parent: "b1" } },
+];
+
+const REBASE_GATES = ["pending", "running", "failed", "flaky"].flatMap((status) =>
+  [null, "p1"].map((parent) => ({
+    status: "gate-not-passed",
+    gate: { status, commit: "gc", parent, key: { tree: "tr" }, runIds: ["g1", "g2"] },
+    preview: REBASE_PLANNED,
+  })),
+);
+
+const REBASED = {
+  status: "rebased",
+  rebaseId: "rb1",
+  branch: "operator/s1",
+  from: { base: "b0", tip: "t0" },
+  to: { base: "b1", tip: "t1" },
+  record: { merged: ["m1"], relanded: ["l1"], takenOut: ["o1"] },
+  branchReview: null,
+};
+
+/** A registration plan, and the variants that change its words. */
+const REGISTRATION_PLAN = {
+  source: { id: "s1", change: "unchanged" },
+  planRevision: "rg1",
+  items: [{ change: "new" }, { change: "new" }, { change: "updated" }, { change: "unchanged" }],
+  withdrawals: [],
+  skipped: [{}],
+  satisfiedBlockers: [{}, {}],
+  refusals: [],
+  approval: null,
+};
+
+const REGISTRATION_PLANS = [
+  REGISTRATION_PLAN,
+  {
+    ...REGISTRATION_PLAN,
+    source: { id: "s1", change: "changed" },
+    withdrawals: [{}],
+    approval: APPROVAL,
+  },
+  {
+    ...REGISTRATION_PLAN,
+    approval: APPROVAL,
+    refusals: [
+      { reason: "blocker_unknown" },
+      { reason: "item_unreadable" },
+      { reason: "blocker_unknown" },
+    ],
+  },
+];
+
+const STEP_REPORT = {
+  step: "completion",
+  assignmentId: "a1",
+  state: "applied",
+  reason: "tracker.completed",
+  operationId: "op1",
+  provider: "github",
+  target: { repository: "o/r", issue: 3 },
+  resourceUrl: null,
+  writeAttempts: [],
+  observations: [{}],
+  problems: [],
+};
+
+const publishMutation = [...mutation, "--source", "s1"];
 /** One command, its arguments, and the results it is answered with. */
 const COMMANDS: Array<{
   method: string;
@@ -511,6 +705,173 @@ const COMMANDS: Array<{
       ...attemptResults(["result-refused"], {
         refusals: [{ reason: "uncommitted_work", paths: ["u1"] }],
       }),
+    ],
+  },
+  {
+    method: "planPublish",
+    args: ["publish", "plan", "--source", "s1"],
+    results: [...withStatus(SHARED), ...PUBLISH_PREVIEWS, ...PLAN_UNREAD],
+  },
+  {
+    method: "publish",
+    args: ["publish", "apply", ...publishMutation, "--plan-revision", "pv1"],
+    results: [
+      ...withStatus(SHARED),
+      ...PUBLISH_PREVIEWS.map((preview) => ({ status: "refused", preview })),
+      ...PLAN_MOVED,
+      APPROVAL_REQUIRED,
+      ...STOPPED,
+      {
+        status: "published",
+        publication: 2,
+        pullRequests: [
+          { part: 1, headName: "n1", number: 7, url: "https://x/7" },
+          { part: 2, headName: "n2", number: null, url: null },
+        ],
+      },
+      ...PLAN_UNREAD,
+    ],
+  },
+  {
+    method: "publishStatus",
+    args: ["publish", "status", ...publishMutation],
+    results: [
+      ...withStatus(SHARED),
+      ...FINISHES.map((finish) => ({
+        status: "observed",
+        publication: 2,
+        seen: SEEN,
+        settlements: [],
+        finish,
+      })),
+      {
+        status: "observed",
+        publication: 2,
+        seen: SEEN,
+        settlements: [{ part: 2, number: 8, fault: "squashed", detail: "fd", approval: APPROVAL }],
+        finish: FINISHES[0],
+      },
+      { status: "nothing-published", sourceId: "s1" },
+      { status: "publish-unsettled", sourceId: "s1", publication: 2 },
+      ...PLAN_UNREAD,
+    ],
+  },
+  {
+    method: "retargetPublish",
+    args: ["publish", "retarget", ...publishMutation, "--part", "2"],
+    results: [
+      ...withStatus(SHARED),
+      { status: "retargeted", part: 2, number: 8, how: "observed" },
+      { status: "retargeted", part: 2, number: 8, how: "written" },
+      { status: "not-due", part: 2, detail: "Part 1 is open." },
+      { status: "stack-fault", part: 2, detail: "Part 1 was squashed." },
+      { status: "approval-required", approval: APPROVAL },
+      { status: "publish-unsettled", sourceId: "s1" },
+      ...STOPPED,
+      ...PLAN_UNREAD,
+      { status: "refused", preview: PUBLISH_REFUSED },
+      ...PLAN_MOVED,
+    ],
+  },
+  {
+    method: "planRecall",
+    args: ["publish", "recall", "--source", "s1"],
+    results: [
+      ...withStatus(SHARED),
+      RECALL_PLANNED,
+      { ...RECALL_PLANNED, replaced: false },
+      { status: "nothing-to-recall", sourceId: "s1" },
+      ...PLAN_UNREAD,
+    ],
+  },
+  {
+    method: "recall",
+    args: ["publish", "recall", ...publishMutation, "--plan-revision", "rc1"],
+    results: [
+      ...withStatus(SHARED),
+      RECALL_PLANNED,
+      { status: "nothing-to-recall", sourceId: "s1" },
+      ...PLAN_MOVED,
+      APPROVAL_REQUIRED,
+      { status: "recalled", publication: 2, pullRequests: [7, 8], closed: false },
+      { status: "recalled", publication: 2, pullRequests: [7, 8], closed: true },
+      ...STOPPED,
+      ...PLAN_UNREAD,
+      { status: "refused", preview: PUBLISH_REFUSED },
+    ],
+  },
+  {
+    method: "planRebase",
+    args: ["work", "rebase", "--source", "s1", "--base", "b1"],
+    results: [
+      ...withStatus(["state-missing"]),
+      ...REBASE_PREVIEWS,
+      { status: "unknown-source", sourceId: "s1" },
+    ],
+  },
+  {
+    method: "rebase",
+    args: ["work", "rebase", ...publishMutation, "--base", "b1", "--plan-revision", "rb1"],
+    results: [
+      ...withStatus(SHARED),
+      { status: "unknown-source", sourceId: "s1" },
+      ...REBASE_PREVIEWS.map((preview) => ({ status: "refused", preview })),
+      ...PLAN_MOVED,
+      APPROVAL_REQUIRED,
+      ...REBASE_GATES,
+      { ...REBASE_GATES[0], preview: REBASE_REFUSED },
+      { status: "rebase-pending", rebaseId: "rb0", planRevision: "rb0" },
+      {
+        status: "rebase-stopped",
+        rebaseId: "rb1",
+        reason: "integration_branch_unread",
+        detail: "d",
+      },
+      {
+        status: "rebase-stopped",
+        rebaseId: "rb1",
+        reason: "integration_branch_moved",
+        detail: "d",
+      },
+      REBASED,
+      { ...REBASED, branchReview: { reviewId: "rv1" } },
+    ],
+  },
+  {
+    method: "planRegistration",
+    args: ["work", "register", "--input", "in.json", "--plan"],
+    results: [
+      ...withStatus([...SHARED, "invalid-input"]),
+      ...REGISTRATION_PLANS.map((plan) => ({ status: "planned", plan, planPath: "plans/g1.md" })),
+    ],
+  },
+  {
+    method: "register",
+    args: ["work", "register", ...mutation, "--input", "in.json", "--plan-revision", "rg1"],
+    results: [
+      ...withStatus([...SHARED, "invalid-input"]),
+      ...REGISTRATION_PLANS.map((plan) => ({ status: "refused", plan })),
+      { status: "approval-required", approval: APPROVAL },
+      {
+        status: "plan-revision-changed",
+        requested: "rg1",
+        found: "rg2",
+        differences: [{ part: "item", key: "k1", change: "updated" }],
+      },
+      { status: "plan-revision-changed", requested: "rg1", found: "rg2", differences: null },
+    ],
+  },
+  {
+    method: "gateRun",
+    args: ["gate", "show", "--run", "g1"],
+    results: [...withStatus(["state-missing"]), { status: "unknown-gate-run" }],
+  },
+  {
+    method: "recoverTracker",
+    args: ["tracker", "recover", ...mutation, "--operation", "op1"],
+    results: [
+      ...FINISHES.map((finish) => ({ status: "reported", report: STEP_REPORT, finish })),
+      { status: "reported", report: { ...STEP_REPORT, step: "resolution" }, finish: null },
     ],
   },
 ];

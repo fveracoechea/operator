@@ -23,8 +23,6 @@
         "modules/live-probe/tracker.ts",
         "modules/operator-cli/arguments.ts",
         "modules/operator-cli/outside-command.ts",
-        "modules/operator-cli/publish-command.ts",
-        "modules/operator-cli/rebase-command.ts",
         "modules/operator-cli/review-command.ts",
         "modules/operator-cli/run.ts",
         "modules/operator-cli/setup-command.ts",
