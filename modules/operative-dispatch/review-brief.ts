@@ -1,9 +1,12 @@
 import { type CommandRule, REFERENCE_RULE, ruleLines } from "./command-rules.ts";
 import {
+  artifactCopies,
   copiedInputPath,
   type FixedArtifact,
   type FixedCheck,
   type FixedCode,
+  type RoleCopies,
+  storedCopy,
 } from "./fixed-result.ts";
 import {
   type AnsweredQuestion,
@@ -69,6 +72,25 @@ export const INTERDIFF_PATH = `${REVIEW_INPUT_DIR}/interdiff.diff`;
 
 export function reviewInputPath(artifact: FixedArtifact): string | null {
   return copiedInputPath(REVIEW_INPUT_DIR, artifact);
+}
+
+/**
+ * The fixed copies a reviewer reads, never the worktree that produced them: the submitted
+ * artifacts, then the spec copy, the reviewed patch, and the interdiff.
+ */
+export function copiesOf(review: ReviewBrief, projectRoot: string): RoleCopies {
+  return {
+    artifacts: artifactCopies(REVIEW_INPUT_DIR, review.artifacts, projectRoot),
+    texts: [
+      ...(review.spec === null ? [] : [storedCopy(REVIEW_SPEC_PATH, review.spec, projectRoot)]),
+      ...(review.integration === null
+        ? []
+        : [
+            storedCopy(REVIEWED_PATCH_PATH, review.integration.reviewedPatch, projectRoot),
+            storedCopy(INTERDIFF_PATH, review.integration.interdiff, projectRoot),
+          ]),
+    ],
+  };
 }
 
 /** What a behavior change is, in the words of `CONTEXT.md`. */

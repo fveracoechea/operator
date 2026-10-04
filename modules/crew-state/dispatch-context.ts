@@ -85,9 +85,10 @@ export type ContextRead =
   | StateFailure
   | RequestFailure;
 
-type ReviewBrief = NonNullable<Brief["review"]>;
-type BranchReviewBrief = NonNullable<Brief["branchReview"]>;
-type ReworkBrief = NonNullable<Brief["rework"]>;
+type BriefRole = Brief["role"];
+type ReviewBrief = Extract<BriefRole, { kind: "review" }>["review"];
+type BranchReviewBrief = Extract<BriefRole, { kind: "branch-review" }>["branchReview"];
+type ReworkBrief = Extract<BriefRole, { kind: "rework" }>["rework"];
 
 /**
  * A writer command reads only an acknowledged attempt, so this line stands beside every command
@@ -216,6 +217,50 @@ export function reworkBriefOf(context: ReworkContext): ReworkBrief {
   return { cycleId: context.cycle.id, ...recorded, rounds: context.rounds };
 }
 
+/**
+ * The one role of the brief. A branch review and a review read a fixed subject, and a rework
+ * cycle is open only on a producer assignment.
+ */
+function roleOf(
+  context: AttemptContext,
+  request: { attemptId: string; fixedInputs: Brief["fixedInputs"]; allowedCommands: string[] },
+): BriefRole {
+  if (context.branchReview !== null) {
+    return {
+      kind: "branch-review",
+      branchReview: branchReviewBriefOf(context.branchReview, request),
+    };
+  }
+  if (context.review !== null) {
+    const producerTitle = context.assignment.title;
+    return { kind: "review", review: reviewBriefOf(context.review, { ...request, producerTitle }) };
+  }
+  return context.rework === null
+    ? { kind: "production" }
+    : { kind: "rework", rework: reworkBriefOf(context.rework) };
+}
+
+/** A rework Operative produces a result under the same rules as the producer it corrects. */
+const PRODUCER_RULES: Brief["rules"] = {
+  submit: [
+    ACKNOWLEDGED_RULE,
+    ONE_COMMIT_RULE,
+    ...ARTIFACT_RULES,
+    ...SUBMIT_RULES,
+    BEHAVIOR_CHANGE_RULE,
+    PROJECT_GATE_RULE,
+  ],
+  report: [],
+};
+
+/** A reviewer reports and never submits, so it receives none of the producer's rules. */
+const RULES_OF_ROLE: Record<BriefRole["kind"], Brief["rules"]> = {
+  production: PRODUCER_RULES,
+  rework: PRODUCER_RULES,
+  review: { submit: [], report: [ACKNOWLEDGED_RULE, ...REPORT_RULES] },
+  "branch-review": { submit: [], report: [ACKNOWLEDGED_RULE, ...BRANCH_RULES] },
+};
+
 // A producer cannot show a gate that its base commit does not declare, so nothing launches.
 export type GateUnusable = {
   status: "project-gate-unusable";
@@ -260,10 +305,14 @@ export async function briefGate(request: {
 /** The fixed brief of one assignment, as the attempt that holds it receives it. */
 export function briefOf(context: AttemptContext, attemptId: string, gate: Brief["gate"]): Brief {
   const assignment = context.assignment;
-  const review = context.review;
   const acceptanceRequirements = storedRequirements(assignment.acceptanceRequirements);
   const fixedInputs = storedFixedInputs(assignment.fixedInputs);
   const permissions = storedPermissions(assignment.permissions);
+  const role = roleOf(context, {
+    attemptId,
+    fixedInputs,
+    allowedCommands: permissions.allowedCommands,
+  });
   return {
     assignmentId: assignment.id,
     assignmentRevision: assignment.revision,
@@ -281,37 +330,9 @@ export function briefOf(context: AttemptContext, attemptId: string, gate: Brief[
     // The records that the launch plan of this attempt fixed, so a recovery and a replacement
     // attempt restore the same words. A first launch carries the latest record of each one.
     planningRecords: context.planning.launched ?? context.planning.latest,
-    // A reviewer reports and never submits, so it receives none of the producer's rules.
-    rules:
-      context.branchReview !== null
-        ? { submit: [], report: [ACKNOWLEDGED_RULE, ...BRANCH_RULES] }
-        : review === null
-          ? {
-              submit: [
-                ACKNOWLEDGED_RULE,
-                ONE_COMMIT_RULE,
-                ...ARTIFACT_RULES,
-                ...SUBMIT_RULES,
-                BEHAVIOR_CHANGE_RULE,
-                PROJECT_GATE_RULE,
-              ],
-              report: [],
-            }
-          : { submit: [], report: [ACKNOWLEDGED_RULE, ...REPORT_RULES] },
+    rules: RULES_OF_ROLE[role.kind],
     gate,
-    review:
-      review === null
-        ? null
-        : reviewBriefOf(review, { attemptId, producerTitle: assignment.title, fixedInputs }),
-    branchReview:
-      context.branchReview === null
-        ? null
-        : branchReviewBriefOf(context.branchReview, {
-            attemptId,
-            fixedInputs,
-            allowedCommands: permissions.allowedCommands,
-          }),
-    rework: context.rework === null ? null : reworkBriefOf(context.rework),
+    role,
   };
 }
 

@@ -6,25 +6,38 @@ import {
   type BranchReviewBrief,
   branchReviewProtocolSection,
   branchSnapshotSection,
-  branchSpecPath,
+  copiesOf as branchReviewCopiesOf,
 } from "./branch-review-brief.ts";
 import { type CommandRule, REFERENCE_RULE, ruleLines } from "./command-rules.ts";
+import type { RoleCopies } from "./fixed-result.ts";
 import {
-  INTERDIFF_PATH,
-  REVIEW_SPEC_PATH,
-  REVIEWED_PATCH_PATH,
   type ReviewBrief,
-  reviewInputPath,
+  copiesOf as reviewCopiesOf,
   reviewProtocolSection,
   submittedResultSection,
 } from "./review-brief.ts";
-import { type PlanningInput, planningInputPath, planningRecordsSection } from "./planning-brief.ts";
+import {
+  copiesOf as planningCopiesOf,
+  type PlanningInput,
+  planningRecordsSection,
+} from "./planning-brief.ts";
 import {
   type ReworkBrief,
-  reworkInputPath,
+  copiesOf as reworkCopiesOf,
   reworkProtocolSection,
   reworkResultSection,
 } from "./rework-brief.ts";
+
+/**
+ * The one role a brief gives its agent. A producer makes a result, a rework Operative corrects
+ * one during an open delegated cycle, a reviewer reads one fixed result, and a branch reviewer
+ * reads the integration branch of a source as a whole.
+ */
+export type BriefRole =
+  | { kind: "production" }
+  | { kind: "rework"; rework: ReworkBrief }
+  | { kind: "review"; review: ReviewBrief }
+  | { kind: "branch-review"; branchReview: BranchReviewBrief };
 
 export type Brief = {
   assignmentId: string;
@@ -56,12 +69,7 @@ export type Brief = {
     commit: string;
     commands: Array<{ name: string; line: string; timeoutSeconds: number }>;
   } | null;
-  // Present only on a review assignment, which reads a fixed result instead of producing one.
-  review: ReviewBrief | null;
-  // Present only on a branch review, which reads the integration branch of a source as a whole.
-  branchReview: BranchReviewBrief | null;
-  // Present only while a delegated rework cycle is open on this assignment.
-  rework: ReworkBrief | null;
+  role: BriefRole;
 };
 
 export type Snapshot = {
@@ -155,12 +163,12 @@ export function opencodeFiles(effort: string): Array<{ name: string; path: strin
   ];
 }
 
-/** The Operator CLI operations a brief tells its agent to run. */
 /** True when this brief reads a fixed subject and reports on it, rather than producing a result. */
 function isReviewer(brief: Brief): boolean {
-  return brief.review !== null || brief.branchReview !== null;
+  return brief.role.kind === "review" || brief.role.kind === "branch-review";
 }
 
+/** The Operator CLI operations a brief tells its agent to run. */
 function briefOperations(brief: Brief): string[] {
   return [
     "attempt acknowledge",
@@ -220,21 +228,20 @@ function slug(value: string): string {
   return cleaned(value).slice(0, 24) || "work";
 }
 
+const ROLE_LABELS: Record<BriefRole["kind"], string> = {
+  production: "Operative",
+  rework: "Rework Operative",
+  review: "Reviewer",
+  "branch-review": "Branch reviewer",
+};
+
 /** Herdr keeps display text separate from the stable attempt and agent handles. */
 function displayLabels(projectRoot: string, brief: Brief) {
   const project = basename(projectRoot).replaceAll(/[-_]+/g, " ");
   const projectName = project.charAt(0).toUpperCase() + project.slice(1);
   const issue = /^[^/]+\/([^#]+#\d+)$/.exec(brief.sourceKey)?.[1];
   const ticket = /^\d+$/.test(brief.sourceKey) ? `#${brief.sourceKey}` : (issue ?? brief.sourceKey);
-  const role =
-    brief.branchReview !== null
-      ? "Branch reviewer"
-      : brief.review !== null
-        ? "Reviewer"
-        : brief.rework !== null
-          ? "Rework Operative"
-          : "Operative";
-  const assignment = `${ticket} ${role}: ${brief.title}`;
+  const assignment = `${ticket} ${ROLE_LABELS[brief.role.kind]}: ${brief.title}`;
   return {
     workspaceLabel: `${projectName} ${assignment}`.slice(0, 80),
     tabLabel: assignment.slice(0, 80),
@@ -335,36 +342,37 @@ function productionProtocolSection(brief: Brief, invocation: string): string[] {
 
 /** The sections that differ between producing a result, reworking one, and reviewing one. */
 function roleSections(brief: Brief, invocation: string): { result: string[]; protocol: string[] } {
-  if (brief.branchReview !== null) {
-    return {
-      result: branchSnapshotSection(brief.branchReview),
-      protocol: [
-        ...branchReviewProtocolSection(brief.branchReview, brief.rules.report, invocation),
-        ...questionSection(brief, invocation),
-      ],
-    };
-  }
-  if (brief.review !== null) {
-    return {
-      result: submittedResultSection(brief.review),
-      protocol: [
-        ...reviewProtocolSection(brief.review, brief.rules.report, invocation),
-        ...questionSection(brief, invocation),
-      ],
-    };
-  }
-
-  // Rework is production work under the same scope and authority, so it keeps the production
-  // protocol and adds the result it corrects and the rules that hold the cycle together.
-  return brief.rework === null
-    ? { result: [], protocol: productionProtocolSection(brief, invocation) }
-    : {
-        result: reworkResultSection(brief.rework),
+  const { role } = brief;
+  switch (role.kind) {
+    case "production":
+      return { result: [], protocol: productionProtocolSection(brief, invocation) };
+    // Rework is production work under the same scope and authority, so it keeps the production
+    // protocol and adds the result it corrects and the rules that hold the cycle together.
+    case "rework":
+      return {
+        result: reworkResultSection(role.rework),
         protocol: [
-          ...reworkProtocolSection(brief.rework),
+          ...reworkProtocolSection(role.rework),
           ...productionProtocolSection(brief, invocation),
         ],
       };
+    case "review":
+      return {
+        result: submittedResultSection(role.review),
+        protocol: [
+          ...reviewProtocolSection(role.review, brief.rules.report, invocation),
+          ...questionSection(brief, invocation),
+        ],
+      };
+    case "branch-review":
+      return {
+        result: branchSnapshotSection(role.branchReview),
+        protocol: [
+          ...branchReviewProtocolSection(role.branchReview, brief.rules.report, invocation),
+          ...questionSection(brief, invocation),
+        ],
+      };
+  }
 }
 
 function briefDocument(request: {
@@ -456,26 +464,72 @@ function promptDocument(brief: Brief, snapshot: Snapshot): string {
       ? ["First run `bun install --frozen-lockfile` from this worktree root."]
       : [];
 
-  const reviewId = brief.branchReview?.reviewId ?? brief.review?.reviewId ?? null;
-  return (
-    reviewId === null
-      ? [
-          brief.rework === null
-            ? `You are the Operative on Operator attempt ${brief.attemptId} for assignment ${brief.assignmentId}.`
-            : `You are the Operative on Operator attempt ${brief.attemptId}, reworking the reviewed result of assignment ${brief.assignmentId}.`,
-          read,
-          "Load the `operative` skill from this worktree and follow it.",
-          ...install,
-          acknowledge,
-        ]
-      : [
-          `You are the reviewer on Operator attempt ${brief.attemptId} for review ${reviewId}.`,
-          read,
-          "Load the `code-review` skill and run its Standards and Spec axes as parallel sub-agents of this host.",
-          ...install,
-          acknowledge,
-        ]
-  ).join("\n");
+  const [who, skill] = promptRole(brief);
+  return [who, read, skill, ...install, acknowledge].join("\n");
+}
+
+/** Who the prompt addresses, and the skill that agent loads. */
+function promptRole(brief: Brief): [who: string, skill: string] {
+  const { role } = brief;
+  const operative = "Load the `operative` skill from this worktree and follow it.";
+  const reviewer =
+    "Load the `code-review` skill and run its Standards and Spec axes as parallel sub-agents of this host.";
+  switch (role.kind) {
+    case "production":
+      return [
+        `You are the Operative on Operator attempt ${brief.attemptId} for assignment ${brief.assignmentId}.`,
+        operative,
+      ];
+    case "rework":
+      return [
+        `You are the Operative on Operator attempt ${brief.attemptId}, reworking the reviewed result of assignment ${brief.assignmentId}.`,
+        operative,
+      ];
+    case "review":
+      return [
+        `You are the reviewer on Operator attempt ${brief.attemptId} for review ${role.review.reviewId}.`,
+        reviewer,
+      ];
+    case "branch-review":
+      return [
+        `You are the reviewer on Operator attempt ${brief.attemptId} for review ${role.branchReview.reviewId}.`,
+        reviewer,
+      ];
+  }
+}
+
+/** The fixed copies of the subject a role reads. A producer reads none. */
+function roleCopies(role: BriefRole, projectRoot: string): RoleCopies {
+  switch (role.kind) {
+    case "production":
+      return { artifacts: [], texts: [] };
+    case "rework":
+      return reworkCopiesOf(role.rework, projectRoot);
+    case "review":
+      return reviewCopiesOf(role.review, projectRoot);
+    case "branch-review":
+      return branchReviewCopiesOf(role.branchReview, projectRoot);
+  }
+}
+
+/**
+ * The path fixed inputs that the base commit must hold. A launch reads each one at its base
+ * commit. A rework starts from the submitted result, which can change that file inside its write
+ * paths, and a review reads fixed copies.
+ */
+function fixedPaths(brief: Brief): DispatchPlan["fixedPaths"] {
+  switch (brief.role.kind) {
+    case "production":
+      return brief.fixedInputs.flatMap((one) =>
+        one.kind === "path" && one.contentIdentity !== null
+          ? [{ path: one.value, identity: one.contentIdentity }]
+          : [],
+      );
+    case "rework":
+    case "review":
+    case "branch-review":
+      return [];
+  }
 }
 
 /**
@@ -510,76 +564,14 @@ export function planDispatch(request: {
   const briefIdentity = ContentIdentity.ofText(briefText);
   const promptText = promptDocument(request.brief, request.snapshot);
 
-  const review = request.brief.review;
-  const rework = request.brief.rework;
-  // A reviewer and a rework Operative both read the fixed copies, never the worktree that
-  // produced them, so each one receives them under its own directory.
-  const copied =
-    review === null
-      ? (rework?.artifacts ?? []).map((artifact) => ({ artifact, path: reworkInputPath(artifact) }))
-      : review.artifacts.map((artifact) => ({ artifact, path: reviewInputPath(artifact) }));
+  // Each role reads its fixed copies, never the worktree that produced them, under its own
+  // directory. The planning artifacts are copied by the same step.
+  const copies = roleCopies(request.brief.role, request.projectRoot);
   const extraInputs = [
-    ...copied.flatMap(({ artifact, path }) =>
-      artifact.storedPath === null || path === null
-        ? []
-        : [
-            {
-              path,
-              sourcePath: `${request.projectRoot}/${artifact.storedPath}`,
-              identity: artifact.contentIdentity,
-            },
-          ],
-    ),
-    // The artifacts of a planning record are copied by the same step, so a dependent reads the
-    // fixed text and never the planning store of the controlling checkout.
-    ...request.brief.planningRecords
-      .flatMap((input) => input.record?.artifacts ?? [])
-      .filter(
-        (artifact, index, all) =>
-          all.findIndex((one) => one.contentIdentity === artifact.contentIdentity) === index,
-      )
-      .map((artifact) => ({
-        path: planningInputPath(artifact),
-        sourcePath: `${request.projectRoot}/${artifact.storedPath}`,
-        identity: artifact.contentIdentity,
-      })),
-    ...(review?.spec == null
-      ? []
-      : [
-          {
-            path: REVIEW_SPEC_PATH,
-            sourcePath: `${request.projectRoot}/${review.spec.storedPath}`,
-            identity: review.spec.contentIdentity,
-          },
-        ]),
-    // A branch reviewer reads the spec copy of every item, each fixed when it was submitted.
-    ...(request.brief.branchReview?.specs ?? []).map((one, index) => ({
-      path: branchSpecPath(index),
-      sourcePath: `${request.projectRoot}/${one.storedPath}`,
-      identity: one.contentIdentity,
-    })),
-    ...(review?.integration == null
-      ? []
-      : [
-          { path: REVIEWED_PATCH_PATH, copy: review.integration.reviewedPatch },
-          { path: INTERDIFF_PATH, copy: review.integration.interdiff },
-        ].map((one) => ({
-          path: one.path,
-          sourcePath: `${request.projectRoot}/${one.copy.storedPath}`,
-          identity: one.copy.contentIdentity,
-        }))),
+    ...copies.artifacts,
+    ...planningCopiesOf(request.brief.planningRecords, request.projectRoot),
+    ...copies.texts,
   ];
-
-  // A launch reads each path input at its base commit. A rework starts from the submitted
-  // result, which can change that file inside its write paths, and a review reads fixed copies.
-  const fixedPaths =
-    isReviewer(request.brief) || rework !== null
-      ? []
-      : request.brief.fixedInputs.flatMap((one) =>
-          one.kind === "path" && one.contentIdentity !== null
-            ? [{ path: one.value, identity: one.contentIdentity }]
-            : [],
-        );
 
   const plan: DispatchPlan = {
     assignmentId: request.brief.assignmentId,
@@ -605,7 +597,7 @@ export function planDispatch(request: {
     promptIdentity: ContentIdentity.of({ promptText, briefIdentity }),
     snapshotIdentity: ContentIdentity.of(request.snapshot),
     extraInputs,
-    fixedPaths,
+    fixedPaths: fixedPaths(request.brief),
     // A reviewer that cannot load the review skill is blocked before any agent starts.
     requiredSkill: isReviewer(request.brief) ? REVIEW_SKILL : null,
   };

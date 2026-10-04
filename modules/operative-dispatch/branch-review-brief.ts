@@ -1,4 +1,5 @@
 import { type CommandRule, REFERENCE_RULE, ruleLines } from "./command-rules.ts";
+import { type RoleCopies, storedCopy } from "./fixed-result.ts";
 import { PUBLISHED_TEXT_LINES, PUBLISHED_TEXT_SHAPE, REVIEW_INPUT_DIR } from "./review-brief.ts";
 
 /**
@@ -69,6 +70,16 @@ export type BranchReviewBrief = {
 /** Where the reviewer reads one spec copy: the text of the source or the spec of one item. */
 export function branchSpecPath(index: number): string {
   return `${REVIEW_INPUT_DIR}/spec-${index + 1}.md`;
+}
+
+/** A branch reviewer reads the spec copy of every item, each fixed when it was submitted. */
+export function copiesOf(branchReview: BranchReviewBrief, projectRoot: string): RoleCopies {
+  return {
+    artifacts: [],
+    texts: branchReview.specs.map((one, index) =>
+      storedCopy(branchSpecPath(index), one, projectRoot),
+    ),
+  };
 }
 
 /** The fixed snapshot both axes read. Every line here is pinned at registration. */

@@ -1,8 +1,10 @@
 import {
+  artifactCopies,
   copiedInputPath,
   type FixedArtifact,
   type FixedCheck,
   type FixedCode,
+  type RoleCopies,
 } from "./fixed-result.ts";
 import {
   type AnsweredQuestion,
@@ -101,6 +103,11 @@ export const REWORK_INPUT_DIR = ".operator/local/rework";
 
 export function reworkInputPath(artifact: FixedArtifact): string | null {
   return copiedInputPath(REWORK_INPUT_DIR, artifact);
+}
+
+/** A rework Operative reads the artifacts of the result it corrects as fixed copies. */
+export function copiesOf(rework: ReworkBrief, projectRoot: string): RoleCopies {
+  return { artifacts: artifactCopies(REWORK_INPUT_DIR, rework.artifacts, projectRoot), texts: [] };
 }
 
 /**

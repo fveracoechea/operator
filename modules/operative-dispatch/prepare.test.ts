@@ -30,9 +30,7 @@ const brief: Brief = {
   planningRecords: [],
   rules: { submit: [], report: [] },
   gate: null,
-  review: null,
-  rework: null,
-  branchReview: null,
+  role: { kind: "production" },
 };
 
 /**

@@ -27,9 +27,7 @@ const brief: Brief = {
   planningRecords: [],
   rules: { submit: [], report: [] },
   gate: null,
-  review: null,
-  rework: null,
-  branchReview: null,
+  role: { kind: "production" },
 };
 
 const protocolBrief: Brief = {
@@ -49,9 +47,7 @@ const protocolBrief: Brief = {
   planningRecords: [],
   rules: { submit: [], report: [] },
   gate: null,
-  review: null,
-  rework: null,
-  branchReview: null,
+  role: { kind: "production" },
 };
 
 function plan(input: Brief) {
@@ -115,59 +111,65 @@ test("an item read from the tracker keeps its repository and number in its branc
 test("review and rework labels identify their roles on the same ticket", () => {
   const review = plan({
     ...brief,
-    review: {
-      reviewId: "review",
-      attemptId: brief.attemptId,
-      submissionId: "submission",
-      submissionIdentity: "result",
-      resultKind: "non-code",
-      axes: [],
-      requiredCoverage: [],
-      producerAssignmentId: brief.assignmentId,
-      producerTitle: brief.title,
-      assignmentRevision: 1,
-      sourceRevision: "revision",
-      requirementsIdentity: "requirements",
-      reviewBase: null,
-      code: null,
-      checks: [],
-      concerns: [],
-      decisions: [],
-      behaviorChanges: [],
-      artifacts: [],
-      spec: null,
-      fixedPoint: null,
-      readCommands: [],
-      integration: null,
-      basisQuestions: [],
-      priorRounds: [],
-      publishes: false,
+    role: {
+      kind: "review",
+      review: {
+        reviewId: "review",
+        attemptId: brief.attemptId,
+        submissionId: "submission",
+        submissionIdentity: "result",
+        resultKind: "non-code",
+        axes: [],
+        requiredCoverage: [],
+        producerAssignmentId: brief.assignmentId,
+        producerTitle: brief.title,
+        assignmentRevision: 1,
+        sourceRevision: "revision",
+        requirementsIdentity: "requirements",
+        reviewBase: null,
+        code: null,
+        checks: [],
+        concerns: [],
+        decisions: [],
+        behaviorChanges: [],
+        artifacts: [],
+        spec: null,
+        fixedPoint: null,
+        readCommands: [],
+        integration: null,
+        basisQuestions: [],
+        priorRounds: [],
+        publishes: false,
+      },
     },
   });
   const rework = plan({
     ...brief,
-    rework: {
-      cycleId: "cycle",
-      reason: "findings",
-      cycleIndex: 1,
-      limit: 2,
-      approvalId: null,
-      reviewId: "review",
-      submissionId: "submission",
-      submissionIdentity: "result",
-      resultKind: "non-code",
-      corrections: [],
-      conflicts: [],
-      combines: [],
-      checks: [],
-      code: null,
-      artifacts: [],
-      rounds: {
-        concerns: [],
-        decisions: [],
-        behaviorChanges: [],
-        answeredQuestions: [],
-        earlier: [],
+    role: {
+      kind: "rework",
+      rework: {
+        cycleId: "cycle",
+        reason: "findings",
+        cycleIndex: 1,
+        limit: 2,
+        approvalId: null,
+        reviewId: "review",
+        submissionId: "submission",
+        submissionIdentity: "result",
+        resultKind: "non-code",
+        corrections: [],
+        conflicts: [],
+        combines: [],
+        checks: [],
+        code: null,
+        artifacts: [],
+        rounds: {
+          concerns: [],
+          decisions: [],
+          behaviorChanges: [],
+          answeredQuestions: [],
+          earlier: [],
+        },
       },
     },
   });
@@ -256,6 +258,10 @@ test("a reviewer may not stage or commit", () => {
     priorRounds: [],
     publishes: false,
   } satisfies ReviewBrief;
-  const tools = plan({ ...protocolBrief, kind: "review", review }).allowedTools;
+  const tools = plan({
+    ...protocolBrief,
+    kind: "review",
+    role: { kind: "review", review },
+  }).allowedTools;
   for (const rule of GIT_WRITE_RULES) expect(tools).not.toContain(rule);
 });

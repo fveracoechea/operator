@@ -35,9 +35,7 @@ test("dispatch groups the worktree under the Operator and labels the launched ag
     planningRecords: [],
     rules: { submit: [], report: [] },
     gate: null,
-    review: null,
-    rework: null,
-    branchReview: null,
+    role: { kind: "production" },
   };
   const plan = planDispatch({
     projectRoot: "/projects/renabler",

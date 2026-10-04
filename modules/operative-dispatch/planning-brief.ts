@@ -1,5 +1,6 @@
 // Bun has no path manipulation API.
 import { basename } from "node:path";
+import { type FixedCopy, storedCopy } from "./fixed-result.ts";
 
 // These follow the planning record in crew-state. A launch cannot import that module, because
 // crew-state is what calls this one, so the shapes are restated rather than widened.
@@ -32,6 +33,20 @@ export const PLANNING_INPUT_DIR = ".operator/local/planning";
 
 export function planningInputPath(artifact: PlanningArtifact): string {
   return `${PLANNING_INPUT_DIR}/${basename(artifact.storedPath)}`;
+}
+
+/**
+ * The artifacts of each planning record, each copied once, so a dependent reads the fixed text
+ * and never the planning store of the controlling checkout.
+ */
+export function copiesOf(inputs: PlanningInput[], projectRoot: string): FixedCopy[] {
+  return inputs
+    .flatMap((input) => input.record?.artifacts ?? [])
+    .filter(
+      (artifact, index, all) =>
+        all.findIndex((one) => one.contentIdentity === artifact.contentIdentity) === index,
+    )
+    .map((artifact) => storedCopy(planningInputPath(artifact), artifact, projectRoot));
 }
 
 /**
