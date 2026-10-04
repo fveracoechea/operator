@@ -1,8 +1,21 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+// Bun has no temporary directory or recursive removal API.
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { LiveProbe } from "./main.ts";
 import { ProjectReadiness } from "../project-readiness/main.ts";
 import { briefFor, readReport, type ProbeStep } from "./protocol.ts";
 import { waitForFile } from "./scratch.ts";
+
+// This file writes only in its own directory, so no other test file can see or remove its files.
+let scratch = "";
+beforeAll(async () => {
+  scratch = await mkdtemp(join(tmpdir(), "operator-live-probe-"));
+});
+afterAll(async () => {
+  await rm(scratch, { force: true, recursive: true });
+});
 
 describe("the live probe catalogue", () => {
   test("runs exactly the checks readiness declares", () => {
@@ -51,16 +64,11 @@ test("a live probe brief gives the agent a report the reader accepts", () => {
 });
 
 test("reads a report written after observation starts", async () => {
-  const path = `/tmp/opencode/operator-live-report-${crypto.randomUUID()}.json`;
-  try {
-    const pending = waitForFile({ path, windowMs: 500 });
-    await Bun.sleep(40);
-    await Bun.write(path, '{"step":"loading"}');
-    expect(await pending).toMatchObject({ status: "read", text: '{"step":"loading"}' });
-  } finally {
-    const { rm } = await import("node:fs/promises");
-    await rm(path, { force: true });
-  }
+  const path = `${scratch}/operator-live-report-${crypto.randomUUID()}.json`;
+  const pending = waitForFile({ path, windowMs: 500 });
+  await Bun.sleep(40);
+  await Bun.write(path, '{"step":"loading"}');
+  expect(await pending).toMatchObject({ status: "read", text: '{"step":"loading"}' });
 });
 
 describe("the probe cleanup machine", () => {

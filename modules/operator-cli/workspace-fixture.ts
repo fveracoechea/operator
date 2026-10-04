@@ -1,5 +1,5 @@
-// Bun has no recursive directory removal or real-path API.
-import { mkdirSync, readdirSync, rmSync, symlinkSync } from "node:fs";
+// Bun has no recursive directory removal, real-path, or directory check API.
+import { existsSync, mkdirSync, readdirSync, rmSync, symlinkSync } from "node:fs";
 import { realpath, rm } from "node:fs/promises";
 
 const cliPath = new URL("../../cli.ts", import.meta.url).pathname;
@@ -202,7 +202,13 @@ export async function runOperator(
   cwd = workspace.repo,
   env: Record<string, string> = {},
 ) {
-  const child = Bun.spawn(["bun", cliPath, ...args], {
+  // A spawn in a missing directory fails as "ENOENT posix_spawn 'bun'", which hides the step
+  // that did not make it, such as a dispatch that left no worktree.
+  if (!existsSync(cwd)) {
+    throw new Error(`operator ${args.join(" ")} cannot run in ${cwd}: no such directory.`);
+  }
+  // The CLI runs on the Bun that runs the test, so no PATH lookup of "bun" can miss it.
+  const child = Bun.spawn([process.execPath, cliPath, ...args], {
     cwd,
     stderr: "pipe",
     stdout: "pipe",

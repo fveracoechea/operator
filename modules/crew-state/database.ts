@@ -31,9 +31,11 @@ function statePath(projectRoot: string): string {
 function connect(path: string, options: { create: boolean; walMode: boolean }) {
   const sqlite = new Database(path, { create: options.create, readwrite: true });
   // WAL plus a wait lets a second Operator process block on a write instead of failing at once.
-  // A file still being built stays on the rollback journal, so it is complete in one file.
-  sqlite.exec(`pragma journal_mode = ${options.walMode ? "wal" : "delete"}`);
+  // The wait comes first, because setting the journal mode already needs a lock that another
+  // process can hold. A file still being built stays on the rollback journal, so it is complete
+  // in one file.
   sqlite.exec("pragma busy_timeout = 10000");
+  sqlite.exec(`pragma journal_mode = ${options.walMode ? "wal" : "delete"}`);
   sqlite.exec("pragma foreign_keys = on");
   return { sqlite, db: drizzle({ client: sqlite, schema: crewStateSchema }) };
 }

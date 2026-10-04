@@ -76,6 +76,35 @@ test("the approval machine: a grant covers its action until a person revokes it 
   expect((await CrewState.checkApproval({ ...crew, input: action })).result.status).toBe("revoked");
 });
 
+test("a read waits for a lock that another process holds on crew state, as the gate runner does", async () => {
+  const crew = await ownedState();
+  // Another Operator process holds the state file alone for a moment, as a closing connection
+  // does when it folds the write-ahead log back. A runner that opened it then failed at once.
+  const holder = Bun.spawn(
+    [
+      process.execPath,
+      "-e",
+      `import { Database } from "bun:sqlite";
+      const held = new Database(process.argv.at(-1));
+      held.exec("pragma busy_timeout = 10000");
+      held.exec("pragma locking_mode = exclusive");
+      held.exec("begin exclusive");
+      held.exec("commit");
+      console.log("held");
+      await Bun.sleep(400);
+      held.close();`,
+      `${crew.projectRoot}/.operator/local/crew-state.sqlite`,
+    ],
+    { stdout: "pipe" },
+  );
+  await holder.stdout.getReader().read();
+
+  const checked = await CrewState.checkApproval({ ...crew, input: action });
+  await holder.exited;
+
+  expect(checked.result).toEqual({ status: "missing" });
+});
+
 test("the next verdict: an owed action outranks a wait, and a standing precondition is never owed", () => {
   const proveReadiness = { action: "prove_readiness", blocker: "readiness_blocked" };
   const run = { action: "run_gate", blocker: null };

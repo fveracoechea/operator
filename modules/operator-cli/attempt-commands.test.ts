@@ -147,7 +147,7 @@ async function dispatch(
 // A snapshot a newer release wrote can hold a shape this release cannot read.
 async function damageSnapshot(workspace: Workspace, attemptId: string) {
   const path = `${workspace.repo}/.operator/local/crew-state.sqlite`;
-  await Bun.$`bun -e ${`
+  await Bun.$`${process.execPath} -e ${`
     const { Database } = require("bun:sqlite");
     const db = new Database(${JSON.stringify(path)});
     db.query("update attempt_dispatch set snapshot = ? where attempt_id = ?").run(

@@ -47,7 +47,7 @@ async function makeProject(files: Record<string, string> = {}): Promise<string> 
 }
 
 async function runOperator(root: string, args: string[], stdin?: string) {
-  const child = Bun.spawn(["bun", cliPath, ...args], {
+  const child = Bun.spawn([process.execPath, cliPath, ...args], {
     cwd: root,
     stderr: "pipe",
     stdout: "pipe",
@@ -1877,7 +1877,7 @@ describe("crew state that cannot serve a request", () => {
   test("blocks dispatch on state a newer Operator release wrote", async () => {
     const root = await makeProject();
     await own(root);
-    await Bun.$`bun -e ${`
+    await Bun.$`${process.execPath} -e ${`
       const { Database } = require("bun:sqlite");
       const db = new Database(${JSON.stringify(`${root}/.operator/local/crew-state.sqlite`)});
       db.exec("update state_meta set state_version = 99 where id = 1");

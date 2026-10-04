@@ -36,6 +36,19 @@ async function makeWorkspace(
   return makeReviewWorkspace(fixtures, options);
 }
 
+describe("the CLI fixture", () => {
+  // A spawn in a missing directory fails as "ENOENT posix_spawn 'bun'", which once hid a dispatch
+  // that left no worktree on CI.
+  test("names a missing working directory instead of a missing bun", async () => {
+    const workspace = await makeWorkspace();
+    const missing = `${workspace.root}/missing`;
+
+    await expect(runJson(workspace, ["crew", "next"], missing)).rejects.toThrow(
+      `operator crew next --json cannot run in ${missing}: no such directory.`,
+    );
+  });
+});
+
 describe("operator work accept", () => {
   test("refuses acceptance while the review reports nothing", async () => {
     const workspace = await makeWorkspace();

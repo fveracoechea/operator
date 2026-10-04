@@ -244,6 +244,8 @@ describe("operator work invalidate", () => {
     expect(brief).toContain("invalidation cycle 4 of 3");
     expect(brief).toContain("This cycle runs past the recorded limit under approval");
     expect(brief).toContain(DEFECT.summary);
+    // Four complete review cycles run here through separate CLI processes. A run took 24 s on CI
+    // and 33.5 s once under a parallel load, so this test has a bound far above the 30 s default.
   }, 240_000);
 
   test("pauses only the work that read the invalid result and keeps the history", async () => {

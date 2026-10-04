@@ -88,7 +88,7 @@ async function project() {
 }
 
 async function runText(root: string, url: string, args: string[]) {
-  const child = Bun.spawn(["bun", cli, "install", "matt", ...args], {
+  const child = Bun.spawn([process.execPath, cli, "install", "matt", ...args], {
     cwd: root,
     env: { ...process.env, OPERATOR_MATT_SKILLS_API: url },
     stdout: "pipe",
@@ -99,7 +99,7 @@ async function runText(root: string, url: string, args: string[]) {
 }
 
 async function run(root: string, url: string, args: string[]) {
-  const child = Bun.spawn(["bun", cli, "install", "matt", ...args, "--json"], {
+  const child = Bun.spawn([process.execPath, cli, "install", "matt", ...args, "--json"], {
     cwd: root,
     env: { ...process.env, OPERATOR_MATT_SKILLS_API: url },
     stdout: "pipe",

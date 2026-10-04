@@ -144,7 +144,7 @@ describe("operator attempt submit reads the effective write paths", () => {
     await grantPaths(workspace, producer, ["notes/"]);
 
     // Registration keeps the paths it first recorded, so the state is changed here directly.
-    await Bun.$`bun -e ${`
+    await Bun.$`${process.execPath} -e ${`
       const { Database } = require("bun:sqlite");
       const db = new Database(${JSON.stringify(`${workspace.repo}/.operator/local/crew-state.sqlite`)});
       db.query("update assignments set permissions = ? where id = ?").run(

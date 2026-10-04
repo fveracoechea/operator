@@ -60,6 +60,26 @@ export async function writeInput(workspace: Workspace, value: unknown): Promise<
   return path;
 }
 
+/**
+ * Acknowledges a dispatched attempt from inside its worktree. A dispatch that made no worktree
+ * fails here with its own answer, not with a spawn error in a missing directory.
+ */
+async function acknowledgeIn(
+  workspace: Workspace,
+  dispatched: { stdout: string },
+  attemptId: string,
+  worktreePath: string,
+) {
+  if (!(await Bun.file(`${worktreePath}/.git`).exists())) {
+    throw new Error(`The dispatch made no worktree at ${worktreePath}: ${dispatched.stdout}`);
+  }
+  await runJson(
+    workspace,
+    ["attempt", "acknowledge", "--request", request(), "--attempt", attemptId],
+    worktreePath,
+  );
+}
+
 /** One production assignment, claimed, dispatched into its own worktree, and acknowledged. */
 export async function startProducer(
   workspace: Workspace,
@@ -156,11 +176,7 @@ export async function startProducer(
     env,
   );
   if (options.acknowledge !== false) {
-    await runJson(
-      workspace,
-      ["attempt", "acknowledge", "--request", request(), "--attempt", attemptId],
-      worktreePath,
-    );
+    await acknowledgeIn(workspace, dispatched, attemptId, worktreePath);
   }
 
   return {
@@ -316,11 +332,7 @@ export async function startReviewer(
     worktreePath,
   ]);
   if (options.acknowledge !== false) {
-    await runJson(
-      workspace,
-      ["attempt", "acknowledge", "--request", request(), "--attempt", attemptId],
-      worktreePath,
-    );
+    await acknowledgeIn(workspace, dispatched, attemptId, worktreePath);
   }
 
   return {
