@@ -406,6 +406,14 @@ describe("operator update apply", () => {
 
     expect(result.exitCode).toBe(3);
     expect(result.json.reason).toBe("approval_required");
+    expect(result.stdout).toStartWith(
+      `{"schemaVersion":1,"outcome":"missing-condition","reason":"approval_required","blockers":[{"reason":"approval_required","currentUpdateId":"${result.json.data.updateId}","approvedUpdateId":null}],"operation":"update_apply","data":{"updateId":`,
+    );
+    const plan = await runOperator(workspace, ["update", "plan", "--claude", "--commit", commit]);
+    const text = await runOperator(workspace, ["update", "apply", "--claude", "--commit", commit]);
+    expect(text.stdout).toBe(
+      `The update needs an approved plan. Nothing was written.\n${plan.stdout.slice(0, plan.stdout.indexOf("\nApprove with: "))}`,
+    );
   });
 
   test("refuses an approval that does not match the current plan", async () => {
@@ -421,6 +429,21 @@ describe("operator update apply", () => {
 
     expect(result.exitCode).toBe(3);
     expect(result.json.reason).toBe("approval_stale");
+    expect(result.stdout).toStartWith(
+      `{"schemaVersion":1,"outcome":"missing-condition","reason":"approval_stale","blockers":[{"reason":"approval_stale","currentUpdateId":"${result.json.data.updateId}","approvedUpdateId":"${"0".repeat(64)}"}],"operation":"update_apply","data":{"updateId":`,
+    );
+    const text = await runOperator(workspace, [
+      "update",
+      "apply",
+      "--claude",
+      "--commit",
+      commit,
+      "--approved-update",
+      "0".repeat(64),
+    ]);
+    expect(text.stdout).toStartWith(
+      "The approved update no longer matches this project or this release. Nothing was written.\nOperator update plan\n",
+    );
     expect(await Bun.file(`${workspace.repo}/.operator/install/selection.json`).exists()).toBe(
       false,
     );

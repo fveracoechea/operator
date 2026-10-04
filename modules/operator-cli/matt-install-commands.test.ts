@@ -83,6 +83,17 @@ async function project() {
   return root;
 }
 
+async function runText(root: string, url: string, args: string[]) {
+  const child = Bun.spawn(["bun", cli, "install", "matt", ...args], {
+    cwd: root,
+    env: { ...process.env, OPERATOR_MATT_SKILLS_API: url },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [exit, stdout] = await Promise.all([child.exited, new Response(child.stdout).text()]);
+  return { exit, stdout };
+}
+
 async function run(root: string, url: string, args: string[]) {
   const child = Bun.spawn(["bun", cli, "install", "matt", ...args, "--json"], {
     cwd: root,
@@ -97,6 +108,7 @@ async function run(root: string, url: string, args: string[]) {
   ]);
   return {
     exit,
+    stdout,
     json: JSON.parse(stdout) as {
       outcome: string;
       reason: string;
@@ -113,9 +125,27 @@ test("plans pinned Matt skills, then installs only selected hosts after approval
   const plan = await run(root, upstream.url, ["plan", "--opencode"]);
   expect(plan.exit).toBe(0);
   expect(plan.json.data.commit).toBe(commit);
+  expect(plan.stdout).toStartWith(
+    `{"schemaVersion":1,"outcome":"completed","reason":"matt_plan_ready","operation":"install_matt_plan","blockers":[],"data":{"commit":"${commit}","planId":"${plan.json.data.planId}","targets":["opencode"],"changes":[`,
+  );
+  const planText = await runText(root, upstream.url, ["plan", "--opencode"]);
+  expect(planText.stdout).toStartWith(`Matt skills at upstream commit ${commit}.\n  install `);
+  expect(planText.stdout).toEndWith(
+    `\nApprove with: operator install matt apply --opencode --commit ${commit} --approved-plan ${plan.json.data.planId}\n`,
+  );
   expect(await Bun.file(`${root}/.agents/skills/code-review/SKILL.md`).exists()).toBe(false);
   const missing = await run(root, upstream.url, ["apply", "--opencode", "--commit", commit]);
   expect(missing.exit).toBe(3);
+  expect(missing.stdout).toStartWith(
+    `{"schemaVersion":1,"outcome":"missing-condition","reason":"approval_required","operation":"install_matt_apply","blockers":[{"reason":"approval_required","planId":"${plan.json.data.planId}"}],"data":{"commit":"${commit}","planId":"${plan.json.data.planId}","targets":["opencode"],"changes":[`,
+  );
+  const missingText = await runText(root, upstream.url, [
+    "apply",
+    "--opencode",
+    "--commit",
+    commit,
+  ]);
+  expect(missingText.stdout).toBe(planText.stdout);
   const applied = await run(root, upstream.url, [
     "apply",
     "--opencode",
@@ -125,6 +155,9 @@ test("plans pinned Matt skills, then installs only selected hosts after approval
     plan.json.data.planId,
   ]);
   expect(applied.exit).toBe(0);
+  expect(applied.stdout).toStartWith(
+    `{"schemaVersion":1,"outcome":"completed","reason":"matt_skills_installed","operation":"install_matt_apply","blockers":[],"data":{"commit":"${commit}","planId":"${plan.json.data.planId}","targets":["opencode"],"changes":[`,
+  );
   expect(await Bun.file(`${root}/.agents/skills/code-review/SKILL.md`).text()).toContain(
     "version 1",
   );
@@ -170,6 +203,9 @@ test("updates managed copies, refuses local edits and stale approvals without wr
     next.json.data.planId,
   ]);
   expect(conflict.exit).toBe(4);
+  expect(conflict.stdout).toStartWith(
+    `{"schemaVersion":1,"outcome":"conflict","reason":"skill_copy_conflict","operation":"install_matt_apply","blockers":[{"reason":"skill_copy_modified",`,
+  );
   expect(conflict.json.blockers[0]?.paths).toContain(".claude/skills/code-review/SKILL.md");
   expect(await Bun.file(file).text()).toBe("my local edit\n");
   await Bun.write(file, "---\nname: code-review\n---\nversion 1\n");
@@ -182,6 +218,9 @@ test("updates managed copies, refuses local edits and stale approvals without wr
     first.json.data.planId,
   ]);
   expect(stale.exit).toBe(3);
+  expect(stale.stdout).toStartWith(
+    `{"schemaVersion":1,"outcome":"missing-condition","reason":"approval_stale","operation":"install_matt_apply","blockers":[{"reason":"approval_stale","planId":"${next.json.data.planId}"}],"data":{`,
+  );
   const applied = await run(root, upstream.url, [
     "apply",
     "--claude",
@@ -261,5 +300,8 @@ test("refuses a fetched file that does not match its Git blob", async () => {
 
   expect(result.exit).toBe(1);
   expect(result.json.reason).toBe("upstream_unavailable");
+  expect(result.stdout).toStartWith(
+    '{"schemaVersion":1,"outcome":"failed","reason":"upstream_unavailable","operation":"install_matt_apply","blockers":[{"reason":"upstream_unavailable","detail":"Error: ',
+  );
   expect(await Bun.file(`${root}/.agents/skills/code-review/SKILL.md`).exists()).toBe(false);
 });

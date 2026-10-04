@@ -3,7 +3,7 @@ import { hasSelectionOrProbeArguments, type ParsedArguments, targetFlag } from "
 import { runProbeApply, runProbeCleanup, runProbePlan } from "./probe-command.ts";
 import { runReadiness } from "./readiness-command.ts";
 import { reportMissingTarget } from "./missing-target.ts";
-import { report } from "./result.ts";
+import { approvalGate, refusalReport, report } from "./result.ts";
 
 type Plan = Awaited<ReturnType<typeof ProjectSetup.plan>>;
 
@@ -114,24 +114,20 @@ function conflictReport(plan: Plan, operation: "setup_plan" | "setup_apply"): Re
 }
 
 function approvalReport(stale: boolean, plan: Plan, parsed: ParsedArguments): Report {
-  const reason = stale ? "approval_stale" : "approval_required";
-  return {
-    result: {
-      outcome: "missing-condition",
-      reason,
-      blockers: [
-        { reason, currentPlanId: plan.planId, approvedPlanId: parsed.approvedPlan ?? null },
-      ],
-      operation: "setup_apply",
+  return refusalReport(
+    "setup_apply",
+    approvalGate({
+      stale,
+      ids: { currentPlanId: plan.planId, approvedPlanId: parsed.approvedPlan ?? null },
+      headline: {
+        required: "Setup needs an approved plan. Nothing was written.",
+        stale:
+          "The approved plan no longer matches this project or these targets. Nothing was written.",
+      },
+      lines: planLines(plan),
       data: planData(plan),
-    },
-    lines: [
-      stale
-        ? "The approved plan no longer matches this project or these targets. Nothing was written."
-        : "Setup needs an approved plan. Nothing was written.",
-      ...planLines(plan),
-    ],
-  };
+    }),
+  );
 }
 
 const APPLY_REPORTS: ReportTable<ByStatus<ApplyResult>> = {

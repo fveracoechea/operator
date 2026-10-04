@@ -1,7 +1,15 @@
 import { OperatorUpdate } from "../operator-update/main.ts";
 import type { ParsedArguments } from "./arguments.ts";
 import { reportMissingTarget } from "./missing-target.ts";
-import { type Handled, refuse, report } from "./result.ts";
+import {
+  answer,
+  approvalRefusals,
+  type Handled,
+  type Refusal,
+  type Refusals,
+  report,
+  reportRefusal,
+} from "./result.ts";
 
 type Plan = Awaited<ReturnType<typeof OperatorUpdate.plan>>;
 
@@ -44,22 +52,14 @@ function planLines(plan: Plan): string[] {
   ];
 }
 
-function reportBlocked(
-  parsed: ParsedArguments,
-  plan: Plan,
-  operation: "update_plan" | "update_apply",
-): void {
-  report({
-    json: parsed.json,
-    result: {
-      outcome: plan.blockers.some((one) => one.reason === "assignments_active")
-        ? "missing-condition"
-        : "conflict",
-      reason: "update_blocked",
-      blockers: plan.blockers.map((one) => ({ ...one })),
-      operation,
-      data: planData(plan),
-    },
+function blocked(plan: Plan): Refusal {
+  return {
+    outcome: plan.blockers.some((one) => one.reason === "assignments_active")
+      ? "missing-condition"
+      : "conflict",
+    reason: "update_blocked",
+    blockers: plan.blockers.map((one) => ({ ...one })),
+    data: planData(plan),
     lines: [
       "Nothing was written. These conditions stop the update:",
       ...plan.blockers.flatMap((one) => [
@@ -67,7 +67,7 @@ function reportBlocked(
         `    Next: ${one.nextAction}`,
       ]),
     ],
-  });
+  };
 }
 
 /** A release is selected by a full commit, and a registry path also by an exact version. */
@@ -91,8 +91,7 @@ async function runPlan(parsed: ParsedArguments): Promise<Handled> {
     ...selectors,
   });
   if (plan.blockers.length > 0) {
-    reportBlocked(parsed, plan, "update_plan");
-    return "reported";
+    return reportRefusal(parsed, "update_plan", blocked(plan));
   }
 
   report({
@@ -113,55 +112,26 @@ async function runPlan(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
-async function runApply(parsed: ParsedArguments): Promise<Handled> {
-  const selectors = readSelectors(parsed);
-  if (selectors === null) {
-    return "invalid-arguments";
-  }
+type Applied = Awaited<ReturnType<typeof OperatorUpdate.apply>>;
 
-  const result = await OperatorUpdate.apply({
-    projectRoot: process.cwd(),
-    targets: parsed.targets,
-    approvedUpdateId: parsed.approvedUpdate,
-    ...selectors,
-  });
-
-  if (result.status === "blocked") {
-    reportBlocked(parsed, result.plan, "update_apply");
-    return "reported";
-  }
-
-  if (result.status === "approval-required" || result.status === "approval-stale") {
-    const stale = result.status === "approval-stale";
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: stale ? "approval_stale" : "approval_required",
-        blockers: [
-          {
-            reason: stale ? "approval_stale" : "approval_required",
-            currentUpdateId: result.plan.updateId,
-            approvedUpdateId: parsed.approvedUpdate ?? null,
-          },
-        ],
-        operation: "update_apply",
-        data: planData(result.plan),
+/** The answer to each update apply status that selects no release. */
+function applyRefusals(parsed: ParsedArguments) {
+  return {
+    blocked: (result) => blocked(result.plan),
+    ...approvalRefusals((result: Extract<Applied, { status: `approval-${string}` }>) => ({
+      ids: {
+        currentUpdateId: result.plan.updateId,
+        approvedUpdateId: parsed.approvedUpdate ?? null,
       },
-      lines: [
-        stale
-          ? "The approved update no longer matches this project or this release. Nothing was written."
-          : "The update needs an approved plan. Nothing was written.",
-        ...planLines(result.plan),
-      ],
-    });
-    return "reported";
-  }
-
-  if (result.status === "backup-unverified") {
-    return refuse({
-      json: parsed.json,
-      operation: "update_apply",
+      headline: {
+        required: "The update needs an approved plan. Nothing was written.",
+        stale:
+          "The approved update no longer matches this project or this release. Nothing was written.",
+      },
+      lines: planLines(result.plan),
+      data: planData(result.plan),
+    })),
+    "backup-unverified": (result) => ({
       outcome: "failed",
       reason: "backup_unverified",
       detail: { root: result.backup.root, failed: result.backup.failed },
@@ -169,13 +139,8 @@ async function runApply(parsed: ParsedArguments): Promise<Handled> {
         "The backup of these durable records did not read back as written, so nothing was migrated:",
         ...result.backup.failed.map((path) => `  ${path}`),
       ],
-    });
-  }
-
-  if (result.status === "migration-failed") {
-    return refuse({
-      json: parsed.json,
-      operation: "update_apply",
+    }),
+    "migration-failed": (result) => ({
       outcome: "failed",
       reason: "migration_failed",
       detail: {
@@ -191,13 +156,8 @@ async function runApply(parsed: ParsedArguments): Promise<Handled> {
           ? "Every backed-up record was put back exactly as it was."
           : `These records could not be put back: ${result.restored.failed.join(", ")}`,
       ],
-    });
-  }
-
-  if (result.status === "skills-conflicted") {
-    return refuse({
-      json: parsed.json,
-      operation: "update_apply",
+    }),
+    "skills-conflicted": (result) => ({
       outcome: "conflict",
       reason: "skill_copy_conflict",
       detail: { paths: result.installed.conflicts.flatMap((one) => one.paths) },
@@ -205,19 +165,29 @@ async function runApply(parsed: ParsedArguments): Promise<Handled> {
         "These skill copies changed while the update ran, so no skill was installed:",
         ...result.installed.conflicts.flatMap((one) => one.paths.map((path) => `  ${path}`)),
       ],
-    });
-  }
-
-  if (result.status === "selection-invalid") {
-    return refuse({
-      json: parsed.json,
-      operation: "update_apply",
+    }),
+    "selection-invalid": (result) => ({
       outcome: "invalid",
       reason: "invalid_selection",
       detail: { issues: result.issues },
       lines: ["The release selection is not valid:", ...result.issues.map((one) => `  ${one}`)],
-    });
+    }),
+  } satisfies Refusals<Applied>;
+}
+
+async function runApply(parsed: ParsedArguments): Promise<Handled> {
+  const selectors = readSelectors(parsed);
+  if (selectors === null) {
+    return "invalid-arguments";
   }
+
+  const result = await OperatorUpdate.apply({
+    projectRoot: process.cwd(),
+    targets: parsed.targets,
+    approvedUpdateId: parsed.approvedUpdate,
+    ...selectors,
+  });
+  if (answer(parsed, "update_apply", result, applyRefusals(parsed))) return "reported";
 
   report({
     json: parsed.json,

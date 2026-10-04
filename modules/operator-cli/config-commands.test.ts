@@ -85,6 +85,14 @@ describe("operator config", () => {
     expect(reordered.json.data.planId).toBe(plan.json.data.planId);
     const missing = await runJson(workspace, ["config", "apply", ...edits]);
     expect(missing.json.reason).toBe("approval_required");
+    expect(missing.stdout).toStartWith(
+      `{"schemaVersion":1,"outcome":"missing-condition","reason":"approval_required","blockers":[{"reason":"approval_required","approvedPlanId":null,"currentPlanId":"${plan.json.data.planId}"}],"operation":"config_apply","data":{"path":`,
+    );
+    const planText = await runOperator(workspace, ["config", "plan", ...edits]);
+    const missingText = await runOperator(workspace, ["config", "apply", ...edits]);
+    expect(missingText.stdout).toBe(
+      `Approval is required. Nothing was written.\n${planText.stdout}`,
+    );
     expect(await file.text()).toBe(before);
 
     const args = ["config", "apply", ...edits, "--approved-plan", plan.json.data.planId];
@@ -134,6 +142,20 @@ describe("operator config", () => {
 
     expect(applied.exitCode).toBe(4);
     expect(applied.json.reason).toBe("approval_stale");
+    expect(applied.stdout).toStartWith(
+      `{"schemaVersion":1,"outcome":"conflict","reason":"approval_stale","blockers":[{"reason":"approval_stale","approvedPlanId":"${plan.json.data.planId}","currentPlanId":"${applied.json.data.planId}"}],"operation":"config_apply","data":{"path":`,
+    );
+    const planText = await runOperator(workspace, ["config", "plan", ...edits]);
+    const staleText = await runOperator(workspace, [
+      "config",
+      "apply",
+      ...edits,
+      "--approved-plan",
+      plan.json.data.planId,
+    ]);
+    expect(staleText.stdout).toBe(
+      `The file or proposed edit changed. Nothing was written.\n${planText.stdout}`,
+    );
     expect(await file.text()).toBe(changed);
   });
 

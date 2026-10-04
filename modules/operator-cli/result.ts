@@ -760,9 +760,17 @@ export function answer<Result extends { status: string }, Table extends Refusals
     return false;
   }
 
+  reportRefusal(parsed, operation, refusal);
+  return true;
+}
+
+/** The result and the readable lines of one answer to one operation. */
+export function refusalReport(
+  operation: Operation,
+  refusal: Refusal,
+): { result: JsonResult; lines: string[] } {
   const { outcome, reason } = refusal;
-  report({
-    json: parsed.json,
+  return {
     result: {
       outcome,
       reason,
@@ -772,8 +780,68 @@ export function answer<Result extends { status: string }, Table extends Refusals
       data: refusal.data,
     },
     lines: refusal.lines,
-  });
-  return true;
+  };
+}
+
+/** Reports one answer to one operation. */
+export function reportRefusal(
+  parsed: ParsedArguments,
+  operation: Operation,
+  refusal: Refusal,
+): Handled {
+  report({ json: parsed.json, ...refusalReport(operation, refusal) });
+  return "reported";
+}
+
+/** What one apply gives the approval gate: its ids, its plan data, and its plan lines. */
+export type ApprovalGate = {
+  /** The current and the approved plan ids, under the names and in the order of the JSON. */
+  ids: Record<string, string | null>;
+  /** The config apply refuses a stale approval as a conflict. Every other apply waits. */
+  staleOutcome?: "conflict";
+  /** The first line when no approval was given, and when the given one is stale. */
+  headline?: { required: string; stale: string };
+  lines: string[];
+  data: unknown;
+};
+
+/**
+ * The refusal of an apply that waits on the person: no approval was given, or the given one
+ * no longer names the current plan. Nothing was written. Its one blocker names the current
+ * and the approved ids, so the person can see which plan to approve.
+ */
+export function approvalGate(request: ApprovalGate & { stale: boolean }): Refusal {
+  const reason = request.stale ? "approval_stale" : "approval_required";
+  const { headline } = request;
+  return {
+    outcome: request.stale ? (request.staleOutcome ?? "missing-condition") : "missing-condition",
+    reason,
+    blockers: [{ reason, ...request.ids }],
+    data: request.data,
+    lines: [
+      ...(headline === undefined ? [] : [request.stale ? headline.stale : headline.required]),
+      ...request.lines,
+    ],
+  };
+}
+
+/** Reports the approval gate of one apply. */
+export function reportApprovalGate(
+  parsed: ParsedArguments,
+  operation: Operation,
+  gate: ApprovalGate & { stale: boolean },
+): Handled {
+  return reportRefusal(parsed, operation, approvalGate(gate));
+}
+
+/** The two rows of the approval gate, for the refusal table of an apply. */
+export function approvalRefusals<Result extends { status: "approval-required" | "approval-stale" }>(
+  gate: (result: Result) => ApprovalGate,
+) {
+  return {
+    "approval-required": (result: Result) => approvalGate({ ...gate(result), stale: false }),
+    "approval-stale": (result: Result) => approvalGate({ ...gate(result), stale: true }),
+  };
 }
 
 /** Reports one command result: JSON for agents on stdout, readable lines for a person. */

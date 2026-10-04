@@ -1,6 +1,14 @@
 import { OperatorConfig } from "../operator-config/main.ts";
 import { hasConfigArguments, type ParsedArguments } from "./arguments.ts";
-import { type Handled, report } from "./result.ts";
+import {
+  answer,
+  approvalRefusals,
+  type Handled,
+  type Refusal,
+  type Refusals,
+  report,
+  reportRefusal,
+} from "./result.ts";
 
 type Plan = Extract<Awaited<ReturnType<typeof OperatorConfig.planChange>>, { status: "planned" }>;
 
@@ -31,14 +39,14 @@ function planLines(plan: Plan): string[] {
   ];
 }
 
-function reportFailure(
-  parsed: ParsedArguments,
-  operation: "config_show" | "config_plan" | "config_apply",
+type Applied = Awaited<ReturnType<typeof OperatorConfig.applyChange>>;
+
+function failure(
   result:
     | { status: "missing" }
     | { status: "invalid"; issues: string[] }
     | { status: "invalid-input"; issues: string[] },
-): void {
+): Refusal {
   const missing = result.status === "missing";
   const invalidInput = result.status === "invalid-input";
   const reason = missing
@@ -47,21 +55,38 @@ function reportFailure(
       ? "invalid_config_change"
       : "invalid_configuration";
   const issues = missing ? ["Run operator setup first."] : result.issues;
-  report({
-    json: parsed.json,
-    result: {
-      outcome: missing ? "missing-condition" : invalidInput ? "invalid" : "conflict",
-      reason,
-      blockers: [{ reason, path: OperatorConfig.configPath(), issues }],
-      operation,
-    },
+  return {
+    outcome: missing ? "missing-condition" : invalidInput ? "invalid" : "conflict",
+    reason,
+    detail: { path: OperatorConfig.configPath(), issues },
     lines: issues,
-  });
+  };
+}
+
+function recovery(detail: string): Refusal {
+  return {
+    outcome: "conflict",
+    reason: "config_recovery_required",
+    detail: { detail },
+    lines: [detail, "Inspect the configuration and the apply record before retrying."],
+  };
+}
+
+function locked(detail: string): Refusal {
+  return {
+    outcome: "conflict",
+    reason: "config_write_locked",
+    detail: { detail },
+    lines: ["Another configuration write holds the project lock. Retry after it finishes.", detail],
+  };
 }
 
 async function show(parsed: ParsedArguments): Promise<void> {
   const result = await OperatorConfig.show(process.cwd());
-  if (result.status !== "read") return reportFailure(parsed, "config_show", result);
+  if (result.status !== "read") {
+    reportRefusal(parsed, "config_show", failure(result));
+    return;
+  }
   report({
     json: parsed.json,
     result: {
@@ -90,9 +115,14 @@ async function plan(parsed: ParsedArguments): Promise<void> {
     sets: parsed.configSets,
     unsets: parsed.configUnsets,
   });
-  if (result.status === "recovery-required")
-    return reportRecovery(parsed, "config_plan", result.detail);
-  if (result.status !== "planned") return reportFailure(parsed, "config_plan", result);
+  if (result.status === "recovery-required") {
+    reportRefusal(parsed, "config_plan", recovery(result.detail));
+    return;
+  }
+  if (result.status !== "planned") {
+    reportRefusal(parsed, "config_plan", failure(result));
+    return;
+  }
   report({
     json: parsed.json,
     result: {
@@ -106,6 +136,33 @@ async function plan(parsed: ParsedArguments): Promise<void> {
   });
 }
 
+/** The answer to each config apply status that writes nothing. */
+function applyRefusals(parsed: ParsedArguments) {
+  return {
+    "write-locked": (result) => locked(result.detail),
+    missing: failure,
+    invalid: failure,
+    "invalid-input": failure,
+    "recovery-required": (result) => recovery(result.detail),
+    "write-failed": (result) => ({
+      outcome: "failed",
+      reason: "config_write_failed",
+      detail: { detail: result.detail },
+      lines: [result.detail, "Inspect the configuration and the apply record before retrying."],
+    }),
+    ...approvalRefusals((result: Extract<Applied, { status: `approval-${string}` }>) => ({
+      ids: { approvedPlanId: parsed.approvedPlan ?? null, currentPlanId: result.plan.planId },
+      staleOutcome: "conflict",
+      headline: {
+        required: "Approval is required. Nothing was written.",
+        stale: "The file or proposed edit changed. Nothing was written.",
+      },
+      lines: planLines(result.plan),
+      data: planData(result.plan),
+    })),
+  } satisfies Refusals<Applied>;
+}
+
 async function apply(parsed: ParsedArguments): Promise<void> {
   const result = await OperatorConfig.applyChange({
     projectRoot: process.cwd(),
@@ -113,57 +170,7 @@ async function apply(parsed: ParsedArguments): Promise<void> {
     unsets: parsed.configUnsets,
     approvedPlanId: parsed.approvedPlan,
   });
-  if (result.status === "write-locked") return reportLocked(parsed, "config_apply", result.detail);
-  if (
-    result.status === "missing" ||
-    result.status === "invalid" ||
-    result.status === "invalid-input"
-  ) {
-    return reportFailure(parsed, "config_apply", result);
-  }
-  if (result.status === "recovery-required") {
-    return reportRecovery(parsed, "config_apply", result.detail);
-  }
-  if (result.status === "write-failed") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "failed",
-        reason: "config_write_failed",
-        blockers: [{ reason: "config_write_failed", detail: result.detail }],
-        operation: "config_apply",
-      },
-      lines: [result.detail, "Inspect the configuration and the apply record before retrying."],
-    });
-    return;
-  }
-  if (result.status === "approval-required" || result.status === "approval-stale") {
-    const stale = result.status === "approval-stale";
-    const reason = stale ? "approval_stale" : "approval_required";
-    report({
-      json: parsed.json,
-      result: {
-        outcome: stale ? "conflict" : "missing-condition",
-        reason,
-        blockers: [
-          {
-            reason,
-            approvedPlanId: parsed.approvedPlan ?? null,
-            currentPlanId: result.plan.planId,
-          },
-        ],
-        operation: "config_apply",
-        data: planData(result.plan),
-      },
-      lines: [
-        stale
-          ? "The file or proposed edit changed. Nothing was written."
-          : "Approval is required. Nothing was written.",
-        ...planLines(result.plan),
-      ],
-    });
-    return;
-  }
+  if (answer(parsed, "config_apply", result, applyRefusals(parsed))) return;
   report({
     json: parsed.json,
     result: {
@@ -188,32 +195,14 @@ async function apply(parsed: ParsedArguments): Promise<void> {
   });
 }
 
-function reportRecovery(
-  parsed: ParsedArguments,
-  operation: "config_plan" | "config_apply" | "config_recover",
-  detail: string,
-): void {
-  report({
-    json: parsed.json,
-    result: {
-      outcome: "conflict",
-      reason: "config_recovery_required",
-      blockers: [{ reason: "config_recovery_required", detail }],
-      operation,
-    },
-    lines: [detail, "Inspect the configuration and the apply record before retrying."],
-  });
-}
-
 async function recover(parsed: ParsedArguments): Promise<void> {
   const result = await OperatorConfig.recoverChange(process.cwd());
-  if (result.status === "write-locked")
-    return reportLocked(parsed, "config_recover", result.detail);
-  if (result.status === "write-failed") {
-    return reportRecovery(parsed, "config_recover", result.detail);
+  if (result.status === "write-locked") {
+    reportRefusal(parsed, "config_recover", locked(result.detail));
+    return;
   }
-  if (result.status === "recovery-required") {
-    reportRecovery(parsed, "config_recover", result.detail);
+  if (result.status === "write-failed" || result.status === "recovery-required") {
+    reportRefusal(parsed, "config_recover", recovery(result.detail));
     return;
   }
   report({
@@ -230,23 +219,6 @@ async function recover(parsed: ParsedArguments): Promise<void> {
         ? `Plan ${result.planId} ${result.state === "complete" ? "wrote the configuration" : "left the configuration unchanged"}. The apply record is settled.`
         : "No configuration apply needs recovery.",
     ],
-  });
-}
-
-function reportLocked(
-  parsed: ParsedArguments,
-  operation: "config_apply" | "config_recover",
-  detail: string,
-): void {
-  report({
-    json: parsed.json,
-    result: {
-      outcome: "conflict",
-      reason: "config_write_locked",
-      blockers: [{ reason: "config_write_locked", detail }],
-      operation,
-    },
-    lines: ["Another configuration write holds the project lock. Retry after it finishes.", detail],
   });
 }
 

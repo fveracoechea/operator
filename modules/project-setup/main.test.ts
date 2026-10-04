@@ -101,6 +101,12 @@ describe("operator setup apply", () => {
       reason: "approval_required",
     });
     expect(result.json.data.planId).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.stdout).toStartWith(
+      `{"schemaVersion":1,"outcome":"missing-condition","reason":"approval_required","blockers":[{"reason":"approval_required","currentPlanId":"${result.json.data.planId}","approvedPlanId":null}],"operation":"setup_apply","data":{"planId":`,
+    );
+    const plan = await runOperator(root, ["setup", "plan", "--claude"]);
+    const text = await runOperator(root, ["setup", "apply", "--claude"]);
+    expect(text.stdout).toBe(`Setup needs an approved plan. Nothing was written.\n${plan.stdout}`);
     expect(await filesUnder(root)).toEqual([]);
   });
 
@@ -117,6 +123,20 @@ describe("operator setup apply", () => {
 
     expect(result.exitCode).toBe(3);
     expect(result.json.reason).toBe("approval_stale");
+    expect(result.stdout).toStartWith(
+      `{"schemaVersion":1,"outcome":"missing-condition","reason":"approval_stale","blockers":[{"reason":"approval_stale","currentPlanId":"${result.json.data.planId}","approvedPlanId":"${"0".repeat(64)}"}],"operation":"setup_apply","data":{"planId":`,
+    );
+    const plan = await runOperator(root, ["setup", "plan", "--claude"]);
+    const text = await runOperator(root, [
+      "setup",
+      "apply",
+      "--claude",
+      "--approved-plan",
+      "0".repeat(64),
+    ]);
+    expect(text.stdout).toBe(
+      `The approved plan no longer matches this project or these targets. Nothing was written.\n${plan.stdout}`,
+    );
     expect(await filesUnder(root)).toEqual([]);
   });
 
