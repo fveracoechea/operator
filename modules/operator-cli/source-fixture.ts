@@ -129,6 +129,15 @@ function itemNumber(source: FixtureSource, item: FixtureItem, index: number): nu
   return item.issue ?? source.parent * 100 + index + 1;
 }
 
+/** The issue number a seeded item took. A key that no seed numbered is a fault of the test. */
+function numberOf(numbers: Map<string, number>, key: string): number {
+  const number = numbers.get(key);
+  if (number === undefined) {
+    throw new Error(`the fixture seeded no issue for item ${key}`);
+  }
+  return number;
+}
+
 /** The parent number a cross-source dependency names, read from its `#<number>` suffix. */
 function parentOf(sourceId: string): number {
   return Number(/#(\d+)$/.exec(sourceId)?.[1] ?? "0");
@@ -162,7 +171,7 @@ export async function seedSource(
   });
 
   const items = source.items.map((item) => {
-    const number = numbers.get(item.key) ?? 0;
+    const number = numberOf(numbers, item.key);
     const issue = fakeIssue({
       number,
       repository: item.repository ?? repository,
@@ -181,7 +190,7 @@ export async function seedSource(
   }
 
   for (const item of source.items) {
-    const number = numbers.get(item.key) ?? 0;
+    const number = numberOf(numbers, item.key);
     state.blockedBy = {
       ...state.blockedBy,
       [String(number)]: (item.dependsOn ?? []).map((dependency) => {
@@ -211,7 +220,7 @@ export function sourceInput(source: FixtureSource, numbers: Map<string, number>)
     items: source.items
       .filter((item) => item.inInput !== false && item.state !== "closed")
       .map((item) => ({
-        issue: issueKey(numbers.get(item.key) ?? 0, item.repository ?? repository),
+        issue: issueKey(numberOf(numbers, item.key), item.repository ?? repository),
         ...(source.sourceKind === "wayfinder"
           ? item.kind === undefined
             ? {}
@@ -273,7 +282,7 @@ export async function registerSource(
   const keys = new Map<string, string>();
   for (const item of source.items) {
     const assignment = byIssue.get(
-      issueKey(numbers.get(item.key) ?? 0, item.repository ?? source.repository),
+      issueKey(numberOf(numbers, item.key), item.repository ?? source.repository),
     );
     if (assignment !== undefined) {
       keys.set(item.key, assignment);

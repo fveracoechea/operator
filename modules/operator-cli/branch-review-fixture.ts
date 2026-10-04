@@ -6,6 +6,7 @@ import {
   type Producer,
   reportBody,
   reportReview,
+  reviewWork,
   startProducer,
   startReviewer,
   submissionBody,
@@ -221,13 +222,11 @@ export function branchReport(
   findings: Array<{ key: string; severity: string; targets: string[] }> = [],
   options: { observedChecks?: Array<{ name: string; outcome: string }> } = {},
 ) {
-  const body = reportBody({
-    submissionIdentity: "unused",
+  const rest = reviewWork({
     host: workspace.host,
     checked: ["diff", "requirements", "checks"],
     observedChecks: options.observedChecks ?? [],
   });
-  const { submissionIdentity: _unused, ...rest } = body;
   return {
     ...rest,
     snapshotIdentity,

@@ -36,7 +36,6 @@
         "modules/operator-cli/review-command.ts",
         "modules/operator-cli/run.ts",
         "modules/operator-cli/setup-command.ts",
-        "modules/operator-cli/source-end-to-end.test.ts",
         "modules/operator-cli/tracker-command.ts",
         "modules/operator-cli/update-command.ts",
         "modules/operator-cli/wake-command.ts",

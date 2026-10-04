@@ -59,11 +59,19 @@ export async function plan(workspace: Workspace) {
   return runJson(workspace, ["publish", "plan", "--source", SOURCE]);
 }
 
-export async function grant(workspace: Workspace, producer: Producer, approval: ApprovalRequest) {
+export async function grant(
+  workspace: Workspace,
+  producer: Pick<Producer, "ownerToken">,
+  approval: ApprovalRequest,
+) {
   return grantDirection(workspace, producer, { approval }, "Publish exactly this plan.");
 }
 
-export async function apply(workspace: Workspace, producer: Producer, planRevision: string) {
+export async function apply(
+  workspace: Workspace,
+  producer: Pick<Producer, "ownerToken">,
+  planRevision: string,
+) {
   return runJson(workspace, [
     "publish",
     "apply",
@@ -213,7 +221,7 @@ export async function mergeOnGithub(
   return mergeCommit;
 }
 
-export async function publishStatus(workspace: Workspace, producer: Producer) {
+export async function publishStatus(workspace: Workspace, producer: Pick<Producer, "ownerToken">) {
   return runJson(workspace, [
     "publish",
     "status",
@@ -228,7 +236,7 @@ export async function publishStatus(workspace: Workspace, producer: Producer) {
 
 export async function recordTracker(
   workspace: Workspace,
-  producer: Producer,
+  producer: Pick<Producer, "ownerToken" | "assignmentId">,
   options: { revision: number; input: unknown },
 ) {
   const path = `${workspace.root}/inputs/tracker-${crypto.randomUUID()}.json`;

@@ -351,8 +351,11 @@ export const PUBLISHED_TEXT = {
 
 export type Finding = { key: string; severity: string; summary: string; evidence: string };
 
-export function reportBody(options: {
-  submissionIdentity: string;
+export function reportBody(options: ReportOptions & { submissionIdentity: string }) {
+  return { submissionIdentity: options.submissionIdentity, ...reviewWork(options) };
+}
+
+type ReportOptions = {
   host: Host;
   checked?: string[];
   standardsFindings?: Finding[];
@@ -364,13 +367,15 @@ export function reportBody(options: {
   observedChecks?: Array<{ name: string; outcome: string }>;
   /** The published text, or null to leave it out. A test reads the fixture text by default. */
   published?: typeof PUBLISHED_TEXT | null;
-}) {
+};
+
+/** The work of one review report. A branch report carries no submission identity, so it uses this. */
+export function reviewWork(options: ReportOptions) {
   const checked = options.checked ?? ["diff", "requirements", "checks", "behavior-changes"];
   const axes = ["standards", "spec"] as const;
 
   return {
     kind: "reported",
-    submissionIdentity: options.submissionIdentity,
     host: options.statedHost ?? options.host,
     subAgents: axes.map((axis, index) => ({
       axis,
@@ -650,7 +655,7 @@ export async function startRework(
 /** Accepts one review assignment, which frees the crew slot its reviewer held. */
 export async function acceptReview(
   workspace: Workspace,
-  producer: Producer,
+  producer: Pick<Producer, "ownerToken">,
   options: { reviewAssignmentId: string; attemptId: string; revision: number },
 ) {
   return runJson(workspace, [
@@ -672,7 +677,7 @@ export async function acceptReview(
 /** Records the user's exact direction past one reached limit, as the approval it must be. */
 export async function grantDirection(
   workspace: Workspace,
-  producer: Producer,
+  producer: Pick<Producer, "ownerToken">,
   direction: {
     approval: { action: string; targets: string[]; scope: string; requestRevision: string };
   },
@@ -733,7 +738,7 @@ export const PLANNING_RECORD = {
 /** Accepts planning work with its planning record, which is how planning work is resolved. */
 export async function acceptAssignment(
   workspace: Workspace,
-  producer: Producer,
+  producer: Pick<Producer, "ownerToken">,
   options: { assignmentId: string; revision: number; record?: unknown },
 ) {
   return runJson(workspace, [
