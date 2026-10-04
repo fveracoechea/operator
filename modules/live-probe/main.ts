@@ -3,9 +3,20 @@ import { type Host, LIFECYCLE_CHECKS, type Lifecycle } from "./agents.ts";
 import type { Target } from "./scratch.ts";
 import { runLifecycle } from "./lifecycle.ts";
 import { failed, passed, passedAll, type Staged, skipRest } from "./stage.ts";
-import { type Fixture, TRACKER_CHECKS, runTrackerChecks } from "./tracker.ts";
+import { TRACKER_CHECKS, runTrackerChecks } from "./tracker.ts";
 import { GithubTracker } from "../github-tracker/main.ts";
-import { beginRun, cancelRuns, finishRun, inspectRuns, intendWrite } from "./recovery.ts";
+import {
+  beginRun,
+  cancelRuns,
+  type CleanupEvent,
+  type CleanupFacts,
+  type CleanupState,
+  decideCleanup,
+  finishRun,
+  type Fixture,
+  inspectRuns,
+  intendWrite,
+} from "./recovery.ts";
 
 /** The bounded window one agent answer is waited for. A window that runs out fails the check. */
 const DEFAULT_OBSERVATION_MS = 120_000;
@@ -73,6 +84,55 @@ function isTarget(name: string): name is Target {
   return name === "opencode" || name === "claude-code";
 }
 
+/**
+ * Launches the two synthetic hosts and runs every lifecycle check.
+ * With no host named for both roles, nothing is launched and every lifecycle check is skipped.
+ */
+async function lifecycleStaged(
+  request: RunRequest,
+  runId: string,
+): Promise<{ staged: Staged[]; resources: string[] }> {
+  if (request.operator.host === null || request.crew.host === null) {
+    const staged: Staged[] = [];
+    skipRest(staged, LIFECYCLE_CHECKS, "No host is named for both roles, so nothing was launched.");
+    return { staged, resources: [] };
+  }
+  const lifecycle: Lifecycle = {
+    runId,
+    probeId: request.probeId,
+    projectRoot: request.projectRoot,
+    targets: request.targets.filter(isTarget),
+    operator: { host: request.operator.host, model: request.operator.model },
+    crew: { host: request.crew.host, model: request.crew.model },
+    observationMs: observationMs(),
+  };
+  return runLifecycle(lifecycle);
+}
+
+/** One durable observation for each declared check, in the order the checks ran. */
+function observationsOf(staged: Staged[], request: RunRequest, startedAt: string) {
+  // Checks run one after another, so a check ran between the record before it and its own.
+  let opened = startedAt;
+  return staged
+    .map((one) => {
+      const observation = {
+        name: one.name,
+        state: one.state,
+        detail: one.detail,
+        startedAt: opened,
+        finishedAt: one.recordedAt,
+        inputs: request.inputs,
+        versions: request.versions,
+        outputs: one.outputs,
+        evidence: one.evidence,
+        cleanup: one.cleanup,
+      };
+      opened = one.recordedAt;
+      return observation;
+    })
+    .filter((one) => request.checks.includes(one.name));
+}
+
 export const LiveProbe = {
   /** The checks this release can run. A declared name outside this list is recorded as skipped. */
   supportedChecks(): string[] {
@@ -85,6 +145,15 @@ export const LiveProbe = {
 
   async finish(projectRoot: string, runId: string) {
     return finishRun(projectRoot, runId);
+  },
+
+  /** The probe cleanup machine that `removeResources` runs. It reads no Herdr, Git, or file. */
+  decideCleanup<Event extends CleanupEvent>(
+    state: CleanupState,
+    event: Event,
+    facts: CleanupFacts[Event],
+  ) {
+    return decideCleanup(state, event, facts);
   },
 
   /**
@@ -120,25 +189,10 @@ export const LiveProbe = {
       writes: [],
     });
 
-    if (lifecycleSelected && (request.operator.host === null || request.crew.host === null)) {
-      skipRest(
-        staged,
-        LIFECYCLE_CHECKS,
-        "No host is named for both roles, so nothing was launched.",
-      );
-    } else if (lifecycleSelected && request.operator.host !== null && request.crew.host !== null) {
-      const lifecycle: Lifecycle = {
-        runId,
-        probeId: request.probeId,
-        projectRoot: request.projectRoot,
-        targets: request.targets.filter(isTarget),
-        operator: { host: request.operator.host, model: request.operator.model },
-        crew: { host: request.crew.host, model: request.crew.model },
-        observationMs: observationMs(),
-      };
-      const ran = await runLifecycle(lifecycle);
-      staged.push(...ran.staged);
-      resources.push(...ran.resources);
+    if (lifecycleSelected) {
+      const lifecycle = await lifecycleStaged(request, runId);
+      staged.push(...lifecycle.staged);
+      resources.push(...lifecycle.resources);
     }
 
     let trackerFailed = false;
@@ -161,26 +215,7 @@ export const LiveProbe = {
     );
 
     const finishedAt = new Date().toISOString();
-    // Checks run one after another, so a check ran between the record before it and its own.
-    let opened = startedAt;
-    const observations = staged
-      .map((one) => {
-        const observation = {
-          name: one.name,
-          state: one.state,
-          detail: one.detail,
-          startedAt: opened,
-          finishedAt: one.recordedAt,
-          inputs: request.inputs,
-          versions: request.versions,
-          outputs: one.outputs,
-          evidence: one.evidence,
-          cleanup: one.cleanup,
-        };
-        opened = one.recordedAt;
-        return observation;
-      })
-      .filter((one) => request.checks.includes(one.name));
+    const observations = observationsOf(staged, request, startedAt);
 
     return {
       runId,
@@ -214,17 +249,6 @@ export const LiveProbe = {
    * The recorded observations stay, so every failed attempt survives its resources.
    */
   async removeResources(request: { projectRoot: string; approvedCleanupId: string | undefined }) {
-    const inspected = await inspectRuns(request.projectRoot);
-    if (inspected.directories.length === 0) {
-      return { status: "nothing" as const, ...inspected };
-    }
-    if (request.approvedCleanupId === undefined) {
-      return { status: "approval-required" as const, ...inspected };
-    }
-    if (request.approvedCleanupId !== inspected.cleanupId) {
-      return { status: "approval-stale" as const, ...inspected };
-    }
-
-    return cancelRuns(inspected);
+    return cancelRuns(await inspectRuns(request.projectRoot), request.approvedCleanupId);
   },
 };

@@ -62,3 +62,52 @@ test("reads a report written after observation starts", async () => {
     await rm(path, { force: true });
   }
 });
+
+describe("the probe cleanup machine", () => {
+  const approve = { directories: 1, approvedCleanupId: "cleanup-1", cleanupId: "cleanup-1" };
+
+  test("refuses an approval in the order nothing, required, stale", () => {
+    expect(
+      LiveProbe.decideCleanup("inspected", "approve", {
+        directories: 0,
+        approvedCleanupId: undefined,
+        cleanupId: "cleanup-1",
+      }),
+    ).toEqual({ refused: "nothing" });
+    expect(
+      LiveProbe.decideCleanup("inspected", "approve", { ...approve, approvedCleanupId: undefined }),
+    ).toEqual({ refused: "approval-required" });
+    expect(
+      LiveProbe.decideCleanup("inspected", "approve", { ...approve, approvedCleanupId: "old" }),
+    ).toEqual({ refused: "approval-stale" });
+    expect(LiveProbe.decideCleanup("inspected", "approve", approve)).toEqual({ next: "approved" });
+  });
+
+  test("blocks a cancel or a disposal that names a blocker", () => {
+    expect(LiveProbe.decideCleanup("approved", "cancel", { blocker: "occupied" })).toEqual({
+      refused: "blocked",
+    });
+    expect(LiveProbe.decideCleanup("approved", "cancel", { blocker: null })).toEqual({
+      next: "checked",
+    });
+    expect(LiveProbe.decideCleanup("checked", "dispose", { blocker: "still live" })).toEqual({
+      refused: "blocked",
+    });
+    expect(LiveProbe.decideCleanup("checked", "dispose", { blocker: null })).toEqual({
+      next: "disposed",
+    });
+  });
+
+  test("keeps a run with an unresolved fixture pending after disposal", () => {
+    expect(LiveProbe.decideCleanup("disposed", "inspect", { remaining: 1 })).toEqual({
+      refused: "pending-fixture",
+    });
+    expect(LiveProbe.decideCleanup("disposed", "inspect", { remaining: 0 })).toEqual({
+      next: "removed",
+    });
+  });
+
+  test("never disposes of a resource before the cancel checked every one", () => {
+    expect(() => LiveProbe.decideCleanup("approved", "dispose", { blocker: null })).toThrow();
+  });
+});

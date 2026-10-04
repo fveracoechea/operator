@@ -1,8 +1,7 @@
 import { GithubTracker } from "../github-tracker/main.ts";
 import { TrackerUpdate } from "../tracker-update/main.ts";
+import type { Fixture, Write } from "./recovery.ts";
 import { failed, passed, type Staged, skipped } from "./stage.ts";
-
-export type Fixture = { repository: string; issue: number; mapIssue?: number | undefined };
 
 export const TRACKER_CHECKS = [
   "github-comment",
@@ -25,75 +24,65 @@ function targetsOf(fixture: Fixture): string[] {
   ];
 }
 
-type Written =
-  | { status: "written"; operationId: string; resourceId: string; expectedActor: string }
-  | { status: "unwritten"; detail: string };
+type BeforeWrite = (write: Write) => Promise<void>;
 
-type BeforeWrite = (write: {
-  operationId: string;
-  step: "resolution" | "map_amendment" | "completion" | "reopen";
-  issue: number;
-  expectedActor: string;
-  contentIdentity: string | null;
-  eventCount?: number | null;
-  outcome?: "succeeded" | "failed" | "uncertain" | "unavailable";
-}) => Promise<void>;
+type StepIntent =
+  | { step: "resolution"; body: string }
+  | {
+      step: "map_amendment";
+      decisionLink: string;
+      baselineIdentity: string;
+      sections: string[];
+      supersedes: string[];
+      body: string;
+    }
+  | { step: "completion"; reason: "completed" };
+
+type WriteAnswer = Awaited<ReturnType<typeof TrackerUpdate.write>>;
+
+type Stepped =
+  | { status: "unplanned"; planned: string }
+  | { status: "unwritten"; written: Exclude<WriteAnswer, { status: "succeeded" }> }
+  | { status: "written"; operationId: string; resourceId: string; expectedActor: string };
 
 /**
- * Writes one comment through the supported path, exactly as the workflow writes it.
- * The probe fixes the content before the write and reads the effect back afterwards, so a lost
- * answer is settled by reading rather than by sending the comment again.
+ * Writes one fixture step through the supported path, exactly as the workflow writes it.
+ * The journal holds the intent before the request and the outcome after it, so recovery settles
+ * a lost answer by reading rather than by sending the write again.
  */
-async function writeComment(
+async function writeStep(
   fixture: Fixture,
   beforeWrite: BeforeWrite,
-  request: {
-    issue: number;
-    intent:
-      | { step: "resolution"; body: string }
-      | {
-          step: "map_amendment";
-          decisionLink: string;
-          baselineIdentity: string;
-          sections: string[];
-          supersedes: string[];
-          body: string;
-        };
-  },
-): Promise<Written> {
+  request: { issue: number; intent: StepIntent },
+): Promise<Stepped> {
   const operationId = crypto.randomUUID();
   const target = { repository: fixture.repository, issue: request.issue };
+  const step = request.intent;
   const planned = await TrackerUpdate.plan({
     provider: PROVIDER,
     operationId,
-    intent: { ...request.intent, target },
+    intent: { ...step, target },
   });
-  if (planned.status !== "planned" || planned.content === null) {
-    return { status: "unwritten", detail: `The write could not be planned: ${planned.status}` };
-  }
+  if (planned.status !== "planned") return { status: "unplanned", planned: planned.status };
+  const send =
+    step.step === "completion"
+      ? { provider: PROVIDER, target, step: step.step, closeReason: step.reason }
+      : planned.content === null
+        ? null
+        : { provider: PROVIDER, target, step: step.step, content: planned.content };
+  if (send === null) return { status: "unplanned", planned: planned.status };
 
   const intent = {
     operationId,
-    step: request.intent.step,
+    step: step.step,
     issue: request.issue,
     expectedActor: planned.expectedActor,
     contentIdentity: planned.contentIdentity,
   };
   await beforeWrite(intent);
-
-  const written = await TrackerUpdate.write({
-    provider: PROVIDER,
-    target,
-    step: request.intent.step,
-    content: planned.content,
-  });
+  const written = await TrackerUpdate.write(send);
   await beforeWrite({ ...intent, outcome: written.status });
-  if (written.status !== "succeeded") {
-    return {
-      status: "unwritten",
-      detail: `The write did not land: ${written.status}${"detail" in written ? ` (${written.detail})` : ""}`,
-    };
-  }
+  if (written.status !== "succeeded") return { status: "unwritten", written };
 
   return {
     status: "written",
@@ -101,6 +90,30 @@ async function writeComment(
     resourceId: written.resourceId,
     expectedActor: planned.expectedActor,
   };
+}
+
+type Written =
+  | { status: "written"; operationId: string; resourceId: string; expectedActor: string }
+  | { status: "unwritten"; detail: string };
+
+/** Writes one comment, and names why it did not land in the words every comment check uses. */
+async function writeComment(
+  fixture: Fixture,
+  beforeWrite: BeforeWrite,
+  request: { issue: number; intent: Exclude<StepIntent, { step: "completion" }> },
+): Promise<Written> {
+  const stepped = await writeStep(fixture, beforeWrite, request);
+  if (stepped.status === "unplanned") {
+    return { status: "unwritten", detail: `The write could not be planned: ${stepped.planned}` };
+  }
+  if (stepped.status === "unwritten") {
+    const written = stepped.written;
+    return {
+      status: "unwritten",
+      detail: `The write did not land: ${written.status}${"detail" in written ? ` (${written.detail})` : ""}`,
+    };
+  }
+  return stepped;
 }
 
 async function baselineIdentityOf(
@@ -139,6 +152,356 @@ function linkCheck(name: string, noun: string, read: Linked, endpoint: string): 
   });
 }
 
+type CheckRequest = { probeId: string; runId: string; beforeWrite: BeforeWrite };
+type Checked = { staged: Staged[]; resources: string[] };
+
+/** Writes a comment on the fixture issue and reads it back by identifier and by a full scan. */
+async function commentChecks(fixture: Fixture, request: CheckRequest): Promise<Checked> {
+  const target = { repository: fixture.repository, issue: fixture.issue };
+  const comment = await writeComment(fixture, request.beforeWrite, {
+    issue: fixture.issue,
+    intent: {
+      step: "resolution",
+      body: `## Resolution\n\nOperator live probe ${request.probeId} wrote this synthetic comment.`,
+    },
+  });
+  if (comment.status !== "written") {
+    return {
+      staged: [
+        failed("github-comment", comment.detail),
+        skipped("github-pagination", "No probe comment was written to look for."),
+      ],
+      resources: [],
+    };
+  }
+
+  const resources = [`github comment ${fixture.repository}#${fixture.issue}/${comment.resourceId}`];
+  const known = await TrackerUpdate.read({
+    provider: PROVIDER,
+    step: "resolution",
+    target,
+    operationId: comment.operationId,
+    expectedActor: comment.expectedActor,
+    contentIdentity: null,
+    resourceId: comment.resourceId,
+    intendedReason: "completed",
+    writes: ["succeeded"],
+    now: new Date().toISOString(),
+  });
+  const readBack =
+    known.observation.kind === "comment" && known.observation.lookup === "known-id"
+      ? passed(
+          "github-comment",
+          `Comment ${comment.resourceId} was written by ${comment.expectedActor} and read back by its own identifier.`,
+          {
+            outputs: [`comment ${comment.resourceId}`, `verdict ${known.verdict.reason}`],
+            evidence: [
+              { label: "fixture comment", path: null, identity: comment.operationId },
+              { label: "fixture targets", path: null, identity: targetsOf(fixture).join(" ") },
+            ],
+            cleanup: {
+              state: "retained",
+              detail: "The synthetic comment stays on the fixture issue as evidence.",
+            },
+          },
+        )
+      : failed("github-comment", `The written comment was not read back: ${known.verdict.reason}`);
+
+  const scanned = await TrackerUpdate.read({
+    provider: PROVIDER,
+    step: "resolution",
+    target,
+    operationId: comment.operationId,
+    expectedActor: comment.expectedActor,
+    contentIdentity: null,
+    // No identifier, so the read scans every accessible page instead of asking for one comment.
+    resourceId: null,
+    intendedReason: "completed",
+    writes: ["succeeded"],
+    now: new Date().toISOString(),
+  });
+  const coverage =
+    scanned.observation.kind === "comment" ? scanned.observation.coverage : undefined;
+  const pagination =
+    coverage?.complete === true
+      ? passed(
+          "github-pagination",
+          `The comment scan covered ${coverage.pages} pages and ${coverage.count} comments of the fixture issue.`,
+          { outputs: [`pages ${coverage.pages}`, `comments ${coverage.count}`] },
+        )
+      : failed(
+          "github-pagination",
+          `The comment scan did not cover every page: ${coverage?.detail ?? "it answered no coverage"}`,
+        );
+  return { staged: [readBack, pagination], resources };
+}
+
+/** Reads the fixture map back and proves the amendment stands apart from the ordinary comment. */
+async function amendmentRead(fixture: Fixture, mapIssue: number, operationId: string) {
+  const read = await TrackerUpdate.readMap({
+    provider: PROVIDER,
+    target: { repository: fixture.repository, issue: mapIssue },
+  });
+  if (read.status !== "read") {
+    return failed("github-amendment", `The fixture map could not be read: ${read.status}`);
+  }
+  const reading = read.reading;
+  if (reading.ordinaryComments === 0) {
+    return failed(
+      "github-amendment",
+      "The map reader counted the ordinary comment as an amendment, so it does not tell the two apart.",
+    );
+  }
+  const effective = reading.effective.some((one) => one.operationId === operationId);
+  if (!effective || reading.problems.length > 0) {
+    return failed(
+      "github-amendment",
+      `The amendment did not read back as one: ${reading.problems.map((one) => one.detail).join(" ") || "it is not effective"}`,
+    );
+  }
+  return passed(
+    "github-amendment",
+    `The amendment stands on the fixture map, beside ${reading.ordinaryComments} ordinary comments that are not amendments.`,
+    {
+      outputs: [
+        `amendments ${reading.amendments.length}`,
+        `ordinary comments ${reading.ordinaryComments}`,
+      ],
+      evidence: [{ label: "map baseline", path: null, identity: reading.baselineIdentity }],
+      cleanup: {
+        state: "retained",
+        detail: "The synthetic amendment stays on the fixture map as evidence.",
+      },
+    },
+  );
+}
+
+/** Writes an ordinary comment and then an amendment on the fixture map, and reads both back. */
+async function amendmentCheck(fixture: Fixture, request: CheckRequest): Promise<Checked> {
+  const mapIssue = fixture.mapIssue ?? fixture.issue;
+  const baseline = await baselineIdentityOf(fixture, mapIssue);
+  if (typeof baseline !== "string") {
+    return {
+      staged: [failed("github-amendment", `The fixture map could not be read: ${baseline.detail}`)],
+      resources: [],
+    };
+  }
+
+  // An ordinary comment goes on the map first, so the check proves the reader tells the two
+  // apart instead of only proving that an amendment is found.
+  const discussion = await writeComment(fixture, request.beforeWrite, {
+    issue: mapIssue,
+    intent: {
+      step: "resolution",
+      body: `## Resolution\n\nOperator live probe ${request.probeId} wrote this ordinary comment, and it is not an amendment.`,
+    },
+  });
+  const amendment = await writeComment(fixture, request.beforeWrite, {
+    issue: mapIssue,
+    intent: {
+      step: "map_amendment",
+      decisionLink: `https://github.com/${fixture.repository}/issues/${fixture.issue}`,
+      baselineIdentity: baseline,
+      sections: [`Live probe ${request.runId}`],
+      supersedes: [],
+      body: "- The live probe wrote this synthetic amendment.",
+    },
+  });
+  if (discussion.status !== "written") {
+    return {
+      staged: [
+        failed("github-amendment", `The ordinary map comment did not land: ${discussion.detail}`),
+      ],
+      resources: [],
+    };
+  }
+  const resources = [`github comment ${fixture.repository}#${mapIssue}/${discussion.resourceId}`];
+  if (amendment.status !== "written") {
+    return { staged: [failed("github-amendment", amendment.detail)], resources };
+  }
+  resources.push(`github comment ${fixture.repository}#${mapIssue}/${amendment.resourceId}`);
+  return {
+    staged: [await amendmentRead(fixture, mapIssue, amendment.operationId)],
+    resources,
+  };
+}
+
+/**
+ * Reads the issues linked to the fixture.
+ * An empty list reads the same whether the API works or answers nothing, so a read that
+ * returns none proves nothing about the behaviour and the fixture has to hold one.
+ */
+async function linkChecks(fixture: Fixture): Promise<Checked> {
+  const target = { repository: fixture.repository, issue: fixture.issue };
+  const blocked = await GithubTracker.readBlockedBy(target);
+  const dependencies = linkCheck(
+    "github-dependencies",
+    "issues that block it",
+    blocked,
+    "blockedBy",
+  );
+  const subIssues = await GithubTracker.readSubIssues(target);
+  return {
+    staged: [dependencies, linkCheck("github-sub-issues", "sub-issues", subIssues, "sub_issues")],
+    resources: [],
+  };
+}
+
+type Closed =
+  | { status: "stopped"; closure: Staged; events: Staged }
+  | {
+      status: "closed";
+      operationId: string;
+      expectedActor: string;
+      observed: ClosureObservation | null;
+      reason: string;
+    };
+type ClosureObservation = Extract<
+  Awaited<ReturnType<typeof TrackerUpdate.read>>["observation"],
+  { kind: "closure" }
+>;
+
+/**
+ * Closes the fixture issue with an explicit reason and reads the closure back.
+ * A fixture that is not open already is left exactly as it is, because reopening it would
+ * change a state the probe never set and the probe restores nothing it did not do.
+ */
+async function closeFixture(fixture: Fixture, beforeWrite: BeforeWrite): Promise<Closed> {
+  const target = { repository: fixture.repository, issue: fixture.issue };
+  const before = await GithubTracker.readIssue(target);
+  if (before.status !== "found" || before.value.state !== "open") {
+    const detail =
+      before.status === "found"
+        ? `The probe fixture issue #${fixture.issue} is ${before.value.state}, and the closure check needs an open one. Nothing was written.`
+        : `The state of the probe fixture issue could not be read, so nothing was written: ${before.status === "absent" ? "it is not there" : before.detail}`;
+    const skip = {
+      closure: skipped("github-closure", detail),
+      events: skipped("github-events", detail),
+    };
+    return { status: "stopped", ...skip };
+  }
+
+  const stepped = await writeStep(fixture, beforeWrite, {
+    issue: fixture.issue,
+    intent: { step: "completion", reason: "completed" },
+  });
+  if (stepped.status !== "written") {
+    const detail =
+      stepped.status === "unplanned"
+        ? `The closure could not be planned: ${stepped.planned}`
+        : `The fixture issue did not close: ${stepped.written.status}`;
+    return {
+      status: "stopped",
+      closure: failed("github-closure", detail),
+      events: skipped("github-events", detail),
+    };
+  }
+
+  const read = await TrackerUpdate.read({
+    provider: PROVIDER,
+    step: "completion",
+    target,
+    operationId: stepped.operationId,
+    expectedActor: stepped.expectedActor,
+    contentIdentity: null,
+    resourceId: stepped.resourceId,
+    intendedReason: "completed",
+    writes: ["succeeded"],
+    now: new Date().toISOString(),
+  });
+  return {
+    status: "closed",
+    operationId: stepped.operationId,
+    expectedActor: stepped.expectedActor,
+    observed: read.observation.kind === "closure" ? read.observation : null,
+    reason: read.verdict.reason,
+  };
+}
+
+/**
+ * Reopens the fixture issue the probe closed, so it is back as the probe found it.
+ * The reopen also makes the reopen event the history check reads.
+ */
+async function restoreFixture(
+  fixture: Fixture,
+  beforeWrite: BeforeWrite,
+  closed: Extract<Closed, { status: "closed" }>,
+): Promise<Staged["cleanup"]> {
+  const target = { repository: fixture.repository, issue: fixture.issue };
+  const reopenIntent = {
+    operationId: crypto.randomUUID(),
+    step: "reopen" as const,
+    issue: fixture.issue,
+    expectedActor: closed.expectedActor,
+    contentIdentity: null,
+    eventCount: closed.observed?.eventCoverage.complete ? closed.observed.events.length : null,
+  };
+  await beforeWrite(reopenIntent);
+  const reopened = await GithubTracker.reopenIssue(target);
+  await beforeWrite({ ...reopenIntent, outcome: reopened.status });
+  return reopened.status === "succeeded"
+    ? { state: "removed", detail: `Issue #${fixture.issue} was reopened as it was found.` }
+    : {
+        state: "failed",
+        detail: `Issue #${fixture.issue} is still closed: the reopen answered ${reopened.status}.`,
+      };
+}
+
+/** Reads the fixture history and proves it holds both the close and the reopen. */
+async function eventsCheck(fixture: Fixture, probeId: string): Promise<Staged> {
+  const history = await GithubTracker.readEvents({
+    repository: fixture.repository,
+    issue: fixture.issue,
+  });
+  const names = history.events.map((one) => one.event);
+  if (!history.coverage.complete) {
+    return failed(
+      "github-events",
+      `The event read did not cover every page: ${history.coverage.detail ?? "it answered no coverage"}`,
+    );
+  }
+  return names.includes("closed") && names.includes("reopened")
+    ? passed(
+        "github-events",
+        `The fixture history holds ${history.events.length} events, including the close and the reopen probe ${probeId} made.`,
+        { outputs: names },
+      )
+    : failed(
+        "github-events",
+        `The fixture history does not hold both a close and a reopen: it holds ${names.join(", ") || "no events"}.`,
+      );
+}
+
+/** Closes the fixture, puts it back as it was found, and reads the history of both. */
+async function closureChecks(fixture: Fixture, request: CheckRequest): Promise<Checked> {
+  const closed = await closeFixture(fixture, request.beforeWrite);
+  if (closed.status === "stopped")
+    return { staged: [closed.closure, closed.events], resources: [] };
+
+  const restored = await restoreFixture(fixture, request.beforeWrite, closed);
+  const observed = closed.observed;
+  const closure =
+    observed?.state === "closed" && observed.stateReason === "completed"
+      ? passed(
+          "github-closure",
+          `The fixture issue closed as ${observed.stateReason} by ${observed.closedBy ?? "an unnamed account"}, and the reason was read back.`,
+          {
+            outputs: [`state ${observed.state}`, `reason ${observed.stateReason}`],
+            evidence: [{ label: "closure operation", path: null, identity: closed.operationId }],
+            cleanup: restored,
+          },
+        )
+      : failed(
+          "github-closure",
+          `The fixture issue did not close with the intended reason: ${closed.reason}`,
+          { cleanup: restored },
+        );
+  return { staged: [closure, await eventsCheck(fixture, request.probeId)], resources: [] };
+}
+
+/** The fixture checks in the one order their evidence allows. */
+const FIXTURE_CHECKS = [commentChecks, amendmentCheck, linkChecks, closureChecks];
+
 /**
  * Runs every GitHub fixture check against the configured fixture and nothing else.
  * The probe closes the fixture issue and puts it back as it found it, so a rerun starts from the
@@ -149,317 +512,26 @@ export async function runTrackerChecks(request: {
   probeId: string;
   runId: string;
   beforeWrite: BeforeWrite;
-}): Promise<{ staged: Staged[]; resources: string[] }> {
-  const staged: Staged[] = [];
-  if (request.fixture === null) {
-    for (const name of TRACKER_CHECKS) {
-      staged.push(
+}): Promise<Checked> {
+  const fixture = request.fixture;
+  if (fixture === null) {
+    return {
+      staged: TRACKER_CHECKS.map((name) =>
         skipped(
           name,
           "No probe fixture is configured, so this check reached no tracker. Set `probe.githubFixture` in `.operator/config.json`.",
         ),
-      );
-    }
-    return { staged, resources: [] };
+      ),
+      resources: [],
+    };
   }
 
-  const fixture = request.fixture;
-  const mapIssue = fixture.mapIssue ?? fixture.issue;
-  const target = { repository: fixture.repository, issue: fixture.issue };
+  const staged: Staged[] = [];
   const resources: string[] = [];
-  const targets = targetsOf(fixture);
-
-  const comment = await writeComment(fixture, request.beforeWrite, {
-    issue: fixture.issue,
-    intent: {
-      step: "resolution",
-      body: `## Resolution\n\nOperator live probe ${request.probeId} wrote this synthetic comment.`,
-    },
-  });
-  if (comment.status !== "written") {
-    staged.push(failed("github-comment", comment.detail));
-    staged.push(skipped("github-pagination", "No probe comment was written to look for."));
-  } else {
-    resources.push(`github comment ${fixture.repository}#${fixture.issue}/${comment.resourceId}`);
-    const known = await TrackerUpdate.read({
-      provider: PROVIDER,
-      step: "resolution",
-      target,
-      operationId: comment.operationId,
-      expectedActor: comment.expectedActor,
-      contentIdentity: null,
-      resourceId: comment.resourceId,
-      intendedReason: "completed",
-      writes: ["succeeded"],
-      now: new Date().toISOString(),
-    });
-    staged.push(
-      known.observation.kind === "comment" && known.observation.lookup === "known-id"
-        ? passed(
-            "github-comment",
-            `Comment ${comment.resourceId} was written by ${comment.expectedActor} and read back by its own identifier.`,
-            {
-              outputs: [`comment ${comment.resourceId}`, `verdict ${known.verdict.reason}`],
-              evidence: [
-                { label: "fixture comment", path: null, identity: comment.operationId },
-                { label: "fixture targets", path: null, identity: targets.join(" ") },
-              ],
-              cleanup: {
-                state: "retained",
-                detail: "The synthetic comment stays on the fixture issue as evidence.",
-              },
-            },
-          )
-        : failed(
-            "github-comment",
-            `The written comment was not read back: ${known.verdict.reason}`,
-          ),
-    );
-
-    const scanned = await TrackerUpdate.read({
-      provider: PROVIDER,
-      step: "resolution",
-      target,
-      operationId: comment.operationId,
-      expectedActor: comment.expectedActor,
-      contentIdentity: null,
-      // No identifier, so the read scans every accessible page instead of asking for one comment.
-      resourceId: null,
-      intendedReason: "completed",
-      writes: ["succeeded"],
-      now: new Date().toISOString(),
-    });
-    const coverage =
-      scanned.observation.kind === "comment" ? scanned.observation.coverage : undefined;
-    staged.push(
-      coverage?.complete === true
-        ? passed(
-            "github-pagination",
-            `The comment scan covered ${coverage.pages} pages and ${coverage.count} comments of the fixture issue.`,
-            { outputs: [`pages ${coverage.pages}`, `comments ${coverage.count}`] },
-          )
-        : failed(
-            "github-pagination",
-            `The comment scan did not cover every page: ${coverage?.detail ?? "it answered no coverage"}`,
-          ),
-    );
+  for (const check of FIXTURE_CHECKS) {
+    const checked = await check(fixture, request);
+    staged.push(...checked.staged);
+    resources.push(...checked.resources);
   }
-
-  const baseline = await baselineIdentityOf(fixture, mapIssue);
-  if (typeof baseline !== "string") {
-    staged.push(
-      failed("github-amendment", `The fixture map could not be read: ${baseline.detail}`),
-    );
-  } else {
-    // An ordinary comment goes on the map first, so the check proves the reader tells the two
-    // apart instead of only proving that an amendment is found.
-    const discussion = await writeComment(fixture, request.beforeWrite, {
-      issue: mapIssue,
-      intent: {
-        step: "resolution",
-        body: `## Resolution\n\nOperator live probe ${request.probeId} wrote this ordinary comment, and it is not an amendment.`,
-      },
-    });
-    const amendment = await writeComment(fixture, request.beforeWrite, {
-      issue: mapIssue,
-      intent: {
-        step: "map_amendment",
-        decisionLink: `https://github.com/${fixture.repository}/issues/${fixture.issue}`,
-        baselineIdentity: baseline,
-        sections: [`Live probe ${request.runId}`],
-        supersedes: [],
-        body: "- The live probe wrote this synthetic amendment.",
-      },
-    });
-    if (discussion.status === "written") {
-      resources.push(`github comment ${fixture.repository}#${mapIssue}/${discussion.resourceId}`);
-    }
-    if (discussion.status !== "written") {
-      staged.push(
-        failed("github-amendment", `The ordinary map comment did not land: ${discussion.detail}`),
-      );
-    } else if (amendment.status !== "written") {
-      staged.push(failed("github-amendment", amendment.detail));
-    } else {
-      resources.push(`github comment ${fixture.repository}#${mapIssue}/${amendment.resourceId}`);
-      const read = await TrackerUpdate.readMap({
-        provider: PROVIDER,
-        target: { repository: fixture.repository, issue: mapIssue },
-      });
-      const effective =
-        read.status === "read"
-          ? read.reading.effective.some((one) => one.operationId === amendment.operationId)
-          : false;
-      const toldApart = read.status === "read" && read.reading.ordinaryComments > 0;
-      staged.push(
-        read.status === "read" && effective && toldApart && read.reading.problems.length === 0
-          ? passed(
-              "github-amendment",
-              `The amendment stands on the fixture map, beside ${read.reading.ordinaryComments} ordinary comments that are not amendments.`,
-              {
-                outputs: [
-                  `amendments ${read.reading.amendments.length}`,
-                  `ordinary comments ${read.reading.ordinaryComments}`,
-                ],
-                evidence: [
-                  { label: "map baseline", path: null, identity: read.reading.baselineIdentity },
-                ],
-                cleanup: {
-                  state: "retained",
-                  detail: "The synthetic amendment stays on the fixture map as evidence.",
-                },
-              },
-            )
-          : failed(
-              "github-amendment",
-              read.status !== "read"
-                ? `The fixture map could not be read: ${read.status}`
-                : !toldApart
-                  ? "The map reader counted the ordinary comment as an amendment, so it does not tell the two apart."
-                  : `The amendment did not read back as one: ${read.reading.problems.map((one) => one.detail).join(" ") || "it is not effective"}`,
-            ),
-      );
-    }
-  }
-
-  // An empty list reads the same whether the API works or answers nothing, so a read that
-  // returns none proves nothing about the behaviour and the fixture has to hold one.
-  const blocked = await GithubTracker.readBlockedBy(target);
-  staged.push(linkCheck("github-dependencies", "issues that block it", blocked, "blockedBy"));
-
-  const subIssues = await GithubTracker.readSubIssues(target);
-  staged.push(linkCheck("github-sub-issues", "sub-issues", subIssues, "sub_issues"));
-
-  const closure = await closeAndRestore(fixture, request.probeId, request.beforeWrite);
-  staged.push(closure.closure, closure.events);
-
   return { staged, resources };
-}
-
-/**
- * Closes the fixture issue with an explicit reason, reads the history back, and reopens it.
- * The reopen is the probe putting the fixture back as it found it, and it also makes the
- * reopen event the history check reads.
- * A fixture that is not open already is left exactly as it is, because reopening it would
- * change a state the probe never set and the probe restores nothing it did not do.
- */
-async function closeAndRestore(
-  fixture: Fixture,
-  probeId: string,
-  beforeWrite: BeforeWrite,
-): Promise<{ closure: Staged; events: Staged }> {
-  const target = { repository: fixture.repository, issue: fixture.issue };
-  const before = await GithubTracker.readIssue(target);
-  if (before.status !== "found" || before.value.state !== "open") {
-    const detail =
-      before.status === "found"
-        ? `The probe fixture issue #${fixture.issue} is ${before.value.state}, and the closure check needs an open one. Nothing was written.`
-        : `The state of the probe fixture issue could not be read, so nothing was written: ${before.status === "absent" ? "it is not there" : before.detail}`;
-    return { closure: skipped("github-closure", detail), events: skipped("github-events", detail) };
-  }
-
-  const operationId = crypto.randomUUID();
-  const planned = await TrackerUpdate.plan({
-    provider: PROVIDER,
-    operationId,
-    intent: { step: "completion", target, reason: "completed" },
-  });
-  if (planned.status !== "planned") {
-    const detail = `The closure could not be planned: ${planned.status}`;
-    return { closure: failed("github-closure", detail), events: skipped("github-events", detail) };
-  }
-
-  const closeIntent = {
-    operationId,
-    step: "completion" as const,
-    issue: fixture.issue,
-    expectedActor: planned.expectedActor,
-    contentIdentity: null,
-  };
-  await beforeWrite(closeIntent);
-
-  const written = await TrackerUpdate.write({
-    provider: PROVIDER,
-    target,
-    step: "completion",
-    closeReason: "completed",
-  });
-  await beforeWrite({ ...closeIntent, outcome: written.status });
-  if (written.status !== "succeeded") {
-    const detail = `The fixture issue did not close: ${written.status}`;
-    return { closure: failed("github-closure", detail), events: skipped("github-events", detail) };
-  }
-
-  const read = await TrackerUpdate.read({
-    provider: PROVIDER,
-    step: "completion",
-    target,
-    operationId,
-    expectedActor: planned.expectedActor,
-    contentIdentity: null,
-    resourceId: written.resourceId,
-    intendedReason: "completed",
-    writes: ["succeeded"],
-    now: new Date().toISOString(),
-  });
-  const observed = read.observation.kind === "closure" ? read.observation : null;
-  const closedRight = observed?.state === "closed" && observed.stateReason === "completed";
-
-  const reopenIntent = {
-    operationId: crypto.randomUUID(),
-    step: "reopen" as const,
-    issue: fixture.issue,
-    expectedActor: planned.expectedActor,
-    contentIdentity: null,
-    eventCount: observed?.eventCoverage.complete ? observed.events.length : null,
-  };
-  await beforeWrite(reopenIntent);
-  const reopened = await GithubTracker.reopenIssue(target);
-  await beforeWrite({ ...reopenIntent, outcome: reopened.status });
-  const restored =
-    reopened.status === "succeeded"
-      ? {
-          state: "removed" as const,
-          detail: `Issue #${fixture.issue} was reopened as it was found.`,
-        }
-      : {
-          state: "failed" as const,
-          detail: `Issue #${fixture.issue} is still closed: the reopen answered ${reopened.status}.`,
-        };
-
-  const closure = closedRight
-    ? passed(
-        "github-closure",
-        `The fixture issue closed as ${observed?.stateReason} by ${observed?.closedBy ?? "an unnamed account"}, and the reason was read back.`,
-        {
-          outputs: [`state ${observed?.state}`, `reason ${observed?.stateReason}`],
-          evidence: [{ label: "closure operation", path: null, identity: operationId }],
-          cleanup: restored,
-        },
-      )
-    : failed(
-        "github-closure",
-        `The fixture issue did not close with the intended reason: ${read.verdict.reason}`,
-        { cleanup: restored },
-      );
-
-  const history = await GithubTracker.readEvents(target);
-  const names = history.events.map((one) => one.event);
-  const events = !history.coverage.complete
-    ? failed(
-        "github-events",
-        `The event read did not cover every page: ${history.coverage.detail ?? "it answered no coverage"}`,
-      )
-    : names.includes("closed") && names.includes("reopened")
-      ? passed(
-          "github-events",
-          `The fixture history holds ${history.events.length} events, including the close and the reopen probe ${probeId} made.`,
-          { outputs: names },
-        )
-      : failed(
-          "github-events",
-          `The fixture history does not hold both a close and a reopen: it holds ${names.join(", ") || "no events"}.`,
-        );
-
-  return { closure, events };
 }
