@@ -67,6 +67,27 @@ test("healthcheck reports a missing, disabled, or foreign wake plugin as an opti
   }
 });
 
+test("healthcheck reads a plugin list with no plugins as not installed, and skips an entry it cannot read", async () => {
+  const workspace = await fixtures.make();
+  await Bun.write(`${workspace.herdr}/plugin-unlisted`, "");
+  const unlisted = await runJson(workspace, ["healthcheck", "--claude"]);
+  expect(unlisted.json.data.wakePlugin).toEqual({
+    state: "failed",
+    detail: "The Operator wake plugin is not installed.",
+    nextAction:
+      'Run `herdr plugin link "$(operator wake plugin-path)"` and `herdr plugin enable operator.wake`, then check again. Unlink an earlier copy first.',
+  });
+
+  await Bun.$`rm ${workspace.herdr}/plugin-unlisted`.quiet();
+  await Bun.write(`${workspace.herdr}/plugin-odd-entry`, "");
+  const odd = await runJson(workspace, ["healthcheck", "--claude"]);
+  expect(odd.json.data.wakePlugin).toEqual({
+    state: "passed",
+    detail: "The enabled Operator wake plugin matches this CLI release.",
+    nextAction: null,
+  });
+});
+
 test("healthcheck reports authentication failure and still keeps the dispatch gate tied to readiness", async () => {
   const workspace = await fixtures.make();
   await Bun.write(
@@ -100,6 +121,106 @@ test("healthcheck checks fixture read access without writing to its issue", asyn
   });
   expect(await githubCalls(workspace)).toEqual(["GET user", "GET repos/someone/fixture/issues/7"]);
 });
+
+// The connection detail is what the person reads, so its bytes are pinned. A 2xx fixture answer
+// passes in any shape, and a refused read names the gh detail with no code.
+const FIXTURE = { repository: "someone/fixture", issue: 7 };
+const FIXTURE_ACTION =
+  "Check the fixture repository, issue, and GitHub token permissions, then check again.";
+const connectionCases: Array<{
+  name: string;
+  arrange: (github: string) => Promise<unknown>;
+  fixture: typeof FIXTURE | null;
+  github: { state: string; detail: string; nextAction: string | null };
+}> = [
+  {
+    name: "a viewer with no login",
+    arrange: (github) =>
+      Bun.write(`${github}/state.json`, JSON.stringify(fakeState({ viewer: null }))),
+    fixture: null,
+    github: {
+      state: "failed",
+      detail: "GitHub returned no user login.",
+      nextAction: "Run `gh auth login`, then check GitHub access again.",
+    },
+  },
+  {
+    name: "no fixture",
+    arrange: async () => {},
+    fixture: null,
+    github: {
+      state: "passed",
+      detail:
+        "GitHub authenticated as operator-bot. Fixture read and write access are not proven without a configured fixture.",
+      nextAction: null,
+    },
+  },
+  {
+    name: "a fixture answer that the tracker cannot read",
+    arrange: (github) =>
+      Bun.write(
+        `${github}/state.json`,
+        JSON.stringify(fakeState({ issues: { 7: { title: "x" } } })),
+      ),
+    fixture: FIXTURE,
+    github: {
+      state: "passed",
+      detail:
+        "GitHub authenticated as operator-bot and read fixture someone/fixture#7. Write access remains unproven.",
+      nextAction: null,
+    },
+  },
+  {
+    name: "a fixture that GitHub does not hold",
+    arrange: async () => {},
+    fixture: FIXTURE,
+    github: {
+      state: "failed",
+      detail: "Cannot read fixture someone/fixture#7: Not Found",
+      nextAction: FIXTURE_ACTION,
+    },
+  },
+  {
+    name: "a fixture read that GitHub refuses",
+    arrange: (github) =>
+      Bun.write(
+        `${github}/faults.json`,
+        JSON.stringify({ readIssue: { kind: "status:403", remaining: 1 } }),
+      ),
+    fixture: FIXTURE,
+    github: {
+      state: "failed",
+      detail: "Cannot read fixture someone/fixture#7: the fake refused",
+      nextAction: FIXTURE_ACTION,
+    },
+  },
+];
+
+function fakeState(change: Record<string, unknown>) {
+  return {
+    viewer: "operator-bot",
+    nextCommentId: 1,
+    issues: {},
+    comments: {},
+    events: {},
+    subIssues: {},
+    blockedBy: {},
+    ...change,
+  };
+}
+
+for (const one of connectionCases) {
+  test(`healthcheck names the GitHub connection for ${one.name}`, async () => {
+    const workspace = await fixtures.make(
+      one.fixture === null ? {} : { config: { probe: { githubFixture: one.fixture } } },
+    );
+    await one.arrange(workspace.github);
+
+    const result = await runJson(workspace, ["healthcheck", "--claude"]);
+
+    expect(result.json.data.connections.github).toEqual(one.github);
+  });
+}
 
 test("healthcheck rejects an approval flag and lists full probe approval separately", async () => {
   const workspace = await fixtures.make();

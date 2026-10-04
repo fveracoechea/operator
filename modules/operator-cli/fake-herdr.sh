@@ -67,12 +67,17 @@ answer() {
   plugin-list)
     if [ -f "$dir/plugin-missing" ]; then
       printf '{"result":{"plugins":[]}}\n'
+    elif [ -f "$dir/plugin-unlisted" ]; then
+      printf '{"result":{}}\n'
     else
       enabled=true
       [ -f "$dir/plugin-disabled" ] && enabled=false
       path="${HERDR_FAKE_PLUGIN_PATH:-}"
       [ -f "$dir/plugin-mismatch" ] && path="$dir/other/herdr-plugin.toml"
-      printf '{"result":{"plugins":[{"plugin_id":"operator.wake","manifest_path":"%s","enabled":%s,"min_herdr_version":"0.9.1","warnings":[]}]}}\n' "$path" "$enabled"
+      # An entry this release cannot read comes first, and the check skips it.
+      odd=''
+      [ -f "$dir/plugin-odd-entry" ] && odd='{"plugin_id":7},'
+      printf '{"result":{"plugins":[%s{"plugin_id":"operator.wake","manifest_path":"%s","enabled":%s,"min_herdr_version":"0.9.1","warnings":[]}]}}\n' "$odd" "$path" "$enabled"
     fi
     ;;
   plugin-config-dir)

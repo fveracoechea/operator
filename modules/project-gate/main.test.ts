@@ -131,7 +131,59 @@ test("a commit that Git cannot name is unread, never missing", async () => {
 
   const read = await ProjectGate.read({ repository: root, commit: "0".repeat(40) });
 
-  expect(read.status).toBe("unread");
+  expect(read).toEqual({
+    status: "unread",
+    commit: "0".repeat(40),
+    path: "operator-gate.json",
+    detail: `Git names no commit ${"0".repeat(40)}.`,
+  });
+});
+
+/**
+ * Runs one read with a Git on the path that fails `rev-parse`. `term` ends it on SIGTERM, as a
+ * timeout does, and `exit` ends it with exit 3. Each one writes `stuck` to stderr first.
+ */
+async function withFailingRevParse<Value>(
+  folder: string,
+  end: "term" | "exit",
+  run: () => Promise<Value>,
+): Promise<Value> {
+  const bin = `${folder}/failing-git`;
+  await Bun.write(
+    `${bin}/git`,
+    [
+      "#!/bin/sh",
+      // The guard of ADR 0018 and `-C <repo>` come before the subcommand.
+      'if [ "$6" = "rev-parse" ]; then',
+      "  printf '%s' 'stuck' >&2",
+      end === "term" ? "  kill -TERM $$" : "  exit 3",
+      "fi",
+      `exec ${Bun.which("git")} "$@"`,
+      "",
+    ].join("\n"),
+  );
+  await Bun.$`chmod +x ${bin}/git`.quiet();
+  const inherited = process.env.PATH ?? "";
+  process.env.PATH = `${bin}:${inherited}`;
+  try {
+    return await run();
+  } finally {
+    process.env.PATH = inherited;
+  }
+}
+
+test("a commit read that Git ends or refuses keeps its own words", async () => {
+  const root = await repository();
+  await commit(root, VALID);
+  const read = () => ProjectGate.read({ repository: root, commit: "HEAD" });
+
+  const timedOut = await withFailingRevParse(root, "term", read);
+  const exited = await withFailingRevParse(root, "exit", read);
+
+  const unread = { status: "unread" as const, commit: "HEAD", path: "operator-gate.json" };
+  expect(timedOut).toEqual({ ...unread, detail: "git -C ended on SIGTERM with no answer." });
+  // Any exit of the commit read names the commit, never the Git error text.
+  expect(exited).toEqual({ ...unread, detail: "Git names no commit HEAD." });
 });
 
 describe("each place states a gate read in its own words", () => {

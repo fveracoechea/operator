@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 // Bun has no recursive directory removal API.
-import { rm } from "node:fs/promises";
+import { rm, symlink } from "node:fs/promises";
 
 const cliPath = new URL("../../cli.ts", import.meta.url).pathname;
 const projectRoots: string[] = [];
@@ -21,9 +21,10 @@ async function makeProject(files: Record<string, string> = {}): Promise<string> 
   return root;
 }
 
-async function runOperator(root: string, args: string[]) {
+async function runOperator(root: string, args: string[], env: Record<string, string> = {}) {
   const child = Bun.spawn(["bun", cliPath, ...args], {
     cwd: root,
+    env: { ...process.env, ...env },
     stderr: "pipe",
     stdout: "pipe",
   });
@@ -35,8 +36,8 @@ async function runOperator(root: string, args: string[]) {
   return { exitCode, stderr, stdout };
 }
 
-async function runJson(root: string, args: string[]) {
-  const result = await runOperator(root, [...args, "--json"]);
+async function runJson(root: string, args: string[], env: Record<string, string> = {}) {
+  const result = await runOperator(root, [...args, "--json"], env);
   return { ...result, json: JSON.parse(result.stdout) };
 }
 
@@ -86,6 +87,82 @@ describe("operator setup plan", () => {
     expect(result.json.data.changes.map((change: { path: string }) => change.path)).not.toContain(
       "CLAUDE.md",
     );
+  });
+});
+
+/**
+ * A PATH whose git fails `ls-files`: `term` ends it on SIGTERM, as a timeout does, and `exit` ends
+ * it with exit 3. With `missing`, the PATH holds only bun, so git is not on it.
+ */
+async function gitPath(root: string, fault: "term" | "exit" | "missing"): Promise<string> {
+  const bin = `${root}-bin`;
+  projectRoots.push(bin);
+  await Bun.$`mkdir -p ${bin}`.quiet();
+  if (fault === "missing") {
+    await symlink(process.execPath, `${bin}/bun`);
+    return bin;
+  }
+  await Bun.write(
+    `${bin}/git`,
+    [
+      "#!/bin/sh",
+      // The guard of ADR 0018 and `-C <repo>` come before the subcommand.
+      'if [ "$6" = "ls-files" ]; then',
+      fault === "term" ? "  kill -TERM $$" : "  exit 3",
+      "fi",
+      `exec ${Bun.which("git")} "$@"`,
+      "",
+    ].join("\n"),
+  );
+  await Bun.$`chmod +x ${bin}/git`.quiet();
+  return `${bin}:${process.env.PATH ?? ""}`;
+}
+
+describe("operator setup plan with a Git that fails", () => {
+  const unavailable = (reason: string) =>
+    `Setup cannot read the Git index, so it cannot check for tracked Operator files: ${reason}. Install Git yourself, then plan again.`;
+
+  // A named departure of #153: the detail names the missing git as every other Git reader does,
+  // not the Bun spawn error.
+  test("names a git that is not on the path", async () => {
+    const root = await makeProject();
+
+    const result = await runJson(root, ["setup", "plan", "--claude"], {
+      PATH: await gitPath(root, "missing"),
+    });
+
+    expect(result.json).toMatchObject({ outcome: "conflict", reason: "setup_conflict" });
+    expect(result.json.blockers).toEqual([
+      {
+        reason: "git_unavailable",
+        detail: unavailable("git is not on the path, so nothing was requested"),
+      },
+    ]);
+  });
+
+  test("names a git ls-files that ended with no answer", async () => {
+    const root = await makeProject();
+
+    const result = await runJson(root, ["setup", "plan", "--claude"], {
+      PATH: await gitPath(root, "term"),
+    });
+
+    expect(result.json.blockers).toEqual([
+      {
+        reason: "git_unavailable",
+        detail: unavailable("git ls-files ended on SIGTERM with no answer"),
+      },
+    ]);
+  });
+
+  test("reads a git ls-files exit as a project with no index", async () => {
+    const root = await makeProject();
+
+    const result = await runJson(root, ["setup", "plan", "--claude"], {
+      PATH: await gitPath(root, "exit"),
+    });
+
+    expect(result.json).toMatchObject({ outcome: "completed", reason: "plan_ready", blockers: [] });
   });
 });
 

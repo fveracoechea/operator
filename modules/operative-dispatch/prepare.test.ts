@@ -189,3 +189,61 @@ for (const refusal of refusals) {
     expect(await Bun.file(join(one.worktreePath, one.plan.briefPath)).exists()).toBe(false);
   });
 }
+
+// The copies go first, then the configuration, then the lock data. The detail of a failed write
+// names the first path in that order, and crew state records it.
+const unwritable = [
+  {
+    blocked: ["copy.md", ".operator/config.json", ".operator/local/operator.lock"],
+    first: "copy.md",
+  },
+  {
+    blocked: [".operator/config.json", ".operator/local/operator.lock"],
+    first: ".operator/config.json",
+  },
+  { blocked: [".operator/local/operator.lock"], first: ".operator/local/operator.lock" },
+];
+
+for (const { blocked, first } of unwritable) {
+  test(`prepare names ${first} when it is the first input it cannot write`, async () => {
+    const one = await launch();
+    for (const path of blocked) {
+      await Bun.write(join(one.worktreePath, path, "held"), "held\n");
+    }
+    const outcome = await OperativeDispatch.perform({
+      kind: "input_preparation",
+      projectRoot: one.projectRoot,
+      plan: {
+        ...one.plan,
+        extraInputs: [
+          {
+            path: "copy.md",
+            sourcePath: join(one.root, "copy.md"),
+            identity: ContentIdentity.ofText("copy\n"),
+          },
+        ],
+      },
+      snapshot: one.snapshot,
+      workspaceId: null,
+    });
+
+    expect(outcome.status).toBe("failed");
+    expect(outcome.detail).toStartWith(
+      `input_verification_failed: ${first} could not be written: `,
+    );
+  });
+}
+
+test("prepare copies and verifies each input and names their count", async () => {
+  const one = await launch();
+
+  const outcome = await OperativeDispatch.perform({
+    kind: "input_preparation",
+    projectRoot: one.projectRoot,
+    plan: one.plan,
+    snapshot: one.snapshot,
+    workspaceId: null,
+  });
+
+  expect(outcome).toEqual({ status: "succeeded", detail: "Copied and verified 6 input(s)." });
+});

@@ -41,11 +41,12 @@ async function commit(root: string, message: string, date: string): Promise<stri
 
 /**
  * Runs one call with a Git on the path that fails one subcommand. `term` ends it on SIGTERM, as
- * a timeout does, and `exit` ends it with exit 3. Each one writes `stderr` first.
+ * a timeout does, `exit` ends it with exit 3, and `empty` ends it with exit 0 and no output. Each
+ * one writes `stderr` first.
  */
 async function withFailingGit<Value>(
   folder: string,
-  fault: { subcommand: string; end: "term" | "exit"; stderr: string },
+  fault: { subcommand: string; end: "term" | "exit" | "empty"; stderr: string },
   run: () => Promise<Value>,
 ): Promise<Value> {
   const real = Bun.which("git");
@@ -57,7 +58,7 @@ async function withFailingGit<Value>(
       // The guard of ADR 0018 and `-C <repo>` come before the subcommand.
       `if [ "$6" = "${fault.subcommand}" ]; then`,
       `  printf '%s' '${fault.stderr}' >&2`,
-      fault.end === "term" ? "  kill -TERM $$" : "  exit 3",
+      { term: "  kill -TERM $$", exit: "  exit 3", empty: "  exit 0" }[fault.end],
       "fi",
       `exec ${real} "$@"`,
       "",
@@ -1068,5 +1069,57 @@ describe("IntegrationBranch Git failures", () => {
       detail: "git -C ended on SIGTERM with no answer.",
     });
     expect(exited).toEqual({ status: "unread", detail: "git worktree exited 3: boom" });
+  });
+
+  test("words a failed commit object read and a merge with no tree as before", async () => {
+    const root = await repository();
+    const base = await head(root, "main");
+    const first = await result(root, {
+      start: base,
+      branch: "work-a",
+      path: "a.txt",
+      text: lines("a", 20, { 0: "A0" }),
+      date: "2002-01-01T00:00:00Z",
+    });
+    const second = await result(root, {
+      start: base,
+      branch: "work-b",
+      path: "b.txt",
+      text: lines("b", 20, { 0: "B0" }),
+      date: "2003-01-01T00:00:00Z",
+    });
+    await branchAt(root, first);
+    const request = {
+      repoRoot: root,
+      name: NAME,
+      base,
+      recordedTip: first,
+      commit: second,
+      reviewedBase: base,
+    };
+
+    const timedOut = await withFailingGit(
+      root,
+      { subcommand: "cat-file", end: "term", stderr: "stuck" },
+      () => IntegrationBranch.plan(request),
+    );
+    const exited = await withFailingGit(
+      root,
+      { subcommand: "cat-file", end: "exit", stderr: "boom\n" },
+      () => IntegrationBranch.plan(request),
+    );
+    const treeless = await withFailingGit(
+      root,
+      { subcommand: "merge-tree", end: "empty", stderr: "no tree\n" },
+      () => IntegrationBranch.plan(request),
+    );
+
+    expect(timedOut).toEqual({
+      status: "unread",
+      detail: "git -C ended on SIGTERM with no answer.",
+    });
+    // A commit object read names only what Git wrote to stderr.
+    expect(exited).toEqual({ status: "unread", detail: "boom" });
+    expect(treeless).toEqual({ status: "unread", detail: "git merge-tree exited 0: no tree" });
   });
 });

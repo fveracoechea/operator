@@ -535,3 +535,27 @@ test("an arm needs a working Operator that owns a crew with waits and no action"
     effects: [{ kind: "arm", session: "session-1", acquired: "today", revision: 1 }],
   });
 });
+
+// A named departure of #151: a missing Herdr binary is named by the tool, not by the Bun spawn
+// error, and nothing is requested.
+test("a wake with no Herdr binary names the missing tool and requests nothing", async () => {
+  const f = await fixture();
+  const absent = join(f.root, "absent-herdr");
+
+  const armed = await f.run("arm", { HERDR_BIN_PATH: absent });
+
+  expect(armed.exitCode).not.toBe(0);
+  expect(JSON.parse(armed.stdout)).toEqual({
+    schemaVersion: 1,
+    outcome: "failed",
+    reason: "wake_failed",
+    blockers: [
+      {
+        reason: "wake_failed",
+        message: `Error: ${absent} is not on the path, so nothing was requested.`,
+      },
+    ],
+    operation: "wake_arm",
+  });
+  expect(await f.prompts()).toBe("");
+});

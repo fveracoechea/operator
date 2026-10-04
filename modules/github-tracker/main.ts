@@ -210,15 +210,23 @@ async function readPages<Value>(request: {
   };
 }
 
+/** The one read of the GitHub viewer. Each caller names a missing login in its own words. */
+async function readViewer(): Promise<GithubOutcome<{ login: string | null }>> {
+  const outcome = await GithubApi.call({ args: ["user"], timeoutMs: READ_TIMEOUT_MS });
+  return outcome.status === "succeeded"
+    ? { status: "succeeded", value: { login: ToolInvocation.text(outcome.value.body, "login") } }
+    : outcome;
+}
+
 export const GithubTracker = {
   /** The stable identifier of the account this machine writes as. */
   async viewer(): Promise<GithubOutcome<{ login: string }>> {
-    const outcome = await GithubApi.call({ args: ["user"], timeoutMs: READ_TIMEOUT_MS });
+    const outcome = await readViewer();
     if (outcome.status !== "succeeded") {
       return outcome;
     }
 
-    const login = ToolInvocation.text(outcome.value.body, "login");
+    const login = outcome.value.login;
     return login === null
       ? { status: "uncertain", detail: "GitHub named no login for this token." }
       : { status: "succeeded", value: { login } };
@@ -226,11 +234,11 @@ export const GithubTracker = {
 
   /** A read-only authentication check. It says nothing about permission to write a fixture. */
   async connection(fixture: { repository: string; issue: number } | null) {
-    const viewer = await GithubTracker.viewer();
-    if (viewer.status !== "succeeded") {
+    const viewer = await readViewer();
+    if (viewer.status !== "succeeded" || viewer.value.login === null) {
       return {
         state: "failed" as const,
-        detail: viewer.detail,
+        detail: viewer.status === "succeeded" ? "GitHub returned no user login." : viewer.detail,
         nextAction: "Run `gh auth login`, then check GitHub access again.",
       };
     }
@@ -242,8 +250,12 @@ export const GithubTracker = {
         nextAction: null,
       };
     }
-    const issue = await GithubTracker.readIssue(fixture);
-    if (issue.status === "found") {
+    // Any 2xx answer proves the read, whatever its shape, so this is not readIssue.
+    const issue = await GithubApi.call({
+      args: [`repos/${fixture.repository}/issues/${fixture.issue}`],
+      timeoutMs: READ_TIMEOUT_MS,
+    });
+    if (issue.status === "succeeded") {
       return {
         state: "passed" as const,
         detail: `GitHub authenticated as ${login} and read fixture ${fixture.repository}#${fixture.issue}. Write access remains unproven.`,
@@ -252,7 +264,7 @@ export const GithubTracker = {
     }
     return {
       state: "failed" as const,
-      detail: `Cannot read fixture ${fixture.repository}#${fixture.issue}: ${issue.status === "absent" ? "GitHub found no such issue." : issue.detail}`,
+      detail: `Cannot read fixture ${fixture.repository}#${fixture.issue}: ${issue.detail}`,
       nextAction:
         "Check the fixture repository, issue, and GitHub token permissions, then check again.",
     };

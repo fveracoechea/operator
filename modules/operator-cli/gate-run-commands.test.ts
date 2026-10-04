@@ -131,6 +131,78 @@ async function waitForText(path: string, text: string): Promise<void> {
   throw new Error(`${path} never held ${text}`);
 }
 
+/**
+ * Puts a Git on the fixture path that fails each call whose subcommand and first argument match
+ * `pattern`, a shell case pattern. `term` ends it on SIGTERM, as a timeout does, and `exit` ends
+ * it with exit 3. Each one writes `stderr` first. Every other call runs the real Git.
+ */
+async function failGit(
+  workspace: Workspace,
+  fault: { pattern: string; end: "term" | "exit"; stderr: string },
+): Promise<void> {
+  await Bun.write(
+    `${workspace.bin}/git`,
+    [
+      "#!/bin/sh",
+      // The guard of ADR 0018 and `-C <repo>` come before the subcommand.
+      'case "$6 $7" in',
+      `  ${fault.pattern})`,
+      `    printf '%s' '${fault.stderr}' >&2`,
+      fault.end === "term" ? "    kill -TERM $$ ;;" : "    exit 3 ;;",
+      "esac",
+      `exec ${Bun.which("git")} "$@"`,
+      "",
+    ].join("\n"),
+  );
+  await Bun.$`chmod +x ${workspace.bin}/git`.quiet();
+}
+
+// The Git failure texts of a gate start and of its runner keep their words (#149).
+describe("the Git failures of a gate run", () => {
+  for (const [end, stderr, detail] of [
+    ["term", "stuck", "git -C ended on SIGTERM with no answer."],
+    ["exit", "boom", "boom"],
+    ["exit", "", "git refused"],
+  ] as const) {
+    test(`a tree read that ends with ${end} and stderr "${stderr}" names ${detail}`, async () => {
+      const workspace = await makeReviewWorkspace(fixtures);
+      const claimed = await claimFirst(workspace);
+      await failGit(workspace, { pattern: '"rev-parse "*"^{tree}"', end, stderr });
+
+      const refused = await gate(workspace, claimed);
+
+      expect(refused.json).toMatchObject({
+        reason: "gate_commit_unread",
+        blockers: [{ commit: claimed.commit, detail }],
+      });
+    });
+  }
+
+  for (const [end, detail] of [
+    ["term", () => "git -C ended on SIGTERM with no answer."],
+    ["exit", (commit: string) => `git checkout --quiet --detach --force ${commit} exited 3: boom`],
+  ] as const) {
+    test(`a runner checkout that ends with ${end} stops the run with its Git detail`, async () => {
+      const workspace = await makeReviewWorkspace(fixtures);
+      const claimed = await claimFirst(workspace);
+      await failGit(workspace, { pattern: '"checkout "*', end, stderr: "boom" });
+
+      const ran = await gate(workspace, claimed);
+
+      expect(ran.json.reason).toBe("gate_run_started");
+      const sqlite = new Database(`${workspace.repo}/.operator/local/crew-state.sqlite`);
+      const row = sqlite
+        .query("select state, detail from gate_runs where id = ?")
+        .get(ran.json.data.runId);
+      sqlite.close();
+      expect(row).toEqual({ state: "stopped", detail: detail(claimed.commit) });
+      expect(await Bun.file(`${workspace.herdr}/runner.log`).text()).toContain(
+        detail(claimed.commit),
+      );
+    });
+  }
+});
+
 describe("the gate on the integration base", () => {
   test("the first code dispatch refuses until the base key passes, and crew next offers run_gate", async () => {
     const workspace = await makeReviewWorkspace(fixtures);

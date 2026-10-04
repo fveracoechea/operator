@@ -11,6 +11,7 @@ const gitLog = `${wrapper}/calls.log`;
 const repositoryAnswer = `${wrapper}/repository.json`;
 const rulesAnswer = `${wrapper}/rules.json`;
 const pullsState = `${wrapper}/pulls.json`;
+const gitFault = `${wrapper}/git-fault`;
 
 // With a pulls state file, gh is a small stateful stand-in for the pull request writes. A fault
 // applies the write and then loses its answer, so recovery has to read to find out what happened.
@@ -53,12 +54,28 @@ if (fault) {
 process.stdout.write("HTTP/2.0 200 OK\\n\\n" + JSON.stringify(body));
 `;
 
-// Git runs through a wrapper that logs each call, so a test reads every option a push used.
+// Git runs through a wrapper that logs each call, so a test reads every option a push used. A
+// fault file `<subcommand> <term|exit> <stderr>` fails that subcommand: `term` ends it on SIGTERM,
+// as a timeout does, and `exit` ends it with exit 3.
 beforeAll(async () => {
   await Bun.$`mkdir -p ${wrapper}/bin`.quiet();
   await Bun.write(
     `${wrapper}/bin/git`,
-    `#!/bin/sh\nprintf '%s\\n' "$*" >> ${gitLog}\nexec ${realGit} "$@"\n`,
+    [
+      "#!/bin/sh",
+      `printf '%s\\n' "$*" >> ${gitLog}`,
+      `if [ -f ${gitFault} ]; then`,
+      `  read -r sub end stderr < ${gitFault}`,
+      // The guard of ADR 0018 and `-C <repo>` come before the subcommand.
+      '  if [ "$6" = "$sub" ]; then',
+      "    printf '%s' \"$stderr\" >&2",
+      '    [ "$end" = term ] && kill -TERM $$',
+      "    exit 3",
+      "  fi",
+      "fi",
+      `exec ${realGit} "$@"`,
+      "",
+    ].join("\n"),
   );
   // gh answers from a file, or with a 404 when the file is absent.
   await Bun.write(`${wrapper}/pulls-gh.ts`, pullsGh);
@@ -78,7 +95,9 @@ afterAll(async () => {
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
   await Promise.all(
-    [gitLog, repositoryAnswer, rulesAnswer, pullsState].map((file) => rm(file, { force: true })),
+    [gitLog, repositoryAnswer, rulesAnswer, pullsState, gitFault].map((file) =>
+      rm(file, { force: true }),
+    ),
   );
 });
 
@@ -292,6 +311,56 @@ describe("the refusals of a stack plan", () => {
   });
 });
 
+// Each Git failure keeps the detail that this module gave before ToolInvocation.git.
+describe("the Git failures of a stack plan", () => {
+  /** A project whose remote and target read, so a plan reaches the base checks. */
+  async function readable() {
+    const { repo, remote, first, second } = await project();
+    await Bun.$`${realGit} -C ${repo} remote set-url origin https://github.com/owner/repo.git`.quiet();
+    await Bun.$`${realGit} -C ${repo} config url.${remote}.insteadOf https://github.com/owner/repo.git`.quiet();
+    await Bun.write(
+      repositoryAnswer,
+      JSON.stringify({ default_branch: "main", allow_merge_commit: true }),
+    );
+    await Bun.write(rulesAnswer, JSON.stringify([]));
+    return { repo, first, second };
+  }
+
+  function detailOf(planned: Awaited<ReturnType<typeof PullRequestStack.plan>>, reason: string) {
+    return planned.status === "planned"
+      ? planned.refusals.find((one) => one.reason === reason)?.detail
+      : planned.detail;
+  }
+
+  for (const [fault, detail] of [
+    ["config term stuck", "git -C ended on SIGTERM with no answer."],
+    ["config exit boom", "boom"],
+  ] as const) {
+    test(`a remote read that ends with ${fault.split(" ")[1]} names ${detail}`, async () => {
+      const { repo, first, second } = await project();
+      await Bun.write(gitFault, `${fault}\n`);
+
+      const planned = await planOf(repo, { base: first, head: second }, { ...TEXT, cuts: [] });
+
+      expect(detailOf(planned, "remote_unread")).toBe(detail);
+    });
+  }
+
+  for (const [fault, detail] of [
+    ["merge-base term stuck", "git -C ended on SIGTERM with no answer."],
+    ["merge-base exit boom", "boom"],
+  ] as const) {
+    test(`an ancestor read that ends with ${fault.split(" ")[1]} names ${detail}`, async () => {
+      const { repo, first, second } = await readable();
+      await Bun.write(gitFault, `${fault}\n`);
+
+      const planned = await planOf(repo, { base: first, head: second }, { ...TEXT, cuts: [] });
+
+      expect(detailOf(planned, "base_not_on_target")).toBe(detail);
+    });
+  }
+});
+
 type FakePull = {
   number: number;
   node_id: string;
@@ -390,6 +459,28 @@ describe("the pull request writes", () => {
     expect(outcome.status).toBe("uncertain");
     expect(outcome.status === "uncertain" ? outcome.detail : "").toContain(`GET ${PULL} was lost`);
     expect((await heldPulls()).comments).toEqual([]);
+  });
+
+  test("a recall of a draft reads it again, and a lost second read writes no comment", async () => {
+    await holdPull({ draft: true }, [`GET ${PULL}#2`]);
+
+    const outcome = await write(RECALL);
+
+    expect(outcome).toEqual({
+      status: "uncertain",
+      detail: `gh api answered with no readable status: gh: the answer to GET ${PULL} was lost`,
+    });
+    expect(await heldPulls()).toMatchObject({ comments: [], writes: [] });
+  });
+
+  test("a recall of a draft that holds the comment is observed, with no write", async () => {
+    await holdPull({ draft: true });
+    expect(await write(RECALL)).toEqual({ status: "done", how: "written", number: 7, url: null });
+
+    const repeated = await write(RECALL);
+
+    expect(repeated).toEqual({ status: "done", how: "observed", number: 7, url: null });
+    expect((await heldPulls()).writes).toEqual([`POST ${COMMENTS}`]);
   });
 
   test("a recall of a pull request that merged first is a conflict, with no draft and no comment", async () => {

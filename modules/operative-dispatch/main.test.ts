@@ -142,3 +142,66 @@ test("perform joins a failure code to its detail and gives an unproven submissio
     detail: "No answer.",
   });
 });
+
+// Crew state records each stage detail, so its bytes are pinned here, where it is worded.
+test("each launch stage words its recorded detail", async () => {
+  const snapshot: Snapshot = {
+    selection: { crew: { host: "claude-code", model: null } },
+    release: { version: "0.4.0", identity: "release" },
+    lock: { name: null, state: "ready", identity: null, path: null },
+    skills: { identity: "skills" },
+  };
+  const brief: Brief = {
+    assignmentId: "assignment-stable",
+    assignmentRevision: 1,
+    attemptId: "abcdef12-3456-7890-abcd-ef1234567890",
+    sourceId: "github",
+    sourceKey: "59",
+    sourceRevision: "revision",
+    title: "Migrate customers",
+    kind: "production",
+    approvedScope: "Migrate customers.",
+    acceptanceRequirements: [],
+    requirementsIdentity: "requirements",
+    permissions: { writePaths: [], allowedCommands: [], network: false },
+    fixedInputs: [],
+    planningRecords: [],
+    rules: { submit: [], report: [] },
+    gate: null,
+    role: { kind: "production" },
+  };
+  const plan = planDispatch({
+    projectRoot: "/projects/renabler",
+    brief,
+    snapshot,
+    baseCommit: "base",
+    branch: null,
+    worktreePath: null,
+    agentHost: "claude-code",
+    agentKind: "claude",
+  });
+  const stage = { projectRoot: "/projects/renabler", plan, snapshot };
+  spyOn(HerdrControl, "findRootPane").mockResolvedValue({ status: "absent" });
+  spyOn(HerdrControl, "submitPrompt").mockResolvedValue({
+    status: "succeeded",
+    value: {
+      name: plan.agentName,
+      paneId: "w-child:p1",
+      cwd: plan.worktreePath,
+      status: "working",
+    },
+  });
+
+  expect(
+    await OperativeDispatch.perform({ ...stage, kind: "agent_start", workspaceId: null }),
+  ).toEqual({ status: "failed", detail: "The recorded checkout names no Herdr workspace." });
+  expect(
+    await OperativeDispatch.perform({ ...stage, kind: "agent_start", workspaceId: "w-gone" }),
+  ).toEqual({
+    status: "failed",
+    detail: "workspace_not_found: Herdr holds no workspace w-gone to launch in.",
+  });
+  expect(
+    await OperativeDispatch.perform({ ...stage, kind: "prompt_delivery", workspaceId: "w-child" }),
+  ).toEqual({ status: "succeeded", detail: "Submitted the brief to operative-abcdef12." });
+});

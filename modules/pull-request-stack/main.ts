@@ -847,6 +847,8 @@ async function writeCreate(effect: Extract<Effect, { kind: "create" }>): Promise
 /** The answer of one pull request write, or the outcome that stops the routine before it. */
 type PullAnswer =
   | { status: "changed" | "closed" | "written" }
+  /** No write was needed, so only the second read decides, and the effect it shows is observed. */
+  | { status: "unchanged" }
   | { status: "failed"; message: string }
   | { status: "uncertain"; detail: string }
   | { status: "stopped"; outcome: Exclude<WriteOutcome, { status: "done" }> };
@@ -886,7 +888,12 @@ async function pullWrite(
   if (after.status === "read") {
     const missing = step.confirmed(after.value);
     return missing === null
-      ? { status: "done", how: "written", number, url: null }
+      ? {
+          status: "done",
+          how: answer.status === "unchanged" ? "observed" : "written",
+          number,
+          url: null,
+        }
       : { status: "uncertain", detail: missing };
   }
   return {
@@ -967,25 +974,23 @@ async function ensureComment(
  */
 async function writeRecall(effect: Extract<Effect, { kind: "recall" }>): Promise<WriteOutcome> {
   const drafted = await pullWrite(effect.repository, effect.number, {
-    settled: (before) =>
-      before.merged || before.state !== "open"
-        ? notOpen(before)
-        : before.draft
-          ? { status: "done", how: "observed", number: effect.number, url: null }
-          : null,
+    settled: (before) => (before.merged || before.state !== "open" ? notOpen(before) : null),
+    // A draft needs no write, but the comment still waits for the second read to show the draft.
     write: async (before) =>
-      before.nodeId === null
-        ? {
-            status: "stopped",
-            outcome: {
-              status: "uncertain",
-              detail: `GitHub answered #${effect.number} with no node id.`,
-            },
-          }
-        : convertToDraft(before.nodeId).then((drafted) =>
-            // A recall names what the second read saw, never the lost answer of the draft.
-            drafted.status === "uncertain" ? { status: "written" } : drafted,
-          ),
+      before.draft
+        ? { status: "unchanged" }
+        : before.nodeId === null
+          ? {
+              status: "stopped",
+              outcome: {
+                status: "uncertain",
+                detail: `GitHub answered #${effect.number} with no node id.`,
+              },
+            }
+          : convertToDraft(before.nodeId).then((drafted) =>
+              // A recall names what the second read saw, never the lost answer of the draft.
+              drafted.status === "uncertain" ? { status: "written" } : drafted,
+            ),
     confirmed: (after) => (after.draft ? null : `#${effect.number} is not a draft yet.`),
   });
   if (drafted.status !== "done") {

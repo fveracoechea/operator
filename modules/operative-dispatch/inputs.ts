@@ -240,12 +240,16 @@ async function intendedWrites(request: Request): Promise<Read> {
   // The readers run in this order, and the first failure stops the run.
   const readers: Reader[] = [configuration, lock, jsrSelection, opencode, fixedPaths, fixedCopies];
   const writes: Write[] = [];
+  const written = new Map<Reader, Write[]>();
   for (const reader of readers) {
     const read = await reader(request, writes);
     if ("failure" in read) return read;
     writes.push(...read.writes);
+    written.set(reader, read.writes);
   }
-  return { writes: [...writes, ...records(request)] };
+  // The writes keep their own order, because a failed write names the first path that fails.
+  const order: Reader[] = [fixedCopies, opencode, jsrSelection, configuration, lock];
+  return { writes: [...order.flatMap((reader) => written.get(reader) ?? []), ...records(request)] };
 }
 
 /**
