@@ -1,29 +1,42 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+// Bun has no recursive directory removal API.
+import { mkdir, rm } from "node:fs/promises";
 import packageJson from "../../package.json" with { type: "json" };
 import { usage } from "./operations.ts";
 
 const repositoryRoot = new URL("../../", import.meta.url).pathname;
+// The CLI runs outside any project, so no local release selection reaches it. This file makes the
+// directory itself, because no other test file is sure to run first in the same shard.
+const outsideProject = `${Bun.env.TMPDIR ?? "/tmp"}/operator-cli-main-${crypto.randomUUID()}`;
+
+beforeAll(async () => {
+  await mkdir(outsideProject, { recursive: true });
+});
+
+afterAll(async () => {
+  await rm(outsideProject, { force: true, recursive: true });
+});
 
 async function runOperator(args: string[]) {
-  const process = Bun.spawn(["bun", `${repositoryRoot}cli.ts`, ...args], {
-    cwd: "/tmp/opencode",
+  const child = Bun.spawn([process.execPath, `${repositoryRoot}cli.ts`, ...args], {
+    cwd: outsideProject,
     stderr: "pipe",
     stdout: "pipe",
   });
 
   const [exitCode, stderr, stdout] = await Promise.all([
-    process.exited,
-    new Response(process.stderr).text(),
-    new Response(process.stdout).text(),
+    child.exited,
+    new Response(child.stderr).text(),
+    new Response(child.stdout).text(),
   ]);
 
   return { exitCode, stderr, stdout };
 }
 
 async function runImportedOperator(args: string[]) {
-  const process = Bun.spawn(
+  const child = Bun.spawn(
     [
-      "bun",
+      process.execPath,
       "--no-install",
       "-e",
       'import { main } from "@fveracoechea/operator/cli"; await main(Bun.argv.slice(1));',
@@ -38,9 +51,9 @@ async function runImportedOperator(args: string[]) {
   );
 
   const [exitCode, stderr, stdout] = await Promise.all([
-    process.exited,
-    new Response(process.stderr).text(),
-    new Response(process.stdout).text(),
+    child.exited,
+    new Response(child.stderr).text(),
+    new Response(child.stdout).text(),
   ]);
 
   return { exitCode, stderr, stdout };
