@@ -450,7 +450,7 @@ describe("the gate on the integration base", () => {
   test("a new gate checkout at another commit is refused, and no run is recorded or typed", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const claimed = await claimFirst(workspace);
-    await Bun.$`git -C ${workspace.repo} commit -q --allow-empty -m "Another commit"`.quiet();
+    await Bun.$`git -C ${workspace.repo} -c user.email=t@example.com -c user.name=Test commit -q --allow-empty -m "Another commit"`.quiet();
     const other = await headCommit(workspace);
     // The fake Herdr makes the checkout at this commit, not at the base the CLI names.
     await Bun.write(`${workspace.herdr}/gate-checkout-base`, other);

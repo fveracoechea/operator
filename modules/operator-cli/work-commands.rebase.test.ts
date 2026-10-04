@@ -526,7 +526,7 @@ describe("operator work rebase moves the integration branch to a new base behind
     await acceptedOneCommit(workspace);
     // A local commit above the target tip that the remote target never held.
     const local = (
-      await Bun.$`git -C ${workspace.repo} commit-tree HEAD^{tree} -p HEAD -m local`.text()
+      await Bun.$`git -C ${workspace.repo} -c user.email=t@example.com -c user.name=Person commit-tree HEAD^{tree} -p HEAD -m local`.text()
     ).trim();
 
     const planned = await planRebase(workspace, local);

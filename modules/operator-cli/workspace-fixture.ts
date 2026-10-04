@@ -209,6 +209,10 @@ export async function runOperator(
     env: {
       ...process.env,
       PATH: fixturePath(workspace.bin),
+      // A run inside a Herdr session inherits the real Herdr and its plugin directory. The
+      // wake reads both, so the fake takes their place.
+      HERDR_BIN_PATH: `${workspace.bin}/herdr`,
+      HERDR_PLUGIN_CONFIG_DIR: "",
       HERDR_FAKE_DIR: workspace.herdr,
       HERDR_FAKE_REPO: workspace.repo,
       HERDR_FAKE_PLUGIN_PATH: wakePluginPath,

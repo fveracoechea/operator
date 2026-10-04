@@ -1,7 +1,7 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
-// Bun has no chmod, directory creation, temporary directory, recursive removal, OS temp path, or
-// path join API.
-import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises";
+// Bun has no chmod, directory creation, directory listing, temporary directory, recursive removal,
+// OS temp path, or path join API.
+import { chmod, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CrewWake } from "./main.ts";
@@ -308,6 +308,20 @@ test("a failed prompt is reported once and not resubmitted on startup", async ()
   expect((await f.run("event", event)).exitCode).toBe(1);
   expect((await f.run("startup", { WAKE_STATUS: "idle", WAKE_ACTION: "yes" })).exitCode).toBe(0);
   expect(await f.prompts()).toBe("");
+});
+
+test("a refusal in the config directory answer of Herdr is refused, and nothing is written", async () => {
+  const f = await fixture();
+  // Herdr reports a refused request in the body, with exit 0.
+  const refusal = '{"error":{"code":"unsupported_method","message":"no config directory"}}';
+  const before = await readdir(f.root);
+
+  const armed = await f.run("arm", { HERDR_PLUGIN_CONFIG_DIR: "", WAKE_CONFIG: refusal });
+
+  expect(armed.exitCode).not.toBe(0);
+  expect(JSON.parse(armed.stdout).reason).toBe("wake_failed");
+  // `calls` is the log of the fake operator, which the arm reads before the directory.
+  expect((await readdir(f.root)).filter((name) => name !== "calls")).toEqual(before);
 });
 
 test("the registry eval launcher records the release CLI for a later wake", async () => {

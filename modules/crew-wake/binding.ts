@@ -3,6 +3,8 @@ import { CrewState } from "../crew-state/main.ts";
 import { z } from "zod";
 // Bun has no atomic rename or directory creation API.
 import { mkdir, rename } from "node:fs/promises";
+// Bun has no path manipulation API.
+import { isAbsolute } from "node:path";
 import { callHerdr, next, type Next, type Agent, type Event } from "./herdr.ts";
 import type { Binding } from "./store.ts";
 
@@ -20,6 +22,10 @@ export async function configDir(): Promise<string> {
   const response = await callHerdr(["plugin", "config-dir", "operator.wake"]);
   if (response.exit !== 0 || !response.stdout)
     throw new Error(response.stderr || "Operator wake plugin is not installed");
+  // Herdr reports a refused request in the body with exit 0. Only an absolute path is a
+  // directory, so a refusal never becomes a folder in the working directory.
+  if (!isAbsolute(response.stdout))
+    throw new Error(`Herdr gave no wake config directory: ${response.stdout}`);
   return response.stdout;
 }
 

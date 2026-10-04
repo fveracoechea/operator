@@ -345,7 +345,11 @@ describe("operator cleanup close", () => {
     const workspace = await makeWorkspace();
     const { producer, submitted } = await acceptedCycle(workspace);
     const stored = `${workspace.repo}/.operator/local/submissions/${submitted.json.data.submissionId}`;
-    const copies = await Array.fromAsync(new Bun.Glob("*").scan({ cwd: stored, onlyFiles: true }));
+    // The listing order depends on the file system, so the test names the result copy.
+    const copies = await Array.fromAsync(
+      new Bun.Glob("*-result.md").scan({ cwd: stored, onlyFiles: true }),
+    );
+    expect(copies).toHaveLength(1);
     await Bun.write(`${stored}/${copies[0]}`, "a different result\n");
 
     const blocked = await close(workspace, producer.ownerToken, producer.attemptId);

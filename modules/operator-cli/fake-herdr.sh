@@ -75,6 +75,10 @@ answer() {
       printf '{"result":{"plugins":[{"plugin_id":"operator.wake","manifest_path":"%s","enabled":%s,"min_herdr_version":"0.9.1","warnings":[]}]}}\n' "$path" "$enabled"
     fi
     ;;
+  plugin-config-dir)
+    # Herdr answers a plain path, so a wake keeps its bindings in the fake directory.
+    printf '%s\n' "$dir/plugin-config/${1:-}"
+    ;;
   worktree-create)
     repo=$(value_of --cwd "$@")
     parent=$(value_of --workspace "$@")

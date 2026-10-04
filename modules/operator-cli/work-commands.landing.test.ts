@@ -311,7 +311,7 @@ describe("operator work accept lands the reviewed commit", () => {
     const result = await reviewedResult(workspace, producer);
     await passCandidateGate(workspace, producer);
     // A person moves the branch to a commit that nobody reviewed.
-    await Bun.$`git -C ${workspace.repo} commit -q --allow-empty -m person`.quiet();
+    await Bun.$`git -C ${workspace.repo} -c user.email=p@example.com -c user.name=Person commit -q --allow-empty -m person`.quiet();
     const person = await headCommit(workspace);
     await Bun.$`git -C ${workspace.repo} update-ref ${`refs/heads/${branch}`} ${person}`.quiet();
 

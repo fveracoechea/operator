@@ -946,7 +946,7 @@ describe("IntegrationBranch holds", () => {
   test("a branch away from its recorded tip moved, even when it still holds the commit", async () => {
     const root = await repository();
     const { first, tip } = await landedTwice(root);
-    await Bun.$`git -C ${root} commit -q --allow-empty -m person`.quiet();
+    await Bun.$`git -C ${root} -c user.name=Person -c user.email=person@example.test commit -q --allow-empty -m person`.quiet();
     const person = await head(root, "main");
     await branchAt(root, person);
 
