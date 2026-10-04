@@ -1,3 +1,4 @@
+import type { CrewState } from "../crew-state/main.ts";
 import type { TrackerUpdate } from "../tracker-update/main.ts";
 import type { ParsedArguments } from "./arguments.ts";
 import { ReleaseInstall } from "../release-install/main.ts";
@@ -20,8 +21,15 @@ export type Outcome =
  */
 export type TrackerReason = Awaited<ReturnType<typeof TrackerUpdate.read>>["verdict"]["reason"];
 
+/** The refusals of a publish plan, read from the crew-state result rather than copied. */
+type PublishRefusalReason = Extract<
+  Awaited<ReturnType<typeof CrewState.planPublish>>["result"],
+  { status: "planned" }
+>["refusals"][number]["reason"];
+
 export type Reason =
   | TrackerReason
+  | PublishRefusalReason
   | "invalid_arguments"
   | "unsupported_bun"
   | "version_reported"
@@ -344,7 +352,6 @@ export type Reason =
   | "review_coverage_incomplete"
   | "review_published_text_missing"
   | "review_cut_not_between_commits"
-  | "cut_not_between_commits"
   | "pull_request_retargeted"
   | "recall_planned"
   | "stack_recalled"
@@ -367,29 +374,6 @@ export type Reason =
   | "completion_reason_not_approved"
   | "publish_approval_missing"
   | "map_amendment_approval_required"
-  | "branch_review_missing"
-  | "review_findings_undisposed"
-  | "review_correction_pending"
-  | "branch_review_checks_missing"
-  | "branch_review_checks_differ"
-  | "gate_base_not_passed"
-  | "gate_commit_not_passed"
-  | "invalidation_open"
-  | "withdrawal_open"
-  | "direction_open"
-  | "nothing_to_publish"
-  | "stack_fault_unsettled"
-  | "stack_part_open"
-  | "section_missing"
-  | "body_too_long"
-  | "repository_unread"
-  | "merge_commit_not_allowed"
-  | "signatures_required"
-  | "remote_missing"
-  | "remote_ambiguous"
-  | "remote_unread"
-  | "remote_name_taken"
-  | "base_not_on_target"
   | "review_reported"
   | "review_blocked"
   | "invalid_disposition_input"

@@ -69,10 +69,6 @@ export function writePathsReader(db: CrewReader): (row: AssignmentRow) => string
   };
 }
 
-export function effectiveWritePaths(db: CrewReader, row: AssignmentRow): string[] {
-  return writePathsReader(db)(row);
-}
-
 /** The paths a person is asked to grant. Each one must already be in its canonical form. */
 export const grantRequestInputSchema = z.strictObject({
   paths: z

@@ -41,7 +41,9 @@ import {
   pullsOf,
   reasons,
   remoteRefs,
+  restoreState,
   SOURCE,
+  STATE_LOST_AFTER_PLAN,
 } from "./publish-fixture.ts";
 import { readFake, writeFake } from "./source-fixture.ts";
 import { githubCalls, nextActions, runJson, runOperator, workspaces } from "./workspace-fixture.ts";
@@ -204,6 +206,27 @@ describe("the publish of a stack of one", () => {
     const after = await nextActions(workspace);
     expect(after.forAction("publish_stack")).toEqual([]);
     expect(after.forAction("settle_publish")).toEqual([]);
+  });
+
+  test("a crew state that the approval read cannot find is reported as such, with no write", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const branch = await reviewedBranch(workspace);
+    const { planRevision } = await planAndApprove(workspace, branch.producer);
+    const callsBefore = (await githubCalls(workspace)).length;
+
+    const lost = await apply(workspace, branch.producer, planRevision, STATE_LOST_AFTER_PLAN);
+
+    // The state failure is reported as it is, the same as a rebase does, not as a missing
+    // approval, and GitHub gets no write.
+    expect(lost.json.reason).toBe("state_missing");
+    const writes = (await githubCalls(workspace))
+      .slice(callsBefore)
+      .filter((one) => !one.startsWith("GET "));
+    expect(writes).toEqual([]);
+    expect(await pullsOf(workspace)).toEqual([]);
+    await restoreState(workspace);
+    const published = await apply(workspace, branch.producer, planRevision);
+    expect(published.json.reason).toBe("published");
   });
 
   test("the report names the plan file and prints no body, and the plan takes no Operator text", async () => {

@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { IntegrationBranch } from "../integration-branch/main.ts";
 import { PullRequestStack } from "../pull-request-stack/main.ts";
-import { matchApproval } from "./approvals.ts";
+import { approvedPlan, REBASE_ACTION } from "./approvals.ts";
 import { type RegisteredBranchReview, registerBranchReview } from "./branch-review.ts";
 import { BranchMove, type MoveNext, type MoveRefusal } from "./branch-move.ts";
 import type { CrewReader, CrewWriter } from "./database.ts";
@@ -26,9 +26,6 @@ import {
 import { assignments, integrationBranches, integrationRebases, workSources } from "./schema.ts";
 import { readStored } from "./stored.ts";
 import { storedTrackerLocation } from "./work-input.ts";
-
-/** The approval action that covers one rebase onto a new base (ADR 0022, decision 25). */
-export const REBASE_ACTION = "integration-rebase";
 
 const PLAN_STORE = ".operator/local/rebase-plans";
 
@@ -106,21 +103,40 @@ export type RebaseGate =
       runIds: string[];
     };
 
-export type RebasePreview = {
+type Move = { base: string; tip: string };
+
+/**
+ * One rebase plan: refused, with each refusal and what the plan could read, or ready, with the
+ * revision and the approval that binds it. A ready plan has no refusal.
+ */
+type UnwrittenPreview = {
   status: "planned";
   sourceId: string;
-  branch: string | null;
-  planRevision: string | null;
-  from: { base: string; tip: string } | null;
-  to: { base: string; tip: string } | null;
   target: { name: string; tip: string } | null;
-  record: RebaseRecord | null;
   places: RebasePlace[];
-  gate: RebaseGate | null;
   refusals: RebaseRefusal[];
-  approval: ApprovalRequest | null;
-  planPath: string;
-};
+} & (
+  | {
+      branch: string | null;
+      planRevision: null;
+      from: Move | null;
+      to: Move | null;
+      record: RebaseRecord | null;
+      gate: RebaseGate | null;
+      approval: null;
+    }
+  | {
+      branch: string;
+      planRevision: string;
+      from: Move;
+      to: Move;
+      record: RebaseRecord;
+      gate: RebaseGate;
+      approval: ApprovalRequest;
+    }
+);
+
+export type RebasePreview = UnwrittenPreview & { planPath: string };
 
 /**
  * The plan revision of one rebase: the source, the branch, its old base and tip, and the new base.
@@ -146,15 +162,6 @@ export function intendedRebaseOf(db: CrewReader, sourceId: string): RebaseRow | 
       )
       .all()[0] ?? null
   );
-}
-
-/** Every rebase of one source, in no order, so a reader can tell a used approval. */
-export function rebasesOf(db: CrewReader, sourceId: string): RebaseRow[] {
-  return db
-    .select()
-    .from(integrationRebases)
-    .where(eq(integrationRebases.sourceId, sourceId))
-    .all();
 }
 
 export function rebaseRecordOf(row: RebaseRow): RebaseRecord {
@@ -323,7 +330,7 @@ function gateOf(db: CrewReader, places: RebasePlace[]): RebaseGate {
 }
 
 /** The full plan, written to a local file, while the command report stays a summary (R5). */
-function previewText(preview: Omit<RebasePreview, "planPath">): string {
+function previewText(preview: UnwrittenPreview): string {
   const line = (label: string, values: string[]) =>
     values.length === 0
       ? [`- ${label}: none`]
@@ -367,12 +374,64 @@ function previewText(preview: Omit<RebasePreview, "planPath">): string {
 }
 
 /**
+ * The new base of a rebase: a fetched tip of the target branch, never a commit only this checkout
+ * holds. It gives the target it read, and the one refusal that stops the plan, if any.
+ */
+async function newBaseOf(request: {
+  projectRoot: string;
+  sourceId: string;
+  newBase: string;
+  trackerLocation: string | null;
+}): Promise<{
+  target: RebasePreview["target"];
+  newBase: string | null;
+  refusal: RebaseRefusal | null;
+}> {
+  if (request.trackerLocation === null) {
+    return {
+      target: null,
+      newBase: null,
+      refusal: {
+        reason: "repository_unread",
+        detail: `Source ${request.sourceId} records no tracker repository, so its target is unknown.`,
+      },
+    };
+  }
+  const fetched = await PullRequestStack.target({
+    repoRoot: request.projectRoot,
+    repository: storedTrackerLocation(request.trackerLocation).repository,
+    commit: request.newBase,
+  });
+  if (fetched.status !== "read") {
+    return {
+      target: null,
+      newBase: null,
+      refusal: { reason: fetched.reason, detail: fetched.detail },
+    };
+  }
+  const target = { name: fetched.target, tip: fetched.tip };
+  const resolved = await IntegrationBranch.resolve({
+    repoRoot: request.projectRoot,
+    commit: request.newBase,
+  });
+  return fetched.onTarget && resolved.status === "resolved"
+    ? { target, newBase: resolved.commit, refusal: null }
+    : {
+        target,
+        newBase: null,
+        refusal: {
+          reason: "rebase_base_not_on_target",
+          detail: `Commit ${request.newBase} is not on ${fetched.target} at its fetched tip ${fetched.tip}.`,
+        },
+      };
+}
+
+/**
  * Plans the rebase of the integration branch of one source onto a new base, and changes nothing
  * that others read: no crew state and no ref, only Git objects (ADR 0022, decision 25). The new
  * base must be on the fetched target. The plan revision names the source, the branch, the old
  * base and tip, and the new base, so a gate run between the plan and the apply keeps it.
  */
-// oxlint-disable-next-line complexity -- Each refusal of a rebase plan is one recorded rule.
 export async function planRebase(request: {
   projectRoot: string;
   sourceId: string;
@@ -414,7 +473,7 @@ export async function planRebase(request: {
     gate: null,
     approval: null,
   };
-  const finish = async (preview: Omit<RebasePreview, "planPath">): Promise<RebasePreview> => {
+  const finish = async (preview: UnwrittenPreview): Promise<RebasePreview> => {
     const name = preview.planRevision ?? `refused-${identityOf(preview).slice(0, 16)}`;
     const planPath = `${PLAN_STORE}/${name}.md`;
     await Bun.write(`${request.projectRoot}/${planPath}`, `${previewText(preview)}\n`, {
@@ -441,38 +500,12 @@ export async function planRebase(request: {
       detail: `The recorded landings of ${row.name} do not lead from ${row.recordedTip} to ${row.baseCommit}.`,
     });
   }
-
-  // The new base is a fetched tip of the target branch, never a commit only this checkout holds.
-  let target: RebasePreview["target"] = null;
-  let newBase: string | null = null;
-  if (read.source.trackerLocation === null) {
-    refusals.push({
-      reason: "repository_unread",
-      detail: `Source ${request.sourceId} records no tracker repository, so its target is unknown.`,
-    });
-  } else {
-    const fetched = await PullRequestStack.target({
-      repoRoot: request.projectRoot,
-      repository: storedTrackerLocation(read.source.trackerLocation).repository,
-      commit: request.newBase,
-    });
-    if (fetched.status !== "read") {
-      refusals.push({ reason: fetched.reason, detail: fetched.detail });
-    } else {
-      target = { name: fetched.target, tip: fetched.tip };
-      const resolved = await IntegrationBranch.resolve({
-        repoRoot: request.projectRoot,
-        commit: request.newBase,
-      });
-      if (!fetched.onTarget || resolved.status !== "resolved") {
-        refusals.push({
-          reason: "rebase_base_not_on_target",
-          detail: `Commit ${request.newBase} is not on ${fetched.target} at its fetched tip ${fetched.tip}.`,
-        });
-      } else {
-        newBase = resolved.commit;
-      }
-    }
+  const { target, newBase, refusal } = await newBaseOf({
+    ...request,
+    trackerLocation: read.source.trackerLocation,
+  });
+  if (refusal !== null) {
+    refusals.push(refusal);
   }
   if (chain === null || newBase === null) {
     return finish({ ...empty, target, refusals });
@@ -527,29 +560,36 @@ export async function planRebase(request: {
       detail: `A tracker step is recorded for ${gate.held.map((one) => `${one.assignmentId} (${one.step} ${one.state})`).join(", ")}, which the rebase would take out. A person decides.`,
     });
   }
-  const from = { base: row.baseCommit, tip: row.recordedTip };
-  const planRevision =
-    refusals.length > 0
-      ? null
-      : rebaseRevisionOf({ sourceId: request.sourceId, branch: row.name, from, newBase });
-  return finish({
+  const planned = {
     ...empty,
-    planRevision,
     to: { base: newBase, tip: plan.to },
     target,
     record,
     places,
     gate: gate.verdict,
     refusals,
-    approval:
-      planRevision === null
-        ? null
-        : {
-            action: REBASE_ACTION,
-            targets: [row.baseCommit, newBase],
-            scope: request.sourceId,
-            requestRevision: planRevision,
-          },
+  };
+  if (refusals.length > 0) {
+    return finish(planned);
+  }
+  const from = { base: row.baseCommit, tip: row.recordedTip };
+  const planRevision = rebaseRevisionOf({
+    sourceId: request.sourceId,
+    branch: row.name,
+    from,
+    newBase,
+  });
+  return finish({
+    ...planned,
+    branch: row.name,
+    planRevision,
+    from,
+    approval: {
+      action: REBASE_ACTION,
+      targets: [row.baseCommit, newBase],
+      scope: request.sourceId,
+      requestRevision: planRevision,
+    },
   });
 }
 
@@ -709,40 +749,19 @@ export async function applyRebase(
         };
   }
 
-  const preview = await planRebase(request);
-  if (preview.status !== "planned") {
-    return preview;
+  const planned = await planRebase(request);
+  if (planned.status !== "planned") {
+    return planned;
   }
-  if (preview.refusals.length > 0) {
-    return { status: "refused", preview };
+  const decided = await approvedPlan(request.projectRoot, planned, request.planRevision);
+  if (decided.status === "refused") {
+    return { status: "refused", preview: planned };
   }
-  if (
-    preview.planRevision !== request.planRevision ||
-    preview.approval === null ||
-    preview.from === null ||
-    preview.to === null ||
-    preview.record === null ||
-    preview.branch === null
-  ) {
-    return {
-      status: "plan-revision-changed",
-      stated: request.planRevision,
-      planned: preview.planRevision,
-      planPath: preview.planPath,
-    };
+  if (decided.status !== "approved") {
+    return decided;
   }
-  const approval = preview.approval;
-  const matched = await readState(request.projectRoot, (db) => ({
-    match: matchApproval(db, approval),
-  }));
-  if ("status" in matched) {
-    return matched;
-  }
-  const { match } = matched;
-  if (match.status !== "matched") {
-    return { status: "approval-required", approval, planPath: preview.planPath };
-  }
-  if (preview.gate !== null && preview.gate.status !== "passed") {
+  const { preview, approvalId } = decided;
+  if (preview.gate.status !== "passed") {
     return { status: "gate-not-passed", gate: preview.gate, preview };
   }
 
@@ -774,7 +793,7 @@ export async function applyRebase(
         id: rebaseId,
         sourceId: request.sourceId,
         planRevision: request.planRevision,
-        approvalId: match.approval.approvalId,
+        approvalId,
         branch,
         fromBase: from.base,
         toBase: to.base,
@@ -833,16 +852,17 @@ export async function startRebaseGateRun(request: {
   if (preview.status !== "planned") {
     return preview;
   }
-  const gate = preview.gate;
   const read = await readState(request.projectRoot, (db) => ({
     row: integrationBranchOf(db, request.sourceId),
   }));
   if ("status" in read) {
     return read;
   }
-  if (preview.refusals.length > 0 || gate === null || read.row === null || preview.to === null) {
+  // A ready plan has a gate and a new tip, and only a refused plan has a refusal.
+  if (preview.planRevision === null || read.row === null) {
     return { status: "rebase-refused", preview };
   }
+  const { gate } = preview;
   if (gate.status === "passed") {
     return {
       status: "gate-passed",

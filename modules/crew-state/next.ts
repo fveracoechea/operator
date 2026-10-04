@@ -39,17 +39,16 @@ import {
 } from "./review.ts";
 import { readSnapshot } from "./branch-review.ts";
 import { openCycleOf } from "./rework.ts";
-import { approvals, assignments, attempts, workSources } from "./schema.ts";
+import { assignments, attempts, workSources } from "./schema.ts";
 import type { BrokenLanding, RewriteRead } from "./next-landings.ts";
-import { openPublicationOf, PUBLISH_ACTION } from "./publish.ts";
+import { openPublicationOf } from "./publish.ts";
 import { publicationsOf, storedEffect } from "./stack-records.ts";
-import { intendedRebaseOf, REBASE_ACTION, rebaseRevisionOf, rebasesOf } from "./rebase.ts";
-import { approvalRecordOf } from "./approvals.ts";
+import { intendedRebaseOf, rebaseRevisionOf } from "./rebase.ts";
+import { grantedApprovalsOf, PUBLISH_ACTION, REBASE_ACTION } from "./approvals.ts";
 import { recallOffer } from "./recall.ts";
 import { conflictSettlementOf, publishBaseOf } from "./stack-parts.ts";
 import { publishRecordsOf } from "./publish-gate.ts";
 import { mergeGateOf, retargetsDue, stackStateOf } from "./publish-status.ts";
-import { eq } from "drizzle-orm";
 import { latestSubmission, submittedCommit } from "./submission.ts";
 import { readBinding, TRACKER_STEPS, targetOf, trackerOperationsOf } from "./tracker.ts";
 import { trackerStepActions } from "./tracker-show.ts";
@@ -429,16 +428,7 @@ function readPublish(db: CrewReader, into: Collector): void {
     if (publishRecordsOf(db, source.id).refusals.length > 0) {
       continue;
     }
-    const used = new Set(publications.map((one) => one.planRevision));
-    const approved = db
-      .select()
-      .from(approvals)
-      .where(eq(approvals.action, PUBLISH_ACTION))
-      .all()
-      .some(
-        (one) =>
-          one.state === "granted" && one.scope === source.id && !used.has(one.requestRevision),
-      );
+    const approved = grantedApprovalsOf(db, PUBLISH_ACTION, source.id).length > 0;
     const offer: Draft = {
       action: "publish_stack",
       sourceId: source.id,
@@ -486,29 +476,17 @@ function readRebase(db: CrewReader, into: Collector): void {
       });
       continue;
     }
-    const used = new Set(rebasesOf(db, source.id).map((one) => one.planRevision));
-    const approved = db
-      .select()
-      .from(approvals)
-      .where(eq(approvals.action, REBASE_ACTION))
-      .all()
-      .find((one) => {
-        const [from, to] = approvalRecordOf(one).targets;
-        // Only an approval of the plan of today: the recorded base and tip, and its new base.
-        const planned = rebaseRevisionOf({
-          sourceId: source.id,
-          branch: branch.name,
-          from: { base: branch.baseCommit, tip: branch.recordedTip },
-          newBase: to ?? "",
-        });
-        return (
-          one.state === "granted" &&
-          one.scope === source.id &&
-          from === branch.baseCommit &&
-          one.requestRevision === planned &&
-          !used.has(one.requestRevision)
-        );
+    const approved = grantedApprovalsOf(db, REBASE_ACTION, source.id).find((one) => {
+      const [from, to] = one.targets;
+      // Only an approval of the plan of today: the recorded base and tip, and its new base.
+      const planned = rebaseRevisionOf({
+        sourceId: source.id,
+        branch: branch.name,
+        from: { base: branch.baseCommit, tip: branch.recordedTip },
+        newBase: to ?? "",
       });
+      return from === branch.baseCommit && one.requestRevision === planned;
+    });
     if (approved === undefined) {
       continue;
     }
@@ -521,7 +499,7 @@ function readRebase(db: CrewReader, into: Collector): void {
       });
       continue;
     }
-    const newBase = approvalRecordOf(approved).targets[1] ?? "<the new base>";
+    const newBase = approved.targets[1] ?? "<the new base>";
     into.add({
       action: "rebase_integration",
       sourceId: source.id,

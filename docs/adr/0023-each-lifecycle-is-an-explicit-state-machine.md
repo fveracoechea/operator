@@ -37,6 +37,7 @@ The first machines are the cleanup, the question, and the attempt:
 Later machines:
 
 - **Branch move** (#133). A landing goes from `intended` to `landed`, `replaced`, `taken-out`, or `merged`, and a rebase goes from `intended` to `rebased`. The events land, take out, and rebase each end one recorded move. The move of the ref is the fact the decision reads: a ref that did not move gives the refusal of the event and keeps the intent open, and a moved ref gives the next state of the intent and of each landing that the move ends. The branch ref itself has no state, because it moves only by a compare and swap from the recorded tip. The commands that move the branch give every landing refusal as one `landing-refused` result, so the command line maps no move state.
+- **Approval** (#134). The row records `granted` or `revoked`, and the events are grant, revoke, and use. "Used" is not recorded: a granted approval is used when a stack publication or a rebase records the plan revision that it binds. Revoke refuses an approval that is already revoked, then a stale revision. Use refuses an approval that is not recorded or that is revoked, and a repeat of the same plan revision uses its grant again. Publish, rebase, and recall share one decision for an apply: a refused plan, a changed plan revision, a missing approval, or the approval to use. The coordination order offers only the grants that no record used yet.
 
 ## Consequences
 

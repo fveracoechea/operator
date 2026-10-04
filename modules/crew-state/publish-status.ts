@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { HerdrControl } from "../herdr-control/main.ts";
 import { PullRequestStack } from "../pull-request-stack/main.ts";
-import { approvalCovers, matchApproval, readApproval } from "./approvals.ts";
+import { approvalCovers, matchApproval, PUBLISH_ACTION, readApproval } from "./approvals.ts";
 import { publishRecordsOf } from "./publish-gate.ts";
 import { type Fault, faultsOf, partStatusesOf, publishBaseOf } from "./stack-parts.ts";
 import { readAssignment } from "./assignment.ts";
@@ -16,7 +16,6 @@ import {
   type ReplacedPull,
   type ApprovalRequest,
   openEffectsOf,
-  PUBLISH_ACTION,
   runEffects,
   trackerStepTarget,
 } from "./publish.ts";

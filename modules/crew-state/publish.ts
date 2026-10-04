@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { PullRequestStack } from "../pull-request-stack/main.ts";
-import { matchApproval } from "./approvals.ts";
+import { approvedPlan, PUBLISH_ACTION } from "./approvals.ts";
 import type { CrewReader, CrewWriter } from "./database.ts";
 import { identityOf } from "./identity.ts";
 import { mapIssueOf } from "./map-amendment.ts";
@@ -21,9 +21,6 @@ import {
 } from "./stack-records.ts";
 import { readStored } from "./stored.ts";
 
-/** The approval action that covers one stack publication (ADR 0022, decision 9). */
-export const PUBLISH_ACTION = "publish";
-
 type ModulePlan = Extract<Awaited<ReturnType<typeof PullRequestStack.plan>>, { status: "planned" }>;
 type Ships = NonNullable<ModulePlan["ships"]>;
 type WriteOutcome = Awaited<ReturnType<typeof PullRequestStack.write>>;
@@ -38,22 +35,28 @@ export type ApprovalRequest = {
   requestRevision: string;
 };
 
-export type PublishPreview = {
+/**
+ * What one plan ships: nothing, or the parts with the revision and the approval that binds them.
+ * A plan that ships is ready to apply once it has no refusal.
+ */
+type PlannedShips =
+  | { planRevision: null; ships: null; approval: null }
+  | { planRevision: string; ships: Ships; approval: ApprovalRequest };
+
+type UnwrittenPreview = PlannedShips & {
   status: "planned";
   sourceId: string;
   repository: string | null;
   publication: number;
-  planRevision: string | null;
-  ships: Ships | null;
   info: ModulePlan["info"] | null;
   refusals: PublishRefusal[];
-  approval: ApprovalRequest | null;
   /** The open pull requests of an ended publication that this one replaces and closes. */
   closes: ReplacedPull[];
   /** The replaced pull requests whose head a person moved, which get no write (decision 21). */
   headMoved: ReplacedPull[];
-  planPath: string;
 };
+
+export type PublishPreview = UnwrittenPreview & { planPath: string };
 
 /** One open pull request of an ended publication, which the next publication closes. */
 export type ReplacedPull = { number: number; url: string | null; head: string };
@@ -127,7 +130,7 @@ export function approvalRequestOf(
  * The full preview, written to a local file. The person approves the exact text, so every title
  * and body is there verbatim, while the command report stays a summary that points here.
  */
-function previewText(preview: Omit<PublishPreview, "planPath">): string {
+function previewText(preview: UnwrittenPreview): string {
   const { ships, info } = preview;
   return [
     `# Publish plan ${preview.planRevision ?? "(refused)"}`,
@@ -295,26 +298,28 @@ export async function planPublish(request: {
   // A close is part of what ships, so the approval binds it. With none, the revision is unchanged.
   const planRevision =
     ships === null ? null : closes.length === 0 ? identityOf(ships) : identityOf({ ships, closes });
-  const preview = {
-    status: "planned" as const,
-    sourceId: request.sourceId,
-    repository: records.repository,
-    publication: read.publication,
-    planRevision,
-    ships,
-    info: planned?.info ?? null,
-    refusals,
-    approval:
-      ships === null || planRevision === null
-        ? null
-        : approvalRequestOf(request.sourceId, planRevision, ships, {
+  const plan: PlannedShips =
+    ships === null || planRevision === null
+      ? { planRevision: null, ships: null, approval: null }
+      : {
+          planRevision,
+          ships,
+          approval: approvalRequestOf(request.sourceId, planRevision, ships, {
             repository: records.repository ?? "",
             pulls: closes,
           }),
+        };
+  const shown: UnwrittenPreview = {
+    status: "planned",
+    sourceId: request.sourceId,
+    repository: records.repository,
+    publication: read.publication,
+    ...(read.mapIssue ? withMapAmendments(plan) : plan),
+    info: planned?.info ?? null,
+    refusals,
     closes,
     headMoved: request.headMoved,
   };
-  const shown = read.mapIssue ? withMapAmendments(preview) : preview;
   const name = planRevision ?? `refused-${identityOf(shown).slice(0, 16)}`;
   const planPath = `${PLAN_STORE}/${name}.md`;
   await Bun.write(`${request.projectRoot}/${planPath}`, `${previewText(shown)}\n`, {
@@ -327,19 +332,16 @@ export async function planPublish(request: {
  * The preview of a source that has a map issue. Its approval also names the map amendment of
  * each item, which waits after the merge for a second approval of its own text (D2).
  */
-function withMapAmendments<Preview extends Omit<PublishPreview, "planPath">>(
-  preview: Preview,
-): Preview {
-  const { approval, ships } = preview;
-  return approval === null || ships === null
-    ? preview
+function withMapAmendments(plan: PlannedShips): PlannedShips {
+  return plan.approval === null
+    ? plan
     : {
-        ...preview,
+        ...plan,
         approval: {
-          ...approval,
+          ...plan.approval,
           targets: [
-            ...approval.targets,
-            ...ships.trackerSteps.map((one) => trackerStepTarget(one.closes, "map_amendment")),
+            ...plan.approval.targets,
+            ...plan.ships.trackerSteps.map((one) => trackerStepTarget(one.closes, "map_amendment")),
           ],
         },
       };
@@ -349,7 +351,7 @@ function withMapAmendments<Preview extends Omit<PublishPreview, "planPath">>(
 function recordPublication(
   db: CrewWriter,
   request: {
-    preview: PublishPreview & { ships: Ships; planRevision: string };
+    preview: Extract<PublishPreview, { planRevision: string }>;
     repository: string;
     approvalId: string;
     now: string;
@@ -645,33 +647,19 @@ export async function applyPublish(request: {
     return runEffects(request, open.publication.id);
   }
 
-  const preview = await planPublish(request);
-  if (preview.status !== "planned") {
-    return preview;
+  const planned = await planPublish(request);
+  if (planned.status !== "planned") {
+    return planned;
   }
-  if (preview.refusals.length > 0) {
-    return { status: "refused", preview };
+  const decided = await approvedPlan(request.projectRoot, planned, request.planRevision);
+  if (decided.status === "refused") {
+    return { status: "refused", preview: planned };
   }
-  if (
-    preview.planRevision !== request.planRevision ||
-    preview.ships === null ||
-    preview.approval === null
-  ) {
-    return {
-      status: "plan-revision-changed",
-      stated: request.planRevision,
-      planned: preview.planRevision,
-      planPath: preview.planPath,
-    };
-  }
-  const approval = preview.approval;
-  const matched = await readState(request.projectRoot, (db) => matchApproval(db, approval));
-  if (matched.status !== "matched") {
-    return { status: "approval-required", approval, planPath: preview.planPath };
+  if (decided.status !== "approved") {
+    return decided;
   }
 
-  const ships = preview.ships;
-  const planRevision = preview.planRevision;
+  const { preview, approvalId } = decided;
   const repository = preview.repository ?? "";
   const recorded = await mutate<
     { status: "recorded"; publicationId: string } | { status: "publication-open" }
@@ -682,7 +670,7 @@ export async function applyPublish(request: {
       ownerToken: request.ownerToken,
       now: new Date().toISOString(),
       operation: "publish_apply",
-      input: { sourceId: request.sourceId, planRevision },
+      input: { sourceId: request.sourceId, planRevision: preview.planRevision },
     },
     ({ tx, now }) => {
       // A publication that another apply recorded since the plan is settled, not recorded twice.
@@ -691,12 +679,7 @@ export async function applyPublish(request: {
       }
       return {
         commit: true,
-        outcome: recordPublication(tx, {
-          preview: { ...preview, ships, planRevision },
-          repository,
-          approvalId: matched.approval.approvalId,
-          now,
-        }),
+        outcome: recordPublication(tx, { preview, repository, approvalId, now }),
       };
     },
   );

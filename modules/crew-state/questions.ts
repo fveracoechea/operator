@@ -167,15 +167,18 @@ export function answersOf(db: CrewReader, questionId: string): AnswerRow[] {
 export function answerAuthoritiesOf(
   db: CrewReader,
   assignmentId: string,
-): Map<string, string | null> {
+): { status: "read"; authorities: Map<string, string | null> } {
   const rows = db.select().from(questions).where(eq(questions.assignmentId, assignmentId)).all();
-  return new Map(
-    rows.map((row) => {
-      const answer = row.answerId === null ? null : readAnswer(db, row.answerId);
-      const applies = answer !== null && answerRecordOf(answer, row).applicable;
-      return [row.id, applies ? answer.authority : null];
-    }),
-  );
+  return {
+    status: "read",
+    authorities: new Map(
+      rows.map((row) => {
+        const answer = row.answerId === null ? null : readAnswer(db, row.answerId);
+        const applies = answer !== null && answerRecordOf(answer, row).applicable;
+        return [row.id, applies ? answer.authority : null];
+      }),
+    ),
+  };
 }
 
 /** Every question that still holds its Operative. */

@@ -87,7 +87,7 @@ export async function submitAttemptResult(request: {
     const questions = await readState(request.projectRoot, (db) =>
       answerAuthoritiesOf(db, assignment.id),
     );
-    if (!(questions instanceof Map)) {
+    if (questions.status !== "read") {
       return { repeated: false, result: questions };
     }
     const refusals = refuseResult({
@@ -101,7 +101,7 @@ export async function submitAttemptResult(request: {
       writePaths: read.context.writePaths,
       bases: {
         requirementCount: storedRequirements(assignment.acceptanceRequirements).length,
-        questions,
+        questions: questions.authorities,
       },
       gate,
     });

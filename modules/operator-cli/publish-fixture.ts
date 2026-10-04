@@ -71,19 +71,25 @@ export async function apply(
   workspace: Workspace,
   producer: Pick<Producer, "ownerToken">,
   planRevision: string,
+  env: Record<string, string> = {},
 ) {
-  return runJson(workspace, [
-    "publish",
-    "apply",
-    "--request",
-    request(),
-    "--owner-token",
-    producer.ownerToken,
-    "--source",
-    SOURCE,
-    "--plan-revision",
-    planRevision,
-  ]);
+  return runJson(
+    workspace,
+    [
+      "publish",
+      "apply",
+      "--request",
+      request(),
+      "--owner-token",
+      producer.ownerToken,
+      "--source",
+      SOURCE,
+      "--plan-revision",
+      planRevision,
+    ],
+    workspace.repo,
+    env,
+  );
 }
 
 /** Plans, grants the approval the plan names, and applies it. */
@@ -130,6 +136,23 @@ export function editState(workspace: Workspace, statements: string[]): void {
   } finally {
     sqlite.close();
   }
+}
+
+/**
+ * The environment of one CLI run whose crew state goes away right after it writes its plan file,
+ * so the approval read of a publish or recall apply is the read that fails.
+ */
+export const STATE_LOST_AFTER_PLAN = {
+  BUN_OPTIONS: `--preload ${import.meta.dir}/state-loss.preload.ts`,
+};
+
+/** Puts back the crew state that a run under `STATE_LOST_AFTER_PLAN` moved away. */
+export async function restoreState(workspace: Workspace): Promise<void> {
+  const local = `${workspace.repo}/.operator/local`;
+  for (const name of new Bun.Glob("*").scanSync(`${local}/lost-state`)) {
+    await Bun.$`mv ${local}/lost-state/${name} ${local}/`.quiet();
+  }
+  await Bun.$`rmdir ${local}/lost-state`.quiet();
 }
 
 export function reasons(result: { json: { blockers: Array<{ reason: string }> } }): string[] {

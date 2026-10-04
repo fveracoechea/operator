@@ -20,7 +20,9 @@ import {
   recordTracker,
   remoteRefs,
   REPOSITORY,
+  restoreState,
   SOURCE,
+  STATE_LOST_AFTER_PLAN,
 } from "./publish-fixture.ts";
 import { readFake, withdrawIssues, workspaceTarget } from "./source-fixture.ts";
 import { setFault } from "./tracker-fixture.ts";
@@ -71,17 +73,27 @@ async function publishedOneCommit(
   return { ...accepted, number: published.json.data.pullRequests[0].number as number };
 }
 
-async function recall(workspace: Workspace, producer: Producer, planRevision?: string) {
-  return runJson(workspace, [
-    "publish",
-    "recall",
-    ...(planRevision === undefined
-      ? []
-      : ["--request", request(), "--owner-token", producer.ownerToken]),
-    "--source",
-    SOURCE,
-    ...(planRevision === undefined ? [] : ["--plan-revision", planRevision]),
-  ]);
+async function recall(
+  workspace: Workspace,
+  producer: Producer,
+  planRevision?: string,
+  env: Record<string, string> = {},
+) {
+  return runJson(
+    workspace,
+    [
+      "publish",
+      "recall",
+      ...(planRevision === undefined
+        ? []
+        : ["--request", request(), "--owner-token", producer.ownerToken]),
+      "--source",
+      SOURCE,
+      ...(planRevision === undefined ? [] : ["--plan-revision", planRevision]),
+    ],
+    workspace.repo,
+    env,
+  );
 }
 
 /** Plans the recall, grants the approval its plan names, and applies it. */
@@ -261,6 +273,42 @@ describe("the recall writes", () => {
     expect(repeated.json.reason).toBe("stack_recalled");
     expect(await pullComments(workspace, published.number)).toHaveLength(1);
     expect((await pullsOf(workspace))[0]).toMatchObject({ draft: true, state: "open" });
+  });
+
+  test("a crew state that the approval read cannot find is reported as such, with no write", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const published = await publishedOneCommit(workspace);
+    const invalidated = await invalidateResult(workspace, published.producer, {
+      assignmentId: published.producer.assignmentId,
+      revision: published.revision,
+      defect: DEFECT,
+    });
+    expect(invalidated.json.reason).toBe("result_invalidated");
+    const planned = await recall(workspace, published.producer);
+    expect(planned.json.reason).toBe("recall_planned");
+    const { planRevision } = planned.json.data;
+    const granted = await grantDirection(
+      workspace,
+      published.producer,
+      { approval: planned.json.data.approval },
+      "Recall exactly this plan.",
+    );
+    expect(granted.json.reason).toBe("approval_granted");
+    const callsBefore = (await githubCalls(workspace)).length;
+
+    const lost = await recall(workspace, published.producer, planRevision, STATE_LOST_AFTER_PLAN);
+
+    // The state failure is reported as it is, the same as a rebase does, not as a missing
+    // approval, and GitHub gets no write.
+    expect(lost.json.reason).toBe("state_missing");
+    const writes = (await githubCalls(workspace))
+      .slice(callsBefore)
+      .filter((one) => !one.startsWith("GET "));
+    expect(writes).toEqual([]);
+    expect(await pullComments(workspace, published.number)).toEqual([]);
+    await restoreState(workspace);
+    const recalled = await recall(workspace, published.producer, planRevision);
+    expect(recalled.json.reason).toBe("stack_recalled");
   });
 
   test("a pull request that merged before the write is a conflict, with no draft and no comment", async () => {

@@ -1,11 +1,11 @@
 import { PullRequestStack } from "../pull-request-stack/main.ts";
-import { matchApproval } from "./approvals.ts";
+import { approvedPlan, matchApproval, RECALL_ACTION } from "./approvals.ts";
 import type { CrewReader } from "./database.ts";
 import { identityOf } from "./identity.ts";
 import { mutate, readState, type RequestFailure, type StateFailure } from "./operations.ts";
 import { type ApplyResult, type ApprovalRequest, openEffectsOf, runEffects } from "./publish.ts";
 import { workSources } from "./schema.ts";
-import { RECALL_ACTION, recallOf } from "./stack-parts.ts";
+import { recallOf } from "./stack-parts.ts";
 import {
   appendEffects,
   effectsOf,
@@ -220,16 +220,12 @@ export async function applyRecall(request: {
   if (preview.status !== "planned") {
     return preview;
   }
-  if (preview.planRevision !== request.planRevision) {
-    return {
-      status: "plan-revision-changed",
-      stated: request.planRevision,
-      planned: preview.planRevision,
-    };
+  const decided = await approvedPlan(request.projectRoot, preview, request.planRevision);
+  if (decided.status === "plan-revision-changed") {
+    return { status: decided.status, stated: decided.stated, planned: decided.planned };
   }
-  const matched = await readState(request.projectRoot, (db) => matchApproval(db, preview.approval));
-  if (matched.status !== "matched") {
-    return { status: "approval-required", approval: preview.approval, planPath: preview.planPath };
+  if (decided.status !== "approved") {
+    return decided;
   }
 
   const recorded = await mutate<

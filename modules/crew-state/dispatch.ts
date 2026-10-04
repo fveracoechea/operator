@@ -27,7 +27,7 @@ import { storedBehaviorChanges, storedConcerns, storedDecisions } from "./submis
 import { cyclesOf, openCycleOf, type ReworkCycleRow } from "./rework.ts";
 import { type ReworkBriefRecord, storedReworkBrief } from "./rework-input.ts";
 import { readSubmission, submissionsOf, type SubmissionRow } from "./submission.ts";
-import { effectiveWritePaths } from "./write-path-grants.ts";
+import { writePathsReader } from "./write-path-grants.ts";
 import { type BriefRecord, briefRecords } from "./planning-record.ts";
 import { readStored } from "./stored.ts";
 import { DISPATCH_STAGES, type DispatchStage, operationFor } from "./attempt-machine.ts";
@@ -457,7 +457,7 @@ export function lookupAttempt(db: CrewReader, attemptId: string): AttemptLookup 
       operations: liveOperations(db, attempt.id),
       role,
       planning: planningOf(db, { assignmentId: assignment.id, dispatch, review }),
-      writePaths: effectiveWritePaths(db, assignment),
+      writePaths: writePathsReader(db)(assignment),
       attemptsHeld: attemptCount(db, assignment.id),
       current: currentOwnership(db)?.token === attempt.ownerToken,
     },

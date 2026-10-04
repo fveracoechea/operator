@@ -31,9 +31,6 @@ import { storedTrackerBinding } from "./work-input.ts";
  */
 export const STACK_FAULT_ACTION = "stack-fault";
 
-/** The approval action that covers one recall (ADR 0022, decision 23). */
-export const RECALL_ACTION = "stack-recall";
-
 type RecallCause = Parameters<typeof PullRequestStack.recallComment>[0]["causes"][number];
 type ApprovalRequest = ApprovalCheck;
 
