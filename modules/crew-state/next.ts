@@ -44,10 +44,22 @@ import { grantedApprovalsOf, PUBLISH_ACTION, REBASE_ACTION } from "./approvals.t
 import { recallOffer } from "./recall.ts";
 import { conflictSettlementOf } from "./stack-parts.ts";
 import type { RetargetDue } from "./publication-machine.ts";
-import { mergeGateOf, type PublishLane, publishLaneOf, retargetsDue } from "./publish-status.ts";
+import {
+  type MergeGate,
+  mergeGateOf,
+  type PublishLane,
+  publishLaneOf,
+  retargetsDue,
+} from "./publish-status.ts";
 import { latestSubmission, submittedCommit } from "./submission.ts";
-import { readBinding, TRACKER_STEPS, targetOf, trackerOperationsOf } from "./tracker.ts";
-import { trackerStepActions } from "./tracker-show.ts";
+import {
+  readBinding,
+  TRACKER_STEPS,
+  type TrackerOperationRow,
+  targetOf,
+  trackerOperationsOf,
+} from "./tracker.ts";
+import { TrackerStep } from "./tracker-machine.ts";
 import { mapAmendmentOffer } from "./map-amendment.ts";
 import { isReview } from "./work-input.ts";
 
@@ -1176,34 +1188,52 @@ function readTracker(
   const held = trackerOperationsOf(db, assignmentId);
   for (const step of TRACKER_STEPS) {
     const operation = held.find((one) => one.step === step) ?? null;
-    const applicable = targetOf(bound.binding, step) !== null;
-    const settles = trackerStepActions({ applicable, operation });
-    if (settles.length === 0) {
-      continue;
+    const read = TrackerStep.read({
+      applicable: targetOf(bound.binding, step) !== null,
+      operation,
+    });
+    if (read.actions.length > 0) {
+      into.add(trackerDraftOf(db, { assignmentId, revision, step, operation, read, code }));
     }
-
-    // A step after the merge runs only under the publish approval that named it (D2).
-    const unapproved =
-      code.status === "merged" && !code.approved[step] && operation?.state !== "verified";
-    // The map amendment of a code result also waits for an approval of its rendered text.
-    const map =
-      code.status === "merged" && step === "map_amendment" && operation !== null
-        ? mapAmendmentOffer(db, operation)
-        : { unsent: false, text: null };
-    const text = unapproved ? null : map.text;
-    const recovers = !map.unsent && settles.includes("recover");
-    // A conflict and another write after an uncertain one are both a person's call.
-    const person = settles.includes("user") || settles.includes("approved-write");
-    const action: Draft = {
-      action: recovers ? "recover_tracker" : "record_tracker",
-      assignmentId,
-      revision,
-      detail: text ?? `The ${step} step is ${operation?.state ?? "unrecorded"}.`,
-      command: recovers ? "operator tracker recover" : "operator tracker record",
-    };
-    if (person || unapproved || text !== null) action.blocker = "approval_required";
-    into.add(action);
   }
+}
+
+const RECORD_TRACKER = { action: "record_tracker", command: "operator tracker record" } as const;
+const RECOVER_TRACKER = { action: "recover_tracker", command: "operator tracker recover" } as const;
+
+/** What `crew next` offers for one tracker step that its state does not yet settle. */
+function trackerDraftOf(
+  db: CrewReader,
+  request: {
+    assignmentId: string;
+    revision: number;
+    step: TrackerStep;
+    operation: TrackerOperationRow | null;
+    read: ReturnType<typeof TrackerStep.read>;
+    code: Exclude<MergeGate, { status: "waiting" }>;
+  },
+): Draft {
+  const { step, operation, read, code } = request;
+  // A step after the merge runs only under the publish approval that named it (D2).
+  const unapproved = code.status === "merged" && !code.approved[step] && read.state !== "verified";
+  // The map amendment of a code result also waits for an approval of its rendered text.
+  const map =
+    code.status === "merged" && step === "map_amendment" && operation !== null
+      ? mapAmendmentOffer(db, operation)
+      : { unsent: false, text: null };
+  const text = unapproved ? null : map.text;
+  const owed = !map.unsent && read.actions.includes("recover") ? RECOVER_TRACKER : RECORD_TRACKER;
+  // A conflict and another write after an uncertain one are both a person's call.
+  const person = read.actions.includes("user") || read.actions.includes("approved-write");
+  const action: Draft = {
+    action: owed.action,
+    assignmentId: request.assignmentId,
+    revision: request.revision,
+    detail: text ?? `The ${step} step is ${read.state}.`,
+    command: owed.command,
+  };
+  if (person || unapproved || text !== null) action.blocker = "approval_required";
+  return action;
 }
 
 /**

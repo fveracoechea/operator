@@ -16,8 +16,6 @@
         "modules/crew-state/invalidate.ts",
         "modules/crew-state/next.ts",
         "modules/crew-state/registration.ts",
-        "modules/crew-state/tracker-apply.ts",
-        "modules/crew-state/tracker-show.ts",
         "modules/operator-cli/arguments.ts",
         "modules/operator-cli/outside-command.ts",
         "modules/operator-cli/review-command.ts",

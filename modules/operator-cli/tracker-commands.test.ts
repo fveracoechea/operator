@@ -189,6 +189,15 @@ describe("operator tracker record", () => {
     ).toBe(true);
     expect(await commentsOn(workspace, TICKET)).toHaveLength(0);
 
+    // The uncertain step offers a recovery or a write that a person approves.
+    const shown = await showSteps(workspace);
+    expect(
+      shown.json.data.steps.find((one: { step: string }) => one.step === "resolution").nextActions,
+    ).toEqual([
+      "operator tracker recover",
+      "operator approval grant for tracker.additional_write, then operator tracker record --approval",
+    ]);
+
     const approvalId = await grantAdditionalWrite(workspace, {
       operationId,
       issue: TICKET,

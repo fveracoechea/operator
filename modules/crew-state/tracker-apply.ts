@@ -1,5 +1,5 @@
 import { TrackerUpdate } from "../tracker-update/main.ts";
-import { type ApprovalRow, approvalCovers, readApproval } from "./approvals.ts";
+import { type ApprovalRow, readApproval } from "./approvals.ts";
 import type { CrewReader } from "./database.ts";
 import { identityOf } from "./identity.ts";
 import { parseInput } from "./input.ts";
@@ -33,7 +33,6 @@ import {
   settleWriteAttempt,
   type TrackerBinding,
   type TrackerOperationRow,
-  type TrackerStep,
   type TrackerTarget,
   type TrackerWriteRow,
   targetOf,
@@ -53,26 +52,10 @@ import {
   type TrackerStepInput,
   trackerStepInputSchema,
 } from "./tracker-input.ts";
+import { type ApprovalBlocker, TrackerStep } from "./tracker-machine.ts";
 import { isExecutable } from "./work-input.ts";
 
 type Shared = StateFailure | RequestFailure;
-
-/**
- * Why another write under one operation is not permitted.
- * It travels beside the step's own outcome, so an unproven effect stays the overall result and
- * the approval problem is recorded rather than reported in its place.
- */
-export type ApprovalBlocker =
-  | {
-      reason: "approval-required";
-      action: string;
-      targets: string[];
-      scope: string;
-      requestRevision: string;
-    }
-  | { reason: "unknown-approval"; approvalId: string }
-  | { reason: "approval-revoked"; approvalId: string }
-  | { reason: "approval-mismatch"; approvalId: string; field: string };
 
 type Reading = Awaited<ReturnType<typeof TrackerUpdate.read>>;
 type Observation = Reading["observation"];
@@ -80,9 +63,6 @@ type Verdict = Reading["verdict"];
 
 // The report speaks the contract's own vocabulary rather than widening it back to text.
 type VerdictState = Verdict["state"];
-
-/** The action a person approves before another write is sent under one uncertain operation. */
-const ADDITIONAL_WRITE = "tracker.additional_write";
 
 export type TrackerStepReport = {
   operationId: string;
@@ -191,99 +171,6 @@ function readReport(db: CrewReader, operationId: string): TrackerStepReport | nu
         attempts: writeAttemptsOf(db, operationId),
         observations: observationsOf(db, operationId),
       });
-}
-
-/**
- * The approval one uncertain operation needs before another write is sent under it.
- * Its request revision is the number of write attempts already recorded, so one approval covers
- * exactly one additional write and cannot widen to a later one.
- */
-function approvalCheckFor(request: {
-  operation: TrackerOperationRow;
-  target: TrackerTarget;
-  attempts: TrackerWriteRow[];
-}): {
-  action: string;
-  targets: string[];
-  scope: string;
-  requestRevision: string;
-} {
-  return {
-    action: ADDITIONAL_WRITE,
-    targets: [
-      `${request.operation.provider}:${request.target.repository}#${request.target.issue}`,
-      `operation:${request.operation.id}`,
-    ],
-    scope: request.operation.step,
-    requestRevision: String(request.attempts.length),
-  };
-}
-
-/**
- * Whether this call may write, read from what the tracker was just observed to show.
- * The contract reason decides: only a request the tracker refused is sent again.
- * A settled step stops, an evidence gap stops rather than writing over what it could not see,
- * and an unproven effect stops until a person approves another write.
- */
-function gateBeforeWriting(request: {
-  operation: TrackerOperationRow;
-  attempts: TrackerWriteRow[];
-  target: TrackerTarget;
-  approval: ApprovalRow | null;
-  approvalId: string | null;
-}): { status: "proceed" } | { status: "stop" } | { status: "blocked"; approval: ApprovalBlocker } {
-  const { operation } = request;
-  const reason = storedReason(operation.reason);
-
-  // Nothing observed stands in the way, or the tracker answered the request by refusing it.
-  // A refused request may be sent again; it had no effect.
-  if (reason === "tracker.pending" || reason === "tracker.write_rejected") {
-    return { status: "proceed" };
-  }
-
-  // An unproven effect is the only outcome a person can accept the risk of writing over, and
-  // only when there is an earlier effect to accept. Everything else stops with what it recorded.
-  const unproven =
-    reason === "tracker.resolution_outcome_unknown" ||
-    reason === "tracker.completion_outcome_unknown" ||
-    reason === "tracker.map_outcome_unknown";
-  if (!unproven || sentWrites(request.attempts).length === 0) {
-    return { status: "stop" };
-  }
-
-  const check = approvalCheckFor({
-    operation,
-    target: request.target,
-    attempts: request.attempts,
-  });
-
-  // A named approval this crew does not hold is a different refusal from naming none.
-  const approval = request.approval;
-  if (request.approvalId !== null && approval === null) {
-    return {
-      status: "blocked",
-      approval: { reason: "unknown-approval", approvalId: request.approvalId },
-    };
-  }
-  if (approval === null) {
-    return { status: "blocked", approval: { reason: "approval-required", ...check } };
-  }
-
-  const coverage = approvalCovers(approval, check);
-  if (coverage.status === "mismatch") {
-    return {
-      status: "blocked",
-      approval: { reason: "approval-mismatch", approvalId: approval.id, field: coverage.field },
-    };
-  }
-  if (coverage.status === "revoked") {
-    return {
-      status: "blocked",
-      approval: { reason: "approval-revoked", approvalId: approval.id },
-    };
-  }
-
-  return { status: "proceed" };
 }
 
 type Context = {
@@ -655,13 +542,8 @@ async function mapAmendmentGate(request: {
   };
 }
 
-/**
- * Records one step of one assignment's tracker update.
- * The intent is written before the effect, the write carries its own attempt record, and the
- * outcome is settled from what the tracker actually shows afterwards. A verified step is never
- * written again, and an uncertain one accepts another write only under a person's approval.
- */
-export async function recordTrackerStep(request: {
+/** The request of one record event, as each of its stages reads it. */
+type RecordRequest = {
   projectRoot: string;
   requestId: string;
   ownerToken: string;
@@ -669,226 +551,246 @@ export async function recordTrackerStep(request: {
   revision: number;
   approvalId: string | null;
   input: unknown;
-}): Promise<TrackerResult> {
-  const parsed = parseInput(trackerStepInputSchema, request.input);
-  if (parsed.status !== "parsed") {
-    return parsed;
-  }
+};
 
-  const input: TrackerStepInput = parsed.value;
-  const read = await readState(request.projectRoot, (db) => {
-    const context = readContext(db, { assignmentId: request.assignmentId, step: input.step });
-    if (context.status !== "ok") {
-      return context;
-    }
+/** What the record event reads before its first stage. */
+type RecordFacts = {
+  context: Context;
+  approval: ApprovalRow | null;
+  code: MergeGate;
+  /** Whether an approval already binds the text of the map amendment the step holds. */
+  mapApproved: boolean;
+};
 
-    if (context.context.assignmentRevision !== request.revision) {
-      return {
-        status: "stale-revision" as const,
-        assignmentId: request.assignmentId,
-        recordedRevision: context.context.assignmentRevision,
-      };
-    }
+/** What crosses from one stage to the next: the operation the step holds now, and its writes. */
+type Held = { operation: TrackerOperationRow; attempts: TrackerWriteRow[]; target: TrackerTarget };
 
-    if (
-      input.target !== undefined &&
-      (input.target.repository !== context.context.target.repository ||
-        input.target.issue !== context.context.target.issue)
-    ) {
-      return {
-        status: "target-mismatch" as const,
-        recorded: context.context.target,
-        stated: input.target,
-      };
-    }
+type Staged = { status: "held"; held: Held } | TrackerResult;
 
-    return {
-      status: "ok" as const,
-      context: context.context,
-      approval: request.approvalId === null ? null : readApproval(db, request.approvalId),
-      code: mergeGateOf(db, request.assignmentId),
-      mapApproved:
-        context.context.operation !== null &&
-        !mapAmendmentWaits(db, context.context.operation, context.context.attempts.length > 0),
-    };
-  });
-
+/** Reads the facts of one record event, or the refusal of a stale or misdirected request. */
+function readRecordFacts(
+  db: CrewReader,
+  request: RecordRequest,
+  input: TrackerStepInput,
+): { status: "ok"; facts: RecordFacts } | TrackerResult {
+  const read = readContext(db, { assignmentId: request.assignmentId, step: input.step });
   if (read.status !== "ok") {
     return read;
   }
 
-  const resolved = await resolvedIntent({
-    projectRoot: request.projectRoot,
-    assignmentId: request.assignmentId,
-    input,
-    planning: read.context.planning,
-    code: read.code,
+  const { context } = read;
+  if (context.assignmentRevision !== request.revision) {
+    return {
+      status: "stale-revision",
+      assignmentId: request.assignmentId,
+      recordedRevision: context.assignmentRevision,
+    };
+  }
+
+  if (
+    input.target !== undefined &&
+    (input.target.repository !== context.target.repository ||
+      input.target.issue !== context.target.issue)
+  ) {
+    return { status: "target-mismatch", recorded: context.target, stated: input.target };
+  }
+
+  return {
+    status: "ok",
+    facts: {
+      context,
+      approval: request.approvalId === null ? null : readApproval(db, request.approvalId),
+      code: mergeGateOf(db, request.assignmentId),
+      mapApproved:
+        context.operation !== null &&
+        !mapAmendmentWaits(db, context.operation, context.attempts.length > 0),
+    },
+  };
+}
+
+/**
+ * The open stage: it resumes the operation the step holds, or plans a new one. A resumed step
+ * first settles any write whose process recorded no answer.
+ */
+async function openOrResume(
+  request: RecordRequest,
+  facts: RecordFacts,
+  intent: ResolvedStep,
+): Promise<Staged> {
+  const { context } = facts;
+  const intentIdentity = identityOf({ ...intent, target: context.target });
+  const replaced = replacedMapIntent({
+    code: facts.code,
+    operation: context.operation,
+    attempts: context.attempts,
+    intentIdentity,
+    mapApproved: facts.mapApproved,
   });
-  if (resolved.status !== "resolved") {
-    return resolved;
+  const decided = TrackerStep.decide("open", {
+    operation: replaced === null ? context.operation : null,
+    intentIdentity,
+  });
+  if ("refused" in decided) {
+    return decided.refused;
   }
 
-  const { target } = read.context;
-  const intent = resolved.input;
-  const intentIdentity = identityOf({ ...intent, target });
-  let attempts = read.context.attempts;
-  let operation = read.context.operation;
-  const replaced = replacedMapIntent({ ...read, operation, attempts, intentIdentity });
-  if (replaced !== null) {
-    operation = null;
+  const { next } = decided;
+  if (next.stage === "report") {
+    return finalReport(request.projectRoot, next.operationId);
   }
 
-  if (operation !== null) {
-    // A verified step is finished. It is never written again to repair another step.
-    if (operation.state === "verified") {
-      return finalReport(request.projectRoot, operation.id);
-    }
-
-    if (operation.intentIdentity !== intentIdentity) {
-      return {
-        status: "content-changed",
-        operationId: operation.id,
-        recorded: operation.intentIdentity,
-        stated: intentIdentity,
-      };
-    }
-
-    const settledLost = await settleLostWrites({
-      projectRoot: request.projectRoot,
-      requestId: request.requestId,
-      ownerToken: request.ownerToken,
-      operationId: operation.id,
-      attempts,
-    });
-    if (settledLost.status !== "settled") {
-      return settledLost;
-    }
-    attempts = settledLost.attempts;
-  } else {
-    // The rendered comment carries this identity in its marker, so the operation is named once
-    // and the same bytes are rebuilt by every later recovery.
-    const operationId = crypto.randomUUID();
-    const planned = await TrackerUpdate.plan({
-      provider: read.context.binding.provider,
-      operationId,
-      intent: { ...intent, target },
-    });
-    if (planned.status === "unsupported-provider") {
-      return { status: "unsupported-provider", provider: planned.provider };
-    }
-    if (
-      planned.status === "capability-unavailable" ||
-      planned.status === "actor-unknown" ||
-      planned.status === "comment-too-long"
-    ) {
-      return planned;
-    }
-
-    // The plan is written before any effect, so an interrupted step is found and recovered.
-    const opened = await record(
-      {
-        projectRoot: request.projectRoot,
-        requestId: `${request.requestId}#plan`,
-        ownerToken: request.ownerToken,
-        operation: "tracker_plan",
-        input: { assignmentId: request.assignmentId, step: intent.step, intentIdentity },
-      },
-      ({ tx, now }) => {
-        if (replaced !== null) {
-          tx.delete(trackerOperations).where(eq(trackerOperations.id, replaced)).run();
-        }
-        openTrackerOperation(tx, {
-          operationId,
-          assignmentId: request.assignmentId,
-          step: intent.step,
-          provider: read.context.binding.provider,
-          target,
-          expectedActor: planned.expectedActor,
-          intent: { ...intent, target },
-          intentIdentity,
-          content: planned.content,
-          contentIdentity: planned.contentIdentity,
-          closeReason: planned.closeReason,
-          now,
-        });
-        return { commit: true, outcome: { status: "recorded" as const } };
-      },
-    );
-    if (opened.status !== "recorded") {
-      return opened;
-    }
-
-    const stored = await reload(request.projectRoot, operationId);
-    if (stored.status !== "read") {
-      return stored;
-    }
-
-    operation = stored.operation;
-    attempts = [];
+  const opened =
+    next.stage === "resume"
+      ? await resumeOperation(request, { ...context, operation: next.operation })
+      : await planOperation(request, { context, intent, intentIdentity, replaced });
+  if (opened.status !== "held") {
+    return opened;
   }
 
   const textGate = await mapAmendmentGate({
     projectRoot: request.projectRoot,
-    code: read.code,
-    operation,
-    sent: attempts.length > 0,
+    code: facts.code,
+    operation: opened.held.operation,
+    sent: opened.held.attempts.length > 0,
   });
-  if (textGate !== null) {
-    return textGate;
+  return textGate ?? opened;
+}
+
+async function resumeOperation(request: RecordRequest, held: Held): Promise<Staged> {
+  const settledLost = await settleLostWrites({
+    projectRoot: request.projectRoot,
+    requestId: request.requestId,
+    ownerToken: request.ownerToken,
+    operationId: held.operation.id,
+    attempts: held.attempts,
+  });
+  return settledLost.status === "settled"
+    ? {
+        status: "held",
+        held: { operation: held.operation, attempts: settledLost.attempts, target: held.target },
+      }
+    : settledLost;
+}
+
+async function planOperation(
+  request: RecordRequest,
+  plan: { context: Context; intent: ResolvedStep; intentIdentity: string; replaced: string | null },
+): Promise<Staged> {
+  const { context, intent, intentIdentity, replaced } = plan;
+  const { binding, target } = context;
+  // The rendered comment carries this identity in its marker, so the operation is named once
+  // and the same bytes are rebuilt by every later recovery.
+  const operationId = crypto.randomUUID();
+  const planned = await TrackerUpdate.plan({
+    provider: binding.provider,
+    operationId,
+    intent: { ...intent, target },
+  });
+  if (planned.status !== "planned") {
+    return planned;
   }
 
-  /**
-   * What the tracker shows before this call writes anything.
-   * A ticket's completion state exists whether or not Operator wrote it, and a step that already
-   * sent a write may have landed. A new comment step has nothing to read: its marker cannot
-   * exist before its own write.
-   */
-  if (storedStep(operation.step) === "completion" || attempts.length > 0) {
-    const operationId = operation.id;
-    const before = await settleFromObservation({
+  // The plan is written before any effect, so an interrupted step is found and recovered.
+  const opened = await record(
+    {
       projectRoot: request.projectRoot,
-      requestId: `${request.requestId}#before`,
+      requestId: `${request.requestId}#plan`,
       ownerToken: request.ownerToken,
-      operation,
-      target,
-      attempts,
-    });
-    if (before.status !== "settled") {
-      return before;
-    }
-
-    const refreshed = await reload(request.projectRoot, operationId);
-    if (refreshed.status !== "read") {
-      return refreshed;
-    }
-    operation = refreshed.operation;
-
-    const gate = gateBeforeWriting({
-      operation,
-      attempts,
-      target,
-      approval: read.approval,
-      approvalId: request.approvalId,
-    });
-    if (gate.status === "stop") {
-      return finalReport(request.projectRoot, operationId);
-    }
-    if (gate.status === "blocked") {
-      const blocked = await finalReport(request.projectRoot, operationId);
-      return blocked.status === "reported"
-        ? { status: "write-blocked", report: blocked.report, approval: gate.approval }
-        : blocked;
-    }
+      operation: "tracker_plan",
+      input: { assignmentId: request.assignmentId, step: intent.step, intentIdentity },
+    },
+    ({ tx, now }) => {
+      if (replaced !== null) {
+        tx.delete(trackerOperations).where(eq(trackerOperations.id, replaced)).run();
+      }
+      openTrackerOperation(tx, {
+        operationId,
+        assignmentId: request.assignmentId,
+        step: intent.step,
+        provider: binding.provider,
+        target,
+        expectedActor: planned.expectedActor,
+        intent: { ...intent, target },
+        intentIdentity,
+        content: planned.content,
+        contentIdentity: planned.contentIdentity,
+        closeReason: planned.closeReason,
+        now,
+      });
+      return { commit: true, outcome: { status: "recorded" as const } };
+    },
+  );
+  if (opened.status !== "recorded") {
+    return opened;
   }
 
-  // A replay of one caller request returns what that request recorded. It never sends again.
-  if (attempts.some((one) => one.requestId === request.requestId && one.state !== "intended")) {
-    return finalReport(request.projectRoot, operation.id);
+  const stored = await reload(request.projectRoot, operationId);
+  return stored.status === "read"
+    ? { status: "held", held: { operation: stored.operation, attempts: [], target } }
+    : stored;
+}
+
+/**
+ * The observe stage: what the tracker shows before this call writes anything, and whether this
+ * call may write over it.
+ */
+async function observeBefore(
+  request: RecordRequest,
+  approval: ApprovalRow | null,
+  held: Held,
+): Promise<Staged> {
+  const observe = TrackerStep.decide("observe", held);
+  if ("next" in observe && observe.next === "write") {
+    return { status: "held", held };
   }
 
+  const operationId = held.operation.id;
+  const before = await settleFromObservation({
+    projectRoot: request.projectRoot,
+    requestId: `${request.requestId}#before`,
+    ownerToken: request.ownerToken,
+    ...held,
+  });
+  if (before.status !== "settled") {
+    return before;
+  }
+
+  const refreshed = await reload(request.projectRoot, operationId);
+  if (refreshed.status !== "read") {
+    return refreshed;
+  }
+
+  const gate = TrackerStep.decide("gate", {
+    ...held,
+    operation: refreshed.operation,
+    approvalId: request.approvalId,
+    approval,
+  });
+  if ("refused" in gate) {
+    const blocked = await finalReport(request.projectRoot, operationId);
+    return blocked.status === "reported"
+      ? { status: "write-blocked", report: blocked.report, approval: gate.refused }
+      : blocked;
+  }
+
+  return gate.next === "report"
+    ? finalReport(request.projectRoot, operationId)
+    : { status: "held", held: { ...held, operation: refreshed.operation } };
+}
+
+/** The write stage: one write with its own attempt record, settled from what the tracker shows. */
+async function writeAndSettle(request: RecordRequest, held: Held): Promise<TrackerResult> {
   // The comment content is rendered from the identity of the operation that carries it, and it
   // is planned once. A later render of the same intent produces the same bytes.
-  const planned = operation;
+  const { operation: planned, target } = held;
+  const write = TrackerStep.decide("write", {
+    attempts: held.attempts,
+    requestId: request.requestId,
+  });
+  if ("next" in write && write.next === "report") {
+    return finalReport(request.projectRoot, planned.id);
+  }
+
   const writeAttemptId = crypto.randomUUID();
   const openedWrite = await record(
     {
@@ -970,6 +872,46 @@ export async function recordTrackerStep(request: {
   }
 
   return finalReport(request.projectRoot, planned.id);
+}
+
+/**
+ * Records one step of one assignment's tracker update.
+ * The intent is written before the effect, the write carries its own attempt record, and the
+ * outcome is settled from what the tracker actually shows afterwards. A verified step is never
+ * written again, and an uncertain one accepts another write only under a person's approval.
+ * The stages run in the order of the tracker step machine, and each one decides through it.
+ */
+export async function recordTrackerStep(request: RecordRequest): Promise<TrackerResult> {
+  const parsed = parseInput(trackerStepInputSchema, request.input);
+  if (parsed.status !== "parsed") {
+    return parsed;
+  }
+
+  const input: TrackerStepInput = parsed.value;
+  const read = await readState(request.projectRoot, (db) => readRecordFacts(db, request, input));
+  if (read.status !== "ok") {
+    return read;
+  }
+
+  const { facts } = read;
+  const resolved = await resolvedIntent({
+    projectRoot: request.projectRoot,
+    assignmentId: request.assignmentId,
+    input,
+    planning: facts.context.planning,
+    code: facts.code,
+  });
+  if (resolved.status !== "resolved") {
+    return resolved;
+  }
+
+  const opened = await openOrResume(request, facts, resolved.input);
+  if (opened.status !== "held") {
+    return opened;
+  }
+
+  const observed = await observeBefore(request, facts.approval, opened.held);
+  return observed.status === "held" ? writeAndSettle(request, observed.held) : observed;
 }
 
 /**

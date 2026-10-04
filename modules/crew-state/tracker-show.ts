@@ -1,4 +1,5 @@
 import { TrackerUpdate } from "../tracker-update/main.ts";
+import type { CrewReader } from "./database.ts";
 import { readState, type RequestFailure, type StateFailure } from "./operations.ts";
 import {
   observationsOf,
@@ -6,11 +7,11 @@ import {
   type TrackerBinding,
   type TrackerOperationRow,
   TRACKER_STEPS,
-  type TrackerStep,
   targetOf,
   trackerOperationsOf,
   writeAttemptsOf,
 } from "./tracker.ts";
+import { TrackerStep, type TrackerStepAction, type TrackerStepState } from "./tracker-machine.ts";
 import {
   storedProblems,
   storedReason,
@@ -27,7 +28,7 @@ type StepState = {
   /** Whether this step applies at all. A source with no map issue has no amendment to write. */
   applicable: boolean;
   operationId: string | null;
-  state: string;
+  state: TrackerStepState;
   reason: TrackerReason;
   problems: TrackerProblem[];
   resourceId: string | null;
@@ -57,9 +58,6 @@ export type TrackerStepsResult =
   | { status: "unsupported-provider"; provider: string }
   | Shared;
 
-/** What settles one recorded step. No exit code alone authorizes any of these. */
-export type TrackerStepAction = "record" | "recover" | "approved-write" | "user";
-
 const trackerStepCommands: Record<TrackerStepAction, string> = {
   record: "operator tracker record",
   recover: "operator tracker recover",
@@ -68,36 +66,45 @@ const trackerStepCommands: Record<TrackerStepAction, string> = {
   user: "bring the recorded links and differences to the user",
 };
 
-/**
- * What a caller may do next about one step, as the one rule both the step report and the crew
- * next actions read.
- */
-export function trackerStepActions(request: {
-  applicable: boolean;
-  operation: TrackerOperationRow | null;
-}): TrackerStepAction[] {
-  if (!request.applicable) {
-    return [];
-  }
-  if (request.operation === null) {
-    return ["record"];
-  }
-
-  const { state } = request.operation;
-  if (state === "verified") {
-    return [];
-  }
-  if (state === "conflict") {
-    return ["user"];
-  }
-  if (state === "uncertain") {
-    return ["recover", "approved-write"];
-  }
-  if (state === "failed") {
-    return ["record"];
+/** One step as the report shows it, with the commands its state offers. */
+function stepStateOf(
+  db: CrewReader,
+  request: { step: TrackerStep; applicable: boolean; operation: TrackerOperationRow | null },
+): StepState {
+  const { step, applicable, operation } = request;
+  const { state, actions } = TrackerStep.read({ applicable, operation });
+  const nextActions = actions.map((action) => trackerStepCommands[action]);
+  if (operation === null) {
+    return {
+      step,
+      applicable,
+      operationId: null,
+      state,
+      reason: "tracker.pending",
+      problems: [],
+      resourceId: null,
+      resourceUrl: null,
+      revision: null,
+      writeAttempts: 0,
+      observations: 0,
+      nextActions,
+    };
   }
 
-  return ["recover", "record"];
+  return {
+    step,
+    applicable,
+    operationId: operation.id,
+    state,
+    reason: storedReason(operation.reason),
+    problems: storedProblems(operation.problems),
+    resourceId: operation.resourceId,
+    resourceUrl: operation.resourceUrl,
+    revision: operation.revision,
+    writeAttempts: writeAttemptsOf(db, operation.id).length,
+    observations: observationsOf(db, operation.id).length,
+    nextActions,
+  };
 }
 
 /**
@@ -120,26 +127,13 @@ export async function showTrackerSteps(request: {
 
     const held = trackerOperationsOf(db, request.assignmentId);
     const binding: TrackerBinding = bound.binding;
-    const steps = TRACKER_STEPS.map((step) => {
-      const operation = held.find((one) => one.step === step) ?? null;
-      const applicable = targetOf(binding, step) !== null;
-      return {
+    const steps = TRACKER_STEPS.map((step) =>
+      stepStateOf(db, {
         step,
-        applicable,
-        operationId: operation?.id ?? null,
-        state: operation?.state ?? "unrecorded",
-        reason: operation === null ? "tracker.pending" : storedReason(operation.reason),
-        problems: operation === null ? [] : storedProblems(operation.problems),
-        resourceId: operation?.resourceId ?? null,
-        resourceUrl: operation?.resourceUrl ?? null,
-        revision: operation?.revision ?? null,
-        writeAttempts: operation === null ? 0 : writeAttemptsOf(db, operation.id).length,
-        observations: operation === null ? 0 : observationsOf(db, operation.id).length,
-        nextActions: trackerStepActions({ applicable, operation }).map(
-          (action) => trackerStepCommands[action],
-        ),
-      } satisfies StepState;
-    });
+        applicable: targetOf(binding, step) !== null,
+        operation: held.find((one) => one.step === step) ?? null,
+      }),
+    );
 
     const incomplete = steps
       .filter((one) => one.applicable && one.state !== "verified")

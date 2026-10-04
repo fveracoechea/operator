@@ -20,6 +20,7 @@ import {
   type Workspace,
   writeInput,
 } from "./review-cycle-fixture.ts";
+import { setFault } from "./tracker-fixture.ts";
 import {
   passBaseGate,
   headCommit,
@@ -238,6 +239,33 @@ describe("the three entry points", () => {
     const shown = await runJson(workspace, ["tracker", "show", "--assignment", assignmentId]);
     expect(shown.json.data.issue).toBe(24);
     expect(shown.json.data.mapIssue).toBe(1);
+    expect(steps.map((one) => [one.detail, one.command, one.blocker])).toEqual([
+      ["The resolution step is unrecorded.", "operator tracker record", null],
+      ["The completion step is unrecorded.", "operator tracker record", null],
+      ["The map_amendment step is unrecorded.", "operator tracker record", null],
+    ]);
+
+    // A write with no answer leaves the step uncertain, and only a person settles another write.
+    await setFault(workspace, "createComment", "lost");
+    const lost = await runJson(workspace, [
+      "tracker",
+      "record",
+      "--request",
+      request(),
+      "--owner-token",
+      ownerToken,
+      "--assignment",
+      assignmentId,
+      "--revision",
+      String(accepted.json.data.revision),
+      "--input",
+      await writeInput(workspace, { step: "resolution" }),
+    ]);
+    expect(lost.json.data.state).toBe("uncertain");
+    const uncertain = await nextActions(workspace);
+    expect(uncertain.forAction("recover_tracker").map((one) => [one.detail, one.blocker])).toEqual([
+      ["The resolution step is uncertain.", "approval_required"],
+    ]);
   });
 });
 
