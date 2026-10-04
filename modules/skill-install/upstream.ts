@@ -165,10 +165,14 @@ async function sourceSkills(commit: string): Promise<SourceSkill[]> {
   return skills;
 }
 
-async function safeFiles(root: string): Promise<string[]> {
+/**
+ * Lists the files of one skill copy and refuses a symbolic link at each listed or desired path.
+ * The scan does not return a symbolic link, so each path that a write can reach is checked too.
+ */
+async function safeFiles(root: string, desired: string[]): Promise<string[]> {
   if (!(await present(root, `Symbolic link in skill path: ${root}`))) return [];
   const paths = await scanFiles(root);
-  for (const path of paths) {
+  for (const path of new Set([...paths, ...desired])) {
     const parts = path.split("/");
     for (let i = 1; i <= parts.length; i++) {
       await present(
@@ -199,8 +203,11 @@ function copyVerdict(skill: SourceSkill, current: Copy, prior: Entry | undefined
   return "conflict";
 }
 
-async function readCopy(root: string): Promise<Copy> {
-  const paths = await safeFiles(root);
+async function readCopy(root: string, desired: SkillAsset[]): Promise<Copy> {
+  const paths = await safeFiles(
+    root,
+    desired.map((asset) => asset.path),
+  );
   const assets = await Promise.all(
     paths.map(async (assetPath) => ({
       path: assetPath,
@@ -231,7 +238,7 @@ async function inspectTarget(
   for (const skill of skills) {
     const path = `${skillTargets[target]}/${skill.name}`;
     const root = `${projectRoot}/${path}`;
-    const current = await readCopy(root);
+    const current = await readCopy(root, skill.assets);
     const desiredHash = hash(skill.assets);
     fingerprint.update(`${path}\n${current.hash}\n${desiredHash}`);
     const verdict = copyVerdict(skill, current, record.skills[skill.name]);

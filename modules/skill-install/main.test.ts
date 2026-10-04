@@ -301,6 +301,27 @@ describe("Matt skills upstream", () => {
     expect(await Bun.file(`${root}/.agents/skills/code-review/SKILL.md`).text()).toBe("# mine\n");
   });
 
+  test("refuses a symbolic link to a file inside a skill folder before any write", async () => {
+    resetMatt(mattFiles);
+    const root = await makeProject();
+    const plan = await SkillInstall.mattPlan({ projectRoot: root, targets: ["opencode"] });
+    const link = `${root}/.agents/skills/code-review/references/checklist.md`;
+    await Bun.write(`${root}/elsewhere.md`, "outside text\n");
+    await Bun.$`mkdir -p ${root}/.agents/skills/code-review/references`.quiet();
+    await symlink(`${root}/elsewhere.md`, link);
+
+    const applying = SkillInstall.mattApply({
+      projectRoot: root,
+      targets: ["opencode"],
+      commit: mattCommit,
+      approvedPlanId: plan.planId,
+    });
+
+    await expect(applying).rejects.toThrow(new Error(`Symbolic link in skill path: ${link}`));
+    expect(await Bun.file(`${root}/elsewhere.md`).text()).toBe("outside text\n");
+    expect(await filesUnder(root)).toEqual(["elsewhere.md"]);
+  });
+
   test("keeps the bytes of the ledger entries it does not change", async () => {
     resetMatt(mattFiles);
     const root = await makeProject();

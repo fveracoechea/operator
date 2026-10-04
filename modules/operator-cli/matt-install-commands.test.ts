@@ -1,6 +1,6 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
-// Bun has no recursive directory removal API.
-import { rm } from "node:fs/promises";
+// Bun has no realpath, recursive directory removal, or symlink API.
+import { realpath, rm, symlink } from "node:fs/promises";
 
 // Installation tests spawn CLI processes and a local upstream server under the CI gate.
 setDefaultTimeout(60_000);
@@ -304,4 +304,34 @@ test("refuses a fetched file that does not match its Git blob", async () => {
     '{"schemaVersion":1,"outcome":"failed","reason":"upstream_unavailable","operation":"install_matt_apply","blockers":[{"reason":"upstream_unavailable","detail":"Error: ',
   );
   expect(await Bun.file(`${root}/.agents/skills/code-review/SKILL.md`).exists()).toBe(false);
+});
+
+test("refuses a symbolic link to a file inside a skill folder and writes nothing through it", async () => {
+  const root = await project();
+  const outside = await project();
+  const upstream = fakeUpstream();
+  const plan = await run(root, upstream.url, ["plan", "--opencode"]);
+  const target = `${outside}/kept.md`;
+  await Bun.write(target, "outside text\n");
+  const link = `${root}/.agents/skills/code-review/SKILL.md`;
+  await Bun.$`mkdir -p ${root}/.agents/skills/code-review`.quiet();
+  await symlink(target, link);
+
+  const result = await run(root, upstream.url, [
+    "apply",
+    "--opencode",
+    "--commit",
+    commit,
+    "--approved-plan",
+    plan.json.data.planId,
+  ]);
+
+  expect(result.exit).toBe(1);
+  // The CLI resolves its working directory through links, such as the macOS temporary directory.
+  const shown = `${await realpath(root)}/.agents/skills/code-review/SKILL.md`;
+  expect(result.stdout).toBe(
+    `{"schemaVersion":1,"outcome":"failed","reason":"upstream_unavailable","operation":"install_matt_apply","blockers":[{"reason":"upstream_unavailable","detail":"Error: Symbolic link in skill path: ${shown}"}]}\n`,
+  );
+  expect(await Bun.file(target).text()).toBe("outside text\n");
+  expect(await Bun.file(`${root}/.agents/skills/.operator-matt-skills.json`).exists()).toBe(false);
 });
