@@ -3,6 +3,7 @@ import { approvedPlan, matchApproval, RECALL_ACTION } from "./approvals.ts";
 import type { CrewReader } from "./database.ts";
 import { identityOf } from "./identity.ts";
 import { mutate, readState, type RequestFailure, type StateFailure } from "./operations.ts";
+import { Publication, type PublicationFacts } from "./publication-machine.ts";
 import { type ApplyResult, type ApprovalRequest, openEffectsOf, runEffects } from "./publish.ts";
 import { workSources } from "./schema.ts";
 import { recallOf } from "./stack-parts.ts";
@@ -29,14 +30,15 @@ export type RecallPreview = {
   planPath: string;
 };
 
-type Planned = {
+/** The recall one source owes now, rendered, with the publication and repository it writes to. */
+export type RecallPlanned = {
   publicationId: string;
   repository: string;
   preview: Omit<RecallPreview, "planPath">;
 };
 
 /** The recall one source owes now, rendered: each comment and the revision that binds them. */
-function plannedRecall(db: CrewReader, sourceId: string): Planned | null {
+function plannedRecall(db: CrewReader, sourceId: string): RecallPlanned | null {
   const { due } = recallOf(db, sourceId);
   if (due === null) {
     return null;
@@ -100,6 +102,35 @@ function planText(preview: Omit<RecallPreview, "planPath">): string {
 }
 
 /**
+ * Reads the facts of the recall of one source and decides it. A recall that states its plan
+ * revision settles the open writes of that revision first.
+ */
+async function decideRecall(
+  request: { projectRoot: string; sourceId: string },
+  stated: string | null,
+) {
+  const facts = await readState(request.projectRoot, (db): PublicationFacts["recall"] => ({
+    sourceId: request.sourceId,
+    known:
+      db.select().from(workSources).where(eq(workSources.id, request.sourceId)).all().length > 0,
+    open: stated === null ? null : openRecallOf(db, request.sourceId, stated),
+    planned: plannedRecall(db, request.sourceId),
+  }));
+  return "status" in facts ? facts : Publication.decide("recall", facts);
+}
+
+/** Writes the full recall plan to its local file, which the person reads before the approval. */
+async function writeRecallPlan(
+  projectRoot: string,
+  planned: RecallPlanned,
+): Promise<RecallPreview> {
+  const { preview } = planned;
+  const planPath = `${PLAN_STORE}/recall-${preview.planRevision}.md`;
+  await Bun.write(`${projectRoot}/${planPath}`, `${planText(preview)}\n`, { createPath: true });
+  return { ...preview, planPath };
+}
+
+/**
  * Plans the recall of one source and changes nothing. The reason is rendered from the defect or
  * the withdrawal record, so the Operator writes no text into it (D1).
  */
@@ -112,25 +143,17 @@ export async function planRecall(request: {
   | { status: "unknown-source"; sourceId: string }
   | StateFailure
 > {
-  const read = await readState(request.projectRoot, (db) => ({
-    known: db.select().from(workSources).where(eq(workSources.id, request.sourceId)).all().length,
-    planned: plannedRecall(db, request.sourceId),
-  }));
-  if ("status" in read) {
-    return read;
+  const decided = await decideRecall(request, null);
+  if ("status" in decided) {
+    return decided;
   }
-  if (read.known === 0) {
-    return { status: "unknown-source", sourceId: request.sourceId };
+  if ("refused" in decided) {
+    return decided.refused;
   }
-  if (read.planned === null) {
-    return { status: "nothing-to-recall", sourceId: request.sourceId };
+  if (decided.next.kind === "settle") {
+    throw new Error("A recall plan states no revision, so it settles no open recall.");
   }
-  const { preview } = read.planned;
-  const planPath = `${PLAN_STORE}/recall-${preview.planRevision}.md`;
-  await Bun.write(`${request.projectRoot}/${planPath}`, `${planText(preview)}\n`, {
-    createPath: true,
-  });
-  return { ...preview, planPath };
+  return writeRecallPlan(request.projectRoot, decided.next.planned);
 }
 
 export type RecallResult =
@@ -206,20 +229,18 @@ export async function applyRecall(request: {
   sourceId: string;
   planRevision: string;
 }): Promise<RecallResult> {
-  const open = await readState(request.projectRoot, (db) =>
-    openRecallOf(db, request.sourceId, request.planRevision),
-  );
-  if (open !== null && typeof open !== "string") {
-    return open;
+  const recall = await decideRecall(request, request.planRevision);
+  if ("status" in recall) {
+    return recall;
   }
-  if (open !== null) {
-    return runRecall(request, open);
+  if ("refused" in recall) {
+    return recall.refused;
+  }
+  if (recall.next.kind === "settle") {
+    return runRecall(request, recall.next.publicationId);
   }
 
-  const preview = await planRecall(request);
-  if (preview.status !== "planned") {
-    return preview;
-  }
+  const preview = await writeRecallPlan(request.projectRoot, recall.next.planned);
   const decided = await approvedPlan(request.projectRoot, preview, request.planRevision);
   if (decided.status === "plan-revision-changed") {
     return { status: decided.status, stated: decided.stated, planned: decided.planned };

@@ -4,7 +4,13 @@ import { HerdrControl } from "../herdr-control/main.ts";
 import { PullRequestStack } from "../pull-request-stack/main.ts";
 import { approvalCovers, matchApproval, PUBLISH_ACTION, readApproval } from "./approvals.ts";
 import { publishRecordsOf } from "./publish-gate.ts";
-import { type Fault, faultsOf, partStatusesOf, publishBaseOf } from "./stack-parts.ts";
+import { faultsOf, partStatusesOf, publishBaseOf } from "./stack-parts.ts";
+import {
+  Publication,
+  type PublicationFacts,
+  type RetargetDue,
+  type StackView,
+} from "./publication-machine.ts";
 import { readAssignment } from "./assignment.ts";
 import type { CrewReader } from "./database.ts";
 import { checkoutOf, runningRunOf } from "./gate-runs.ts";
@@ -31,6 +37,7 @@ import {
   repositoryOf,
   type StoredEffect,
   storedEffect,
+  type WrittenPull,
   writtenPullsOf,
 } from "./stack-records.ts";
 import { readStored } from "./stored.ts";
@@ -299,9 +306,9 @@ function writtenPublicationOf(db: CrewReader, sourceId: string) {
  * Each part of one written publication as the last readings show it. A fault on one part stops
  * every part above it (decision 20), so a part above the lowest fault is stopped, never due.
  */
-function partsOf(db: CrewReader, publication: PublicationRow) {
+function partsOf(db: CrewReader, publication: PublicationRow, written: WrittenPull[]) {
   const statuses = partStatusesOf(db, publication);
-  const pulls = pullsOf(db, publication.id).map((pull) => ({
+  const pulls = written.map((pull) => ({
     pull,
     seen: latestObservationOf(db, publication.id, pull.part),
     status: statuses.get(pull.part) ?? "open",
@@ -313,56 +320,64 @@ function partsOf(db: CrewReader, publication: PublicationRow) {
 
 /**
  * The state of the last publication of one source, read from the recorded observations only.
- * `crew next` reads this, so it never reads GitHub (ADR 0016). A settled fault of a merge by
- * another method counts as landed, because its commits reached the target. Any other settled
- * fault ends its part, and a part above a fault is stopped: their commits reach the target only
- * through a new stack publication. A recalled part waits for that publication too, or is closed
- * by its recall when no new publication will replace it (decisions 23 and 30).
+ * `crew next` reads this, so it never reads GitHub (ADR 0016). The machine derives the state.
  */
-export function stackStateOf(
-  db: CrewReader,
-  sourceId: string,
-):
-  | { state: "none" }
-  | { state: "unwritten" }
-  | { state: "faulted"; publication: number; faults: Fault[]; stopped: number[] }
-  | { state: "ended"; publication: number; ended: Fault[]; stopped: number[] }
-  | { state: "open"; publication: number; open: number[] }
-  | { state: "recalled"; publication: number; recalled: number[]; closed: boolean }
-  | { state: "merged"; publication: number } {
+export function stackStateOf(db: CrewReader, sourceId: string): StackView {
   const last = writtenPublicationOf(db, sourceId);
-  if (last === null) {
-    return { state: "none" };
+  if (last === null || !last.written) {
+    return Publication.stateOf(
+      last === null
+        ? { last: "none" }
+        : { last: "unwritten", publication: last.publication.number },
+    );
   }
-  if (!last.written) {
-    return { state: "unwritten" };
-  }
-  const { pulls, faults, lowest } = partsOf(db, last.publication);
-  const publication = last.publication.number;
-  const faulted = new Set(faults.map((one) => one.part));
-  const stopped = pulls
-    .filter((one) => one.pull.part > lowest && !faulted.has(one.pull.part) && one.status === "open")
-    .map((one) => one.pull.part);
-  if (faults.some((one) => !one.settled)) {
-    return { state: "faulted", publication, faults: faults.filter((one) => !one.settled), stopped };
-  }
-  const ended = faults.filter((one) => one.fault !== "not_merge_commit");
-  if (ended.length > 0 || stopped.length > 0) {
-    return { state: "ended", publication, ended, stopped };
-  }
-  const open = pulls.filter((one) => one.status === "open" && !faulted.has(one.pull.part));
-  if (open.length > 0) {
-    return { state: "open", publication, open: open.map((one) => one.pull.number ?? 0) };
-  }
-  const recalled = pulls.filter((one) => one.status === "recalled" || one.status === "closed");
-  return recalled.length > 0
-    ? {
-        state: "recalled",
-        publication,
-        recalled: recalled.map((one) => one.pull.number ?? 0),
-        closed: recalled.every((one) => one.status === "closed"),
-      }
-    : { state: "merged", publication };
+  const { pulls, faults } = partsOf(db, last.publication, last.pulls);
+  return Publication.stateOf({
+    last: "written",
+    publication: last.publication.number,
+    parts: pulls.map((one) => ({
+      part: one.pull.part,
+      number: one.pull.number,
+      status: one.status,
+    })),
+    faults,
+  });
+}
+
+/** What `crew next` reads of the stack publication of one source. */
+export type PublishLane = {
+  stack: StackView;
+  /** True when the last publication holds a part that a new publication replaces. */
+  superseded: boolean;
+  /** True when a new publication replaces the ended parts, so it is offered instead of a settle. */
+  replaces: boolean;
+  /** True when a new publication of the head is offered. */
+  offer: boolean;
+  /** The number of the last publication, or 0 for none. */
+  last: number;
+};
+
+/**
+ * The stack publication of one source as `crew next` reads it (ADR 0022): the state of the last
+ * publication, and whether a new one is offered. It reads the publish base and the publish
+ * records once. It reads no Git and no GitHub.
+ */
+export function publishLaneOf(db: CrewReader, sourceId: string, tip: string): PublishLane {
+  const { superseded } = publishBaseOf(db, sourceId);
+  const last = publicationsOf(db, sourceId).at(-1);
+  // A head that the last publication carries publishes again only when a recall, a close, or a
+  // settled fault ended a part of it: then a new publication replaces that part. Only then are
+  // the publish records read.
+  const offer =
+    (last?.headCommit !== tip || superseded) &&
+    publishRecordsOf(db, sourceId).refusals.length === 0;
+  return {
+    stack: stackStateOf(db, sourceId),
+    superseded,
+    replaces: superseded && offer,
+    offer,
+    last: last?.number ?? 0,
+  };
 }
 
 /** The approval of one publication that its retarget needs: its name and the target (D6). */
@@ -390,16 +405,6 @@ function retargetedOf(db: CrewReader, publicationId: string): Set<number> {
   return new Set(retargetsOf(db, publicationId).map((one) => one.intent.number));
 }
 
-export type RetargetDue = {
-  publicationId: string;
-  part: number;
-  number: number;
-  from: string;
-  target: string;
-  approval: ApprovalRequest;
-  approved: boolean;
-};
-
 /**
  * The parts whose base changes to the target next: the part below merged by a merge commit, no
  * part below holds a fault, and no retarget of it is recorded (decision 15). A part that holds a
@@ -411,7 +416,7 @@ export function retargetsDue(db: CrewReader, sourceId: string): RetargetDue[] {
   if (last === null || !last.written) {
     return [];
   }
-  const { pulls, lowest } = partsOf(db, last.publication);
+  const { pulls, lowest } = partsOf(db, last.publication, last.pulls);
   const retargeted = retargetedOf(db, last.publication.id);
   return pulls.flatMap(({ pull, seen }, index) => {
     const below = pulls[index - 1];
@@ -420,12 +425,11 @@ export function retargetsDue(db: CrewReader, sourceId: string): RetargetDue[] {
       pull.part < lowest &&
       below.seen?.state === "merged" &&
       below.seen.fault === null &&
-      pull.number !== null &&
       !retargeted.has(pull.number) &&
       // A recalled part, or one above a recalled part, waits for the publication that replaces it.
       pulls.slice(0, index + 1).every((one) => one.status === "open" || one.status === "merged") &&
       (seen === null || seen.state === "open");
-    if (!due || pull.number === null) {
+    if (!due) {
       return [];
     }
     const approval = retargetApprovalOf(last.publication, pull.headName);
@@ -637,30 +641,34 @@ export async function observePublish(request: {
   ownerToken: string;
   sourceId: string;
 }): Promise<StatusResult> {
-  const read = await readState(request.projectRoot, (db) => ({
-    source: db.select().from(workSources).where(eq(workSources.id, request.sourceId)).all()[0],
-    last: writtenPublicationOf(db, request.sourceId),
-  }));
-  if ("status" in read) {
-    return read;
-  }
-  if (read.source === undefined) {
-    return { status: "unknown-source", sourceId: request.sourceId };
-  }
-  if (read.last === null) {
-    return { status: "nothing-published", sourceId: request.sourceId };
-  }
-  const { last } = read;
-  if (!last.written || read.source.trackerLocation === null) {
+  const facts = await readState(request.projectRoot, (db): PublicationFacts["observe"] => {
+    const source = db
+      .select()
+      .from(workSources)
+      .where(eq(workSources.id, request.sourceId))
+      .all()[0];
+    const last = writtenPublicationOf(db, request.sourceId);
     return {
-      status: "publish-unsettled",
       sourceId: request.sourceId,
-      publication: last.publication.number,
+      known: source !== undefined,
+      stack: stackStateOf(db, request.sourceId),
+      written: last?.written === true ? { publication: last.publication, pulls: last.pulls } : null,
+      repository:
+        source?.trackerLocation == null
+          ? null
+          : storedTrackerLocation(source.trackerLocation).repository,
     };
+  });
+  if ("status" in facts) {
+    return facts;
   }
-  const { publication, pulls } = last;
+  const decided = Publication.decide("observe", facts);
+  if ("refused" in decided) {
+    return decided.refused;
+  }
+  const { publication, pulls, repository } = decided.next;
   const observed = await PullRequestStack.observe({
-    repository: storedTrackerLocation(read.source.trackerLocation).repository,
+    repository,
     target: publication.target,
     pullRequests: pulls.map((one) => ({
       part: one.part,
@@ -753,45 +761,29 @@ export async function retargetPublish(request: {
   sourceId: string;
   part: number;
 }): Promise<RetargetResult> {
-  const read = await readState(request.projectRoot, (db) => {
+  const facts = await readState(request.projectRoot, (db): PublicationFacts["retarget"] => {
     const source = db.select().from(workSources).where(eq(workSources.id, request.sourceId)).all();
     const last = writtenPublicationOf(db, request.sourceId);
     return {
+      sourceId: request.sourceId,
+      part: request.part,
       known: source.length > 0,
-      written: last?.written ?? null,
+      stack: stackStateOf(db, request.sourceId),
       due: retargetsDue(db, request.sourceId).find((one) => one.part === request.part) ?? null,
-      lowest: last === null ? Number.POSITIVE_INFINITY : partsOf(db, last.publication).lowest,
+      lowest:
+        last?.written === true
+          ? partsOf(db, last.publication, last.pulls).lowest
+          : Number.POSITIVE_INFINITY,
     };
   });
-  if ("status" in read) {
-    return read;
+  if ("status" in facts) {
+    return facts;
   }
-  if (!read.known) {
-    return { status: "unknown-source", sourceId: request.sourceId };
+  const decided = Publication.decide("retarget", facts);
+  if ("refused" in decided) {
+    return decided.refused;
   }
-  if (read.written === false) {
-    return { status: "publish-unsettled", sourceId: request.sourceId };
-  }
-  const { due } = read;
-  if (due === null) {
-    return request.part >= read.lowest
-      ? {
-          status: "stack-fault",
-          part: request.part,
-          detail:
-            request.part === read.lowest
-              ? `Part ${request.part} holds a stack fault, so it is stopped and keeps its base.`
-              : `Part ${read.lowest} holds a stack fault, so part ${request.part} is stopped and keeps its base.`,
-        }
-      : {
-          status: "not-due",
-          part: request.part,
-          detail: `Part ${request.part} has no retarget due: the part below has no recorded merge by a merge commit, or its retarget is recorded.`,
-        };
-  }
-  if (!due.approved) {
-    return { status: "approval-required", approval: due.approval };
-  }
+  const { due } = decided.next;
   const repository = await readState(request.projectRoot, (db) =>
     repositoryOf(db, request.sourceId),
   );

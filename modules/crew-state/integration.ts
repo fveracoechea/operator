@@ -6,7 +6,7 @@ import type { CrewReader, CrewWriter } from "./database.ts";
 import type { AttemptContext } from "./dispatch.ts";
 import { readState, type StateFailure } from "./operations.ts";
 import type { GateRead } from "./result-checks.ts";
-import { currentLandingOf } from "./landing-record.ts";
+import { currentLandingOf, type LandingRow } from "./landing-record.ts";
 import { integrationBranches } from "./schema.ts";
 import { readStored } from "./stored.ts";
 import { identityOf } from "./identity.ts";
@@ -140,6 +140,26 @@ export type IntegrationRefusal =
   | { status: "integration-branch-unread"; attemptId: string; branch: string; detail: string };
 
 /**
+ * The commit a production dispatch on a recorded branch starts from, or null to leave the base to
+ * the rules of its cycle. A recorded launch fixed its base already, and a rework cycle that is not
+ * an integration cycle starts where its own rule says. An integration cycle starts from the
+ * commit its result lands on: the recorded tip, or the parent of the commit it replaces (ADR 0008).
+ */
+function startOf(
+  context: AttemptContext,
+  row: IntegrationBranchRow,
+  replaced: LandingRow | null,
+  planned: boolean,
+): string | null {
+  const { role } = context;
+  if (planned || (role.kind === "rework" && role.rework.brief.reason !== "integration")) {
+    return null;
+  }
+  const replaces = role.kind === "rework" && role.rework.brief.integration?.replaces !== undefined;
+  return replaces && replaced !== null ? replaced.landedParent : row.recordedTip;
+}
+
+/**
  * Where one production dispatch starts (ADR 0020). A source with a recorded branch first proves
  * that the branch still holds its recorded tip. A new launch of a first attempt then starts from
  * that tip, and a commit that differs refuses. An integration cycle starts there too. Every other
@@ -194,15 +214,10 @@ export async function integrationStart(request: {
     };
   }
 
-  // A recorded launch fixed its base already, and a cycle starts where its own rule says. An
-  // integration cycle starts from the commit its result lands on, the recorded tip (ADR 0008).
-  const { role } = request.context;
-  if (request.planned || (role.kind === "rework" && role.rework.brief.reason !== "integration")) {
+  const lands = startOf(request.context, row, recorded.replaced, request.planned);
+  if (lands === null) {
     return { status: "ok", start: null };
   }
-  const replaces = role.kind === "rework" && role.rework.brief.integration?.replaces !== undefined;
-  const lands =
-    replaces && recorded.replaced !== null ? recorded.replaced.landedParent : row.recordedTip;
   if (request.requested !== null && request.requested !== lands) {
     const resolved = await IntegrationBranch.resolve({
       repoRoot: request.projectRoot,

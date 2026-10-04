@@ -34,7 +34,7 @@ import {
 } from "./publish-status.ts";
 import { applyRebase, planRebase } from "./rebase.ts";
 import { applyRecall, planRecall } from "./recall.ts";
-import { STACK_FAULT_ACTION } from "./stack-parts.ts";
+import { Publication } from "./publication-machine.ts";
 import { preparePlanningRecord, showPlanningRecord } from "./planning-record.ts";
 import { mutate, readState } from "./operations.ts";
 import { claimOwnership, currentOwnership } from "./ownership.ts";
@@ -789,8 +789,7 @@ export const CrewState = {
       },
       ({ tx, now }) => {
         const granted = grantApproval(tx, { approvalId: crypto.randomUUID(), input, now });
-        // A settled merge before a recall ends the change that invalidation asked for (decision 24).
-        if (input.action === STACK_FAULT_ACTION) {
+        if ("next" in Publication.decide("settle-fault", { action: input.action })) {
           closeMergedInvalidations(tx, { sourceId: input.scope, now });
         }
         return commitOn(granted, "granted");

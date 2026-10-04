@@ -6,7 +6,8 @@ import type { CrewReader, CrewWriter } from "./database.ts";
 import { identityOf } from "./identity.ts";
 import { mapIssueOf } from "./map-amendment.ts";
 import { mutate, readState, type RequestFailure, type StateFailure } from "./operations.ts";
-import { publishRecordsOf, type RecordRefusal } from "./publish-gate.ts";
+import { Publication } from "./publication-machine.ts";
+import { type PublishRecords, publishRecordsOf, type RecordRefusal } from "./publish-gate.ts";
 import { conflictSettled, conflictSettlementOf } from "./stack-parts.ts";
 import { publishEffects, stackPublications, stackPullRequests } from "./schema.ts";
 import {
@@ -126,12 +127,72 @@ export function approvalRequestOf(
   };
 }
 
+/** One section of the preview: its head, its items, and its tail. With no item, it is left out. */
+function section(head: string[], items: string[], tail: string[] = []): string[] {
+  return items.length === 0 ? [] : [...head, ...items, ...tail];
+}
+
+/** The lines that name what the module read of the target, or nothing before a read. */
+function infoLines(info: UnwrittenPreview["info"]): string[] {
+  if (info === null) {
+    return [];
+  }
+  const merges = info.mergesCleanly === null ? "unread" : info.mergesCleanly ? "yes" : "no";
+  return [
+    `- Target tip: ${info.targetTip ?? "unread"}`,
+    `- Commits on the target since the base: ${info.commitsBehind ?? "unread"}`,
+    `- The head merges cleanly onto the tip: ${merges}`,
+    `- Other merge methods the repository allows: ${info.otherMethodsAllowed.join(", ") || "none"}`,
+    ...info.unverifiedRules.map((one) => `- Unverified: ${one}`),
+  ];
+}
+
+/** The tracker steps after the merge, each with its resolution text verbatim (D2). */
+function trackerStepLines(preview: UnwrittenPreview): string[] {
+  const steps = preview.ships?.trackerSteps ?? [];
+  const approved = preview.approval?.targets ?? [];
+  return steps.flatMap((step) => [
+    `### ${trackerStepTarget(step.closes, "resolution")} and ${trackerStepTarget(step.closes, "completion")}`,
+    "",
+    "<!-- resolution start -->",
+    step.resolution.trimEnd(),
+    "<!-- resolution end -->",
+    "",
+    ...(approved.includes(trackerStepTarget(step.closes, "map_amendment"))
+      ? [
+          `### ${trackerStepTarget(step.closes, "map_amendment")}`,
+          "",
+          "The map amendment of this item runs after the merge, and only after a second approval, `map-amendment`, binds the exact text that the CLI renders then.",
+          "",
+        ]
+      : []),
+  ]);
+}
+
+/** Each pull request the plan creates, with its title and its body verbatim. */
+function partLines(ships: Ships | null): string[] {
+  const parts = ships?.parts ?? [];
+  return parts.flatMap((part, index) => [
+    `## Pull request ${index + 1} of ${parts.length}: ${part.name} into ${part.base}`,
+    "",
+    ...(part.cut === null ? [] : [`Cut after ${part.cut.after}: ${part.cut.reason}`, ""]),
+    `Title: ${part.title}`,
+    "",
+    "The body, exactly as it is created:",
+    "",
+    "<!-- body start -->",
+    part.body.trimEnd(),
+    "<!-- body end -->",
+    "",
+  ]);
+}
+
 /**
  * The full preview, written to a local file. The person approves the exact text, so every title
  * and body is there verbatim, while the command report stays a summary that points here.
  */
-function previewText(preview: UnwrittenPreview): string {
-  const { ships, info } = preview;
+export function previewText(preview: UnwrittenPreview): string {
+  const { ships } = preview;
   return [
     `# Publish plan ${preview.planRevision ?? "(refused)"}`,
     "",
@@ -146,86 +207,49 @@ function previewText(preview: UnwrittenPreview): string {
           `- Head: ${ships.head}`,
           `- New remote branches: ${ships.parts.map((one) => one.name).join(", ")}`,
         ]),
-    ...(info === null
-      ? []
-      : [
-          `- Target tip: ${info.targetTip ?? "unread"}`,
-          `- Commits on the target since the base: ${info.commitsBehind ?? "unread"}`,
-          `- The head merges cleanly onto the tip: ${info.mergesCleanly === null ? "unread" : info.mergesCleanly ? "yes" : "no"}`,
-          `- Other merge methods the repository allows: ${info.otherMethodsAllowed.join(", ") || "none"}`,
-          ...info.unverifiedRules.map((one) => `- Unverified: ${one}`),
-        ]),
+    ...infoLines(preview.info),
     "",
-    ...(preview.closes.length === 0
-      ? []
-      : [
-          "## Pull requests this publication closes",
-          "",
-          "Each one gets one comment that names its replacement, then it is closed with no merge. Its branch stays.",
-          "",
-          ...preview.closes.map(
-            (one) => `- #${one.number}${one.url === null ? "" : ` ${one.url}`}`,
-          ),
-          "",
-        ]),
-    ...(preview.headMoved.length === 0
-      ? []
-      : [
-          "## Replaced pull requests that get no write",
-          "",
-          "A person moved the head of each one, so Operator writes nothing more to it, no comment and no close (decision 21). A person closes it.",
-          "",
-          ...preview.headMoved.map(
-            (one) => `- #${one.number} gets no write${one.url === null ? "" : `: ${one.url}`}`,
-          ),
-          "",
-        ]),
+    ...section(
+      [
+        "## Pull requests this publication closes",
+        "",
+        "Each one gets one comment that names its replacement, then it is closed with no merge. Its branch stays.",
+        "",
+      ],
+      preview.closes.map((one) => `- #${one.number}${one.url === null ? "" : ` ${one.url}`}`),
+      [""],
+    ),
+    ...section(
+      [
+        "## Replaced pull requests that get no write",
+        "",
+        "A person moved the head of each one, so Operator writes nothing more to it, no comment and no close (decision 21). A person closes it.",
+        "",
+      ],
+      preview.headMoved.map(
+        (one) => `- #${one.number} gets no write${one.url === null ? "" : `: ${one.url}`}`,
+      ),
+      [""],
+    ),
     "## Refusals",
     "",
     ...(preview.refusals.length === 0
       ? ["None."]
       : preview.refusals.map((one) => `- ${one.reason}: ${one.detail}`)),
     "",
-    ...(ships === null || ships.trackerSteps.length === 0
-      ? []
-      : [
-          "## Tracker steps after the merge",
-          "",
-          "Each step runs only after its pull request merged into the target, under this approval.",
-          `The completion step closes the ticket as completed, or observes the close that its closing keyword made.`,
-          "The resolution is this text, with the number GitHub gives the pull request.",
-          "After a merge that is not a merge commit, it names the commit that landed and the method instead.",
-          "",
-          ...ships.trackerSteps.flatMap((step) => [
-            `### ${trackerStepTarget(step.closes, "resolution")} and ${trackerStepTarget(step.closes, "completion")}`,
-            "",
-            "<!-- resolution start -->",
-            step.resolution.trimEnd(),
-            "<!-- resolution end -->",
-            "",
-            ...(preview.approval?.targets.includes(trackerStepTarget(step.closes, "map_amendment"))
-              ? [
-                  `### ${trackerStepTarget(step.closes, "map_amendment")}`,
-                  "",
-                  "The map amendment of this item runs after the merge, and only after a second approval, `map-amendment`, binds the exact text that the CLI renders then.",
-                  "",
-                ]
-              : []),
-          ]),
-        ]),
-    ...(ships?.parts ?? []).flatMap((part, index) => [
-      `## Pull request ${index + 1} of ${ships?.parts.length ?? 1}: ${part.name} into ${part.base}`,
-      "",
-      ...(part.cut === null ? [] : [`Cut after ${part.cut.after}: ${part.cut.reason}`, ""]),
-      `Title: ${part.title}`,
-      "",
-      "The body, exactly as it is created:",
-      "",
-      "<!-- body start -->",
-      part.body.trimEnd(),
-      "<!-- body end -->",
-      "",
-    ]),
+    ...section(
+      [
+        "## Tracker steps after the merge",
+        "",
+        "Each step runs only after its pull request merged into the target, under this approval.",
+        `The completion step closes the ticket as completed, or observes the close that its closing keyword made.`,
+        "The resolution is this text, with the number GitHub gives the pull request.",
+        "After a merge that is not a merge commit, it names the commit that landed and the method instead.",
+        "",
+      ],
+      trackerStepLines(preview),
+    ),
+    ...partLines(ships),
   ].join("\n");
 }
 
@@ -258,74 +282,103 @@ export async function planPublish(request: {
   if (records.repository === null && records.base === null) {
     return { status: "unknown-source", sourceId: request.sourceId };
   }
-
-  let planned: ModulePlan | null = null;
-  const refusals: PublishRefusal[] = [...records.refusals];
-  if (records.repository === null) {
-    refusals.push({
-      reason: "repository_unread",
-      detail: `Source ${request.sourceId} records no tracker repository.`,
-    });
-  } else if (records.base !== null && records.head !== null && records.commits.length > 0) {
-    const module = await PullRequestStack.plan({
-      repoRoot: request.projectRoot,
-      repository: records.repository,
-      sourceSlug: records.slug,
-      publication: read.publication,
-      branch: { base: records.publishBase ?? records.base, head: records.head },
-      commits: records.commits.map((one) => ({
-        commit: one.commit,
-        closes: one.closes,
-        behaviorChanges: one.behaviorChanges,
-        concerns: one.concerns,
-      })),
-      text: records.text,
-      verified: records.verified,
-      rejected: records.rejected,
-      deferred: records.deferred,
-    });
-    if (module.status === "unread") {
-      return module;
-    }
-    planned = module;
-    // A missing review already names its missing text, so the text is not refused twice.
-    const reviewed = !records.refusals.some((one) => one.reason === "branch_review_missing");
-    refusals.push(...module.refusals.filter((one) => reviewed || one.reason !== "section_missing"));
+  const stack = await stackPlanOf(request.projectRoot, records, read.publication);
+  if ("status" in stack) {
+    return stack;
   }
 
-  const ships = planned?.ships ?? null;
-  const closes = request.replaces;
-  // A close is part of what ships, so the approval binds it. With none, the revision is unchanged.
-  const planRevision =
-    ships === null ? null : closes.length === 0 ? identityOf(ships) : identityOf({ ships, closes });
-  const plan: PlannedShips =
-    ships === null || planRevision === null
-      ? { planRevision: null, ships: null, approval: null }
-      : {
-          planRevision,
-          ships,
-          approval: approvalRequestOf(request.sourceId, planRevision, ships, {
-            repository: records.repository ?? "",
-            pulls: closes,
-          }),
-        };
+  const plan = plannedShipsOf(request.sourceId, stack.planned?.ships ?? null, {
+    repository: records.repository ?? "",
+    pulls: request.replaces,
+  });
   const shown: UnwrittenPreview = {
     status: "planned",
     sourceId: request.sourceId,
     repository: records.repository,
     publication: read.publication,
     ...(read.mapIssue ? withMapAmendments(plan) : plan),
-    info: planned?.info ?? null,
-    refusals,
-    closes,
+    info: stack.planned?.info ?? null,
+    refusals: stack.refusals,
+    closes: request.replaces,
     headMoved: request.headMoved,
   };
-  const name = planRevision ?? `refused-${identityOf(shown).slice(0, 16)}`;
+  const name = plan.planRevision ?? `refused-${identityOf(shown).slice(0, 16)}`;
   const planPath = `${PLAN_STORE}/${name}.md`;
   await Bun.write(`${request.projectRoot}/${planPath}`, `${previewText(shown)}\n`, {
     createPath: true,
   });
   return { ...shown, planPath };
+}
+
+/**
+ * The module step of one plan: the refusals of the records, then the plan of the stack when the
+ * records name a repository, a base, a head, and a commit to publish.
+ */
+async function stackPlanOf(
+  projectRoot: string,
+  records: PublishRecords,
+  publication: number,
+): Promise<
+  { planned: ModulePlan | null; refusals: PublishRefusal[] } | { status: "unread"; detail: string }
+> {
+  if (records.repository === null) {
+    const unread = {
+      reason: "repository_unread" as const,
+      detail: `Source ${records.sourceId} records no tracker repository.`,
+    };
+    return { planned: null, refusals: [...records.refusals, unread] };
+  }
+  if (records.base === null || records.head === null || records.commits.length === 0) {
+    return { planned: null, refusals: [...records.refusals] };
+  }
+  const planned = await PullRequestStack.plan({
+    repoRoot: projectRoot,
+    repository: records.repository,
+    sourceSlug: records.slug,
+    publication,
+    branch: { base: records.publishBase ?? records.base, head: records.head },
+    commits: records.commits.map((one) => ({
+      commit: one.commit,
+      closes: one.closes,
+      behaviorChanges: one.behaviorChanges,
+      concerns: one.concerns,
+    })),
+    text: records.text,
+    verified: records.verified,
+    rejected: records.rejected,
+    deferred: records.deferred,
+  });
+  if (planned.status === "unread") {
+    return planned;
+  }
+  // A missing review already names its missing text, so the text is not refused twice.
+  const reviewed = !records.refusals.some((one) => one.reason === "branch_review_missing");
+  return {
+    planned,
+    refusals: [
+      ...records.refusals,
+      ...planned.refusals.filter((one) => reviewed || one.reason !== "section_missing"),
+    ],
+  };
+}
+
+/** What one plan ships, with the revision and the approval that bind it, or nothing. */
+function plannedShipsOf(
+  sourceId: string,
+  ships: Ships | null,
+  closes: { repository: string; pulls: ReplacedPull[] },
+): PlannedShips {
+  if (ships === null) {
+    return { planRevision: null, ships: null, approval: null };
+  }
+  // A close is part of what ships, so the approval binds it. With none, the revision is unchanged.
+  const planRevision =
+    closes.pulls.length === 0 ? identityOf(ships) : identityOf({ ships, closes: closes.pulls });
+  return {
+    planRevision,
+    ships,
+    approval: approvalRequestOf(sourceId, planRevision, ships, closes),
+  };
 }
 
 /**
@@ -635,16 +688,15 @@ export async function applyPublish(request: {
   if (open !== null && "status" in open) {
     return open;
   }
-  if (open !== null) {
-    if (open.publication.planRevision !== request.planRevision) {
-      return {
-        status: "plan-revision-changed",
-        stated: request.planRevision,
-        planned: open.publication.planRevision,
-        planPath: null,
-      };
-    }
-    return runEffects(request, open.publication.id);
+  const stage = Publication.decide("apply", {
+    stated: request.planRevision,
+    open: open?.publication ?? null,
+  });
+  if ("refused" in stage) {
+    return stage.refused;
+  }
+  if (stage.next.kind === "settle") {
+    return runEffects(request, stage.next.publicationId);
   }
 
   const planned = await planPublish(request);

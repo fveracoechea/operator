@@ -38,13 +38,13 @@ import { openCycleOf } from "./rework.ts";
 import { assignments, attempts, workSources } from "./schema.ts";
 import type { BrokenLanding, RewriteRead } from "./next-landings.ts";
 import { openPublicationOf } from "./publish.ts";
-import { publicationsOf, storedEffect } from "./stack-records.ts";
+import { storedEffect } from "./stack-records.ts";
 import { intendedRebaseOf, rebaseRevisionOf } from "./rebase.ts";
 import { grantedApprovalsOf, PUBLISH_ACTION, REBASE_ACTION } from "./approvals.ts";
 import { recallOffer } from "./recall.ts";
-import { conflictSettlementOf, publishBaseOf } from "./stack-parts.ts";
-import { publishRecordsOf } from "./publish-gate.ts";
-import { mergeGateOf, retargetsDue, stackStateOf } from "./publish-status.ts";
+import { conflictSettlementOf } from "./stack-parts.ts";
+import type { RetargetDue } from "./publication-machine.ts";
+import { mergeGateOf, type PublishLane, publishLaneOf, retargetsDue } from "./publish-status.ts";
 import { latestSubmission, submittedCommit } from "./submission.ts";
 import { readBinding, TRACKER_STEPS, targetOf, trackerOperationsOf } from "./tracker.ts";
 import { trackerStepActions } from "./tracker-show.ts";
@@ -345,108 +345,113 @@ function readPublish(db: CrewReader, into: Collector): void {
     if (recall !== null) {
       into.add(recall);
     }
-    // No event reaches the crew when a pull request merges, so the wait names the read that the
-    // user's report of a merge or a close triggers. This reads only what that read recorded.
-    const stack = stackStateOf(db, source.id);
-    const status = `operator publish status --source ${source.id}`;
-    const parts = (list: number[]) => list.map((one) => `part ${one}`).join(" and ");
-    if (stack.state === "faulted") {
-      into.add({
-        action: "settle_publish",
-        sourceId: source.id,
-        blocker: "stack_fault",
-        detail: [
-          `Stack publication ${stack.publication} has a stack fault that a person settles. Operator adopts nothing from it: ${stack.faults.map((one) => `#${one.number} ${one.fault}: ${one.detail}`).join(" ")}`,
-          ...(stack.stopped.length === 0
-            ? []
-            : [`A fault stops every part above it, so ${parts(stack.stopped)} are stopped.`]),
-          `When the person accepts the fault as GitHub shows it, record their approval that \`${status}\` names. Run the read again when the person reports a change on GitHub.`,
-        ].join(" "),
-        command: status,
-      });
-    } else if (
-      stack.state === "ended" &&
-      // A new stack publication is the path when the records permit it, so it is offered instead.
-      !(
-        publishBaseOf(db, source.id).superseded &&
-        publishRecordsOf(db, source.id).refusals.length === 0
-      )
-    ) {
-      // A settled fault ends its part, and the parts above it stay stopped: only a new stack
-      // publication carries their commits to the target, after a recall or a rebase.
-      into.add({
-        action: "settle_publish",
-        sourceId: source.id,
-        blocker: "stack_fault",
-        detail: [
-          `Stack publication ${stack.publication} is settled, and its commits did not all reach the target.`,
-          ...(stack.ended.length === 0
-            ? []
-            : [
-                `${stack.ended.map((one) => `#${one.number} (${one.fault})`).join(", ")} ended with no merge commit.`,
-              ]),
-          ...(stack.stopped.length === 0
-            ? []
-            : [`A fault stops every part above it, so ${parts(stack.stopped)} are stopped.`]),
-          "Their commits reach the target only through a new stack publication, after a rebase onto the target that the person approves. Plan it with `operator work rebase --source <id> --base <the target tip>`, and the next publication closes each pull request it replaces.",
-        ].join(" "),
-        command: status,
-      });
-    } else if (stack.state === "open") {
-      into.wait({
-        wait: "stack_open",
-        sourceId: source.id,
-        command: status,
-        detail: `Stack publication ${stack.publication} has open pull request(s) ${stack.open.map((one) => `#${one}`).join(", ")}. A person merges them on GitHub with a merge commit, from the bottom up. Run \`${status}\` when the user reports a merge or a close, or asks for the state.`,
-      });
-    }
+    const lane = publishLaneOf(db, source.id, branch.recordedTip);
+    readStack(source.id, lane, into);
     for (const due of retargetsDue(db, source.id)) {
-      const retarget: Draft = {
-        action: "retarget_pull_request",
-        sourceId: source.id,
-        detail: `Part ${due.part - 1} merged by a merge commit, so part ${due.part} (#${due.number}) changes its base from ${due.from} to ${due.target}, under the publish approval that showed it. The write reads GitHub first.`,
-        command: `operator publish retarget --request <id> --owner-token <token> --source ${source.id} --part ${due.part}`,
-      };
-      if (!due.approved) {
-        retarget.blocker = "approval_required";
-      }
-      into.add(retarget);
+      into.add(retargetDraft(source.id, due));
     }
-    const publications = publicationsOf(db, source.id);
-    // A head that the last publication carries publishes again only when a recall, a close, or
-    // a settled fault ended a part of it: then a new publication replaces that part.
-    if (
-      publications.at(-1)?.headCommit === branch.recordedTip &&
-      !publishBaseOf(db, source.id).superseded
-    ) {
-      continue;
+    if (lane.offer) {
+      into.add(publishDraft(db, source.id, lane));
     }
-    if (publishRecordsOf(db, source.id).refusals.length > 0) {
-      continue;
-    }
-    const approved = grantedApprovalsOf(db, PUBLISH_ACTION, source.id).length > 0;
-    const offer: Draft = {
-      action: "publish_stack",
-      sourceId: source.id,
-      detail: [
-        approved
-          ? "A publish approval is recorded for this source. Apply the plan revision it names."
-          : "The branch review and the gate records pass. Plan the publish, and ask the person to read and approve the plan revision.",
-        ...(publishBaseOf(db, source.id).superseded
-          ? [
-              `It replaces the parts of stack publication ${publications.at(-1)?.number ?? 0} that a recall, a close, or a settled fault ended, and closes each one that is still open with a pointer. When the target moved, a rebase that the person approves can come first: \`operator work rebase --source ${source.id} --base <the target tip>\`.`,
-            ]
-          : []),
-      ].join(" "),
-      command: approved
-        ? `operator publish apply --source ${source.id} --plan-revision <the approved revision>`
-        : `operator publish plan --source ${source.id}`,
-    };
-    if (!approved) {
-      offer.blocker = "approval_required";
-    }
-    into.add(offer);
   }
+}
+
+/** The sentence that names the parts a fault stops, or nothing when it stops none. */
+function stoppedText(stopped: number[]): string[] {
+  return stopped.length === 0
+    ? []
+    : [
+        `A fault stops every part above it, so ${stopped.map((one) => `part ${one}`).join(" and ")} are stopped.`,
+      ];
+}
+
+/**
+ * What the state of the last publication asks for. No event reaches the crew when a pull request
+ * merges, so the wait names the read that the user's report of a merge or a close triggers. This
+ * reads only what that read recorded.
+ */
+function readStack(sourceId: string, lane: PublishLane, into: Collector): void {
+  const { stack } = lane;
+  const status = `operator publish status --source ${sourceId}`;
+  if (stack.state === "faulted") {
+    into.add({
+      action: "settle_publish",
+      sourceId,
+      blocker: "stack_fault",
+      detail: [
+        `Stack publication ${stack.publication} has a stack fault that a person settles. Operator adopts nothing from it: ${stack.faults.map((one) => `#${one.number} ${one.fault}: ${one.detail}`).join(" ")}`,
+        ...stoppedText(stack.stopped),
+        `When the person accepts the fault as GitHub shows it, record their approval that \`${status}\` names. Run the read again when the person reports a change on GitHub.`,
+      ].join(" "),
+      command: status,
+    });
+  } else if (stack.state === "ended" && !lane.replaces) {
+    // A settled fault ends its part, and the parts above it stay stopped: only a new stack
+    // publication carries their commits to the target, after a recall or a rebase.
+    into.add({
+      action: "settle_publish",
+      sourceId,
+      blocker: "stack_fault",
+      detail: [
+        `Stack publication ${stack.publication} is settled, and its commits did not all reach the target.`,
+        ...(stack.ended.length === 0
+          ? []
+          : [
+              `${stack.ended.map((one) => `#${one.number} (${one.fault})`).join(", ")} ended with no merge commit.`,
+            ]),
+        ...stoppedText(stack.stopped),
+        "Their commits reach the target only through a new stack publication, after a rebase onto the target that the person approves. Plan it with `operator work rebase --source <id> --base <the target tip>`, and the next publication closes each pull request it replaces.",
+      ].join(" "),
+      command: status,
+    });
+  } else if (stack.state === "open") {
+    into.wait({
+      wait: "stack_open",
+      sourceId,
+      command: status,
+      detail: `Stack publication ${stack.publication} has open pull request(s) ${stack.open.map((one) => `#${one}`).join(", ")}. A person merges them on GitHub with a merge commit, from the bottom up. Run \`${status}\` when the user reports a merge or a close, or asks for the state.`,
+    });
+  }
+}
+
+/** The retarget of one part whose part below merged by a merge commit (decision 15). */
+function retargetDraft(sourceId: string, due: RetargetDue): Draft {
+  const retarget: Draft = {
+    action: "retarget_pull_request",
+    sourceId,
+    detail: `Part ${due.part - 1} merged by a merge commit, so part ${due.part} (#${due.number}) changes its base from ${due.from} to ${due.target}, under the publish approval that showed it. The write reads GitHub first.`,
+    command: `operator publish retarget --request <id> --owner-token <token> --source ${sourceId} --part ${due.part}`,
+  };
+  if (!due.approved) {
+    retarget.blocker = "approval_required";
+  }
+  return retarget;
+}
+
+/** The offer of a new stack publication, which waits on the approval of its plan revision. */
+function publishDraft(db: CrewReader, sourceId: string, lane: PublishLane): Draft {
+  const approved = grantedApprovalsOf(db, PUBLISH_ACTION, sourceId).length > 0;
+  const offer: Draft = {
+    action: "publish_stack",
+    sourceId,
+    detail: [
+      approved
+        ? "A publish approval is recorded for this source. Apply the plan revision it names."
+        : "The branch review and the gate records pass. Plan the publish, and ask the person to read and approve the plan revision.",
+      ...(lane.superseded
+        ? [
+            `It replaces the parts of stack publication ${lane.last} that a recall, a close, or a settled fault ended, and closes each one that is still open with a pointer. When the target moved, a rebase that the person approves can come first: \`operator work rebase --source ${sourceId} --base <the target tip>\`.`,
+          ]
+        : []),
+    ].join(" "),
+    command: approved
+      ? `operator publish apply --source ${sourceId} --plan-revision <the approved revision>`
+      : `operator publish plan --source ${sourceId}`,
+  };
+  if (!approved) {
+    offer.blocker = "approval_required";
+  }
+  return offer;
 }
 
 /**
