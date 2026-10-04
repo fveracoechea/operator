@@ -547,3 +547,64 @@ describe("the gate on the integration base", () => {
     expect((await herdrCalls(workspace)).some((line) => line.startsWith("pane run"))).toBe(false);
   });
 });
+
+// A named departure of #162: before, `gate show` printed a recorded state outside the four names
+// as text. Now it fails loudly. Only a damaged state file gets here.
+test("a gate run state that this release cannot read stops gate show loudly", async () => {
+  const workspace = await makeReviewWorkspace(fixtures);
+  const claimed = await claimFirst(workspace);
+  const ran = await gate(workspace, { ownerToken: claimed.ownerToken, commit: claimed.commit });
+  const { runId } = ran.json.data;
+  expect((await show(workspace, runId)).state).toBe("passed");
+  const sqlite = new Database(`${workspace.repo}/.operator/local/crew-state.sqlite`);
+  sqlite.query("update gate_runs set state = 'damaged' where id = ?").run(runId);
+  sqlite.close();
+
+  const shown = await runOperator(workspace, ["gate", "show", "--run", runId, "--json"]);
+  expect(shown.exitCode).not.toBe(0);
+  expect(shown.stdout + shown.stderr).toContain(
+    "the crew state holds a gate run state this release cannot read: damaged",
+  );
+});
+
+describe("the crew next texts of the base gate", () => {
+  test("a running base run names its commit, and a stopped one names its detail", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const claimed = await claimFirst(workspace);
+    await Bun.write(`${workspace.herdr}/pane-run.hold`, "");
+    const held = await gate(workspace, { ownerToken: claimed.ownerToken, commit: claimed.commit });
+    const { runId } = held.json.data;
+
+    const running = await nextActions(workspace);
+    expect(
+      running.waits
+        .filter((one) => one.wait === "gate_running" && one.attemptId === claimed.attemptId)
+        .map((one) => one.detail),
+    ).toEqual([
+      `Gate run ${runId} of source ${SOURCE} runs at commit ${claimed.commit}. Its runner wakes the Operator at the end. If its pane shows no runner, \`operator gate run\` replaces it.`,
+    ]);
+
+    // The pane shows no runner now, so a new run replaces the held one, and its runner records a
+    // stop because it cannot prepare the gate checkout.
+    await rm(`${workspace.herdr}/pane-run.hold`);
+    await failGit(workspace, { pattern: '"checkout "*', end: "exit", stderr: "boom" });
+    const replaced = await gate(workspace, {
+      ownerToken: claimed.ownerToken,
+      commit: claimed.commit,
+    });
+    expect(replaced.json.reason).toBe("gate_run_started");
+    const stoppedRun = replaced.json.data.runId;
+    const detail = `git checkout --quiet --detach --force ${claimed.commit} exited 3: boom`;
+    expect(await show(workspace, stoppedRun)).toMatchObject({ state: "stopped", detail });
+
+    const stopped = await nextActions(workspace);
+    expect(
+      stopped
+        .forAction("run_gate")
+        .filter((one) => one.attemptId === claimed.attemptId)
+        .map((one) => one.detail),
+    ).toEqual([
+      `The first code dispatch of source ${SOURCE} fixes its integration base, so the base commit passes the project gate first. Run the gate on the commit you will dispatch from. Gate run ${stoppedRun} stopped with no outcome: ${detail}.`,
+    ]);
+  });
+});

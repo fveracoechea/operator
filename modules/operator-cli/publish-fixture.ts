@@ -324,3 +324,22 @@ export async function correction(
     revision: submitted.json.data.revision as number,
   };
 }
+
+/** One recorded write of a publication, as the crew state holds it. */
+export type EffectRecord = { position: number; kind: string; intent: string; state: string };
+
+/** The recorded writes of one kind, in the order of their position. */
+export function effectRowsOf(workspace: Workspace, kind: string): EffectRecord[] {
+  const sqlite = new Database(`${workspace.repo}/.operator/local/crew-state.sqlite`, {
+    readonly: true,
+  });
+  try {
+    return sqlite
+      .query<EffectRecord, [string]>(
+        "select position, kind, intent, state from publish_effects where kind = ? order by position",
+      )
+      .all(kind);
+  } finally {
+    sqlite.close();
+  }
+}

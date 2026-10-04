@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, test as bunTest } from "bun:test";
 import { Database } from "bun:sqlite";
-import { grantDirection, makeReviewWorkspace, type Workspace } from "./review-cycle-fixture.ts";
+import {
+  grantDirection,
+  makeReviewWorkspace,
+  startProducer,
+  type Workspace,
+} from "./review-cycle-fixture.ts";
 import {
   acceptedOneCommit,
   apply,
@@ -604,5 +609,33 @@ test("the publish skill topic states the one prose trigger of the merge read", a
   const topic = await Bun.file(`${import.meta.dir}/../../skills/operator/PUBLISH.md`).text();
   expect(topic).toContain(
     "Run `bun run operator publish status` when the user reports a merge or a close",
+  );
+});
+
+// A named departure of #138: before, the read refused `nothing_published` before it parsed the
+// tracker location. Now it parses the location first, so a damaged one fails loudly. Only a
+// damaged state file gets here.
+test("a tracker location that this release cannot read stops the merge read loudly", async () => {
+  const workspace = await makeReviewWorkspace(fixtures);
+  const producer = await startProducer(workspace);
+  expect((await publishStatus(workspace, producer)).json.reason).toBe("nothing_published");
+  const sqlite = new Database(`${workspace.repo}/.operator/local/crew-state.sqlite`);
+  sqlite.run("update work_sources set tracker_location = '{\"damaged\":true}'");
+  sqlite.close();
+
+  const read = await runOperator(workspace, [
+    "publish",
+    "status",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--source",
+    SOURCE,
+    "--json",
+  ]);
+  expect(read.exitCode).not.toBe(0);
+  expect(read.stdout + read.stderr).toContain(
+    "the crew state holds a tracker location this release cannot read",
   );
 });

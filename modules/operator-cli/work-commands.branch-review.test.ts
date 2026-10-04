@@ -267,6 +267,10 @@ describe("the branch review of an integration branch", () => {
     ).toBe(
       "1 branch finding(s) carry no disposition. A corrected one names its one target assignment.",
     );
+    expect(
+      next.forAction("accept_assignment").find((one) => one.reviewId === registered.reviewId)
+        ?.detail,
+    ).toBe("This reviewer reported both axes, so its own assignment can be accepted.");
 
     const disposed = await disposeFindings(workspace, producer, registered.reviewId, [
       {

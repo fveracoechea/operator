@@ -21,6 +21,7 @@ import {
   apply,
   correction,
   editState,
+  effectRowsOf,
   grant,
   normalized,
   plan,
@@ -336,6 +337,15 @@ describe("a stack of more than one part", () => {
     const pulls = await pullsOf(workspace);
     expect(pulls.find((one) => one.number === second)?.base.ref).toBe("main");
     expect(pulls.find((one) => one.number === third)?.base.ref).toBe(NAMES[1]);
+    // The retarget is recorded as an intent after the writes of the publish, then run (#129).
+    expect(effectRowsOf(workspace, "retarget")).toEqual([
+      {
+        position: 4,
+        kind: "retarget",
+        intent: `{"kind":"retarget","repository":"${REPOSITORY}","number":${second},"from":"${NAMES[0]}","base":"main"}`,
+        state: "done",
+      },
+    ]);
     // The retarget changes the base and nothing else: no merge, no auto-merge (R2, D6).
     const calls = (await githubCalls(workspace)).slice(callsBefore);
     expect(calls).toContain(`PATCH repos/${REPOSITORY}/pulls/${second}`);

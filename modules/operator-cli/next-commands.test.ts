@@ -666,9 +666,19 @@ describe("the next-actions contract", () => {
     const producer = await startProducer(workspace);
     const owned = await nextActions(workspace);
 
-    expect(Object.keys(empty.json.data).toSorted()).toEqual(
-      Object.keys(owned.json.data).toSorted(),
-    );
+    // The verdict and the blockers of the reading stay out of the data (#165).
+    const keys = [
+      "actions",
+      "capacity",
+      "frontier",
+      "ownership",
+      "readiness",
+      "stateVersion",
+      "status",
+      "waits",
+    ];
+    expect(Object.keys(empty.json.data).toSorted()).toEqual(keys);
+    expect(Object.keys(owned.json.data).toSorted()).toEqual(keys);
     expect(empty.json.data.stateVersion).toBe(owned.json.data.stateVersion);
     expect(empty.json.data.frontier.dispatchable).toEqual([]);
     expect(empty.json.data.capacity.limit).toBe(3);

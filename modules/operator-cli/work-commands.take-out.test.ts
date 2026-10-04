@@ -703,4 +703,139 @@ describe("operator work take-out takes the commits of withdrawn work out of the 
     expect(taken.json.reason).toBe("commits_taken_out");
     expect(await commitsOf(workspace, branch, producer.baseCommit)).toEqual([before[0] ?? ""]);
   });
+
+  // A named departure of #133: before, crew next printed a take-out command with an empty plan
+  // revision and the take-out went on. Every withdrawal records its plan revision, so only a
+  // damaged state file gets here, and now crew next and the take-out stop on it.
+  test("a withdrawn assignment that records no plan revision stops crew next and the take-out", async () => {
+    const workspace = await makeReviewWorkspace(fixtures, { maxActiveAgents: 8 });
+    const producer = await startProducer(workspace, undefined, {
+      dependents: [{ ...NOTES, dependsOn: [], writePaths: ["notes/"] }],
+    });
+    await landResult(workspace, producer, { text: "# Result\n", path: "docs/result.md" });
+    const notes = await startSibling(workspace, producer, NOTES.key);
+    await landResult(workspace, notes, { text: "# Notes\n", path: "notes/notes.md" });
+    const { planRevision } = await withdraw(workspace, producer, 1502);
+    const sqlite = new Database(statePath(workspace), { readwrite: true });
+    sqlite
+      .query("update assignments set withdrawn_under = null where id = ?")
+      .run(notes.assignmentId);
+    sqlite.close();
+    const broken = `Withdrawn assignment ${notes.assignmentId} records no plan revision.`;
+
+    const next = await runOperator(workspace, ["crew", "next", "--claude", "--json"]);
+    expect(next.exitCode).not.toBe(0);
+    expect(next.stdout + next.stderr).toContain(broken);
+
+    const taken = await runOperator(workspace, [
+      "work",
+      "take-out",
+      "--request",
+      request(),
+      "--owner-token",
+      producer.ownerToken,
+      "--source",
+      SOURCE,
+      "--plan-revision",
+      planRevision,
+      "--json",
+    ]);
+    expect(taken.exitCode).not.toBe(0);
+    expect(taken.stdout + taken.stderr).toContain(broken);
+  });
+});
+
+describe("one gate run of a source runs at a time", () => {
+  /** Holds each gate run that a pane starts, so it stays running and its runner shows. */
+  async function holdRuns(workspace: Workspace) {
+    await Bun.write(`${workspace.herdr}/pane-run.hold`, "");
+  }
+
+  function gateRun(workspace: Workspace, producer: Producer, subject: string[]) {
+    return runJson(workspace, [
+      "gate",
+      "run",
+      "--request",
+      request(),
+      "--owner-token",
+      producer.ownerToken,
+      ...subject,
+    ]);
+  }
+
+  test("a second gated move of the source waits while a gate run of the source runs", async () => {
+    const workspace = await makeReviewWorkspace(fixtures, { maxActiveAgents: 8 });
+    const producer = await startProducer(workspace, undefined, {
+      dependents: [
+        { ...NOTES, dependsOn: [], writePaths: ["notes/"] },
+        { ...OTHER, dependsOn: [], writePaths: ["other/"] },
+      ],
+    });
+    await landResult(workspace, producer, { text: "# Result\n", path: "docs/result.md" });
+    const notes = await startSibling(workspace, producer, NOTES.key);
+    await reviewResult(workspace, notes, { text: "# Notes\n", path: "notes/notes.md" });
+    const other = await startSibling(workspace, producer, OTHER.key);
+    await reviewResult(workspace, other, { text: "# Other\n", path: "other/other.md" });
+    const owed = (await nextActions(workspace)).forAction("run_gate");
+    expect(owed.map((one) => one.assignmentId).toSorted()).toEqual(
+      [notes.assignmentId, other.assignmentId].toSorted(),
+    );
+
+    await holdRuns(workspace);
+    const started = await gateRun(workspace, producer, ["--assignment", notes.assignmentId]);
+    expect(started.json.reason).toBe("gate_run_started");
+    const { runId } = started.json.data;
+
+    const next = await nextActions(workspace);
+    expect(next.forAction("run_gate")).toEqual([]);
+    const waits = next.waits.filter(
+      (one) => one.wait === "gate_running" && one.assignmentId === other.assignmentId,
+    );
+    expect(waits.map((one) => one.detail)).toEqual([
+      `Gate run ${runId} of source ${SOURCE} runs first. One gate run of a source runs at a time.`,
+    ]);
+  });
+
+  test("a gate run of a take-out whose place still runs names the run and its commit", async () => {
+    const workspace = await makeReviewWorkspace(fixtures, { maxActiveAgents: 8 });
+    const producer = await startProducer(workspace, undefined, {
+      dependents: [
+        { ...NOTES, dependsOn: [], writePaths: ["notes/"] },
+        { ...OTHER, dependsOn: [], writePaths: ["other/"] },
+      ],
+    });
+    await landResult(workspace, producer, { text: "# Result\n", path: "docs/result.md" });
+    const notes = await startSibling(workspace, producer, NOTES.key);
+    await landResult(workspace, notes, { text: "# Notes\n", path: "notes/notes.md" });
+    const other = await startSibling(workspace, producer, OTHER.key);
+    await landResult(workspace, other, { text: "# Other\n", path: "other/other.md" });
+    await withdraw(workspace, producer, 1502);
+
+    await holdRuns(workspace);
+    const started = await gateRun(workspace, producer, ["--source", SOURCE]);
+    expect(started.json.reason).toBe("gate_run_started");
+    const { runId } = started.json.data;
+    await Bun.write(
+      `${workspace.herdr}/pane-processes`,
+      `200|bun|bun cli.ts gate runner --run ${runId}\n`,
+    );
+    const shown = await runJson(workspace, ["gate", "show", "--run", runId]);
+    const { commit } = shown.json.data;
+
+    const refused = await gateRun(workspace, producer, ["--source", SOURCE]);
+    expect(refused.json).toMatchObject({ reason: "gate_running", blockers: [{ runId }] });
+    const human = await runOperator(workspace, [
+      "gate",
+      "run",
+      "--request",
+      request(),
+      "--owner-token",
+      producer.ownerToken,
+      "--source",
+      SOURCE,
+    ]);
+    expect(human.stdout).toContain(
+      `Gate run ${runId} still runs at commit ${commit} of the rebuilt range.\nOne gate run of a source runs at a time. Wait for its outcome.\n`,
+    );
+  });
 });

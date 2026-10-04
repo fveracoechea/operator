@@ -13,6 +13,7 @@ import {
   apply,
   correction,
   editPull,
+  effectRowsOf,
   mergeOnGithub,
   plan,
   publishStatus,
@@ -272,10 +273,36 @@ describe("the recall writes", () => {
     const lost = await recall(workspace, published.producer, planRevision);
     expect(lost.json.reason).not.toBe("stack_recalled");
     expect(await pullComments(workspace, published.number)).toHaveLength(1);
+    // The recall is recorded as an intent after the writes of the publish, and its lost answer
+    // leaves it uncertain (#129). The key order of the intent is its identity.
+    const [recorded] = effectRowsOf(workspace, "recall");
+    const { comment, marker } = JSON.parse(recorded?.intent ?? "{}");
+    expect(marker).toMatch(
+      new RegExp(`^<!-- operator:stack-comment:v1 recall:[0-9a-f-]{36}:${published.number} -->$`),
+    );
+    expect(comment).toStartWith(
+      "Operator recalled this pull request to a draft. Do not merge it.\n",
+    );
+    expect(comment).toEndWith(`\n\n${marker}\n`);
+    const recallIntent = JSON.stringify({
+      kind: "recall",
+      repository: REPOSITORY,
+      number: published.number,
+      comment,
+      marker,
+      recall: planRevision,
+    });
+    expect(effectRowsOf(workspace, "recall")).toEqual([
+      { position: 2, kind: "recall", intent: recallIntent, state: "uncertain" },
+    ]);
+    expect(effectRowsOf(workspace, "close")).toEqual([]);
     // The repeat reads the comments first and finds the marker, so it writes no second one.
     const repeated = await recall(workspace, published.producer, planRevision);
     expect(repeated.json.reason).toBe("stack_recalled");
     expect(await pullComments(workspace, published.number)).toHaveLength(1);
+    expect(effectRowsOf(workspace, "recall")).toEqual([
+      { position: 2, kind: "recall", intent: recallIntent, state: "done" },
+    ]);
     expect((await pullsOf(workspace))[0]).toMatchObject({ draft: true, state: "open" });
   });
 
