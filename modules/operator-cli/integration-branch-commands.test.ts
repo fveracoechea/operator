@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterEach, describe, expect, test as bunTest } from "bun:test";
 import { ContentIdentity } from "../content-identity/main.ts";
 import {
   acceptReview,
@@ -38,7 +38,11 @@ import {
 } from "./workspace-fixture.ts";
 
 // Each test drives real dispatches, a real gate run, and real Git through separate CLI processes.
-setDefaultTimeout(120_000);
+// Each test states its own bound, because a process-wide default would set the bound of every
+// file in the bun test process (#179).
+function test(name: string, run: () => Promise<void> | void, timeoutMs = 120_000) {
+  bunTest(name, run, timeoutMs);
+}
 
 const fixtures = workspaces();
 

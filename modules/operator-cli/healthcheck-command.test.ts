@@ -1,8 +1,12 @@
-import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
+import { afterEach, expect, test as bunTest } from "bun:test";
 import { githubCalls, herdrCalls, runJson, runOperator, workspaces } from "./workspace-fixture.ts";
 
 // Healthcheck tests start CLI processes that query fake Herdr and GitHub under the CI gate.
-setDefaultTimeout(60_000);
+// Each test states its own bound, because a process-wide default would set the bound of every
+// file in the bun test process (#179).
+function test(name: string, run: () => Promise<void> | void, timeoutMs = 60_000) {
+  bunTest(name, run, timeoutMs);
+}
 
 const fixtures = workspaces();
 

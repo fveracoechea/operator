@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterEach, describe, expect, test as bunTest } from "bun:test";
 import {
   acceptAssignment,
   acceptProduction,
@@ -30,7 +30,11 @@ import { githubCalls, nextActions, requestId as request, runJson } from "./works
 import { workspaces } from "./workspace-fixture.ts";
 
 // Each test publishes, corrects, and publishes again through separate CLI processes.
-setDefaultTimeout(300_000);
+// Each test states its own bound, because a process-wide default would set the bound of every
+// file in the bun test process (#179).
+function test(name: string, run: () => Promise<void> | void, timeoutMs = 300_000) {
+  bunTest(name, run, timeoutMs);
+}
 
 const fixtures = workspaces();
 

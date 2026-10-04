@@ -1,12 +1,4 @@
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  describe,
-  expect,
-  setDefaultTimeout,
-  test,
-} from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test as bunTest } from "bun:test";
 import {
   branchReport,
   finalBranch,
@@ -49,7 +41,11 @@ import { readFake, writeFake } from "./source-fixture.ts";
 import { githubCalls, nextActions, runJson, runOperator, workspaces } from "./workspace-fixture.ts";
 
 // Each test runs producers, reviewers, a branch reviewer, and gate runs through the CLI.
-setDefaultTimeout(300_000);
+// Each test states its own bound, because a process-wide default would set the bound of every
+// file in the bun test process (#179).
+function test(name: string, run: () => Promise<void> | void, timeoutMs = 300_000) {
+  bunTest(name, run, timeoutMs);
+}
 
 const fixtures = workspaces();
 
@@ -377,7 +373,7 @@ describe("each refusal of the plan", () => {
     branch = await reviewedBranch(workspace);
     const planned = await plan(workspace);
     expect(planned.json.reason).toBe("publish_planned");
-  });
+  }, 300_000);
 
   afterAll(async () => {
     await shared.removeAll();

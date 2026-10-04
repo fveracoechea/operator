@@ -1,5 +1,5 @@
 import { issueKey } from "./source-fixture.ts";
-import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterEach, describe, expect, test as bunTest } from "bun:test";
 import {
   acceptAssignment,
   acceptProduction,
@@ -23,7 +23,11 @@ import {
 import { nextActions, requestId as request, runJson, workspaces } from "./workspace-fixture.ts";
 
 // Invalidation tests run complete review cycles through separate CLI processes.
-setDefaultTimeout(60_000);
+// Each test states its own bound, because a process-wide default would set the bound of every
+// file in the bun test process (#179).
+function test(name: string, run: () => Promise<void> | void, timeoutMs = 60_000) {
+  bunTest(name, run, timeoutMs);
+}
 
 const fixtures = workspaces();
 

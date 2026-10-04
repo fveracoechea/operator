@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test as bunTest } from "bun:test";
 import { z } from "zod";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
@@ -12,7 +12,11 @@ const fakeGhPath = new URL("./fake-gh.ts", import.meta.url).pathname;
 
 // Every test publishes a real artifact, and building one compiles the whole release. That takes
 // far longer than a default test, and longer again on a CI runner.
-setDefaultTimeout(300_000);
+// Each test states its own bound, because a process-wide default would set the bound of every
+// file in the bun test process (#179).
+function test(name: string, run: () => Promise<void> | void, timeoutMs = 300_000) {
+  bunTest(name, run, timeoutMs);
+}
 
 const COMMIT = "1".repeat(40);
 const OTHER_COMMIT = "2".repeat(40);

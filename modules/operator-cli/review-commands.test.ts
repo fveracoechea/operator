@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterEach, describe, expect, test as bunTest } from "bun:test";
 import {
   acceptProduction,
   commitArtifact,
@@ -16,7 +16,11 @@ import { ContentIdentity } from "../content-identity/main.ts";
 import { herdrCalls, requestId as request, runJson, workspaces } from "./workspace-fixture.ts";
 
 // Review tests create Git worktrees and run several CLI processes under the parallel CI gate.
-setDefaultTimeout(60_000);
+// Each test states its own bound, because a process-wide default would set the bound of every
+// file in the bun test process (#179).
+function test(name: string, run: () => Promise<void> | void, timeoutMs = 60_000) {
+  bunTest(name, run, timeoutMs);
+}
 
 const fixtures = workspaces();
 

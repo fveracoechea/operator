@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterEach, describe, expect, test as bunTest } from "bun:test";
 import { Database } from "bun:sqlite";
 import { branchReport, reviewedResult } from "./branch-review-fixture.ts";
 import {
@@ -46,7 +46,11 @@ import {
 
 // One test runs a whole source: four items, three producers, their reviewers, a branch reviewer,
 // four gate runs, a publish, and the tracker steps, each one a separate CLI process.
-setDefaultTimeout(600_000);
+// Each test states its own bound, because a process-wide default would set the bound of every
+// file in the bun test process (#179).
+function test(name: string, run: () => Promise<void> | void, timeoutMs = 600_000) {
+  bunTest(name, run, timeoutMs);
+}
 
 const fixtures = workspaces();
 

@@ -33,8 +33,8 @@ import {
 } from "./workspace-fixture.ts";
 
 // Workflow tests create Git worktrees and run several CLI processes under the parallel CI gate.
-// Each test states its own bound, because setDefaultTimeout sets the bound of every file in the
-// bun test process (#140).
+// Each test states its own bound, because a process-wide default would set the bound of every
+// file in the bun test process (#140).
 function test(name: string, run: () => Promise<void>, timeoutMs = 60_000) {
   bunTest(name, run, timeoutMs);
 }
