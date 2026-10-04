@@ -2320,5 +2320,1056 @@
       "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_question\",\"blockers\":[{\"reason\":\"integration\",\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}],\"operation\":\"question_show\",\"data\":{\"assignmentId\":\"a1\",\"state\":\"st\",\"attemptId\":\"t1\",\"questionId\":\"q1\",\"recordedRevision\":3,\"answerId\":\"an1\",\"authority\":\"operator\",\"escalationTriggers\":[\"x\",\"y\"],\"acknowledgedAt\":\"2026-01-01\",\"issues\":[\"i1\",\"i2\"],\"path\":\"p/x\",\"source\":{\"id\":\"s1\",\"revision\":\"r9\",\"storedPath\":\"stored/p\"},\"sourceId\":\"src1\",\"revision\":\"r2\",\"recorded\":\"r1\",\"entry\":2,\"name\":\"art\",\"found\":\"fnd\",\"dependencies\":[{\"assignmentId\":\"a2\",\"state\":\"ready\"}],\"planningType\":null,\"blocker\":\"blk\",\"reviewId\":\"rv1\",\"missing\":[\"standards\",\"spec\"],\"findingIds\":[\"f1\",\"f2\"],\"submissionId\":\"sb1\",\"changeIds\":[\"c1\",\"c2\"],\"security\":1,\"checks\":[{\"name\":\"n\",\"outcome\":\"failed\",\"recorded\":\"passed\",\"axis\":\"spec\",\"observed\":\"failed\"}],\"directions\":[{\"directionRequestId\":\"d1\",\"limitKind\":\"cycles\",\"limitValue\":3,\"revision\":4}],\"invalidated\":[\"a3\"],\"recordedSubmissionId\":\"sb0\",\"cycleId\":\"cy1\",\"reason\":\"integration\",\"names\":[\"n1\",\"n2\"],\"branch\":\"br\",\"tip\":\"tip1\",\"planned\":\"pl1\",\"stated\":\"pr1\",\"detail\":\"det\",\"operationState\":\"intended\",\"questionRevision\":1}}"
     ],
     "exitCode": 2
+  },
+  "dispatch 0 state-missing": {
+    "lines": ["This project holds no crew state. Run `operator crew own` to start a crew."],
+    "exitCode": 3
+  },
+  "dispatch 0 state-missing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"state_missing\",\"blockers\":[{\"reason\":\"state_missing\",\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"branch\":\"br\",\"recordedTip\":\"rt\",\"found\":\"fnd\",\"checkedOut\":[\"w1\",\"w2\"],\"requested\":\"rq\",\"base\":\"bs\",\"heldBy\":\"s2\",\"commit\":\"cm\",\"detail\":\"det\",\"gate\":{\"status\":\"missing\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"},\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"recorded\":\"r1\",\"computed\":\"r2\",\"drift\":[{\"input\":\"host\",\"recorded\":\"claude\",\"current\":\"opencode\"},{\"input\":\"model\",\"recorded\":\"m1\",\"current\":\"m2\"}],\"stage\":\"agent\",\"operationState\":\"intended\",\"report\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":null,\"reasoningEffort\":\"high\",\"operations\":[{\"kind\":\"worktree\",\"state\":\"succeeded\",\"detail\":null},{\"kind\":\"agent\",\"state\":\"failed\",\"detail\":\"d\"}]},\"repeated\":false,\"pending\":[\"worktree\",\"agent\"],\"agentName\":\"ag\",\"paneId\":\"p1\",\"inspection\":{\"identity\":\"in1\",\"uncommitted\":[\"x.ts\",\"y.ts\"],\"commits\":[\"c1\"]},\"reviewId\":\"rv1\",\"limit\":3,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"},\"direction\":{\"directionRequestId\":\"d1\",\"revision\":4,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"}},\"previousAttemptId\":\"t0\",\"issues\":[\"i1\",\"i2\"],\"name\":\"art\",\"path\":\"p/x\",\"kind\":\"grill\",\"state\":\"st\",\"recordedRevision\":3,\"recordedIdentity\":\"ri\",\"submissionId\":\"sb1\",\"revision\":2,\"identity\":\"id1\",\"reviewAssignmentId\":\"a9\",\"reviewSourceKey\":\"rk\",\"reworkCycleId\":null,\"outsideChanges\":0,\"refusals\":[{\"reason\":\"result_not_one_commit\",\"rule\":\"one\",\"baseCommit\":\"bc\",\"commits\":[{\"commit\":\"c1\",\"parents\":[]}],\"statedBase\":\"sb\",\"statedResult\":\"sr\"},{\"reason\":\"uncommitted_work\",\"paths\":[\"u1\",\"u2\"]},{\"reason\":\"outside_write_paths\",\"paths\":[\"o1\",\"o2\"],\"writePaths\":[\"w\"]},{\"reason\":\"result_check_not_run\",\"check\":\"gate\",\"detail\":\"dt\"},{\"reason\":\"behavior_change_basis_missing\",\"entries\":[{\"position\":1,\"detail\":\"d1\"},{\"position\":2,\"detail\":\"d2\"}]},{\"reason\":\"project_gate_not_passed\",\"rule\":\"gate\",\"gateCommit\":\"gc\",\"commands\":[{\"name\":\"lint\",\"recorded\":[]},{\"name\":\"test\",\"recorded\":[\"failed\",\"flaky\"]}]}]}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 3
+  },
+  "dispatch 1 unowned": {
+    "lines": ["No Operator owns this crew. Run `operator crew own` first."],
+    "exitCode": 3
+  },
+  "dispatch 1 unowned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"crew_unowned\",\"blockers\":[{\"reason\":\"crew_unowned\",\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"branch\":\"br\",\"recordedTip\":\"rt\",\"found\":\"fnd\",\"checkedOut\":[\"w1\",\"w2\"],\"requested\":\"rq\",\"base\":\"bs\",\"heldBy\":\"s2\",\"commit\":\"cm\",\"detail\":\"det\",\"gate\":{\"status\":\"missing\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"},\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"recorded\":\"r1\",\"computed\":\"r2\",\"drift\":[{\"input\":\"host\",\"recorded\":\"claude\",\"current\":\"opencode\"},{\"input\":\"model\",\"recorded\":\"m1\",\"current\":\"m2\"}],\"stage\":\"agent\",\"operationState\":\"intended\",\"report\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":null,\"reasoningEffort\":\"high\",\"operations\":[{\"kind\":\"worktree\",\"state\":\"succeeded\",\"detail\":null},{\"kind\":\"agent\",\"state\":\"failed\",\"detail\":\"d\"}]},\"repeated\":false,\"pending\":[\"worktree\",\"agent\"],\"agentName\":\"ag\",\"paneId\":\"p1\",\"inspection\":{\"identity\":\"in1\",\"uncommitted\":[\"x.ts\",\"y.ts\"],\"commits\":[\"c1\"]},\"reviewId\":\"rv1\",\"limit\":3,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"},\"direction\":{\"directionRequestId\":\"d1\",\"revision\":4,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"}},\"previousAttemptId\":\"t0\",\"issues\":[\"i1\",\"i2\"],\"name\":\"art\",\"path\":\"p/x\",\"kind\":\"grill\",\"state\":\"st\",\"recordedRevision\":3,\"recordedIdentity\":\"ri\",\"submissionId\":\"sb1\",\"revision\":2,\"identity\":\"id1\",\"reviewAssignmentId\":\"a9\",\"reviewSourceKey\":\"rk\",\"reworkCycleId\":null,\"outsideChanges\":0,\"refusals\":[{\"reason\":\"result_not_one_commit\",\"rule\":\"one\",\"baseCommit\":\"bc\",\"commits\":[{\"commit\":\"c1\",\"parents\":[]}],\"statedBase\":\"sb\",\"statedResult\":\"sr\"},{\"reason\":\"uncommitted_work\",\"paths\":[\"u1\",\"u2\"]},{\"reason\":\"outside_write_paths\",\"paths\":[\"o1\",\"o2\"],\"writePaths\":[\"w\"]},{\"reason\":\"result_check_not_run\",\"check\":\"gate\",\"detail\":\"dt\"},{\"reason\":\"behavior_change_basis_missing\",\"entries\":[{\"position\":1,\"detail\":\"d1\"},{\"position\":2,\"detail\":\"d2\"}]},{\"reason\":\"project_gate_not_passed\",\"rule\":\"gate\",\"gateCommit\":\"gc\",\"commands\":[{\"name\":\"lint\",\"recorded\":[]},{\"name\":\"test\",\"recorded\":[\"failed\",\"flaky\"]}]}]}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 3
+  },
+  "dispatch 2 ownership-stale": {
+    "lines": [
+      "Another Operator took ownership of this crew. This token can no longer change state."
+    ],
+    "exitCode": 4
+  },
+  "dispatch 2 ownership-stale --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"ownership_stale\",\"blockers\":[{\"reason\":\"ownership_stale\",\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"branch\":\"br\",\"recordedTip\":\"rt\",\"found\":\"fnd\",\"checkedOut\":[\"w1\",\"w2\"],\"requested\":\"rq\",\"base\":\"bs\",\"heldBy\":\"s2\",\"commit\":\"cm\",\"detail\":\"det\",\"gate\":{\"status\":\"missing\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"},\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"recorded\":\"r1\",\"computed\":\"r2\",\"drift\":[{\"input\":\"host\",\"recorded\":\"claude\",\"current\":\"opencode\"},{\"input\":\"model\",\"recorded\":\"m1\",\"current\":\"m2\"}],\"stage\":\"agent\",\"operationState\":\"intended\",\"report\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":null,\"reasoningEffort\":\"high\",\"operations\":[{\"kind\":\"worktree\",\"state\":\"succeeded\",\"detail\":null},{\"kind\":\"agent\",\"state\":\"failed\",\"detail\":\"d\"}]},\"repeated\":false,\"pending\":[\"worktree\",\"agent\"],\"agentName\":\"ag\",\"paneId\":\"p1\",\"inspection\":{\"identity\":\"in1\",\"uncommitted\":[\"x.ts\",\"y.ts\"],\"commits\":[\"c1\"]},\"reviewId\":\"rv1\",\"limit\":3,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"},\"direction\":{\"directionRequestId\":\"d1\",\"revision\":4,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"}},\"previousAttemptId\":\"t0\",\"issues\":[\"i1\",\"i2\"],\"name\":\"art\",\"path\":\"p/x\",\"kind\":\"grill\",\"state\":\"st\",\"recordedRevision\":3,\"recordedIdentity\":\"ri\",\"submissionId\":\"sb1\",\"revision\":2,\"identity\":\"id1\",\"reviewAssignmentId\":\"a9\",\"reviewSourceKey\":\"rk\",\"reworkCycleId\":null,\"outsideChanges\":0,\"refusals\":[{\"reason\":\"result_not_one_commit\",\"rule\":\"one\",\"baseCommit\":\"bc\",\"commits\":[{\"commit\":\"c1\",\"parents\":[]}],\"statedBase\":\"sb\",\"statedResult\":\"sr\"},{\"reason\":\"uncommitted_work\",\"paths\":[\"u1\",\"u2\"]},{\"reason\":\"outside_write_paths\",\"paths\":[\"o1\",\"o2\"],\"writePaths\":[\"w\"]},{\"reason\":\"result_check_not_run\",\"check\":\"gate\",\"detail\":\"dt\"},{\"reason\":\"behavior_change_basis_missing\",\"entries\":[{\"position\":1,\"detail\":\"d1\"},{\"position\":2,\"detail\":\"d2\"}]},{\"reason\":\"project_gate_not_passed\",\"rule\":\"gate\",\"gateCommit\":\"gc\",\"commands\":[{\"name\":\"lint\",\"recorded\":[]},{\"name\":\"test\",\"recorded\":[\"failed\",\"flaky\"]}]}]}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 4
+  },
+  "dispatch 3 request-input-changed": {
+    "lines": [
+      "This request identity already recorded different input. Use a new request identity."
+    ],
+    "exitCode": 2
+  },
+  "dispatch 3 request-input-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"request_input_changed\",\"blockers\":[{\"reason\":\"request_input_changed\",\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"branch\":\"br\",\"recordedTip\":\"rt\",\"found\":\"fnd\",\"checkedOut\":[\"w1\",\"w2\"],\"requested\":\"rq\",\"base\":\"bs\",\"heldBy\":\"s2\",\"commit\":\"cm\",\"detail\":\"det\",\"gate\":{\"status\":\"missing\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"},\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"recorded\":\"r1\",\"computed\":\"r2\",\"drift\":[{\"input\":\"host\",\"recorded\":\"claude\",\"current\":\"opencode\"},{\"input\":\"model\",\"recorded\":\"m1\",\"current\":\"m2\"}],\"stage\":\"agent\",\"operationState\":\"intended\",\"report\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":null,\"reasoningEffort\":\"high\",\"operations\":[{\"kind\":\"worktree\",\"state\":\"succeeded\",\"detail\":null},{\"kind\":\"agent\",\"state\":\"failed\",\"detail\":\"d\"}]},\"repeated\":false,\"pending\":[\"worktree\",\"agent\"],\"agentName\":\"ag\",\"paneId\":\"p1\",\"inspection\":{\"identity\":\"in1\",\"uncommitted\":[\"x.ts\",\"y.ts\"],\"commits\":[\"c1\"]},\"reviewId\":\"rv1\",\"limit\":3,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"},\"direction\":{\"directionRequestId\":\"d1\",\"revision\":4,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"}},\"previousAttemptId\":\"t0\",\"issues\":[\"i1\",\"i2\"],\"name\":\"art\",\"path\":\"p/x\",\"kind\":\"grill\",\"state\":\"st\",\"recordedRevision\":3,\"recordedIdentity\":\"ri\",\"submissionId\":\"sb1\",\"revision\":2,\"identity\":\"id1\",\"reviewAssignmentId\":\"a9\",\"reviewSourceKey\":\"rk\",\"reworkCycleId\":null,\"outsideChanges\":0,\"refusals\":[{\"reason\":\"result_not_one_commit\",\"rule\":\"one\",\"baseCommit\":\"bc\",\"commits\":[{\"commit\":\"c1\",\"parents\":[]}],\"statedBase\":\"sb\",\"statedResult\":\"sr\"},{\"reason\":\"uncommitted_work\",\"paths\":[\"u1\",\"u2\"]},{\"reason\":\"outside_write_paths\",\"paths\":[\"o1\",\"o2\"],\"writePaths\":[\"w\"]},{\"reason\":\"result_check_not_run\",\"check\":\"gate\",\"detail\":\"dt\"},{\"reason\":\"behavior_change_basis_missing\",\"entries\":[{\"position\":1,\"detail\":\"d1\"},{\"position\":2,\"detail\":\"d2\"}]},{\"reason\":\"project_gate_not_passed\",\"rule\":\"gate\",\"gateCommit\":\"gc\",\"commands\":[{\"name\":\"lint\",\"recorded\":[]},{\"name\":\"test\",\"recorded\":[\"failed\",\"flaky\"]}]}]}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 2
+  },
+  "dispatch 4 unknown-attempt": {
+    "lines": ["No attempt is recorded under that identity."],
+    "exitCode": 2
+  },
+  "dispatch 4 unknown-attempt --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_attempt\",\"blockers\":[{\"reason\":\"unknown_attempt\",\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"branch\":\"br\",\"recordedTip\":\"rt\",\"found\":\"fnd\",\"checkedOut\":[\"w1\",\"w2\"],\"requested\":\"rq\",\"base\":\"bs\",\"heldBy\":\"s2\",\"commit\":\"cm\",\"detail\":\"det\",\"gate\":{\"status\":\"missing\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"},\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"recorded\":\"r1\",\"computed\":\"r2\",\"drift\":[{\"input\":\"host\",\"recorded\":\"claude\",\"current\":\"opencode\"},{\"input\":\"model\",\"recorded\":\"m1\",\"current\":\"m2\"}],\"stage\":\"agent\",\"operationState\":\"intended\",\"report\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":null,\"reasoningEffort\":\"high\",\"operations\":[{\"kind\":\"worktree\",\"state\":\"succeeded\",\"detail\":null},{\"kind\":\"agent\",\"state\":\"failed\",\"detail\":\"d\"}]},\"repeated\":false,\"pending\":[\"worktree\",\"agent\"],\"agentName\":\"ag\",\"paneId\":\"p1\",\"inspection\":{\"identity\":\"in1\",\"uncommitted\":[\"x.ts\",\"y.ts\"],\"commits\":[\"c1\"]},\"reviewId\":\"rv1\",\"limit\":3,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"},\"direction\":{\"directionRequestId\":\"d1\",\"revision\":4,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"}},\"previousAttemptId\":\"t0\",\"issues\":[\"i1\",\"i2\"],\"name\":\"art\",\"path\":\"p/x\",\"kind\":\"grill\",\"state\":\"st\",\"recordedRevision\":3,\"recordedIdentity\":\"ri\",\"submissionId\":\"sb1\",\"revision\":2,\"identity\":\"id1\",\"reviewAssignmentId\":\"a9\",\"reviewSourceKey\":\"rk\",\"reworkCycleId\":null,\"outsideChanges\":0,\"refusals\":[{\"reason\":\"result_not_one_commit\",\"rule\":\"one\",\"baseCommit\":\"bc\",\"commits\":[{\"commit\":\"c1\",\"parents\":[]}],\"statedBase\":\"sb\",\"statedResult\":\"sr\"},{\"reason\":\"uncommitted_work\",\"paths\":[\"u1\",\"u2\"]},{\"reason\":\"outside_write_paths\",\"paths\":[\"o1\",\"o2\"],\"writePaths\":[\"w\"]},{\"reason\":\"result_check_not_run\",\"check\":\"gate\",\"detail\":\"dt\"},{\"reason\":\"behavior_change_basis_missing\",\"entries\":[{\"position\":1,\"detail\":\"d1\"},{\"position\":2,\"detail\":\"d2\"}]},{\"reason\":\"project_gate_not_passed\",\"rule\":\"gate\",\"gateCommit\":\"gc\",\"commands\":[{\"name\":\"lint\",\"recorded\":[]},{\"name\":\"test\",\"recorded\":[\"failed\",\"flaky\"]}]}]}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 2
+  },
+  "dispatch 5 attempt-ended": {
+    "lines": ["That attempt has ended, so it can no longer write. Claim the assignment again."],
+    "exitCode": 4
+  },
+  "dispatch 5 attempt-ended --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"attempt_ended\",\"blockers\":[{\"reason\":\"attempt_ended\",\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"branch\":\"br\",\"recordedTip\":\"rt\",\"found\":\"fnd\",\"checkedOut\":[\"w1\",\"w2\"],\"requested\":\"rq\",\"base\":\"bs\",\"heldBy\":\"s2\",\"commit\":\"cm\",\"detail\":\"det\",\"gate\":{\"status\":\"missing\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"},\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"recorded\":\"r1\",\"computed\":\"r2\",\"drift\":[{\"input\":\"host\",\"recorded\":\"claude\",\"current\":\"opencode\"},{\"input\":\"model\",\"recorded\":\"m1\",\"current\":\"m2\"}],\"stage\":\"agent\",\"operationState\":\"intended\",\"report\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":null,\"reasoningEffort\":\"high\",\"operations\":[{\"kind\":\"worktree\",\"state\":\"succeeded\",\"detail\":null},{\"kind\":\"agent\",\"state\":\"failed\",\"detail\":\"d\"}]},\"repeated\":false,\"pending\":[\"worktree\",\"agent\"],\"agentName\":\"ag\",\"paneId\":\"p1\",\"inspection\":{\"identity\":\"in1\",\"uncommitted\":[\"x.ts\",\"y.ts\"],\"commits\":[\"c1\"]},\"reviewId\":\"rv1\",\"limit\":3,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"},\"direction\":{\"directionRequestId\":\"d1\",\"revision\":4,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"}},\"previousAttemptId\":\"t0\",\"issues\":[\"i1\",\"i2\"],\"name\":\"art\",\"path\":\"p/x\",\"kind\":\"grill\",\"state\":\"st\",\"recordedRevision\":3,\"recordedIdentity\":\"ri\",\"submissionId\":\"sb1\",\"revision\":2,\"identity\":\"id1\",\"reviewAssignmentId\":\"a9\",\"reviewSourceKey\":\"rk\",\"reworkCycleId\":null,\"outsideChanges\":0,\"refusals\":[{\"reason\":\"result_not_one_commit\",\"rule\":\"one\",\"baseCommit\":\"bc\",\"commits\":[{\"commit\":\"c1\",\"parents\":[]}],\"statedBase\":\"sb\",\"statedResult\":\"sr\"},{\"reason\":\"uncommitted_work\",\"paths\":[\"u1\",\"u2\"]},{\"reason\":\"outside_write_paths\",\"paths\":[\"o1\",\"o2\"],\"writePaths\":[\"w\"]},{\"reason\":\"result_check_not_run\",\"check\":\"gate\",\"detail\":\"dt\"},{\"reason\":\"behavior_change_basis_missing\",\"entries\":[{\"position\":1,\"detail\":\"d1\"},{\"position\":2,\"detail\":\"d2\"}]},{\"reason\":\"project_gate_not_passed\",\"rule\":\"gate\",\"gateCommit\":\"gc\",\"commands\":[{\"name\":\"lint\",\"recorded\":[]},{\"name\":\"test\",\"recorded\":[\"failed\",\"flaky\"]}]}]}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 4
+  },
+  "dispatch 6 attempt-not-current": {
+    "lines": ["Another Operator owns this crew, so this attempt is not the current writer."],
+    "exitCode": 4
+  },
+  "dispatch 6 attempt-not-current --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"attempt_not_current\",\"blockers\":[{\"reason\":\"attempt_not_current\",\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"branch\":\"br\",\"recordedTip\":\"rt\",\"found\":\"fnd\",\"checkedOut\":[\"w1\",\"w2\"],\"requested\":\"rq\",\"base\":\"bs\",\"heldBy\":\"s2\",\"commit\":\"cm\",\"detail\":\"det\",\"gate\":{\"status\":\"missing\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"},\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"recorded\":\"r1\",\"computed\":\"r2\",\"drift\":[{\"input\":\"host\",\"recorded\":\"claude\",\"current\":\"opencode\"},{\"input\":\"model\",\"recorded\":\"m1\",\"current\":\"m2\"}],\"stage\":\"agent\",\"operationState\":\"intended\",\"report\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":null,\"reasoningEffort\":\"high\",\"operations\":[{\"kind\":\"worktree\",\"state\":\"succeeded\",\"detail\":null},{\"kind\":\"agent\",\"state\":\"failed\",\"detail\":\"d\"}]},\"repeated\":false,\"pending\":[\"worktree\",\"agent\"],\"agentName\":\"ag\",\"paneId\":\"p1\",\"inspection\":{\"identity\":\"in1\",\"uncommitted\":[\"x.ts\",\"y.ts\"],\"commits\":[\"c1\"]},\"reviewId\":\"rv1\",\"limit\":3,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"},\"direction\":{\"directionRequestId\":\"d1\",\"revision\":4,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"}},\"previousAttemptId\":\"t0\",\"issues\":[\"i1\",\"i2\"],\"name\":\"art\",\"path\":\"p/x\",\"kind\":\"grill\",\"state\":\"st\",\"recordedRevision\":3,\"recordedIdentity\":\"ri\",\"submissionId\":\"sb1\",\"revision\":2,\"identity\":\"id1\",\"reviewAssignmentId\":\"a9\",\"reviewSourceKey\":\"rk\",\"reworkCycleId\":null,\"outsideChanges\":0,\"refusals\":[{\"reason\":\"result_not_one_commit\",\"rule\":\"one\",\"baseCommit\":\"bc\",\"commits\":[{\"commit\":\"c1\",\"parents\":[]}],\"statedBase\":\"sb\",\"statedResult\":\"sr\"},{\"reason\":\"uncommitted_work\",\"paths\":[\"u1\",\"u2\"]},{\"reason\":\"outside_write_paths\",\"paths\":[\"o1\",\"o2\"],\"writePaths\":[\"w\"]},{\"reason\":\"result_check_not_run\",\"check\":\"gate\",\"detail\":\"dt\"},{\"reason\":\"behavior_change_basis_missing\",\"entries\":[{\"position\":1,\"detail\":\"d1\"},{\"position\":2,\"detail\":\"d2\"}]},{\"reason\":\"project_gate_not_passed\",\"rule\":\"gate\",\"gateCommit\":\"gc\",\"commands\":[{\"name\":\"lint\",\"recorded\":[]},{\"name\":\"test\",\"recorded\":[\"failed\",\"flaky\"]}]}]}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 4
+  },
+  "dispatch 7 not-dispatched": {
+    "lines": ["That attempt has no recorded launch. Dispatch it first."],
+    "exitCode": 3
+  },
+  "dispatch 7 not-dispatched --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"attempt_not_dispatched\",\"blockers\":[{\"reason\":\"attempt_not_dispatched\",\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"branch\":\"br\",\"recordedTip\":\"rt\",\"found\":\"fnd\",\"checkedOut\":[\"w1\",\"w2\"],\"requested\":\"rq\",\"base\":\"bs\",\"heldBy\":\"s2\",\"commit\":\"cm\",\"detail\":\"det\",\"gate\":{\"status\":\"missing\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"},\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"recorded\":\"r1\",\"computed\":\"r2\",\"drift\":[{\"input\":\"host\",\"recorded\":\"claude\",\"current\":\"opencode\"},{\"input\":\"model\",\"recorded\":\"m1\",\"current\":\"m2\"}],\"stage\":\"agent\",\"operationState\":\"intended\",\"report\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":null,\"reasoningEffort\":\"high\",\"operations\":[{\"kind\":\"worktree\",\"state\":\"succeeded\",\"detail\":null},{\"kind\":\"agent\",\"state\":\"failed\",\"detail\":\"d\"}]},\"repeated\":false,\"pending\":[\"worktree\",\"agent\"],\"agentName\":\"ag\",\"paneId\":\"p1\",\"inspection\":{\"identity\":\"in1\",\"uncommitted\":[\"x.ts\",\"y.ts\"],\"commits\":[\"c1\"]},\"reviewId\":\"rv1\",\"limit\":3,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"},\"direction\":{\"directionRequestId\":\"d1\",\"revision\":4,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"}},\"previousAttemptId\":\"t0\",\"issues\":[\"i1\",\"i2\"],\"name\":\"art\",\"path\":\"p/x\",\"kind\":\"grill\",\"state\":\"st\",\"recordedRevision\":3,\"recordedIdentity\":\"ri\",\"submissionId\":\"sb1\",\"revision\":2,\"identity\":\"id1\",\"reviewAssignmentId\":\"a9\",\"reviewSourceKey\":\"rk\",\"reworkCycleId\":null,\"outsideChanges\":0,\"refusals\":[{\"reason\":\"result_not_one_commit\",\"rule\":\"one\",\"baseCommit\":\"bc\",\"commits\":[{\"commit\":\"c1\",\"parents\":[]}],\"statedBase\":\"sb\",\"statedResult\":\"sr\"},{\"reason\":\"uncommitted_work\",\"paths\":[\"u1\",\"u2\"]},{\"reason\":\"outside_write_paths\",\"paths\":[\"o1\",\"o2\"],\"writePaths\":[\"w\"]},{\"reason\":\"result_check_not_run\",\"check\":\"gate\",\"detail\":\"dt\"},{\"reason\":\"behavior_change_basis_missing\",\"entries\":[{\"position\":1,\"detail\":\"d1\"},{\"position\":2,\"detail\":\"d2\"}]},{\"reason\":\"project_gate_not_passed\",\"rule\":\"gate\",\"gateCommit\":\"gc\",\"commands\":[{\"name\":\"lint\",\"recorded\":[]},{\"name\":\"test\",\"recorded\":[\"failed\",\"flaky\"]}]}]}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 3
+  },
+  "dispatch 8 integration-branch-moved": {
+    "lines": [
+      "Branch br holds fnd, and its recorded tip is rt.",
+      "Worktree w1 has it checked out.",
+      "Worktree w2 has it checked out.",
+      "Operator never resets or adopts a moved branch. Ask the user to put it back at the recorded tip.",
+      "Nothing was launched."
+    ],
+    "exitCode": 4
+  },
+  "dispatch 8 integration-branch-moved --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"integration_branch_moved\",\"blockers\":[{\"reason\":\"integration_branch_moved\",\"attemptId\":\"t1\",\"branch\":\"br\",\"recordedTip\":\"rt\",\"found\":\"fnd\",\"checkedOut\":[\"w1\",\"w2\"]}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 4
+  },
+  "dispatch 9 dispatch-base-not-tip": {
+    "lines": [
+      "A production dispatch of this source starts from rt, the recorded tip of br, not from rq.",
+      "Run the dispatch again with no --commit."
+    ],
+    "exitCode": 4
+  },
+  "dispatch 9 dispatch-base-not-tip --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"dispatch_base_not_tip\",\"blockers\":[{\"reason\":\"dispatch_base_not_tip\",\"attemptId\":\"t1\",\"branch\":\"br\",\"recordedTip\":\"rt\",\"requested\":\"rq\"}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 4
+  },
+  "dispatch 10 integration-branch-exists": {
+    "lines": [
+      "Branch br already holds fnd, so it cannot start at the integration base bs.",
+      "Operator never takes over a branch it did not create. Ask the user to remove it, or dispatch from that commit.",
+      "Nothing was launched, and no base was fixed."
+    ],
+    "exitCode": 4
+  },
+  "dispatch 10 integration-branch-exists --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"integration_branch_exists\",\"blockers\":[{\"reason\":\"integration_branch_exists\",\"attemptId\":\"t1\",\"branch\":\"br\",\"base\":\"bs\",\"found\":\"fnd\"}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 4
+  },
+  "dispatch 11 integration-branch-held": {
+    "lines": [
+      "Source s2 already records the integration branch br, so this source cannot record it.",
+      "Report it to the user. Nothing was launched, and no base was fixed."
+    ],
+    "exitCode": 4
+  },
+  "dispatch 11 integration-branch-held --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"integration_branch_held\",\"blockers\":[{\"reason\":\"integration_branch_held\",\"attemptId\":\"t1\",\"branch\":\"br\",\"heldBy\":\"s2\"}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 4
+  },
+  "dispatch 12 integration-branch-unread": {
+    "lines": ["Branch br could not be read or written: det"],
+    "exitCode": 1
+  },
+  "dispatch 12 integration-branch-unread --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"failed\",\"reason\":\"integration_branch_unread\",\"blockers\":[{\"reason\":\"integration_branch_unread\",\"attemptId\":\"t1\",\"branch\":\"br\",\"detail\":\"det\"}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 1
+  },
+  "dispatch 13 base-commit-unread": {
+    "lines": ["Commit cm could not be read: det"],
+    "exitCode": 1
+  },
+  "dispatch 13 base-commit-unread --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"failed\",\"reason\":\"gate_commit_unread\",\"blockers\":[{\"reason\":\"gate_commit_unread\",\"attemptId\":\"t1\",\"commit\":\"cm\",\"detail\":\"det\"}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 1
+  },
+  "dispatch 14 review-base-changed": {
+    "lines": [
+      "This review reads commit r1, not rq.",
+      "Review inputs stay fixed, so the reviewer starts from the submitted commit, or from the head of the branch snapshot."
+    ],
+    "exitCode": 4
+  },
+  "dispatch 14 review-base-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"review_base_changed\",\"blockers\":[{\"reason\":\"review_base_changed\",\"attemptId\":\"t1\",\"recorded\":\"r1\",\"requested\":\"rq\"}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 4
+  },
+  "dispatch 15 correction-base-changed": {
+    "lines": [
+      "This correction starts on r1, the parent of the landed commit, not on rq.",
+      "The correction takes the place of the landed commit, so run the dispatch again with no --commit."
+    ],
+    "exitCode": 4
+  },
+  "dispatch 15 correction-base-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"correction_base_changed\",\"blockers\":[{\"reason\":\"correction_base_changed\",\"attemptId\":\"t1\",\"recorded\":\"r1\",\"requested\":\"rq\"}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 4
+  },
+  "dispatch 16 commit-required": {
+    "lines": ["A dispatch starts from an explicit commit. Name it with `--commit`."],
+    "exitCode": 2
+  },
+  "dispatch 16 commit-required --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"commit_required\",\"blockers\":[{\"reason\":\"commit_required\",\"attemptId\":\"t1\"}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 2
+  },
+  "dispatch 17 workspace-required": {
+    "lines": ["det", "Run dispatch from the Operator's Herdr pane to group its worktree there."],
+    "exitCode": 3
+  },
+  "dispatch 17 workspace-required --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"herdr_workspace_required\",\"blockers\":[{\"reason\":\"herdr_workspace_required\",\"attemptId\":\"t1\",\"detail\":\"det\"}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 3
+  },
+  "dispatch 18 host-unnamed": {
+    "lines": [
+      "No crew host is selected, so this release cannot choose one for you.",
+      "Set `crew.host` in the Operator configuration, or pass `--crew-host`."
+    ],
+    "exitCode": 3
+  },
+  "dispatch 18 host-unnamed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"host_unnamed\",\"blockers\":[{\"reason\":\"host_unnamed\",\"attemptId\":\"t1\"}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 3
+  },
+  "dispatch 19 effort-unsupported": {
+    "lines": ["det"],
+    "exitCode": 3
+  },
+  "dispatch 19 effort-unsupported --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"reasoning_effort_unsupported\",\"blockers\":[{\"reason\":\"reasoning_effort_unsupported\",\"attemptId\":\"t1\",\"detail\":\"det\"}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 3
+  },
+  "dispatch 20 snapshot-unreadable": {
+    "lines": [
+      "Attempt t1 holds a recorded snapshot this release cannot read:",
+      "  det",
+      "The recorded inputs stay fixed, so this step needs your decision."
+    ],
+    "exitCode": 4
+  },
+  "dispatch 20 snapshot-unreadable --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"snapshot_unreadable\",\"blockers\":[{\"reason\":\"snapshot_unreadable\",\"attemptId\":\"t1\",\"detail\":\"det\"}],\"operation\":\"attempt_dispatch\",\"data\":{\"attemptId\":\"t1\"}}"
+    ],
+    "exitCode": 4
+  },
+  "dispatch 21 snapshot-drift": {
+    "lines": [
+      "Attempt t1 was launched against different inputs:",
+      "  host: recorded claude, now opencode",
+      "  model: recorded m1, now m2",
+      "A recovery restores what the attempt recorded, never the current default."
+    ],
+    "exitCode": 4
+  },
+  "dispatch 21 snapshot-drift --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"snapshot_drift\",\"blockers\":[{\"reason\":\"snapshot_drift\",\"input\":\"host\",\"recorded\":\"claude\",\"current\":\"opencode\"},{\"reason\":\"snapshot_drift\",\"input\":\"model\",\"recorded\":\"m1\",\"current\":\"m2\"}],\"operation\":\"attempt_dispatch\",\"data\":{\"attemptId\":\"t1\"}}"
+    ],
+    "exitCode": 4
+  },
+  "dispatch 22 plan-changed": {
+    "lines": [
+      "Attempt t1 holds a different fixed brief than this request builds.",
+      "Assignment inputs stay fixed at dispatch, so this needs your decision."
+    ],
+    "exitCode": 4
+  },
+  "dispatch 22 plan-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"dispatch_plan_changed\",\"blockers\":[{\"reason\":\"dispatch_plan_changed\",\"attemptId\":\"t1\",\"recorded\":\"r1\",\"computed\":\"r2\"}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 4
+  },
+  "dispatch 23 reconciliation-required": {
+    "lines": [
+      "The agent effect of this attempt is intended.",
+      "Run `operator attempt reconcile` before another launch step."
+    ],
+    "exitCode": 3
+  },
+  "dispatch 23 reconciliation-required --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"reconciliation_required\",\"blockers\":[{\"reason\":\"reconciliation_required\",\"stage\":\"agent\",\"operationState\":\"intended\"}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 3
+  },
+  "dispatch 24 stage-failed": {
+    "lines": [
+      "The agent step failed: det",
+      "Attempt t1 on assignment a1 is launched.",
+      "Checkout w/t1 on br from bc.",
+      "Operative ag runs on claude.",
+      "Model host default, reasoning effort high.",
+      "  worktree: succeeded",
+      "  agent: failed (d)"
+    ],
+    "exitCode": 1
+  },
+  "dispatch 24 stage-failed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"failed\",\"reason\":\"dispatch_stage_failed\",\"blockers\":[{\"reason\":\"dispatch_stage_failed\",\"stage\":\"agent\",\"detail\":\"det\"}],\"operation\":\"attempt_dispatch\",\"data\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":null,\"reasoningEffort\":\"high\",\"operations\":[{\"kind\":\"worktree\",\"state\":\"succeeded\",\"detail\":null},{\"kind\":\"agent\",\"state\":\"failed\",\"detail\":\"d\"}]}}"
+    ],
+    "exitCode": 1
+  },
+  "dispatch 25 stage-uncertain": {
+    "lines": [
+      "The agent step did not answer: det",
+      "Run `operator attempt reconcile` before you launch again.",
+      "Attempt t1 on assignment a1 is launched.",
+      "Checkout w/t1 on br from bc.",
+      "Operative ag runs on claude.",
+      "Model host default, reasoning effort high.",
+      "  worktree: succeeded",
+      "  agent: failed (d)"
+    ],
+    "exitCode": 5
+  },
+  "dispatch 25 stage-uncertain --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"uncertain\",\"reason\":\"dispatch_stage_uncertain\",\"blockers\":[{\"reason\":\"dispatch_stage_uncertain\",\"stage\":\"agent\",\"detail\":\"det\"}],\"operation\":\"attempt_dispatch\",\"data\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":null,\"reasoningEffort\":\"high\",\"operations\":[{\"kind\":\"worktree\",\"state\":\"succeeded\",\"detail\":null},{\"kind\":\"agent\",\"state\":\"failed\",\"detail\":\"d\"}]}}"
+    ],
+    "exitCode": 5
+  },
+  "dispatch 26 acknowledged": {
+    "lines": [
+      "Attempt t1 on assignment a1 is launched.",
+      "Checkout w/t1 on br from bc.",
+      "Operative ag runs on claude.",
+      "Model host default, reasoning effort high.",
+      "  worktree: succeeded",
+      "  agent: failed (d)",
+      "The Operative acknowledged the assignment."
+    ],
+    "exitCode": 0
+  },
+  "dispatch 26 acknowledged --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"attempt_dispatched\",\"blockers\":[],\"operation\":\"attempt_dispatch\",\"data\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":null,\"reasoningEffort\":\"high\",\"operations\":[{\"kind\":\"worktree\",\"state\":\"succeeded\",\"detail\":null},{\"kind\":\"agent\",\"state\":\"failed\",\"detail\":\"d\"}]}}"
+    ],
+    "exitCode": 0
+  },
+  "dispatch 27 awaiting-acknowledgement": {
+    "lines": [
+      "Attempt t1 on assignment a1 is launched.",
+      "Checkout w/t1 on br from bc.",
+      "Operative ag runs on claude.",
+      "Model host default, reasoning effort high.",
+      "  worktree: succeeded",
+      "  agent: failed (d)",
+      "The brief is delivered. This dispatch is pending until the Operative acknowledges it."
+    ],
+    "exitCode": 6
+  },
+  "dispatch 27 awaiting-acknowledgement --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"pending\",\"reason\":\"acknowledgement_pending\",\"blockers\":[{\"reason\":\"acknowledgement_pending\",\"attemptId\":\"t1\"}],\"operation\":\"attempt_dispatch\",\"data\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":null,\"reasoningEffort\":\"high\",\"operations\":[{\"kind\":\"worktree\",\"state\":\"succeeded\",\"detail\":null},{\"kind\":\"agent\",\"state\":\"failed\",\"detail\":\"d\"}]}}"
+    ],
+    "exitCode": 6
+  },
+  "dispatch 28 integration-branch-moved": {
+    "lines": [
+      "Branch br holds no commit, and its recorded tip is rt.",
+      "Operator never resets or adopts a moved branch. Ask the user to put it back at the recorded tip.",
+      "Nothing was launched."
+    ],
+    "exitCode": 4
+  },
+  "dispatch 28 integration-branch-moved --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"integration_branch_moved\",\"blockers\":[{\"reason\":\"integration_branch_moved\",\"attemptId\":\"t1\",\"branch\":\"br\",\"recordedTip\":\"rt\",\"found\":null,\"checkedOut\":[]}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 4
+  },
+  "dispatch 29 stage-failed": {
+    "lines": [
+      "The agent step failed: det",
+      "Attempt t1 on assignment a1 is launched.",
+      "Checkout w/t1 on br from bc.",
+      "Operative ag runs on claude.",
+      "Model m1, reasoning effort host default."
+    ],
+    "exitCode": 1
+  },
+  "dispatch 29 stage-failed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"failed\",\"reason\":\"dispatch_stage_failed\",\"blockers\":[{\"reason\":\"dispatch_stage_failed\",\"stage\":\"agent\",\"detail\":\"det\"}],\"operation\":\"attempt_dispatch\",\"data\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":\"m1\",\"reasoningEffort\":null,\"operations\":[]}}"
+    ],
+    "exitCode": 1
+  },
+  "dispatch 30 stage-uncertain": {
+    "lines": [
+      "The agent step did not answer: det",
+      "Run `operator attempt reconcile` before you launch again.",
+      "Attempt t1 on assignment a1 is launched.",
+      "Checkout w/t1 on br from bc.",
+      "Operative ag runs on claude.",
+      "Model m1, reasoning effort host default."
+    ],
+    "exitCode": 5
+  },
+  "dispatch 30 stage-uncertain --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"uncertain\",\"reason\":\"dispatch_stage_uncertain\",\"blockers\":[{\"reason\":\"dispatch_stage_uncertain\",\"stage\":\"agent\",\"detail\":\"det\"}],\"operation\":\"attempt_dispatch\",\"data\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":\"m1\",\"reasoningEffort\":null,\"operations\":[]}}"
+    ],
+    "exitCode": 5
+  },
+  "dispatch 31 acknowledged": {
+    "lines": [
+      "Attempt t1 on assignment a1 is launched.",
+      "Checkout w/t1 on br from bc.",
+      "Operative ag runs on claude.",
+      "Model m1, reasoning effort host default.",
+      "The Operative acknowledged the assignment."
+    ],
+    "exitCode": 0
+  },
+  "dispatch 31 acknowledged --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"attempt_dispatched\",\"blockers\":[],\"operation\":\"attempt_dispatch\",\"data\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":\"m1\",\"reasoningEffort\":null,\"operations\":[]}}"
+    ],
+    "exitCode": 0
+  },
+  "dispatch 32 project-gate-unusable": {
+    "lines": [
+      "Commit cm holds no operator-gate.json.",
+      "A producer runs the project gate before it submits, so nothing was launched.",
+      "The person commits a valid operator-gate.json at the repository root. Then dispatch from a commit that holds it."
+    ],
+    "exitCode": 3
+  },
+  "dispatch 32 project-gate-unusable --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"project_gate_missing\",\"blockers\":[{\"reason\":\"project_gate_missing\",\"attemptId\":\"t1\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 3
+  },
+  "dispatch 33 project-gate-unusable": {
+    "lines": [
+      "operator-gate.json at cm is not valid: i1; i2.",
+      "A producer runs the project gate before it submits, so nothing was launched.",
+      "The person commits a valid operator-gate.json at the repository root. Then dispatch from a commit that holds it."
+    ],
+    "exitCode": 3
+  },
+  "dispatch 33 project-gate-unusable --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"project_gate_invalid\",\"blockers\":[{\"reason\":\"project_gate_invalid\",\"attemptId\":\"t1\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 3
+  },
+  "dispatch 34 project-gate-unusable": {
+    "lines": [
+      "operator-gate.json could not be read at cm: dt",
+      "A producer runs the project gate before it submits, so nothing was launched.",
+      "The person commits a valid operator-gate.json at the repository root. Then dispatch from a commit that holds it."
+    ],
+    "exitCode": 3
+  },
+  "dispatch 34 project-gate-unusable --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"project_gate_unread\",\"blockers\":[{\"reason\":\"project_gate_unread\",\"attemptId\":\"t1\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 3
+  },
+  "dispatch 35 base-gate-not-passed": {
+    "lines": [
+      "The first code dispatch of this source fixes its integration base at commit cm, and that commit has not passed the project gate.",
+      "No gate run is recorded at its key. Run `operator gate run` on this commit first.",
+      "Nothing was launched, and no base was fixed."
+    ],
+    "exitCode": 3
+  },
+  "dispatch 35 base-gate-not-passed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"gate_pending\",\"blockers\":[{\"reason\":\"gate_pending\",\"attemptId\":\"t1\",\"commit\":\"cm\",\"tree\":\"tr\",\"declarationIdentity\":\"di\",\"runIds\":[\"g1\",\"g2\"]}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 3
+  },
+  "dispatch 36 base-gate-not-passed": {
+    "lines": [
+      "The first code dispatch of this source fixes its integration base at commit cm, and that commit has not passed the project gate.",
+      "Gate run g1, g2 is still running. Wait for its outcome.",
+      "Nothing was launched, and no base was fixed."
+    ],
+    "exitCode": 3
+  },
+  "dispatch 36 base-gate-not-passed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"gate_running\",\"blockers\":[{\"reason\":\"gate_running\",\"attemptId\":\"t1\",\"commit\":\"cm\",\"tree\":\"tr\",\"declarationIdentity\":\"di\",\"runIds\":[\"g1\",\"g2\"]}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 3
+  },
+  "dispatch 37 base-gate-not-passed": {
+    "lines": [
+      "The first code dispatch of this source fixes its integration base at commit cm, and that commit has not passed the project gate.",
+      "The key is failed in gate run g1, g2. Read it with `operator gate show --run <id>`.",
+      "Only the user clears it: by a fixed main branch and a new base commit, or by an approval of a fresh series.",
+      "Nothing was launched, and no base was fixed."
+    ],
+    "exitCode": 4
+  },
+  "dispatch 37 base-gate-not-passed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"gate_failed\",\"blockers\":[{\"reason\":\"gate_failed\",\"attemptId\":\"t1\",\"commit\":\"cm\",\"tree\":\"tr\",\"declarationIdentity\":\"di\",\"runIds\":[\"g1\",\"g2\"]}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 4
+  },
+  "dispatch 38 base-gate-not-passed": {
+    "lines": [
+      "The first code dispatch of this source fixes its integration base at commit cm, and that commit has not passed the project gate.",
+      "The key is flaky in gate run g1, g2. Read it with `operator gate show --run <id>`.",
+      "Only the user clears it: by a fixed main branch and a new base commit, or by an approval of a fresh series.",
+      "Nothing was launched, and no base was fixed."
+    ],
+    "exitCode": 4
+  },
+  "dispatch 38 base-gate-not-passed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"gate_flaky\",\"blockers\":[{\"reason\":\"gate_flaky\",\"attemptId\":\"t1\",\"commit\":\"cm\",\"tree\":\"tr\",\"declarationIdentity\":\"di\",\"runIds\":[\"g1\",\"g2\"]}],\"operation\":\"attempt_dispatch\"}"
+    ],
+    "exitCode": 4
+  },
+  "replace 0 state-missing": {
+    "lines": ["This project holds no crew state. Run `operator crew own` to start a crew."],
+    "exitCode": 3
+  },
+  "replace 0 state-missing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"state_missing\",\"blockers\":[{\"reason\":\"state_missing\",\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"branch\":\"br\",\"recordedTip\":\"rt\",\"found\":\"fnd\",\"checkedOut\":[\"w1\",\"w2\"],\"requested\":\"rq\",\"base\":\"bs\",\"heldBy\":\"s2\",\"commit\":\"cm\",\"detail\":\"det\",\"gate\":{\"status\":\"missing\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"},\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"recorded\":\"r1\",\"computed\":\"r2\",\"drift\":[{\"input\":\"host\",\"recorded\":\"claude\",\"current\":\"opencode\"},{\"input\":\"model\",\"recorded\":\"m1\",\"current\":\"m2\"}],\"stage\":\"agent\",\"operationState\":\"intended\",\"report\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":null,\"reasoningEffort\":\"high\",\"operations\":[{\"kind\":\"worktree\",\"state\":\"succeeded\",\"detail\":null},{\"kind\":\"agent\",\"state\":\"failed\",\"detail\":\"d\"}]},\"repeated\":false,\"pending\":[\"worktree\",\"agent\"],\"agentName\":\"ag\",\"paneId\":\"p1\",\"inspection\":{\"identity\":\"in1\",\"uncommitted\":[\"x.ts\",\"y.ts\"],\"commits\":[\"c1\"]},\"reviewId\":\"rv1\",\"limit\":3,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"},\"direction\":{\"directionRequestId\":\"d1\",\"revision\":4,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"}},\"previousAttemptId\":\"t0\",\"issues\":[\"i1\",\"i2\"],\"name\":\"art\",\"path\":\"p/x\",\"kind\":\"grill\",\"state\":\"st\",\"recordedRevision\":3,\"recordedIdentity\":\"ri\",\"submissionId\":\"sb1\",\"revision\":2,\"identity\":\"id1\",\"reviewAssignmentId\":\"a9\",\"reviewSourceKey\":\"rk\",\"reworkCycleId\":null,\"outsideChanges\":0,\"refusals\":[{\"reason\":\"result_not_one_commit\",\"rule\":\"one\",\"baseCommit\":\"bc\",\"commits\":[{\"commit\":\"c1\",\"parents\":[]}],\"statedBase\":\"sb\",\"statedResult\":\"sr\"},{\"reason\":\"uncommitted_work\",\"paths\":[\"u1\",\"u2\"]},{\"reason\":\"outside_write_paths\",\"paths\":[\"o1\",\"o2\"],\"writePaths\":[\"w\"]},{\"reason\":\"result_check_not_run\",\"check\":\"gate\",\"detail\":\"dt\"},{\"reason\":\"behavior_change_basis_missing\",\"entries\":[{\"position\":1,\"detail\":\"d1\"},{\"position\":2,\"detail\":\"d2\"}]},{\"reason\":\"project_gate_not_passed\",\"rule\":\"gate\",\"gateCommit\":\"gc\",\"commands\":[{\"name\":\"lint\",\"recorded\":[]},{\"name\":\"test\",\"recorded\":[\"failed\",\"flaky\"]}]}]}],\"operation\":\"attempt_replace\"}"
+    ],
+    "exitCode": 3
+  },
+  "replace 1 unowned": {
+    "lines": ["No Operator owns this crew. Run `operator crew own` first."],
+    "exitCode": 3
+  },
+  "replace 1 unowned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"crew_unowned\",\"blockers\":[{\"reason\":\"crew_unowned\",\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"branch\":\"br\",\"recordedTip\":\"rt\",\"found\":\"fnd\",\"checkedOut\":[\"w1\",\"w2\"],\"requested\":\"rq\",\"base\":\"bs\",\"heldBy\":\"s2\",\"commit\":\"cm\",\"detail\":\"det\",\"gate\":{\"status\":\"missing\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"},\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"recorded\":\"r1\",\"computed\":\"r2\",\"drift\":[{\"input\":\"host\",\"recorded\":\"claude\",\"current\":\"opencode\"},{\"input\":\"model\",\"recorded\":\"m1\",\"current\":\"m2\"}],\"stage\":\"agent\",\"operationState\":\"intended\",\"report\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":null,\"reasoningEffort\":\"high\",\"operations\":[{\"kind\":\"worktree\",\"state\":\"succeeded\",\"detail\":null},{\"kind\":\"agent\",\"state\":\"failed\",\"detail\":\"d\"}]},\"repeated\":false,\"pending\":[\"worktree\",\"agent\"],\"agentName\":\"ag\",\"paneId\":\"p1\",\"inspection\":{\"identity\":\"in1\",\"uncommitted\":[\"x.ts\",\"y.ts\"],\"commits\":[\"c1\"]},\"reviewId\":\"rv1\",\"limit\":3,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"},\"direction\":{\"directionRequestId\":\"d1\",\"revision\":4,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"}},\"previousAttemptId\":\"t0\",\"issues\":[\"i1\",\"i2\"],\"name\":\"art\",\"path\":\"p/x\",\"kind\":\"grill\",\"state\":\"st\",\"recordedRevision\":3,\"recordedIdentity\":\"ri\",\"submissionId\":\"sb1\",\"revision\":2,\"identity\":\"id1\",\"reviewAssignmentId\":\"a9\",\"reviewSourceKey\":\"rk\",\"reworkCycleId\":null,\"outsideChanges\":0,\"refusals\":[{\"reason\":\"result_not_one_commit\",\"rule\":\"one\",\"baseCommit\":\"bc\",\"commits\":[{\"commit\":\"c1\",\"parents\":[]}],\"statedBase\":\"sb\",\"statedResult\":\"sr\"},{\"reason\":\"uncommitted_work\",\"paths\":[\"u1\",\"u2\"]},{\"reason\":\"outside_write_paths\",\"paths\":[\"o1\",\"o2\"],\"writePaths\":[\"w\"]},{\"reason\":\"result_check_not_run\",\"check\":\"gate\",\"detail\":\"dt\"},{\"reason\":\"behavior_change_basis_missing\",\"entries\":[{\"position\":1,\"detail\":\"d1\"},{\"position\":2,\"detail\":\"d2\"}]},{\"reason\":\"project_gate_not_passed\",\"rule\":\"gate\",\"gateCommit\":\"gc\",\"commands\":[{\"name\":\"lint\",\"recorded\":[]},{\"name\":\"test\",\"recorded\":[\"failed\",\"flaky\"]}]}]}],\"operation\":\"attempt_replace\"}"
+    ],
+    "exitCode": 3
+  },
+  "replace 2 ownership-stale": {
+    "lines": [
+      "Another Operator took ownership of this crew. This token can no longer change state."
+    ],
+    "exitCode": 4
+  },
+  "replace 2 ownership-stale --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"ownership_stale\",\"blockers\":[{\"reason\":\"ownership_stale\",\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"branch\":\"br\",\"recordedTip\":\"rt\",\"found\":\"fnd\",\"checkedOut\":[\"w1\",\"w2\"],\"requested\":\"rq\",\"base\":\"bs\",\"heldBy\":\"s2\",\"commit\":\"cm\",\"detail\":\"det\",\"gate\":{\"status\":\"missing\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"},\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"recorded\":\"r1\",\"computed\":\"r2\",\"drift\":[{\"input\":\"host\",\"recorded\":\"claude\",\"current\":\"opencode\"},{\"input\":\"model\",\"recorded\":\"m1\",\"current\":\"m2\"}],\"stage\":\"agent\",\"operationState\":\"intended\",\"report\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":null,\"reasoningEffort\":\"high\",\"operations\":[{\"kind\":\"worktree\",\"state\":\"succeeded\",\"detail\":null},{\"kind\":\"agent\",\"state\":\"failed\",\"detail\":\"d\"}]},\"repeated\":false,\"pending\":[\"worktree\",\"agent\"],\"agentName\":\"ag\",\"paneId\":\"p1\",\"inspection\":{\"identity\":\"in1\",\"uncommitted\":[\"x.ts\",\"y.ts\"],\"commits\":[\"c1\"]},\"reviewId\":\"rv1\",\"limit\":3,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"},\"direction\":{\"directionRequestId\":\"d1\",\"revision\":4,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"}},\"previousAttemptId\":\"t0\",\"issues\":[\"i1\",\"i2\"],\"name\":\"art\",\"path\":\"p/x\",\"kind\":\"grill\",\"state\":\"st\",\"recordedRevision\":3,\"recordedIdentity\":\"ri\",\"submissionId\":\"sb1\",\"revision\":2,\"identity\":\"id1\",\"reviewAssignmentId\":\"a9\",\"reviewSourceKey\":\"rk\",\"reworkCycleId\":null,\"outsideChanges\":0,\"refusals\":[{\"reason\":\"result_not_one_commit\",\"rule\":\"one\",\"baseCommit\":\"bc\",\"commits\":[{\"commit\":\"c1\",\"parents\":[]}],\"statedBase\":\"sb\",\"statedResult\":\"sr\"},{\"reason\":\"uncommitted_work\",\"paths\":[\"u1\",\"u2\"]},{\"reason\":\"outside_write_paths\",\"paths\":[\"o1\",\"o2\"],\"writePaths\":[\"w\"]},{\"reason\":\"result_check_not_run\",\"check\":\"gate\",\"detail\":\"dt\"},{\"reason\":\"behavior_change_basis_missing\",\"entries\":[{\"position\":1,\"detail\":\"d1\"},{\"position\":2,\"detail\":\"d2\"}]},{\"reason\":\"project_gate_not_passed\",\"rule\":\"gate\",\"gateCommit\":\"gc\",\"commands\":[{\"name\":\"lint\",\"recorded\":[]},{\"name\":\"test\",\"recorded\":[\"failed\",\"flaky\"]}]}]}],\"operation\":\"attempt_replace\"}"
+    ],
+    "exitCode": 4
+  },
+  "replace 3 request-input-changed": {
+    "lines": [
+      "This request identity already recorded different input. Use a new request identity."
+    ],
+    "exitCode": 2
+  },
+  "replace 3 request-input-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"request_input_changed\",\"blockers\":[{\"reason\":\"request_input_changed\",\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"branch\":\"br\",\"recordedTip\":\"rt\",\"found\":\"fnd\",\"checkedOut\":[\"w1\",\"w2\"],\"requested\":\"rq\",\"base\":\"bs\",\"heldBy\":\"s2\",\"commit\":\"cm\",\"detail\":\"det\",\"gate\":{\"status\":\"missing\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"},\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"recorded\":\"r1\",\"computed\":\"r2\",\"drift\":[{\"input\":\"host\",\"recorded\":\"claude\",\"current\":\"opencode\"},{\"input\":\"model\",\"recorded\":\"m1\",\"current\":\"m2\"}],\"stage\":\"agent\",\"operationState\":\"intended\",\"report\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":null,\"reasoningEffort\":\"high\",\"operations\":[{\"kind\":\"worktree\",\"state\":\"succeeded\",\"detail\":null},{\"kind\":\"agent\",\"state\":\"failed\",\"detail\":\"d\"}]},\"repeated\":false,\"pending\":[\"worktree\",\"agent\"],\"agentName\":\"ag\",\"paneId\":\"p1\",\"inspection\":{\"identity\":\"in1\",\"uncommitted\":[\"x.ts\",\"y.ts\"],\"commits\":[\"c1\"]},\"reviewId\":\"rv1\",\"limit\":3,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"},\"direction\":{\"directionRequestId\":\"d1\",\"revision\":4,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"}},\"previousAttemptId\":\"t0\",\"issues\":[\"i1\",\"i2\"],\"name\":\"art\",\"path\":\"p/x\",\"kind\":\"grill\",\"state\":\"st\",\"recordedRevision\":3,\"recordedIdentity\":\"ri\",\"submissionId\":\"sb1\",\"revision\":2,\"identity\":\"id1\",\"reviewAssignmentId\":\"a9\",\"reviewSourceKey\":\"rk\",\"reworkCycleId\":null,\"outsideChanges\":0,\"refusals\":[{\"reason\":\"result_not_one_commit\",\"rule\":\"one\",\"baseCommit\":\"bc\",\"commits\":[{\"commit\":\"c1\",\"parents\":[]}],\"statedBase\":\"sb\",\"statedResult\":\"sr\"},{\"reason\":\"uncommitted_work\",\"paths\":[\"u1\",\"u2\"]},{\"reason\":\"outside_write_paths\",\"paths\":[\"o1\",\"o2\"],\"writePaths\":[\"w\"]},{\"reason\":\"result_check_not_run\",\"check\":\"gate\",\"detail\":\"dt\"},{\"reason\":\"behavior_change_basis_missing\",\"entries\":[{\"position\":1,\"detail\":\"d1\"},{\"position\":2,\"detail\":\"d2\"}]},{\"reason\":\"project_gate_not_passed\",\"rule\":\"gate\",\"gateCommit\":\"gc\",\"commands\":[{\"name\":\"lint\",\"recorded\":[]},{\"name\":\"test\",\"recorded\":[\"failed\",\"flaky\"]}]}]}],\"operation\":\"attempt_replace\"}"
+    ],
+    "exitCode": 2
+  },
+  "replace 4 unknown-attempt": {
+    "lines": ["No attempt is recorded under that identity."],
+    "exitCode": 2
+  },
+  "replace 4 unknown-attempt --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_attempt\",\"blockers\":[{\"reason\":\"unknown_attempt\",\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"branch\":\"br\",\"recordedTip\":\"rt\",\"found\":\"fnd\",\"checkedOut\":[\"w1\",\"w2\"],\"requested\":\"rq\",\"base\":\"bs\",\"heldBy\":\"s2\",\"commit\":\"cm\",\"detail\":\"det\",\"gate\":{\"status\":\"missing\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"},\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"recorded\":\"r1\",\"computed\":\"r2\",\"drift\":[{\"input\":\"host\",\"recorded\":\"claude\",\"current\":\"opencode\"},{\"input\":\"model\",\"recorded\":\"m1\",\"current\":\"m2\"}],\"stage\":\"agent\",\"operationState\":\"intended\",\"report\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":null,\"reasoningEffort\":\"high\",\"operations\":[{\"kind\":\"worktree\",\"state\":\"succeeded\",\"detail\":null},{\"kind\":\"agent\",\"state\":\"failed\",\"detail\":\"d\"}]},\"repeated\":false,\"pending\":[\"worktree\",\"agent\"],\"agentName\":\"ag\",\"paneId\":\"p1\",\"inspection\":{\"identity\":\"in1\",\"uncommitted\":[\"x.ts\",\"y.ts\"],\"commits\":[\"c1\"]},\"reviewId\":\"rv1\",\"limit\":3,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"},\"direction\":{\"directionRequestId\":\"d1\",\"revision\":4,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"}},\"previousAttemptId\":\"t0\",\"issues\":[\"i1\",\"i2\"],\"name\":\"art\",\"path\":\"p/x\",\"kind\":\"grill\",\"state\":\"st\",\"recordedRevision\":3,\"recordedIdentity\":\"ri\",\"submissionId\":\"sb1\",\"revision\":2,\"identity\":\"id1\",\"reviewAssignmentId\":\"a9\",\"reviewSourceKey\":\"rk\",\"reworkCycleId\":null,\"outsideChanges\":0,\"refusals\":[{\"reason\":\"result_not_one_commit\",\"rule\":\"one\",\"baseCommit\":\"bc\",\"commits\":[{\"commit\":\"c1\",\"parents\":[]}],\"statedBase\":\"sb\",\"statedResult\":\"sr\"},{\"reason\":\"uncommitted_work\",\"paths\":[\"u1\",\"u2\"]},{\"reason\":\"outside_write_paths\",\"paths\":[\"o1\",\"o2\"],\"writePaths\":[\"w\"]},{\"reason\":\"result_check_not_run\",\"check\":\"gate\",\"detail\":\"dt\"},{\"reason\":\"behavior_change_basis_missing\",\"entries\":[{\"position\":1,\"detail\":\"d1\"},{\"position\":2,\"detail\":\"d2\"}]},{\"reason\":\"project_gate_not_passed\",\"rule\":\"gate\",\"gateCommit\":\"gc\",\"commands\":[{\"name\":\"lint\",\"recorded\":[]},{\"name\":\"test\",\"recorded\":[\"failed\",\"flaky\"]}]}]}],\"operation\":\"attempt_replace\"}"
+    ],
+    "exitCode": 2
+  },
+  "replace 5 attempt-ended": {
+    "lines": ["That attempt has ended, so it can no longer write. Claim the assignment again."],
+    "exitCode": 4
+  },
+  "replace 5 attempt-ended --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"attempt_ended\",\"blockers\":[{\"reason\":\"attempt_ended\",\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"branch\":\"br\",\"recordedTip\":\"rt\",\"found\":\"fnd\",\"checkedOut\":[\"w1\",\"w2\"],\"requested\":\"rq\",\"base\":\"bs\",\"heldBy\":\"s2\",\"commit\":\"cm\",\"detail\":\"det\",\"gate\":{\"status\":\"missing\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"},\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"recorded\":\"r1\",\"computed\":\"r2\",\"drift\":[{\"input\":\"host\",\"recorded\":\"claude\",\"current\":\"opencode\"},{\"input\":\"model\",\"recorded\":\"m1\",\"current\":\"m2\"}],\"stage\":\"agent\",\"operationState\":\"intended\",\"report\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":null,\"reasoningEffort\":\"high\",\"operations\":[{\"kind\":\"worktree\",\"state\":\"succeeded\",\"detail\":null},{\"kind\":\"agent\",\"state\":\"failed\",\"detail\":\"d\"}]},\"repeated\":false,\"pending\":[\"worktree\",\"agent\"],\"agentName\":\"ag\",\"paneId\":\"p1\",\"inspection\":{\"identity\":\"in1\",\"uncommitted\":[\"x.ts\",\"y.ts\"],\"commits\":[\"c1\"]},\"reviewId\":\"rv1\",\"limit\":3,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"},\"direction\":{\"directionRequestId\":\"d1\",\"revision\":4,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"}},\"previousAttemptId\":\"t0\",\"issues\":[\"i1\",\"i2\"],\"name\":\"art\",\"path\":\"p/x\",\"kind\":\"grill\",\"state\":\"st\",\"recordedRevision\":3,\"recordedIdentity\":\"ri\",\"submissionId\":\"sb1\",\"revision\":2,\"identity\":\"id1\",\"reviewAssignmentId\":\"a9\",\"reviewSourceKey\":\"rk\",\"reworkCycleId\":null,\"outsideChanges\":0,\"refusals\":[{\"reason\":\"result_not_one_commit\",\"rule\":\"one\",\"baseCommit\":\"bc\",\"commits\":[{\"commit\":\"c1\",\"parents\":[]}],\"statedBase\":\"sb\",\"statedResult\":\"sr\"},{\"reason\":\"uncommitted_work\",\"paths\":[\"u1\",\"u2\"]},{\"reason\":\"outside_write_paths\",\"paths\":[\"o1\",\"o2\"],\"writePaths\":[\"w\"]},{\"reason\":\"result_check_not_run\",\"check\":\"gate\",\"detail\":\"dt\"},{\"reason\":\"behavior_change_basis_missing\",\"entries\":[{\"position\":1,\"detail\":\"d1\"},{\"position\":2,\"detail\":\"d2\"}]},{\"reason\":\"project_gate_not_passed\",\"rule\":\"gate\",\"gateCommit\":\"gc\",\"commands\":[{\"name\":\"lint\",\"recorded\":[]},{\"name\":\"test\",\"recorded\":[\"failed\",\"flaky\"]}]}]}],\"operation\":\"attempt_replace\"}"
+    ],
+    "exitCode": 4
+  },
+  "replace 6 attempt-not-current": {
+    "lines": ["Another Operator owns this crew, so this attempt is not the current writer."],
+    "exitCode": 4
+  },
+  "replace 6 attempt-not-current --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"attempt_not_current\",\"blockers\":[{\"reason\":\"attempt_not_current\",\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"branch\":\"br\",\"recordedTip\":\"rt\",\"found\":\"fnd\",\"checkedOut\":[\"w1\",\"w2\"],\"requested\":\"rq\",\"base\":\"bs\",\"heldBy\":\"s2\",\"commit\":\"cm\",\"detail\":\"det\",\"gate\":{\"status\":\"missing\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"},\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"recorded\":\"r1\",\"computed\":\"r2\",\"drift\":[{\"input\":\"host\",\"recorded\":\"claude\",\"current\":\"opencode\"},{\"input\":\"model\",\"recorded\":\"m1\",\"current\":\"m2\"}],\"stage\":\"agent\",\"operationState\":\"intended\",\"report\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":null,\"reasoningEffort\":\"high\",\"operations\":[{\"kind\":\"worktree\",\"state\":\"succeeded\",\"detail\":null},{\"kind\":\"agent\",\"state\":\"failed\",\"detail\":\"d\"}]},\"repeated\":false,\"pending\":[\"worktree\",\"agent\"],\"agentName\":\"ag\",\"paneId\":\"p1\",\"inspection\":{\"identity\":\"in1\",\"uncommitted\":[\"x.ts\",\"y.ts\"],\"commits\":[\"c1\"]},\"reviewId\":\"rv1\",\"limit\":3,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"},\"direction\":{\"directionRequestId\":\"d1\",\"revision\":4,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"}},\"previousAttemptId\":\"t0\",\"issues\":[\"i1\",\"i2\"],\"name\":\"art\",\"path\":\"p/x\",\"kind\":\"grill\",\"state\":\"st\",\"recordedRevision\":3,\"recordedIdentity\":\"ri\",\"submissionId\":\"sb1\",\"revision\":2,\"identity\":\"id1\",\"reviewAssignmentId\":\"a9\",\"reviewSourceKey\":\"rk\",\"reworkCycleId\":null,\"outsideChanges\":0,\"refusals\":[{\"reason\":\"result_not_one_commit\",\"rule\":\"one\",\"baseCommit\":\"bc\",\"commits\":[{\"commit\":\"c1\",\"parents\":[]}],\"statedBase\":\"sb\",\"statedResult\":\"sr\"},{\"reason\":\"uncommitted_work\",\"paths\":[\"u1\",\"u2\"]},{\"reason\":\"outside_write_paths\",\"paths\":[\"o1\",\"o2\"],\"writePaths\":[\"w\"]},{\"reason\":\"result_check_not_run\",\"check\":\"gate\",\"detail\":\"dt\"},{\"reason\":\"behavior_change_basis_missing\",\"entries\":[{\"position\":1,\"detail\":\"d1\"},{\"position\":2,\"detail\":\"d2\"}]},{\"reason\":\"project_gate_not_passed\",\"rule\":\"gate\",\"gateCommit\":\"gc\",\"commands\":[{\"name\":\"lint\",\"recorded\":[]},{\"name\":\"test\",\"recorded\":[\"failed\",\"flaky\"]}]}]}],\"operation\":\"attempt_replace\"}"
+    ],
+    "exitCode": 4
+  },
+  "replace 7 not-dispatched": {
+    "lines": ["That attempt has no recorded launch. Dispatch it first."],
+    "exitCode": 3
+  },
+  "replace 7 not-dispatched --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"attempt_not_dispatched\",\"blockers\":[{\"reason\":\"attempt_not_dispatched\",\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"branch\":\"br\",\"recordedTip\":\"rt\",\"found\":\"fnd\",\"checkedOut\":[\"w1\",\"w2\"],\"requested\":\"rq\",\"base\":\"bs\",\"heldBy\":\"s2\",\"commit\":\"cm\",\"detail\":\"det\",\"gate\":{\"status\":\"missing\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"},\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"recorded\":\"r1\",\"computed\":\"r2\",\"drift\":[{\"input\":\"host\",\"recorded\":\"claude\",\"current\":\"opencode\"},{\"input\":\"model\",\"recorded\":\"m1\",\"current\":\"m2\"}],\"stage\":\"agent\",\"operationState\":\"intended\",\"report\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":null,\"reasoningEffort\":\"high\",\"operations\":[{\"kind\":\"worktree\",\"state\":\"succeeded\",\"detail\":null},{\"kind\":\"agent\",\"state\":\"failed\",\"detail\":\"d\"}]},\"repeated\":false,\"pending\":[\"worktree\",\"agent\"],\"agentName\":\"ag\",\"paneId\":\"p1\",\"inspection\":{\"identity\":\"in1\",\"uncommitted\":[\"x.ts\",\"y.ts\"],\"commits\":[\"c1\"]},\"reviewId\":\"rv1\",\"limit\":3,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"},\"direction\":{\"directionRequestId\":\"d1\",\"revision\":4,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"}},\"previousAttemptId\":\"t0\",\"issues\":[\"i1\",\"i2\"],\"name\":\"art\",\"path\":\"p/x\",\"kind\":\"grill\",\"state\":\"st\",\"recordedRevision\":3,\"recordedIdentity\":\"ri\",\"submissionId\":\"sb1\",\"revision\":2,\"identity\":\"id1\",\"reviewAssignmentId\":\"a9\",\"reviewSourceKey\":\"rk\",\"reworkCycleId\":null,\"outsideChanges\":0,\"refusals\":[{\"reason\":\"result_not_one_commit\",\"rule\":\"one\",\"baseCommit\":\"bc\",\"commits\":[{\"commit\":\"c1\",\"parents\":[]}],\"statedBase\":\"sb\",\"statedResult\":\"sr\"},{\"reason\":\"uncommitted_work\",\"paths\":[\"u1\",\"u2\"]},{\"reason\":\"outside_write_paths\",\"paths\":[\"o1\",\"o2\"],\"writePaths\":[\"w\"]},{\"reason\":\"result_check_not_run\",\"check\":\"gate\",\"detail\":\"dt\"},{\"reason\":\"behavior_change_basis_missing\",\"entries\":[{\"position\":1,\"detail\":\"d1\"},{\"position\":2,\"detail\":\"d2\"}]},{\"reason\":\"project_gate_not_passed\",\"rule\":\"gate\",\"gateCommit\":\"gc\",\"commands\":[{\"name\":\"lint\",\"recorded\":[]},{\"name\":\"test\",\"recorded\":[\"failed\",\"flaky\"]}]}]}],\"operation\":\"attempt_replace\"}"
+    ],
+    "exitCode": 3
+  },
+  "replace 8 reconciliation-required": {
+    "lines": [
+      "This attempt holds unsettled effects, so a replacement could create a second writer.",
+      "Run `operator attempt reconcile` first."
+    ],
+    "exitCode": 3
+  },
+  "replace 8 reconciliation-required --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"reconciliation_required\",\"blockers\":[{\"reason\":\"reconciliation_required\",\"kind\":\"worktree\"},{\"reason\":\"reconciliation_required\",\"kind\":\"agent\"}],\"operation\":\"attempt_replace\"}"
+    ],
+    "exitCode": 3
+  },
+  "replace 9 writer-live": {
+    "lines": [
+      "Operative ag is still live in pane p1.",
+      "Stop it and confirm its termination before a replacement writes."
+    ],
+    "exitCode": 4
+  },
+  "replace 9 writer-live --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"writer_live\",\"blockers\":[{\"reason\":\"writer_live\",\"attemptId\":\"t1\",\"agentName\":\"ag\",\"paneId\":\"p1\"}],\"operation\":\"attempt_replace\"}"
+    ],
+    "exitCode": 4
+  },
+  "replace 10 writer-unknown": {
+    "lines": ["Whether the former writer stopped cannot be read: det"],
+    "exitCode": 5
+  },
+  "replace 10 writer-unknown --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"uncertain\",\"reason\":\"writer_unknown\",\"blockers\":[{\"reason\":\"writer_unknown\",\"attemptId\":\"t1\",\"detail\":\"det\"}],\"operation\":\"attempt_replace\"}"
+    ],
+    "exitCode": 5
+  },
+  "replace 11 inspection-required": {
+    "lines": [
+      "A replacement inspects the partial work first.",
+      "Uncommitted files: 2. Commits since the base: 1.",
+      "  x.ts",
+      "  y.ts",
+      "Approve this exact reading with --inspection in1"
+    ],
+    "exitCode": 3
+  },
+  "replace 11 inspection-required --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"inspection_required\",\"blockers\":[{\"reason\":\"inspection_required\",\"attemptId\":\"t1\",\"identity\":\"in1\"}],\"operation\":\"attempt_replace\",\"data\":{\"identity\":\"in1\",\"uncommitted\":[\"x.ts\",\"y.ts\"],\"commits\":[\"c1\"]}}"
+    ],
+    "exitCode": 3
+  },
+  "replace 12 inspection-stale": {
+    "lines": [
+      "The checkout changed since the inspection you approved.",
+      "Uncommitted files: 2. Commits since the base: 1.",
+      "  x.ts",
+      "  y.ts",
+      "Approve this exact reading with --inspection in1"
+    ],
+    "exitCode": 4
+  },
+  "replace 12 inspection-stale --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"inspection_stale\",\"blockers\":[{\"reason\":\"inspection_stale\",\"attemptId\":\"t1\",\"identity\":\"in1\"}],\"operation\":\"attempt_replace\",\"data\":{\"identity\":\"in1\",\"uncommitted\":[\"x.ts\",\"y.ts\"],\"commits\":[\"c1\"]}}"
+    ],
+    "exitCode": 4
+  },
+  "replace 13 snapshot-unreadable": {
+    "lines": [
+      "Attempt t1 holds a recorded snapshot this release cannot read:",
+      "  det",
+      "The recorded inputs stay fixed, so this step needs your decision."
+    ],
+    "exitCode": 4
+  },
+  "replace 13 snapshot-unreadable --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"snapshot_unreadable\",\"blockers\":[{\"reason\":\"snapshot_unreadable\",\"attemptId\":\"t1\",\"detail\":\"det\"}],\"operation\":\"attempt_replace\",\"data\":{\"attemptId\":\"t1\"}}"
+    ],
+    "exitCode": 4
+  },
+  "replace 14 review-attempt-limit": {
+    "lines": [
+      "Review rv1 already used its 3 attempts.",
+      "Another launch is not a remedy. Bring the blocker to the user.",
+      "Direction request d1 is open at revision 4.",
+      "It is passed by an approval with action \"direction\", scope \"rv1\", and requestRevision \"4\"."
+    ],
+    "exitCode": 3
+  },
+  "replace 14 review-attempt-limit --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"review_attempt_limit\",\"blockers\":[{\"reason\":\"review_attempt_limit\",\"reviewId\":\"rv1\",\"limit\":3,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"}}],\"operation\":\"attempt_replace\",\"data\":{\"direction\":{\"directionRequestId\":\"d1\",\"revision\":4,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"}}}}"
+    ],
+    "exitCode": 3
+  },
+  "replace 15 replaced": {
+    "lines": [
+      "Attempt t0 is replaced by t1.",
+      "The inspected checkout and branch are retained. Dispatch the new attempt to launch it."
+    ],
+    "exitCode": 0
+  },
+  "replace 15 replaced --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"attempt_replaced\",\"blockers\":[],\"operation\":\"attempt_replace\",\"data\":{\"previousAttemptId\":\"t0\",\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"inspection\":{\"identity\":\"in1\",\"uncommitted\":[\"x.ts\",\"y.ts\"],\"commits\":[\"c1\"]}}}"
+    ],
+    "exitCode": 0
+  },
+  "replace 16 project-gate-unusable": {
+    "lines": [
+      "Commit cm holds no operator-gate.json.",
+      "A producer runs the project gate before it submits, so nothing was launched.",
+      "The person commits a valid operator-gate.json at the repository root. Then dispatch from a commit that holds it."
+    ],
+    "exitCode": 3
+  },
+  "replace 16 project-gate-unusable --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"project_gate_missing\",\"blockers\":[{\"reason\":\"project_gate_missing\",\"attemptId\":\"t1\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"}],\"operation\":\"attempt_replace\"}"
+    ],
+    "exitCode": 3
+  },
+  "replace 17 project-gate-unusable": {
+    "lines": [
+      "operator-gate.json at cm is not valid: i1; i2.",
+      "A producer runs the project gate before it submits, so nothing was launched.",
+      "The person commits a valid operator-gate.json at the repository root. Then dispatch from a commit that holds it."
+    ],
+    "exitCode": 3
+  },
+  "replace 17 project-gate-unusable --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"project_gate_invalid\",\"blockers\":[{\"reason\":\"project_gate_invalid\",\"attemptId\":\"t1\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"}],\"operation\":\"attempt_replace\"}"
+    ],
+    "exitCode": 3
+  },
+  "replace 18 project-gate-unusable": {
+    "lines": [
+      "operator-gate.json could not be read at cm: dt",
+      "A producer runs the project gate before it submits, so nothing was launched.",
+      "The person commits a valid operator-gate.json at the repository root. Then dispatch from a commit that holds it."
+    ],
+    "exitCode": 3
+  },
+  "replace 18 project-gate-unusable --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"project_gate_unread\",\"blockers\":[{\"reason\":\"project_gate_unread\",\"attemptId\":\"t1\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"}],\"operation\":\"attempt_replace\"}"
+    ],
+    "exitCode": 3
+  },
+  "submit 0 state-missing": {
+    "lines": ["This project holds no crew state. Run `operator crew own` to start a crew."],
+    "exitCode": 3
+  },
+  "submit 0 state-missing --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"state_missing\",\"blockers\":[{\"reason\":\"state_missing\",\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"branch\":\"br\",\"recordedTip\":\"rt\",\"found\":\"fnd\",\"checkedOut\":[\"w1\",\"w2\"],\"requested\":\"rq\",\"base\":\"bs\",\"heldBy\":\"s2\",\"commit\":\"cm\",\"detail\":\"det\",\"gate\":{\"status\":\"missing\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"},\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"recorded\":\"r1\",\"computed\":\"r2\",\"drift\":[{\"input\":\"host\",\"recorded\":\"claude\",\"current\":\"opencode\"},{\"input\":\"model\",\"recorded\":\"m1\",\"current\":\"m2\"}],\"stage\":\"agent\",\"operationState\":\"intended\",\"report\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":null,\"reasoningEffort\":\"high\",\"operations\":[{\"kind\":\"worktree\",\"state\":\"succeeded\",\"detail\":null},{\"kind\":\"agent\",\"state\":\"failed\",\"detail\":\"d\"}]},\"repeated\":false,\"pending\":[\"worktree\",\"agent\"],\"agentName\":\"ag\",\"paneId\":\"p1\",\"inspection\":{\"identity\":\"in1\",\"uncommitted\":[\"x.ts\",\"y.ts\"],\"commits\":[\"c1\"]},\"reviewId\":\"rv1\",\"limit\":3,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"},\"direction\":{\"directionRequestId\":\"d1\",\"revision\":4,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"}},\"previousAttemptId\":\"t0\",\"issues\":[\"i1\",\"i2\"],\"name\":\"art\",\"path\":\"p/x\",\"kind\":\"grill\",\"state\":\"st\",\"recordedRevision\":3,\"recordedIdentity\":\"ri\",\"submissionId\":\"sb1\",\"revision\":2,\"identity\":\"id1\",\"reviewAssignmentId\":\"a9\",\"reviewSourceKey\":\"rk\",\"reworkCycleId\":null,\"outsideChanges\":0,\"refusals\":[{\"reason\":\"result_not_one_commit\",\"rule\":\"one\",\"baseCommit\":\"bc\",\"commits\":[{\"commit\":\"c1\",\"parents\":[]}],\"statedBase\":\"sb\",\"statedResult\":\"sr\"},{\"reason\":\"uncommitted_work\",\"paths\":[\"u1\",\"u2\"]},{\"reason\":\"outside_write_paths\",\"paths\":[\"o1\",\"o2\"],\"writePaths\":[\"w\"]},{\"reason\":\"result_check_not_run\",\"check\":\"gate\",\"detail\":\"dt\"},{\"reason\":\"behavior_change_basis_missing\",\"entries\":[{\"position\":1,\"detail\":\"d1\"},{\"position\":2,\"detail\":\"d2\"}]},{\"reason\":\"project_gate_not_passed\",\"rule\":\"gate\",\"gateCommit\":\"gc\",\"commands\":[{\"name\":\"lint\",\"recorded\":[]},{\"name\":\"test\",\"recorded\":[\"failed\",\"flaky\"]}]}]}],\"operation\":\"attempt_submit\"}"
+    ],
+    "exitCode": 3
+  },
+  "submit 1 unowned": {
+    "lines": ["No Operator owns this crew. Run `operator crew own` first."],
+    "exitCode": 3
+  },
+  "submit 1 unowned --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"crew_unowned\",\"blockers\":[{\"reason\":\"crew_unowned\",\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"branch\":\"br\",\"recordedTip\":\"rt\",\"found\":\"fnd\",\"checkedOut\":[\"w1\",\"w2\"],\"requested\":\"rq\",\"base\":\"bs\",\"heldBy\":\"s2\",\"commit\":\"cm\",\"detail\":\"det\",\"gate\":{\"status\":\"missing\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"},\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"recorded\":\"r1\",\"computed\":\"r2\",\"drift\":[{\"input\":\"host\",\"recorded\":\"claude\",\"current\":\"opencode\"},{\"input\":\"model\",\"recorded\":\"m1\",\"current\":\"m2\"}],\"stage\":\"agent\",\"operationState\":\"intended\",\"report\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":null,\"reasoningEffort\":\"high\",\"operations\":[{\"kind\":\"worktree\",\"state\":\"succeeded\",\"detail\":null},{\"kind\":\"agent\",\"state\":\"failed\",\"detail\":\"d\"}]},\"repeated\":false,\"pending\":[\"worktree\",\"agent\"],\"agentName\":\"ag\",\"paneId\":\"p1\",\"inspection\":{\"identity\":\"in1\",\"uncommitted\":[\"x.ts\",\"y.ts\"],\"commits\":[\"c1\"]},\"reviewId\":\"rv1\",\"limit\":3,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"},\"direction\":{\"directionRequestId\":\"d1\",\"revision\":4,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"}},\"previousAttemptId\":\"t0\",\"issues\":[\"i1\",\"i2\"],\"name\":\"art\",\"path\":\"p/x\",\"kind\":\"grill\",\"state\":\"st\",\"recordedRevision\":3,\"recordedIdentity\":\"ri\",\"submissionId\":\"sb1\",\"revision\":2,\"identity\":\"id1\",\"reviewAssignmentId\":\"a9\",\"reviewSourceKey\":\"rk\",\"reworkCycleId\":null,\"outsideChanges\":0,\"refusals\":[{\"reason\":\"result_not_one_commit\",\"rule\":\"one\",\"baseCommit\":\"bc\",\"commits\":[{\"commit\":\"c1\",\"parents\":[]}],\"statedBase\":\"sb\",\"statedResult\":\"sr\"},{\"reason\":\"uncommitted_work\",\"paths\":[\"u1\",\"u2\"]},{\"reason\":\"outside_write_paths\",\"paths\":[\"o1\",\"o2\"],\"writePaths\":[\"w\"]},{\"reason\":\"result_check_not_run\",\"check\":\"gate\",\"detail\":\"dt\"},{\"reason\":\"behavior_change_basis_missing\",\"entries\":[{\"position\":1,\"detail\":\"d1\"},{\"position\":2,\"detail\":\"d2\"}]},{\"reason\":\"project_gate_not_passed\",\"rule\":\"gate\",\"gateCommit\":\"gc\",\"commands\":[{\"name\":\"lint\",\"recorded\":[]},{\"name\":\"test\",\"recorded\":[\"failed\",\"flaky\"]}]}]}],\"operation\":\"attempt_submit\"}"
+    ],
+    "exitCode": 3
+  },
+  "submit 2 ownership-stale": {
+    "lines": [
+      "Another Operator took ownership of this crew. This token can no longer change state."
+    ],
+    "exitCode": 4
+  },
+  "submit 2 ownership-stale --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"ownership_stale\",\"blockers\":[{\"reason\":\"ownership_stale\",\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"branch\":\"br\",\"recordedTip\":\"rt\",\"found\":\"fnd\",\"checkedOut\":[\"w1\",\"w2\"],\"requested\":\"rq\",\"base\":\"bs\",\"heldBy\":\"s2\",\"commit\":\"cm\",\"detail\":\"det\",\"gate\":{\"status\":\"missing\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"},\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"recorded\":\"r1\",\"computed\":\"r2\",\"drift\":[{\"input\":\"host\",\"recorded\":\"claude\",\"current\":\"opencode\"},{\"input\":\"model\",\"recorded\":\"m1\",\"current\":\"m2\"}],\"stage\":\"agent\",\"operationState\":\"intended\",\"report\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":null,\"reasoningEffort\":\"high\",\"operations\":[{\"kind\":\"worktree\",\"state\":\"succeeded\",\"detail\":null},{\"kind\":\"agent\",\"state\":\"failed\",\"detail\":\"d\"}]},\"repeated\":false,\"pending\":[\"worktree\",\"agent\"],\"agentName\":\"ag\",\"paneId\":\"p1\",\"inspection\":{\"identity\":\"in1\",\"uncommitted\":[\"x.ts\",\"y.ts\"],\"commits\":[\"c1\"]},\"reviewId\":\"rv1\",\"limit\":3,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"},\"direction\":{\"directionRequestId\":\"d1\",\"revision\":4,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"}},\"previousAttemptId\":\"t0\",\"issues\":[\"i1\",\"i2\"],\"name\":\"art\",\"path\":\"p/x\",\"kind\":\"grill\",\"state\":\"st\",\"recordedRevision\":3,\"recordedIdentity\":\"ri\",\"submissionId\":\"sb1\",\"revision\":2,\"identity\":\"id1\",\"reviewAssignmentId\":\"a9\",\"reviewSourceKey\":\"rk\",\"reworkCycleId\":null,\"outsideChanges\":0,\"refusals\":[{\"reason\":\"result_not_one_commit\",\"rule\":\"one\",\"baseCommit\":\"bc\",\"commits\":[{\"commit\":\"c1\",\"parents\":[]}],\"statedBase\":\"sb\",\"statedResult\":\"sr\"},{\"reason\":\"uncommitted_work\",\"paths\":[\"u1\",\"u2\"]},{\"reason\":\"outside_write_paths\",\"paths\":[\"o1\",\"o2\"],\"writePaths\":[\"w\"]},{\"reason\":\"result_check_not_run\",\"check\":\"gate\",\"detail\":\"dt\"},{\"reason\":\"behavior_change_basis_missing\",\"entries\":[{\"position\":1,\"detail\":\"d1\"},{\"position\":2,\"detail\":\"d2\"}]},{\"reason\":\"project_gate_not_passed\",\"rule\":\"gate\",\"gateCommit\":\"gc\",\"commands\":[{\"name\":\"lint\",\"recorded\":[]},{\"name\":\"test\",\"recorded\":[\"failed\",\"flaky\"]}]}]}],\"operation\":\"attempt_submit\"}"
+    ],
+    "exitCode": 4
+  },
+  "submit 3 request-input-changed": {
+    "lines": [
+      "This request identity already recorded different input. Use a new request identity."
+    ],
+    "exitCode": 2
+  },
+  "submit 3 request-input-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"request_input_changed\",\"blockers\":[{\"reason\":\"request_input_changed\",\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"branch\":\"br\",\"recordedTip\":\"rt\",\"found\":\"fnd\",\"checkedOut\":[\"w1\",\"w2\"],\"requested\":\"rq\",\"base\":\"bs\",\"heldBy\":\"s2\",\"commit\":\"cm\",\"detail\":\"det\",\"gate\":{\"status\":\"missing\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"},\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"recorded\":\"r1\",\"computed\":\"r2\",\"drift\":[{\"input\":\"host\",\"recorded\":\"claude\",\"current\":\"opencode\"},{\"input\":\"model\",\"recorded\":\"m1\",\"current\":\"m2\"}],\"stage\":\"agent\",\"operationState\":\"intended\",\"report\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":null,\"reasoningEffort\":\"high\",\"operations\":[{\"kind\":\"worktree\",\"state\":\"succeeded\",\"detail\":null},{\"kind\":\"agent\",\"state\":\"failed\",\"detail\":\"d\"}]},\"repeated\":false,\"pending\":[\"worktree\",\"agent\"],\"agentName\":\"ag\",\"paneId\":\"p1\",\"inspection\":{\"identity\":\"in1\",\"uncommitted\":[\"x.ts\",\"y.ts\"],\"commits\":[\"c1\"]},\"reviewId\":\"rv1\",\"limit\":3,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"},\"direction\":{\"directionRequestId\":\"d1\",\"revision\":4,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"}},\"previousAttemptId\":\"t0\",\"issues\":[\"i1\",\"i2\"],\"name\":\"art\",\"path\":\"p/x\",\"kind\":\"grill\",\"state\":\"st\",\"recordedRevision\":3,\"recordedIdentity\":\"ri\",\"submissionId\":\"sb1\",\"revision\":2,\"identity\":\"id1\",\"reviewAssignmentId\":\"a9\",\"reviewSourceKey\":\"rk\",\"reworkCycleId\":null,\"outsideChanges\":0,\"refusals\":[{\"reason\":\"result_not_one_commit\",\"rule\":\"one\",\"baseCommit\":\"bc\",\"commits\":[{\"commit\":\"c1\",\"parents\":[]}],\"statedBase\":\"sb\",\"statedResult\":\"sr\"},{\"reason\":\"uncommitted_work\",\"paths\":[\"u1\",\"u2\"]},{\"reason\":\"outside_write_paths\",\"paths\":[\"o1\",\"o2\"],\"writePaths\":[\"w\"]},{\"reason\":\"result_check_not_run\",\"check\":\"gate\",\"detail\":\"dt\"},{\"reason\":\"behavior_change_basis_missing\",\"entries\":[{\"position\":1,\"detail\":\"d1\"},{\"position\":2,\"detail\":\"d2\"}]},{\"reason\":\"project_gate_not_passed\",\"rule\":\"gate\",\"gateCommit\":\"gc\",\"commands\":[{\"name\":\"lint\",\"recorded\":[]},{\"name\":\"test\",\"recorded\":[\"failed\",\"flaky\"]}]}]}],\"operation\":\"attempt_submit\"}"
+    ],
+    "exitCode": 2
+  },
+  "submit 4 unknown-attempt": {
+    "lines": ["No attempt is recorded under that identity."],
+    "exitCode": 2
+  },
+  "submit 4 unknown-attempt --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"unknown_attempt\",\"blockers\":[{\"reason\":\"unknown_attempt\",\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"branch\":\"br\",\"recordedTip\":\"rt\",\"found\":\"fnd\",\"checkedOut\":[\"w1\",\"w2\"],\"requested\":\"rq\",\"base\":\"bs\",\"heldBy\":\"s2\",\"commit\":\"cm\",\"detail\":\"det\",\"gate\":{\"status\":\"missing\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"},\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"recorded\":\"r1\",\"computed\":\"r2\",\"drift\":[{\"input\":\"host\",\"recorded\":\"claude\",\"current\":\"opencode\"},{\"input\":\"model\",\"recorded\":\"m1\",\"current\":\"m2\"}],\"stage\":\"agent\",\"operationState\":\"intended\",\"report\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":null,\"reasoningEffort\":\"high\",\"operations\":[{\"kind\":\"worktree\",\"state\":\"succeeded\",\"detail\":null},{\"kind\":\"agent\",\"state\":\"failed\",\"detail\":\"d\"}]},\"repeated\":false,\"pending\":[\"worktree\",\"agent\"],\"agentName\":\"ag\",\"paneId\":\"p1\",\"inspection\":{\"identity\":\"in1\",\"uncommitted\":[\"x.ts\",\"y.ts\"],\"commits\":[\"c1\"]},\"reviewId\":\"rv1\",\"limit\":3,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"},\"direction\":{\"directionRequestId\":\"d1\",\"revision\":4,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"}},\"previousAttemptId\":\"t0\",\"issues\":[\"i1\",\"i2\"],\"name\":\"art\",\"path\":\"p/x\",\"kind\":\"grill\",\"state\":\"st\",\"recordedRevision\":3,\"recordedIdentity\":\"ri\",\"submissionId\":\"sb1\",\"revision\":2,\"identity\":\"id1\",\"reviewAssignmentId\":\"a9\",\"reviewSourceKey\":\"rk\",\"reworkCycleId\":null,\"outsideChanges\":0,\"refusals\":[{\"reason\":\"result_not_one_commit\",\"rule\":\"one\",\"baseCommit\":\"bc\",\"commits\":[{\"commit\":\"c1\",\"parents\":[]}],\"statedBase\":\"sb\",\"statedResult\":\"sr\"},{\"reason\":\"uncommitted_work\",\"paths\":[\"u1\",\"u2\"]},{\"reason\":\"outside_write_paths\",\"paths\":[\"o1\",\"o2\"],\"writePaths\":[\"w\"]},{\"reason\":\"result_check_not_run\",\"check\":\"gate\",\"detail\":\"dt\"},{\"reason\":\"behavior_change_basis_missing\",\"entries\":[{\"position\":1,\"detail\":\"d1\"},{\"position\":2,\"detail\":\"d2\"}]},{\"reason\":\"project_gate_not_passed\",\"rule\":\"gate\",\"gateCommit\":\"gc\",\"commands\":[{\"name\":\"lint\",\"recorded\":[]},{\"name\":\"test\",\"recorded\":[\"failed\",\"flaky\"]}]}]}],\"operation\":\"attempt_submit\"}"
+    ],
+    "exitCode": 2
+  },
+  "submit 5 attempt-ended": {
+    "lines": ["That attempt has ended, so it can no longer write. Claim the assignment again."],
+    "exitCode": 4
+  },
+  "submit 5 attempt-ended --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"attempt_ended\",\"blockers\":[{\"reason\":\"attempt_ended\",\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"branch\":\"br\",\"recordedTip\":\"rt\",\"found\":\"fnd\",\"checkedOut\":[\"w1\",\"w2\"],\"requested\":\"rq\",\"base\":\"bs\",\"heldBy\":\"s2\",\"commit\":\"cm\",\"detail\":\"det\",\"gate\":{\"status\":\"missing\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"},\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"recorded\":\"r1\",\"computed\":\"r2\",\"drift\":[{\"input\":\"host\",\"recorded\":\"claude\",\"current\":\"opencode\"},{\"input\":\"model\",\"recorded\":\"m1\",\"current\":\"m2\"}],\"stage\":\"agent\",\"operationState\":\"intended\",\"report\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":null,\"reasoningEffort\":\"high\",\"operations\":[{\"kind\":\"worktree\",\"state\":\"succeeded\",\"detail\":null},{\"kind\":\"agent\",\"state\":\"failed\",\"detail\":\"d\"}]},\"repeated\":false,\"pending\":[\"worktree\",\"agent\"],\"agentName\":\"ag\",\"paneId\":\"p1\",\"inspection\":{\"identity\":\"in1\",\"uncommitted\":[\"x.ts\",\"y.ts\"],\"commits\":[\"c1\"]},\"reviewId\":\"rv1\",\"limit\":3,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"},\"direction\":{\"directionRequestId\":\"d1\",\"revision\":4,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"}},\"previousAttemptId\":\"t0\",\"issues\":[\"i1\",\"i2\"],\"name\":\"art\",\"path\":\"p/x\",\"kind\":\"grill\",\"state\":\"st\",\"recordedRevision\":3,\"recordedIdentity\":\"ri\",\"submissionId\":\"sb1\",\"revision\":2,\"identity\":\"id1\",\"reviewAssignmentId\":\"a9\",\"reviewSourceKey\":\"rk\",\"reworkCycleId\":null,\"outsideChanges\":0,\"refusals\":[{\"reason\":\"result_not_one_commit\",\"rule\":\"one\",\"baseCommit\":\"bc\",\"commits\":[{\"commit\":\"c1\",\"parents\":[]}],\"statedBase\":\"sb\",\"statedResult\":\"sr\"},{\"reason\":\"uncommitted_work\",\"paths\":[\"u1\",\"u2\"]},{\"reason\":\"outside_write_paths\",\"paths\":[\"o1\",\"o2\"],\"writePaths\":[\"w\"]},{\"reason\":\"result_check_not_run\",\"check\":\"gate\",\"detail\":\"dt\"},{\"reason\":\"behavior_change_basis_missing\",\"entries\":[{\"position\":1,\"detail\":\"d1\"},{\"position\":2,\"detail\":\"d2\"}]},{\"reason\":\"project_gate_not_passed\",\"rule\":\"gate\",\"gateCommit\":\"gc\",\"commands\":[{\"name\":\"lint\",\"recorded\":[]},{\"name\":\"test\",\"recorded\":[\"failed\",\"flaky\"]}]}]}],\"operation\":\"attempt_submit\"}"
+    ],
+    "exitCode": 4
+  },
+  "submit 6 attempt-not-current": {
+    "lines": ["Another Operator owns this crew, so this attempt is not the current writer."],
+    "exitCode": 4
+  },
+  "submit 6 attempt-not-current --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"attempt_not_current\",\"blockers\":[{\"reason\":\"attempt_not_current\",\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"branch\":\"br\",\"recordedTip\":\"rt\",\"found\":\"fnd\",\"checkedOut\":[\"w1\",\"w2\"],\"requested\":\"rq\",\"base\":\"bs\",\"heldBy\":\"s2\",\"commit\":\"cm\",\"detail\":\"det\",\"gate\":{\"status\":\"missing\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"},\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"recorded\":\"r1\",\"computed\":\"r2\",\"drift\":[{\"input\":\"host\",\"recorded\":\"claude\",\"current\":\"opencode\"},{\"input\":\"model\",\"recorded\":\"m1\",\"current\":\"m2\"}],\"stage\":\"agent\",\"operationState\":\"intended\",\"report\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":null,\"reasoningEffort\":\"high\",\"operations\":[{\"kind\":\"worktree\",\"state\":\"succeeded\",\"detail\":null},{\"kind\":\"agent\",\"state\":\"failed\",\"detail\":\"d\"}]},\"repeated\":false,\"pending\":[\"worktree\",\"agent\"],\"agentName\":\"ag\",\"paneId\":\"p1\",\"inspection\":{\"identity\":\"in1\",\"uncommitted\":[\"x.ts\",\"y.ts\"],\"commits\":[\"c1\"]},\"reviewId\":\"rv1\",\"limit\":3,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"},\"direction\":{\"directionRequestId\":\"d1\",\"revision\":4,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"}},\"previousAttemptId\":\"t0\",\"issues\":[\"i1\",\"i2\"],\"name\":\"art\",\"path\":\"p/x\",\"kind\":\"grill\",\"state\":\"st\",\"recordedRevision\":3,\"recordedIdentity\":\"ri\",\"submissionId\":\"sb1\",\"revision\":2,\"identity\":\"id1\",\"reviewAssignmentId\":\"a9\",\"reviewSourceKey\":\"rk\",\"reworkCycleId\":null,\"outsideChanges\":0,\"refusals\":[{\"reason\":\"result_not_one_commit\",\"rule\":\"one\",\"baseCommit\":\"bc\",\"commits\":[{\"commit\":\"c1\",\"parents\":[]}],\"statedBase\":\"sb\",\"statedResult\":\"sr\"},{\"reason\":\"uncommitted_work\",\"paths\":[\"u1\",\"u2\"]},{\"reason\":\"outside_write_paths\",\"paths\":[\"o1\",\"o2\"],\"writePaths\":[\"w\"]},{\"reason\":\"result_check_not_run\",\"check\":\"gate\",\"detail\":\"dt\"},{\"reason\":\"behavior_change_basis_missing\",\"entries\":[{\"position\":1,\"detail\":\"d1\"},{\"position\":2,\"detail\":\"d2\"}]},{\"reason\":\"project_gate_not_passed\",\"rule\":\"gate\",\"gateCommit\":\"gc\",\"commands\":[{\"name\":\"lint\",\"recorded\":[]},{\"name\":\"test\",\"recorded\":[\"failed\",\"flaky\"]}]}]}],\"operation\":\"attempt_submit\"}"
+    ],
+    "exitCode": 4
+  },
+  "submit 7 not-dispatched": {
+    "lines": ["That attempt has no recorded launch. Dispatch it first."],
+    "exitCode": 3
+  },
+  "submit 7 not-dispatched --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"attempt_not_dispatched\",\"blockers\":[{\"reason\":\"attempt_not_dispatched\",\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"branch\":\"br\",\"recordedTip\":\"rt\",\"found\":\"fnd\",\"checkedOut\":[\"w1\",\"w2\"],\"requested\":\"rq\",\"base\":\"bs\",\"heldBy\":\"s2\",\"commit\":\"cm\",\"detail\":\"det\",\"gate\":{\"status\":\"missing\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"},\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"recorded\":\"r1\",\"computed\":\"r2\",\"drift\":[{\"input\":\"host\",\"recorded\":\"claude\",\"current\":\"opencode\"},{\"input\":\"model\",\"recorded\":\"m1\",\"current\":\"m2\"}],\"stage\":\"agent\",\"operationState\":\"intended\",\"report\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":null,\"reasoningEffort\":\"high\",\"operations\":[{\"kind\":\"worktree\",\"state\":\"succeeded\",\"detail\":null},{\"kind\":\"agent\",\"state\":\"failed\",\"detail\":\"d\"}]},\"repeated\":false,\"pending\":[\"worktree\",\"agent\"],\"agentName\":\"ag\",\"paneId\":\"p1\",\"inspection\":{\"identity\":\"in1\",\"uncommitted\":[\"x.ts\",\"y.ts\"],\"commits\":[\"c1\"]},\"reviewId\":\"rv1\",\"limit\":3,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"},\"direction\":{\"directionRequestId\":\"d1\",\"revision\":4,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"}},\"previousAttemptId\":\"t0\",\"issues\":[\"i1\",\"i2\"],\"name\":\"art\",\"path\":\"p/x\",\"kind\":\"grill\",\"state\":\"st\",\"recordedRevision\":3,\"recordedIdentity\":\"ri\",\"submissionId\":\"sb1\",\"revision\":2,\"identity\":\"id1\",\"reviewAssignmentId\":\"a9\",\"reviewSourceKey\":\"rk\",\"reworkCycleId\":null,\"outsideChanges\":0,\"refusals\":[{\"reason\":\"result_not_one_commit\",\"rule\":\"one\",\"baseCommit\":\"bc\",\"commits\":[{\"commit\":\"c1\",\"parents\":[]}],\"statedBase\":\"sb\",\"statedResult\":\"sr\"},{\"reason\":\"uncommitted_work\",\"paths\":[\"u1\",\"u2\"]},{\"reason\":\"outside_write_paths\",\"paths\":[\"o1\",\"o2\"],\"writePaths\":[\"w\"]},{\"reason\":\"result_check_not_run\",\"check\":\"gate\",\"detail\":\"dt\"},{\"reason\":\"behavior_change_basis_missing\",\"entries\":[{\"position\":1,\"detail\":\"d1\"},{\"position\":2,\"detail\":\"d2\"}]},{\"reason\":\"project_gate_not_passed\",\"rule\":\"gate\",\"gateCommit\":\"gc\",\"commands\":[{\"name\":\"lint\",\"recorded\":[]},{\"name\":\"test\",\"recorded\":[\"failed\",\"flaky\"]}]}]}],\"operation\":\"attempt_submit\"}"
+    ],
+    "exitCode": 3
+  },
+  "submit 8 not-acknowledged": {
+    "lines": ["That attempt never acknowledged its brief, so it has nothing fixed to hand over."],
+    "exitCode": 3
+  },
+  "submit 8 not-acknowledged --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"attempt_not_acknowledged\",\"blockers\":[{\"reason\":\"attempt_not_acknowledged\",\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"branch\":\"br\",\"recordedTip\":\"rt\",\"found\":\"fnd\",\"checkedOut\":[\"w1\",\"w2\"],\"requested\":\"rq\",\"base\":\"bs\",\"heldBy\":\"s2\",\"commit\":\"cm\",\"detail\":\"det\",\"gate\":{\"status\":\"missing\",\"commit\":\"cm\",\"path\":\"operator-gate.json\"},\"key\":{\"tree\":\"tr\",\"declarationIdentity\":\"di\"},\"runIds\":[\"g1\",\"g2\"],\"recorded\":\"r1\",\"computed\":\"r2\",\"drift\":[{\"input\":\"host\",\"recorded\":\"claude\",\"current\":\"opencode\"},{\"input\":\"model\",\"recorded\":\"m1\",\"current\":\"m2\"}],\"stage\":\"agent\",\"operationState\":\"intended\",\"report\":{\"attemptId\":\"t1\",\"assignmentId\":\"a1\",\"stage\":\"launched\",\"worktreePath\":\"w/t1\",\"branch\":\"br\",\"baseCommit\":\"bc\",\"agentName\":\"ag\",\"agentHost\":\"claude\",\"agentModel\":null,\"reasoningEffort\":\"high\",\"operations\":[{\"kind\":\"worktree\",\"state\":\"succeeded\",\"detail\":null},{\"kind\":\"agent\",\"state\":\"failed\",\"detail\":\"d\"}]},\"repeated\":false,\"pending\":[\"worktree\",\"agent\"],\"agentName\":\"ag\",\"paneId\":\"p1\",\"inspection\":{\"identity\":\"in1\",\"uncommitted\":[\"x.ts\",\"y.ts\"],\"commits\":[\"c1\"]},\"reviewId\":\"rv1\",\"limit\":3,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"},\"direction\":{\"directionRequestId\":\"d1\",\"revision\":4,\"approval\":{\"action\":\"direction\",\"scope\":\"rv1\",\"requestRevision\":\"4\"}},\"previousAttemptId\":\"t0\",\"issues\":[\"i1\",\"i2\"],\"name\":\"art\",\"path\":\"p/x\",\"kind\":\"grill\",\"state\":\"st\",\"recordedRevision\":3,\"recordedIdentity\":\"ri\",\"submissionId\":\"sb1\",\"revision\":2,\"identity\":\"id1\",\"reviewAssignmentId\":\"a9\",\"reviewSourceKey\":\"rk\",\"reworkCycleId\":null,\"outsideChanges\":0,\"refusals\":[{\"reason\":\"result_not_one_commit\",\"rule\":\"one\",\"baseCommit\":\"bc\",\"commits\":[{\"commit\":\"c1\",\"parents\":[]}],\"statedBase\":\"sb\",\"statedResult\":\"sr\"},{\"reason\":\"uncommitted_work\",\"paths\":[\"u1\",\"u2\"]},{\"reason\":\"outside_write_paths\",\"paths\":[\"o1\",\"o2\"],\"writePaths\":[\"w\"]},{\"reason\":\"result_check_not_run\",\"check\":\"gate\",\"detail\":\"dt\"},{\"reason\":\"behavior_change_basis_missing\",\"entries\":[{\"position\":1,\"detail\":\"d1\"},{\"position\":2,\"detail\":\"d2\"}]},{\"reason\":\"project_gate_not_passed\",\"rule\":\"gate\",\"gateCommit\":\"gc\",\"commands\":[{\"name\":\"lint\",\"recorded\":[]},{\"name\":\"test\",\"recorded\":[\"failed\",\"flaky\"]}]}]}],\"operation\":\"attempt_submit\"}"
+    ],
+    "exitCode": 3
+  },
+  "submit 9 invalid-input": {
+    "lines": ["The request is not valid:", "  i1", "  i2"],
+    "exitCode": 2
+  },
+  "submit 9 invalid-input --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"invalid_submission_input\",\"blockers\":[{\"reason\":\"invalid_submission_input\",\"issue\":\"i1\"},{\"reason\":\"invalid_submission_input\",\"issue\":\"i2\"}],\"operation\":\"attempt_submit\"}"
+    ],
+    "exitCode": 2
+  },
+  "submit 10 reference-mismatch": {
+    "lines": ["det"],
+    "exitCode": 4
+  },
+  "submit 10 reference-mismatch --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"attempt_reference_mismatch\",\"blockers\":[{\"reason\":\"attempt_reference_mismatch\",\"attemptId\":\"t1\",\"detail\":\"det\"}],\"operation\":\"attempt_submit\"}"
+    ],
+    "exitCode": 4
+  },
+  "submit 11 artifact-unreadable": {
+    "lines": [
+      "Artifact art is not at p/x in this worktree.",
+      "A review reads fixed evidence, so nothing was submitted."
+    ],
+    "exitCode": 3
+  },
+  "submit 11 artifact-unreadable --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"missing-condition\",\"reason\":\"artifact_unreadable\",\"blockers\":[{\"reason\":\"artifact_unreadable\",\"name\":\"art\",\"path\":\"p/x\"}],\"operation\":\"attempt_submit\"}"
+    ],
+    "exitCode": 3
+  },
+  "submit 12 artifact-identity-changed": {
+    "lines": [
+      "Artifact art at p/x does not match the identity you stated.",
+      "A review reads fixed evidence, so nothing was submitted."
+    ],
+    "exitCode": 4
+  },
+  "submit 12 artifact-identity-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"artifact_identity_changed\",\"blockers\":[{\"reason\":\"artifact_identity_changed\",\"name\":\"art\",\"path\":\"p/x\",\"found\":\"fnd\"}],\"operation\":\"attempt_submit\"}"
+    ],
+    "exitCode": 4
+  },
+  "submit 13 integration-branch-unread": {
+    "lines": [
+      "Git cannot read the reviewed patch or the new patch of this combined revision: det",
+      "Nothing was submitted. This attempt still runs."
+    ],
+    "exitCode": 1
+  },
+  "submit 13 integration-branch-unread --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"failed\",\"reason\":\"integration_branch_unread\",\"blockers\":[{\"reason\":\"integration_branch_unread\",\"attemptId\":\"t1\",\"branch\":\"br\",\"detail\":\"det\"}],\"operation\":\"attempt_submit\"}"
+    ],
+    "exitCode": 1
+  },
+  "submit 14 result-refused": {
+    "lines": [
+      "This result breaks its authority limits, so nothing was submitted:",
+      "  result_not_one_commit: 1 commit(s) since base bc, and the submission names result sr on base sb.",
+      "  uncommitted_work: u1, u2",
+      "  outside_write_paths: o1, o2. Only a person grants more write paths, so undo these changes or raise a question with the `security-permissions` trigger that names each path.",
+      "  result_check_not_run: the gate check did not run. dt",
+      "  behavior_change_basis_missing: entry 1 (d1), entry 2 (d2)",
+      "  project_gate_not_passed: no passing check of lint (not recorded), test (failed, flaky), from the gate at gc.",
+      "This attempt still runs. Fix each refusal, then submit again."
+    ],
+    "exitCode": 4
+  },
+  "submit 14 result-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"result_not_one_commit\",\"blockers\":[{\"reason\":\"result_not_one_commit\",\"rule\":\"one\",\"baseCommit\":\"bc\",\"commits\":[{\"commit\":\"c1\",\"parents\":[]}],\"statedBase\":\"sb\",\"statedResult\":\"sr\"},{\"reason\":\"uncommitted_work\",\"paths\":[\"u1\",\"u2\"]},{\"reason\":\"outside_write_paths\",\"paths\":[\"o1\",\"o2\"],\"writePaths\":[\"w\"]},{\"reason\":\"result_check_not_run\",\"check\":\"gate\",\"detail\":\"dt\"},{\"reason\":\"behavior_change_basis_missing\",\"entries\":[{\"position\":1,\"detail\":\"d1\"},{\"position\":2,\"detail\":\"d2\"}]},{\"reason\":\"project_gate_not_passed\",\"rule\":\"gate\",\"gateCommit\":\"gc\",\"commands\":[{\"name\":\"lint\",\"recorded\":[]},{\"name\":\"test\",\"recorded\":[\"failed\",\"flaky\"]}]}],\"operation\":\"attempt_submit\",\"data\":{\"attemptId\":\"t1\"}}"
+    ],
+    "exitCode": 4
+  },
+  "submit 15 review-result-not-submitted": {
+    "lines": [
+      "A review reports through `operator review report`, never through a submission.",
+      "A review report ends the review chain and starts no second review."
+    ],
+    "exitCode": 2
+  },
+  "submit 15 review-result-not-submitted --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"review_result_not_submitted\",\"blockers\":[{\"reason\":\"review_result_not_submitted\",\"assignmentId\":\"a1\"}],\"operation\":\"attempt_submit\"}"
+    ],
+    "exitCode": 2
+  },
+  "submit 16 planning-only": {
+    "lines": ["Assignment a1 is planning work, so it submits no result."],
+    "exitCode": 2
+  },
+  "submit 16 planning-only --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"invalid\",\"reason\":\"planning_only\",\"blockers\":[{\"reason\":\"planning_only\",\"assignmentId\":\"a1\",\"kind\":\"grill\"}],\"operation\":\"attempt_submit\"}"
+    ],
+    "exitCode": 2
+  },
+  "submit 17 not-claimed": {
+    "lines": ["Assignment a1 is st, so it hands over nothing."],
+    "exitCode": 4
+  },
+  "submit 17 not-claimed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"assignment_not_claimed\",\"blockers\":[{\"reason\":\"assignment_not_claimed\",\"assignmentId\":\"a1\",\"state\":\"st\"}],\"operation\":\"attempt_submit\"}"
+    ],
+    "exitCode": 4
+  },
+  "submit 18 stale-revision": {
+    "lines": ["Assignment a1 is at revision 3."],
+    "exitCode": 4
+  },
+  "submit 18 stale-revision --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"stale_revision\",\"blockers\":[{\"reason\":\"stale_revision\",\"assignmentId\":\"a1\",\"recordedRevision\":3}],\"operation\":\"attempt_submit\"}"
+    ],
+    "exitCode": 4
+  },
+  "submit 19 source-revision-changed": {
+    "lines": [
+      "This assignment is registered at requirement revision 3.",
+      "A submission fixes the revisions it was produced against, so this needs your decision."
+    ],
+    "exitCode": 4
+  },
+  "submit 19 source-revision-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"source_revision_changed\",\"blockers\":[{\"reason\":\"source_revision_changed\",\"assignmentId\":\"a1\",\"recorded\":3}],\"operation\":\"attempt_submit\"}"
+    ],
+    "exitCode": 4
+  },
+  "submit 20 requirements-changed": {
+    "lines": [
+      "The acceptance requirements you state are not the ones this assignment holds.",
+      "A submission fixes the revisions it was produced against, so this needs your decision."
+    ],
+    "exitCode": 4
+  },
+  "submit 20 requirements-changed --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"requirements_changed\",\"blockers\":[{\"reason\":\"requirements_changed\",\"assignmentId\":\"a1\",\"recorded\":\"ri\"}],\"operation\":\"attempt_submit\"}"
+    ],
+    "exitCode": 4
+  },
+  "submit 21 already-submitted": {
+    "lines": ["This attempt already submitted result sb1."],
+    "exitCode": 0
+  },
+  "submit 21 already-submitted --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"completed\",\"reason\":\"result_already_submitted\",\"blockers\":[],\"operation\":\"attempt_submit\",\"data\":{\"attemptId\":\"t1\",\"submissionId\":\"sb1\",\"repeated\":false}}"
+    ],
+    "exitCode": 0
+  },
+  "submit 22 submitted": {
+    "lines": [
+      "Submitted result sb1 for assignment a1.",
+      "Review rv1 waits on assignment a9.",
+      "A submission is a handoff to a separate review, never accepted completion."
+    ],
+    "exitCode": 6
+  },
+  "submit 22 submitted --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"pending\",\"reason\":\"result_submitted\",\"blockers\":[{\"reason\":\"review_pending\",\"reviewId\":\"rv1\"}],\"operation\":\"attempt_submit\",\"data\":{\"submissionId\":\"sb1\",\"identity\":\"id1\",\"assignmentId\":\"a1\",\"attemptId\":\"t1\",\"revision\":2,\"reviewId\":\"rv1\",\"reviewAssignmentId\":\"a9\",\"reviewSourceKey\":\"rk\",\"reworkCycleId\":null,\"outsideChanges\":0,\"repeated\":false}}"
+    ],
+    "exitCode": 6
+  },
+  "submit 23 submitted": {
+    "lines": [
+      "Submitted result sb1 for assignment a1.",
+      "The scan found 2 change(s) outside this worktree. The Operator disposes them before acceptance.",
+      "Review rv1 waits on assignment a9.",
+      "This combined revision closes rework cycle cy1.",
+      "A submission is a handoff to a separate review, never accepted completion."
+    ],
+    "exitCode": 6
+  },
+  "submit 23 submitted --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"pending\",\"reason\":\"result_submitted\",\"blockers\":[{\"reason\":\"review_pending\",\"reviewId\":\"rv1\"}],\"operation\":\"attempt_submit\",\"data\":{\"submissionId\":\"sb1\",\"identity\":\"id1\",\"assignmentId\":\"a1\",\"attemptId\":\"t1\",\"revision\":2,\"reviewId\":\"rv1\",\"reviewAssignmentId\":\"a9\",\"reviewSourceKey\":\"rk\",\"reworkCycleId\":\"cy1\",\"outsideChanges\":2,\"repeated\":false}}"
+    ],
+    "exitCode": 6
+  },
+  "submit 24 result-refused": {
+    "lines": [
+      "This result breaks its authority limits, so nothing was submitted:",
+      "  uncommitted_work: u1",
+      "This attempt still runs. Fix each refusal, then submit again."
+    ],
+    "exitCode": 4
+  },
+  "submit 24 result-refused --json": {
+    "lines": [
+      "{\"schemaVersion\":1,\"outcome\":\"conflict\",\"reason\":\"uncommitted_work\",\"blockers\":[{\"reason\":\"uncommitted_work\",\"paths\":[\"u1\"]}],\"operation\":\"attempt_submit\",\"data\":{\"attemptId\":\"t1\"}}"
+    ],
+    "exitCode": 4
   }
 }

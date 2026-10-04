@@ -1,9 +1,9 @@
 import { CrewState } from "../crew-state/main.ts";
 import { ProjectGate } from "../project-gate/main.ts";
 import type { ParsedArguments } from "./arguments.ts";
-import { readStructuredInput, reportInvalidInput, reportSharedFailure } from "./crew-result.ts";
+import { invalidInputRefusals, readStructuredInput, reportSharedFailure } from "./crew-result.ts";
 import { requireReference } from "./reference.ts";
-import { type Handled, refuse, report } from "./result.ts";
+import { answer, type Handled, type Refusal, type Refusals, refuse, report } from "./result.ts";
 
 // The report belongs to the crew state, so this command reads its shape from that interface.
 type DispatchReport = Extract<
@@ -30,80 +30,161 @@ function launchLines(report: DispatchReport): string[] {
   ];
 }
 
+type DispatchResult = Awaited<ReturnType<typeof CrewState.dispatch>>;
+type ReplaceResult = Awaited<ReturnType<typeof CrewState.replace>>;
+
 /**
- * Reports a recorded launch snapshot this release cannot read.
- * A recovery and a replacement both restore the recorded inputs, so neither one runs on a guess.
+ * The answers a dispatch and a replacement share: a recorded launch snapshot this release cannot
+ * read, and a base commit whose project gate a producer cannot run. Both restore the recorded
+ * inputs, so neither one runs on a guess. Setup never writes the gate and the Operator never
+ * commits, so only the person adds it.
  */
-function reportUnreadableSnapshot(
-  parsed: ParsedArguments,
-  operation: "attempt_dispatch" | "attempt_replace",
-  result: { attemptId: string; detail: string },
-): Handled {
-  report({
-    json: parsed.json,
-    result: {
-      outcome: "conflict",
-      reason: "snapshot_unreadable",
-      blockers: [
-        { reason: "snapshot_unreadable", attemptId: result.attemptId, detail: result.detail },
-      ],
-      operation,
-      data: { attemptId: result.attemptId },
-    },
+const launchRefusals = {
+  "snapshot-unreadable": (result: { attemptId: string; detail: string }): Refusal => ({
+    outcome: "conflict",
+    reason: "snapshot_unreadable",
+    detail: { attemptId: result.attemptId, detail: result.detail },
+    data: { attemptId: result.attemptId },
     lines: [
       `Attempt ${result.attemptId} holds a recorded snapshot this release cannot read:`,
       `  ${result.detail}`,
       "The recorded inputs stay fixed, so this step needs your decision.",
     ],
-  });
-  return "reported";
-}
-
-type GateUnusable = Extract<
-  Awaited<ReturnType<typeof CrewState.dispatch>>,
-  { status: "project-gate-unusable" }
->;
-
-/**
- * Reports a base commit whose project gate a producer cannot run, so nothing launches.
- * Setup never writes the gate and the Operator never commits, so only the person adds it.
- */
-function reportGateUnusable(
-  parsed: ParsedArguments,
-  operation: "attempt_dispatch" | "attempt_replace",
-  result: GateUnusable,
-): Handled {
-  const { gate } = result;
-  const reason = `project_gate_${gate.status}` as const;
-  return refuse({
-    json: parsed.json,
-    operation,
+  }),
+  "project-gate-unusable": (
+    result: Extract<DispatchResult, { status: "project-gate-unusable" }>,
+  ): Refusal => ({
     outcome: "missing-condition",
-    reason,
-    detail: { attemptId: result.attemptId, commit: gate.commit, path: gate.path },
+    reason: `project_gate_${result.gate.status}`,
+    detail: { attemptId: result.attemptId, commit: result.gate.commit, path: result.gate.path },
     lines: [
-      ProjectGate.describe(gate, "dispatch"),
+      ProjectGate.describe(result.gate, "dispatch"),
       "A producer runs the project gate before it submits, so nothing was launched.",
-      `The person commits a valid ${gate.path} at the repository root. Then dispatch from a commit that holds it.`,
+      `The person commits a valid ${result.gate.path} at the repository root. Then dispatch from a commit that holds it.`,
     ],
-  });
+  }),
+};
+
+type BaseGate = Extract<DispatchResult, { status: "base-gate-not-passed" }>;
+
+/** What a person reads about a base whose key has not passed, for each gate state. */
+const baseGateLines: { [G in BaseGate["gate"]]: (result: BaseGate) => string[] } = {
+  gate_pending: () => [
+    "No gate run is recorded at its key. Run `operator gate run` on this commit first.",
+  ],
+  gate_running: (result) => [
+    `Gate run ${result.runIds.join(", ")} is still running. Wait for its outcome.`,
+  ],
+  gate_failed: (result) => blockedBase("failed", result),
+  gate_flaky: (result) => blockedBase("flaky", result),
+};
+
+/** A failed or flaky base names the person, who alone clears it. */
+function blockedBase(state: "failed" | "flaky", result: BaseGate): string[] {
+  return [
+    `The key is ${state} in gate run ${result.runIds.join(", ")}. Read it with \`operator gate show --run <id>\`.`,
+    "Only the user clears it: by a fixed main branch and a new base commit, or by an approval of a fresh series.",
+  ];
 }
 
-type BaseGateRefusal = Extract<
-  Awaited<ReturnType<typeof CrewState.dispatch>>,
-  { status: "base-gate-not-passed" }
->;
+function stageStopped(
+  result: Extract<DispatchResult, { status: "stage-failed" | "stage-uncertain" }>,
+): Refusal {
+  const uncertain = result.status === "stage-uncertain";
+  const reason = uncertain ? "dispatch_stage_uncertain" : "dispatch_stage_failed";
+  return {
+    outcome: uncertain ? "uncertain" : "failed",
+    reason,
+    blockers: [{ reason, stage: result.stage, detail: result.detail }],
+    data: result.report,
+    lines: [
+      `The ${result.stage} step ${uncertain ? "did not answer" : "failed"}: ${result.detail}`,
+      ...(uncertain ? ["Run `operator attempt reconcile` before you launch again."] : []),
+      ...launchLines(result.report),
+    ],
+  };
+}
 
 /**
- * Reports a first code dispatch whose base has not passed the project gate. Nothing launches and
- * no base is fixed, and a failed or flaky base names the person, who alone clears it.
+ * The answers of a dispatch that launched nothing, or that stopped at one launch step. A
+ * production dispatch can be stopped by the integration branch of its source (ADR 0020).
+ * Operator never resets or adopts a moved branch, so each such refusal names what a person
+ * checks. A first code dispatch whose base has not passed the project gate fixes no base.
  */
-function reportBaseGate(parsed: ParsedArguments, result: BaseGateRefusal): Handled {
-  const blocked = result.gate === "gate_failed" || result.gate === "gate_flaky";
-  return refuse({
-    json: parsed.json,
-    operation: "attempt_dispatch",
-    outcome: blocked ? "conflict" : "missing-condition",
+const dispatchRefusals = {
+  ...launchRefusals,
+  "integration-branch-moved": (result) => ({
+    outcome: "conflict",
+    reason: "integration_branch_moved",
+    detail: {
+      attemptId: result.attemptId,
+      branch: result.branch,
+      recordedTip: result.recordedTip,
+      found: result.found,
+      checkedOut: result.checkedOut,
+    },
+    lines: [
+      `Branch ${result.branch} holds ${result.found ?? "no commit"}, and its recorded tip is ${result.recordedTip}.`,
+      ...result.checkedOut.map((path) => `Worktree ${path} has it checked out.`),
+      "Operator never resets or adopts a moved branch. Ask the user to put it back at the recorded tip.",
+      "Nothing was launched.",
+    ],
+  }),
+  "dispatch-base-not-tip": (result) => ({
+    outcome: "conflict",
+    reason: "dispatch_base_not_tip",
+    detail: {
+      attemptId: result.attemptId,
+      branch: result.branch,
+      recordedTip: result.recordedTip,
+      requested: result.requested,
+    },
+    lines: [
+      `A production dispatch of this source starts from ${result.recordedTip}, the recorded tip of ${result.branch}, not from ${result.requested}.`,
+      "Run the dispatch again with no --commit.",
+    ],
+  }),
+  "integration-branch-exists": (result) => ({
+    outcome: "conflict",
+    reason: "integration_branch_exists",
+    detail: {
+      attemptId: result.attemptId,
+      branch: result.branch,
+      base: result.base,
+      found: result.found,
+    },
+    lines: [
+      `Branch ${result.branch} already holds ${result.found}, so it cannot start at the integration base ${result.base}.`,
+      "Operator never takes over a branch it did not create. Ask the user to remove it, or dispatch from that commit.",
+      "Nothing was launched, and no base was fixed.",
+    ],
+  }),
+  "integration-branch-held": (result) => ({
+    outcome: "conflict",
+    reason: "integration_branch_held",
+    detail: { attemptId: result.attemptId, branch: result.branch, heldBy: result.heldBy },
+    lines: [
+      `Source ${result.heldBy} already records the integration branch ${result.branch}, so this source cannot record it.`,
+      "Report it to the user. Nothing was launched, and no base was fixed.",
+    ],
+  }),
+  "integration-branch-unread": (result) => ({
+    outcome: "failed",
+    reason: "integration_branch_unread",
+    detail: { attemptId: result.attemptId, branch: result.branch, detail: result.detail },
+    lines: [`Branch ${result.branch} could not be read or written: ${result.detail}`],
+  }),
+  "base-commit-unread": (result) => ({
+    outcome: "failed",
+    reason: "gate_commit_unread",
+    detail: { attemptId: result.attemptId, commit: result.commit, detail: result.detail },
+    lines: [`Commit ${result.commit} could not be read: ${result.detail}`],
+  }),
+  "base-gate-not-passed": (result) => ({
+    outcome:
+      result.gate === "gate_failed" || result.gate === "gate_flaky"
+        ? "conflict"
+        : "missing-condition",
     reason: result.gate,
     detail: {
       attemptId: result.attemptId,
@@ -114,166 +195,90 @@ function reportBaseGate(parsed: ParsedArguments, result: BaseGateRefusal): Handl
     },
     lines: [
       `The first code dispatch of this source fixes its integration base at commit ${result.commit}, and that commit has not passed the project gate.`,
-      result.gate === "gate_pending"
-        ? "No gate run is recorded at its key. Run `operator gate run` on this commit first."
-        : result.gate === "gate_running"
-          ? `Gate run ${result.runIds.join(", ")} is still running. Wait for its outcome.`
-          : `The key is ${result.gate === "gate_flaky" ? "flaky" : "failed"} in gate run ${result.runIds.join(", ")}. Read it with \`operator gate show --run <id>\`.`,
-      ...(blocked
-        ? [
-            "Only the user clears it: by a fixed main branch and a new base commit, or by an approval of a fresh series.",
-          ]
-        : []),
+      ...baseGateLines[result.gate](result),
       "Nothing was launched, and no base was fixed.",
     ],
-  });
-}
-
-type IntegrationRefusal = Extract<
-  Awaited<ReturnType<typeof CrewState.dispatch>>,
-  {
-    status:
-      | "integration-branch-moved"
-      | "dispatch-base-not-tip"
-      | "integration-branch-exists"
-      | "integration-branch-held"
-      | "integration-branch-unread"
-      | "base-commit-unread";
-  }
->;
-
-function isIntegrationRefusal(
-  result: Awaited<ReturnType<typeof CrewState.dispatch>>,
-): result is IntegrationRefusal {
-  return (
-    result.status === "integration-branch-moved" ||
-    result.status === "dispatch-base-not-tip" ||
-    result.status === "integration-branch-exists" ||
-    result.status === "integration-branch-held" ||
-    result.status === "integration-branch-unread" ||
-    result.status === "base-commit-unread"
-  );
-}
-
-/**
- * Reports a production dispatch that the integration branch of its source stops (ADR 0020).
- * Operator never resets or adopts a moved branch, so each refusal names what a person checks.
- */
-function reportIntegration(parsed: ParsedArguments, result: IntegrationRefusal): Handled {
-  const operation = "attempt_dispatch";
-  if (result.status === "integration-branch-moved") {
-    return refuse({
-      json: parsed.json,
-      operation,
-      outcome: "conflict",
-      reason: "integration_branch_moved",
-      detail: {
-        attemptId: result.attemptId,
-        branch: result.branch,
-        recordedTip: result.recordedTip,
-        found: result.found,
-        checkedOut: result.checkedOut,
-      },
-      lines: [
-        `Branch ${result.branch} holds ${result.found ?? "no commit"}, and its recorded tip is ${result.recordedTip}.`,
-        ...result.checkedOut.map((path) => `Worktree ${path} has it checked out.`),
-        "Operator never resets or adopts a moved branch. Ask the user to put it back at the recorded tip.",
-        "Nothing was launched.",
-      ],
-    });
-  }
-  if (result.status === "dispatch-base-not-tip") {
-    return refuse({
-      json: parsed.json,
-      operation,
-      outcome: "conflict",
-      reason: "dispatch_base_not_tip",
-      detail: {
-        attemptId: result.attemptId,
-        branch: result.branch,
-        recordedTip: result.recordedTip,
-        requested: result.requested,
-      },
-      lines: [
-        `A production dispatch of this source starts from ${result.recordedTip}, the recorded tip of ${result.branch}, not from ${result.requested}.`,
-        "Run the dispatch again with no --commit.",
-      ],
-    });
-  }
-  if (result.status === "integration-branch-exists") {
-    return refuse({
-      json: parsed.json,
-      operation,
-      outcome: "conflict",
-      reason: "integration_branch_exists",
-      detail: {
-        attemptId: result.attemptId,
-        branch: result.branch,
-        base: result.base,
-        found: result.found,
-      },
-      lines: [
-        `Branch ${result.branch} already holds ${result.found}, so it cannot start at the integration base ${result.base}.`,
-        "Operator never takes over a branch it did not create. Ask the user to remove it, or dispatch from that commit.",
-        "Nothing was launched, and no base was fixed.",
-      ],
-    });
-  }
-  if (result.status === "integration-branch-held") {
-    return refuse({
-      json: parsed.json,
-      operation,
-      outcome: "conflict",
-      reason: "integration_branch_held",
-      detail: { attemptId: result.attemptId, branch: result.branch, heldBy: result.heldBy },
-      lines: [
-        `Source ${result.heldBy} already records the integration branch ${result.branch}, so this source cannot record it.`,
-        "Report it to the user. Nothing was launched, and no base was fixed.",
-      ],
-    });
-  }
-  if (result.status === "base-commit-unread") {
-    return refuse({
-      json: parsed.json,
-      operation,
-      outcome: "failed",
-      reason: "gate_commit_unread",
-      detail: { attemptId: result.attemptId, commit: result.commit, detail: result.detail },
-      lines: [`Commit ${result.commit} could not be read: ${result.detail}`],
-    });
-  }
-  return refuse({
-    json: parsed.json,
-    operation,
-    outcome: "failed",
-    reason: "integration_branch_unread",
-    detail: { attemptId: result.attemptId, branch: result.branch, detail: result.detail },
-    lines: [`Branch ${result.branch} could not be read or written: ${result.detail}`],
-  });
-}
-
-/**
- * Reports the refusals of where a dispatch starts: a gate it cannot read, a base that has not
- * passed, and an integration branch that stops it, in the shape `reportSharedFailure` uses.
- */
-function reportDispatchGate(
-  parsed: ParsedArguments,
-  result: Awaited<ReturnType<typeof CrewState.dispatch>>,
-): result is GateUnusable | BaseGateRefusal | IntegrationRefusal {
-  if (isIntegrationRefusal(result)) {
-    reportIntegration(parsed, result);
-    return true;
-  }
-  if (result.status === "project-gate-unusable") {
-    reportGateUnusable(parsed, "attempt_dispatch", result);
-    return true;
-  }
-  if (result.status === "base-gate-not-passed") {
-    reportBaseGate(parsed, result);
-    return true;
-  }
-  return false;
-}
+  }),
+  "review-base-changed": (result) => ({
+    outcome: "conflict",
+    reason: "review_base_changed",
+    detail: { attemptId: result.attemptId, recorded: result.recorded, requested: result.requested },
+    lines: [
+      `This review reads commit ${result.recorded}, not ${result.requested}.`,
+      "Review inputs stay fixed, so the reviewer starts from the submitted commit, or from the head of the branch snapshot.",
+    ],
+  }),
+  "correction-base-changed": (result) => ({
+    outcome: "conflict",
+    reason: "correction_base_changed",
+    detail: { attemptId: result.attemptId, recorded: result.recorded, requested: result.requested },
+    lines: [
+      `This correction starts on ${result.recorded}, the parent of the landed commit, not on ${result.requested}.`,
+      "The correction takes the place of the landed commit, so run the dispatch again with no --commit.",
+    ],
+  }),
+  "commit-required": (result) => ({
+    outcome: "invalid",
+    reason: "commit_required",
+    detail: { attemptId: result.attemptId },
+    lines: ["A dispatch starts from an explicit commit. Name it with `--commit`."],
+  }),
+  "workspace-required": (result) => ({
+    outcome: "missing-condition",
+    reason: "herdr_workspace_required",
+    detail: { attemptId: result.attemptId, detail: result.detail },
+    lines: [
+      result.detail,
+      "Run dispatch from the Operator's Herdr pane to group its worktree there.",
+    ],
+  }),
+  "host-unnamed": (result) => ({
+    outcome: "missing-condition",
+    reason: "host_unnamed",
+    detail: { attemptId: result.attemptId },
+    lines: [
+      "No crew host is selected, so this release cannot choose one for you.",
+      "Set `crew.host` in the Operator configuration, or pass `--crew-host`.",
+    ],
+  }),
+  "effort-unsupported": (result) => ({
+    outcome: "missing-condition",
+    reason: "reasoning_effort_unsupported",
+    detail: { attemptId: result.attemptId, detail: result.detail },
+    lines: [result.detail],
+  }),
+  "snapshot-drift": (result) => ({
+    outcome: "conflict",
+    reason: "snapshot_drift",
+    blockers: result.drift.map((one) => ({ reason: "snapshot_drift" as const, ...one })),
+    data: { attemptId: result.attemptId },
+    lines: [
+      `Attempt ${result.attemptId} was launched against different inputs:`,
+      ...result.drift.map((one) => `  ${one.input}: recorded ${one.recorded}, now ${one.current}`),
+      "A recovery restores what the attempt recorded, never the current default.",
+    ],
+  }),
+  "plan-changed": (result) => ({
+    outcome: "conflict",
+    reason: "dispatch_plan_changed",
+    detail: { attemptId: result.attemptId, recorded: result.recorded, computed: result.computed },
+    lines: [
+      `Attempt ${result.attemptId} holds a different fixed brief than this request builds.`,
+      "Assignment inputs stay fixed at dispatch, so this needs your decision.",
+    ],
+  }),
+  "reconciliation-required": (result) => ({
+    outcome: "missing-condition",
+    reason: "reconciliation_required",
+    detail: { stage: result.stage, operationState: result.operationState },
+    lines: [
+      `The ${result.stage} effect of this attempt is ${result.operationState}.`,
+      "Run `operator attempt reconcile` before another launch step.",
+    ],
+  }),
+  "stage-failed": stageStopped,
+  "stage-uncertain": stageStopped,
+} satisfies Refusals<DispatchResult>;
 
 async function runDispatch(parsed: ParsedArguments): Promise<Handled> {
   const mutation = mutationArguments(parsed);
@@ -291,189 +296,7 @@ async function runDispatch(parsed: ParsedArguments): Promise<Handled> {
     overrides: parsed.overrides,
   });
 
-  if (reportSharedFailure(parsed, "attempt_dispatch", result)) {
-    return "reported";
-  }
-
-  if (reportDispatchGate(parsed, result)) {
-    return "reported";
-  }
-
-  if (result.status === "review-base-changed") {
-    return refuse({
-      json: parsed.json,
-      operation: "attempt_dispatch",
-      outcome: "conflict",
-      reason: "review_base_changed",
-      detail: {
-        attemptId: result.attemptId,
-        recorded: result.recorded,
-        requested: result.requested,
-      },
-      lines: [
-        `This review reads commit ${result.recorded}, not ${result.requested}.`,
-        "Review inputs stay fixed, so the reviewer starts from the submitted commit, or from the head of the branch snapshot.",
-      ],
-    });
-  }
-
-  if (result.status === "correction-base-changed") {
-    return refuse({
-      json: parsed.json,
-      operation: "attempt_dispatch",
-      outcome: "conflict",
-      reason: "correction_base_changed",
-      detail: {
-        attemptId: result.attemptId,
-        recorded: result.recorded,
-        requested: result.requested,
-      },
-      lines: [
-        `This correction starts on ${result.recorded}, the parent of the landed commit, not on ${result.requested}.`,
-        "The correction takes the place of the landed commit, so run the dispatch again with no --commit.",
-      ],
-    });
-  }
-
-  if (result.status === "commit-required") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "invalid",
-        reason: "commit_required",
-        blockers: [{ reason: "commit_required", attemptId: result.attemptId }],
-        operation: "attempt_dispatch",
-      },
-      lines: ["A dispatch starts from an explicit commit. Name it with `--commit`."],
-    });
-    return "reported";
-  }
-
-  if (result.status === "workspace-required") {
-    return refuse({
-      json: parsed.json,
-      operation: "attempt_dispatch",
-      outcome: "missing-condition",
-      reason: "herdr_workspace_required",
-      detail: { attemptId: result.attemptId, detail: result.detail },
-      lines: [
-        result.detail,
-        "Run dispatch from the Operator's Herdr pane to group its worktree there.",
-      ],
-    });
-  }
-
-  if (result.status === "host-unnamed") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: "host_unnamed",
-        blockers: [{ reason: "host_unnamed", attemptId: result.attemptId }],
-        operation: "attempt_dispatch",
-      },
-      lines: [
-        "No crew host is selected, so this release cannot choose one for you.",
-        "Set `crew.host` in the Operator configuration, or pass `--crew-host`.",
-      ],
-    });
-    return "reported";
-  }
-
-  if (result.status === "effort-unsupported") {
-    return refuse({
-      json: parsed.json,
-      operation: "attempt_dispatch",
-      outcome: "missing-condition",
-      reason: "reasoning_effort_unsupported",
-      detail: { attemptId: result.attemptId, detail: result.detail },
-      lines: [result.detail],
-    });
-  }
-
-  if (result.status === "snapshot-unreadable") {
-    return reportUnreadableSnapshot(parsed, "attempt_dispatch", result);
-  }
-
-  if (result.status === "snapshot-drift") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "snapshot_drift",
-        blockers: result.drift.map((one) => ({ reason: "snapshot_drift" as const, ...one })),
-        operation: "attempt_dispatch",
-        data: { attemptId: result.attemptId },
-      },
-      lines: [
-        `Attempt ${result.attemptId} was launched against different inputs:`,
-        ...result.drift.map(
-          (one) => `  ${one.input}: recorded ${one.recorded}, now ${one.current}`,
-        ),
-        "A recovery restores what the attempt recorded, never the current default.",
-      ],
-    });
-    return "reported";
-  }
-
-  if (result.status === "plan-changed") {
-    return refuse({
-      json: parsed.json,
-      operation: "attempt_dispatch",
-      outcome: "conflict",
-      reason: "dispatch_plan_changed",
-      detail: {
-        attemptId: result.attemptId,
-        recorded: result.recorded,
-        computed: result.computed,
-      },
-      lines: [
-        `Attempt ${result.attemptId} holds a different fixed brief than this request builds.`,
-        "Assignment inputs stay fixed at dispatch, so this needs your decision.",
-      ],
-    });
-  }
-
-  if (result.status === "reconciliation-required") {
-    return refuse({
-      json: parsed.json,
-      operation: "attempt_dispatch",
-      outcome: "missing-condition",
-      reason: "reconciliation_required",
-      detail: {
-        stage: result.stage,
-        operationState: result.operationState,
-      },
-      lines: [
-        `The ${result.stage} effect of this attempt is ${result.operationState}.`,
-        "Run `operator attempt reconcile` before another launch step.",
-      ],
-    });
-  }
-
-  if (result.status === "stage-failed" || result.status === "stage-uncertain") {
-    const uncertain = result.status === "stage-uncertain";
-    report({
-      json: parsed.json,
-      result: {
-        outcome: uncertain ? "uncertain" : "failed",
-        reason: uncertain ? "dispatch_stage_uncertain" : "dispatch_stage_failed",
-        blockers: [
-          {
-            reason: uncertain ? "dispatch_stage_uncertain" : "dispatch_stage_failed",
-            stage: result.stage,
-            detail: result.detail,
-          },
-        ],
-        operation: "attempt_dispatch",
-        data: result.report,
-      },
-      lines: [
-        `The ${result.stage} step ${uncertain ? "did not answer" : "failed"}: ${result.detail}`,
-        ...(uncertain ? ["Run `operator attempt reconcile` before you launch again."] : []),
-        ...launchLines(result.report),
-      ],
-    });
+  if (answer(parsed, "attempt_dispatch", result, dispatchRefusals)) {
     return "reported";
   }
 
@@ -709,6 +532,73 @@ async function runAdopt(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
+function inspectionAnswer(
+  result: Extract<ReplaceResult, { status: "inspection-required" | "inspection-stale" }>,
+): Refusal {
+  const stale = result.status === "inspection-stale";
+  const reason = stale ? "inspection_stale" : "inspection_required";
+  return {
+    outcome: stale ? "conflict" : "missing-condition",
+    reason,
+    blockers: [{ reason, attemptId: result.attemptId, identity: result.inspection.identity }],
+    data: result.inspection,
+    lines: [
+      stale
+        ? "The checkout changed since the inspection you approved."
+        : "A replacement inspects the partial work first.",
+      `Uncommitted files: ${result.inspection.uncommitted.length}. Commits since the base: ${result.inspection.commits.length}.`,
+      ...result.inspection.uncommitted.map((one) => `  ${one}`),
+      `Approve this exact reading with --inspection ${result.inspection.identity}`,
+    ],
+  };
+}
+
+/**
+ * The answers of a replacement that wrote nothing: a former writer that may still write, partial
+ * work that waits for an approved inspection, and a review that used every attempt it has.
+ */
+const replaceRefusals = {
+  ...launchRefusals,
+  "reconciliation-required": (result) => ({
+    outcome: "missing-condition",
+    reason: "reconciliation_required",
+    blockers: result.pending.map((kind) => ({ reason: "reconciliation_required" as const, kind })),
+    lines: [
+      "This attempt holds unsettled effects, so a replacement could create a second writer.",
+      "Run `operator attempt reconcile` first.",
+    ],
+  }),
+  "writer-live": (result) => ({
+    outcome: "conflict",
+    reason: "writer_live",
+    detail: { attemptId: result.attemptId, agentName: result.agentName, paneId: result.paneId },
+    lines: [
+      `Operative ${result.agentName} is still live in pane ${result.paneId}.`,
+      "Stop it and confirm its termination before a replacement writes.",
+    ],
+  }),
+  "writer-unknown": (result) => ({
+    outcome: "uncertain",
+    reason: "writer_unknown",
+    detail: { attemptId: result.attemptId, detail: result.detail },
+    lines: [`Whether the former writer stopped cannot be read: ${result.detail}`],
+  }),
+  "inspection-required": inspectionAnswer,
+  "inspection-stale": inspectionAnswer,
+  "review-attempt-limit": ({ reviewId, limit, approval, direction }) => ({
+    outcome: "missing-condition",
+    reason: "review_attempt_limit",
+    detail: { reviewId, limit, approval },
+    data: { direction },
+    lines: [
+      `Review ${reviewId} already used its ${limit} attempts.`,
+      "Another launch is not a remedy. Bring the blocker to the user.",
+      `Direction request ${direction.directionRequestId} is open at revision ${direction.revision}.`,
+      `It is passed by an approval with action "${direction.approval.action}", scope "${direction.approval.scope}", and requestRevision "${direction.approval.requestRevision}".`,
+    ],
+  }),
+} satisfies Refusals<ReplaceResult>;
+
 async function runReplace(parsed: ParsedArguments): Promise<Handled> {
   const mutation = mutationArguments(parsed);
   if (mutation === null) {
@@ -721,126 +611,7 @@ async function runReplace(parsed: ParsedArguments): Promise<Handled> {
     approvedInspection: parsed.crew.inspectionIdentity ?? null,
   });
 
-  if (reportSharedFailure(parsed, "attempt_replace", result)) {
-    return "reported";
-  }
-
-  if (result.status === "reconciliation-required") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: "reconciliation_required",
-        blockers: result.pending.map((kind) => ({
-          reason: "reconciliation_required" as const,
-          kind,
-        })),
-        operation: "attempt_replace",
-      },
-      lines: [
-        "This attempt holds unsettled effects, so a replacement could create a second writer.",
-        "Run `operator attempt reconcile` first.",
-      ],
-    });
-    return "reported";
-  }
-
-  if (result.status === "writer-live") {
-    return refuse({
-      json: parsed.json,
-      operation: "attempt_replace",
-      outcome: "conflict",
-      reason: "writer_live",
-      detail: {
-        attemptId: result.attemptId,
-        agentName: result.agentName,
-        paneId: result.paneId,
-      },
-      lines: [
-        `Operative ${result.agentName} is still live in pane ${result.paneId}.`,
-        "Stop it and confirm its termination before a replacement writes.",
-      ],
-    });
-  }
-
-  if (result.status === "writer-unknown") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "uncertain",
-        reason: "writer_unknown",
-        blockers: [
-          { reason: "writer_unknown", attemptId: result.attemptId, detail: result.detail },
-        ],
-        operation: "attempt_replace",
-      },
-      lines: [`Whether the former writer stopped cannot be read: ${result.detail}`],
-    });
-    return "reported";
-  }
-
-  if (result.status === "inspection-required" || result.status === "inspection-stale") {
-    const stale = result.status === "inspection-stale";
-    report({
-      json: parsed.json,
-      result: {
-        outcome: stale ? "conflict" : "missing-condition",
-        reason: stale ? "inspection_stale" : "inspection_required",
-        blockers: [
-          {
-            reason: stale ? "inspection_stale" : "inspection_required",
-            attemptId: result.attemptId,
-            identity: result.inspection.identity,
-          },
-        ],
-        operation: "attempt_replace",
-        data: result.inspection,
-      },
-      lines: [
-        stale
-          ? "The checkout changed since the inspection you approved."
-          : "A replacement inspects the partial work first.",
-        `Uncommitted files: ${result.inspection.uncommitted.length}. Commits since the base: ${result.inspection.commits.length}.`,
-        ...result.inspection.uncommitted.map((one) => `  ${one}`),
-        `Approve this exact reading with --inspection ${result.inspection.identity}`,
-      ],
-    });
-    return "reported";
-  }
-
-  if (result.status === "snapshot-unreadable") {
-    return reportUnreadableSnapshot(parsed, "attempt_replace", result);
-  }
-
-  if (result.status === "project-gate-unusable") {
-    return reportGateUnusable(parsed, "attempt_replace", result);
-  }
-
-  if (result.status === "review-attempt-limit") {
-    const { direction } = result;
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: "review_attempt_limit",
-        blockers: [
-          {
-            reason: "review_attempt_limit",
-            reviewId: result.reviewId,
-            limit: result.limit,
-            approval: result.approval,
-          },
-        ],
-        operation: "attempt_replace",
-        data: { direction },
-      },
-      lines: [
-        `Review ${result.reviewId} already used its ${result.limit} attempts.`,
-        "Another launch is not a remedy. Bring the blocker to the user.",
-        `Direction request ${direction.directionRequestId} is open at revision ${direction.revision}.`,
-        `It is passed by an approval with action "${direction.approval.action}", scope "${direction.approval.scope}", and requestRevision "${direction.approval.requestRevision}".`,
-      ],
-    });
+  if (answer(parsed, "attempt_replace", result, replaceRefusals)) {
     return "reported";
   }
 
@@ -903,7 +674,7 @@ function refusalLine(refusal: ResultRefusal): string {
     case "uncommitted_work":
       return `  uncommitted_work: ${refusal.paths.join(", ")}`;
     case "outside_write_paths":
-      return `  outside_write_paths: ${refusal.paths.join(", ")}. Only a person grants more write paths, so undo these changes or raise a question that names each path.`;
+      return `  outside_write_paths: ${refusal.paths.join(", ")}. Only a person grants more write paths, so undo these changes or raise a question with the \`security-permissions\` trigger that names each path.`;
     case "result_check_not_run":
       return `  result_check_not_run: the ${refusal.check} check did not run. ${refusal.detail}`;
     case "behavior_change_basis_missing":
@@ -914,6 +685,120 @@ function refusalLine(refusal: ResultRefusal): string {
       return `  project_gate_not_passed: no passing check of ${refusal.commands.map((one) => (one.recorded.length === 0 ? `${one.name} (not recorded)` : `${one.name} (${one.recorded.join(", ")})`)).join(", ")}, from the gate at ${refusal.gateCommit}.`;
   }
 }
+
+type SubmitResult = Awaited<ReturnType<typeof CrewState.submit>>["result"];
+
+function artifactAnswer(
+  result: Extract<SubmitResult, { status: "artifact-unreadable" | "artifact-identity-changed" }>,
+): Refusal {
+  const unreadable = result.status === "artifact-unreadable";
+  return {
+    outcome: unreadable ? "missing-condition" : "conflict",
+    reason: unreadable ? "artifact_unreadable" : "artifact_identity_changed",
+    blockers: [
+      unreadable
+        ? { reason: "artifact_unreadable", name: result.name, path: result.path }
+        : {
+            reason: "artifact_identity_changed",
+            name: result.name,
+            path: result.path,
+            found: result.found,
+          },
+    ],
+    lines: [
+      unreadable
+        ? `Artifact ${result.name} is not at ${result.path} in this worktree.`
+        : `Artifact ${result.name} at ${result.path} does not match the identity you stated.`,
+      "A review reads fixed evidence, so nothing was submitted.",
+    ],
+  };
+}
+
+function revisionAnswer(
+  result: Extract<SubmitResult, { status: "source-revision-changed" | "requirements-changed" }>,
+): Refusal {
+  const source = result.status === "source-revision-changed";
+  return {
+    outcome: "conflict",
+    reason: source ? "source_revision_changed" : "requirements_changed",
+    detail: {
+      assignmentId: result.assignmentId,
+      recorded: source ? result.recordedRevision : result.recordedIdentity,
+    },
+    lines: [
+      source
+        ? `This assignment is registered at requirement revision ${result.recordedRevision}.`
+        : "The acceptance requirements you state are not the ones this assignment holds.",
+      "A submission fixes the revisions it was produced against, so this needs your decision.",
+    ],
+  };
+}
+
+/**
+ * The answers of a submission that recorded nothing: a request or an artifact it cannot read, a
+ * result that breaks its authority limits, and an assignment that hands over no result here.
+ */
+const submitRefusals = {
+  ...invalidInputRefusals("invalid_submission_input"),
+  "reference-mismatch": (result) => ({
+    outcome: "conflict",
+    reason: "attempt_reference_mismatch",
+    detail: { attemptId: result.attemptId, detail: result.detail },
+    lines: [result.detail],
+  }),
+  "artifact-unreadable": artifactAnswer,
+  "artifact-identity-changed": artifactAnswer,
+  "integration-branch-unread": (result) => ({
+    outcome: "failed",
+    reason: "integration_branch_unread",
+    detail: { attemptId: result.attemptId, branch: result.branch, detail: result.detail },
+    lines: [
+      `Git cannot read the reviewed patch or the new patch of this combined revision: ${result.detail}`,
+      "Nothing was submitted. This attempt still runs.",
+    ],
+  }),
+  "result-refused": (result) => ({
+    outcome: "conflict",
+    // The refusals come in the order submit checks them, so the first one names the result.
+    reason: result.refusals[0].reason,
+    blockers: result.refusals,
+    data: { attemptId: result.attemptId },
+    lines: [
+      "This result breaks its authority limits, so nothing was submitted:",
+      ...result.refusals.map(refusalLine),
+      "This attempt still runs. Fix each refusal, then submit again.",
+    ],
+  }),
+  "review-result-not-submitted": (result) => ({
+    outcome: "invalid",
+    reason: "review_result_not_submitted",
+    detail: { assignmentId: result.assignmentId },
+    lines: [
+      "A review reports through `operator review report`, never through a submission.",
+      "A review report ends the review chain and starts no second review.",
+    ],
+  }),
+  "planning-only": (result) => ({
+    outcome: "invalid",
+    reason: "planning_only",
+    detail: { assignmentId: result.assignmentId, kind: result.kind },
+    lines: [`Assignment ${result.assignmentId} is planning work, so it submits no result.`],
+  }),
+  "not-claimed": (result) => ({
+    outcome: "conflict",
+    reason: "assignment_not_claimed",
+    detail: { assignmentId: result.assignmentId, state: result.state },
+    lines: [`Assignment ${result.assignmentId} is ${result.state}, so it hands over nothing.`],
+  }),
+  "stale-revision": (result) => ({
+    outcome: "conflict",
+    reason: "stale_revision",
+    detail: { assignmentId: result.assignmentId, recordedRevision: result.recordedRevision },
+    lines: [`Assignment ${result.assignmentId} is at revision ${result.recordedRevision}.`],
+  }),
+  "source-revision-changed": revisionAnswer,
+  "requirements-changed": revisionAnswer,
+} satisfies Refusals<SubmitResult>;
 
 async function runSubmit(parsed: ParsedArguments): Promise<Handled> {
   const { requestId, attemptId, inputPath } = parsed.crew;
@@ -949,174 +834,8 @@ async function runSubmit(parsed: ParsedArguments): Promise<Handled> {
     input: read.value,
   });
 
-  if (reportSharedFailure(parsed, "attempt_submit", result)) {
+  if (answer(parsed, "attempt_submit", result, submitRefusals)) {
     return "reported";
-  }
-
-  if (result.status === "invalid-input") {
-    return reportInvalidInput({
-      parsed,
-      operation: "attempt_submit",
-      reason: "invalid_submission_input",
-      issues: result.issues,
-    });
-  }
-
-  if (result.status === "reference-mismatch") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "conflict",
-        reason: "attempt_reference_mismatch",
-        blockers: [{ reason: "attempt_reference_mismatch", attemptId, detail: result.detail }],
-        operation: "attempt_submit",
-      },
-      lines: [result.detail],
-    });
-    return "reported";
-  }
-
-  if (result.status === "artifact-unreadable" || result.status === "artifact-identity-changed") {
-    const unreadable = result.status === "artifact-unreadable";
-    const blocker = unreadable
-      ? { reason: "artifact_unreadable" as const, name: result.name, path: result.path }
-      : {
-          reason: "artifact_identity_changed" as const,
-          name: result.name,
-          path: result.path,
-          found: result.found,
-        };
-    report({
-      json: parsed.json,
-      result: {
-        outcome: unreadable ? "missing-condition" : "conflict",
-        reason: unreadable ? "artifact_unreadable" : "artifact_identity_changed",
-        blockers: [blocker],
-        operation: "attempt_submit",
-      },
-      lines: [
-        unreadable
-          ? `Artifact ${result.name} is not at ${result.path} in this worktree.`
-          : `Artifact ${result.name} at ${result.path} does not match the identity you stated.`,
-        "A review reads fixed evidence, so nothing was submitted.",
-      ],
-    });
-    return "reported";
-  }
-
-  if (result.status === "integration-branch-unread") {
-    return refuse({
-      json: parsed.json,
-      operation: "attempt_submit",
-      outcome: "failed",
-      reason: "integration_branch_unread",
-      detail: { attemptId: result.attemptId, branch: result.branch, detail: result.detail },
-      lines: [
-        `Git cannot read the reviewed patch or the new patch of this combined revision: ${result.detail}`,
-        "Nothing was submitted. This attempt still runs.",
-      ],
-    });
-  }
-
-  if (result.status === "result-refused") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "conflict",
-        // The refusals come in the order submit checks them, so the first one names the result.
-        reason: result.refusals[0].reason,
-        blockers: result.refusals,
-        operation: "attempt_submit",
-        data: { attemptId: result.attemptId },
-      },
-      lines: [
-        "This result breaks its authority limits, so nothing was submitted:",
-        ...result.refusals.map(refusalLine),
-        "This attempt still runs. Fix each refusal, then submit again.",
-      ],
-    });
-    return "reported";
-  }
-
-  if (result.status === "review-result-not-submitted") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "invalid",
-        reason: "review_result_not_submitted",
-        blockers: [{ reason: "review_result_not_submitted", assignmentId: result.assignmentId }],
-        operation: "attempt_submit",
-      },
-      lines: [
-        "A review reports through `operator review report`, never through a submission.",
-        "A review report ends the review chain and starts no second review.",
-      ],
-    });
-    return "reported";
-  }
-
-  if (result.status === "planning-only") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "invalid",
-        reason: "planning_only",
-        blockers: [
-          { reason: "planning_only", assignmentId: result.assignmentId, kind: result.kind },
-        ],
-        operation: "attempt_submit",
-      },
-      lines: [`Assignment ${result.assignmentId} is planning work, so it submits no result.`],
-    });
-    return "reported";
-  }
-
-  if (result.status === "not-claimed") {
-    return refuse({
-      json: parsed.json,
-      operation: "attempt_submit",
-      outcome: "conflict",
-      reason: "assignment_not_claimed",
-      detail: {
-        assignmentId: result.assignmentId,
-        state: result.state,
-      },
-      lines: [`Assignment ${result.assignmentId} is ${result.state}, so it hands over nothing.`],
-    });
-  }
-
-  if (result.status === "stale-revision") {
-    return refuse({
-      json: parsed.json,
-      operation: "attempt_submit",
-      outcome: "conflict",
-      reason: "stale_revision",
-      detail: {
-        assignmentId: result.assignmentId,
-        recordedRevision: result.recordedRevision,
-      },
-      lines: [`Assignment ${result.assignmentId} is at revision ${result.recordedRevision}.`],
-    });
-  }
-
-  if (result.status === "source-revision-changed" || result.status === "requirements-changed") {
-    const source = result.status === "source-revision-changed";
-    return refuse({
-      json: parsed.json,
-      operation: "attempt_submit",
-      outcome: "conflict",
-      reason: source ? "source_revision_changed" : "requirements_changed",
-      detail: {
-        assignmentId: result.assignmentId,
-        recorded: source ? result.recordedRevision : result.recordedIdentity,
-      },
-      lines: [
-        source
-          ? `This assignment is registered at requirement revision ${result.recordedRevision}.`
-          : "The acceptance requirements you state are not the ones this assignment holds.",
-        "A submission fixes the revisions it was produced against, so this needs your decision.",
-      ],
-    });
   }
 
   if (result.status === "already-submitted") {
@@ -1134,6 +853,14 @@ async function runSubmit(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
+  return reportSubmitted(parsed, result, repeated);
+}
+
+function reportSubmitted(
+  parsed: ParsedArguments,
+  result: Extract<SubmitResult, { status: "submitted" }>,
+  repeated: boolean,
+): Handled {
   report({
     json: parsed.json,
     result: {

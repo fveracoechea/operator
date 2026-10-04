@@ -25,7 +25,6 @@
         "modules/live-probe/recovery.ts",
         "modules/live-probe/tracker.ts",
         "modules/operator-cli/arguments.ts",
-        "modules/operator-cli/attempt-command.ts",
         "modules/operator-cli/outside-command.ts",
         "modules/operator-cli/publish-command.ts",
         "modules/operator-cli/rebase-command.ts",
