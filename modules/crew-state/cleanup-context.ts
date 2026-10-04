@@ -12,6 +12,12 @@ import {
   type RetentionHoldRow,
   workflowRevisionOf,
 } from "./cleanup.ts";
+import {
+  landingProofOf,
+  type LandingProof,
+  type UnlandedCause,
+  unlandedCommitOf,
+} from "./cleanup-landing.ts";
 import type { CrewReader } from "./database.ts";
 import {
   type DispatchRow,
@@ -47,6 +53,10 @@ export type CleanupContext = {
   operations: OperationRow[];
   /** Live attempts other than this one whose recorded launch names the same checkout. */
   otherOccupants: string[];
+  /** The recorded landing a removal proves from the integration branch of the source. */
+  proof: LandingProof;
+  /** The submitted commit of this attempt that no recorded landing carries (D3). */
+  unlanded: { commit: string; cause: UnlandedCause } | null;
 };
 
 export type ContextFailure =
@@ -122,6 +132,8 @@ export function readCleanupContext(db: CrewReader, attemptId: string): ContextRe
         attemptId: attempt.id,
         worktreePath: dispatch.worktreePath,
       }),
+      proof: landingProofOf(db, { attemptId: attempt.id, sourceId: assignment.sourceId }),
+      unlanded: unlandedCommitOf(db, { attemptId: attempt.id, assignmentState: assignment.state }),
     },
   };
 }
@@ -174,7 +186,6 @@ export function heldArtifacts(
 export async function inspectCheckout(context: CleanupContext): Promise<CheckoutInspection> {
   return OperativeCleanup.inspect({
     worktreePath: context.dispatch.worktreePath,
-    baseCommit: context.dispatch.baseCommit,
     allowedPrefixes: OperativeDispatch.writtenPrefixes({ agentHost: context.dispatch.agentHost }),
   });
 }

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterEach, describe, expect, test as bunTest } from "bun:test";
 import {
   acceptProduction,
   commitArtifact,
@@ -13,16 +13,14 @@ import {
   writeInput,
 } from "./review-cycle-fixture.ts";
 import { ContentIdentity } from "../content-identity/main.ts";
-import {
-  headCommit,
-  herdrCalls,
-  requestId as request,
-  runJson,
-  workspaces,
-} from "./workspace-fixture.ts";
+import { herdrCalls, requestId as request, runJson, workspaces } from "./workspace-fixture.ts";
 
 // Review tests create Git worktrees and run several CLI processes under the parallel CI gate.
-setDefaultTimeout(60_000);
+// Each test states its own bound, because a process-wide default would set the bound of every
+// file in the bun test process (#179).
+function test(name: string, run: () => Promise<void> | void, timeoutMs = 60_000) {
+  bunTest(name, run, timeoutMs);
+}
 
 const fixtures = workspaces();
 
@@ -44,9 +42,9 @@ describe("operator review report", () => {
   test("reviews a code result on both axes and then accepts it", async () => {
     const workspace = await makeWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
+    const base = producer.baseCommit;
     const artifact = await commitArtifact(workspace, producer, "# Result\n\nThe finished work.\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const reviewId = submitted.json.data.reviewId;
 
     const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
@@ -62,12 +60,14 @@ describe("operator review report", () => {
     expect(brief).toContain(submitted.json.data.identity);
     expect(brief).toContain("standards and spec");
     expect(brief).toContain("Never start a Herdr agent");
-    expect(brief).toContain("They must never edit a file, commit, push, or perform rework.");
+    expect(brief).toContain(
+      "- `review_worktree_changed`: Never edit a file or commit in this checkout.",
+    );
     // The reviewer writes its own report and nothing else, so rework cannot hide inside a review.
     expect(brief).toContain("Write only inside these paths:\n- .operator/local/");
     // The brief authorizes the commands the reviewer must run, not only the checks it may re-run.
     expect(brief).toContain(
-      "Run only these commands:\n- operator attempt acknowledge\n- operator review report\n- bun run quality",
+      `Run only these commands:\n- operator attempt acknowledge\n- operator review report\n- git rev-parse ${base}\n- git diff ${base}...HEAD\n- git log ${base}..HEAD --oneline\n- true\n- bun run quality`,
     );
 
     const copied = await Bun.file(
@@ -100,7 +100,6 @@ describe("operator review report", () => {
     const blockedByFinding = await acceptProduction(workspace, producer, {
       submissionId: submitted.json.data.submissionId,
       revision: submitted.json.data.revision,
-      prHead: artifact.commit,
     });
     expect(blockedByFinding.exitCode).toBe(3);
     expect(blockedByFinding.json.reason).toBe("findings_undisposed");
@@ -132,7 +131,6 @@ describe("operator review report", () => {
     const accepted = await acceptProduction(workspace, producer, {
       submissionId: submitted.json.data.submissionId,
       revision: submitted.json.data.revision,
-      prHead: artifact.commit,
     });
     expect(accepted.exitCode).toBe(0);
     expect(accepted.json.reason).toBe("assignment_accepted");
@@ -149,12 +147,11 @@ describe("operator review report", () => {
   test("reviews a non-code result against citations and provenance on opencode", async () => {
     const workspace = await makeWorkspace({ host: "opencode" });
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Findings\n\nOne citation.\n");
     const submitted = await submit(
       workspace,
       producer,
-      submissionBody(producer, artifact, base, {
+      submissionBody(producer, artifact, {
         resultKind: "non-code",
         checks: [],
         code: null,
@@ -165,7 +162,7 @@ describe("operator review report", () => {
     const brief = await Bun.file(`${reviewer.worktreePath}/.operator/local/brief.md`).text();
     expect(brief).toContain("This result is not code.");
     expect(brief).toContain("supported by a citation you can follow");
-    expect(brief).toContain("artifacts, requirements, citations, provenance");
+    expect(brief).toContain("artifacts, requirements, citations, provenance, behavior-changes");
     // A non-code result records no check, and the reviewer can still report what it read.
     expect(brief).toContain(
       "Run only these commands:\n- operator attempt acknowledge\n- operator review report\n",
@@ -178,7 +175,7 @@ describe("operator review report", () => {
       reportBody({
         submissionIdentity: submitted.json.data.identity,
         host: "opencode",
-        checked: ["diff", "requirements", "checks"],
+        checked: ["diff", "requirements", "checks", "behavior-changes"],
       }),
     );
     expect(codeCoverage.exitCode).toBe(3);
@@ -192,7 +189,7 @@ describe("operator review report", () => {
       reportBody({
         submissionIdentity: submitted.json.data.identity,
         host: "opencode",
-        checked: ["artifacts", "requirements", "citations", "provenance"],
+        checked: ["artifacts", "requirements", "citations", "provenance", "behavior-changes"],
       }),
     );
     expect(reported.exitCode).toBe(0);
@@ -222,9 +219,8 @@ describe("operator review report", () => {
   test("refuses a report from a worktree the reviewer changed", async () => {
     const workspace = await makeWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
 
     // A reviewer may read and run checks. Repairing what it found is rework, and rework is a
@@ -246,9 +242,8 @@ describe("operator review report", () => {
   test("refuses a report from a worktree the reviewer committed to", async () => {
     const workspace = await makeWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
 
     await Bun.write(`${reviewer.worktreePath}/${artifact.path}`, "# Repaired by the reviewer\n");
@@ -271,9 +266,8 @@ describe("operator review report", () => {
   test("refuses a report that names a host the launch did not use", async () => {
     const workspace = await makeWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
 
     const reported = await reportReview(
@@ -296,9 +290,8 @@ describe("operator review report", () => {
   test("records a missing review input as a blocker, not as a verdict", async () => {
     const workspace = await makeWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
 
     const blocked = await reportReview(workspace, reviewer, submitted.json.data.reviewId, {
@@ -325,7 +318,6 @@ describe("operator review report", () => {
     const accepted = await acceptProduction(workspace, producer, {
       submissionId: submitted.json.data.submissionId,
       revision: submitted.json.data.revision,
-      prHead: artifact.commit,
     });
     expect(accepted.json.reason).toBe("review_incomplete");
     expect(accepted.json.blockers[0].blocker.reason).toBe("inputs_missing");
@@ -334,9 +326,8 @@ describe("operator review report", () => {
   test("refuses two axes that ran one after the other", async () => {
     const workspace = await makeWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
 
     const reported = await reportReview(
@@ -357,9 +348,8 @@ describe("operator review report", () => {
   test("refuses a sub-agent that did not run inside the reviewer host", async () => {
     const workspace = await makeWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
 
     const reported = await reportReview(
@@ -380,9 +370,8 @@ describe("operator review report", () => {
   test("refuses a report that names a different submission than the one under review", async () => {
     const workspace = await makeWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
 
     const reported = await reportReview(
@@ -402,9 +391,8 @@ describe("operator review report", () => {
   test("a review report is never a submitted result, so it starts no second review", async () => {
     const workspace = await makeWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
 
     const attempted = await runJson(
@@ -417,10 +405,7 @@ describe("operator review report", () => {
         "--attempt",
         reviewer.attemptId,
         "--input",
-        await writeInput(
-          workspace,
-          submissionBody(producer, artifact, base, { resultKind: "non-code" }),
-        ),
+        await writeInput(workspace, submissionBody(producer, artifact, { resultKind: "non-code" })),
       ],
       reviewer.worktreePath,
     );
@@ -434,9 +419,8 @@ describe("operator review dispose", () => {
   test("a rejected finding records the evidence that refutes it", async () => {
     const workspace = await makeWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const reviewId = submitted.json.data.reviewId;
     const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
 
@@ -488,7 +472,6 @@ describe("operator review dispose", () => {
     const accepted = await acceptProduction(workspace, producer, {
       submissionId: submitted.json.data.submissionId,
       revision: submitted.json.data.revision,
-      prHead: artifact.commit,
     });
     expect(accepted.json.reason).toBe("assignment_accepted");
   });

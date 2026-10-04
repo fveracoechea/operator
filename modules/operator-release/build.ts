@@ -3,6 +3,7 @@ import { mkdir, rm } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 import { z } from "zod";
 import { OperatorConfig } from "../operator-config/main.ts";
+import { ProjectGate } from "../project-gate/main.ts";
 import { identifyArtifact, RELEASE_MANIFEST_PATH, scanFiles } from "./inventory.ts";
 import { rewriteSpecifiers } from "./specifiers.ts";
 
@@ -179,7 +180,7 @@ function jsrManifest(source: SourceManifest): string {
 /**
  * Writes one release artifact from one checkout.
  * It holds runnable ESM, declarations, owned skills, the Herdr plugin, and the generated
- * configuration schema, so retrieval never runs a build of its own.
+ * configuration and project gate schemas, so retrieval never runs a build of its own.
  */
 export async function buildArtifact(request: {
   sourceRoot: string;
@@ -224,6 +225,7 @@ export async function buildArtifact(request: {
   }
 
   await Bun.write(`${artifactRoot}/config.schema.json`, OperatorConfig.jsonSchemaText());
+  await Bun.write(`${artifactRoot}/gate.schema.json`, ProjectGate.jsonSchemaText());
   await Bun.write(`${artifactRoot}/README.md`, Bun.file(`${sourceRoot}/${README_SOURCE}`));
   await Bun.write(`${artifactRoot}/package.json`, packageManifest(source));
   await Bun.write(`${artifactRoot}/jsr.json`, jsrManifest(source));

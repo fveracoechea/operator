@@ -1,20 +1,42 @@
+import { ContentIdentity } from "../content-identity/main.ts";
 import { OperatorRelease } from "../operator-release/main.ts";
 import { createRelease, createTag } from "./github-release.ts";
-import { type PathRecord, type PublicationJournal, readJournal, writeJournal } from "./journal.ts";
+import { DeliveryPath, type DeliveryPathEvent } from "./delivery.ts";
+import { type PublicationJournal, readJournal, writeJournal } from "./journal.ts";
 import { publishWithClient, readVersion } from "./jsr-registry.ts";
 import { scanArtifact } from "./pack.ts";
-import { computeReleasePlan, jsrSettings, type PlanRequest, type ReleasePlan } from "./plan.ts";
+import {
+  computeReleasePlan,
+  jsrSettings,
+  pathFacts,
+  type PlanRequest,
+  type ReleasePlan,
+} from "./plan.ts";
 import { packTarball } from "./tar.ts";
 
 type PublishRequest = PlanRequest & { now?: string };
 
-function record(
-  state: PathRecord["state"],
+/** What one attempt on one path reports, as the event the delivery path machine takes. */
+type DeliveryOutcome = {
+  event: Exclude<DeliveryPathEvent, "plan">;
+  detail: string;
+  reference: string | null;
+  at: string;
+};
+
+/** A send that did not succeed is uncertain only when the tool could not say what happened. */
+function unsent(
+  status: "failed" | "uncertain",
   detail: string,
   reference: string | null,
-  now: string,
-): PathRecord {
-  return { state, detail, reference, at: now };
+  at: string,
+): DeliveryOutcome {
+  return {
+    event: status === "uncertain" ? "send-uncertain" : "send-failed",
+    detail,
+    reference,
+    at,
+  };
 }
 
 /** Keeps what already happened, and replaces only the path this attempt acted on. */
@@ -43,10 +65,8 @@ export const ReleasePublish = {
   async pack(request: { artifactRoot: string; prefix?: string }) {
     const entries = await scanArtifact(request.artifactRoot, request.prefix ?? "");
     const bytes = packTarball(entries);
-    const hasher = new Bun.CryptoHasher("sha256");
-    hasher.update(bytes);
 
-    return { bytes, entries: entries.length, identity: hasher.digest("hex") };
+    return { bytes, entries: entries.length, identity: ContentIdentity.ofBytes(bytes) };
   },
 
   /**
@@ -69,21 +89,25 @@ export const ReleasePublish = {
     const journal = merged(plan, held.state === "read" ? held.journal : null);
 
     for (const path of plan.paths) {
-      // A delivery this release already recorded is never sent again and never written over,
-      // whatever the registry or the repository answers now.
-      if (journal.paths[path.path]?.state === "published") {
-        continue;
-      }
-      if (path.state === "published") {
-        journal.paths[path.path] = record("published", path.detail, null, now);
+      const recorded = DeliveryPath.state(journal.paths[path.path]);
+      const planned = DeliveryPath.decide(recorded, "plan", pathFacts(plan, path));
+      // A path this release already recorded as delivered has nothing left to deliver.
+      const deliver = "refused" in planned ? undefined : planned.effects[0];
+      if (deliver?.kind !== "deliver") {
         continue;
       }
 
-      const outcome =
-        path.path === "github-source"
+      const outcome: DeliveryOutcome = deliver.observed
+        ? { event: "observed-published", detail: path.detail, reference: null, at: now }
+        : path.path === "github-source"
           ? await publishSource(plan)
           : await publishRegistry(plan, request, now);
-      journal.paths[path.path] = outcome;
+      const delivered = DeliveryPath.decide(recorded, outcome.event, outcome);
+      for (const effect of "refused" in delivered ? [] : delivered.effects) {
+        if (effect.kind === "record") {
+          journal.paths[path.path] = effect.record;
+        }
+      }
     }
 
     await writeJournal(request.journalPath, journal);
@@ -109,7 +133,7 @@ export const ReleasePublish = {
   },
 };
 
-async function publishSource(plan: ReleasePlan): Promise<PathRecord> {
+async function publishSource(plan: ReleasePlan): Promise<DeliveryOutcome> {
   const now = new Date().toISOString();
   // A tag an earlier attempt already landed on this commit is left exactly as it is, so the
   // retry creates only the release that is still missing instead of writing the tag again.
@@ -122,7 +146,7 @@ async function publishSource(plan: ReleasePlan): Promise<PathRecord> {
         commit: plan.commit,
       });
   if (tagged.status !== "succeeded") {
-    return record(tagged.status === "uncertain" ? "uncertain" : "failed", tagged.detail, null, now);
+    return unsent(tagged.status, tagged.detail, null, now);
   }
 
   const released = await createRelease({
@@ -132,43 +156,45 @@ async function publishSource(plan: ReleasePlan): Promise<PathRecord> {
     body: plan.notes ?? "",
   });
 
-  return released.status === "succeeded"
-    ? record(
-        "published",
-        alreadyTagged
-          ? `The release of the existing tag ${plan.tag} was created.`
-          : `The tag ${plan.tag} and its release were created.`,
-        released.value.url,
-        now,
-      )
-    : record(
-        released.status === "uncertain" ? "uncertain" : "failed",
-        released.detail,
-        plan.tag,
-        now,
-      );
+  if (released.status !== "succeeded") {
+    return unsent(released.status, released.detail, plan.tag, now);
+  }
+
+  return {
+    event: "send-succeeded",
+    detail: alreadyTagged
+      ? `The release of the existing tag ${plan.tag} was created.`
+      : `The tag ${plan.tag} and its release were created.`,
+    reference: released.value.url,
+    at: now,
+  };
 }
 
 async function publishRegistry(
   plan: ReleasePlan,
   request: PublishRequest,
   now: string,
-): Promise<PathRecord> {
+): Promise<DeliveryOutcome> {
   const sent = await publishWithClient({ artifactRoot: plan.artifact.root });
   if (sent.status === "succeeded") {
-    return record("published", `JSR published version ${plan.version}.`, null, now);
+    return {
+      event: "send-succeeded",
+      detail: `JSR published version ${plan.version}.`,
+      reference: null,
+      at: now,
+    };
   }
 
   // The client may have sent the version before it failed, so the registry answers what landed.
   const landed = await readVersion({ ...jsrSettings(request), version: plan.version });
   if (landed.status === "succeeded" && landed.value.published) {
-    return record(
-      "published",
-      `JSR holds version ${plan.version}, although the client reported: ${sent.detail}`,
-      null,
-      now,
-    );
+    return {
+      event: "observed-published",
+      detail: `JSR holds version ${plan.version}, although the client reported: ${sent.detail}`,
+      reference: null,
+      at: now,
+    };
   }
 
-  return record(sent.status === "uncertain" ? "uncertain" : "failed", sent.detail, null, now);
+  return unsent(sent.status, sent.detail, null, now);
 }

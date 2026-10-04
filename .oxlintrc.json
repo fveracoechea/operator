@@ -6,6 +6,6 @@
     "anti-slop/no-reduce-accumulator-copy": "error",
     "anti-slop/no-widen-then-assert": "error",
     "oxc/no-accumulating-spread": "error",
-    "complexity": ["error", { "max": 30 }]
+    "complexity": ["error", { "max": 15 }]
   }
 }

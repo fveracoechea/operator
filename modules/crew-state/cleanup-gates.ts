@@ -3,6 +3,7 @@ import { identityOf } from "./identity.ts";
 import type { CheckoutInspection, CleanupContext } from "./cleanup-context.ts";
 import type { IdentityMatch } from "./cleanup-identity.ts";
 import type { CleanupBlocker } from "./cleanup-report.ts";
+import { submittedCommit } from "./submission.ts";
 import { storedRequirements } from "./work-input.ts";
 
 /** Names the blocker one failed identity reading carries. */
@@ -143,13 +144,10 @@ export function stillWritingBlockers(request: {
 
 /**
  * The gates the checkout itself answers.
- * Work nobody registered, files a default status listing hides, and commits no remote keeps
- * are each a reason to retain the checkout rather than to discard uncertain work.
+ * Work nobody registered and files a default status listing hides are each a reason to retain
+ * the checkout rather than to discard uncertain work.
  */
-export function checkoutBlockers(
-  inspection: CheckoutInspection,
-  options: { requireRemote: boolean },
-): CleanupBlocker[] {
+export function checkoutBlockers(inspection: CheckoutInspection): CleanupBlocker[] {
   const blockers: CleanupBlocker[] = [];
 
   if (inspection.unexpectedWork.length > 0) {
@@ -158,9 +156,36 @@ export function checkoutBlockers(
   if (inspection.unknownIgnored.length > 0) {
     blockers.push({ reason: "unexpected_files", paths: inspection.unknownIgnored });
   }
-  if (options.requireRemote && inspection.unpushed.length > 0) {
-    blockers.push({ reason: "unpushed_commits", commits: inspection.unpushed });
-  }
 
   return blockers;
+}
+
+/**
+ * The head rule of a removal (ADR 0010). Git, read in the checkout, must show HEAD on the
+ * recorded attempt branch, at the commit the handoff names: the submitted commit of a result,
+ * or the dispatch base of an attempt that submitted no commit, such as a review. A commit after
+ * the handoff and a detached HEAD each refuse, and the blocker names both heads. A checkout that
+ * is already gone is settled by the removal recovery instead.
+ */
+export function headBlockers(request: {
+  context: CleanupContext;
+  inspection: CheckoutInspection;
+}): CleanupBlocker[] {
+  const { context, inspection } = request;
+  if (!inspection.present) {
+    return [];
+  }
+  const submitted = context.submission === null ? null : submittedCommit(context.submission);
+  const commit = submitted ?? context.dispatch.baseCommit;
+  return inspection.branch === context.dispatch.branch && inspection.head === commit
+    ? []
+    : [
+        {
+          reason: "head_moved",
+          branch: context.dispatch.branch,
+          commit,
+          foundBranch: inspection.branch,
+          foundHead: inspection.head,
+        },
+      ];
 }

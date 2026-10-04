@@ -5,7 +5,7 @@ import { integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqli
  * The durable shape of the crew state. A reader that finds a higher version refuses the file,
  * so this number changes only when an older Operator release can no longer read the tables.
  */
-export const STATE_VERSION = 2;
+export const STATE_VERSION = 18;
 
 export const stateMeta = sqliteTable("state_meta", {
   id: integer("id").primaryKey(),
@@ -48,8 +48,14 @@ export const assignments = sqliteTable("assignments", {
   trackerBinding: text("tracker_binding"),
   title: text("title").notNull(),
   kind: text("kind").notNull(),
+  // The wayfinder type of planning work, which decides the authority its decisions may have.
+  // Planning work with no type follows the stricter rule of a grilling.
+  planningType: text("planning_type"),
   orderIndex: integer("order_index").notNull(),
   approvedScope: text("approved_scope").notNull(),
+  // The content identity of the issue title and body this assignment was read from. Work an
+  // earlier release registered from a hand-written structure, and review work, record none.
+  scopeIdentity: text("scope_identity"),
   acceptanceRequirements: text("acceptance_requirements").notNull(),
   permissions: text("permissions").notNull(),
   fixedInputs: text("fixed_inputs").notNull(),
@@ -58,6 +64,8 @@ export const assignments = sqliteTable("assignments", {
   revision: integer("revision").notNull(),
   registeredAt: text("registered_at").notNull(),
   updatedAt: text("updated_at").notNull(),
+  // The registration plan revision whose approval recorded the withdrawal, or null.
+  withdrawnUnder: text("withdrawn_under"),
 });
 
 export const assignmentDependencies = sqliteTable(
@@ -111,6 +119,11 @@ export const attemptDispatch = sqliteTable("attempt_dispatch", {
   acknowledgedAt: text("acknowledged_at"),
   inspection: text("inspection"),
   inspectionIdentity: text("inspection_identity"),
+  // The "before" scan of ADR 0018, recorded with the agent start intent of a production attempt.
+  outsideScan: text("outside_scan"),
+  // The planning record ids the brief carried, so the spec copy of its result holds them. A
+  // launch recorded before this column existed holds null.
+  planningRecordIds: text("planning_record_ids"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
@@ -156,6 +169,8 @@ export const submissions = sqliteTable("submissions", {
   checks: text("checks").notNull(),
   concerns: text("concerns").notNull(),
   decisions: text("decisions").notNull(),
+  // A submission recorded before the list existed holds null, which is not "none".
+  behaviorChanges: text("behavior_changes"),
   code: text("code"),
   reviewBase: text("review_base"),
   identity: text("identity").notNull(),
@@ -166,15 +181,61 @@ export const submissions = sqliteTable("submissions", {
 });
 
 /**
- * One separate review of one submission, held by its own review assignment.
+ * One difference that submit found outside an Operative worktree (ADR 0018).
+ * Its writer is not known, so it never refuses the result, and acceptance waits until the
+ * Operator explains it or a new scan proves it removed.
+ */
+export const outsideChanges = sqliteTable(
+  "outside_changes",
+  {
+    id: text("id").primaryKey(),
+    submissionId: text("submission_id")
+      .notNull()
+      .references(() => submissions.id),
+    place: text("place").notNull(),
+    path: text("path").notNull(),
+    change: text("change").notNull(),
+    before: text("before"),
+    after: text("after"),
+    // A change to a hook or the config of the checkout touches a security permission.
+    security: integer("security").notNull(),
+    disposition: text("disposition"),
+    reason: text("reason"),
+    evidence: text("evidence"),
+    approvalId: text("approval_id"),
+    disposedAt: text("disposed_at"),
+    recordedAt: text("recorded_at").notNull(),
+  },
+  (table) => [unique().on(table.submissionId, table.place, table.path)],
+);
+
+/**
+ * One recorded state of the integration branch of a source, which a branch review reads: the
+ * base, one head, and the ordered commits with the accepted submission of each (ADR 0017).
+ * Its identity covers all of them, so a report on another head or another commit list refuses.
+ */
+export const branchSnapshots = sqliteTable("branch_snapshots", {
+  id: text("id").primaryKey(),
+  sourceId: text("source_id")
+    .notNull()
+    .references(() => workSources.id),
+  baseCommit: text("base_commit").notNull(),
+  headCommit: text("head_commit").notNull(),
+  commits: text("commits").notNull(),
+  identity: text("identity").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
+/**
+ * One separate review of one fixed subject, held by its own review assignment: a submission for
+ * a result review, or a branch snapshot for a branch review. Exactly one of the two is set.
  * The two axis reports live beside it, so an incomplete review is visible as a missing axis
  * rather than as an absent record.
  */
 export const reviews = sqliteTable("reviews", {
   id: text("id").primaryKey(),
-  submissionId: text("submission_id")
-    .notNull()
-    .references(() => submissions.id),
+  submissionId: text("submission_id").references(() => submissions.id),
+  snapshotId: text("snapshot_id").references(() => branchSnapshots.id),
   assignmentId: text("assignment_id")
     .notNull()
     .references(() => assignments.id),
@@ -187,6 +248,10 @@ export const reviews = sqliteTable("reviews", {
   revision: integer("revision").notNull(),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
+  // The text a reviewer wrote for the pull request that publishes this subject (ADR 0022). A
+  // branch review always writes it, and a result review writes it for the only code result of
+  // its source. The Operator only passes it on.
+  publishedText: text("published_text"),
 });
 
 /** One axis report of one review. The two axes stay separate and are never merged. */
@@ -224,6 +289,10 @@ export const reviewFindings = sqliteTable("review_findings", {
   followUp: text("follow_up"),
   disposedAt: text("disposed_at"),
   recordedAt: text("recorded_at").notNull(),
+  // The commits a branch finding targets, and the one assignment a correction of it names.
+  // A finding of a result review targets its one submission, so it records neither.
+  targets: text("targets"),
+  correctionTarget: text("correction_target"),
 });
 
 /**
@@ -385,11 +454,259 @@ export const answers = sqliteTable("answers", {
   authority: text("authority").notNull(),
   exactText: text("exact_text"),
   interpretation: text("interpretation").notNull(),
+  // How the quote of a requirement was checked. A requirement recorded before the check
+  // existed holds "unchecked", and the other authorities quote no source.
+  sourceKind: text("source_kind"),
   sourceId: text("source_id"),
   sourceRevision: text("source_revision"),
   reusedFromId: text("reused_from_id"),
   approvalId: text("approval_id"),
   recordedAt: text("recorded_at").notNull(),
+});
+
+/**
+ * One planning record, recorded when planning work is accepted.
+ * It is fixed once it is written. A new acceptance after an invalidation adds a new record, and
+ * the latest one is the decision the dependents receive.
+ */
+export const planningRecords = sqliteTable("planning_records", {
+  id: text("id").primaryKey(),
+  assignmentId: text("assignment_id")
+    .notNull()
+    .references(() => assignments.id),
+  assignmentRevision: integer("assignment_revision").notNull(),
+  entries: text("entries").notNull(),
+  artifacts: text("artifacts").notNull(),
+  identity: text("identity").notNull(),
+  recordedAt: text("recorded_at").notNull(),
+});
+
+/**
+ * The one gate checkout of a source (ADR 0021). Herdr creates it once, and the runner detaches
+ * its HEAD at each key, so its branch never moves and it holds no work.
+ */
+export const gateCheckouts = sqliteTable("gate_checkouts", {
+  sourceId: text("source_id")
+    .primaryKey()
+    .references(() => workSources.id),
+  path: text("path").notNull(),
+  branch: text("branch").notNull(),
+  workspaceId: text("workspace_id").notNull(),
+  paneId: text("pane_id").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
+/**
+ * One run of the project gate on one key: the tree of a commit and the identity of the gate
+ * declaration. Runs are appended, and a run records its outcome once. A run with no outcome
+ * proves nothing.
+ */
+export const gateRuns = sqliteTable("gate_runs", {
+  id: text("id").primaryKey(),
+  sourceId: text("source_id")
+    .notNull()
+    .references(() => workSources.id),
+  subject: text("subject").notNull(),
+  tree: text("tree").notNull(),
+  declarationIdentity: text("declaration_identity").notNull(),
+  commit: text("commit").notNull(),
+  commands: text("commands").notNull(),
+  // The approval of a person that started a fresh series at this key, or null for the first one.
+  series: text("series"),
+  replaces: text("replaces"),
+  // The runner writes only while this owner still owns the crew, so a takeover stops it.
+  ownerToken: text("owner_token").notNull(),
+  paneId: text("pane_id").notNull(),
+  state: text("state").notNull(),
+  detail: text("detail"),
+  startedAt: text("started_at").notNull(),
+  begunAt: text("begun_at"),
+  finishedAt: text("finished_at"),
+});
+
+/** The outcome of one command of one gate run, with its output as a stored artifact. */
+export const gateRunCommands = sqliteTable(
+  "gate_run_commands",
+  {
+    runId: text("run_id")
+      .notNull()
+      .references(() => gateRuns.id),
+    position: integer("position").notNull(),
+    name: text("name").notNull(),
+    argv: text("argv").notNull(),
+    timeoutSeconds: integer("timeout_seconds").notNull(),
+    outcome: text("outcome").notNull(),
+    exitCode: integer("exit_code"),
+    reason: text("reason"),
+    outputPath: text("output_path"),
+    outputIdentity: text("output_identity"),
+    recordedAt: text("recorded_at").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.runId, table.position] })],
+);
+
+/**
+ * The one integration branch of a source (ADR 0020). The first code dispatch creates it at the
+ * integration base, after that base passed the project gate, and fixes the gate declaration with
+ * it. Every later production dispatch of the source starts from the recorded tip.
+ */
+export const integrationBranches = sqliteTable("integration_branches", {
+  sourceId: text("source_id")
+    .primaryKey()
+    .references(() => workSources.id),
+  name: text("name").notNull().unique(),
+  baseCommit: text("base_commit").notNull(),
+  recordedTip: text("recorded_tip").notNull(),
+  // The gate declaration at the base, fixed with it, so no later result chooses the gate.
+  gateIdentity: text("gate_identity").notNull(),
+  gateCommands: text("gate_commands").notNull(),
+  fixedAt: text("fixed_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+/**
+ * One landing of one accepted code result on the integration branch of its source (ADR 0020).
+ * The intent names the tip the branch moves from and the commit it moves to before the move, so
+ * recovery reads the branch once. `landed` is the commit on the branch that carries the result.
+ */
+export const landings = sqliteTable("landings", {
+  id: text("id").primaryKey(),
+  sourceId: text("source_id")
+    .notNull()
+    .references(() => workSources.id),
+  assignmentId: text("assignment_id")
+    .notNull()
+    .references(() => assignments.id),
+  submissionId: text("submission_id")
+    .notNull()
+    .references(() => submissions.id),
+  branch: text("branch").notNull(),
+  kind: text("kind").notNull(),
+  fromCommit: text("from_commit").notNull(),
+  toCommit: text("to_commit").notNull(),
+  landedCommit: text("landed_commit").notNull(),
+  landedParent: text("landed_parent").notNull(),
+  patch: text("patch").notNull(),
+  state: text("state").notNull(),
+  createdAt: text("created_at").notNull(),
+  landedAt: text("landed_at"),
+  // The plan of a rewrite: the landing it replaces, each later landing that lands again with its
+  // new commit, and each one that is taken out. Null for every other landing.
+  rewrite: text("rewrite"),
+});
+
+/**
+ * One approved rebase of the integration branch of one source onto a new base (ADR 0020, ADR
+ * 0022). The intent records the whole plan before the branch moves, so recovery reads the branch
+ * once, and the outcome records the new base and tip with what the rebase did to each landing.
+ */
+export const integrationRebases = sqliteTable("integration_rebases", {
+  id: text("id").primaryKey(),
+  sourceId: text("source_id")
+    .notNull()
+    .references(() => workSources.id),
+  planRevision: text("plan_revision").notNull(),
+  approvalId: text("approval_id")
+    .notNull()
+    .references(() => approvals.id),
+  branch: text("branch").notNull(),
+  fromBase: text("from_base").notNull(),
+  toBase: text("to_base").notNull(),
+  fromTip: text("from_tip").notNull(),
+  toTip: text("to_tip").notNull(),
+  // The landings that leave the branch, land again with their new commit, or are taken out.
+  plan: text("plan").notNull(),
+  state: text("state").notNull(),
+  createdAt: text("created_at").notNull(),
+  rebasedAt: text("rebased_at"),
+});
+
+/**
+ * One stack publication of one source (ADR 0022), recorded after its `publish` approval and
+ * before its first write. A source can publish more than once, so each one has its number.
+ */
+export const stackPublications = sqliteTable(
+  "stack_publications",
+  {
+    id: text("id").primaryKey(),
+    sourceId: text("source_id")
+      .notNull()
+      .references(() => workSources.id),
+    number: integer("number").notNull(),
+    planRevision: text("plan_revision").notNull(),
+    approvalId: text("approval_id")
+      .notNull()
+      .references(() => approvals.id),
+    remote: text("remote").notNull(),
+    target: text("target").notNull(),
+    baseCommit: text("base_commit").notNull(),
+    headCommit: text("head_commit").notNull(),
+    createdAt: text("created_at").notNull(),
+    // The tracker steps after the merge that the approval names, each with its rendered text.
+    trackerSteps: text("tracker_steps").notNull().default("[]"),
+  },
+  (table) => [unique().on(table.sourceId, table.number)],
+);
+
+/**
+ * One staged write of one stack publication: the push, or the create of one pull request. The
+ * intent is recorded before the write, and recovery reads GitHub to settle it (ADR 0005).
+ */
+export const publishEffects = sqliteTable(
+  "publish_effects",
+  {
+    id: text("id").primaryKey(),
+    publicationId: text("publication_id")
+      .notNull()
+      .references(() => stackPublications.id),
+    position: integer("position").notNull(),
+    kind: text("kind").notNull(),
+    intent: text("intent").notNull(),
+    state: text("state").notNull(),
+    outcome: text("outcome"),
+    createdAt: text("created_at").notNull(),
+    settledAt: text("settled_at"),
+  },
+  (table) => [unique().on(table.publicationId, table.position)],
+);
+
+/** One pull request of one stack publication, with the number GitHub gave it once created. */
+export const stackPullRequests = sqliteTable(
+  "stack_pull_requests",
+  {
+    publicationId: text("publication_id")
+      .notNull()
+      .references(() => stackPublications.id),
+    part: integer("part").notNull(),
+    headName: text("head_name").notNull().unique(),
+    publishedCommit: text("published_commit").notNull(),
+    plannedBase: text("planned_base").notNull(),
+    number: integer("number"),
+    url: text("url"),
+  },
+  (table) => [primaryKey({ columns: [table.publicationId, table.part] })],
+);
+
+/**
+ * One reading of one published pull request on GitHub, taken when a person reports a merge or a
+ * close. The latest reading of each part is what the next actions read (ADR 0022).
+ */
+export const stackObservations = sqliteTable("stack_observations", {
+  id: text("id").primaryKey(),
+  publicationId: text("publication_id")
+    .notNull()
+    .references(() => stackPublications.id),
+  part: integer("part").notNull(),
+  number: integer("number").notNull(),
+  state: text("state").notNull(),
+  headCommit: text("head_commit").notNull(),
+  base: text("base").notNull(),
+  draft: integer("draft").notNull(),
+  mergeCommit: text("merge_commit"),
+  method: text("method"),
+  fault: text("fault"),
+  detail: text("detail"),
+  observedAt: text("observed_at").notNull(),
 });
 
 /**
@@ -486,6 +803,8 @@ export const crewStateSchema = {
   attemptDispatch,
   externalOperations,
   submissions,
+  outsideChanges,
+  branchSnapshots,
   reviews,
   reviewReports,
   reviewFindings,
@@ -495,13 +814,226 @@ export const crewStateSchema = {
   requestRecords,
   questions,
   answers,
+  planningRecords,
   approvals,
+  gateCheckouts,
+  gateRuns,
+  gateRunCommands,
+  integrationBranches,
+  stackPublications,
+  publishEffects,
+  stackPullRequests,
+  stackObservations,
+  integrationRebases,
   trackerOperations,
   trackerWriteAttempts,
   trackerObservations,
   cleanups,
   retentionHolds,
 };
+
+/** The gate tables, written once so a new state and the migration step create the same tables. */
+export const GATE_TABLES = [
+  `create table gate_checkouts (
+    source_id text primary key references work_sources(id),
+    path text not null,
+    branch text not null,
+    workspace_id text not null,
+    pane_id text not null,
+    created_at text not null
+  ) strict`,
+  `create table gate_runs (
+    id text primary key,
+    source_id text not null references work_sources(id),
+    subject text not null,
+    tree text not null,
+    declaration_identity text not null,
+    "commit" text not null,
+    commands text not null,
+    series text,
+    replaces text,
+    owner_token text not null,
+    pane_id text not null,
+    state text not null,
+    detail text,
+    started_at text not null,
+    begun_at text,
+    finished_at text
+  ) strict`,
+  `create table gate_run_commands (
+    run_id text not null references gate_runs(id),
+    position integer not null,
+    name text not null,
+    argv text not null,
+    timeout_seconds integer not null,
+    outcome text not null,
+    exit_code integer,
+    reason text,
+    output_path text,
+    output_identity text,
+    recorded_at text not null,
+    primary key (run_id, position)
+  ) strict`,
+  // One gate run of a source runs at a time, so two candidates on one tip never race.
+  `create unique index gate_runs_one_running on gate_runs (source_id) where state = 'running'`,
+];
+
+/** The integration branch table, written once for a new state and its migration step. */
+export const INTEGRATION_TABLES = [
+  `create table integration_branches (
+    source_id text primary key references work_sources(id),
+    name text not null unique,
+    base_commit text not null,
+    recorded_tip text not null,
+    gate_identity text not null,
+    gate_commands text not null,
+    fixed_at text not null,
+    updated_at text not null
+  ) strict`,
+];
+
+/** The landing table, written once for a new state and its migration step. */
+export const LANDING_TABLES = [
+  `create table landings (
+    id text primary key,
+    source_id text not null references work_sources(id),
+    assignment_id text not null references assignments(id),
+    submission_id text not null references submissions(id),
+    branch text not null,
+    kind text not null,
+    from_commit text not null,
+    to_commit text not null,
+    landed_commit text not null,
+    landed_parent text not null,
+    patch text not null,
+    state text not null,
+    created_at text not null,
+    landed_at text
+  ) strict`,
+  // One landing of a source waits at a time, so two intents never race for one tip.
+  `create unique index landings_one_intended on landings (source_id) where state = 'intended'`,
+];
+
+/** The rewrite plan of a landing, written once for a new state and its migration step. */
+export const LANDING_REWRITE_COLUMN = "alter table landings add column rewrite text";
+
+/**
+ * The branch snapshot table and the review table that reads either subject, written once for a
+ * new state and its migration step. A review names a submission or a snapshot, never both.
+ */
+export const BRANCH_REVIEW_TABLES = [
+  `create table branch_snapshots (
+    id text primary key,
+    source_id text not null references work_sources(id),
+    base_commit text not null,
+    head_commit text not null,
+    commits text not null,
+    identity text not null,
+    created_at text not null
+  ) strict`,
+  `create table reviews (
+    id text primary key,
+    submission_id text references submissions(id),
+    assignment_id text not null references assignments(id),
+    axes text not null,
+    state text not null,
+    host text,
+    sub_agents text,
+    blocker text,
+    reported_at text,
+    revision integer not null,
+    created_at text not null,
+    updated_at text not null,
+    snapshot_id text references branch_snapshots(id),
+    unique (assignment_id),
+    check ((submission_id is null) <> (snapshot_id is null))
+  ) strict`,
+];
+
+/**
+ * The stack publication tables, and the published text of a review, written once for a new state
+ * and its migration step. The review table keeps the statement of version 14, so the text is a
+ * column added after it.
+ */
+export const PUBLISH_TABLES = [
+  `alter table reviews add column published_text text`,
+  `create table stack_publications (
+    id text primary key,
+    source_id text not null references work_sources(id),
+    number integer not null,
+    plan_revision text not null,
+    approval_id text not null references approvals(id),
+    remote text not null,
+    target text not null,
+    base_commit text not null,
+    head_commit text not null,
+    created_at text not null,
+    unique (source_id, number)
+  ) strict`,
+  `create table publish_effects (
+    id text primary key,
+    publication_id text not null references stack_publications(id),
+    position integer not null,
+    kind text not null,
+    intent text not null,
+    state text not null,
+    outcome text,
+    created_at text not null,
+    settled_at text,
+    unique (publication_id, position)
+  ) strict`,
+  `create table stack_pull_requests (
+    publication_id text not null references stack_publications(id),
+    part integer not null,
+    head_name text not null unique,
+    published_commit text not null,
+    planned_base text not null,
+    number integer,
+    url text,
+    primary key (publication_id, part)
+  ) strict`,
+];
+
+/** The merge observation tables, written once for a new state and for the migration step. */
+export const OBSERVATION_TABLES = [
+  `alter table stack_publications add column tracker_steps text not null default '[]'`,
+  `create table stack_observations (
+    id text primary key,
+    publication_id text not null references stack_publications(id),
+    part integer not null,
+    number integer not null,
+    state text not null,
+    head_commit text not null,
+    base text not null,
+    draft integer not null,
+    merge_commit text,
+    method text,
+    fault text,
+    detail text,
+    observed_at text not null
+  ) strict`,
+];
+
+/** The rebase table, written once for a new state and for the migration step. */
+export const REBASE_TABLES = [
+  `create table integration_rebases (
+    id text primary key,
+    source_id text not null references work_sources(id),
+    plan_revision text not null,
+    approval_id text not null references approvals(id),
+    branch text not null,
+    from_base text not null,
+    to_base text not null,
+    from_tip text not null,
+    to_tip text not null,
+    plan text not null,
+    state text not null,
+    created_at text not null,
+    rebased_at text
+  ) strict`,
+  // One rebase of a source waits at a time, so two intents never race for one tip.
+  `create unique index integration_rebases_one_intended on integration_rebases (source_id) where state = 'intended'`,
+];
 
 /**
  * The tables this release creates. `schema.test.ts` compares every statement against the
@@ -538,6 +1070,7 @@ export const CREATE_STATEMENTS = [
     tracker_binding text,
     title text not null,
     kind text not null,
+    planning_type text,
     order_index integer not null,
     approved_scope text not null,
     acceptance_requirements text not null,
@@ -548,6 +1081,9 @@ export const CREATE_STATEMENTS = [
     revision integer not null,
     registered_at text not null,
     updated_at text not null,
+    -- Last, because the migrations that added them append them to an earlier file.
+    scope_identity text,
+    withdrawn_under text,
     unique (source_id, source_key)
   ) strict`,
   sql`create table assignment_dependencies (
@@ -582,6 +1118,8 @@ export const CREATE_STATEMENTS = [
     acknowledged_at text,
     inspection text,
     inspection_identity text,
+    outside_scan text,
+    planning_record_ids text,
     created_at text not null,
     updated_at text not null
   ) strict`,
@@ -609,6 +1147,7 @@ export const CREATE_STATEMENTS = [
     checks text not null,
     concerns text not null,
     decisions text not null,
+    behavior_changes text,
     code text,
     review_base text,
     identity text not null,
@@ -618,21 +1157,24 @@ export const CREATE_STATEMENTS = [
     updated_at text not null,
     unique (attempt_id)
   ) strict`,
-  sql`create table reviews (
+  sql`create table outside_changes (
     id text primary key,
     submission_id text not null references submissions(id),
-    assignment_id text not null references assignments(id),
-    axes text not null,
-    state text not null,
-    host text,
-    sub_agents text,
-    blocker text,
-    reported_at text,
-    revision integer not null,
-    created_at text not null,
-    updated_at text not null,
-    unique (assignment_id)
+    place text not null,
+    path text not null,
+    change text not null,
+    before text,
+    after text,
+    security integer not null,
+    disposition text,
+    reason text,
+    evidence text,
+    approval_id text,
+    disposed_at text,
+    recorded_at text not null,
+    unique (submission_id, place, path)
   ) strict`,
+  ...BRANCH_REVIEW_TABLES.map((statement) => sql.raw(statement)),
   sql`create table review_reports (
     id text primary key,
     review_id text not null references reviews(id),
@@ -659,6 +1201,9 @@ export const CREATE_STATEMENTS = [
     follow_up text,
     disposed_at text,
     recorded_at text not null,
+    -- Last, because the migration that added them appends them to an earlier file.
+    targets text,
+    correction_target text,
     unique (review_id, axis, finding_key)
   ) strict`,
   sql`create table rework_cycles (
@@ -730,12 +1275,29 @@ export const CREATE_STATEMENTS = [
     authority text not null,
     exact_text text,
     interpretation text not null,
+    source_kind text,
     source_id text,
     source_revision text,
     reused_from_id text,
     approval_id text,
     recorded_at text not null
   ) strict`,
+  sql`create table planning_records (
+    id text primary key,
+    assignment_id text not null references assignments(id),
+    assignment_revision integer not null,
+    entries text not null,
+    artifacts text not null,
+    identity text not null,
+    recorded_at text not null
+  ) strict`,
+  ...GATE_TABLES.map((statement) => sql.raw(statement)),
+  ...INTEGRATION_TABLES.map((statement) => sql.raw(statement)),
+  ...LANDING_TABLES.map((statement) => sql.raw(statement)),
+  ...PUBLISH_TABLES.map((statement) => sql.raw(statement)),
+  ...OBSERVATION_TABLES.map((statement) => sql.raw(statement)),
+  sql.raw(LANDING_REWRITE_COLUMN),
+  ...REBASE_TABLES.map((statement) => sql.raw(statement)),
   sql`create table approvals (
     id text primary key,
     action text not null,

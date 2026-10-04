@@ -235,6 +235,14 @@ describe("operator setup probe apply", () => {
 
       expect(result.exitCode).toBe(3);
       expect(result.json.reason).toBe("approval_required");
+      expect(result.stdout).toStartWith(
+        `{"schemaVersion":1,"outcome":"missing-condition","reason":"approval_required","blockers":[{"reason":"approval_required","currentProbeId":"${result.json.data.probeId}","approvedProbeId":null}],"operation":"setup_probe_apply","data":{`,
+      );
+      const plan = await runOperator(workspace, ["setup", "probe", "plan", ...selection]);
+      const text = await runOperator(workspace, ["setup", "probe", "apply", ...selection]);
+      expect(text.stdout).toBe(
+        `A live probe needs its own approval. Nothing was launched.\n\n${plan.stdout}`,
+      );
       expect(await launchCalls(workspace)).toEqual([]);
     },
     PROBE_TIMEOUT_MS,
@@ -252,6 +260,21 @@ describe("operator setup probe apply", () => {
 
       expect(result.exitCode).toBe(3);
       expect(result.json.reason).toBe("approval_stale");
+      expect(result.stdout).toStartWith(
+        `{"schemaVersion":1,"outcome":"missing-condition","reason":"approval_stale","blockers":[{"reason":"approval_stale","currentProbeId":"${result.json.data.probeId}","approvedProbeId":"${"0".repeat(64)}"}],"operation":"setup_probe_apply","data":{`,
+      );
+      const plan = await runOperator(workspace, ["setup", "probe", "plan", ...selection]);
+      const text = await runOperator(workspace, [
+        "setup",
+        "probe",
+        "apply",
+        ...selection,
+        "--approved-probe",
+        "0".repeat(64),
+      ]);
+      expect(text.stdout).toBe(
+        `The approved probe no longer matches this project or this selection. Nothing was launched.\n\n${plan.stdout}`,
+      );
       expect(await launchCalls(workspace)).toEqual([]);
     },
     PROBE_TIMEOUT_MS,
@@ -1110,6 +1133,24 @@ describe("operator setup probe cleanup", () => {
   );
 
   test(
+    "reads a refused comment write as absent when a complete scan finds no comment",
+    async () => {
+      const workspace = await makeProbeWorkspace();
+      await seedProbeReports(workspace, goodReports({ skills: workspace.skills }));
+      await seedProbePartial(workspace, "partial work");
+      await Bun.write(
+        `${workspace.github}/faults.json`,
+        JSON.stringify({ createComment: { kind: "status:422", remaining: 1 } }),
+      );
+      await applyProbe(workspace);
+      const pending = await runJson(workspace, ["setup", "probe", "cleanup"]);
+      expect(pending.json.data.resources[0].fixture).toContain("resolution absent");
+      expect(pending.json.data.resources[0].fixtureDetail).toBeNull();
+    },
+    PROBE_TIMEOUT_MS,
+  );
+
+  test(
     "records the reopen identity before it restores a closed fixture",
     async () => {
       const workspace = await makeProbeWorkspace();
@@ -1470,6 +1511,16 @@ describe("operator setup probe cleanup", () => {
 
       const pending = await runJson(workspace, ["setup", "probe", "cleanup"]);
       expect(pending.json.reason).toBe("approval_required");
+      expect(pending.stdout).toStartWith(
+        `{"schemaVersion":1,"outcome":"missing-condition","reason":"approval_required","blockers":[{"reason":"approval_required","currentCleanupId":"${pending.json.data.cleanupId}","approvedCleanupId":null}],"operation":"setup_probe_cleanup","data":{`,
+      );
+      const pendingText = await runOperator(workspace, ["setup", "probe", "cleanup"]);
+      expect(pendingText.stdout).toStartWith(
+        "Removing a probe resource needs its own approval. Nothing was removed.\n\nThese probe resources will be inspected for approved cleanup:\n",
+      );
+      expect(pendingText.stdout).toEndWith(
+        `\nThe recorded observations stay, so every failed attempt is preserved.\nAn unresolved fixture keeps its journal after its verified agents and worktree are removed.\n\nApprove with: bunx "github:fveracoechea/operator#${"e".repeat(40)}" setup probe cleanup --approved-cleanup ${pending.json.data.cleanupId}\n`,
+      );
       expect(pending.json.data.resources).toEqual(
         expect.arrayContaining([expect.objectContaining({ agents })]),
       );
@@ -1601,6 +1652,19 @@ describe("operator setup probe cleanup", () => {
 
       expect(result.exitCode).toBe(3);
       expect(result.json.reason).toBe("approval_stale");
+      expect(result.stdout).toStartWith(
+        `{"schemaVersion":1,"outcome":"missing-condition","reason":"approval_stale","blockers":[{"reason":"approval_stale","currentCleanupId":"${result.json.data.cleanupId}","approvedCleanupId":"${"0".repeat(64)}"}],"operation":"setup_probe_cleanup","data":{`,
+      );
+      const text = await runOperator(workspace, [
+        "setup",
+        "probe",
+        "cleanup",
+        "--approved-cleanup",
+        "0".repeat(64),
+      ]);
+      expect(text.stdout).toStartWith(
+        "The approved cleanup no longer names these resources. Nothing was removed.\n\n",
+      );
     },
     PROBE_TIMEOUT_MS,
   );

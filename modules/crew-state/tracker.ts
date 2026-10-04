@@ -30,6 +30,7 @@ export type TrackerBinding = {
   repository: string;
   issue: number;
   mapIssue: number | null;
+  mapRepository: string;
 };
 
 export type BindingLookup =
@@ -74,15 +75,18 @@ export function readBinding(db: CrewReader, assignmentId: string): BindingLookup
   }
 
   const location = storedTrackerLocation(source.trackerLocation);
+  const bound = storedTrackerBinding(assignment.trackerBinding);
   return {
     status: "bound",
     assignment,
     binding: {
       provider: source.tracker,
       sourceId: source.id,
-      repository: location.repository,
-      issue: storedTrackerBinding(assignment.trackerBinding).issue,
+      // A sub-issue can live in another repository than its parent, so each binding names its own.
+      repository: bound.repository,
+      issue: bound.issue,
       mapIssue: location.mapIssue,
+      mapRepository: location.repository,
     },
   };
 }
@@ -95,7 +99,7 @@ export function targetOf(binding: TrackerBinding, step: TrackerStep): TrackerTar
 
   return binding.mapIssue === null
     ? null
-    : { repository: binding.repository, issue: binding.mapIssue };
+    : { repository: binding.mapRepository, issue: binding.mapIssue };
 }
 
 export function readTrackerOperation(

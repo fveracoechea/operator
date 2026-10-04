@@ -41,18 +41,83 @@ export type HoldResult =
   | { status: "already-held"; hold: HoldRecord }
   | { status: "unknown-attempt"; attemptId: string };
 
+/** The states of one retention hold. A held attempt keeps every resource. */
+export type HoldState = "held" | "released";
+
+/** The events that move one retention hold. */
+export type HoldEvent = "hold" | "release";
+
+/** What a hold or a release reads first. The caller gathers it, and the decision reads nothing. */
+export type HoldFacts = {
+  attemptId: string;
+  attemptKnown: boolean;
+  /** The hold this attempt holds now. */
+  held: RetentionHoldRow | null;
+  /** The hold revision a release states it inspected. */
+  revision: number | null;
+};
+
+type HoldRefusal = Exclude<HoldResult, { status: "held" }>;
+type ReleaseRefusal = Exclude<ReleaseResult, { status: "released" }>;
+type RefusalOf = { hold: HoldRefusal; release: ReleaseRefusal };
+
+type HoldEntry<E extends HoldEvent> = {
+  guards: Array<(facts: HoldFacts) => RefusalOf[E] | null>;
+  next: HoldState;
+};
+
+/** The transition table of a retention hold: the guards of each event in order, and its next state. */
+const HOLD_TABLE: { [E in HoldEvent]: HoldEntry<E> } = {
+  hold: {
+    guards: [
+      ({ attemptKnown, attemptId }) =>
+        attemptKnown ? null : { status: "unknown-attempt", attemptId },
+      ({ held }) => (held === null ? null : { status: "already-held", hold: holdRecordOf(held) }),
+    ],
+    next: "held",
+  },
+  release: {
+    guards: [
+      ({ held, attemptId }) => (held === null ? { status: "no-hold", attemptId } : null),
+      ({ held, revision }) =>
+        held === null || held.revision === revision
+          ? null
+          : { status: "stale-revision", holdId: held.id, recordedRevision: held.revision },
+    ],
+    next: "released",
+  },
+};
+
+export const Retention = {
+  /** Decides one hold or one release. It is pure: the caller reads the facts first. */
+  decide<E extends HoldEvent>(
+    event: E,
+    facts: HoldFacts,
+  ): { refused: RefusalOf[E] } | { next: HoldState } {
+    const entry: HoldEntry<E> = HOLD_TABLE[event];
+    for (const guard of entry.guards) {
+      const refused = guard(facts);
+      if (refused !== null) {
+        return { refused };
+      }
+    }
+    return { next: entry.next };
+  },
+};
+
 /** Places one retention hold. A held attempt keeps every resource until a person releases it. */
 export function placeHold(
   db: CrewWriter,
   request: { holdId: string; attemptId: string; input: HoldInput; now: string },
 ): HoldResult {
-  if (readAttempt(db, request.attemptId) === null) {
-    return { status: "unknown-attempt", attemptId: request.attemptId };
-  }
-
-  const existing = heldRetention(db, request.attemptId);
-  if (existing !== null) {
-    return { status: "already-held", hold: holdRecordOf(existing) };
+  const decision = Retention.decide("hold", {
+    attemptId: request.attemptId,
+    attemptKnown: readAttempt(db, request.attemptId) !== null,
+    held: heldRetention(db, request.attemptId),
+    revision: null,
+  });
+  if ("refused" in decision) {
+    return decision.refused;
   }
 
   const row: RetentionHoldRow = {
@@ -60,7 +125,7 @@ export function placeHold(
     attemptId: request.attemptId,
     reason: request.input.reason,
     detail: request.input.detail,
-    state: "held",
+    state: decision.next,
     revision: 1,
     placedAt: request.now,
     releasedAt: null,
@@ -81,25 +146,28 @@ export function releaseHold(
   request: { attemptId: string; revision: number; now: string },
 ): ReleaseResult {
   const existing = heldRetention(db, request.attemptId);
-  if (existing === null) {
-    return { status: "no-hold", attemptId: request.attemptId };
+  const decision = Retention.decide("release", {
+    attemptId: request.attemptId,
+    attemptKnown: true,
+    held: existing,
+    revision: request.revision,
+  });
+  if ("refused" in decision) {
+    return decision.refused;
   }
-  if (existing.revision !== request.revision) {
-    return {
-      status: "stale-revision",
-      holdId: existing.id,
-      recordedRevision: existing.revision,
-    };
+  if (existing === null) {
+    throw new Error("A release passed its guards with no hold to end.");
   }
 
   const revision = existing.revision + 1;
+  const state = decision.next;
   db.update(retentionHolds)
-    .set({ state: "released", revision, releasedAt: request.now })
+    .set({ state, revision, releasedAt: request.now })
     .where(eq(retentionHolds.id, existing.id))
     .run();
 
   return {
     status: "released",
-    hold: holdRecordOf({ ...existing, state: "released", revision, releasedAt: request.now }),
+    hold: holdRecordOf({ ...existing, state, revision, releasedAt: request.now }),
   };
 }

@@ -3,13 +3,8 @@ import { readOperation } from "./dispatch.ts";
 import { type InvalidInput, parseInput } from "./input.ts";
 import { mutate } from "./operations.ts";
 import { type EscalationTrigger, questionInputSchema } from "./question-input.ts";
-import {
-  BLOCKING_STATES,
-  blockingQuestionOf,
-  insertQuestion,
-  readQuestion,
-  updateQuestion,
-} from "./questions.ts";
+import { Question } from "./question-machine.ts";
+import { blockingQuestionOf, insertQuestion, readQuestion, updateQuestion } from "./questions.ts";
 
 type Raised = {
   status: "raised";
@@ -71,18 +66,12 @@ export async function raiseQuestion(request: {
       input: { attemptId: request.attemptId, question: input },
     },
     ({ tx, now }) => {
-      // One Operative waits on one question, so a second report would hide the first.
-      const held = blockingQuestionOf(tx, request.attemptId);
-      if (held !== null) {
-        return {
-          commit: false,
-          outcome: {
-            status: "question-open" as const,
-            questionId: held.id,
-            attemptId: request.attemptId,
-            state: held.state,
-          },
-        };
+      const decision = Question.decide("raise", {
+        held: blockingQuestionOf(tx, request.attemptId),
+        attemptId: request.attemptId,
+      });
+      if ("refused" in decision) {
+        return { commit: false, outcome: decision.refused };
       }
 
       insertQuestion(tx, {
@@ -90,6 +79,7 @@ export async function raiseQuestion(request: {
         assignmentId,
         attemptId: request.attemptId,
         input,
+        state: decision.next,
         now,
       });
       return {
@@ -177,45 +167,18 @@ export async function reviseQuestion(request: {
           outcome: { status: "unknown-question" as const, questionId: request.questionId },
         };
       }
-      if (row.attemptId !== request.attemptId) {
-        return {
-          commit: false,
-          outcome: {
-            status: "question-mismatch" as const,
-            questionId: row.id,
-            attemptId: row.attemptId,
-          },
-        };
-      }
-      if (row.revision !== request.revision) {
-        return {
-          commit: false,
-          outcome: {
-            status: "stale-question-revision" as const,
-            questionId: row.id,
-            recordedRevision: row.revision,
-          },
-        };
-      }
-      // A question nobody waits on any more is history, so it is never asked again in place.
-      if (!BLOCKING_STATES.some((state) => state === row.state)) {
-        return {
-          commit: false,
-          outcome: { status: "question-closed" as const, questionId: row.id, state: row.state },
-        };
-      }
-      // An answer already on its way is not revised behind the Operative that will read it.
-      // A delivery that is proven not to have happened leaves the question free to change.
-      const delivery =
-        row.deliveryOperationId === null ? null : readOperation(tx, row.deliveryOperationId);
-      if (delivery !== null && delivery.state !== "failed") {
-        return {
-          commit: false,
-          outcome: { status: "delivery-started" as const, questionId: row.id, state: row.state },
-        };
+      const decision = Question.decide("revise", {
+        row,
+        attemptId: request.attemptId,
+        revision: request.revision,
+        delivery:
+          row.deliveryOperationId === null ? null : readOperation(tx, row.deliveryOperationId),
+      });
+      if ("refused" in decision) {
+        return { commit: false, outcome: decision.refused };
       }
 
-      const revision = updateQuestion(tx, { row, input, now });
+      const revision = updateQuestion(tx, { row, input, state: decision.next, now });
       return {
         commit: true,
         outcome: {

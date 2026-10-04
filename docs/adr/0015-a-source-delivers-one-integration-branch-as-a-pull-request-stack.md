@@ -21,7 +21,7 @@ Nothing is reordered after review.
 The integration branch is published as a pull request stack.
 A cut point between two neighbouring commits starts a new integrated pull request, which is based on the one below it.
 A stack of one pull request is the default.
-At publish, the Operator proposes the cut points with a reason for each, and the user approves them as part of the publish approval.
+At publish, the branch reviewer proposes the cut points with a reason for each in its report, because it read the whole head and the Operator writes no content of its own (ADR 0022), and the user approves them as part of the publish approval.
 An intent the user stated at registration is input to that proposal, not a fixed split.
 
 A source with one code assignment delivers one pull request with one commit, so a pull request for each assignment is one case of this shape and not a second shape.
@@ -63,3 +63,7 @@ An accepted submission keeps its recorded pull request as history.
 
 The branch moves only as the last step of acceptance, so it never holds a commit that failed another gate, as ADR 0020 records.
 ADR 0022 records how each pull request of a stack is opened, linked, and merged: by the CLI, with a merge commit, from the bottom up.
+
+One CLI test proves this shape end to end, with fakes only at the Herdr and GitHub boundaries: `modules/operator-cli/source-end-to-end.test.ts` runs one parent issue to one merged integrated pull request.
+It asserts the commit order, one commit for each item, a passing gate run at the base and at every commit, and the rendered body.
+It fails when the landing, the candidate gate check, or the branch review gate is deleted.

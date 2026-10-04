@@ -1,6 +1,6 @@
-import { WakeState } from "../wake-state/main.ts";
-import { agents, next } from "./herdr.ts";
-import { bindingTable, configDir, hasCrewAction, registerRunner, watchersOf } from "./binding.ts";
+import { agents, next, type Agent } from "./herdr.ts";
+import { configDir, decideWithReads, registerRunner, watchersOf } from "./binding.ts";
+import { openStore } from "./store.ts";
 
 export async function arm(request: {
   root: string;
@@ -10,51 +10,49 @@ export async function arm(request: {
   cliBin: string;
   pane: string;
 }): Promise<string> {
-  const live = await agents();
-  const operator = live.find((agent) => agent.pane_id === request.pane);
-  if (
-    !operator ||
-    operator.agent_status !== "working" ||
-    !["opencode", "claude"].includes(operator.agent) ||
-    !operator.agent_session?.value
-  ) {
-    throw new Error("The calling pane is not an identified OpenCode or Claude Code Operator");
-  }
-
   const targets = JSON.stringify(request.targets);
-  const schedule = await next({ root: request.root, operatorBin: request.operatorBin, targets });
-  const ownership = schedule.ownership;
-  if (
-    !ownership ||
-    ownership.ownerLabel !== request.owner ||
-    schedule.waits.length === 0 ||
-    hasCrewAction(schedule)
-  ) {
-    throw new Error("The Operator must own a crew with waits and no open crew action");
+  let live: Agent[] = [];
+  // An arm replaces any earlier binding of the root, so the recorded state does not matter.
+  const decision = await decideWithReads(
+    "absent",
+    { kind: "arm", owner: request.owner },
+    {
+      caller: async () => {
+        live = await agents();
+        return live.find((agent) => agent.pane_id === request.pane);
+      },
+      schedule: async () => next({ root: request.root, operatorBin: request.operatorBin, targets }),
+    },
+  );
+  if ("refused" in decision) {
+    throw new Error(
+      decision.refused === "not-operator"
+        ? "The calling pane is not an identified OpenCode or Claude Code Operator"
+        : "The Operator must own a crew with waits and no open crew action",
+    );
   }
 
-  const values = {
-    root: request.root,
-    operatorBin: request.operatorBin,
-    targets,
-    owner: request.owner,
-    acquired: ownership.acquiredAt,
-    revision: ownership.revision,
-    terminal: operator.terminal_id,
-    session: operator.agent_session.value,
-    watchers: watchersOf(schedule, live),
-    state: "armed",
-  };
   const dir = await configDir();
-  const db = await WakeState.open(dir);
+  const store = await openStore(dir);
   try {
-    db.insert(bindingTable)
-      .values(values)
-      .onConflictDoUpdate({ target: bindingTable.root, set: values })
-      .run();
-    await registerRunner(dir, request.root, request.cliBin);
+    for (const effect of decision.effects) {
+      if (effect.kind !== "arm") continue;
+      store.save({
+        root: request.root,
+        operatorBin: request.operatorBin,
+        targets,
+        owner: request.owner,
+        acquired: effect.acquired,
+        revision: effect.revision,
+        terminal: effect.operator.terminal_id,
+        session: effect.session,
+        watchers: watchersOf(effect.schedule, live),
+        state: "armed",
+      });
+      await registerRunner(dir, request.root, request.cliBin);
+    }
   } finally {
-    db.$client.close();
+    store.close();
   }
   return "Operator wake armed for this crew.";
 }

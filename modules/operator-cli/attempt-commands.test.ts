@@ -1,10 +1,13 @@
-import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { registerSource, sourceIdOf, workspaceTarget } from "./source-fixture.ts";
+import { afterEach, describe, expect, test as bunTest } from "bun:test";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
 import { ContentIdentity } from "../content-identity/main.ts";
 import { OperatorRelease } from "../operator-release/main.ts";
 import { ReleaseInstall } from "../release-install/main.ts";
 import {
+  passBaseGate,
+  runGate,
   headCommit,
   herdrCalls,
   markFakeAgent,
@@ -22,6 +25,7 @@ import {
   delegateRework,
   grantDirection,
   makeReviewWorkspace,
+  moveRecordedTip,
   relaunchReviewer,
   reportBody,
   reportReview,
@@ -33,7 +37,11 @@ import {
 } from "./review-cycle-fixture.ts";
 
 // Dispatch tests create Git worktrees and run several CLI processes under the parallel CI gate.
-setDefaultTimeout(60_000);
+// Each test states its own bound, because a process-wide default would set the bound of every
+// file in the bun test process (#179).
+function test(name: string, run: () => Promise<void> | void, timeoutMs = 60_000) {
+  bunTest(name, run, timeoutMs);
+}
 
 const fixtures = workspaces();
 
@@ -54,7 +62,14 @@ async function calls(workspace: Workspace): Promise<string[]> {
   return herdrCalls(workspace);
 }
 
-async function claimedAttempt(workspace: Workspace) {
+type FixedInput = { name: string; kind: string; value: string; contentIdentity: string | null };
+
+async function claimedAttempt(
+  workspace: Workspace,
+  fixedInputs: FixedInput[] = [
+    { name: "brief", kind: "value", value: "the brief", contentIdentity: null },
+  ],
+) {
   const owned = await runJson(workspace, [
     "crew",
     "own",
@@ -65,35 +80,20 @@ async function claimedAttempt(workspace: Workspace) {
   ]);
   const ownerToken = owned.json.data.ownerToken;
 
-  const input = {
+  const registered = await registerSource(workspaceTarget(workspace), ownerToken, {
     sourceKind: "specification",
-    source: { id: "github:operator#20", revision: "rev-1", tracker: "github" },
+    parent: 20,
     items: [
       {
         key: "20.1",
         title: "Dispatch one Operative",
-        kind: "production",
-        approvedScope: "Build the dispatch path.",
-        acceptanceRequirements: ["The quality gate passes."],
+        body: "Build the dispatch path.",
         permissions: { writePaths: ["modules/"], allowedCommands: ["bun test"], network: false },
-        fixedInputs: [{ name: "brief", kind: "value", value: "the brief", contentIdentity: null }],
-        dependsOn: [],
+        fixedInputs,
       },
     ],
-  };
-  const inputPath = `${workspace.root}/work.json`;
-  await Bun.write(inputPath, JSON.stringify(input));
-  const registered = await runJson(workspace, [
-    "work",
-    "register",
-    "--request",
-    request(),
-    "--owner-token",
-    ownerToken,
-    "--input",
-    inputPath,
-  ]);
-  const assignmentId = registered.json.data.registered[0].assignmentId;
+  });
+  const assignmentId = registered.assignments[0]?.assignmentId ?? "";
 
   const claimed = await runJson(workspace, [
     "work",
@@ -107,6 +107,12 @@ async function claimedAttempt(workspace: Workspace) {
     "--revision",
     "1",
   ]);
+  // The first code dispatch of the source starts only from a base that passed the project gate.
+  await passBaseGate(workspace, {
+    ownerToken,
+    attemptId: claimed.json.data.attemptId,
+    commit: await headCommit(workspace),
+  });
 
   return {
     ownerToken,
@@ -141,7 +147,7 @@ async function dispatch(
 // A snapshot a newer release wrote can hold a shape this release cannot read.
 async function damageSnapshot(workspace: Workspace, attemptId: string) {
   const path = `${workspace.repo}/.operator/local/crew-state.sqlite`;
-  await Bun.$`bun -e ${`
+  await Bun.$`${process.execPath} -e ${`
     const { Database } = require("bun:sqlite");
     const db = new Database(${JSON.stringify(path)});
     db.query("update attempt_dispatch set snapshot = ? where attempt_id = ?").run(
@@ -545,6 +551,48 @@ describe("operator attempt dispatch", () => {
     );
   });
 
+  // A permission prompt waits for the person, and an Operative never addresses the person.
+  test("starts a Claude Code Operative that never asks and may run what its brief names", async () => {
+    const workspace = await makeWorkspace({
+      crew: { host: "claude-code", model: "claude-sonnet-5", reasoningEffort: "high" },
+    });
+    const crew = await claimedAttempt(workspace);
+
+    const dispatched = await dispatch(workspace, crew);
+    expect(dispatched.json.reason).toBe("acknowledgement_pending");
+    const start = (await calls(workspace)).find((line) => line.startsWith("agent start")) ?? "";
+    expect(start).toContain(
+      "--kind claude --pane w1:p1 -- --model claude-sonnet-5 --effort high --permission-mode dontAsk --allowedTools ",
+    );
+
+    const brief = await Bun.file(`${workspace.root}/operative/.operator/local/brief.md`).text();
+    const commands = [...brief.matchAll(/^(.+? (?:attempt|question|review) [a-z]+) --/gm)].map(
+      (match) => match[1],
+    );
+    expect(commands).toContain("operator attempt acknowledge");
+    expect(commands).toContain("operator attempt submit");
+    expect(commands).toContain("operator question raise");
+    for (const command of commands) expect(start).toContain(`Bash(${command}:*)`);
+    expect(start).toContain("Bash(bun test:*)");
+    expect(start).toContain("Edit(./modules/**)");
+    expect(brief).toContain("under `.operator/local/outbox/`");
+    expect(start).toContain("Edit(./.operator/local/outbox/**)");
+    expect(start).not.toContain("WebFetch");
+  });
+
+  test("gives an OpenCode Operative no Claude Code permission mode", async () => {
+    const workspace = await makeWorkspace({
+      crew: { host: "opencode", model: "openai/gpt-5.6-terra" },
+    });
+    const crew = await claimedAttempt(workspace);
+
+    const dispatched = await dispatch(workspace, crew);
+    expect(dispatched.json.reason).toBe("acknowledgement_pending");
+    expect((await calls(workspace)).find((line) => line.startsWith("agent start"))).not.toContain(
+      "--permission-mode",
+    );
+  });
+
   test("refuses OpenCode effort without an explicit supported model before creating a worktree", async () => {
     const workspace = await makeWorkspace({
       crew: { host: "opencode", reasoningEffort: "medium" },
@@ -707,6 +755,78 @@ describe("interrupted dispatch", () => {
     expect((await calls(workspace)).some((line) => line.startsWith("agent start"))).toBe(false);
   });
 
+  test("blocks a launch whose path fixed input changed at the base commit", async () => {
+    const workspace = await fixtures.make({
+      config: { crew: { host: "claude-code" } },
+      files: { "docs/spec.md": "# Spec\n" },
+    });
+    const crew = await claimedAttempt(workspace, [
+      {
+        name: "spec",
+        kind: "path",
+        value: "docs/spec.md",
+        contentIdentity: ContentIdentity.ofText("# Spec\n"),
+      },
+    ]);
+    await Bun.write(`${workspace.repo}/docs/spec.md`, "# Changed spec\n");
+    await Bun.$`git -C ${workspace.repo} -c user.email=t@example.com -c user.name=Test commit -qam change`.quiet();
+    // The new base commit has its own key, so it passes the gate before it is dispatched.
+    await runGate(workspace, {
+      ownerToken: crew.ownerToken,
+      commit: await headCommit(workspace),
+      sourceId: sourceIdOf(20),
+    });
+
+    const failed = await dispatch(workspace, crew);
+    expect(failed.exitCode).toBe(1);
+    expect(failed.json.reason).toBe("dispatch_stage_failed");
+    expect(failed.json.blockers[0].stage).toBe("input_preparation");
+    expect(failed.json.blockers[0].detail).toContain("docs/spec.md");
+    expect((await calls(workspace)).some((line) => line.startsWith("agent start"))).toBe(false);
+    // The launch repairs nothing and tears nothing down: the worktree and its branch stay.
+    expect(await Bun.file(`${workspace.root}/operative/docs/spec.md`).text()).toBe(
+      "# Changed spec\n",
+    );
+    const branches = await Bun.$`git -C ${workspace.repo} branch --list ${"operator/*"}`.text();
+    expect(branches.trim()).not.toBe("");
+  });
+
+  test("blocks a launch whose path fixed input is not committed at the base commit", async () => {
+    const workspace = await makeWorkspace();
+    await Bun.write(`${workspace.repo}/docs/spec.md`, "# Spec\n");
+    const crew = await claimedAttempt(workspace, [
+      {
+        name: "spec",
+        kind: "path",
+        value: "docs/spec.md",
+        contentIdentity: ContentIdentity.ofText("# Spec\n"),
+      },
+    ]);
+
+    const failed = await dispatch(workspace, crew);
+    expect(failed.exitCode).toBe(1);
+    expect(failed.json.blockers[0].stage).toBe("input_preparation");
+    expect(failed.json.blockers[0].detail).toContain("docs/spec.md");
+    expect((await calls(workspace)).some((line) => line.startsWith("agent start"))).toBe(false);
+  });
+
+  test("launches with a path fixed input that matches its identity at the base commit", async () => {
+    const workspace = await fixtures.make({
+      config: { crew: { host: "claude-code" } },
+      files: { "docs/spec.md": "# Spec\n" },
+    });
+    const identity = ContentIdentity.ofText("# Spec\n");
+    const crew = await claimedAttempt(workspace, [
+      { name: "spec", kind: "path", value: "docs/spec.md", contentIdentity: identity },
+    ]);
+
+    const dispatched = await dispatch(workspace, crew);
+    expect(dispatched.json.reason).toBe("acknowledgement_pending");
+    const brief = await Bun.file(`${workspace.root}/operative/.operator/local/brief.md`).text();
+    expect(brief).toContain(`- spec (path): docs/spec.md [${identity}]`);
+    expect(brief).toContain("These inputs are fixed at registration.");
+  });
+
   test("holds an unanswered launch open until it is reconciled", async () => {
     const workspace = await makeWorkspace();
     const crew = await claimedAttempt(workspace);
@@ -857,6 +977,66 @@ describe("acknowledgement", () => {
     );
     expect(result.exitCode).toBe(4);
     expect(result.json.reason).toBe("attempt_reference_mismatch");
+  });
+
+  // The reference file names the project root, so its absence comes first. The mismatch comes
+  // before the request input and before every refusal that the crew state gives.
+  test("refuses in the order: missing reference, mismatch, input, crew state", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await claimedAttempt(workspace);
+    await dispatch(workspace, crew);
+    const other = crypto.randomUUID();
+    const operative = `${workspace.root}/operative`;
+    const unreadable = `${workspace.root}/absent-input.json`;
+    const submitAs = (attemptId: string, cwd: string) =>
+      runJson(
+        workspace,
+        [
+          "attempt",
+          "submit",
+          "--request",
+          request(),
+          "--attempt",
+          attemptId,
+          "--input",
+          unreadable,
+        ],
+        cwd,
+      );
+
+    const missing = await submitAs(other, workspace.repo);
+    expect(missing.exitCode).toBe(3);
+    expect(missing.json.reason).toBe("attempt_reference_missing");
+    expect(missing.json.blockers).toEqual([
+      { reason: "attempt_reference_missing", attemptId: other },
+    ]);
+
+    const mismatch = await submitAs(other, operative);
+    expect(mismatch.exitCode).toBe(4);
+    expect(mismatch.stdout).toBe(
+      `${JSON.stringify({
+        schemaVersion: 1,
+        outcome: "conflict",
+        reason: "attempt_reference_mismatch",
+        blockers: [
+          {
+            reason: "attempt_reference_mismatch",
+            attemptId: other,
+            recordedAttemptId: crew.attemptId,
+          },
+        ],
+        operation: "attempt_submit",
+      })}\n`,
+    );
+    const human = await runOperator(
+      workspace,
+      ["attempt", "acknowledge", "--request", request(), "--attempt", other],
+      operative,
+    );
+    expect(human.stdout).toBe(`This worktree belongs to attempt ${crew.attemptId}.\n`);
+
+    const input = await submitAs(crew.attemptId, operative);
+    expect(input.json.reason).toBe("invalid_submission_input");
   });
 });
 
@@ -1039,6 +1219,60 @@ describe("replacement", () => {
     expect(brief).toContain(replaced.json.data.attemptId);
   });
 
+  test("relaunches a replacement whose former writer changed a path fixed input", async () => {
+    const workspace = await fixtures.make({
+      config: { crew: { host: "claude-code" } },
+      files: { "docs/spec.md": "# Spec\n" },
+    });
+    const crew = await claimedAttempt(workspace, [
+      {
+        name: "spec",
+        kind: "path",
+        value: "docs/spec.md",
+        contentIdentity: ContentIdentity.ofText("# Spec\n"),
+      },
+    ]);
+    await dispatch(workspace, crew);
+    await stopFakeAgents(workspace);
+    // The former writer edited and committed the input inside the kept worktree, as partial work can.
+    await Bun.write(`${workspace.root}/operative/docs/spec.md`, "# Edited spec\n");
+    await Bun.$`git -C ${workspace.root}/operative -c user.email=t@example.com -c user.name=Test commit -qam partial`.quiet();
+
+    const inspection = await runJson(workspace, [
+      "attempt",
+      "replace",
+      "--request",
+      request(),
+      "--owner-token",
+      crew.ownerToken,
+      "--attempt",
+      crew.attemptId,
+    ]);
+    const replaced = await runJson(workspace, [
+      "attempt",
+      "replace",
+      "--request",
+      request(),
+      "--owner-token",
+      crew.ownerToken,
+      "--attempt",
+      crew.attemptId,
+      "--inspection",
+      inspection.json.data.identity,
+    ]);
+    expect(replaced.exitCode).toBe(0);
+
+    const relaunched = await dispatch(workspace, {
+      ownerToken: crew.ownerToken,
+      attemptId: replaced.json.data.attemptId,
+    });
+    expect(relaunched.json.reason).toBe("acknowledgement_pending");
+    // The partial work stays in the kept worktree.
+    expect(await Bun.file(`${workspace.root}/operative/docs/spec.md`).text()).toBe(
+      "# Edited spec\n",
+    );
+  });
+
   test("refuses a replacement whose recorded snapshot cannot be read", async () => {
     const workspace = await makeWorkspace();
     const crew = await claimedAttempt(workspace);
@@ -1145,10 +1379,9 @@ describe("operator attempt submit", () => {
   test("hands a fixed result to a separate review instead of accepting it", async () => {
     const workspace = await makeReviewingWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n\nThe finished work.\n");
 
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
 
     expect(submitted.exitCode).toBe(6);
     expect(submitted.json.reason).toBe("result_submitted");
@@ -1172,11 +1405,15 @@ describe("operator attempt submit", () => {
   test("refuses an artifact whose content no longer matches its stated identity", async () => {
     const workspace = await makeReviewingWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    await Bun.write(`${producer.worktreePath}/${artifact.path}`, "# Changed after the identity\n");
 
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(
+      workspace,
+      producer,
+      submissionBody(producer, artifact, {
+        artifactIdentity: ContentIdentity.ofText("# Changed after the identity\n"),
+      }),
+    );
 
     expect(submitted.exitCode).toBe(4);
     expect(submitted.json.reason).toBe("artifact_identity_changed");
@@ -1185,13 +1422,12 @@ describe("operator attempt submit", () => {
   test("refuses an artifact that is not in the worktree", async () => {
     const workspace = await makeReviewingWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
 
     const submitted = await submit(
       workspace,
       producer,
-      submissionBody(producer, artifact, base, { artifactPath: "docs/absent.md" }),
+      submissionBody(producer, artifact, { artifactPath: "docs/absent.md" }),
     );
 
     expect(submitted.exitCode).toBe(3);
@@ -1201,13 +1437,12 @@ describe("operator attempt submit", () => {
   test("refuses a submission that states requirements the assignment does not hold", async () => {
     const workspace = await makeReviewingWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
 
     const submitted = await submit(
       workspace,
       producer,
-      submissionBody(producer, artifact, base, {
+      submissionBody(producer, artifact, {
         requirementsIdentity: ContentIdentity.of(["Something else."]),
       }),
     );
@@ -1219,13 +1454,12 @@ describe("operator attempt submit", () => {
   test("refuses a submission that states a stale assignment revision", async () => {
     const workspace = await makeReviewingWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
 
     const submitted = await submit(
       workspace,
       producer,
-      submissionBody(producer, artifact, base, { assignmentRevision: 1 }),
+      submissionBody(producer, artifact, { assignmentRevision: 1 }),
     );
 
     expect(submitted.exitCode).toBe(4);
@@ -1235,9 +1469,8 @@ describe("operator attempt submit", () => {
   test("a repeated submission reports the recorded one and creates no second review", async () => {
     const workspace = await makeReviewingWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const body = submissionBody(producer, artifact, base);
+    const body = submissionBody(producer, artifact);
 
     const first = await submit(workspace, producer, body);
     const second = await submit(workspace, producer, body);
@@ -1260,7 +1493,7 @@ describe("operator attempt dispatch for a review", () => {
     const producer = await startProducer(workspace);
     const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
 
     const claimed = await runJson(workspace, [
       "work",
@@ -1297,9 +1530,8 @@ describe("operator attempt dispatch for a review", () => {
   test("a checkout with no review skill blocks the reviewer before it starts", async () => {
     const workspace = await makeReviewingWorkspace({ reviewSkill: false });
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
 
     const claimed = await runJson(workspace, [
       "work",
@@ -1342,9 +1574,8 @@ describe("operator attempt replace for a review", () => {
   test("a replacement reviewer reopens a blocked review, and the attempts are bounded", async () => {
     const workspace = await makeReviewingWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const reviewId = submitted.json.data.reviewId;
     const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
 
@@ -1405,9 +1636,8 @@ describe("operator attempt replace for a review", () => {
   test("a failing review host escalates instead of taking the crew", async () => {
     const workspace = await makeReviewingWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const reviewId = submitted.json.data.reviewId;
     const first = await startReviewer(workspace, producer, submitted.json, artifact.commit);
 
@@ -1431,7 +1661,6 @@ describe("operator attempt replace for a review", () => {
     const accepted = await acceptProduction(workspace, producer, {
       submissionId: submitted.json.data.submissionId,
       revision: submitted.json.data.revision,
-      prHead: artifact.commit,
     });
     expect(accepted.json.reason).toBe("direction_required");
     expect(accepted.exitCode).toBe(3);
@@ -1450,7 +1679,6 @@ describe("operator attempt replace for a review", () => {
     const waiting = await acceptProduction(workspace, producer, {
       submissionId: submitted.json.data.submissionId,
       revision: submitted.json.data.revision,
-      prHead: artifact.commit,
     });
     expect(waiting.json.reason).toBe("review_incomplete");
   });
@@ -1458,9 +1686,8 @@ describe("operator attempt replace for a review", () => {
   test("a second review that reaches the same limit keeps the first one on the record", async () => {
     const workspace = await makeReviewingWorkspace();
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const first = await startReviewer(workspace, producer, submitted.json, artifact.commit);
 
     const limited = await reviewToItsLimit(workspace, producer, submitted.json, first);
@@ -1475,28 +1702,25 @@ describe("operator attempt replace for a review", () => {
       attemptId: limited.attemptId,
     });
 
-    // The result is combined and handed over again, so a second review reads the revision.
+    // The tip moved under the result, so it is combined and handed over again, and a second
+    // review reads the revision.
+    await moveRecordedTip(workspace, { path: "docs/result.md", text: "# Other\n" });
     const delegated = await delegateRework(workspace, producer, {
       revision: submitted.json.data.revision,
-      body: {
-        reason: "integration",
-        instruction: "Combine it with the accepted helper while its review is stopped.",
-        conflicts: [],
-        combines: [{ name: "accepted helper", revision: "rev-helper-1" }],
-      },
+      body: { reason: "integration", conflicts: [] },
     });
     expect(delegated.json.reason).toBe("rework_delegated");
 
     const reworked = await startRework(workspace, producer, {
       revision: delegated.json.data.revision,
-      commit: artifact.commit,
+      commit: null,
       worktreePath: `${workspace.root}/combined`,
     });
     const combined = await commitArtifact(workspace, reworked, "# Result\n\nCombined.\n");
     const again = await submit(
       workspace,
       reworked,
-      submissionBody(reworked, combined, base, {
+      submissionBody(reworked, combined, {
         assignmentRevision: reworked.assignmentRevision,
       }),
     );

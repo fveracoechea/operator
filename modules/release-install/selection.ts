@@ -68,3 +68,22 @@ export async function readSelection(projectRoot: string): Promise<SelectionRead>
 export function selectionText(selection: ReleaseSelection): string {
   return `${JSON.stringify(selection, null, 2)}\n`;
 }
+
+/** The devDependency specifier that installs one JSR version under the project package name. */
+export function releaseSpecifier(version: string): string {
+  return `npm:${JSR_PACKAGE_NAME}@${version}`;
+}
+
+/**
+ * A project declares the JSR release when its devDependency names that exact version and its
+ * operator script runs the installed command. Each caller parses package.json with its own schema.
+ */
+export function declaresRelease(
+  manifest: { devDependencies?: Record<string, string>; scripts: { operator?: string } },
+  version: string,
+): boolean {
+  return (
+    manifest.devDependencies?.[PACKAGE_NAME] === releaseSpecifier(version) &&
+    manifest.scripts.operator === PROJECT_SCRIPT
+  );
+}

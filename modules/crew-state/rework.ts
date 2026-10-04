@@ -16,7 +16,13 @@ export const REWORK_CYCLE_LIMIT = 3;
 export const DIAGNOSTIC_RERUN_LIMIT = 2;
 
 /** The limit one reason is counted against. Correction work shares a single budget. */
-export const limitKindSchema = z.enum(["rework_cycles", "diagnostic_reruns", "review_attempts"]);
+export const limitKindSchema = z.enum([
+  "rework_cycles",
+  "diagnostic_reruns",
+  "review_attempts",
+  // The branch reviews of one source that reported (ADR 0017).
+  "branch_reviews",
+]);
 
 export type LimitKind = z.infer<typeof limitKindSchema>;
 
@@ -92,19 +98,5 @@ export function insertCycle(
       openedAt: request.now,
       updatedAt: request.now,
     })
-    .run();
-}
-
-/**
- * Closes one cycle against the attempt that handed over its combined revision.
- * The cycle names that attempt, so the record shows which fresh Operative did the rework.
- */
-export function closeCycle(
-  db: CrewWriter,
-  request: { cycle: ReworkCycleRow; attemptId: string; now: string },
-): void {
-  db.update(reworkCycles)
-    .set({ state: "submitted", attemptId: request.attemptId, updatedAt: request.now })
-    .where(eq(reworkCycles.id, request.cycle.id))
     .run();
 }

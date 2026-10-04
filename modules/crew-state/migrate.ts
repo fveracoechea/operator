@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { openForMigration } from "./database.ts";
 import { isMigratable, type MigrationStep, pendingSteps } from "./migrations.ts";
 import { STATE_VERSION } from "./schema.ts";
@@ -9,9 +10,28 @@ export type MigrationPlan = {
   found: number | null;
   supported: number;
   steps: Array<{ from: number; to: number; summary: string }>;
-  status: "current" | "migratable" | "unsupported" | "unmigratable" | "missing" | "unreadable";
+  status:
+    | "current"
+    | "migratable"
+    | "held"
+    | "unsupported"
+    | "unmigratable"
+    | "missing"
+    | "unreadable";
   detail: string;
+  // What a pending step cannot carry forward. The user finishes it under the earlier release.
+  holds: string[];
 };
+
+/** Every line that stops one of these steps, read from the file as it stands. */
+function holdsOf(path: string, steps: MigrationStep[]): string[] {
+  const sqlite = new Database(path, { create: false, readonly: true });
+  try {
+    return steps.flatMap((step) => step.holds?.(sqlite) ?? []);
+  } finally {
+    sqlite.close();
+  }
+}
 
 function described(steps: MigrationStep[]) {
   return steps.map((step) => ({ from: step.from, to: step.to, summary: step.summary }));
@@ -20,7 +40,11 @@ function described(steps: MigrationStep[]) {
 /** Reports what the recorded crew state would need before this release may read it. */
 export function planMigration(projectRoot: string): MigrationPlan {
   const activity = readActivity(projectRoot);
-  const base: Pick<MigrationPlan, "supported" | "steps"> = { supported: STATE_VERSION, steps: [] };
+  const base: Pick<MigrationPlan, "supported" | "steps" | "holds"> = {
+    supported: STATE_VERSION,
+    steps: [],
+    holds: [],
+  };
 
   if (activity.status === "missing") {
     return {
@@ -66,16 +90,31 @@ export function planMigration(projectRoot: string): MigrationPlan {
   }
 
   const steps = pendingSteps(found);
+  if (!isMigratable(found)) {
+    return {
+      ...base,
+      path: activity.path,
+      present: true,
+      found,
+      steps: described(steps),
+      status: "unmigratable",
+      detail: `No recorded step carries version ${found} to version ${STATE_VERSION}.`,
+    };
+  }
+
+  const holds = holdsOf(activity.path, steps);
   return {
     path: activity.path,
     present: true,
     found,
     supported: STATE_VERSION,
     steps: described(steps),
-    status: isMigratable(found) ? "migratable" : "unmigratable",
-    detail: isMigratable(found)
-      ? `The crew state moves from version ${found} to version ${STATE_VERSION}.`
-      : `No recorded step carries version ${found} to version ${STATE_VERSION}.`,
+    status: holds.length === 0 ? "migratable" : "held",
+    detail:
+      holds.length === 0
+        ? `The crew state moves from version ${found} to version ${STATE_VERSION}.`
+        : `The crew state cannot move from version ${found} to version ${STATE_VERSION} while ${holds.length} record(s) need the earlier release.`,
+    holds,
   };
 }
 

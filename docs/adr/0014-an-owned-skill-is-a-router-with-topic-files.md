@@ -8,6 +8,8 @@ Both costs are paid per turn and per consumer, not once by the author.
 So an owned skill discloses progressively.
 `SKILL.md` is a router.
 It carries the trigger, the one or two claims the skill turns on, and the pointers to the topic files, and it does not carry the rules.
+The one exception is a rule that applies to every task of the skill.
+The `operator` router states the five rules of the person, R1 to R5, as a whole, because they override every topic file, and an agent that reads one topic must still obey all five.
 A topic file groups the rules that fire together, so one task loads one file and carries none of the others into its context.
 
 A skill an agent reads in full is one `SKILL.md`, and it carries its rules there.

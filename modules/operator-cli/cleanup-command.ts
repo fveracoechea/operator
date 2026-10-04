@@ -24,11 +24,12 @@ function cleanupLines(report: CleanupReport): string[] {
   ];
 }
 
-function mutationArguments(parsed: ParsedArguments) {
+/** A mutation of one attempt: the request, the ownership, and the attempt it names. */
+type AttemptMutation = ParsedArguments<"--request" | "--owner-token" | "--attempt">;
+
+function mutationArguments(parsed: AttemptMutation) {
   const { requestId, ownerToken, attemptId } = parsed.crew;
-  return requestId === undefined || ownerToken === undefined || attemptId === undefined
-    ? null
-    : { requestId, ownerToken, attemptId };
+  return { requestId, ownerToken, attemptId };
 }
 
 /**
@@ -87,11 +88,8 @@ function reportUnsettled(request: {
   return "reported";
 }
 
-async function runClose(parsed: ParsedArguments): Promise<Handled> {
+export async function runClose(parsed: AttemptMutation): Promise<Handled> {
   const mutation = mutationArguments(parsed);
-  if (mutation === null) {
-    return "invalid-arguments";
-  }
 
   const { repeated, result } = await CrewState.close({ projectRoot: process.cwd(), ...mutation });
   if (reportSharedFailure(parsed, "cleanup_close", result)) {
@@ -102,11 +100,11 @@ async function runClose(parsed: ParsedArguments): Promise<Handled> {
     return reportBlocked({ parsed, operation: "cleanup_close", result });
   }
 
-  if (result.status === "uncertain") {
+  if (result.status === "uncertain" || result.status === "failed") {
     return reportUnsettled({
       parsed,
       operation: "cleanup_close",
-      uncertain: true,
+      uncertain: result.status === "uncertain",
       result,
     });
   }
@@ -131,11 +129,8 @@ async function runClose(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
-async function runRemove(parsed: ParsedArguments): Promise<Handled> {
+export async function runRemove(parsed: AttemptMutation): Promise<Handled> {
   const mutation = mutationArguments(parsed);
-  if (mutation === null) {
-    return "invalid-arguments";
-  }
 
   const { repeated, result } = await CrewState.remove({ projectRoot: process.cwd(), ...mutation });
   if (reportSharedFailure(parsed, "cleanup_remove", result)) {
@@ -175,12 +170,11 @@ async function runRemove(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
-async function runHold(parsed: ParsedArguments): Promise<Handled> {
+export async function runHold(
+  parsed: ParsedArguments<"--request" | "--owner-token" | "--attempt" | "--input">,
+): Promise<Handled> {
   const mutation = mutationArguments(parsed);
   const inputPath = parsed.crew.inputPath;
-  if (mutation === null || inputPath === undefined) {
-    return "invalid-arguments";
-  }
 
   const read = await readStructuredInput({
     parsed,
@@ -229,10 +223,12 @@ async function runHold(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
-async function runRelease(parsed: ParsedArguments): Promise<Handled> {
+export async function runRelease(
+  parsed: ParsedArguments<"--request" | "--owner-token" | "--attempt" | "--revision">,
+): Promise<Handled> {
   const mutation = mutationArguments(parsed);
   const revision = readRevision(parsed);
-  if (mutation === null || revision === null) {
+  if (revision === null) {
     return "invalid-arguments";
   }
 
@@ -284,7 +280,7 @@ async function runRelease(parsed: ParsedArguments): Promise<Handled> {
   return "reported";
 }
 
-async function runShow(parsed: ParsedArguments): Promise<Handled> {
+export async function runShow(parsed: ParsedArguments): Promise<Handled> {
   const { result } = await CrewState.cleanup({
     projectRoot: process.cwd(),
     attemptId: parsed.crew.attemptId ?? null,
@@ -310,32 +306,15 @@ async function runShow(parsed: ParsedArguments): Promise<Handled> {
           `  ${one.kind} ${one.attemptId}: ${one.state}${one.detail === null ? "" : ` (${one.detail})`}`,
       ),
       ...result.holds.map((one) => `  hold ${one.attemptId}: ${one.state} (${one.reason})`),
+      ...(result.unlanded.length === 0
+        ? []
+        : [
+            `${result.unlanded.length} checkout(s) of withdrawn work hold an unlanded commit. Only the person removes them:`,
+            ...result.unlanded.map(
+              (one) => `  unlanded ${one.attemptId}: ${one.worktreePath} at ${one.commit}`,
+            ),
+          ]),
     ],
   });
   return "reported";
-}
-
-export async function runCleanup(words: string[], parsed: ParsedArguments): Promise<Handled> {
-  if (words.length !== 1) {
-    return "invalid-arguments";
-  }
-
-  const [subcommand] = words;
-  if (subcommand === "close") {
-    return runClose(parsed);
-  }
-  if (subcommand === "remove") {
-    return runRemove(parsed);
-  }
-  if (subcommand === "hold") {
-    return runHold(parsed);
-  }
-  if (subcommand === "release") {
-    return runRelease(parsed);
-  }
-  if (subcommand === "show") {
-    return runShow(parsed);
-  }
-
-  return "invalid-arguments";
 }

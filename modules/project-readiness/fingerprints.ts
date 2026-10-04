@@ -1,4 +1,5 @@
 import { AgentSelection } from "../agent-selection/main.ts";
+import { ContentIdentity } from "../content-identity/main.ts";
 import { type Observation, toolState } from "./observe.ts";
 
 /**
@@ -14,10 +15,6 @@ export type InputName =
   | "tool:git"
   | "tool:herdr"
   | "tool:github";
-
-function sha256(text: string): string {
-  return new Bun.CryptoHasher("sha256").update(text).digest("hex");
-}
 
 function toolFingerprint(observation: Observation, tool: "git" | "herdr" | "github"): string {
   const observed = toolState(observation, tool);
@@ -43,14 +40,14 @@ export function fingerprints(observation: Observation): Record<InputName, string
     "operator-release": `${observation.release.version}:${observation.release.identity}:${observation.release.lock.identity ?? "missing"}`,
     selection: selectionFingerprint(observation),
     // Every discoverable copy counts, so narrowing the requested targets changes nothing here.
-    "project-skills": sha256(
+    "project-skills": ContentIdentity.ofText(
       JSON.stringify({
         release: observation.release.identity,
         conflicts: observation.everySkillCopy.conflicts,
         missing: observation.everySkillCopy.missing,
       }),
     ),
-    "project-instructions": sha256(
+    "project-instructions": ContentIdentity.ofText(
       JSON.stringify([observation.instructions.agents, observation.instructions.claude]),
     ),
     "tool:git": toolFingerprint(observation, "git"),

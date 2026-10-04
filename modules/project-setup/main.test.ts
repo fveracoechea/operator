@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 // Bun has no recursive directory removal API.
-import { rm } from "node:fs/promises";
+import { rm, symlink } from "node:fs/promises";
 
 const cliPath = new URL("../../cli.ts", import.meta.url).pathname;
 const projectRoots: string[] = [];
@@ -21,9 +21,10 @@ async function makeProject(files: Record<string, string> = {}): Promise<string> 
   return root;
 }
 
-async function runOperator(root: string, args: string[]) {
+async function runOperator(root: string, args: string[], env: Record<string, string> = {}) {
   const child = Bun.spawn(["bun", cliPath, ...args], {
     cwd: root,
+    env: { ...process.env, ...env },
     stderr: "pipe",
     stdout: "pipe",
   });
@@ -35,8 +36,8 @@ async function runOperator(root: string, args: string[]) {
   return { exitCode, stderr, stdout };
 }
 
-async function runJson(root: string, args: string[]) {
-  const result = await runOperator(root, [...args, "--json"]);
+async function runJson(root: string, args: string[], env: Record<string, string> = {}) {
+  const result = await runOperator(root, [...args, "--json"], env);
   return { ...result, json: JSON.parse(result.stdout) };
 }
 
@@ -89,6 +90,82 @@ describe("operator setup plan", () => {
   });
 });
 
+/**
+ * A PATH whose git fails `ls-files`: `term` ends it on SIGTERM, as a timeout does, and `exit` ends
+ * it with exit 3. With `missing`, the PATH holds only bun, so git is not on it.
+ */
+async function gitPath(root: string, fault: "term" | "exit" | "missing"): Promise<string> {
+  const bin = `${root}-bin`;
+  projectRoots.push(bin);
+  await Bun.$`mkdir -p ${bin}`.quiet();
+  if (fault === "missing") {
+    await symlink(process.execPath, `${bin}/bun`);
+    return bin;
+  }
+  await Bun.write(
+    `${bin}/git`,
+    [
+      "#!/bin/sh",
+      // The guard of ADR 0018 and `-C <repo>` come before the subcommand.
+      'if [ "$6" = "ls-files" ]; then',
+      fault === "term" ? "  kill -TERM $$" : "  exit 3",
+      "fi",
+      `exec ${Bun.which("git")} "$@"`,
+      "",
+    ].join("\n"),
+  );
+  await Bun.$`chmod +x ${bin}/git`.quiet();
+  return `${bin}:${process.env.PATH ?? ""}`;
+}
+
+describe("operator setup plan with a Git that fails", () => {
+  const unavailable = (reason: string) =>
+    `Setup cannot read the Git index, so it cannot check for tracked Operator files: ${reason}. Install Git yourself, then plan again.`;
+
+  // A named departure of #153: the detail names the missing git as every other Git reader does,
+  // not the Bun spawn error.
+  test("names a git that is not on the path", async () => {
+    const root = await makeProject();
+
+    const result = await runJson(root, ["setup", "plan", "--claude"], {
+      PATH: await gitPath(root, "missing"),
+    });
+
+    expect(result.json).toMatchObject({ outcome: "conflict", reason: "setup_conflict" });
+    expect(result.json.blockers).toEqual([
+      {
+        reason: "git_unavailable",
+        detail: unavailable("git is not on the path, so nothing was requested"),
+      },
+    ]);
+  });
+
+  test("names a git ls-files that ended with no answer", async () => {
+    const root = await makeProject();
+
+    const result = await runJson(root, ["setup", "plan", "--claude"], {
+      PATH: await gitPath(root, "term"),
+    });
+
+    expect(result.json.blockers).toEqual([
+      {
+        reason: "git_unavailable",
+        detail: unavailable("git ls-files ended on SIGTERM with no answer"),
+      },
+    ]);
+  });
+
+  test("reads a git ls-files exit as a project with no index", async () => {
+    const root = await makeProject();
+
+    const result = await runJson(root, ["setup", "plan", "--claude"], {
+      PATH: await gitPath(root, "exit"),
+    });
+
+    expect(result.json).toMatchObject({ outcome: "completed", reason: "plan_ready", blockers: [] });
+  });
+});
+
 describe("operator setup apply", () => {
   test("refuses to write without an approved plan", async () => {
     const root = await makeProject();
@@ -101,6 +178,12 @@ describe("operator setup apply", () => {
       reason: "approval_required",
     });
     expect(result.json.data.planId).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.stdout).toStartWith(
+      `{"schemaVersion":1,"outcome":"missing-condition","reason":"approval_required","blockers":[{"reason":"approval_required","currentPlanId":"${result.json.data.planId}","approvedPlanId":null}],"operation":"setup_apply","data":{"planId":`,
+    );
+    const plan = await runOperator(root, ["setup", "plan", "--claude"]);
+    const text = await runOperator(root, ["setup", "apply", "--claude"]);
+    expect(text.stdout).toBe(`Setup needs an approved plan. Nothing was written.\n${plan.stdout}`);
     expect(await filesUnder(root)).toEqual([]);
   });
 
@@ -117,6 +200,20 @@ describe("operator setup apply", () => {
 
     expect(result.exitCode).toBe(3);
     expect(result.json.reason).toBe("approval_stale");
+    expect(result.stdout).toStartWith(
+      `{"schemaVersion":1,"outcome":"missing-condition","reason":"approval_stale","blockers":[{"reason":"approval_stale","currentPlanId":"${result.json.data.planId}","approvedPlanId":"${"0".repeat(64)}"}],"operation":"setup_apply","data":{"planId":`,
+    );
+    const plan = await runOperator(root, ["setup", "plan", "--claude"]);
+    const text = await runOperator(root, [
+      "setup",
+      "apply",
+      "--claude",
+      "--approved-plan",
+      "0".repeat(64),
+    ]);
+    expect(text.stdout).toBe(
+      `The approved plan no longer matches this project or these targets. Nothing was written.\n${plan.stdout}`,
+    );
     expect(await filesUnder(root)).toEqual([]);
   });
 
@@ -378,6 +475,19 @@ describe("operator setup rollback", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.json.reason).toBe("nothing_to_restore");
+  });
+
+  test("refuses apply and rollback while the recovery record cannot be read", async () => {
+    const root = await makeProject({ ".operator/local/setup-journal.json": "{ not json" });
+
+    const applied = await planAndApply(root, ["--opencode"]);
+    const rolledBack = await runJson(root, ["setup", "rollback"]);
+
+    for (const result of [applied, rolledBack]) {
+      expect(result.exitCode).toBe(4);
+      expect(result.json).toMatchObject({ outcome: "conflict", reason: "unreadable_journal" });
+    }
+    expect(await filesUnder(root)).toEqual([".operator/local/setup-journal.json"]);
   });
 
   test("reports a completed setup as nothing to roll back", async () => {

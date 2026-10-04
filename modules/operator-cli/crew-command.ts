@@ -3,11 +3,10 @@ import type { ParsedArguments } from "./arguments.ts";
 import { reportSharedFailure } from "./crew-result.ts";
 import { type Handled, report } from "./result.ts";
 
-export async function runCrewOwn(parsed: ParsedArguments): Promise<Handled> {
+export async function runCrewOwn(
+  parsed: ParsedArguments<"--request" | "--owner-label">,
+): Promise<Handled> {
   const { requestId, ownerLabel, ownershipRevision } = parsed.crew;
-  if (requestId === undefined || ownerLabel === undefined) {
-    return "invalid-arguments";
-  }
 
   // A takeover names the ownership revision it saw; a first claim has none to name.
   if (parsed.takeover === (ownershipRevision === undefined)) {

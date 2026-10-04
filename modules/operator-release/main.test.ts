@@ -1,11 +1,15 @@
-import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterEach, describe, expect, test as bunTest } from "bun:test";
 // Bun has no realpath, recursive directory removal, or symlink API.
 import { realpath, rm, symlink } from "node:fs/promises";
 import { OperatorRelease } from "./main.ts";
 
 // Most of these tests build a real artifact, which compiles the whole release. That takes far
 // longer than a default test, and longer again on a CI runner.
-setDefaultTimeout(300_000);
+// Each test states its own bound, because a process-wide default would set the bound of every
+// file in the bun test process (#179).
+function test(name: string, run: () => Promise<void> | void, timeoutMs = 300_000) {
+  bunTest(name, run, timeoutMs);
+}
 
 const sourceRoot = new URL("../../", import.meta.url).pathname.replace(/\/$/, "");
 const outputs: string[] = [];
@@ -73,6 +77,10 @@ describe("the release artifact", () => {
     // Bun resolves the CLI's own path through symlinks, such as the macOS temporary directory.
     expect(discoveryOutput.data.path).toBe(`${await realpath(artifactRoot)}/herdr`);
     expect(await Bun.file(`${artifactRoot}/config.schema.json`).exists()).toBe(true);
+    // The release publishes the gate schema that a project names as its `$schema`.
+    expect(await Bun.file(`${artifactRoot}/gate.schema.json`).json()).toMatchObject({
+      required: ["$schema", "commands"],
+    });
     expect(await Bun.file(`${artifactRoot}/jsr.json`).exists()).toBe(true);
     expect(await Bun.file(`${artifactRoot}/README.md`).text()).toBe(
       await Bun.file(`${sourceRoot}/docs/jsr/README.md`).text(),
@@ -207,6 +215,52 @@ describe("the release artifact", () => {
 
     expect(inspection.status).toBe("incomplete");
     expect(inspection.missing).toContain("config.schema.json");
+  });
+
+  test("reads the version and the commit the artifact's release record names", async () => {
+    const { artifactRoot } = await buildArtifact();
+    const recorded = await Bun.file(`${artifactRoot}/release.json`).json();
+
+    const inspection = await OperatorRelease.inspect({ artifactRoot });
+
+    expect(inspection.version).toBe(recorded.version);
+    expect(inspection.commit).toBe(commit);
+  });
+
+  test("reads no version from the package manifest of an artifact with no release record", async () => {
+    const { artifactRoot } = await buildArtifact();
+    await rm(`${artifactRoot}/release.json`);
+
+    const inspection = await OperatorRelease.inspect({ artifactRoot });
+
+    expect(inspection.status).toBe("incomplete");
+    expect(inspection.version).toBe("0.0.0");
+    expect(inspection.commit).toBeNull();
+  });
+
+  async function refusal(artifactRoot: string): Promise<string> {
+    return OperatorRelease.inspect({ artifactRoot }).then(
+      () => "inspected",
+      (error: unknown) => (error instanceof Error ? error.message : String(error)),
+    );
+  }
+
+  test("refuses a release record that names its version or commit as something other than text", async () => {
+    const { artifactRoot } = await buildArtifact();
+    const recorded = await Bun.file(`${artifactRoot}/release.json`).json();
+
+    await Bun.write(`${artifactRoot}/release.json`, JSON.stringify({ ...recorded, version: 1 }));
+    expect(await refusal(artifactRoot)).toBe(
+      `The release record ${artifactRoot}/release.json names version as something other than text.`,
+    );
+
+    await Bun.write(
+      `${artifactRoot}/release.json`,
+      JSON.stringify({ ...recorded, version: 1, commit: false }),
+    );
+    expect(await refusal(artifactRoot)).toBe(
+      `The release record ${artifactRoot}/release.json names version and commit as something other than text.`,
+    );
   });
 
   test("runs the built command through the same importable entry point", async () => {

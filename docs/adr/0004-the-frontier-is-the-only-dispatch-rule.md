@@ -7,11 +7,16 @@ The rules therefore have one owner, and a claim cannot take work that the report
 An assignment is dispatchable when it is executable, unclaimed, and every assignment it depends on is accepted.
 Accepted completion is the only state that unblocks a dependent, so no work starts from an unreviewed result.
 
-The frontier never offers a production assignment whose write paths overlap the paths that other work of the same source holds.
+The frontier never offers a production assignment that has not started whose write paths overlap the paths that other work of the same source holds.
 A production assignment holds its write paths from its first claim until it reaches accepted completion, and again from the moment it leaves accepted completion until it reaches it again, or until it is withdrawn (ADR 0016).
 Inside one reading, each assignment that the frontier offers also holds its write paths, in priority order, in the same way that it takes a crew slot, so one reading never offers two overlapping assignments.
 An assignment that has not started holds nothing, so a ready assignment never waits behind an earlier one that waits on something else.
-The frontier withholds an assignment whose write paths overlap held paths, and it names each holder and each overlapping pair of paths.
+An assignment that has started is never withheld by the hold, because each new attempt of it starts on the base of its dispatch (ADR 0008), so withholding it prevents no changed patch.
+The correction of accepted work fits this rule: the invalidated assignment has started, and its new attempt starts at its landed commit on the integration branch (ADR 0020), so withholding it prevents no changed patch either.
+Started work that overlaps the correction is not withheld for it, because the rewrite at the acceptance of the correction lands each later commit again only with an equal patch, and takes out the commit whose patch changed.
+The frontier withholds an assignment whose write paths overlap held paths, and it names each holder with the number of overlapping pairs of paths.
+The Operator reads the frontier, so the blocker gives this summary and names `operator work overlaps`, which lists each pair.
+`operator work overlaps` reads the effective write paths, as the frontier does, so it also lists a pair that a grant caused.
 Review and planning work hold no write paths, because neither makes a commit.
 Two write paths overlap by the one rule that ADR 0018 records, and the frontier uses that same rule.
 
@@ -26,6 +31,7 @@ The hold ends at accepted completion, because the integration branch then holds 
 A commit that is on the integration branch but not yet accepted still holds its paths.
 A withdrawn assignment whose commit the integration branch still holds keeps its paths until the take-out of ADR 0020 moves the branch without that commit.
 While such a take-out waits, the frontier offers no production assignment of that source, so no base holds a commit that no assignment owns.
+It withholds each one with the blocker `take_out_pending`, which names the withdrawn commits, and a claim of it is refused as for any other withheld work.
 
 The hold applies inside one source, because each source has its own integration branch.
 Work of another source never starts from that branch, so a hold across sources would stop parallel work and prevent no refusal.
@@ -43,7 +49,7 @@ Planning work is registered so dependencies resolve, and it is never dispatched.
 A specification or a ticket states the planning boundary of each item.
 A wayfinder ticket states it through its own type, where `research`, `grilling`, and `prototype` are planning and `task` is production.
 
-The Operator resolves planning work itself, so planning work reaches accepted completion with no attempt.
+Planning work reaches accepted completion with no attempt: the crew prepares the decision, the Operator brings each question to the user, and the Operator records the acceptance through the CLI.
 What that acceptance records, and how it reaches the dependents, is in ADR 0019.
 Executable work reaches it only from the attempt that holds the assignment.
 Without that, a task blocked by a research ticket could never start, because the research ticket could never be claimed.
@@ -77,6 +83,10 @@ It stops parallel work and prevents no refusal, and a hold that ends when a pull
 A hold by every earlier assignment that is not accepted, started or not, was rejected.
 A ready assignment would then wait behind one that waits on a dependency.
 
+Withholding started work, such as work in rework or an invalidated result, was rejected.
+Its base is already fixed, so the wait prevents no refusal, and two started assignments that overlap would each wait for the other for ever.
+An invalidated assignment and work that started after its first acceptance can overlap in this way.
+
 Ending the hold at result submission was rejected.
 The next dispatch would start from a base that does not hold the commit.
 
@@ -92,7 +102,7 @@ Its result could use code that the take-out then removes, and the fault would sh
 ## Consequences
 
 Broad write paths make the work of a source run one assignment at a time.
-Narrow write paths are how a source gets parallel work, and the registration plan reports each overlapping pair of items that no dependency orders, so the user can narrow the paths before registration.
+Narrow write paths are how a source gets parallel work. The registration report gives the number of overlapping pairs of items that no dependency orders, and `operator work overlaps` lists each pair, so the user can narrow the paths.
 That report reads only the registered paths, because a grant comes after registration.
 
 `operator work accept` records accepted completion in this release with no review precondition.

@@ -1,37 +1,46 @@
 import { LiveProbe } from "../live-probe/main.ts";
 import { ProjectReadiness } from "../project-readiness/main.ts";
 import { type ParsedArguments, targetFlag } from "./arguments.ts";
-import { reportMissingTarget } from "./missing-target.ts";
 import { blockerData, reportLines } from "./readiness-command.ts";
-import { report } from "./result.ts";
+import {
+  answer,
+  approvalRefusals,
+  type Refusal,
+  type Refusals,
+  report,
+  reportApprovalGate,
+} from "./result.ts";
 
 type Blocked = { report: Awaited<ReturnType<typeof ProjectReadiness.check>> };
 type Planned = Blocked & {
-  plan: NonNullable<Awaited<ReturnType<typeof ProjectReadiness.probePlan>>["plan"]>;
+  plan: NonNullable<Awaited<ReturnType<typeof ProjectReadiness.probe>>["plan"]>;
 };
 
-function reportBlocked(
-  parsed: ParsedArguments,
-  result: Blocked,
-  operation: "setup_probe_plan" | "setup_probe_apply",
-): void {
-  report({
-    json: parsed.json,
-    result: {
-      outcome: result.report.blockers.some((blocker) => blocker.conflict)
-        ? "conflict"
-        : "missing-condition",
-      reason: "probe_blocked",
-      blockers: result.report.blockers.map((check) => blockerData(check, "readiness_blocked")),
-      operation,
-      data: result.report,
-    },
+type Probed = Awaited<ReturnType<typeof ProjectReadiness.probe>>;
+
+function blocked(result: Blocked): Refusal {
+  return {
+    outcome: result.report.blockers.some((blocker) => blocker.conflict)
+      ? "conflict"
+      : "missing-condition",
+    reason: "probe_blocked",
+    blockers: result.report.blockers.map((check) => blockerData(check, "readiness_blocked")),
+    data: result.report,
     lines: [
       "A live probe needs a project whose static checks pass. Nothing was launched.",
       "",
       ...reportLines(result.report),
     ],
-  });
+  };
+}
+
+function nothingStale(result: Blocked, line: string): Refusal {
+  return {
+    outcome: "missing-condition",
+    reason: "probe_nothing_stale",
+    data: result.report,
+    lines: [line],
+  };
 }
 
 function section(title: string, lines: string[]): string[] {
@@ -88,38 +97,23 @@ function probeData(result: Planned) {
 }
 
 export async function runProbePlan(parsed: ParsedArguments): Promise<void> {
-  if (parsed.targets.length === 0) {
-    reportMissingTarget(parsed, "setup_probe_plan");
-    return;
-  }
-
-  const result = await ProjectReadiness.probePlan({
+  const result = await ProjectReadiness.probe({
     projectRoot: process.cwd(),
     targets: parsed.targets,
     overrides: parsed.overrides,
     staleOnly: parsed.staleOnly,
+    approvedProbeId: undefined,
   });
 
-  if (result.status === "blocked") {
-    reportBlocked(parsed, result, "setup_probe_plan");
-    return;
-  }
-  if (result.status === "nothing-stale") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: "probe_nothing_stale",
-        blockers: [{ reason: "probe_nothing_stale" }],
-        operation: "setup_probe_plan",
-        data: result.report,
-      },
-      lines: [
+  const refused = answer(parsed, "setup_probe_plan", result, {
+    blocked,
+    "nothing-stale": (stale) =>
+      nothingStale(
+        stale,
         "No live check has stale evidence. Use the full probe plan if other checks need proof.",
-      ],
-    });
-    return;
-  }
+      ),
+  } satisfies Refusals<Probed>);
+  if (refused) return;
 
   report({
     json: parsed.json,
@@ -134,36 +128,69 @@ export async function runProbePlan(parsed: ParsedArguments): Promise<void> {
   });
 }
 
-export async function runProbeApply(parsed: ParsedArguments): Promise<void> {
-  if (parsed.targets.length === 0) {
-    reportMissingTarget(parsed, "setup_probe_apply");
-    return;
-  }
-
+/** Refuses a new run while an earlier probe run still holds a resource. */
+async function refusesIncompleteRun(parsed: ParsedArguments): Promise<boolean> {
   const pending = (await LiveProbe.inspect(process.cwd())).resources.filter(
     (one) => one.fixture !== "recorded",
   );
-  if (pending.length > 0) {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: "probe_incomplete_run",
-        blockers: pending.map((one) => ({ reason: "probe_incomplete_run", runId: one.runId })),
-        operation: "setup_probe_apply",
-        data: { resources: pending },
+  if (pending.length === 0) return false;
+  report({
+    json: parsed.json,
+    result: {
+      outcome: "missing-condition",
+      reason: "probe_incomplete_run",
+      blockers: pending.map((one) => ({ reason: "probe_incomplete_run", runId: one.runId })),
+      operation: "setup_probe_apply",
+      data: { resources: pending },
+    },
+    lines: [
+      "A probe run is incomplete. No new run was started.",
+      ...pending.map(
+        (one) =>
+          `  ${one.runId}: ${one.worktree} worktree, ${one.agents.length} agents, fixture ${one.fixture}`,
+      ),
+      "Inspect or cancel it with `operator setup probe cleanup`.",
+    ],
+  });
+  return true;
+}
+
+/** The answer to each probe apply status that launches nothing. */
+function applyRefusals(parsed: ParsedArguments) {
+  return {
+    blocked,
+    "nothing-stale": (result) =>
+      nothingStale(result, "No live check has stale evidence. Nothing was launched."),
+    ...approvalRefusals((result: Extract<Probed, { status: `approval-${string}` }>) => ({
+      ids: { currentProbeId: result.plan.probeId, approvedProbeId: parsed.approvedProbe ?? null },
+      headline: {
+        required: "A live probe needs its own approval. Nothing was launched.",
+        stale:
+          "The approved probe no longer matches this project or this selection. Nothing was launched.",
       },
-      lines: [
-        "A probe run is incomplete. No new run was started.",
-        ...pending.map(
-          (one) =>
-            `  ${one.runId}: ${one.worktree} worktree, ${one.agents.length} agents, fixture ${one.fixture}`,
-        ),
-        "Inspect or cancel it with `operator setup probe cleanup`.",
-      ],
-    });
-    return;
+      lines: ["", ...planLines(result), "", `Approve with: ${approvalCommand(result)}`],
+      data: probeData(result),
+    })),
+  } satisfies Refusals<Probed>;
+}
+
+/** Closes the run record once the run left no worktree, no agent, and no tracker failure. */
+async function finishWhenClean(ran: Awaited<ReturnType<typeof LiveProbe.run>>): Promise<void> {
+  const current = (await LiveProbe.inspect(process.cwd())).resources.find(
+    (one) => one.runId === ran.runId,
+  );
+  if (
+    !ran.trackerFailed &&
+    current?.worktree === "absent" &&
+    current.agents.length === 0 &&
+    current.detail === null
+  ) {
+    await LiveProbe.finish(process.cwd(), ran.runId);
   }
+}
+
+export async function runProbeApply(parsed: ParsedArguments): Promise<void> {
+  if (await refusesIncompleteRun(parsed)) return;
 
   const result = await ProjectReadiness.probe({
     projectRoot: process.cwd(),
@@ -172,55 +199,7 @@ export async function runProbeApply(parsed: ParsedArguments): Promise<void> {
     staleOnly: parsed.staleOnly,
     approvedProbeId: parsed.approvedProbe,
   });
-
-  if (result.status === "blocked") {
-    reportBlocked(parsed, result, "setup_probe_apply");
-    return;
-  }
-  if (result.status === "nothing-stale") {
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: "probe_nothing_stale",
-        blockers: [{ reason: "probe_nothing_stale" }],
-        operation: "setup_probe_apply",
-        data: result.report,
-      },
-      lines: ["No live check has stale evidence. Nothing was launched."],
-    });
-    return;
-  }
-
-  if (result.status === "approval-required" || result.status === "approval-stale") {
-    const stale = result.status === "approval-stale";
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: stale ? "approval_stale" : "approval_required",
-        blockers: [
-          {
-            reason: stale ? "approval_stale" : "approval_required",
-            currentProbeId: result.plan.probeId,
-            approvedProbeId: parsed.approvedProbe ?? null,
-          },
-        ],
-        operation: "setup_probe_apply",
-        data: probeData(result),
-      },
-      lines: [
-        stale
-          ? "The approved probe no longer matches this project or this selection. Nothing was launched."
-          : "A live probe needs its own approval. Nothing was launched.",
-        "",
-        ...planLines(result),
-        "",
-        `Approve with: ${approvalCommand(result)}`,
-      ],
-    });
-    return;
-  }
+  if (answer(parsed, "setup_probe_apply", result, applyRefusals(parsed))) return;
 
   // The approval matched the plan, so the record names both and a reader can see the binding.
   const ran = await LiveProbe.run({
@@ -246,17 +225,7 @@ export async function runProbeApply(parsed: ParsedArguments): Promise<void> {
     overrides: parsed.overrides,
     attempt: ran.attempt,
   });
-  const current = (await LiveProbe.inspect(process.cwd())).resources.find(
-    (one) => one.runId === ran.runId,
-  );
-  if (
-    !ran.trackerFailed &&
-    current?.worktree === "absent" &&
-    current.agents.length === 0 &&
-    current.detail === null
-  ) {
-    await LiveProbe.finish(process.cwd(), ran.runId);
-  }
+  await finishWhenClean(ran);
 
   const unproven = ran.attempt.observations.filter((one) => one.state !== "passed");
   const failures = unproven.filter((one) => one.state === "failed");
@@ -325,26 +294,17 @@ export async function runProbeCleanup(parsed: ParsedArguments): Promise<void> {
   }
 
   if (result.status === "approval-required" || result.status === "approval-stale") {
-    const stale = result.status === "approval-stale";
-    report({
-      json: parsed.json,
-      result: {
-        outcome: "missing-condition",
-        reason: stale ? "approval_stale" : "approval_required",
-        blockers: [
-          {
-            reason: stale ? "approval_stale" : "approval_required",
-            currentCleanupId: result.cleanupId,
-            approvedCleanupId: parsed.approvedCleanup ?? null,
-          },
-        ],
-        operation: "setup_probe_cleanup",
-        data: result,
+    reportApprovalGate(parsed, "setup_probe_cleanup", {
+      stale: result.status === "approval-stale",
+      ids: {
+        currentCleanupId: result.cleanupId,
+        approvedCleanupId: parsed.approvedCleanup ?? null,
+      },
+      headline: {
+        required: "Removing a probe resource needs its own approval. Nothing was removed.",
+        stale: "The approved cleanup no longer names these resources. Nothing was removed.",
       },
       lines: [
-        stale
-          ? "The approved cleanup no longer names these resources. Nothing was removed."
-          : "Removing a probe resource needs its own approval. Nothing was removed.",
         "",
         "These probe resources will be inspected for approved cleanup:",
         ...result.directories.map((one) => `  ${one}`),
@@ -360,6 +320,7 @@ export async function runProbeCleanup(parsed: ParsedArguments): Promise<void> {
         "",
         `Approve with: operator setup probe cleanup --approved-cleanup ${result.cleanupId}`,
       ],
+      data: result,
     });
     return;
   }

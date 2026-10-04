@@ -1,10 +1,17 @@
 import { OperativeDispatch } from "../operative-dispatch/main.ts";
+import { launchedRecordIds } from "./planning-record.ts";
+import {
+  Attempt,
+  type AttemptDecision,
+  type AttemptFacts,
+  REVIEW_ATTEMPT_LIMIT,
+  type ReplaceRefusal,
+} from "./attempt-machine.ts";
 import {
   type AttemptFailure,
-  briefOf,
+  planLaunch,
   readContext,
   type Shared,
-  type Snapshot,
   type WorkInspection,
 } from "./dispatch-context.ts";
 import { record } from "./operations.ts";
@@ -18,16 +25,7 @@ import {
 } from "./direction.ts";
 import { mutate, readState } from "./operations.ts";
 import { reopenReview } from "./review.ts";
-import {
-  openOperation,
-  recordInspection,
-  recordPlan,
-  settleOperation,
-  unsettledOperations,
-} from "./dispatch.ts";
-
-/** One review, plus at most two replacements after a failure is inspected. */
-const REVIEW_ATTEMPT_LIMIT = 3;
+import { openOperation, recordInspection, recordPlan, settleOperation } from "./dispatch.ts";
 
 export type ReplaceResult =
   | {
@@ -38,13 +36,7 @@ export type ReplaceResult =
       inspection: WorkInspection;
       repeated: boolean;
     }
-  | { status: "inspection-required"; attemptId: string; inspection: WorkInspection }
-  | { status: "inspection-stale"; attemptId: string; inspection: WorkInspection; approved: string }
-  | { status: "writer-live"; attemptId: string; agentName: string; paneId: string }
-  | { status: "writer-unknown"; attemptId: string; detail: string }
-  | { status: "snapshot-unreadable"; attemptId: string; detail: string }
-  | { status: "reconciliation-required"; attemptId: string; pending: string[] }
-  | { status: "not-dispatched"; attemptId: string }
+  | ReplaceRefusal
   | {
       status: "review-attempt-limit";
       attemptId: string;
@@ -56,19 +48,25 @@ export type ReplaceResult =
   | AttemptFailure
   | Shared;
 
+type ReplaceRequest = {
+  projectRoot: string;
+  requestId: string;
+  ownerToken: string;
+  attemptId: string;
+  approvedInspection: string | null;
+};
+
+type ReplaceFacts = AttemptFacts["replace"];
+type ReplaceNeed = Extract<AttemptDecision["replace"], { need: string }>;
+
 /**
  * Records that one review used every attempt it has, and that the work waits on the user.
  * The request identity is spent here, so a retry reports the same refusal rather than raising
  * the same limit twice.
  */
 async function reachedReviewLimit(
-  request: { projectRoot: string; requestId: string; ownerToken: string; attemptId: string },
-  context: {
-    producerId: string;
-    reviewId: string;
-    attemptsHeld: number;
-    approval: Unapproved;
-  },
+  request: ReplaceRequest,
+  context: Extract<AttemptDecision["replace"], { limit: unknown }>["limit"],
 ): Promise<ReplaceResult> {
   const { result } = await mutate<Extract<ReplaceResult, { status: "review-attempt-limit" }>>(
     {
@@ -106,6 +104,48 @@ async function reachedReviewLimit(
   return result;
 }
 
+/** Reads the one fact the replace decision asked for. */
+async function gather(
+  request: ReplaceRequest,
+  facts: ReplaceFacts,
+  need: ReplaceNeed,
+): Promise<ReplaceFacts> {
+  const { projectRoot } = request;
+  switch (need.need) {
+    case "direction":
+      return {
+        ...facts,
+        direction: await readState(projectRoot, (db) =>
+          readDirection(db, { assignmentId: need.assignmentId, limitKind: "review_attempts" }),
+        ),
+      };
+    case "inspection":
+      return {
+        ...facts,
+        inspection: await OperativeDispatch.inspect({
+          projectRoot,
+          agentName: need.dispatch.agentName,
+          worktreePath: need.dispatch.worktreePath,
+          baseCommit: need.dispatch.baseCommit,
+        }),
+      };
+    case "launch":
+      return {
+        ...facts,
+        launch: await planLaunch({
+          projectRoot,
+          context: facts.context,
+          attemptId: facts.attemptId,
+          launchAttemptId: facts.launchAttemptId,
+          snapshot: need.snapshot,
+          baseCommit: need.dispatch.baseCommit,
+          branch: need.dispatch.branch,
+          worktreePath: need.dispatch.worktreePath,
+        }),
+      };
+  }
+}
+
 /**
  * Starts a new attempt on the same assignment, keeping the inspected checkout and branch.
  * It runs only after the former writer is proven stopped and its partial work is inspected,
@@ -113,152 +153,59 @@ async function reachedReviewLimit(
  * An attempt a replaced Operator claimed is replaceable, because that is how the current owner
  * takes over a stopped writer.
  */
-export async function replaceAttempt(request: {
-  projectRoot: string;
-  requestId: string;
-  ownerToken: string;
-  attemptId: string;
-  approvedInspection: string | null;
-}): Promise<ReplaceResult> {
+export async function replaceAttempt(request: ReplaceRequest): Promise<ReplaceResult> {
   const read = await readContext(request.projectRoot, { ...request, allowStale: true });
   if (read.status !== "ok") {
     return read;
   }
 
-  const dispatch = read.context.dispatch;
-  if (dispatch === null) {
-    return { status: "not-dispatched", attemptId: request.attemptId };
-  }
-
-  // A stopped or blocked review may be tried again, and a bounded number of times, so a failing
-  // review host escalates to the user instead of consuming the crew.
-  const context = read.context.review;
   // The replacement inspects the stopped writer before it records anything, so whether it may
-  // run at all is read here and the direction it runs under is spent inside that write.
-  let producerAtLimit: string | null = null;
-
-  if (
-    context !== null &&
-    context.review.state !== "reported" &&
-    read.context.attemptsHeld >= REVIEW_ATTEMPT_LIMIT
-  ) {
-    const producerId = context.submission.assignmentId;
-    const direction = await readState(request.projectRoot, (db) =>
-      readDirection(db, { assignmentId: producerId, limitKind: "review_attempts" }),
-    );
-    if (direction.status === "directed") {
-      producerAtLimit = producerId;
-    } else if (direction.status === "blocked" || direction.status === "unblocked") {
-      return reachedReviewLimit(request, {
-        producerId,
-        reviewId: context.review.id,
-        attemptsHeld: read.context.attemptsHeld,
-        approval: direction.status === "blocked" ? direction.approval : "missing",
-      });
-    } else {
-      // The state could not be read, so nothing is replaced and nothing is recorded.
-      return direction;
-    }
+  // run at all is decided here and the direction it runs under is spent inside that write.
+  let facts: ReplaceFacts = {
+    context: read.context,
+    attemptId: request.attemptId,
+    launchAttemptId: crypto.randomUUID(),
+    approvedInspection: request.approvedInspection,
+  };
+  let decision = Attempt.decide("replace", facts);
+  while ("need" in decision) {
+    facts = await gather(request, facts, decision);
+    decision = Attempt.decide("replace", facts);
+  }
+  if ("refused" in decision) {
+    return decision.refused;
+  }
+  if ("limit" in decision) {
+    return reachedReviewLimit(request, decision.limit);
   }
 
-  const pending = unsettledOperations(read.context.operations);
-  if (pending.length > 0) {
-    return {
-      status: "reconciliation-required",
-      attemptId: request.attemptId,
-      pending: pending.map((one) => one.kind),
-    };
-  }
-
-  const inspection = await OperativeDispatch.inspect({
-    projectRoot: request.projectRoot,
-    agentName: dispatch.agentName,
-    worktreePath: dispatch.worktreePath,
-    baseCommit: dispatch.baseCommit,
-  });
-  if (inspection.writer.state === "live") {
-    return {
-      status: "writer-live",
-      attemptId: request.attemptId,
-      agentName: dispatch.agentName,
-      paneId: inspection.writer.paneId,
-    };
-  }
-  if (inspection.writer.state === "unknown") {
-    return {
-      status: "writer-unknown",
-      attemptId: request.attemptId,
-      detail: inspection.writer.detail,
-    };
-  }
-
-  if (request.approvedInspection === null) {
-    return {
-      status: "inspection-required",
-      attemptId: request.attemptId,
-      inspection: inspection.work,
-    };
-  }
-  if (request.approvedInspection !== inspection.work.identity) {
-    return {
-      status: "inspection-stale",
-      attemptId: request.attemptId,
-      inspection: inspection.work,
-      approved: request.approvedInspection,
-    };
-  }
-
-  const restored = OperativeDispatch.readSnapshot({ recorded: dispatch.snapshot });
-  if (restored.status !== "read") {
-    return { status: "snapshot-unreadable", attemptId: request.attemptId, detail: restored.detail };
-  }
-
-  const snapshot: Snapshot = restored.snapshot;
-  const attemptId = crypto.randomUUID();
-  const launch = OperativeDispatch.plan({
-    projectRoot: request.projectRoot,
-    brief: briefOf(read.context, attemptId),
-    snapshot,
-    baseCommit: dispatch.baseCommit,
-    branch: dispatch.branch,
-    worktreePath: dispatch.worktreePath,
-  });
-  if (launch.status === "host-unnamed") {
-    return {
-      status: "snapshot-unreadable",
-      attemptId: request.attemptId,
-      detail: "The recorded snapshot names no crew host.",
-    };
-  }
-  if (launch.status === "effort-unsupported") {
-    return { status: "snapshot-unreadable", attemptId: request.attemptId, detail: launch.detail };
-  }
-
+  const replaced = decision;
+  const { dispatch, plan } = replaced;
   const previous = read.context.attempt;
-  const plan = launch.plan;
+  const attemptId = facts.launchAttemptId;
   const written = await record(
     {
       projectRoot: request.projectRoot,
       requestId: request.requestId,
       ownerToken: request.ownerToken,
       operation: "attempt_replace",
-      input: { attemptId: request.attemptId, inspection: inspection.work.identity },
+      input: { attemptId: request.attemptId, inspection: replaced.inspection.identity },
     },
     ({ tx, now }) => {
       recordInspection(tx, {
         attemptId: previous.id,
-        inspection: inspection.work,
-        identity: inspection.work.identity,
+        inspection: replaced.inspection,
+        identity: replaced.inspection.identity,
         now,
       });
-      endAttempt(tx, { attempt: previous, state: "replaced", now });
-      if (context !== null && context.review.state !== "reported") {
+      endAttempt(tx, { attempt: previous, state: replaced.next, now });
+      if (replaced.reopen !== null) {
         // The replacement reviewer reads the same fixed submission and reports it itself.
-        reopenReview(tx, { review: context.review, now });
+        reopenReview(tx, { review: replaced.reopen, now });
       }
-      if (producerAtLimit !== null) {
+      if (replaced.spend !== null) {
         // The user directed this replacement past the limit, so the request it answered closes.
-        spendDirection(tx, { assignmentId: producerAtLimit, limitKind: "review_attempts", now });
+        spendDirection(tx, { assignmentId: replaced.spend, limitKind: "review_attempts", now });
       }
       startAttempt(tx, {
         attemptId,
@@ -272,13 +219,14 @@ export async function replaceAttempt(request: {
         baseCommit: plan.baseCommit,
         branch: plan.branch,
         worktreePath: plan.worktreePath,
-        snapshot,
+        snapshot: replaced.snapshot,
         snapshotIdentity: plan.snapshotIdentity,
         briefIdentity: plan.briefIdentity,
         promptIdentity: plan.promptIdentity,
         agentName: plan.agentName,
         agentKind: plan.agentKind,
         agentHost: plan.agentHost,
+        planningRecordIds: launchedRecordIds(replaced.brief.planningRecords),
         // The inspected checkout is retained, so the replacement never creates a second one.
         workspaceId: dispatch.workspaceId,
         now,
@@ -312,7 +260,7 @@ export async function replaceAttempt(request: {
     previousAttemptId: previous.id,
     attemptId,
     assignmentId: previous.assignmentId,
-    inspection: inspection.work,
+    inspection: replaced.inspection,
     repeated: written.repeated,
   };
 }

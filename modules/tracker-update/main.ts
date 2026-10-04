@@ -74,10 +74,36 @@ function reopenedAfterClose(request: {
   return request.complete ? "no" : "unknown";
 }
 
-/** Gathers what the tracker actually shows about one step right now. */
-async function observeStep(request: {
+/** Reads the ticket state and its closure history, which together are the evidence of a closure. */
+async function observeClosure(request: {
+  target: TrackerTarget;
+  now: string;
+}): Promise<ClosureObservation> {
+  const issue = await GithubTracker.readIssue(request.target);
+  const history = await GithubTracker.readEvents(request.target);
+
+  return {
+    kind: "closure",
+    read: issue.status === "found" ? "found" : issue.status === "absent" ? "absent" : "unknown",
+    detail: issue.status === "unknown" ? issue.detail : null,
+    state: issue.status === "found" ? issue.value.state : null,
+    stateReason: issue.status === "found" ? issue.value.stateReason : null,
+    closedBy: issue.status === "found" ? issue.value.closedBy : null,
+    closedAt: issue.status === "found" ? issue.value.closedAt : null,
+    updatedAt: issue.status === "found" ? issue.value.updatedAt : null,
+    events: history.events,
+    eventCoverage: history.coverage,
+    reopened: reopenedAfterClose({
+      events: history.events,
+      complete: history.coverage.complete,
+    }),
+    observedAt: request.now,
+  };
+}
+
+/** Reads the comments that carry one operation marker, by known identifier or by a full scan. */
+async function observeComment(request: {
   provider: string;
-  step: TrackerStep;
   target: TrackerTarget;
   operationId: string;
   expectedActor: string;
@@ -85,31 +111,7 @@ async function observeStep(request: {
   resourceId: string | null;
   sentWrites: number;
   now: string;
-}): Promise<Observation> {
-  if (request.step === "completion") {
-    const issue = await GithubTracker.readIssue(request.target);
-    const history = await GithubTracker.readEvents(request.target);
-
-    const closure: ClosureObservation = {
-      kind: "closure",
-      read: issue.status === "found" ? "found" : issue.status === "absent" ? "absent" : "unknown",
-      detail: issue.status === "unknown" ? issue.detail : null,
-      state: issue.status === "found" ? issue.value.state : null,
-      stateReason: issue.status === "found" ? issue.value.stateReason : null,
-      closedBy: issue.status === "found" ? issue.value.closedBy : null,
-      closedAt: issue.status === "found" ? issue.value.closedAt : null,
-      updatedAt: issue.status === "found" ? issue.value.updatedAt : null,
-      events: history.events,
-      eventCoverage: history.coverage,
-      reopened: reopenedAfterClose({
-        events: history.events,
-        complete: history.coverage.complete,
-      }),
-      observedAt: request.now,
-    };
-    return closure;
-  }
-
+}): Promise<CommentObservation> {
   // An identity this release cannot read matches nothing, which keeps the step unverified.
   const contentIdentity = request.contentIdentity ?? "";
   const known = request.resourceId;
@@ -188,6 +190,7 @@ export const TrackerUpdate = {
     | { status: "unsupported-provider"; provider: string }
     | { status: "capability-unavailable"; capability: string; detail: string }
     | { status: "actor-unknown"; detail: string }
+    | { status: "comment-too-long"; size: number; limit: number }
   > {
     const capabilities = capabilitiesOf(request.provider);
     if (capabilities === null) {
@@ -209,6 +212,16 @@ export const TrackerUpdate = {
         capability: "completion",
         detail: `${request.provider} cannot complete a ticket with an explicit reason.`,
       };
+    }
+
+    // A body the provider would refuse is refused here, before the write and before any read,
+    // with its size, so the caller can shorten it. The provider counts characters, which are
+    // code points and not UTF-16 units.
+    if (intent.step !== "completion") {
+      const size = [...renderComment({ operationId: request.operationId, intent })].length;
+      if (size > capabilities.commentLimit) {
+        return { status: "comment-too-long", size, limit: capabilities.commentLimit };
+      }
     }
 
     // The account this machine writes as is recorded for every step, so a later reading compares
@@ -234,6 +247,8 @@ export const TrackerUpdate = {
       };
     }
 
+    // The rendering is fixed by the operation identity and the intent, so it is the same bytes
+    // that were measured above.
     const content = renderComment({ operationId: request.operationId, intent });
     return {
       status: "planned",
@@ -299,93 +314,6 @@ export const TrackerUpdate = {
   },
 
   /**
-   * Gathers what the tracker actually shows about one step right now.
-   * A known server identifier is read directly. Every other case reads every accessible comment
-   * page and records its coverage, because a partial read is never evidence of absence.
-   * A step with more than one sent write is always scanned, since only then can it duplicate.
-   */
-  async observe(request: {
-    provider: string;
-    step: TrackerStep;
-    target: TrackerTarget;
-    operationId: string;
-    expectedActor: string;
-    contentIdentity: string | null;
-    resourceId: string | null;
-    sentWrites: number;
-    now: string;
-  }): Promise<Observation> {
-    if (request.step === "completion") {
-      const issue = await GithubTracker.readIssue(request.target);
-      const history = await GithubTracker.readEvents(request.target);
-
-      const closure: ClosureObservation = {
-        kind: "closure",
-        read: issue.status === "found" ? "found" : issue.status === "absent" ? "absent" : "unknown",
-        detail: issue.status === "unknown" ? issue.detail : null,
-        state: issue.status === "found" ? issue.value.state : null,
-        stateReason: issue.status === "found" ? issue.value.stateReason : null,
-        closedBy: issue.status === "found" ? issue.value.closedBy : null,
-        closedAt: issue.status === "found" ? issue.value.closedAt : null,
-        updatedAt: issue.status === "found" ? issue.value.updatedAt : null,
-        events: history.events,
-        eventCoverage: history.coverage,
-        reopened: reopenedAfterClose({
-          events: history.events,
-          complete: history.coverage.complete,
-        }),
-        observedAt: request.now,
-      };
-      return closure;
-    }
-
-    // An identity this release cannot read matches nothing, which keeps the step unverified.
-    const contentIdentity = request.contentIdentity ?? "";
-    const known = request.resourceId;
-    // A provider with no exactly-once write can hold a second comment under one operation, so a
-    // step that sent more than one write is always scanned rather than read by identifier.
-    const repeatable = capabilitiesOf(request.provider)?.exactlyOnceWrites !== true;
-    if (known !== null && !(repeatable && request.sentWrites > 1)) {
-      const comment = await GithubTracker.readComment({
-        repository: request.target.repository,
-        commentId: known,
-      });
-      const comments = comment.status === "found" ? [comment.value] : [];
-      return {
-        kind: "comment",
-        lookup: "known-id",
-        coverage: {
-          complete: comment.status !== "unknown",
-          pages: comment.status === "unknown" ? 0 : 1,
-          count: comments.length,
-          detail: comment.status === "unknown" ? comment.detail : null,
-        },
-        ...classifyComments({
-          operationId: request.operationId,
-          expectedActor: request.expectedActor,
-          contentIdentity,
-          comments,
-        }),
-        observedAt: request.now,
-      };
-    }
-
-    const scan = await GithubTracker.scanComments(request.target);
-    return {
-      kind: "comment",
-      lookup: "scan",
-      coverage: scan.coverage,
-      ...classifyComments({
-        operationId: request.operationId,
-        expectedActor: request.expectedActor,
-        contentIdentity,
-        comments: scan.comments,
-      }),
-      observedAt: request.now,
-    };
-  },
-
-  /**
    * Reads what the tracker shows about one step right now and says what that evidence means.
    * The reading and the verdict are one answer, so no caller can record an observation and
    * then decide about it under a different rule.
@@ -406,10 +334,13 @@ export const TrackerUpdate = {
     extra?: Problem[];
     now: string;
   }): Promise<{ observation: Observation; verdict: Verdict }> {
-    const observation = await observeStep({
-      ...request,
-      sentWrites: request.writes.filter((state) => state !== "intended").length,
-    });
+    const observation =
+      request.step === "completion"
+        ? await observeClosure(request)
+        : await observeComment({
+            ...request,
+            sentWrites: request.writes.filter((state) => state !== "intended").length,
+          });
     return {
       observation,
       verdict: judge({

@@ -7,9 +7,25 @@ bun run operator work invalidate --request <id> --owner-token <token> --assignme
 ```
 
 The defect states its summary, its evidence, and who found it.
+`invalidation_merged` means the pull request of that commit merged, so the commit is never invalidated: tell the person and name that pull request, and the defect becomes a new issue.
+Inside an open pull request, the invalidation is recorded, and `crew next` offers `recall_stack` first: read "Recall" in [PUBLISH.md](PUBLISH.md) before the correction lands.
+A corrected branch finding invalidates its target through this same path, inside `review dispose`, so you do not run `work invalidate` for it.
+Its defect carries the finding, its target commits, and your reason, as [REVIEW.md](REVIEW.md) shows.
 Review work is refused, because a review holds no result of its own.
 The acceptance, the submission, the review, and every finding stay recorded.
-The assignment returns to the frontier as `invalidated`, and you fix it as work on that assignment.
+The assignment returns to the frontier as `invalidated`, and the invalidation opens its correction cycle in the same change.
+The cycle carries the defect, the accepted submission, and the landed commit, so you write no rework input and do not run `work rework`.
+Claim it and dispatch it with no `--commit`.
+A code correction starts at the landed commit, and the Operative makes one commit on top of it. `correction_base_changed` means you named another commit.
+Its acceptance rewrites the branch in place, as [REWORK.md](REWORK.md) shows.
+The cycle counts against the same budget of three as every other correction cycle.
+When that budget is spent, the invalidation still records the defect and pauses its dependents, and it records a direction request in the same change.
+The frontier then withholds the dispatch with `direction_required` until the user answers, as [LIMITS.md](LIMITS.md) shows.
+After the user answers, the claim opens the cycle under that approval.
+Planning work that is invalidated opens no cycle, and it is fixed when it is decided again with a new planning record.
+`bun run operator crew next` offers it as `resolve_planning`, the crew prepares the new record, and you accept it with no attempt and with that record, as [REGISTRATION.md](REGISTRATION.md) shows.
+An acceptance with no record is refused as `planning_record_required` here too, and the paused dependents stay paused.
+The first record stays as it was accepted.
 
 Only the dependents that read the result are paused.
 `input_invalidated` at acceptance or in the frontier names the invalid result a paused assignment read.

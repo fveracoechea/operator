@@ -1,10 +1,14 @@
-import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterEach, describe, expect, test as bunTest } from "bun:test";
 // Bun has no file removal API.
 import { rm } from "node:fs/promises";
 import { runJson, runOperator, workspaces } from "./workspace-fixture.ts";
 
 // Config tests run multiple CLI processes against a project fixture.
-setDefaultTimeout(60_000);
+// Each test states its own bound, because a process-wide default would set the bound of every
+// file in the bun test process (#179).
+function test(name: string, run: () => Promise<void> | void, timeoutMs = 60_000) {
+  bunTest(name, run, timeoutMs);
+}
 
 const fixtures = workspaces();
 
@@ -85,6 +89,14 @@ describe("operator config", () => {
     expect(reordered.json.data.planId).toBe(plan.json.data.planId);
     const missing = await runJson(workspace, ["config", "apply", ...edits]);
     expect(missing.json.reason).toBe("approval_required");
+    expect(missing.stdout).toStartWith(
+      `{"schemaVersion":1,"outcome":"missing-condition","reason":"approval_required","blockers":[{"reason":"approval_required","approvedPlanId":null,"currentPlanId":"${plan.json.data.planId}"}],"operation":"config_apply","data":{"path":`,
+    );
+    const planText = await runOperator(workspace, ["config", "plan", ...edits]);
+    const missingText = await runOperator(workspace, ["config", "apply", ...edits]);
+    expect(missingText.stdout).toBe(
+      `Approval is required. Nothing was written.\n${planText.stdout}`,
+    );
     expect(await file.text()).toBe(before);
 
     const args = ["config", "apply", ...edits, "--approved-plan", plan.json.data.planId];
@@ -134,6 +146,20 @@ describe("operator config", () => {
 
     expect(applied.exitCode).toBe(4);
     expect(applied.json.reason).toBe("approval_stale");
+    expect(applied.stdout).toStartWith(
+      `{"schemaVersion":1,"outcome":"conflict","reason":"approval_stale","blockers":[{"reason":"approval_stale","approvedPlanId":"${plan.json.data.planId}","currentPlanId":"${applied.json.data.planId}"}],"operation":"config_apply","data":{"path":`,
+    );
+    const planText = await runOperator(workspace, ["config", "plan", ...edits]);
+    const staleText = await runOperator(workspace, [
+      "config",
+      "apply",
+      ...edits,
+      "--approved-plan",
+      plan.json.data.planId,
+    ]);
+    expect(staleText.stdout).toBe(
+      `The file or proposed edit changed. Nothing was written.\n${planText.stdout}`,
+    );
     expect(await file.text()).toBe(changed);
   });
 

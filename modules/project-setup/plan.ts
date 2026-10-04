@@ -1,8 +1,7 @@
+import { ContentIdentity } from "../content-identity/main.ts";
 import { OperatorConfig } from "../operator-config/main.ts";
 import { SkillInstall } from "../skill-install/main.ts";
-import { endsWithNewline, readTextOrNull, sha256 } from "./files.ts";
-import { trackedOperatorPaths } from "./git.ts";
-import { findInstructionsSection, instructionsSection } from "./instructions.ts";
+import { ToolInvocation } from "../tool-invocation/main.ts";
 
 export type SetupTarget = "opencode" | "claude-code";
 
@@ -45,6 +44,25 @@ const IGNORE_BLOCK = ["# Operator local files, written by `operator setup`.", "/
 );
 const CLAUDE_IMPORT = "@AGENTS.md";
 
+const INSTRUCTIONS_BEGIN = "<!-- operator:instructions -->";
+const INSTRUCTIONS_END = "<!-- /operator:instructions -->";
+const instructionsSection = [
+  INSTRUCTIONS_BEGIN,
+  "## Operator",
+  "",
+  "This project is coordinated with Operator.",
+  "Load the `operator` skill before you delegate work, change the crew configuration, or run a setup operation.",
+  "Operator configuration lives in `.operator/config.json`, which is local to this checkout and is not committed.",
+  INSTRUCTIONS_END,
+].join("\n");
+
+const GIT_TIMEOUT_MS = 30_000;
+
+export async function readTextOrNull(path: string): Promise<string | null> {
+  const file = Bun.file(path);
+  return (await file.exists()) ? file.text() : null;
+}
+
 function createChange(path: string, reason: string, text: string): SetupChange {
   return { path, kind: "create", reason, addedText: text, nextText: text, previousText: null };
 }
@@ -55,7 +73,7 @@ function appendChange(
   previousText: string,
   block: string,
 ): SetupChange {
-  const separator = endsWithNewline(previousText) ? "" : "\n";
+  const separator = previousText.length === 0 || previousText.endsWith("\n") ? "" : "\n";
   const addedText = `${separator}${previousText.length === 0 ? "" : "\n"}${block}\n`;
   return {
     path,
@@ -174,8 +192,9 @@ async function planInstructions(projectRoot: string): Promise<PlanStep> {
     };
   }
 
-  const existingSection = findInstructionsSection(previousText);
-  if (existingSection === null) {
+  const begin = previousText.indexOf(INSTRUCTIONS_BEGIN);
+  const end = previousText.indexOf(INSTRUCTIONS_END);
+  if (begin === -1 || end === -1 || end < begin) {
     return {
       change: appendChange(
         INSTRUCTIONS_PATH,
@@ -186,7 +205,8 @@ async function planInstructions(projectRoot: string): Promise<PlanStep> {
     };
   }
 
-  if (existingSection !== instructionsSection) {
+  // The marked section, markers included, must be exactly the one this release writes.
+  if (previousText.slice(begin, end + INSTRUCTIONS_END.length) !== instructionsSection) {
     return {
       conflict: {
         reason: "instructions_modified",
@@ -213,21 +233,35 @@ async function planClaudeImport(projectRoot: string): Promise<PlanStep> {
   return { change: appendChange(CLAUDE_IMPORT_PATH, reason, previousText, CLAUDE_IMPORT) };
 }
 
+/** Reads which .operator paths Git already tracks. Setup never writes to the Git index. */
 async function inspectGitIndex(projectRoot: string): Promise<SetupConflict | undefined> {
-  const tracked = await trackedOperatorPaths(projectRoot);
-  if (tracked.state === "unavailable") {
+  const listed = await ToolInvocation.git({
+    repoRoot: projectRoot,
+    args: ["ls-files", "-z", "--", ".operator"],
+    raw: true,
+    timeoutMs: GIT_TIMEOUT_MS,
+    answers: "any",
+    // This call once ran in the project folder with no `-C`, so its detail names `ls-files`.
+    failed: (failure) =>
+      failure.kind === "no-answer"
+        ? `git ls-files ended on ${failure.signal} with no answer.`
+        : ToolInvocation.gitFailure(failure),
+  });
+  if (listed.status !== "read") {
     return {
       reason: "git_unavailable",
-      detail: `Setup cannot read the Git index, so it cannot check for tracked Operator files: ${tracked.detail}. Install Git yourself, then plan again.`,
+      detail: `Setup cannot read the Git index, so it cannot check for tracked Operator files: ${listed.detail.replace(/\.$/, "")}. Install Git yourself, then plan again.`,
     };
   }
-  if (tracked.paths.length === 0) {
+  // A failed listing means the project is not a Git repository, so it has no index and tracks nothing.
+  const paths = listed.exitCode === 0 ? listed.value.split("\0").filter(Boolean).toSorted() : [];
+  if (paths.length === 0) {
     return undefined;
   }
 
   return {
     reason: "operator_directory_tracked",
-    paths: tracked.paths,
+    paths,
     detail:
       "An ignore rule does not untrack a file. Remove these paths from the Git index yourself, then plan again.",
   };
@@ -278,14 +312,14 @@ export async function computePlan(projectRoot: string, targets: SetupTarget[]): 
 
 /** The identity covers the targets, the observed file, and the exact content of every change. */
 function planIdentity(targets: SetupTarget[], changes: SetupChange[]): string {
-  return sha256(
+  return ContentIdentity.ofText(
     JSON.stringify({
       targets: targets.toSorted(),
       changes: changes.map((change) => [
         change.path,
         change.kind,
-        change.previousText === null ? null : sha256(change.previousText),
-        sha256(change.nextText),
+        change.previousText === null ? null : ContentIdentity.ofText(change.previousText),
+        ContentIdentity.ofText(change.nextText),
       ]),
     }),
   );

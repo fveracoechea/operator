@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test as bunTest,
+} from "bun:test";
 import { z } from "zod";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
@@ -11,14 +19,19 @@ const sourceRoot = new URL("../../", import.meta.url).pathname.replace(/\/$/, ""
 const fakeGhPath = new URL("./fake-gh.ts", import.meta.url).pathname;
 
 // Every test publishes a real artifact, and building one compiles the whole release. That takes
-// far longer than a default test, and longer again on a CI runner.
-setDefaultTimeout(300_000);
+// far longer than a default test, and longer again on a CI runner, so the file builds it once.
+// Each test states its own bound, because a process-wide default would set the bound of every
+// file in the bun test process (#179).
+function test(name: string, run: () => Promise<void> | void, timeoutMs = 300_000) {
+  bunTest(name, run, timeoutMs);
+}
 
 const COMMIT = "1".repeat(40);
 const OTHER_COMMIT = "2".repeat(40);
 
 const roots: string[] = [];
 const fakes: JsrFake[] = [];
+let builtRoot = "";
 let root = "";
 let artifactRoot = "";
 let ghDirectory = "";
@@ -27,6 +40,17 @@ let journalPath = "";
 let version = "";
 
 const inheritedPath = process.env.PATH ?? "";
+
+// A hook does not take the bound of its test, so the one build states its own (#186).
+beforeAll(async () => {
+  builtRoot = `${Bun.env.TMPDIR ?? "/tmp"}/operator-publish-built-${crypto.randomUUID()}`;
+  await OperatorRelease.build({ sourceRoot, artifactRoot: builtRoot, commit: COMMIT });
+  version = (await Bun.file(`${builtRoot}/release.json`).json()).version;
+}, 300_000);
+
+afterAll(async () => {
+  await rm(builtRoot, { force: true, recursive: true });
+});
 
 afterEach(async () => {
   process.env.PATH = inheritedPath;
@@ -70,6 +94,8 @@ beforeEach(async () => {
   journalPath = `${root}/publication.json`;
 
   await Bun.$`mkdir -p ${ghDirectory} ${binDirectory}`.quiet();
+  // Each test gets its own copy, because some tests change the artifact.
+  await Bun.$`cp -R ${builtRoot} ${artifactRoot}`.quiet();
   // The fake carries its own directory, so nothing depends on the environment of the caller.
   await Bun.write(
     `${binDirectory}/gh`,
@@ -77,9 +103,6 @@ beforeEach(async () => {
   );
   await Bun.$`chmod +x ${binDirectory}/gh`.quiet();
   process.env.PATH = fixturePath();
-
-  await OperatorRelease.build({ sourceRoot, artifactRoot, commit: COMMIT });
-  version = (await Bun.file(`${artifactRoot}/release.json`).json()).version;
 
   await seedGithub({
     compare: { [COMMIT]: "behind", [OTHER_COMMIT]: "diverged" },
@@ -150,7 +173,11 @@ describe("the release plan", () => {
 
     const plan = await ReleasePublish.plan(request(fake));
 
-    expect(plan.blockers.map((one) => one.reason)).toContain("tag_moved");
+    expect(plan.blockers).toContainEqual({
+      reason: "tag_moved",
+      detail: `The tag v${version} already names commit ${OTHER_COMMIT}, and that release is not complete. A published tag is never moved.`,
+      nextAction: `Run the publication of commit ${OTHER_COMMIT} again, so the missing path receives the artifact built there.`,
+    });
   });
 
   test("reports a version an earlier commit released in full as released", async () => {
@@ -179,7 +206,32 @@ describe("the release plan", () => {
 
     const plan = await ReleasePublish.plan(request(fake));
 
-    expect(plan.blockers.map((one) => one.reason)).toContain("version_published");
+    expect(plan.blockers).toEqual([
+      {
+        reason: "version_published",
+        detail: `JSR already holds fveracoechea/operator@${version}, and this release has no record of publishing it.`,
+        nextAction: "Publish the changed content as a new version.",
+      },
+    ]);
+  });
+
+  test("allows a version the registry holds after this release recorded a send of it", async () => {
+    await Bun.write(
+      journalPath,
+      `${JSON.stringify({
+        schemaVersion: 1,
+        releaseId: "earlier",
+        version,
+        commit: COMMIT,
+        artifactIdentity: (await OperatorRelease.inspect({ artifactRoot })).artifactIdentity,
+        paths: { jsr: { state: "uncertain", detail: "timeout", reference: null, at: "t" } },
+      })}\n`,
+    );
+    const fake = await jsrFake({ published: [version] });
+
+    const plan = await ReleasePublish.plan(request(fake));
+
+    expect(plan.blockers).toEqual([]);
   });
 });
 
@@ -218,9 +270,23 @@ describe("the publication", () => {
   test("delivers both paths from one commit", async () => {
     const fake = await jsrFake();
 
-    const result = await ReleasePublish.publish(request(fake));
+    const result = await ReleasePublish.publish(request(fake, { now: "2026-10-03T00:00:00.000Z" }));
 
     expect(result.status).toBe("published");
+    expect(result.status === "published" && result.journal.paths).toEqual({
+      "github-source": {
+        state: "published",
+        detail: `The tag v${version} and its release were created.`,
+        reference: `https://github.test/releases/v${version}`,
+        at: expect.any(String),
+      },
+      jsr: {
+        state: "published",
+        detail: `JSR published version ${version}.`,
+        reference: null,
+        at: "2026-10-03T00:00:00.000Z",
+      },
+    });
     const [call, ...more] = await fake.calls();
     expect(more).toEqual([]);
     expect(call?.version).toBe(version);
@@ -440,6 +506,31 @@ describe("a source path that is half delivered", () => {
     // The tag the first attempt created is never written a second time.
     const calls = await Bun.file(`${ghDirectory}/calls.log`).text();
     expect(calls.split("\n").filter((line) => line.includes("git/refs")).length).toBe(1);
+  });
+});
+
+describe("a path that already holds the version", () => {
+  test("is recorded as published from what it holds, and is not sent", async () => {
+    await seedGithub({
+      compare: { [COMMIT]: "behind" },
+      tags: { [`v${version}`]: COMMIT },
+      releases: {
+        [`v${version}`]: `https://github.com/fveracoechea/operator/releases/v${version}`,
+      },
+    });
+    const fake = await jsrFake();
+
+    const result = await ReleasePublish.publish(request(fake, { now: "2026-10-03T00:00:00.000Z" }));
+
+    expect(result.status).toBe("published");
+    expect(result.status === "published" && result.journal.paths["github-source"]).toEqual({
+      state: "published",
+      detail: `The tag v${version} and its release already exist.`,
+      reference: null,
+      at: "2026-10-03T00:00:00.000Z",
+    });
+    const calls = await Bun.file(`${ghDirectory}/calls.log`).text();
+    expect(calls.split("\n").filter((line) => line.includes("git/refs")).length).toBe(0);
   });
 });
 

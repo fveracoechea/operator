@@ -1,8 +1,8 @@
-import { GithubApi } from "../github-api/main.ts";
+import { CrewWake } from "../crew-wake/main.ts";
+import { GithubTracker } from "../github-tracker/main.ts";
 import { HerdrControl } from "../herdr-control/main.ts";
 import { ProjectReadiness } from "../project-readiness/main.ts";
 import { targetFlag, type ParsedArguments } from "./arguments.ts";
-import { reportMissingTarget } from "./missing-target.ts";
 import { blockerData, reportLines } from "./readiness-command.ts";
 import { report } from "./result.ts";
 
@@ -10,11 +10,6 @@ type Connection = { state: "passed" | "failed"; detail: string; nextAction: stri
 
 /** Reads the Herdr server and GitHub identity without creating resources or writing to a fixture. */
 export async function runHealthcheck(parsed: ParsedArguments): Promise<void> {
-  if (parsed.targets.length === 0) {
-    reportMissingTarget(parsed, "healthcheck");
-    return;
-  }
-
   const readiness = await ProjectReadiness.check({
     projectRoot: process.cwd(),
     targets: parsed.targets,
@@ -22,8 +17,8 @@ export async function runHealthcheck(parsed: ParsedArguments): Promise<void> {
   });
   const [herdr, github, plugin] = await Promise.all([
     HerdrControl.connection({ repoRoot: process.cwd() }),
-    GithubApi.connection(readiness.fixture),
-    HerdrControl.wakePlugin(readiness.versions.herdr ?? "missing"),
+    GithubTracker.connection(readiness.fixture),
+    CrewWake.pluginHealth(readiness.versions.herdr ?? "missing"),
   ]);
   const connections: Record<"herdr" | "github", Connection> = { herdr, github };
   const failures = Object.entries(connections).filter(([, value]) => value.state === "failed");

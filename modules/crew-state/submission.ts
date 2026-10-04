@@ -1,6 +1,8 @@
 import { eq } from "drizzle-orm";
 import type { CrewReader, CrewWriter } from "./database.ts";
 import { type AttemptRow, endAttempt } from "./attempt.ts";
+import { Attempt, type SubmitRefusal } from "./attempt-machine.ts";
+import { Assignment } from "./assignment-machine.ts";
 import {
   type AssignmentRow,
   insertAssignment,
@@ -8,17 +10,40 @@ import {
   nextOrderIndex,
 } from "./assignment.ts";
 import { identityOf } from "./identity.ts";
-import { assignments, reviews, submissions } from "./schema.ts";
+import { assignments, landings, reviews, submissions } from "./schema.ts";
 import { REVIEW_AXES } from "./review.ts";
-import { closeCycle, openCycleOf } from "./rework.ts";
+import { openCycleOf } from "./rework.ts";
 import { storedRequirements } from "./work-input.ts";
-import type { SubmissionInput } from "./submission-input.ts";
-import type { StoredArtifact } from "./submission-store.ts";
+import { type outsideChangesOf, recordOutsideChanges } from "./outside-changes.ts";
+import { type SubmissionInput, storedCode } from "./submission-input.ts";
+import {
+  type IntegrationInputs,
+  INTERDIFF_INPUT,
+  REVIEWED_PATCH_INPUT,
+  type StoredArtifact,
+  type StoredCopy,
+} from "./submission-store.ts";
 
 export type SubmissionRow = typeof submissions.$inferSelect;
 
 /** The Operator commands every reviewer runs, whatever the result it reads. */
-const REVIEWER_COMMANDS = ["operator attempt acknowledge", "operator review report"];
+export const REVIEWER_COMMANDS = ["operator attempt acknowledge", "operator review report"];
+
+/**
+ * The read-only `git` commands that `code-review` runs from its fixed point.
+ * A result review diffs from the base commit, so the diff is exactly the one submitted commit.
+ * Only these are named, because any other `git` command lets a reviewer write, and only the
+ * checkout reading after the review would see it (ADR 0007).
+ */
+export function reviewReadCommands(fixedPoint: string | null): string[] {
+  return fixedPoint === null
+    ? []
+    : [
+        `git rev-parse ${fixedPoint}`,
+        `git diff ${fixedPoint}...HEAD`,
+        `git log ${fixedPoint}..HEAD --oneline`,
+      ];
+}
 
 export type SubmitOutcome =
   | {
@@ -33,14 +58,10 @@ export type SubmitOutcome =
       reviewSourceKey: string;
       // The delegated cycle this result answers, when the assignment was in rework.
       reworkCycleId: string | null;
+      // How many outside changes wait for a disposition before acceptance.
+      outsideChanges: number;
     }
-  | { status: "review-result-not-submitted"; assignmentId: string }
-  | { status: "planning-only"; assignmentId: string; kind: string }
-  | { status: "not-claimed"; assignmentId: string; state: string }
-  | { status: "stale-revision"; assignmentId: string; recordedRevision: number }
-  | { status: "source-revision-changed"; assignmentId: string; recordedRevision: string }
-  | { status: "requirements-changed"; assignmentId: string; recordedIdentity: string }
-  | { status: "already-submitted"; attemptId: string; submissionId: string };
+  | SubmitRefusal;
 
 export function readSubmission(db: CrewReader, id: string): SubmissionRow | null {
   return db.select().from(submissions).where(eq(submissions.id, id)).all()[0] ?? null;
@@ -65,6 +86,99 @@ export function latestSubmission(db: CrewReader, assignmentId: string): Submissi
   return submissionsOf(db, assignmentId).at(-1) ?? null;
 }
 
+/** The commit one submission handed over, or null for a result that is not code. */
+export function submittedCommit(row: SubmissionRow): string | null {
+  return row.code === null ? null : storedCode(row.code).resultCommit;
+}
+
+/**
+ * The commit on the integration branch that carries the accepted code result of one assignment,
+ * and its parent there, or null. A result that an earlier release accepted recorded no landing,
+ * so its reviewed commit is the commit that carries it.
+ */
+export function landedCommitOf(
+  db: CrewReader,
+  submission: SubmissionRow,
+): { commit: string; parent: string | null } | null {
+  const landed = db
+    .select()
+    .from(landings)
+    .where(eq(landings.submissionId, submission.id))
+    .all()
+    .find((one) => one.state === "landed" || one.state === "merged");
+  if (landed !== undefined) {
+    return { commit: landed.landedCommit, parent: landed.landedParent };
+  }
+  const commit = submittedCommit(submission);
+  return commit === null
+    ? null
+    : { commit, parent: submission.code === null ? null : storedCode(submission.code).baseCommit };
+}
+
+/**
+ * The commit the reviewed change of one code submission starts from. A findings cycle or a
+ * diagnostic rerun starts on the commit an earlier submission handed over, so its change runs
+ * from the base of the first submission of that chain, as an amended commit would. A correction
+ * of accepted work starts at the commit on the branch that carries the result, so its change
+ * runs from the parent of that commit there.
+ */
+export function reviewedBaseOf(db: CrewReader, submission: SubmissionRow): string | null {
+  if (submission.code === null) {
+    return null;
+  }
+  const earlier = new Map<string, string>();
+  for (const one of submissionsOf(db, submission.assignmentId)) {
+    if (one.id !== submission.id && one.code !== null) {
+      const code = storedCode(one.code);
+      earlier.set(code.resultCommit, code.baseCommit);
+    }
+  }
+  for (const one of db
+    .select()
+    .from(landings)
+    .where(eq(landings.assignmentId, submission.assignmentId))
+    .all()) {
+    // A held landing names a commit that another result put on the branch, so it is no start.
+    const carried = ["landed", "merged", "replaced", "taken-out"].includes(one.state);
+    if (one.submissionId !== submission.id && carried && one.kind !== "held") {
+      earlier.set(one.landedCommit, one.landedParent);
+    }
+  }
+  let base = storedCode(submission.code).baseCommit;
+  const seen = new Set<string>();
+  while (earlier.has(base) && !seen.has(base)) {
+    seen.add(base);
+    base = earlier.get(base) ?? base;
+  }
+  return base;
+}
+
+/** The commit that carries the accepted code result of one assignment, or null. */
+export function recordedLanding(db: CrewReader, assignmentId: string): string | null {
+  const accepted = submissionsOf(db, assignmentId).filter((one) => one.state === "accepted");
+  const last = accepted.at(-1);
+  return last === undefined ? null : (landedCommitOf(db, last)?.commit ?? null);
+}
+
+/**
+ * The rules submit refuses here, in the order it checks them, each with the refusal name the CLI
+ * reports for it. The brief places these lines beside the submit command and words none itself.
+ */
+export const SUBMIT_RULES = [
+  {
+    refusal: "stale_revision",
+    rule: "`assignmentRevision` is the assignment revision in the Identity section.",
+  },
+  {
+    refusal: "source_revision_changed",
+    rule: "`sourceRevision` is the source revision in the Identity section.",
+  },
+  {
+    refusal: "requirements_changed",
+    rule: "`requirementsIdentity` is the requirements identity under Acceptance requirements.",
+  },
+];
+
 /** The identity of the acceptance requirements one assignment holds. */
 function requirementsIdentityOf(assignment: AssignmentRow): string {
   return identityOf(storedRequirements(assignment.acceptanceRequirements));
@@ -84,6 +198,10 @@ function registerReview(
     reviewId: string;
     input: SubmissionInput;
     artifacts: StoredArtifact[];
+    spec: StoredCopy;
+    integration: IntegrationInputs | null;
+    // The project gate commands as lines, which the reviewer is permitted to run.
+    gateCommands: string[];
     now: string;
   },
 ): { assignmentId: string; sourceKey: string } {
@@ -99,8 +217,12 @@ function registerReview(
   // A reviewer reports through the CLI, so the brief authorizes those commands as well as the
   // checks it may re-run. A result that recorded no check still leaves the reviewer able to report.
   const commands = [
-    ...REVIEWER_COMMANDS,
-    ...new Set(request.input.checks.map((one) => one.command)),
+    ...new Set([
+      ...REVIEWER_COMMANDS,
+      ...reviewReadCommands(request.input.code?.baseCommit ?? null),
+      ...request.gateCommands,
+      ...request.input.checks.map((one) => one.command),
+    ]),
   ];
 
   const fixedInputs = [
@@ -122,6 +244,30 @@ function registerReview(
       value: artifact.storedPath ?? artifact.value,
       contentIdentity: artifact.contentIdentity,
     })),
+    {
+      name: "spec",
+      kind: "path",
+      value: request.spec.storedPath,
+      contentIdentity: request.spec.contentIdentity,
+    },
+    // A combined revision of an integration cycle is reviewed with the patch that was reviewed
+    // and the interdiff from it to the new one (ADR 0017).
+    ...(request.integration === null
+      ? []
+      : [
+          {
+            name: REVIEWED_PATCH_INPUT,
+            kind: "path",
+            value: request.integration.reviewedPatch.storedPath,
+            contentIdentity: request.integration.reviewedPatch.contentIdentity,
+          },
+          {
+            name: INTERDIFF_INPUT,
+            kind: "path",
+            value: request.integration.interdiff.storedPath,
+            contentIdentity: request.integration.interdiff.contentIdentity,
+          },
+        ]),
   ];
 
   const row = insertAssignment(
@@ -134,8 +280,10 @@ function registerReview(
       trackerBinding: null,
       title: `Review ${request.producer.title}`,
       kind: "review",
+      planningType: null,
       orderIndex: nextOrderIndex(held),
       approvedScope: `Review submission ${request.submissionId} of assignment ${request.producer.id} on the Standards and Spec axes.`,
+      scopeIdentity: null,
       acceptanceRequirements: [
         `Record one Standards report and one Spec report for submission ${request.submissionId}.`,
         "Run both axes as native sub-agents of this host, in parallel and in separate contexts.",
@@ -156,6 +304,7 @@ function registerReview(
     .values({
       id: request.reviewId,
       submissionId: request.submissionId,
+      snapshotId: null,
       assignmentId: row.id,
       axes: JSON.stringify(REVIEW_AXES),
       state: "registered",
@@ -184,6 +333,11 @@ export function submitResult(
     assignment: AssignmentRow;
     input: SubmissionInput;
     artifacts: StoredArtifact[];
+    spec: StoredCopy;
+    integration: IntegrationInputs | null;
+    // What the scans around the worktree found. Submit records them and never refuses for them.
+    outside: ReturnType<typeof outsideChangesOf>;
+    gateCommands: string[];
     submissionId: string;
     reviewId: string;
     now: string;
@@ -191,43 +345,20 @@ export function submitResult(
 ): SubmitOutcome {
   const { assignment, attempt, input } = request;
 
-  if (assignment.kind === "review") {
-    // A review report is not a submitted result, so it never starts another review.
-    return { status: "review-result-not-submitted", assignmentId: assignment.id };
+  const decision = Attempt.decide("submit", {
+    attemptId: attempt.id,
+    assignment,
+    stated: input,
+    requirementsIdentity: requirementsIdentityOf(assignment),
+    held: submissionOfAttempt(db, attempt.id),
+  });
+  if ("refused" in decision) {
+    return decision.refused;
   }
-  if (assignment.kind !== "production") {
-    return { status: "planning-only", assignmentId: assignment.id, kind: assignment.kind };
-  }
-  if (assignment.state !== "claimed") {
-    return { status: "not-claimed", assignmentId: assignment.id, state: assignment.state };
-  }
-  if (assignment.revision !== input.assignmentRevision) {
-    return {
-      status: "stale-revision",
-      assignmentId: assignment.id,
-      recordedRevision: assignment.revision,
-    };
-  }
-  if (assignment.sourceRevision !== input.sourceRevision) {
-    return {
-      status: "source-revision-changed",
-      assignmentId: assignment.id,
-      recordedRevision: assignment.sourceRevision,
-    };
-  }
-
-  const requirements = requirementsIdentityOf(assignment);
-  if (requirements !== input.requirementsIdentity) {
-    return {
-      status: "requirements-changed",
-      assignmentId: assignment.id,
-      recordedIdentity: requirements,
-    };
-  }
-
-  const held = submissionOfAttempt(db, attempt.id);
-  if (held !== null) {
-    return { status: "already-submitted", attemptId: attempt.id, submissionId: held.id };
+  // The attempt machine already refused each state the assignment machine hands no result from.
+  const handed = Assignment.decide("submit", { row: assignment, attemptId: attempt.id });
+  if ("refused" in handed) {
+    return handed.refused;
   }
 
   const artifacts = request.artifacts;
@@ -242,7 +373,9 @@ export function submitResult(
     checks: input.checks,
     concerns: input.concerns,
     decisions: input.decisions,
+    behaviorChanges: input.behaviorChanges,
     code: input.code ?? null,
+    outsideChanges: request.outside,
   });
 
   db.insert(submissions)
@@ -259,6 +392,7 @@ export function submitResult(
       checks: JSON.stringify(input.checks),
       concerns: JSON.stringify(input.concerns),
       decisions: JSON.stringify(input.decisions),
+      behaviorChanges: JSON.stringify(input.behaviorChanges),
       code: input.code === null ? null : JSON.stringify(input.code),
       // A code review starts from the exact commit the result lives on, never a moving branch.
       reviewBase: input.code?.resultCommit ?? null,
@@ -269,20 +403,18 @@ export function submitResult(
       updatedAt: request.now,
     })
     .run();
-
-  // A combined revision closes the cycle it answers, and names the fresh Operative that did it.
-  const cycle = openCycleOf(db, assignment.id);
-  if (cycle !== null) {
-    closeCycle(db, { cycle, attemptId: attempt.id, now: request.now });
-  }
-
-  endAttempt(db, { attempt, state: "submitted", now: request.now });
-
-  const revision = moveAssignment(db, {
-    row: assignment,
-    state: "awaiting-review",
+  recordOutsideChanges(db, {
+    submissionId: request.submissionId,
+    changes: request.outside,
     now: request.now,
   });
+
+  // The submit move closes the cycle this combined revision answers.
+  const cycle = openCycleOf(db, assignment.id);
+
+  endAttempt(db, { attempt, state: decision.next, now: request.now });
+
+  const revision = moveAssignment(db, { row: assignment, next: handed.next, now: request.now });
 
   const registered = registerReview(db, {
     producer: assignment,
@@ -291,6 +423,9 @@ export function submitResult(
     reviewId: request.reviewId,
     input,
     artifacts,
+    spec: request.spec,
+    integration: request.integration,
+    gateCommands: request.gateCommands,
     now: request.now,
   });
 
@@ -305,5 +440,6 @@ export function submitResult(
     reviewAssignmentId: registered.assignmentId,
     reviewSourceKey: registered.sourceKey,
     reworkCycleId: cycle?.id ?? null,
+    outsideChanges: request.outside.length,
   };
 }

@@ -1,7 +1,11 @@
+import { Database } from "bun:sqlite";
 import { ContentIdentity } from "../content-identity/main.ts";
+import { registerSource } from "./source-fixture.ts";
 import {
   headCommit,
+  nextActions,
   requestId as request,
+  passBaseGate,
   runJson,
   stopFakeAgents,
   type Workspace as Fixture,
@@ -9,6 +13,15 @@ import {
 } from "./workspace-fixture.ts";
 
 export type Host = "claude-code" | "opencode";
+
+/** One more item of the producer's source. */
+export type Dependent = {
+  key: string;
+  kind: "production" | "planning";
+  title: string;
+  dependsOn?: string[];
+  writePaths?: string[];
+};
 
 export type Workspace = Fixture & { host: Host };
 
@@ -23,28 +36,65 @@ const SKILL_PATH: Record<Host, string> = {
 
 export async function makeReviewWorkspace(
   fixtures: Workspaces,
-  options: { host?: Host; maxActiveAgents?: number; reviewSkill?: boolean } = {},
+  options: {
+    host?: Host;
+    maxActiveAgents?: number;
+    reviewSkill?: boolean;
+    files?: Record<string, string>;
+    gate?: unknown;
+  } = {},
 ): Promise<Workspace> {
   const host = options.host ?? "claude-code";
   const crew: { host: Host; maxActiveAgents?: number } = { host };
   if (options.maxActiveAgents !== undefined) crew.maxActiveAgents = options.maxActiveAgents;
-  const fixture = await fixtures.make({
-    config: { crew },
-    files:
-      options.reviewSkill === false ? {} : { [SKILL_PATH[host]]: "---\nname: code-review\n---\n" },
-  });
+  const files: Record<string, string> = { ...options.files };
+  if (options.reviewSkill !== false) files[SKILL_PATH[host]] = "---\nname: code-review\n---\n";
+  const fixture = await fixtures.make({ config: { crew }, files, gate: options.gate });
 
   return { ...fixture, host };
 }
 
 export async function writeInput(workspace: Workspace, value: unknown): Promise<string> {
-  const path = `${workspace.root}/input-${crypto.randomUUID()}.json`;
+  const path = `${workspace.root}/inputs/input-${crypto.randomUUID()}.json`;
   await Bun.write(path, JSON.stringify(value));
   return path;
 }
 
+/**
+ * Acknowledges a dispatched attempt from inside its worktree. A dispatch that made no worktree
+ * fails here with its own answer, not with a spawn error in a missing directory.
+ */
+async function acknowledgeIn(
+  workspace: Workspace,
+  dispatched: { stdout: string },
+  attemptId: string,
+  worktreePath: string,
+) {
+  if (!(await Bun.file(`${worktreePath}/.git`).exists())) {
+    throw new Error(`The dispatch made no worktree at ${worktreePath}: ${dispatched.stdout}`);
+  }
+  await runJson(
+    workspace,
+    ["attempt", "acknowledge", "--request", request(), "--attempt", attemptId],
+    worktreePath,
+  );
+}
+
 /** One production assignment, claimed, dispatched into its own worktree, and acknowledged. */
-export async function startProducer(workspace: Workspace) {
+export async function startProducer(
+  workspace: Workspace,
+  fixedInputs: unknown[] = [
+    { name: "brief", kind: "value", value: "the brief", contentIdentity: null },
+  ],
+  options: {
+    acknowledge?: boolean;
+    env?: Record<string, string>;
+    // The items registered with it in the same source. Each depends on the producer unless it
+    // names its own dependencies.
+    dependents?: Dependent[];
+  } = {},
+) {
+  const env = options.env ?? {};
   const owned = await runJson(workspace, [
     "crew",
     "own",
@@ -55,33 +105,38 @@ export async function startProducer(workspace: Workspace) {
   ]);
   const ownerToken = owned.json.data.ownerToken;
 
-  const inputPath = await writeInput(workspace, {
-    sourceKind: "specification",
-    source: { id: "github:operator#15", revision: "rev-1", tracker: "github" },
-    items: [
-      {
-        key: "22.1",
-        title: "Build the reviewed result path",
-        kind: "production",
-        approvedScope: "Build the reviewed result path.",
-        acceptanceRequirements: REQUIREMENTS,
-        permissions: { writePaths: ["modules/"], allowedCommands: ["bun test"], network: false },
-        fixedInputs: [{ name: "brief", kind: "value", value: "the brief", contentIdentity: null }],
-        dependsOn: [],
-      },
-    ],
-  });
-  const registered = await runJson(workspace, [
-    "work",
-    "register",
-    "--request",
-    request(),
-    "--owner-token",
+  const registered = await registerSource(
+    { root: workspace.root, github: workspace.github, run: (args) => runJson(workspace, args) },
     ownerToken,
-    "--input",
-    inputPath,
-  ]);
-  const assignmentId = registered.json.data.registered[0].assignmentId;
+    {
+      sourceKind: "specification",
+      parent: 15,
+      items: [
+        {
+          key: "22.1",
+          title: "Build the reviewed result path",
+          body: "Build the reviewed result path.",
+          acceptanceRequirements: REQUIREMENTS,
+          permissions: { writePaths: ["docs/"], allowedCommands: ["bun test"], network: false },
+          fixedInputs,
+        },
+        ...(options.dependents ?? []).map((item) => ({
+          key: item.key,
+          title: item.title,
+          body: item.title,
+          kind: item.kind,
+          acceptanceRequirements: REQUIREMENTS,
+          permissions: {
+            writePaths: item.writePaths ?? ["docs/"],
+            allowedCommands: ["bun test"],
+            network: false,
+          },
+          dependsOn: (item.dependsOn ?? ["22.1"]).map((key) => ({ key })),
+        })),
+      ],
+    },
+  );
+  const assignmentId = registered.keys.get("22.1") ?? "";
 
   const claimed = await runJson(workspace, [
     "work",
@@ -97,41 +152,56 @@ export async function startProducer(workspace: Workspace) {
   ]);
   const attemptId = claimed.json.data.attemptId;
   const worktreePath = `${workspace.root}/operative`;
+  const baseCommit = await headCommit(workspace);
+  // The first code dispatch of a source starts only from a base that passed the project gate.
+  await passBaseGate(workspace, { ownerToken, attemptId, commit: baseCommit });
 
-  await runJson(workspace, [
-    "attempt",
-    "dispatch",
-    "--request",
-    request(),
-    "--owner-token",
-    ownerToken,
-    "--attempt",
-    attemptId,
-    "--commit",
-    await headCommit(workspace),
-    "--worktree",
-    worktreePath,
-  ]);
-  await runJson(
+  const dispatched = await runJson(
     workspace,
-    ["attempt", "acknowledge", "--request", request(), "--attempt", attemptId],
-    worktreePath,
+    [
+      "attempt",
+      "dispatch",
+      "--request",
+      request(),
+      "--owner-token",
+      ownerToken,
+      "--attempt",
+      attemptId,
+      "--commit",
+      baseCommit,
+      "--worktree",
+      worktreePath,
+    ],
+    workspace.repo,
+    env,
   );
+  if (options.acknowledge !== false) {
+    await acknowledgeIn(workspace, dispatched, attemptId, worktreePath);
+  }
 
   return {
     ownerToken,
     assignmentId,
     attemptId,
     worktreePath,
+    baseCommit,
     assignmentRevision: claimed.json.data.revision as number,
+    dispatched: dispatched.json,
+    dependents: registered.keys,
+    // The source revision is the content identity of the parent issue text the CLI read.
+    sourceRevision: registered.json.data.source.revision as string,
   };
 }
 
 export type Producer = Awaited<ReturnType<typeof startProducer>>;
 
 /** Writes one artifact into the Operative worktree and commits it, as a real result would. */
-export async function commitArtifact(workspace: Workspace, producer: Producer, text: string) {
-  const relative = "docs/result.md";
+export async function commitArtifact(
+  workspace: Workspace,
+  producer: Producer,
+  text: string,
+  relative = "docs/result.md",
+) {
   await Bun.write(`${producer.worktreePath}/${relative}`, text);
   await Bun.$`git -C ${producer.worktreePath} add ${relative}`.quiet();
   await Bun.$`git -C ${producer.worktreePath} -c user.email=t@example.com -c user.name=Test commit -m result`.quiet();
@@ -151,32 +221,27 @@ export type SubmissionOverrides = {
   artifactIdentity?: string;
   artifactPath?: string;
   checks?: Array<{ name: string; command: string; outcome: string; detail: string }>;
-  pullRequest?: unknown;
   code?: unknown;
+  behaviorChanges?: unknown[];
 };
 
+/** A result body that states the dispatch base of its producer, as a real Operative does. */
 export function submissionBody(
   producer: Producer,
   artifact: { path: string; identity: string; commit: string },
-  base: string,
   overrides: SubmissionOverrides = {},
 ) {
   const code = {
-    baseCommit: base,
+    baseCommit: producer.baseCommit,
     resultCommit: artifact.commit,
-    mergeBase: base,
+    mergeBase: producer.baseCommit,
     branch: `operator/22-1`,
-    pullRequest: overrides.pullRequest ?? {
-      status: "open",
-      number: 41,
-      headCommit: artifact.commit,
-    },
   };
 
   return {
     resultKind: overrides.resultKind ?? "code",
     assignmentRevision: overrides.assignmentRevision ?? producer.assignmentRevision,
-    sourceRevision: overrides.sourceRevision ?? "rev-1",
+    sourceRevision: overrides.sourceRevision ?? producer.sourceRevision,
     requirementsIdentity: overrides.requirementsIdentity ?? REQUIREMENTS_IDENTITY,
     artifacts: [
       {
@@ -197,6 +262,7 @@ export function submissionBody(
         reason: "A moving branch is not fixed evidence.",
       },
     ],
+    behaviorChanges: overrides.behaviorChanges ?? [],
     ...(overrides.code === undefined ? { code } : { code: overrides.code }),
   };
 }
@@ -206,6 +272,7 @@ export async function submit(
   producer: Producer,
   body: unknown,
   attemptId = producer.attemptId,
+  env: Record<string, string> = {},
 ) {
   return runJson(
     workspace,
@@ -220,6 +287,7 @@ export async function submit(
       await writeInput(workspace, body),
     ],
     producer.worktreePath,
+    env,
   );
 }
 
@@ -229,7 +297,7 @@ export async function startReviewer(
   producer: Producer,
   submitted: { data: { reviewAssignmentId: string; reviewId: string } },
   commit: string,
-  options: { revision?: number; worktreePath?: string } = {},
+  options: { revision?: number; worktreePath?: string; acknowledge?: boolean } = {},
 ) {
   const claimed = await runJson(workspace, [
     "work",
@@ -263,11 +331,9 @@ export async function startReviewer(
     "--worktree",
     worktreePath,
   ]);
-  await runJson(
-    workspace,
-    ["attempt", "acknowledge", "--request", request(), "--attempt", attemptId],
-    worktreePath,
-  );
+  if (options.acknowledge !== false) {
+    await acknowledgeIn(workspace, dispatched, attemptId, worktreePath);
+  }
 
   return {
     attemptId,
@@ -287,10 +353,21 @@ export function windowAt(offsetSeconds: number, durationSeconds: number) {
   };
 }
 
+/** The pull request text a reviewer writes for what publishes (ADR 0022). */
+export const PUBLISHED_TEXT = {
+  title: "Build the reviewed result path",
+  summary: "Adds the reviewed result and its notes.",
+  startHere: "Read docs/result.md first, because the notes refer to it.",
+  mergeDanger: "Nothing known: the change adds two new files.",
+};
+
 export type Finding = { key: string; severity: string; summary: string; evidence: string };
 
-export function reportBody(options: {
-  submissionIdentity: string;
+export function reportBody(options: ReportOptions & { submissionIdentity: string }) {
+  return { submissionIdentity: options.submissionIdentity, ...reviewWork(options) };
+}
+
+type ReportOptions = {
   host: Host;
   checked?: string[];
   standardsFindings?: Finding[];
@@ -300,13 +377,17 @@ export function reportBody(options: {
   statedHost?: string;
   failedAxis?: string;
   observedChecks?: Array<{ name: string; outcome: string }>;
-}) {
-  const checked = options.checked ?? ["diff", "requirements", "checks"];
+  /** The published text, or null to leave it out. A test reads the fixture text by default. */
+  published?: typeof PUBLISHED_TEXT | null;
+};
+
+/** The work of one review report. A branch report carries no submission identity, so it uses this. */
+export function reviewWork(options: ReportOptions) {
+  const checked = options.checked ?? ["diff", "requirements", "checks", "behavior-changes"];
   const axes = ["standards", "spec"] as const;
 
   return {
     kind: "reported",
-    submissionIdentity: options.submissionIdentity,
     host: options.statedHost ?? options.host,
     subAgents: axes.map((axis, index) => ({
       axis,
@@ -323,6 +404,8 @@ export function reportBody(options: {
       findings:
         axis === "standards" ? (options.standardsFindings ?? []) : (options.specFindings ?? []),
     })),
+    // The input is written as JSON, which leaves an undefined field out.
+    published: options.published === null ? undefined : (options.published ?? PUBLISHED_TEXT),
   };
 }
 
@@ -348,11 +431,54 @@ export async function reportReview(
   );
 }
 
+/**
+ * Runs the project gate on the candidate of one code result, as the Operator does when
+ * `crew next` offers `run_gate` for it. Any other state is left as it is.
+ */
+export async function passCandidateGate(workspace: Workspace, producer: Producer) {
+  // A rewrite gates its rebuilt range in order, one run for each commit, so every owed run runs.
+  let last: Awaited<ReturnType<typeof runJson>> | null = null;
+  for (let round = 0; round < 10; round += 1) {
+    const next = await nextActions(workspace);
+    const owed = next.actions.find(
+      (one) =>
+        one.action === "run_gate" &&
+        one.assignmentId === producer.assignmentId &&
+        one.attemptId === null &&
+        one.blocker === null,
+    );
+    if (owed === undefined) {
+      return last;
+    }
+    last = await runJson(workspace, [
+      "gate",
+      "run",
+      "--request",
+      request(),
+      "--owner-token",
+      producer.ownerToken,
+      "--assignment",
+      producer.assignmentId,
+    ]);
+    if (last.json.reason !== "gate_run_started") {
+      return last;
+    }
+  }
+  return last;
+}
+
+/**
+ * Accepts one code result through the real CLI. The candidate gate passes first unless a test
+ * reads the refusal of a candidate that was never gated.
+ */
 export async function acceptProduction(
   workspace: Workspace,
   producer: Producer,
-  options: { submissionId: string; revision: number; prHead?: string },
+  options: { submissionId: string; revision: number; gate?: boolean },
 ) {
+  if (options.gate !== false) {
+    await passCandidateGate(workspace, producer);
+  }
   return runJson(workspace, [
     "work",
     "accept",
@@ -368,7 +494,6 @@ export async function acceptProduction(
     String(options.revision),
     "--submission",
     options.submissionId,
-    ...(options.prHead === undefined ? [] : ["--pr-head", options.prHead]),
   ]);
 }
 
@@ -485,11 +610,14 @@ export async function delegateRework(
   ]);
 }
 
-/** Claims and launches one assignment again, as the fresh Operative a rework cycle needs. */
+/**
+ * Claims and launches one assignment again, as the fresh Operative a rework cycle needs. A null
+ * commit names none, so the dispatch starts where the cycle says, as an integration cycle does.
+ */
 export async function startRework(
   workspace: Workspace,
   producer: Producer,
-  options: { revision: number; commit: string; worktreePath: string; assignmentId?: string },
+  options: { revision: number; commit: string | null; worktreePath: string; assignmentId?: string },
 ) {
   const assignmentId = options.assignmentId ?? producer.assignmentId;
   const claimed = await runJson(workspace, [
@@ -515,8 +643,7 @@ export async function startRework(
     producer.ownerToken,
     "--attempt",
     attemptId,
-    "--commit",
-    options.commit,
+    ...(options.commit === null ? [] : ["--commit", options.commit]),
     "--worktree",
     options.worktreePath,
   ]);
@@ -531,6 +658,7 @@ export async function startRework(
     assignmentId,
     attemptId,
     worktreePath: options.worktreePath,
+    baseCommit: options.commit ?? (await headCommit(workspace, options.worktreePath)),
     assignmentRevision: claimed.json.data.revision as number,
     dispatched,
   };
@@ -539,7 +667,7 @@ export async function startRework(
 /** Accepts one review assignment, which frees the crew slot its reviewer held. */
 export async function acceptReview(
   workspace: Workspace,
-  producer: Producer,
+  producer: Pick<Producer, "ownerToken">,
   options: { reviewAssignmentId: string; attemptId: string; revision: number },
 ) {
   return runJson(workspace, [
@@ -561,7 +689,7 @@ export async function acceptReview(
 /** Records the user's exact direction past one reached limit, as the approval it must be. */
 export async function grantDirection(
   workspace: Workspace,
-  producer: Producer,
+  producer: Pick<Producer, "ownerToken">,
   direction: {
     approval: { action: string; targets: string[]; scope: string; requestRevision: string };
   },
@@ -577,49 +705,6 @@ export async function grantDirection(
     "--input",
     await writeInput(workspace, { ...direction.approval, exactText, grantedBy: "human" }),
   ]);
-}
-
-/** Registers more items in the same source, each one naming the items it depends on. */
-export async function registerDependents(
-  workspace: Workspace,
-  producer: Producer,
-  items: Array<{
-    key: string;
-    kind: "production" | "planning";
-    title: string;
-    dependsOn?: string[];
-  }>,
-) {
-  const registered = await runJson(workspace, [
-    "work",
-    "register",
-    "--request",
-    request(),
-    "--owner-token",
-    producer.ownerToken,
-    "--input",
-    await writeInput(workspace, {
-      sourceKind: "specification",
-      source: { id: "github:operator#15", revision: "rev-1", tracker: "github" },
-      items: items.map((item) => ({
-        key: item.key,
-        title: item.title,
-        kind: item.kind,
-        approvedScope: item.title,
-        acceptanceRequirements: REQUIREMENTS,
-        permissions: { writePaths: ["modules/"], allowedCommands: ["bun test"], network: false },
-        fixedInputs: [],
-        dependsOn: (item.dependsOn ?? ["22.1"]).map((key) => ({ key })),
-      })),
-    }),
-  ]);
-
-  return new Map<string, string>(
-    registered.json.data.registered.map((one: { sourceKey: string; assignmentId: string }) => [
-      one.sourceKey,
-      one.assignmentId,
-    ]),
-  );
 }
 
 /** Records a defect found in one accepted result. */
@@ -644,11 +729,29 @@ export async function invalidateResult(
   ]);
 }
 
-/** Accepts one assignment by identity, which is how planning work is resolved. */
+/** A planning record with one human answer, which is the least a planning acceptance records. */
+export const PLANNING_RECORD = {
+  entries: [
+    {
+      question: "Do we go ahead as planned?",
+      escalationTriggers: [],
+      authority: "human-answer",
+      exactText: "Yes.",
+      interpretation: {
+        summary: "Go ahead as planned.",
+        directives: ["Build the planned work."],
+        appliesTo: ["The work that depends on this decision."],
+      },
+    },
+  ],
+  artifacts: [],
+};
+
+/** Accepts planning work with its planning record, which is how planning work is resolved. */
 export async function acceptAssignment(
   workspace: Workspace,
-  producer: Producer,
-  options: { assignmentId: string; revision: number },
+  producer: Pick<Producer, "ownerToken">,
+  options: { assignmentId: string; revision: number; record?: unknown },
 ) {
   return runJson(workspace, [
     "work",
@@ -661,6 +764,8 @@ export async function acceptAssignment(
     options.assignmentId,
     "--revision",
     String(options.revision),
+    "--input",
+    await writeInput(workspace, options.record ?? PLANNING_RECORD),
   ]);
 }
 
@@ -679,4 +784,152 @@ export async function frontierEntry(workspace: Workspace, assignmentId: string) 
   }
 
   throw new Error(`the frontier does not carry ${assignmentId}`);
+}
+
+/** Raises one question from the producer worktree and records its answer. */
+export async function answeredQuestion(
+  workspace: Workspace,
+  producer: Producer,
+  authority: "human-answer" | "operator-decision",
+): Promise<string> {
+  const raised = await runJson(
+    workspace,
+    [
+      "question",
+      "raise",
+      "--request",
+      request(),
+      "--attempt",
+      producer.attemptId,
+      "--input",
+      await writeInput(workspace, {
+        question: "Does the result keep the old heading?",
+        evidence: [{ label: "ticket", detail: "The ticket names a new heading." }],
+        options: [
+          { name: "keep", detail: "Keep the old heading.", risk: "The ticket is not met." },
+          { name: "change", detail: "Use the new heading.", risk: "Links break." },
+        ],
+        recommendation: "Use the new heading.",
+        affectedScope: ["docs/"],
+        independentWork: ["The rest of the result continues."],
+        escalationTriggers: [],
+      }),
+    ],
+    producer.worktreePath,
+  );
+  const questionId = raised.json.data.questionId;
+  const interpretation = {
+    summary: "Use the new heading.",
+    directives: ["Write the new heading."],
+    appliesTo: ["docs/"],
+  };
+  const answered = await runJson(workspace, [
+    "question",
+    "answer",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--question",
+    questionId,
+    "--revision",
+    "1",
+    "--input",
+    await writeInput(
+      workspace,
+      authority === "human-answer"
+        ? { authority, exactText: "use the new heading", interpretation }
+        : { authority, interpretation },
+    ),
+  ]);
+  if (answered.json.reason !== "answer_recorded") {
+    throw new Error(`the answer was not recorded: ${answered.json.reason}`);
+  }
+
+  return questionId;
+}
+
+/** Claims and dispatches a second item of the producer's source, from the recorded tip. */
+export async function startSibling(
+  workspace: Workspace,
+  producer: Producer,
+  key: string,
+): Promise<Producer> {
+  const assignmentId = producer.dependents.get(key) ?? "";
+  const claimed = await runJson(workspace, [
+    "work",
+    "claim",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--assignment",
+    assignmentId,
+    "--revision",
+    "1",
+  ]);
+  if (claimed.json.reason !== "assignment_claimed") {
+    throw new Error(`the sibling was not claimed: ${claimed.json.reason}`);
+  }
+  const attemptId = claimed.json.data.attemptId as string;
+  const worktreePath = `${workspace.root}/operative-${key.replace(".", "-")}`;
+  const dispatched = await runJson(workspace, [
+    "attempt",
+    "dispatch",
+    "--request",
+    request(),
+    "--owner-token",
+    producer.ownerToken,
+    "--attempt",
+    attemptId,
+    "--worktree",
+    worktreePath,
+  ]);
+  await runJson(
+    workspace,
+    ["attempt", "acknowledge", "--request", request(), "--attempt", attemptId],
+    worktreePath,
+  );
+  return {
+    ...producer,
+    assignmentId,
+    attemptId,
+    worktreePath,
+    baseCommit: await headCommit(workspace, worktreePath),
+    assignmentRevision: claimed.json.data.revision as number,
+    dispatched: dispatched.json,
+  };
+}
+
+/**
+ * Moves the integration branch of the fixture source and its recorded tip to one new commit that
+ * writes `text` at `path`. The normal path never lets two results in flight touch one file
+ * (ADR 0004, ADR 0018), so a conflict at a landing arises only outside it, as after a rewrite.
+ * This stands in for that history, and it returns the new tip.
+ */
+export async function moveRecordedTip(
+  workspace: Workspace,
+  options: { path: string; text: string },
+): Promise<{ branch: string; tip: string }> {
+  const format = "--format=%(refname:short)";
+  const branch = (
+    await Bun.$`git -C ${workspace.repo} for-each-ref ${format} refs/heads/operator/integration/`.text()
+  ).trim();
+  const checkout = `${workspace.root}/tip-writer`;
+  await Bun.$`git -C ${workspace.repo} worktree add -q --detach ${checkout} ${branch}`.quiet();
+  await Bun.write(`${checkout}/${options.path}`, options.text);
+  await Bun.$`git -C ${checkout} add ${options.path}`.quiet();
+  await Bun.$`git -C ${checkout} -c user.email=t@example.com -c user.name=Test commit -q -m tip`.quiet();
+  const tip = await headCommit(workspace, checkout);
+  await Bun.$`git -C ${workspace.repo} worktree remove --force ${checkout}`.quiet();
+  await Bun.$`git -C ${workspace.repo} update-ref ${`refs/heads/${branch}`} ${tip}`.quiet();
+  const sqlite = new Database(`${workspace.repo}/.operator/local/crew-state.sqlite`, {
+    readwrite: true,
+  });
+  try {
+    sqlite.query("update integration_branches set recorded_tip = ?").run(tip);
+  } finally {
+    sqlite.close();
+  }
+  return { branch, tip };
 }

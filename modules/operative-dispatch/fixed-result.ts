@@ -13,10 +13,6 @@ export type FixedArtifact = {
   storedPath: string | null;
 };
 
-export type FixedPullRequest =
-  | { status: "open"; number: number; headCommit: string }
-  | { status: "authority-missing"; detail: string };
-
 export type FixedCheck = {
   name: string;
   command: string;
@@ -29,7 +25,6 @@ export type FixedCode = {
   resultCommit: string;
   mergeBase: string;
   branch: string;
-  pullRequest: FixedPullRequest;
 };
 
 /** Where one copied artifact lands inside the worktree that reads it. */
@@ -37,8 +32,44 @@ export function copiedInputPath(directory: string, artifact: FixedArtifact): str
   return artifact.storedPath === null ? null : `${directory}/${basename(artifact.storedPath)}`;
 }
 
-export function pullRequestLine(pull: FixedPullRequest): string {
-  return pull.status === "open"
-    ? `- Pull request: #${pull.number} at head ${pull.headCommit}`
-    : `- Pull request: not created (${pull.detail})`;
+/** One fixed copy that a launch carries from the controlling checkout into the worktree. */
+export type FixedCopy = { path: string; sourcePath: string; identity: string };
+
+/**
+ * The fixed copies one role reads. The launch copies the submitted artifacts before the planning
+ * copies and the other fixed texts after them, and the first copy that fails names the failure.
+ */
+export type RoleCopies = { artifacts: FixedCopy[]; texts: FixedCopy[] };
+
+/** The copy of one stored text, read from the controlling checkout. */
+export function storedCopy(
+  path: string,
+  stored: { storedPath: string; contentIdentity: string },
+  projectRoot: string,
+): FixedCopy {
+  return {
+    path,
+    sourcePath: `${projectRoot}/${stored.storedPath}`,
+    identity: stored.contentIdentity,
+  };
+}
+
+/** The copies of the submitted artifacts that have a stored file. A value artifact has none. */
+export function artifactCopies(
+  directory: string,
+  artifacts: FixedArtifact[],
+  projectRoot: string,
+): FixedCopy[] {
+  return artifacts.flatMap((artifact) => {
+    const path = copiedInputPath(directory, artifact);
+    return artifact.storedPath === null || path === null
+      ? []
+      : [
+          storedCopy(
+            path,
+            { storedPath: artifact.storedPath, contentIdentity: artifact.contentIdentity },
+            projectRoot,
+          ),
+        ];
+  });
 }

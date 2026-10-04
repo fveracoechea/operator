@@ -2,9 +2,13 @@ import { OperativeDispatch } from "../operative-dispatch/main.ts";
 import { readWriterContext, type WriterFailure } from "./dispatch-context.ts";
 import { type InvalidInput, parseInput } from "./input.ts";
 import { mutate, readState } from "./operations.ts";
-import { reviewReportInputSchema } from "./review-input.ts";
+import { publishesAlone, readSnapshot, storedSnapshotCommits } from "./branch-review.ts";
+import { branchReportInputSchema, reviewReportInputSchema } from "./review-input.ts";
+import type { ReportSubject } from "./review-machine.ts";
 import { type ReportOutcome, recordReviewReport } from "./review-report.ts";
-import { readReview } from "./review.ts";
+import { readReview, type ReviewRow } from "./review.ts";
+import type { CrewReader } from "./database.ts";
+import type { BranchReportInput, ReviewReportInput } from "./review-input.ts";
 import { readSubmission } from "./submission.ts";
 
 export type RecordReviewResult =
@@ -20,6 +24,24 @@ export type RecordReviewResult =
     }
   | WriterFailure;
 
+/** The fixed subject one review reads, with the report that names it, or null when it is gone. */
+function subjectOf(
+  db: CrewReader,
+  review: ReviewRow,
+  input: ReviewReportInput | BranchReportInput,
+): ReportSubject | null {
+  if (review.snapshotId !== null) {
+    const snapshot = readSnapshot(db, review.snapshotId);
+    return snapshot === null || !("snapshotIdentity" in input)
+      ? null
+      : { kind: "branch", snapshot, commits: storedSnapshotCommits(snapshot.commits), input };
+  }
+  const submission = review.submissionId === null ? null : readSubmission(db, review.submissionId);
+  return submission === null || !("submissionIdentity" in input)
+    ? null
+    : { kind: "submission", submission, input, publishes: publishesAlone(db, submission) };
+}
+
 /**
  * Records the result of one review from the reviewer's own worktree.
  * It carries no ownership token, so the review attempt it runs under must still be the current
@@ -33,7 +55,18 @@ export async function recordReview(request: {
   worktreePath: string;
   input: unknown;
 }): Promise<{ repeated: boolean; result: RecordReviewResult }> {
-  const parsed = parseInput(reviewReportInputSchema, request.input);
+  // A branch review names its snapshot and the targets of each finding, so its report is read
+  // through its own shape. A review this state does not hold is refused further on.
+  const branch = await readState(
+    request.projectRoot,
+    (db) => readReview(db, request.reviewId)?.snapshotId != null,
+  );
+  if (typeof branch !== "boolean") {
+    return { repeated: false, result: branch };
+  }
+  const parsed = branch
+    ? parseInput(branchReportInputSchema, request.input)
+    : parseInput(reviewReportInputSchema, request.input);
   if (parsed.status !== "parsed") {
     return { repeated: false, result: parsed };
   }
@@ -46,20 +79,19 @@ export async function recordReview(request: {
 
   // A review reads and runs checks. An edit or a commit in its own checkout is rework, which
   // belongs to a fresh Operative, so the report is refused instead of recorded beside it.
-  const worktree = await OperativeDispatch.inspectReviewWorktree({
+  const worktree = await OperativeDispatch.inspectCheckout({
     worktreePath: request.worktreePath,
     baseCommit: dispatch.baseCommit,
     agentHost: dispatch.agentHost,
   });
-  if (worktree.changes.length > 0 || worktree.commits.length > 0) {
+  // A reading that failed finds nothing, as the review check always did. Submit is stricter.
+  const changes = worktree.uncommitted.status === "read" ? worktree.uncommitted.value : [];
+  const commits =
+    worktree.commits.status === "read" ? worktree.commits.value.map((one) => one.commit) : [];
+  if (changes.length > 0 || commits.length > 0) {
     return {
       repeated: false,
-      result: {
-        status: "worktree-changed",
-        attemptId: request.attemptId,
-        changes: worktree.changes,
-        commits: worktree.commits,
-      },
+      result: { status: "worktree-changed", attemptId: request.attemptId, changes, commits },
     };
   }
 
@@ -100,8 +132,8 @@ export async function recordReview(request: {
         };
       }
 
-      const submission = readSubmission(tx, review.submissionId);
-      if (submission === null) {
+      const subject = subjectOf(tx, review, input);
+      if (subject === null) {
         return {
           commit: false,
           outcome: { status: "review-settled", reviewId: review.id, state: "unknown-submission" },
@@ -110,9 +142,8 @@ export async function recordReview(request: {
 
       const outcome = recordReviewReport(tx, {
         review,
-        submission,
+        subject,
         agentHost: dispatch.agentHost,
-        input,
         now,
       });
       return { commit: outcome.status === "reported" || outcome.status === "blocked", outcome };

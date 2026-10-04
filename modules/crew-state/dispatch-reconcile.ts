@@ -2,20 +2,13 @@ import { OperativeDispatch } from "../operative-dispatch/main.ts";
 import {
   type AttemptFailure,
   type DispatchReport,
-  type Inspection,
   readContext,
   reportOfContext,
   type Shared,
 } from "./dispatch-context.ts";
 import { record } from "./operations.ts";
-import {
-  ANSWER_DELIVERY,
-  type DispatchStage,
-  isDispatchStage,
-  type OperationState,
-  settleOperation,
-  unsettledOperations,
-} from "./dispatch.ts";
+import { Attempt, isDispatchStage, unsettledOperations } from "./attempt-machine.ts";
+import { ANSWER_DELIVERY, settleOperation } from "./dispatch.ts";
 import { readState } from "./operations.ts";
 import { questionByDelivery } from "./questions.ts";
 
@@ -27,80 +20,6 @@ export type ReconcileResult =
   | { status: "not-dispatched"; attemptId: string }
   | AttemptFailure
   | Shared;
-
-type Settlement = {
-  state: Exclude<OperationState, "intended">;
-  detail: string;
-  workspaceId?: string;
-  paneId?: string;
-};
-
-/**
- * Decides one unfinished effect from what Herdr and the checkout show.
- * A timeout never proves non-delivery, so an effect that stays unproven is left open.
- */
-function settleFrom(
-  stage: DispatchStage,
-  inspection: Inspection,
-  acknowledged: boolean,
-): Settlement {
-  if (stage === "worktree_create") {
-    if (inspection.checkout.state === "unknown") {
-      return { state: "uncertain", detail: inspection.checkout.detail };
-    }
-
-    return inspection.checkout.state === "absent"
-      ? { state: "failed", detail: "Herdr holds no checkout at the recorded path." }
-      : { state: "succeeded", detail: "The recorded checkout exists." };
-  }
-
-  if (stage === "input_preparation") {
-    // Copying is verified and repeatable, so an unfinished copy is simply performed again.
-    return { state: "failed", detail: "The input copy did not finish, so it runs again." };
-  }
-
-  if (stage === "agent_start") {
-    if (inspection.writer.state === "unknown") {
-      return { state: "uncertain", detail: inspection.writer.detail };
-    }
-    if (inspection.writer.state === "stopped") {
-      return { state: "failed", detail: "Herdr holds no agent under the recorded name." };
-    }
-
-    return {
-      state: "succeeded",
-      detail: `The recorded agent is live (${inspection.writer.status}).`,
-      paneId: inspection.writer.paneId,
-    };
-  }
-
-  return settleDelivery(inspection, acknowledged, "assignment");
-}
-
-/**
- * Decides one unproven submission from what the writer shows.
- * The Operative's own receipt is the only proof of arrival, and a timeout proves nothing.
- */
-function settleDelivery(
-  inspection: Inspection,
-  acknowledged: boolean,
-  subject: "assignment" | "answer",
-): Settlement {
-  if (acknowledged) {
-    return { state: "succeeded", detail: `The Operative acknowledged the ${subject}.` };
-  }
-  if (inspection.writer.state === "stopped") {
-    return {
-      state: "failed",
-      detail: `The agent that would have received the ${subject} is gone.`,
-    };
-  }
-
-  return {
-    state: "uncertain",
-    detail: `The ${subject} may have reached a live Operative that has not acknowledged it. A timeout does not prove non-delivery.`,
-  };
-}
 
 /**
  * True when the Operative received the answer this effect was carrying.
@@ -135,10 +54,12 @@ export async function reconcileAttempt(request: {
     return read;
   }
 
-  const dispatch = read.context.dispatch;
-  if (dispatch === null) {
-    return { status: "not-dispatched", attemptId: request.attemptId };
+  const decision = Attempt.decide("reconcile", { ...request, dispatch: read.context.dispatch });
+  if ("refused" in decision) {
+    return decision.refused;
   }
+
+  const { dispatch } = decision;
 
   const inspection = await OperativeDispatch.inspect({
     projectRoot: request.projectRoot,
@@ -161,9 +82,9 @@ export async function reconcileAttempt(request: {
     }
 
     const outcome = isDispatchStage(operation.kind)
-      ? settleFrom(operation.kind, inspection, dispatch.acknowledgedAt !== null)
+      ? Attempt.settle(operation.kind, inspection, dispatch.acknowledgedAt !== null)
       : // An answer delivery is settled by the receipt of that answer, not of the brief.
-        settleDelivery(
+        Attempt.settleDelivery(
           inspection,
           await answerAcknowledged(request.projectRoot, operation.id),
           "answer",

@@ -1,7 +1,12 @@
-import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
-// Bun has no recursive directory removal API.
-import { rm } from "node:fs/promises";
+import { registerSource, workspaceTarget } from "./source-fixture.ts";
+import { Database } from "bun:sqlite";
+import { afterEach, describe, expect, test as bunTest } from "bun:test";
+// Bun has no recursive directory removal or directory listing API.
+import { readdir, rm } from "node:fs/promises";
+// Bun has no path manipulation API.
+import { resolve } from "node:path";
 import {
+  passBaseGate,
   requestId as request,
   runJson,
   runOperator,
@@ -11,7 +16,11 @@ import {
 } from "./workspace-fixture.ts";
 
 // Question tests create Git worktrees and run several CLI processes under the parallel CI gate.
-setDefaultTimeout(60_000);
+// Each test states its own bound, because a process-wide default would set the bound of every
+// file in the bun test process (#179).
+function test(name: string, run: () => Promise<void> | void, timeoutMs = 60_000) {
+  bunTest(name, run, timeoutMs);
+}
 
 const fixtures = workspaces();
 
@@ -24,7 +33,7 @@ async function makeWorkspace(): Promise<Workspace> {
 }
 
 async function writeInput(workspace: Workspace, body: unknown): Promise<string> {
-  const path = `${workspace.root}/input-${crypto.randomUUID()}.json`;
+  const path = `${workspace.root}/inputs/input-${crypto.randomUUID()}.json`;
   await Bun.write(path, JSON.stringify(body));
   return path;
 }
@@ -35,14 +44,10 @@ function item(overrides: ItemOverrides) {
   return {
     key: overrides.key,
     title: overrides.title ?? `Item ${overrides.key}`,
-    kind: "production",
-    approvedScope: `The approved scope of item ${overrides.key}.`,
-    acceptanceRequirements: ["The quality gate passes."],
-    permissions: { writePaths: ["modules/"], allowedCommands: ["bun test"], network: false },
+    body: `The approved scope of item ${overrides.key}.`,
     fixedInputs: [
       { name: "brief", kind: "value", value: `brief ${overrides.key}`, contentIdentity: null },
     ],
-    dependsOn: [],
   };
 }
 
@@ -67,23 +72,33 @@ async function dispatchedCrew(workspace: Workspace, keys: string[] = ["21.1"]): 
   ]);
   const ownerToken = owned.json.data.ownerToken;
 
-  const inputPath = await writeInput(workspace, {
+  const registered = await registerSource(workspaceTarget(workspace), ownerToken, {
     sourceKind: "specification",
-    source: { id: "github:operator#21", revision: "rev-1", tracker: "github" },
+    parent: 21,
     items: keys.map((key) => item({ key })),
   });
-  const registered = await runJson(workspace, [
-    "work",
-    "register",
-    "--request",
-    request(),
-    "--owner-token",
-    ownerToken,
-    "--input",
-    inputPath,
-  ]);
 
-  const first = registered.json.data.registered[0];
+  const first = registered.assignments[0] ?? { assignmentId: "" };
+  const operative = await dispatchOperative(workspace, {
+    ownerToken,
+    assignmentId: first.assignmentId,
+    worktree: `${workspace.root}/operative`,
+  });
+
+  return {
+    ownerToken,
+    ...operative,
+    assignmentId: first.assignmentId,
+    registered: registered.assignments,
+  };
+}
+
+/** Claims one registered assignment and dispatches an acknowledged Operative into a worktree. */
+async function dispatchOperative(
+  workspace: Workspace,
+  request_: { ownerToken: string; assignmentId: string; worktree: string },
+) {
+  const { ownerToken, assignmentId, worktree } = request_;
   const claimed = await runJson(workspace, [
     "work",
     "claim",
@@ -92,7 +107,7 @@ async function dispatchedCrew(workspace: Workspace, keys: string[] = ["21.1"]): 
     "--owner-token",
     ownerToken,
     "--assignment",
-    first.assignmentId,
+    assignmentId,
     "--revision",
     "1",
   ]);
@@ -100,7 +115,11 @@ async function dispatchedCrew(workspace: Workspace, keys: string[] = ["21.1"]): 
   const head = (await Bun.$`git -C ${workspace.repo} rev-parse HEAD`.quiet()).stdout
     .toString()
     .trim();
-  const worktree = `${workspace.root}/operative`;
+  await passBaseGate(workspace, {
+    ownerToken,
+    attemptId: claimed.json.data.attemptId,
+    commit: head,
+  });
   await runJson(workspace, [
     "attempt",
     "dispatch",
@@ -122,13 +141,18 @@ async function dispatchedCrew(workspace: Workspace, keys: string[] = ["21.1"]): 
   );
 
   return {
-    ownerToken,
     worktree,
-    assignmentId: first.assignmentId,
-    assignmentRevision: claimed.json.data.revision,
-    attemptId: claimed.json.data.attemptId,
-    registered: registered.json.data.registered,
+    assignmentRevision: claimed.json.data.revision as number,
+    attemptId: claimed.json.data.attemptId as string,
   };
+}
+
+async function acknowledge(workspace: Workspace, crew: { worktree: string }, questionId: string) {
+  return runJson(
+    workspace,
+    ["question", "acknowledge", "--request", request(), "--question", questionId],
+    crew.worktree,
+  );
 }
 
 type QuestionOverrides = {
@@ -207,13 +231,47 @@ async function revise(
   );
 }
 
+type RequirementSource =
+  | { kind: "copy"; path: string }
+  | { kind: "approved-scope"; assignmentId: string }
+  | { kind: "source-revision"; sourceId: string; revision: string };
+
+/** The one work source of the crew, as the crew state records it. */
+function recordedSource(workspace: Workspace): { id: string; revision: string } {
+  const sqlite = new Database(`${workspace.repo}/.operator/local/crew-state.sqlite`, {
+    readonly: true,
+  });
+  const row = sqlite.query("select id, revision from work_sources").get() as {
+    id: string;
+    revision: string;
+  };
+  sqlite.close();
+  return row;
+}
+
 type AnswerOverrides = {
   authority?: "requirement" | "human-answer" | "operator-decision";
   exactText?: string;
-  source?: { id: string; revision: string };
+  source?: RequirementSource;
 };
 
-function answerBody(overrides: AnswerOverrides = {}) {
+/** The approved source the default requirement quotes. It lives outside the checkout. */
+const REQUIREMENTS_TEXT =
+  "# Export\n\nThe export preserves the legacy column order.\nIt never sorts.\n";
+
+async function writeSource(
+  workspace: Workspace,
+  text: string = REQUIREMENTS_TEXT,
+): Promise<string> {
+  const path = `${workspace.root}/source-${crypto.randomUUID()}.md`;
+  await Bun.write(path, text);
+  return path;
+}
+
+function answerBody(
+  overrides: AnswerOverrides = {},
+  defaultSource: RequirementSource | null = null,
+) {
   const authority = overrides.authority ?? "operator-decision";
   const interpretation = {
     summary: "Keep the legacy column order.",
@@ -235,7 +293,7 @@ function answerBody(overrides: AnswerOverrides = {}) {
   return {
     authority,
     exactText: overrides.exactText ?? "The export preserves the legacy column order.",
-    source: overrides.source ?? { id: "github:operator#21", revision: "rev-1" },
+    source: overrides.source ?? defaultSource,
     interpretation,
   };
 }
@@ -246,7 +304,11 @@ async function answer(
   question: { questionId: string; revision: number },
   overrides: AnswerOverrides = {},
 ) {
-  const inputPath = await writeInput(workspace, answerBody(overrides));
+  const quoted = overrides.authority === "requirement" && overrides.source === undefined;
+  const defaultSource: RequirementSource | null = quoted
+    ? { kind: "copy", path: await writeSource(workspace) }
+    : null;
+  const inputPath = await writeInput(workspace, answerBody(overrides, defaultSource));
   return runJson(workspace, [
     "question",
     "answer",
@@ -495,12 +557,13 @@ describe("operator question answer", () => {
     const workspace = await makeWorkspace();
     const crew = await dispatchedCrew(workspace);
     const raised = await raise(workspace, crew);
+    const sourcePath = await writeSource(workspace);
 
     await answer(
       workspace,
       crew,
       { questionId: raised.json.data.questionId, revision: 1 },
-      { authority: "requirement" },
+      { authority: "requirement", source: { kind: "copy", path: sourcePath } },
     );
 
     const shown = await runJson(workspace, [
@@ -509,8 +572,15 @@ describe("operator question answer", () => {
       "--question",
       raised.json.data.questionId,
     ]);
+    const revision = new Bun.CryptoHasher("sha256").update(REQUIREMENTS_TEXT).digest("hex");
     expect(shown.json.data.answer.authority).toBe("requirement");
-    expect(shown.json.data.answer.source).toEqual({ id: "github:operator#21", revision: "rev-1" });
+    expect(shown.json.data.answer.source).toEqual({
+      kind: "copy",
+      // The record names the resolved path, whatever spelling the Operator used.
+      id: resolve(sourcePath),
+      revision,
+      storedPath: `.operator/local/sources/${revision}`,
+    });
   });
 
   test("answers a technical question inside delegated authority", async () => {
@@ -550,25 +620,15 @@ describe("operator question answer", () => {
     const crew = await dispatchedCrew(workspace);
 
     // A second ticket states the opposite requirement, so no source settles the question.
-    const secondPath = await writeInput(workspace, {
+    const second = await registerSource(workspaceTarget(workspace), crew.ownerToken, {
       sourceKind: "ticket",
-      source: { id: "github:operator#22", revision: "rev-1", tracker: "github" },
-      items: [{ ...item({ key: "22.1", title: "Use the new column order" }) }],
+      parent: 22,
+      items: [item({ key: "22.1", title: "Use the new column order" })],
     });
-    const second = await runJson(workspace, [
-      "work",
-      "register",
-      "--request",
-      request(),
-      "--owner-token",
-      crew.ownerToken,
-      "--input",
-      secondPath,
-    ]);
 
     const raised = await raise(workspace, crew, {
       question: "Ticket 21 keeps the legacy column order and ticket 22 replaces it.",
-      affectedScope: [crew.assignmentId, second.json.data.registered[0].assignmentId],
+      affectedScope: [crew.assignmentId, second.assignments[0]?.assignmentId ?? ""],
       escalationTriggers: ["conflicting-requirements", "visible-behavior"],
     });
 
@@ -595,6 +655,483 @@ describe("operator question answer", () => {
 
     expect(second.exitCode).toBe(4);
     expect(second.json.reason).toBe("already_answered");
+  });
+});
+
+describe("the quote check of a requirement", () => {
+  test("records words that appear in the copy, and a later edit of the source changes nothing", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+    // The source lives beside the checkout and not in it, as a file only the user keeps.
+    const sourcePath = await writeSource(workspace);
+
+    const recorded = await answer(
+      workspace,
+      crew,
+      { questionId: raised.json.data.questionId, revision: 1 },
+      {
+        authority: "requirement",
+        exactText: "The export preserves the legacy column order.\nIt never sorts.",
+        source: { kind: "copy", path: sourcePath },
+      },
+    );
+    expect(recorded.exitCode).toBe(0);
+
+    await Bun.write(sourcePath, "The export sorts every column.\n");
+    const shown = await runJson(workspace, [
+      "question",
+      "show",
+      "--question",
+      raised.json.data.questionId,
+    ]);
+    const source = shown.json.data.answer.source;
+    expect(source.revision).toBe(
+      new Bun.CryptoHasher("sha256").update(REQUIREMENTS_TEXT).digest("hex"),
+    );
+    expect(await Bun.file(`${workspace.repo}/${source.storedPath}`).text()).toBe(REQUIREMENTS_TEXT);
+  });
+
+  test("a recorded source kind that this release cannot read fails loudly", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+    const recorded = await answer(
+      workspace,
+      crew,
+      { questionId: raised.json.data.questionId, revision: 1 },
+      {
+        authority: "requirement",
+        exactText: "The export preserves the legacy column order.\nIt never sorts.",
+        source: { kind: "copy", path: await writeSource(workspace) },
+      },
+    );
+    expect(recorded.exitCode).toBe(0);
+    const sqlite = new Database(`${workspace.repo}/.operator/local/crew-state.sqlite`);
+    sqlite.run("update answers set source_kind = 'damaged'");
+    sqlite.close();
+
+    const shown = await runOperator(workspace, [
+      "question",
+      "show",
+      "--question",
+      raised.json.data.questionId,
+      "--json",
+    ]);
+    expect(shown.exitCode).not.toBe(0);
+    expect(shown.stdout + shown.stderr).toContain("answer source kind");
+  });
+
+  test("refuses words that were wrapped again", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+    const store = `${workspace.repo}/.operator/local/sources`;
+    // Registration stores the text of its own source before the question.
+    const before = await readdir(store).catch(() => []);
+
+    const refused = await answer(
+      workspace,
+      crew,
+      { questionId: raised.json.data.questionId, revision: 1 },
+      {
+        authority: "requirement",
+        exactText: "The export preserves the legacy column order. It never sorts.",
+      },
+    );
+
+    expect(refused.exitCode).toBe(2);
+    expect(refused.json.reason).toBe("quote_not_in_source");
+    expect(refused.json.blockers[0].source.id).toEndWith(".md");
+    // A refused quote stores no copy, so nothing is left in the crew state for nobody to remove.
+    expect(refused.json.blockers[0].source.storedPath).toBeNull();
+    expect(await readdir(store).catch(() => [])).toEqual(before);
+    const shown = await runJson(workspace, [
+      "question",
+      "show",
+      "--question",
+      raised.json.data.questionId,
+    ]);
+    expect(shown.json.data.answer).toBeNull();
+  });
+
+  test("refuses words that were shortened", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+
+    const refused = await answer(
+      workspace,
+      crew,
+      { questionId: raised.json.data.questionId, revision: 1 },
+      {
+        authority: "requirement",
+        exactText: "The export preserves the column order.",
+      },
+    );
+
+    expect(refused.exitCode).toBe(2);
+    expect(refused.json.reason).toBe("quote_not_in_source");
+  });
+
+  test("a refusal points to the source it read and never prints it", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+    const marker = `long-section-${crypto.randomUUID()}`;
+    const sourcePath = await writeSource(workspace, `${REQUIREMENTS_TEXT}${marker}\n`);
+    const inputPath = await writeInput(
+      workspace,
+      answerBody({
+        authority: "requirement",
+        exactText: "The export keeps every column.",
+        source: { kind: "copy", path: sourcePath },
+      }),
+    );
+    const args = [
+      "question",
+      "answer",
+      "--request",
+      request(),
+      "--owner-token",
+      crew.ownerToken,
+      "--question",
+      raised.json.data.questionId,
+      "--revision",
+      "1",
+      "--input",
+      inputPath,
+    ];
+
+    // The Operator reads a short summary and a pointer, so a long source costs it no context.
+    const refused = await runJson(workspace, args);
+    expect(refused.json.blockers[0].source.id).toBe(resolve(sourcePath));
+    expect(refused.stdout).not.toContain(marker);
+    const text = await runOperator(workspace, args);
+    expect(text.stdout).toContain(resolve(sourcePath));
+    expect(text.stdout).not.toContain(marker);
+  });
+
+  test("reads a carriage return before a line feed as a line feed", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+    const sourcePath = await writeSource(workspace, REQUIREMENTS_TEXT.replaceAll("\n", "\r\n"));
+
+    const recorded = await answer(
+      workspace,
+      crew,
+      { questionId: raised.json.data.questionId, revision: 1 },
+      {
+        authority: "requirement",
+        exactText: "The export preserves the legacy column order.\nIt never sorts.",
+        source: { kind: "copy", path: sourcePath },
+      },
+    );
+
+    expect(recorded.exitCode).toBe(0);
+  });
+
+  test("refuses a source it cannot read", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+
+    const refused = await answer(
+      workspace,
+      crew,
+      { questionId: raised.json.data.questionId, revision: 1 },
+      {
+        authority: "requirement",
+        source: { kind: "copy", path: `${workspace.root}/missing.md` },
+      },
+    );
+
+    expect(refused.exitCode).toBe(2);
+    expect(refused.json.reason).toBe("source_unreadable");
+  });
+
+  test("quotes the approved scope of a registered item with no copy", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+    const scope = {
+      kind: "approved-scope" as const,
+      assignmentId: crew.assignmentId,
+    };
+
+    const recorded = await answer(
+      workspace,
+      crew,
+      { questionId: raised.json.data.questionId, revision: 1 },
+      {
+        authority: "requirement",
+        exactText: "approved scope of item 21.1",
+        source: scope,
+      },
+    );
+
+    expect(recorded.exitCode).toBe(0);
+    const shown = await runJson(workspace, [
+      "question",
+      "show",
+      "--question",
+      raised.json.data.questionId,
+    ]);
+    expect(shown.json.data.answer.source).toEqual({
+      kind: "approved-scope",
+      id: crew.assignmentId,
+      revision: new Bun.CryptoHasher("sha256")
+        .update("The approved scope of item 21.1.")
+        .digest("hex"),
+      storedPath: null,
+    });
+  });
+
+  test("refuses a quote that the approved scope does not hold", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+
+    const refused = await answer(
+      workspace,
+      crew,
+      { questionId: raised.json.data.questionId, revision: 1 },
+      {
+        authority: "requirement",
+        exactText: "approved scope of item 21.2",
+        source: { kind: "approved-scope", assignmentId: crew.assignmentId },
+      },
+    );
+
+    expect(refused.exitCode).toBe(2);
+    expect(refused.json.reason).toBe("quote_not_in_source");
+  });
+
+  test("refuses the approved scope of an item that is not registered", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+
+    const refused = await answer(
+      workspace,
+      crew,
+      { questionId: raised.json.data.questionId, revision: 1 },
+      {
+        authority: "requirement",
+        exactText: "approved scope",
+        source: { kind: "approved-scope", assignmentId: "missing-assignment" },
+      },
+    );
+
+    expect(refused.exitCode).toBe(2);
+    expect(refused.json.reason).toBe("unknown_assignment");
+  });
+
+  test("quotes the stored copy of the recorded revision of a work source with no new copy", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+    const source = recordedSource(workspace);
+    const storedPath = `.operator/local/sources/${source.revision}`;
+    // The source store holds the copy of the recorded revision.
+    await Bun.write(`${workspace.repo}/${storedPath}`, REQUIREMENTS_TEXT);
+    const named = { kind: "source-revision" as const, sourceId: source.id };
+
+    const missing = await answer(
+      workspace,
+      crew,
+      { questionId: raised.json.data.questionId, revision: 1 },
+      { authority: "requirement", source: { ...named, revision: "not-recorded" } },
+    );
+    expect(missing.json.reason).toBe("source_unreadable");
+    await Bun.write(`${workspace.repo}/.operator/local/sources/older`, REQUIREMENTS_TEXT);
+    const older = await answer(
+      workspace,
+      crew,
+      { questionId: raised.json.data.questionId, revision: 1 },
+      { authority: "requirement", source: { ...named, revision: "older" } },
+    );
+    expect(older.json.reason).toBe("source_revision_changed");
+    expect(older.json.blockers[0]).toMatchObject({ revision: "older", recorded: source.revision });
+    const outside = await answer(
+      workspace,
+      crew,
+      { questionId: raised.json.data.questionId, revision: 1 },
+      { authority: "requirement", source: { ...named, revision: "../crew-state.sqlite" } },
+    );
+    expect(outside.json.reason).toBe("invalid_answer_input");
+    const unquoted = await answer(
+      workspace,
+      crew,
+      { questionId: raised.json.data.questionId, revision: 1 },
+      {
+        authority: "requirement",
+        exactText: "It sorts.",
+        source: { ...named, revision: source.revision },
+      },
+    );
+    expect(unquoted.json.reason).toBe("quote_not_in_source");
+
+    const recorded = await answer(
+      workspace,
+      crew,
+      { questionId: raised.json.data.questionId, revision: 1 },
+      { authority: "requirement", source: { ...named, revision: source.revision } },
+    );
+
+    expect(recorded.exitCode).toBe(0);
+    const shown = await runJson(workspace, [
+      "question",
+      "show",
+      "--question",
+      raised.json.data.questionId,
+    ]);
+    expect(shown.json.data.answer.source).toEqual({
+      kind: "source-revision",
+      id: source.id,
+      revision: source.revision,
+      storedPath,
+    });
+    const store = await readdir(`${workspace.repo}/.operator/local/sources`);
+    expect(store.toSorted()).toEqual(["older", source.revision].toSorted());
+  });
+
+  test("never puts the copy of a source into a worktree", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace, ["21.1", "21.2"]);
+    const raised = await raise(workspace, crew);
+    const marker = `private-note-${crypto.randomUUID()}`;
+    const sourcePath = await writeSource(workspace, `${REQUIREMENTS_TEXT}${marker}\n`);
+
+    await answer(
+      workspace,
+      crew,
+      { questionId: raised.json.data.questionId, revision: 1 },
+      { authority: "requirement", source: { kind: "copy", path: sourcePath } },
+    );
+    const stored = await Bun.$`grep -rl ${marker} ${workspace.repo}/.operator/local`.quiet();
+    expect(stored.stdout.toString()).toContain(".operator/local/sources/");
+    const delivered = await deliver(workspace, crew, raised.json.data.questionId);
+    expect(delivered.json.reason).toBe("answer_delivered");
+
+    // Only the quoted words reach the Operative. The rest of the source stays with the crew state.
+    expect(await Bun.file(`${workspace.herdr}/last-prompt`).text()).not.toContain(marker);
+
+    // A worktree made after the copy exists is where a copy step would leak it.
+    const second = crew.registered[1]?.assignmentId ?? "";
+    const claimed = await runJson(workspace, [
+      "work",
+      "claim",
+      "--request",
+      request(),
+      "--owner-token",
+      crew.ownerToken,
+      "--assignment",
+      second,
+      "--revision",
+      "1",
+    ]);
+    const head = (await Bun.$`git -C ${workspace.repo} rev-parse HEAD`.quiet()).stdout
+      .toString()
+      .trim();
+    const worktree = `${workspace.root}/later-operative`;
+    const dispatched = await runJson(workspace, [
+      "attempt",
+      "dispatch",
+      "--request",
+      request(),
+      "--owner-token",
+      crew.ownerToken,
+      "--attempt",
+      claimed.json.data.attemptId,
+      "--commit",
+      head,
+      "--worktree",
+      worktree,
+    ]);
+    expect(dispatched.json.reason).toBe("acknowledgement_pending");
+    expect(await Bun.file(`${worktree}/.operator/local/attempt.json`).exists()).toBe(true);
+    for (const checkout of [crew.worktree, worktree]) {
+      const leaked = await Bun.$`grep -rl --exclude-dir=.git ${marker} ${checkout}`
+        .quiet()
+        .nothrow();
+      expect(leaked.stdout.toString()).toBe("");
+    }
+  });
+
+  test("refuses a source that is not UTF-8 text", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+    const sourcePath = `${workspace.root}/binary-${crypto.randomUUID()}.bin`;
+    // An invalid byte would decode to a replacement character that a quote could then match.
+    await Bun.write(sourcePath, new Uint8Array([0x54, 0x68, 0x65, 0xff, 0x0a]));
+
+    const refused = await answer(
+      workspace,
+      crew,
+      { questionId: raised.json.data.questionId, revision: 1 },
+      {
+        authority: "requirement",
+        exactText: "The\uFFFD",
+        source: { kind: "copy", path: sourcePath },
+      },
+    );
+
+    expect(refused.exitCode).toBe(2);
+    expect(refused.json.reason).toBe("source_not_text");
+  });
+
+  test("refuses a source named only by an id and a revision", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+    const inputPath = await writeInput(workspace, {
+      ...answerBody({ authority: "requirement" }),
+      source: { id: "github:operator#21", revision: "rev-1" },
+    });
+
+    // A free-text source cannot be checked, so the earlier input shape is refused.
+    const refused = await runJson(workspace, [
+      "question",
+      "answer",
+      "--request",
+      request(),
+      "--owner-token",
+      crew.ownerToken,
+      "--question",
+      raised.json.data.questionId,
+      "--revision",
+      "1",
+      "--input",
+      inputPath,
+    ]);
+
+    expect(refused.exitCode).toBe(2);
+    expect(refused.json.reason).toBe("invalid_answer_input");
+  });
+
+  test("changes neither the source nor the tracked files of the checkout", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+    const sourcePath = await writeSource(workspace);
+    const status = async () =>
+      (await Bun.$`git -C ${workspace.repo} status --porcelain`.quiet()).stdout.toString();
+    const before = await status();
+
+    const recorded = await answer(
+      workspace,
+      crew,
+      { questionId: raised.json.data.questionId, revision: 1 },
+      { authority: "requirement", source: { kind: "copy", path: sourcePath } },
+    );
+
+    // The Operator reads its source and changes nothing of the project, so the copy is crew state.
+    expect(recorded.exitCode).toBe(0);
+    expect(await Bun.file(sourcePath).text()).toBe(REQUIREMENTS_TEXT);
+    expect(await status()).toBe(before);
   });
 });
 
@@ -706,6 +1243,53 @@ describe("operator question deliver", () => {
 });
 
 describe("operator question revise", () => {
+  test("refuses by the first failed guard: owner, revision, closed, then delivery", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace, ["21.1", "21.2"]);
+    const other = await dispatchOperative(workspace, {
+      ownerToken: crew.ownerToken,
+      assignmentId: crew.registered[1]?.assignmentId ?? "",
+      worktree: `${workspace.root}/other-operative`,
+    });
+    const raised = await raise(workspace, crew);
+    const questionId = raised.json.data.questionId;
+    await answer(workspace, crew, { questionId, revision: 1 });
+    await deliver(workspace, crew, questionId);
+
+    // Only the delivery fails while the answer is still on its way.
+    const started = await revise(workspace, crew, questionId, 1);
+    expect(started.exitCode).toBe(4);
+    expect(started.json.reason).toBe("delivery_started");
+    expect(started.json.blockers).toEqual([
+      { reason: "delivery_started", questionId, state: "delivered" },
+    ]);
+
+    // The acknowledgement closes the question, and its delivery stays started. Each request
+    // below fails every guard that the one after it fails, and one guard more, in table order.
+    expect((await acknowledge(workspace, crew, questionId)).exitCode).toBe(0);
+
+    const mismatch = await revise(workspace, other, questionId, 2);
+    expect(mismatch.exitCode).toBe(4);
+    expect(mismatch.json.reason).toBe("question_mismatch");
+    expect(mismatch.json.blockers).toEqual([
+      { reason: "question_mismatch", questionId, attemptId: crew.attemptId },
+    ]);
+
+    const stale = await revise(workspace, crew, questionId, 2);
+    expect(stale.exitCode).toBe(4);
+    expect(stale.json.reason).toBe("stale_question_revision");
+    expect(stale.json.blockers).toEqual([
+      { reason: "stale_question_revision", questionId, recordedRevision: 1 },
+    ]);
+
+    const closed = await revise(workspace, crew, questionId, 1);
+    expect(closed.exitCode).toBe(4);
+    expect(closed.json.reason).toBe("question_closed");
+    expect(closed.json.blockers).toEqual([
+      { reason: "question_closed", questionId, state: "resolved" },
+    ]);
+  });
+
   test("refuses to change a question while a delivered answer could still arrive", async () => {
     const workspace = await makeWorkspace();
     const crew = await dispatchedCrew(workspace);
@@ -1024,10 +1608,54 @@ describe("a withdrawn question", () => {
 
     expect(refused.exitCode).toBe(4);
     expect(refused.json.reason).toBe("question_closed");
+    expect(refused.json.blockers).toEqual([
+      { reason: "question_closed", questionId, state: "withdrawn" },
+    ]);
 
     // It stays out of the frontier, so no dead attempt is reported as waiting on an answer.
     const after = await runJson(workspace, ["work", "frontier"]);
     expect(after.json.data.questions).toEqual([]);
+  });
+});
+
+describe("operator question acknowledge", () => {
+  test("refuses an answer that was never sent", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+    const questionId = raised.json.data.questionId;
+    await answer(workspace, crew, { questionId, revision: 1 });
+
+    const refused = await acknowledge(workspace, crew, questionId);
+
+    expect(refused.exitCode).toBe(3);
+    expect(refused.json.reason).toBe("question_not_delivered");
+    expect(refused.json.blockers).toEqual([
+      { reason: "question_not_delivered", questionId, state: "answered" },
+    ]);
+  });
+
+  test("reports a second acknowledgement, and a delivery after it, as already done", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+    const questionId = raised.json.data.questionId;
+    await answer(workspace, crew, { questionId, revision: 1 });
+    await deliver(workspace, crew, questionId);
+    const first = await acknowledge(workspace, crew, questionId);
+    expect(first.json.reason).toBe("question_acknowledged");
+
+    const again = await acknowledge(workspace, crew, questionId);
+    expect(again.exitCode).toBe(0);
+    expect(again.json.reason).toBe("question_already_acknowledged");
+    expect(again.json.blockers).toEqual([]);
+    const acknowledgedAt = again.json.data.acknowledgedAt;
+    expect(again.json.data).toEqual({ questionId, acknowledgedAt });
+
+    const delivered = await deliver(workspace, crew, questionId);
+    expect(delivered.exitCode).toBe(0);
+    expect(delivered.json.reason).toBe("question_already_acknowledged");
+    expect(delivered.json.data).toEqual({ questionId, acknowledgedAt });
   });
 });
 

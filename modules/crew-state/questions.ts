@@ -1,5 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { ContentIdentity } from "../content-identity/main.ts";
+import { z } from "zod";
 import type { CrewReader, CrewWriter } from "./database.ts";
 import {
   type AnswerInput,
@@ -11,8 +12,10 @@ import {
   type QuestionInput,
   questionInputSchema,
 } from "./question-input.ts";
+import { BLOCKING_STATES, Question, type QuestionState } from "./question-machine.ts";
+import { type RecordedSource, SOURCE_KINDS, storedPathOf } from "./requirement-source.ts";
 import { answers, questions } from "./schema.ts";
-import { readStored } from "./stored.ts";
+import { readStored, readStoredValue } from "./stored.ts";
 
 export type QuestionRow = typeof questions.$inferSelect;
 export type AnswerRow = typeof answers.$inferSelect;
@@ -23,7 +26,7 @@ export type AnswerRecord = {
   authority: string;
   exactText: string | null;
   interpretation: AnswerInterpretation;
-  source: { id: string; revision: string } | null;
+  source: RecordedSource | null;
   reusedFromId: string | null;
   approvalId: string | null;
   recordedAt: string;
@@ -91,16 +94,28 @@ export function answerRecordOf(row: AnswerRow, question: QuestionRow): AnswerRec
       answerInterpretationSchema,
       row.interpretation,
     ),
-    source:
-      row.sourceId === null || row.sourceRevision === null
-        ? null
-        : { id: row.sourceId, revision: row.sourceRevision },
+    source: recordedSourceOf(row),
     reusedFromId: row.reusedFromId,
     approvalId: row.approvalId,
     recordedAt: row.recordedAt,
     // An answer applies while the question it was given to still asks the same thing.
     applicable:
       row.questionRevision === question.revision && row.targetIdentity === question.targetIdentity,
+  };
+}
+
+function recordedSourceOf(row: AnswerRow): RecordedSource | null {
+  if (row.sourceId === null || row.sourceRevision === null) {
+    return null;
+  }
+
+  const kind = readStoredValue("answer source kind", z.enum(SOURCE_KINDS), row.sourceKind ?? "");
+  return {
+    kind,
+    id: row.sourceId,
+    revision: row.sourceRevision,
+    storedPath:
+      kind === "copy" || kind === "source-revision" ? storedPathOf(row.sourceRevision) : null,
   };
 }
 
@@ -127,13 +142,18 @@ export function readAnswer(db: CrewReader, answerId: string): AnswerRow | null {
   return db.select().from(answers).where(eq(answers.id, answerId)).all()[0] ?? null;
 }
 
-/** Reads one answer in the shape a caller can discriminate against a state failure. */
+/**
+ * Reads the answer one question holds now, in the shape a caller can discriminate against a
+ * state failure. A question that holds no answer, or names one that is gone, holds none.
+ */
 export function findAnswer(
   db: CrewReader,
-  answerId: string,
-): { status: "found"; answer: AnswerRow } | { status: "unknown-answer"; answerId: string } {
-  const row = readAnswer(db, answerId);
-  return row === null ? { status: "unknown-answer", answerId } : { status: "found", answer: row };
+  question: QuestionRow,
+): { status: "found"; answer: AnswerRow } | { status: "no-answer"; questionId: string } {
+  const row = question.answerId === null ? null : readAnswer(db, question.answerId);
+  return row === null
+    ? { status: "no-answer", questionId: question.id }
+    : { status: "found", answer: row };
 }
 
 export function answersOf(db: CrewReader, questionId: string): AnswerRow[] {
@@ -141,10 +161,25 @@ export function answersOf(db: CrewReader, questionId: string): AnswerRow[] {
 }
 
 /**
- * The states in which a question still holds its Operative.
- * An acknowledged answer resolves it, and the end of an attempt withdraws it.
+ * Every question of one assignment, from every attempt, with the authority of the answer that
+ * applies to it now, or null when none applies. A behavior change names its basis from these.
  */
-export const BLOCKING_STATES = ["open", "answered", "delivered"] as const;
+export function answerAuthoritiesOf(
+  db: CrewReader,
+  assignmentId: string,
+): { status: "read"; authorities: Map<string, string | null> } {
+  const rows = db.select().from(questions).where(eq(questions.assignmentId, assignmentId)).all();
+  return {
+    status: "read",
+    authorities: new Map(
+      rows.map((row) => {
+        const answer = row.answerId === null ? null : readAnswer(db, row.answerId);
+        const applies = answer !== null && answerRecordOf(answer, row).applicable;
+        return [row.id, applies ? answer.authority : null];
+      }),
+    ),
+  };
+}
 
 /** Every question that still holds its Operative. */
 export function blockingQuestions(db: CrewReader): QuestionRow[] {
@@ -175,15 +210,16 @@ export function withdrawQuestions(
   db: CrewWriter,
   request: { attemptId: string; now: string },
 ): void {
-  db.update(questions)
-    .set({ state: "withdrawn", updatedAt: request.now })
-    .where(
-      and(
-        eq(questions.attemptId, request.attemptId),
-        inArray(questions.state, [...BLOCKING_STATES]),
-      ),
-    )
-    .run();
+  const raised = db.select().from(questions).where(eq(questions.attemptId, request.attemptId));
+  for (const row of raised.all()) {
+    const decision = Question.decide("withdraw", { row });
+    if ("next" in decision) {
+      db.update(questions)
+        .set({ state: decision.next, updatedAt: request.now })
+        .where(eq(questions.id, row.id))
+        .run();
+    }
+  }
 }
 
 /** The question one recorded delivery carries the answer of. */
@@ -221,6 +257,7 @@ export function insertQuestion(
     assignmentId: string;
     attemptId: string;
     input: QuestionInput;
+    state: QuestionState;
     now: string;
   },
 ): void {
@@ -230,7 +267,7 @@ export function insertQuestion(
       assignmentId: request.assignmentId,
       attemptId: request.attemptId,
       revision: 1,
-      state: "open",
+      state: request.state,
       report: JSON.stringify(request.input),
       targetIdentity: targetIdentityOf(request.input),
       operatorEscalation: null,
@@ -250,13 +287,13 @@ export function insertQuestion(
  */
 export function updateQuestion(
   db: CrewWriter,
-  request: { row: QuestionRow; input: QuestionInput; now: string },
+  request: { row: QuestionRow; input: QuestionInput; state: QuestionState; now: string },
 ): number {
   const revision = request.row.revision + 1;
   db.update(questions)
     .set({
       revision,
-      state: "open",
+      state: request.state,
       report: JSON.stringify(request.input),
       targetIdentity: targetIdentityOf(request.input),
       answerId: null,
@@ -279,17 +316,18 @@ export function recordEscalation(
   request: {
     row: QuestionRow;
     input: EscalationInput;
-    droppedAnswerId: string | null;
+    /** The state a dropped Operator decision opens the question to, or null when none drops. */
+    state: QuestionState | null;
     now: string;
   },
 ): void {
   const update =
-    request.droppedAnswerId === null
+    request.state === null
       ? { operatorEscalation: JSON.stringify(request.input), updatedAt: request.now }
       : {
           operatorEscalation: JSON.stringify(request.input),
           answerId: null,
-          state: "open" as const,
+          state: request.state,
           updatedAt: request.now,
         };
   db.update(questions).set(update).where(eq(questions.id, request.row.id)).run();
@@ -301,12 +339,14 @@ export function insertAnswer(
     answerId: string;
     question: QuestionRow;
     input: AnswerInput;
+    // The checked source of a requirement. The other authorities quote no source.
+    source: RecordedSource | null;
     reusedFromId: string | null;
     approvalId: string | null;
+    state: QuestionState;
     now: string;
   },
 ): void {
-  const source = request.input.authority === "requirement" ? request.input.source : null;
   db.insert(answers)
     .values({
       id: request.answerId,
@@ -316,8 +356,9 @@ export function insertAnswer(
       authority: request.input.authority,
       exactText: request.input.authority === "operator-decision" ? null : request.input.exactText,
       interpretation: JSON.stringify(request.input.interpretation),
-      sourceId: source?.id ?? null,
-      sourceRevision: source?.revision ?? null,
+      sourceKind: request.source?.kind ?? null,
+      sourceId: request.source?.id ?? null,
+      sourceRevision: request.source?.revision ?? null,
       reusedFromId: request.reusedFromId,
       approvalId: request.approvalId,
       recordedAt: request.now,
@@ -325,7 +366,7 @@ export function insertAnswer(
     .run();
 
   db.update(questions)
-    .set({ answerId: request.answerId, state: "answered", updatedAt: request.now })
+    .set({ answerId: request.answerId, state: request.state, updatedAt: request.now })
     .where(eq(questions.id, request.question.id))
     .run();
 }
@@ -342,6 +383,7 @@ export function insertReusedAnswer(
     question: QuestionRow;
     reused: AnswerRow;
     approvalId: string;
+    state: QuestionState;
     now: string;
   },
 ): void {
@@ -358,7 +400,7 @@ export function insertReusedAnswer(
     .run();
 
   db.update(questions)
-    .set({ answerId: request.answerId, state: "answered", updatedAt: request.now })
+    .set({ answerId: request.answerId, state: request.state, updatedAt: request.now })
     .where(eq(questions.id, request.question.id))
     .run();
 }
@@ -375,10 +417,10 @@ export function recordDeliveryIntent(
 
 export function recordDelivered(
   db: CrewWriter,
-  request: { questionId: string; now: string },
+  request: { questionId: string; state: QuestionState; now: string },
 ): void {
   db.update(questions)
-    .set({ state: "delivered", deliveredAt: request.now, updatedAt: request.now })
+    .set({ state: request.state, deliveredAt: request.now, updatedAt: request.now })
     .where(eq(questions.id, request.questionId))
     .run();
 }
@@ -386,10 +428,10 @@ export function recordDelivered(
 /** The Operative's own receipt. It resolves the question and releases the work that waited. */
 export function recordQuestionAcknowledgement(
   db: CrewWriter,
-  request: { questionId: string; now: string },
+  request: { questionId: string; state: QuestionState; now: string },
 ): void {
   db.update(questions)
-    .set({ state: "resolved", acknowledgedAt: request.now, updatedAt: request.now })
+    .set({ state: request.state, acknowledgedAt: request.now, updatedAt: request.now })
     .where(eq(questions.id, request.questionId))
     .run();
 }

@@ -1,9 +1,16 @@
-import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
+import {
+  type FixtureItem,
+  type FixtureKind,
+  registerSource,
+  workspaceTarget,
+} from "./source-fixture.ts";
+import { afterEach, describe, expect, test as bunTest } from "bun:test";
 import {
   commitArtifact,
   delegateRework,
   disposeFindings,
   makeReviewWorkspace,
+  PLANNING_RECORD,
   reportBody,
   reportReview,
   startProducer,
@@ -13,7 +20,9 @@ import {
   type Workspace,
   writeInput,
 } from "./review-cycle-fixture.ts";
+import { setFault } from "./tracker-fixture.ts";
 import {
+  passBaseGate,
   headCommit,
   nextActions,
   ownCrew,
@@ -24,7 +33,11 @@ import {
 } from "./workspace-fixture.ts";
 
 // Workflow tests create Git worktrees and run several CLI processes under the parallel CI gate.
-setDefaultTimeout(60_000);
+// Each test states its own bound, because a process-wide default would set the bound of every
+// file in the bun test process (#140).
+function test(name: string, run: () => Promise<void>, timeoutMs = 60_000) {
+  bunTest(name, run, timeoutMs);
+}
 
 const fixtures = workspaces();
 
@@ -41,53 +54,30 @@ type ItemOverrides = {
   dependsOn?: string[];
 };
 
-function item(overrides: ItemOverrides) {
+function item(overrides: ItemOverrides): FixtureItem {
   const { key, kind, wayfinderType, dependsOn, trackerIssue } = overrides;
-  const entry = {
+  return {
     key,
+    issue: trackerIssue,
     title: overrides.title ?? `Item ${key}`,
-    ...(wayfinderType === undefined ? { kind: kind ?? "production" } : { wayfinderType }),
-    approvedScope: `The approved scope of item ${key}.`,
-    acceptanceRequirements: ["The quality gate passes."],
-    permissions: { writePaths: ["modules/"], allowedCommands: ["bun test"], network: false },
-    fixedInputs: [],
+    kind: wayfinderType === undefined ? (kind ?? "production") : undefined,
+    wayfinderType,
     dependsOn: (dependsOn ?? []).map((one) => ({ key: one })),
   };
-  return trackerIssue === undefined ? entry : { ...entry, trackerIssue };
 }
 
+/** Registers one source through the tracker and maps each item key to its assignment. */
 async function register(
   workspace: Workspace,
   ownerToken: string,
-  source: {
-    sourceKind: "specification" | "ticket" | "wayfinder";
-    id: string;
-    location?: { repository: string; mapIssue: number | null };
-    items: ReturnType<typeof item>[];
-  },
+  source: { sourceKind: FixtureKind; id: string; items: FixtureItem[] },
 ) {
-  const sourceData = { id: source.id, revision: "rev-1", tracker: "github" };
-  const registered = await runJson(workspace, [
-    "work",
-    "register",
-    "--request",
-    request(),
-    "--owner-token",
-    ownerToken,
-    "--input",
-    await writeInput(workspace, {
-      sourceKind: source.sourceKind,
-      source:
-        source.location === undefined ? sourceData : { ...sourceData, location: source.location },
-      items: source.items,
-    }),
-  ]);
-  return new Map<string, string>(
-    registered.json.data.registered.map((one: { sourceKey: string; assignmentId: string }) => [
-      one.sourceKey,
-      one.assignmentId,
-    ]),
-  );
+  const registered = await registerSource(workspaceTarget(workspace), ownerToken, {
+    sourceKind: source.sourceKind,
+    parent: Number(/#(\d+)$/.exec(source.id)?.[1] ?? "0"),
+    items: source.items,
+  });
+  return registered.keys;
 }
 
 async function claim(workspace: Workspace, ownerToken: string, assignmentId: string) {
@@ -110,6 +100,8 @@ async function dispatch(
   ownerToken: string,
   options: { attemptId: string; worktreePath: string; extra?: string[] },
 ) {
+  const commit = await headCommit(workspace);
+  await passBaseGate(workspace, { ownerToken, attemptId: options.attemptId, commit });
   return runJson(workspace, [
     "attempt",
     "dispatch",
@@ -120,7 +112,7 @@ async function dispatch(
     "--attempt",
     options.attemptId,
     "--commit",
-    await headCommit(workspace),
+    commit,
     "--worktree",
     options.worktreePath,
     ...(options.extra ?? []),
@@ -208,6 +200,8 @@ describe("the three entry points", () => {
       String(registered.get("1.1")),
       "--revision",
       "1",
+      "--input",
+      await writeInput(workspace, PLANNING_RECORD),
     ]);
 
     const resolved = await nextActions(workspace);
@@ -221,7 +215,6 @@ describe("the three entry points", () => {
     const registered = await register(workspace, ownerToken, {
       sourceKind: "wayfinder",
       id: "github:fveracoechea/operator#1",
-      location: { repository: "fveracoechea/operator", mapIssue: 1 },
       items: [item({ key: "24", wayfinderType: "research", trackerIssue: 24 })],
     });
     const assignmentId = String(registered.get("24"));
@@ -237,6 +230,8 @@ describe("the three entry points", () => {
       assignmentId,
       "--revision",
       "1",
+      "--input",
+      await writeInput(workspace, PLANNING_RECORD),
     ]);
     expect(accepted.exitCode).toBe(0);
 
@@ -248,6 +243,33 @@ describe("the three entry points", () => {
     const shown = await runJson(workspace, ["tracker", "show", "--assignment", assignmentId]);
     expect(shown.json.data.issue).toBe(24);
     expect(shown.json.data.mapIssue).toBe(1);
+    expect(steps.map((one) => [one.detail, one.command, one.blocker])).toEqual([
+      ["The resolution step is unrecorded.", "operator tracker record", null],
+      ["The completion step is unrecorded.", "operator tracker record", null],
+      ["The map_amendment step is unrecorded.", "operator tracker record", null],
+    ]);
+
+    // A write with no answer leaves the step uncertain, and only a person settles another write.
+    await setFault(workspace, "createComment", "lost");
+    const lost = await runJson(workspace, [
+      "tracker",
+      "record",
+      "--request",
+      request(),
+      "--owner-token",
+      ownerToken,
+      "--assignment",
+      assignmentId,
+      "--revision",
+      String(accepted.json.data.revision),
+      "--input",
+      await writeInput(workspace, { step: "resolution" }),
+    ]);
+    expect(lost.json.data.state).toBe("uncertain");
+    const uncertain = await nextActions(workspace);
+    expect(uncertain.forAction("recover_tracker").map((one) => [one.detail, one.blocker])).toEqual([
+      ["The resolution step is uncertain.", "approval_required"],
+    ]);
   });
 });
 
@@ -261,6 +283,11 @@ describe("a fresh Operator after session loss", () => {
       items: [item({ key: "15.1" })],
     });
     const claimed = await claim(workspace, ownerToken, String(registered.get("15.1")));
+    await passBaseGate(workspace, {
+      ownerToken,
+      attemptId: claimed.json.data.attemptId,
+      commit: await headCommit(workspace),
+    });
     const second = await ownCrew(workspace, { label: "second-session", takeoverFrom: 1 });
 
     const blocked = await nextActions(workspace);
@@ -348,9 +375,8 @@ describe("a fresh Operator after session loss", () => {
   test("resumes a submitted result without adopting an attempt that already ended", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "the result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     expect(submitted.exitCode).toBe(6);
     await ownCrew(workspace, { label: "second-session", takeoverFrom: 1 });
 
@@ -366,9 +392,8 @@ describe("a fresh Operator after session loss", () => {
   test("resumes a review that already reported", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "the result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
     await reportReview(
       workspace,
@@ -414,8 +439,9 @@ describe("a fresh Operator after session loss", () => {
       ],
     );
 
+    // The resumed review reaches the landing, which waits for its candidate gate first.
     const disposed = await nextActions(workspace);
-    expect(disposed.forAction("accept_assignment").map((one) => one.assignmentId)).toContain(
+    expect(disposed.forAction("run_gate").map((one) => one.assignmentId)).toContain(
       producer.assignmentId,
     );
   });
@@ -423,9 +449,8 @@ describe("a fresh Operator after session loss", () => {
   test("resumes an assignment whose rework cycle is still open", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "the result\n");
-    const submitted = await submit(workspace, producer, submissionBody(producer, artifact, base));
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
     const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
     await reportReview(
       workspace,
@@ -459,7 +484,6 @@ describe("a fresh Operator after session loss", () => {
       body: {
         reason: "findings",
         reviewId: submitted.json.data.reviewId,
-        instruction: "Add the reader test the review asked for.",
         conflicts: [],
       },
     });
@@ -482,7 +506,6 @@ describe("a fresh Operator after session loss", () => {
     const registered = await register(workspace, ownerToken, {
       sourceKind: "wayfinder",
       id: "github:fveracoechea/operator#1",
-      location: { repository: "fveracoechea/operator", mapIssue: 1 },
       items: [item({ key: "24", wayfinderType: "research", trackerIssue: 24 })],
     });
     const assignmentId = String(registered.get("24"));
@@ -497,6 +520,8 @@ describe("a fresh Operator after session loss", () => {
       assignmentId,
       "--revision",
       "1",
+      "--input",
+      await writeInput(workspace, PLANNING_RECORD),
     ]);
     await ownCrew(workspace, { label: "second-session", takeoverFrom: 1 });
 
@@ -511,9 +536,8 @@ describe("a fresh Operator after session loss", () => {
   test("keeps a retention hold visible to the session that inherits it", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const producer = await startProducer(workspace);
-    const base = await headCommit(workspace);
     const artifact = await commitArtifact(workspace, producer, "the result\n");
-    await submit(workspace, producer, submissionBody(producer, artifact, base));
+    await submit(workspace, producer, submissionBody(producer, artifact));
     const held = await runJson(workspace, [
       "cleanup",
       "hold",
@@ -656,6 +680,13 @@ describe("either supported host as Operator", () => {
     const claimed = await claim(workspace, ownerToken, assignmentId);
     const worktreePath = `${workspace.root}/operative`;
     expect(offered.exitCode).toBe(0);
+    const gated = await nextActions(workspace, targets);
+    expect(gated.forAction("run_gate")[0]?.attemptId).toBe(claimed.json.data.attemptId);
+    await passBaseGate(workspace, {
+      ownerToken,
+      attemptId: claimed.json.data.attemptId,
+      commit: await headCommit(workspace),
+    });
 
     const launch = await nextActions(workspace, targets);
     expect(launch.forAction("dispatch_attempt")[0]?.attemptId).toBe(claimed.json.data.attemptId);

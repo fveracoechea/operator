@@ -1,11 +1,31 @@
-// Bun has no recursive directory removal or real-path API.
-import { mkdirSync, readdirSync, rmSync, symlinkSync } from "node:fs";
+// Bun has no recursive directory removal, real-path, or directory check API.
+import { existsSync, mkdirSync, readdirSync, rmSync, symlinkSync } from "node:fs";
 import { realpath, rm } from "node:fs/promises";
 
 const cliPath = new URL("../../cli.ts", import.meta.url).pathname;
 const fakeHerdrPath = new URL("./fake-herdr.sh", import.meta.url).pathname;
 const fakeGithubPath = new URL("./fake-gh.ts", import.meta.url).pathname;
 const wakePluginPath = new URL("../../herdr/herdr-plugin.toml", import.meta.url).pathname;
+
+/**
+ * The `gh` on a fixture path. Every readiness check reads `gh --version`, so the script answers
+ * it without a Bun process, and the fake answers everything else. A `version-new` file in the
+ * fake directory reports an upgraded GitHub CLI: its text, or 2.1.0 when it is empty.
+ */
+const GITHUB_FAKE_SCRIPT = [
+  "#!/bin/sh",
+  'if [ "${1:-}" = "--version" ]; then',
+  "  version=2.0.0",
+  '  if [ -f "$GH_FAKE_DIR/version-new" ]; then',
+  "    version=$(tr -d ' \\t\\r\\n' < \"$GH_FAKE_DIR/version-new\")",
+  '    [ -n "$version" ] || version=2.1.0',
+  "  fi",
+  '  echo "gh version $version"',
+  "  exit 0",
+  "fi",
+  `exec bun ${fakeGithubPath} "$@"`,
+  "",
+].join("\n");
 
 export type Workspace = {
   root: string;
@@ -22,6 +42,17 @@ export type WorkspaceOptions = {
   files?: Record<string, string>;
   /** Extra executables on the fixture path, such as the agent hosts a readiness check reads. */
   tools?: Record<string, string>;
+  /** The committed `operator-gate.json`, or null for a project that declares no gate. */
+  gate?: unknown;
+};
+
+/**
+ * The project gate each fixture commits, which the default submitted check satisfies. Its one
+ * command passes at once, so a gate run on a fixture base proves the run path and nothing else.
+ */
+export const FIXTURE_GATE = {
+  $schema: "./node_modules/@fveracoechea/operator/gate.schema.json",
+  commands: [{ name: "quality", argv: ["true"], timeoutSeconds: 1800 }],
 };
 
 /**
@@ -46,12 +77,14 @@ export function workspaces() {
         github: `${root}/github`,
         bin: `${root}/bin`,
       };
-      await Bun.$`mkdir -p ${workspace.repo} ${workspace.herdr} ${workspace.github} ${workspace.bin}`.quiet();
+      // Request files go in their own folder, because a file written next to an Operative
+      // worktree during an attempt is an outside change (ADR 0018).
+      await Bun.$`mkdir -p ${workspace.repo} ${workspace.herdr} ${workspace.github} ${workspace.bin} ${root}/inputs`.quiet();
       await Bun.$`cp ${fakeHerdrPath} ${workspace.bin}/herdr`.quiet();
       await Bun.$`chmod +x ${workspace.bin}/herdr`.quiet();
       // The GitHub fake answers as `gh` on the same path, so tracker commands reach it through
       // the real external interface instead of a module replaced by path.
-      await Bun.write(`${workspace.bin}/gh`, `#!/bin/sh\nexec bun ${fakeGithubPath} "$@"\n`);
+      await Bun.write(`${workspace.bin}/gh`, GITHUB_FAKE_SCRIPT);
       await Bun.$`chmod +x ${workspace.bin}/gh`.quiet();
 
       for (const [name, script] of Object.entries(options.tools ?? {})) {
@@ -62,6 +95,10 @@ export function workspaces() {
       const config = options.config ?? { crew: { host: "claude-code" } };
       await Bun.write(`${workspace.repo}/.operator/config.json`, `${JSON.stringify(config)}\n`);
       await Bun.write(`${workspace.repo}/README.md`, "# Fixture\n");
+      const gate = options.gate === undefined ? FIXTURE_GATE : options.gate;
+      if (gate !== null) {
+        await Bun.write(`${workspace.repo}/operator-gate.json`, `${JSON.stringify(gate)}\n`);
+      }
       for (const [path, content] of Object.entries(options.files ?? {})) {
         await Bun.write(`${workspace.repo}/${path}`, content, { createPath: true });
       }
@@ -85,8 +122,13 @@ export async function headCommit(workspace: Workspace, cwd = workspace.repo): Pr
   return (await Bun.$`git -C ${cwd} rev-parse HEAD`.quiet()).stdout.toString().trim();
 }
 
-/** The tools a fixture answers itself, and the only ones a fixture PATH hides. */
-const FAKED_TOOLS = ["gh", "herdr"];
+/**
+ * The tools a fixture PATH hides: the two it fakes, and the agent hosts, which a test that needs
+ * one puts in its own fixture `tools`. A host installed on the machine would otherwise answer
+ * every readiness check, so a local run would read a different machine than CI, and one real
+ * host version read costs more than the CLI run that asks for it.
+ */
+const HIDDEN_TOOLS = ["gh", "herdr", "claude", "opencode"];
 
 // Isolated test files reuse a worker process, so each fixture instance needs its own mirror root.
 const mirrorRoot = `${Bun.env.TMPDIR ?? "/tmp"}/operator-path-${crypto.randomUUID()}`;
@@ -104,7 +146,7 @@ function entriesOf(directory: string): string[] {
 }
 
 /**
- * A stand-in for one PATH directory that links everything except the faked tools.
+ * A stand-in for one PATH directory that links everything except the hidden tools.
  * Dropping the whole directory instead would take the rest of the machine with it: on a
  * GitHub runner `gh` sits in `/usr/bin` beside `git`, and a fixture repository needs Git.
  */
@@ -117,7 +159,7 @@ function mirrorOf(directory: string): string {
   const mirror = `${mirrorRoot}/${mirrors.size}`;
   mkdirSync(mirror, { recursive: true });
   for (const name of entriesOf(directory)) {
-    if (!FAKED_TOOLS.includes(name)) {
+    if (!HIDDEN_TOOLS.includes(name)) {
       symlinkSync(`${directory}/${name}`, `${mirror}/${name}`);
     }
   }
@@ -127,18 +169,31 @@ function mirrorOf(directory: string): string {
 
 /**
  * The PATH a fixture command runs with.
- * The fakes come first, and every real `gh` or `herdr` is hidden, so no test can reach the real
- * tool. A test that deletes a fake to prove the tool is absent then proves exactly that,
- * instead of falling through to the one installed on this machine.
+ * The fakes come first, and every real `gh`, `herdr`, or agent host is hidden, so no test can
+ * reach the real tool. A test that deletes a fake to prove the tool is absent then proves exactly
+ * that, instead of falling through to the one installed on this machine.
  */
 function fixturePath(bin: string): string {
   const inherited = (process.env.PATH ?? "").split(":").filter((one) => one.length > 0);
   const usable = inherited.map((directory) =>
-    FAKED_TOOLS.some((tool) => Bun.which(tool, { PATH: directory }) !== null)
+    HIDDEN_TOOLS.some((tool) => Bun.which(tool, { PATH: directory }) !== null)
       ? mirrorOf(directory)
       : directory,
   );
   return [bin, ...usable].join(":");
+}
+
+/**
+ * The environment that puts the GitHub fake on the path of one directory, for a test that
+ * builds its own project instead of a fixture repository. The fake keeps its state under
+ * `<directory>/github`.
+ */
+export async function githubFakeEnvironment(directory: string): Promise<Record<string, string>> {
+  const bin = `${directory}/bin`;
+  await Bun.$`mkdir -p ${bin} ${directory}/github`.quiet();
+  await Bun.write(`${bin}/gh`, GITHUB_FAKE_SCRIPT);
+  await Bun.$`chmod +x ${bin}/gh`.quiet();
+  return { PATH: fixturePath(bin), GH_FAKE_DIR: `${directory}/github` };
 }
 
 export async function runOperator(
@@ -147,13 +202,23 @@ export async function runOperator(
   cwd = workspace.repo,
   env: Record<string, string> = {},
 ) {
-  const child = Bun.spawn(["bun", cliPath, ...args], {
+  // A spawn in a missing directory fails as "ENOENT posix_spawn 'bun'", which hides the step
+  // that did not make it, such as a dispatch that left no worktree.
+  if (!existsSync(cwd)) {
+    throw new Error(`operator ${args.join(" ")} cannot run in ${cwd}: no such directory.`);
+  }
+  // The CLI runs on the Bun that runs the test, so no PATH lookup of "bun" can miss it.
+  const child = Bun.spawn([process.execPath, cliPath, ...args], {
     cwd,
     stderr: "pipe",
     stdout: "pipe",
     env: {
       ...process.env,
       PATH: fixturePath(workspace.bin),
+      // A run inside a Herdr session inherits the real Herdr and its plugin directory. The
+      // wake reads both, so the fake takes their place.
+      HERDR_BIN_PATH: `${workspace.bin}/herdr`,
+      HERDR_PLUGIN_CONFIG_DIR: "",
       HERDR_FAKE_DIR: workspace.herdr,
       HERDR_FAKE_REPO: workspace.repo,
       HERDR_FAKE_PLUGIN_PATH: wakePluginPath,
@@ -241,12 +306,14 @@ export function requestId(): string {
 export type NextAction = {
   action: string;
   rank: number;
+  sourceId: string | null;
   assignmentId: string | null;
   attemptId: string | null;
   questionId: string | null;
   reviewId: string | null;
   revision: number | null;
   blocker: string | null;
+  planningRecords: Array<Record<string, unknown>> | null;
   detail: string;
   command: string;
 };
@@ -254,9 +321,11 @@ export type NextAction = {
 /** One wait of the next-actions contract. */
 export type NextWait = {
   wait: string;
-  assignmentId: string;
+  assignmentId: string | null;
+  sourceId: string | null;
   attemptId: string | null;
   agentName: string | null;
+  command: string | null;
   detail: string;
 };
 
@@ -313,4 +382,97 @@ export async function ownCrew(
       : ["--takeover", "--ownership-revision", String(options.takeoverFrom)]),
   ]);
   return taken.json.data.ownerToken;
+}
+
+/**
+ * Runs the project gate on one commit of one source through the real CLI. The Herdr fake types
+ * the runner line into its shell, so the real runner records each outcome before this returns.
+ */
+export async function runGate(
+  workspace: Workspace,
+  request: { ownerToken: string; commit: string; sourceId: string; approvalId?: string },
+) {
+  return runJson(workspace, [
+    "gate",
+    "run",
+    "--request",
+    requestId(),
+    "--owner-token",
+    request.ownerToken,
+    "--source",
+    request.sourceId,
+    "--commit",
+    request.commit,
+    ...(request.approvalId === undefined ? [] : ["--approval", request.approvalId]),
+  ]);
+}
+
+/**
+ * Passes the base gate that the first code dispatch of an attempt waits for, as the Operator
+ * does when `crew next` offers `run_gate`. Any other attempt is left as it is.
+ */
+export async function passBaseGate(
+  workspace: Workspace,
+  request: { ownerToken: string; attemptId: string; commit: string },
+) {
+  const next = await nextActions(workspace);
+  const owed = next.actions.find(
+    (one) => one.action === "run_gate" && one.attemptId === request.attemptId,
+  );
+  if (owed === undefined) {
+    return null;
+  }
+  const entries: Array<{ assignmentId: string; sourceId: string }> =
+    next.json.data.frontier.active ?? [];
+  const sourceId = entries.find((one) => one.assignmentId === owed.assignmentId)?.sourceId;
+  if (sourceId === undefined) {
+    throw new Error(`the frontier names no source for assignment ${owed.assignmentId}`);
+  }
+  const ran = await runGate(workspace, {
+    ownerToken: request.ownerToken,
+    commit: request.commit,
+    sourceId,
+  });
+  // The gate run is setup, so a test that reads the Herdr calls reads only what it drives next.
+  // A gate that cannot start is left for the dispatch to refuse, as a test of that refusal reads.
+  if (ran.json.reason === "gate_run_started") {
+    await rm(`${workspace.herdr}/calls.log`, { force: true });
+  }
+  return ran;
+}
+
+/**
+ * A Git on the fixture path that stops one CLI process at its first patch identity, which a landing
+ * plan reads after the branch tip. Only a process run with `env` stops, so a test can change the
+ * crew state between the plan and the transaction that checks it.
+ */
+export async function pausedGit(workspace: Workspace) {
+  const real = Bun.which("git");
+  const directory = `${workspace.root}/git-pause`;
+  await Bun.$`mkdir -p ${directory}`.quiet();
+  await Bun.write(
+    `${workspace.bin}/git`,
+    [
+      "#!/bin/sh",
+      // The guard of ADR 0018 and `-C <repo>` come before the subcommand.
+      'if [ -n "$GIT_PAUSE_DIR" ] && [ "$6" = "patch-id" ]; then',
+      '  : > "$GIT_PAUSE_DIR/reached"',
+      '  while [ ! -f "$GIT_PAUSE_DIR/release" ]; do sleep 0.05; done',
+      "fi",
+      `exec ${real} "$@"`,
+      "",
+    ].join("\n"),
+  );
+  await Bun.$`chmod +x ${workspace.bin}/git`.quiet();
+  return {
+    env: { GIT_PAUSE_DIR: directory },
+    async reached() {
+      while (!(await Bun.file(`${directory}/reached`).exists())) {
+        await Bun.sleep(50);
+      }
+    },
+    async release() {
+      await Bun.write(`${directory}/release`, "");
+    },
+  };
 }

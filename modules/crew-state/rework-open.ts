@@ -6,6 +6,7 @@ import {
   type Unapproved,
 } from "./direction.ts";
 import { moveAssignment, readAssignment } from "./assignment.ts";
+import { Assignment } from "./assignment-machine.ts";
 import { identityOf } from "./identity.ts";
 import {
   corrections,
@@ -15,7 +16,14 @@ import {
   reviewOfSubmission,
   undisposed,
 } from "./review.ts";
-import { type ReworkBriefRecord, type ReworkCorrection, type ReworkInput } from "./rework-input.ts";
+import {
+  type DefectInput,
+  type ReworkBriefRecord,
+  type ReworkCorrection,
+  type ReworkInput,
+  type ReworkInvalidation,
+  type ReworkReason,
+} from "./rework-input.ts";
 import {
   budgetOf,
   cyclesOf,
@@ -25,8 +33,21 @@ import {
   openCycleOf,
 } from "./rework.ts";
 import { storedChecks, storedCode, storedResultKind } from "./submission-input.ts";
-import { latestSubmission, type SubmissionRow, submissionsOf } from "./submission.ts";
+import {
+  landedCommitOf,
+  latestSubmission,
+  type SubmissionRow,
+  submissionsOf,
+} from "./submission.ts";
 import { storedArtifacts } from "./submission-store.ts";
+import type { LandingRefusal } from "./branch-move.ts";
+import { recordedTipOf } from "./landing.ts";
+import { replacedLandingOf } from "./landing-record.ts";
+import type {
+  IntegrationEvidence,
+  IntegrationRead,
+  IntegrationRefusal,
+} from "./rework-integration.ts";
 
 export type ReworkOutcome =
   | {
@@ -55,6 +76,8 @@ export type ReworkOutcome =
   | { status: "findings-undisposed"; reviewId: string; findingIds: string[] }
   | { status: "no-corrections"; reviewId: string }
   | { status: "conflict-not-corrected"; reviewId: string; findingIds: string[] }
+  | IntegrationRefusal
+  | Extract<LandingRefusal, { status: "landing-tip-changed" }>
   | { status: "unknown-check"; assignmentId: string; names: string[] }
   | { status: "checks-passed"; assignmentId: string; names: string[] }
   | {
@@ -72,6 +95,9 @@ type ReworkRequest = {
   assignmentId: string;
   revision: number;
   input: ReworkInput;
+  // The landing plan read again for an integration cycle, before this transaction. Null for
+  // every other reason.
+  integration: IntegrationRead | null;
   now: string;
 };
 
@@ -225,6 +251,72 @@ function diagnosticGate(
     : { status: "checks-passed", assignmentId: submission.assignmentId, names };
 }
 
+type Budget =
+  | { status: "open"; cycleIndex: number; limit: number; approvalId: string | null }
+  | Extract<ReworkOutcome, { status: "limit-reached" }>;
+
+/**
+ * The place of the next cycle in the budget its reason spends.
+ * Past the limit, a direction of the user is spent here, or the request for one is recorded.
+ * Every cycle reaches its budget through this one step, so no reason counts on its own.
+ */
+function spendBudget(
+  db: CrewWriter,
+  request: { assignmentId: string; reason: ReworkReason; now: string },
+): Budget {
+  const { kind: limitKind, limit } = budgetOf(request.reason);
+  const used = cyclesUsed(cyclesOf(db, request.assignmentId), request.reason);
+  if (used < limit) {
+    return { status: "open", cycleIndex: used + 1, limit, approvalId: null };
+  }
+
+  const spent = spendDirection(db, {
+    assignmentId: request.assignmentId,
+    limitKind,
+    now: request.now,
+  });
+  if (spent.status === "directed") {
+    return { status: "open", cycleIndex: used + 1, limit, approvalId: spent.approvalId };
+  }
+
+  // The limit is reached, so the work waits on the user. The evidence of what was tried
+  // stays recorded, because a limit that erased its own history would teach nobody.
+  const raised = raiseDirection(db, {
+    directionRequestId: crypto.randomUUID(),
+    assignmentId: request.assignmentId,
+    limitKind,
+    limitValue: limit,
+    evidence: {
+      used,
+      detail: `${used} ${limitKind} already ran on assignment ${request.assignmentId}.`,
+      attempted: cyclesOf(db, request.assignmentId).map(
+        (one) => `${one.reason} cycle ${one.cycleIndex} (${one.state})`,
+      ),
+    },
+    now: request.now,
+  });
+  return {
+    status: "limit-reached",
+    assignmentId: request.assignmentId,
+    limitKind,
+    limit,
+    used,
+    direction: raised,
+    approval: spent.approval,
+  };
+}
+
+/** The submitted result one cycle reworks, as every brief of a cycle carries it. */
+function resultOf(submission: SubmissionRow) {
+  return {
+    submissionId: submission.id,
+    submissionIdentity: submission.identity,
+    resultKind: storedResultKind(submission.resultKind),
+    code: submission.code === null ? null : storedCode(submission.code),
+    artifacts: storedArtifacts(submission.artifacts),
+  };
+}
+
 function briefOf(request: {
   input: ReworkInput;
   submission: SubmissionRow;
@@ -233,31 +325,85 @@ function briefOf(request: {
   limit: number;
   approvalId: string | null;
   corrections: ReworkCorrection[];
+  evidence: IntegrationEvidence | null;
 }): ReworkBriefRecord {
-  const { input, submission } = request;
+  const { input, submission, evidence } = request;
   const checks = storedChecks(submission.checks);
+  const result = resultOf(submission);
 
-  return {
+  const brief: ReworkBriefRecord = {
     reason: input.reason,
     cycleIndex: request.cycleIndex,
     limit: request.limit,
-    instruction: input.instruction,
     reviewId: request.reviewId,
     approvalId: request.approvalId,
-    submissionId: submission.id,
-    submissionIdentity: submission.identity,
-    resultKind: storedResultKind(submission.resultKind),
+    ...result,
+    // A failed gate run is carried with its output, beside the submitted artifacts.
+    artifacts: [...result.artifacts, ...(evidence?.outputs ?? [])],
     corrections: request.corrections,
     conflicts: input.conflicts,
-    combines: input.reason === "integration" ? input.combines : [],
+    // The only revisions an integration cycle combines are the two the landing plan read.
+    combines:
+      evidence === null
+        ? []
+        : [
+            { name: "submitted commit", revision: evidence.integration.commit },
+            {
+              // A correction lands in the place of the commit it replaces, on its parent.
+              name:
+                evidence.integration.replaces === undefined
+                  ? `recorded tip of ${evidence.integration.branch}`
+                  : `parent of ${evidence.integration.replaces} on ${evidence.integration.branch}`,
+              revision: evidence.integration.tip,
+            },
+          ],
     // A diagnostic rerun names the checks it suspects. Every other cycle carries them all.
     checks:
       input.reason === "diagnostic"
         ? checks.filter((one) => input.checks.includes(one.name))
         : checks,
-    code: submission.code === null ? null : storedCode(submission.code),
-    artifacts: storedArtifacts(submission.artifacts),
   };
+  if (evidence !== null) {
+    brief.integration = evidence.integration;
+  }
+  return brief;
+}
+
+/**
+ * The landing plan an integration cycle answers, checked against the record inside the
+ * transaction. A tip that moved since the plan was read gives another plan, so it refuses. A
+ * correction lands in the place of the commit it replaces, so its tip is the parent of that commit.
+ */
+function integrationGate(
+  db: CrewReader,
+  request: { read: IntegrationRead | null; submission: SubmissionRow; sourceId: string },
+):
+  | { status: "ok"; evidence: IntegrationEvidence }
+  | Extract<ReworkOutcome, { status: "submission-required" | "landing-tip-changed" }>
+  | IntegrationRefusal {
+  const { read, submission } = request;
+  if (read === null || read.status === "unread") {
+    return { status: "submission-required", assignmentId: submission.assignmentId };
+  }
+  if (read.status !== "evidence") {
+    return read;
+  }
+  const recordedTip =
+    read.integration.replaces === undefined
+      ? recordedTipOf(db, request.sourceId)
+      : (replacedLandingOf(db, {
+          assignmentId: submission.assignmentId,
+          submissionId: submission.id,
+        })?.landedParent ?? null);
+  if (read.submissionId !== submission.id || recordedTip !== read.integration.tip) {
+    return {
+      status: "landing-tip-changed",
+      assignmentId: submission.assignmentId,
+      planned: read.integration.tip,
+      recordedTip,
+    };
+  }
+  return { status: "ok", evidence: read };
 }
 
 /**
@@ -271,17 +417,13 @@ export function openReworkCycle(db: CrewWriter, request: ReworkRequest): ReworkO
   if (row === null) {
     return { status: "unknown-assignment", assignmentId: request.assignmentId };
   }
-  if (row.revision !== request.revision) {
-    return { status: "stale-revision", assignmentId: row.id, recordedRevision: row.revision };
-  }
-
-  const open = openCycleOf(db, row.id);
-  if (open !== null) {
-    return { status: "cycle-open", assignmentId: row.id, cycleId: open.id, reason: open.reason };
-  }
-  // One cycle answers one submitted result, so it starts from a result that is handed over.
-  if (row.state !== "awaiting-review") {
-    return { status: "not-awaiting-review", assignmentId: row.id, state: row.state };
+  const decided = Assignment.decide("rework", {
+    row,
+    revision: request.revision,
+    open: openCycleOf(db, row.id),
+  });
+  if ("refused" in decided) {
+    return decided.refused;
   }
 
   const submission = latestSubmission(db, row.id);
@@ -314,44 +456,25 @@ export function openReworkCycle(db: CrewWriter, request: ReworkRequest): ReworkO
     return strayConflict;
   }
 
-  const { kind: limitKind, limit } = budgetOf(input.reason);
-  const used = cyclesUsed(cyclesOf(db, row.id), input.reason);
-  let approvalId: string | null = null;
-
-  if (used >= limit) {
-    const spent = spendDirection(db, { assignmentId: row.id, limitKind, now: request.now });
-    if (spent.status === "directed") {
-      approvalId = spent.approvalId;
-    } else {
-      // The limit is reached, so the work waits on the user. The evidence of what was tried
-      // stays recorded, because a limit that erased its own history would teach nobody.
-      const raised = raiseDirection(db, {
-        directionRequestId: crypto.randomUUID(),
-        assignmentId: row.id,
-        limitKind,
-        limitValue: limit,
-        evidence: {
-          used,
-          detail: `${used} ${limitKind} already ran on assignment ${row.id}.`,
-          attempted: cyclesOf(db, row.id).map(
-            (one) => `${one.reason} cycle ${one.cycleIndex} (${one.state})`,
-          ),
-        },
-        now: request.now,
-      });
-      return {
-        status: "limit-reached",
-        assignmentId: row.id,
-        limitKind,
-        limit,
-        used,
-        direction: raised,
-        approval: spent.approval,
-      };
+  let evidence: IntegrationEvidence | null = null;
+  if (input.reason === "integration") {
+    const gate = integrationGate(db, {
+      read: request.integration,
+      submission,
+      sourceId: row.sourceId,
+    });
+    if (gate.status !== "ok") {
+      return gate;
     }
+    evidence = gate.evidence;
   }
 
-  const cycleIndex = used + 1;
+  const budget = spendBudget(db, { assignmentId: row.id, reason: input.reason, now: request.now });
+  if (budget.status === "limit-reached") {
+    return budget;
+  }
+
+  const { cycleIndex, limit, approvalId } = budget;
   const brief = briefOf({
     input,
     submission,
@@ -360,6 +483,7 @@ export function openReworkCycle(db: CrewWriter, request: ReworkRequest): ReworkO
     limit,
     approvalId,
     corrections: accepted,
+    evidence,
   });
   insertCycle(db, {
     cycleId: request.cycleId,
@@ -374,7 +498,7 @@ export function openReworkCycle(db: CrewWriter, request: ReworkRequest): ReworkO
     now: request.now,
   });
 
-  const revision = moveAssignment(db, { row, state: "rework", now: request.now });
+  const revision = moveAssignment(db, { row, next: decided.next, now: request.now });
 
   return {
     status: "delegated",
@@ -390,5 +514,96 @@ export function openReworkCycle(db: CrewWriter, request: ReworkRequest): ReworkO
     conflicts: input.conflicts.length,
     briefIdentity: identityOf(brief),
     approvalId,
+  };
+}
+
+export type InvalidationCycle = {
+  cycleId: string;
+  cycleIndex: number;
+  limit: number;
+  approvalId: string | null;
+  briefIdentity: string;
+  landedCommit: string | null;
+  startCommit: string | null;
+};
+
+export type InvalidationCycleOutcome =
+  | { status: "opened"; cycle: InvalidationCycle }
+  | Extract<ReworkOutcome, { status: "limit-reached" }>;
+
+/**
+ * Opens the cycle that corrects one invalidated result (ADR 0008).
+ * The defect, the accepted submission, and the landed commit are its content, so the fresh
+ * Operative never has to find the defect again. It spends the same budget as every other
+ * correction, so a spent budget records a direction request and opens nothing.
+ */
+export function openInvalidationCycle(
+  db: CrewWriter,
+  request: {
+    cycleId: string;
+    assignmentId: string;
+    invalidationId: string;
+    defect: DefectInput;
+    submission: SubmissionRow;
+    now: string;
+  },
+): InvalidationCycleOutcome {
+  const budget = spendBudget(db, {
+    assignmentId: request.assignmentId,
+    reason: "invalidation",
+    now: request.now,
+  });
+  if (budget.status === "limit-reached") {
+    return budget;
+  }
+
+  const result = resultOf(request.submission);
+  // The correction starts at the commit on the branch that carries the result, and its base is
+  // the parent of that commit there, so acceptance puts it in the place of that commit (ADR 0020).
+  const landed = landedCommitOf(db, request.submission);
+  const invalidation: ReworkInvalidation = {
+    invalidationId: request.invalidationId,
+    defect: request.defect,
+    landedCommit: landed?.commit ?? null,
+    startCommit: landed?.commit ?? null,
+  };
+  const brief: ReworkBriefRecord = {
+    reason: "invalidation",
+    cycleIndex: budget.cycleIndex,
+    limit: budget.limit,
+    approvalId: budget.approvalId,
+    reviewId: null,
+    ...result,
+    corrections: [],
+    conflicts: [],
+    combines: [],
+    checks: storedChecks(request.submission.checks),
+    invalidation,
+  };
+  const briefIdentity = identityOf(brief);
+  insertCycle(db, {
+    cycleId: request.cycleId,
+    assignmentId: request.assignmentId,
+    submissionId: request.submission.id,
+    reviewId: null,
+    reason: "invalidation",
+    cycleIndex: budget.cycleIndex,
+    brief,
+    briefIdentity,
+    approvalId: budget.approvalId,
+    now: request.now,
+  });
+
+  return {
+    status: "opened",
+    cycle: {
+      cycleId: request.cycleId,
+      cycleIndex: budget.cycleIndex,
+      limit: budget.limit,
+      approvalId: budget.approvalId,
+      briefIdentity,
+      landedCommit: invalidation.landedCommit,
+      startCommit: invalidation.startCommit,
+    },
   };
 }

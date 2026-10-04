@@ -35,6 +35,10 @@ type Comment = {
 };
 
 type Issue = {
+  /** The database id. It names the issue across a rename or a transfer of its repository. */
+  id: number | null;
+  /** The `<owner>/<repo>` that holds the issue, as GitHub spells it. */
+  repository: string | null;
   number: number;
   state: string;
   stateReason: string | null;
@@ -43,6 +47,7 @@ type Issue = {
   updatedAt: string;
   title: string;
   body: string;
+  labels: string[];
 };
 
 type IssueEvent = {
@@ -77,6 +82,19 @@ function readComment(source: unknown): Comment | null {
   };
 }
 
+/** The repository part of an issue's `repository_url`, which every issue answer carries. */
+function repositoryOf(url: string | null): string | null {
+  const match = /\/repos\/([^/]+\/[^/]+)$/.exec(url ?? "");
+  return match?.[1] ?? null;
+}
+
+function labelsOf(source: unknown): string[] {
+  return ToolInvocation.list(source, "labels").flatMap((one) => {
+    const name = typeof one === "string" ? one : ToolInvocation.text(one, "name");
+    return name === null ? [] : [name];
+  });
+}
+
 function readIssue(source: unknown): Issue | null {
   const number = ToolInvocation.number(source, "number");
   const state = ToolInvocation.text(source, "state");
@@ -85,6 +103,8 @@ function readIssue(source: unknown): Issue | null {
   }
 
   return {
+    id: ToolInvocation.number(source, "id"),
+    repository: repositoryOf(ToolInvocation.text(source, "repository_url")),
     number,
     state,
     stateReason: ToolInvocation.text(source, "state_reason"),
@@ -93,6 +113,7 @@ function readIssue(source: unknown): Issue | null {
     updatedAt: ToolInvocation.text(source, "updated_at") ?? "",
     title: ToolInvocation.text(source, "title") ?? "",
     body: ToolInvocation.text(source, "body") ?? "",
+    labels: labelsOf(source),
   };
 }
 
@@ -189,18 +210,64 @@ async function readPages<Value>(request: {
   };
 }
 
+/** The one read of the GitHub viewer. Each caller names a missing login in its own words. */
+async function readViewer(): Promise<GithubOutcome<{ login: string | null }>> {
+  const outcome = await GithubApi.call({ args: ["user"], timeoutMs: READ_TIMEOUT_MS });
+  return outcome.status === "succeeded"
+    ? { status: "succeeded", value: { login: ToolInvocation.text(outcome.value.body, "login") } }
+    : outcome;
+}
+
 export const GithubTracker = {
   /** The stable identifier of the account this machine writes as. */
   async viewer(): Promise<GithubOutcome<{ login: string }>> {
-    const outcome = await GithubApi.call({ args: ["user"], timeoutMs: READ_TIMEOUT_MS });
+    const outcome = await readViewer();
     if (outcome.status !== "succeeded") {
       return outcome;
     }
 
-    const login = ToolInvocation.text(outcome.value.body, "login");
+    const login = outcome.value.login;
     return login === null
       ? { status: "uncertain", detail: "GitHub named no login for this token." }
       : { status: "succeeded", value: { login } };
+  },
+
+  /** A read-only authentication check. It says nothing about permission to write a fixture. */
+  async connection(fixture: { repository: string; issue: number } | null) {
+    const viewer = await readViewer();
+    if (viewer.status !== "succeeded" || viewer.value.login === null) {
+      return {
+        state: "failed" as const,
+        detail: viewer.status === "succeeded" ? "GitHub returned no user login." : viewer.detail,
+        nextAction: "Run `gh auth login`, then check GitHub access again.",
+      };
+    }
+    const login = viewer.value.login;
+    if (fixture === null) {
+      return {
+        state: "passed" as const,
+        detail: `GitHub authenticated as ${login}. Fixture read and write access are not proven without a configured fixture.`,
+        nextAction: null,
+      };
+    }
+    // Any 2xx answer proves the read, whatever its shape, so this is not readIssue.
+    const issue = await GithubApi.call({
+      args: [`repos/${fixture.repository}/issues/${fixture.issue}`],
+      timeoutMs: READ_TIMEOUT_MS,
+    });
+    if (issue.status === "succeeded") {
+      return {
+        state: "passed" as const,
+        detail: `GitHub authenticated as ${login} and read fixture ${fixture.repository}#${fixture.issue}. Write access remains unproven.`,
+        nextAction: null,
+      };
+    }
+    return {
+      state: "failed" as const,
+      detail: `Cannot read fixture ${fixture.repository}#${fixture.issue}: ${issue.detail}`,
+      nextAction:
+        "Check the fixture repository, issue, and GitHub token permissions, then check again.",
+    };
   },
 
   /**

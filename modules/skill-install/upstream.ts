@@ -1,9 +1,43 @@
 // Bun has no lstat or file removal API.
 import { lstat, rm } from "node:fs/promises";
+import { z } from "zod";
+import { ContentIdentity } from "../content-identity/main.ts";
 import { readBundledSkills, sameBytes, scanFiles, type SkillAsset } from "./assets.ts";
 import { skillTargets, type SkillTarget } from "./targets.ts";
 
-type Entry = { path: string; hash: string };
+const invalidResponse = "Invalid Matt skills response or ledger";
+const invalidSha = "Invalid Matt skills commit or blob SHA";
+
+const shaSchema = z.string({ error: invalidSha }).regex(/^[a-f0-9]{40}$/, { error: invalidSha });
+const commitSchema = z.object({ sha: z.unknown() }, { error: invalidResponse });
+const treeSchema = z.object(
+  {
+    truncated: z.literal(false, { error: "Incomplete Matt skills tree" }),
+    tree: z.array(
+      z.object(
+        { type: z.unknown(), path: z.unknown(), sha: z.unknown() },
+        { error: invalidResponse },
+      ),
+      { error: "Incomplete Matt skills tree" },
+    ),
+  },
+  { error: invalidResponse },
+);
+const ledgerFileSchema = z.object(
+  { version: z.unknown(), skills: z.record(z.string(), z.unknown(), { error: invalidResponse }) },
+  { error: invalidResponse },
+);
+const entrySchema = z.object({ path: z.string(), hash: z.string().regex(/^[a-f0-9]{64}$/) });
+type Entry = z.infer<typeof entrySchema>;
+// A custom check keeps each recorded entry as written, so its bytes return unchanged in the next ledger.
+const ledgerSkillsSchema = z.record(
+  z.string(),
+  z.custom<Entry>((value) => entrySchema.safeParse(value).success, {
+    error: (issue) =>
+      z.object({}).safeParse(issue.input).success ? "Invalid Matt skills ledger" : invalidResponse,
+  }),
+);
+
 type Ledger = { version: 1; skills: Record<string, Entry> };
 type Change = {
   skill: string;
@@ -16,10 +50,16 @@ type Change = {
 type Conflict = { skill: string; target: SkillTarget; paths: string[] };
 type SourceSkill = { name: string; source: string; assets: SkillAsset[] };
 type Write = { root: string; assets: SkillAsset[]; removed: string[] };
+type Plan = {
+  changes: Change[];
+  conflicts: Conflict[];
+  writes: Write[];
+  ledgers: Array<{ path: string; before: string | null; after: string }>;
+};
+type Copy = { paths: string[]; hash: string };
+type Verdict = "conflict" | "adopt" | "write" | "unchanged";
 
 const source = "mattpocock/skills";
-const api = process.env.OPERATOR_MATT_SKILLS_API ?? "https://api.github.com";
-const raw = process.env.OPERATOR_MATT_SKILLS_API ?? "https://raw.githubusercontent.com";
 
 function hash(assets: SkillAsset[]): string {
   const digest = new Bun.CryptoHasher("sha256");
@@ -30,14 +70,10 @@ function hash(assets: SkillAsset[]): string {
   return digest.digest("hex");
 }
 
-function fileHash(bytes: Uint8Array): string {
-  const digest = new Bun.CryptoHasher("sha256");
-  digest.update(bytes);
-  return digest.digest("hex");
-}
-
 async function json(path: string): Promise<unknown> {
-  if (process.env.OPERATOR_MATT_SKILLS_API === undefined) {
+  // The upstream override is read on each call, so one process can point at a local server.
+  const api = process.env.OPERATOR_MATT_SKILLS_API;
+  if (api === undefined) {
     const command = Bun.spawn(["gh", "api", `repos/${source}/${path}`], {
       stdout: "pipe",
       stderr: "pipe",
@@ -57,55 +93,38 @@ async function json(path: string): Promise<unknown> {
   return response.json();
 }
 
-function object(value: unknown): Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Invalid Matt skills response or ledger");
-  }
-  return value as Record<string, unknown>;
+/** Parses a value at the boundary. A refusal carries the message of its first issue. */
+function parse<Schema extends z.ZodType>(schema: Schema, value: unknown): z.output<Schema> {
+  const result = schema.safeParse(value);
+  if (!result.success) throw new Error(result.error.issues[0]?.message);
+  return result.data;
 }
 
-function sha(value: unknown): string {
-  if (typeof value !== "string" || !/^[a-f0-9]{40}$/.test(value)) {
-    throw new Error("Invalid Matt skills commit or blob SHA");
+/** Refuses a symbolic link at a path. Returns false when nothing is at the path. */
+async function present(path: string, refusal: string): Promise<boolean> {
+  try {
+    if ((await lstat(path)).isSymbolicLink()) throw new Error(refusal);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
+    throw error;
   }
-  return value;
 }
 
 async function revision(): Promise<string> {
-  return sha(object(await json("commits/main")).sha);
+  return parse(shaSchema, parse(commitSchema, await json("commits/main")).sha);
 }
 
-async function sourceSkills(commit: string): Promise<SourceSkill[]> {
-  const tree = object(await json(`git/trees/${commit}?recursive=1`));
-  if (tree.truncated !== false || !Array.isArray(tree.tree)) {
-    throw new Error("Incomplete Matt skills tree");
-  }
-  const files = tree.tree.map((item: unknown) => object(item));
-  const owned = new Set((await readBundledSkills()).map((skill) => skill.name));
-  const skills: SourceSkill[] = [];
-  const skillFiles = files.filter(
-    (file) =>
-      file.type === "blob" &&
-      typeof file.path === "string" &&
-      /^skills\/[a-z-]+\/[a-z0-9-]+\/SKILL\.md$/.test(file.path),
-  );
-  for (const skillFile of skillFiles.toSorted((a, b) =>
-    String(a.path).localeCompare(String(b.path)),
-  )) {
-    const skillPath = String(skillFile.path);
-    const directory = skillPath.slice(0, -"/SKILL.md".length);
-    const name = directory.slice(directory.lastIndexOf("/") + 1);
-    if (name === "unslop" || name === "cursor" || owned.has(name)) continue;
-    if (skills.some((skill) => skill.name === name))
-      throw new Error(`Duplicate Matt skill name: ${name}`);
-    const matches = files.filter(
-      (file) =>
-        file.type === "blob" &&
-        typeof file.path === "string" &&
-        file.path.startsWith(`${directory}/`),
-    );
-    const assets = await Promise.all(
-      matches.map(async (file) => {
+async function fetchAssets(
+  commit: string,
+  directory: string,
+  files: Array<{ path: string; sha: unknown }>,
+) {
+  return Promise.all(
+    files
+      .filter((file) => file.path.startsWith(`${directory}/`))
+      .map(async (file) => {
+        const raw = process.env.OPERATOR_MATT_SKILLS_API ?? "https://raw.githubusercontent.com";
         const response = await fetch(`${raw}/${source}/${commit}/${file.path}`);
         if (!response.ok)
           throw new Error(`Matt skill fetch failed (${response.status}): ${file.path}`);
@@ -115,10 +134,30 @@ async function sourceSkills(commit: string): Promise<SourceSkill[]> {
         digest.update(bytes);
         if (digest.digest("hex") !== file.sha)
           throw new Error(`Matt skill blob changed: ${file.path}`);
-        return { path: (file.path as string).slice(directory.length + 1), bytes };
+        return { path: file.path.slice(directory.length + 1), bytes };
       }),
-    );
-    skills.push({ name, source: directory, assets });
+  );
+}
+
+async function sourceSkills(commit: string): Promise<SourceSkill[]> {
+  const files = parse(treeSchema, await json(`git/trees/${commit}?recursive=1`)).tree.flatMap(
+    (file) =>
+      file.type === "blob" && typeof file.path === "string"
+        ? [{ path: file.path, sha: file.sha }]
+        : [],
+  );
+  const owned = new Set((await readBundledSkills()).map((skill) => skill.name));
+  const skills: SourceSkill[] = [];
+  const skillFiles = files.filter((file) =>
+    /^skills\/[a-z-]+\/[a-z0-9-]+\/SKILL\.md$/.test(file.path),
+  );
+  for (const skillFile of skillFiles.toSorted((a, b) => a.path.localeCompare(b.path))) {
+    const directory = skillFile.path.slice(0, -"/SKILL.md".length);
+    const name = directory.slice(directory.lastIndexOf("/") + 1);
+    if (name === "unslop" || name === "cursor" || owned.has(name)) continue;
+    if (skills.some((skill) => skill.name === name))
+      throw new Error(`Duplicate Matt skill name: ${name}`);
+    skills.push({ name, source: directory, assets: await fetchAssets(commit, directory, files) });
   }
   if (!skills.some((skill) => skill.name === "code-review")) {
     throw new Error("Matt code-review skill is missing from the roster");
@@ -126,21 +165,20 @@ async function sourceSkills(commit: string): Promise<SourceSkill[]> {
   return skills;
 }
 
-async function safeFiles(root: string): Promise<string[]> {
-  try {
-    if ((await lstat(root)).isSymbolicLink())
-      throw new Error(`Symbolic link in skill path: ${root}`);
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
-    return [];
-  }
+/**
+ * Lists the files of one skill copy and refuses a symbolic link at each listed or desired path.
+ * The scan does not return a symbolic link, so each path that a write can reach is checked too.
+ */
+async function safeFiles(root: string, desired: string[]): Promise<string[]> {
+  if (!(await present(root, `Symbolic link in skill path: ${root}`))) return [];
   const paths = await scanFiles(root);
-  for (const path of paths) {
+  for (const path of new Set([...paths, ...desired])) {
     const parts = path.split("/");
     for (let i = 1; i <= parts.length; i++) {
-      if ((await lstat(`${root}/${parts.slice(0, i).join("/")}`)).isSymbolicLink()) {
-        throw new Error(`Symbolic link in skill path: ${root}/${path}`);
-      }
+      await present(
+        `${root}/${parts.slice(0, i).join("/")}`,
+        `Symbolic link in skill path: ${root}/${path}`,
+      );
     }
   }
   return paths;
@@ -148,118 +186,117 @@ async function safeFiles(root: string): Promise<string[]> {
 
 async function ledger(root: string): Promise<Ledger> {
   const path = `${root}/.operator-matt-skills.json`;
-  try {
-    if ((await lstat(path)).isSymbolicLink())
-      throw new Error(`Symbolic link in Matt skills ledger: ${path}`);
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT")
-      return { version: 1, skills: {} };
-    throw error;
+  if (!(await present(path, `Symbolic link in Matt skills ledger: ${path}`))) {
+    return { version: 1, skills: {} };
   }
-  const file = Bun.file(path);
-  const parsed = object(JSON.parse(await file.text()));
-  const skills = object(parsed.skills);
+  const parsed = parse(ledgerFileSchema, JSON.parse(await Bun.file(path).text()));
   if (parsed.version !== 1) throw new Error("Unsupported Matt skills ledger");
-  for (const entry of Object.values(skills)) {
-    const value = object(entry);
-    if (typeof value.path !== "string" || !/^[a-f0-9]{64}$/.test(String(value.hash))) {
-      throw new Error("Invalid Matt skills ledger");
+  return { version: 1, skills: parse(ledgerSkillsSchema, parsed.skills) };
+}
+
+/** Decides what one skill copy needs. Only a copy that matches the desired bytes, an empty path, or the last recorded write may change. */
+function copyVerdict(skill: SourceSkill, current: Copy, prior: Entry | undefined): Verdict {
+  const desired = hash(skill.assets);
+  if (current.hash === desired) return prior?.hash === desired ? "unchanged" : "adopt";
+  if (prior === undefined && current.paths.length === 0) return "write";
+  if (prior?.path === skill.source && prior.hash === current.hash) return "write";
+  return "conflict";
+}
+
+async function readCopy(root: string, desired: SkillAsset[]): Promise<Copy> {
+  const paths = await safeFiles(
+    root,
+    desired.map((asset) => asset.path),
+  );
+  const assets = await Promise.all(
+    paths.map(async (assetPath) => ({
+      path: assetPath,
+      bytes: new Uint8Array(await Bun.file(`${root}/${assetPath}`).arrayBuffer()),
+    })),
+  );
+  return { paths, hash: hash(assets) };
+}
+
+async function inspectTarget(
+  projectRoot: string,
+  target: SkillTarget,
+  skills: SourceSkill[],
+  fingerprint: Bun.CryptoHasher,
+  plan: Plan,
+) {
+  fingerprint.update(target);
+  const targetRoot = `${projectRoot}/${skillTargets[target]}`;
+  const targetFolder = `${projectRoot}/${skillTargets[target].split("/")[0]}`;
+  for (const folder of [targetFolder, targetRoot]) {
+    await present(folder, `Symbol link in skill path: ${folder}`);
+  }
+  const ledgerPath = `${targetRoot}/.operator-matt-skills.json`;
+  const record = await ledger(targetRoot);
+  const before = (await Bun.file(ledgerPath).exists()) ? await Bun.file(ledgerPath).text() : null;
+  fingerprint.update(before ?? "missing");
+  const next: Ledger = { version: 1, skills: { ...record.skills } };
+  for (const skill of skills) {
+    const path = `${skillTargets[target]}/${skill.name}`;
+    const root = `${projectRoot}/${path}`;
+    const current = await readCopy(root, skill.assets);
+    const desiredHash = hash(skill.assets);
+    fingerprint.update(`${path}\n${current.hash}\n${desiredHash}`);
+    const verdict = copyVerdict(skill, current, record.skills[skill.name]);
+    if (verdict === "conflict") {
+      const missing = skill.assets
+        .filter((asset) => !current.paths.includes(asset.path))
+        .map((asset) => asset.path);
+      plan.conflicts.push({
+        skill: skill.name,
+        target,
+        paths: [...new Set([...current.paths, ...missing])]
+          .map((one) => `${path}/${one}`)
+          .toSorted(),
+      });
+      continue;
+    }
+    next.skills[skill.name] = { path: skill.source, hash: desiredHash };
+    if (verdict === "adopt") {
+      plan.changes.push({ skill: skill.name, target, path, kind: "adopt", files: [], removed: [] });
+    }
+    if (verdict === "write") {
+      const removed = current.paths.filter(
+        (one) => !skill.assets.some((asset) => asset.path === one),
+      );
+      plan.changes.push({
+        skill: skill.name,
+        target,
+        path,
+        kind: current.paths.length === 0 ? "install" : "update",
+        files: skill.assets.map((asset) => ({
+          path: `${path}/${asset.path}`,
+          sha256: ContentIdentity.ofBytes(asset.bytes),
+        })),
+        removed: removed.map((one) => `${path}/${one}`),
+      });
+      plan.writes.push({ root, assets: skill.assets, removed });
     }
   }
-  return { version: 1, skills: skills as Record<string, Entry> };
+  const after = `${JSON.stringify(next, null, 2)}\n`;
+  if (before !== after) plan.ledgers.push({ path: ledgerPath, before, after });
 }
 
 async function inspect(projectRoot: string, targets: SkillTarget[], commit: string) {
   const skills = await sourceSkills(commit);
-  const changes: Change[] = [];
-  const conflicts: Conflict[] = [];
-  const writes: Write[] = [];
-  const ledgers: Array<{ path: string; before: string | null; after: string }> = [];
+  const plan: Plan = { changes: [], conflicts: [], writes: [], ledgers: [] };
   const fingerprint = new Bun.CryptoHasher("sha256");
   fingerprint.update(commit);
   for (const target of targets.toSorted()) {
-    fingerprint.update(target);
-    const targetRoot = `${projectRoot}/${skillTargets[target]}`;
-    const targetFolder = `${projectRoot}/${skillTargets[target].split("/")[0]}`;
-    for (const folder of [targetFolder, targetRoot]) {
-      try {
-        if ((await lstat(folder)).isSymbolicLink())
-          throw new Error(`Symbol link in skill path: ${folder}`);
-      } catch (error) {
-        if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
-      }
-    }
-    const ledgerPath = `${targetRoot}/.operator-matt-skills.json`;
-    const record = await ledger(targetRoot);
-    const before = (await Bun.file(ledgerPath).exists()) ? await Bun.file(ledgerPath).text() : null;
-    fingerprint.update(before ?? "missing");
-    const next: Ledger = { version: 1, skills: { ...record.skills } };
-    for (const skill of skills) {
-      const path = `${skillTargets[target]}/${skill.name}`;
-      const root = `${projectRoot}/${path}`;
-      const paths = await safeFiles(root);
-      const current = await Promise.all(
-        paths.map(async (assetPath) => ({
-          path: assetPath,
-          bytes: new Uint8Array(await Bun.file(`${root}/${assetPath}`).arrayBuffer()),
-        })),
-      );
-      const desiredHash = hash(skill.assets);
-      const currentHash = hash(current);
-      const removed = paths.filter((one) => !skill.assets.some((asset) => asset.path === one));
-      fingerprint.update(`${path}\n${currentHash}\n${desiredHash}`);
-      const prior = record.skills[skill.name];
-      const allowed =
-        currentHash === desiredHash ||
-        (prior === undefined && paths.length === 0) ||
-        (prior?.path === skill.source && prior.hash === currentHash);
-      if (!allowed) {
-        conflicts.push({
-          skill: skill.name,
-          target,
-          paths: [
-            ...new Set([
-              ...paths,
-              ...skill.assets
-                .filter((asset) => !paths.includes(asset.path))
-                .map((asset) => asset.path),
-            ]),
-          ]
-            .map((one) => `${path}/${one}`)
-            .toSorted(),
-        });
-        continue;
-      }
-      next.skills[skill.name] = { path: skill.source, hash: desiredHash };
-      if (currentHash === desiredHash) {
-        if (prior?.hash !== desiredHash)
-          changes.push({ skill: skill.name, target, path, kind: "adopt", files: [], removed: [] });
-      } else {
-        changes.push({
-          skill: skill.name,
-          target,
-          path,
-          kind: paths.length === 0 ? "install" : "update",
-          files: skill.assets.map((asset) => ({
-            path: `${path}/${asset.path}`,
-            sha256: fileHash(asset.bytes),
-          })),
-          removed: removed.map((one) => `${path}/${one}`),
-        });
-        writes.push({ root, assets: skill.assets, removed });
-      }
-    }
-    const after = `${JSON.stringify(next, null, 2)}\n`;
-    if (before !== after) ledgers.push({ path: ledgerPath, before, after });
+    await inspectTarget(projectRoot, target, skills, fingerprint, plan);
   }
   const planId = fingerprint.digest("hex");
-  return { commit, planId, targets, changes, conflicts, writes, ledgers };
+  return { commit, planId, targets, ...plan };
 }
 
 export const MattSkills = {
   async plan(request: { projectRoot: string; targets: SkillTarget[]; commit?: string }) {
     const commit = request.commit ?? (await revision());
-    sha(commit);
+    parse(shaSchema, commit);
     const {
       writes: _writes,
       ledgers: _ledgers,
@@ -273,7 +310,7 @@ export const MattSkills = {
     commit: string;
     approvedPlanId: string | undefined;
   }) {
-    sha(request.commit);
+    parse(shaSchema, request.commit);
     const plan = await inspect(request.projectRoot, request.targets, request.commit);
     if (plan.conflicts.length) return { status: "conflict" as const, plan };
     if (plan.planId !== request.approvedPlanId) return { status: "approval-stale" as const, plan };

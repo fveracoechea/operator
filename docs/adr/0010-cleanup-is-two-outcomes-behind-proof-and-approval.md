@@ -19,8 +19,15 @@ Git, read in the checkout, must show it on its recorded branch at the commit its
 Any other head is work nobody handed over, and it retains the checkout.
 When that commit is the accepted result of its assignment, the integration branch must still hold it.
 The crew state names the commit on the branch that carries each accepted result, and removal reads the branch once: it must be at the recorded tip, with that commit in its history.
-A branch at another tip, a missing branch, and a landing whose outcome is not recorded yet each retain the checkout, as ADR 0020 stops every other step on them.
-A submitted commit that a later accepted result of the same assignment replaced needs no such proof, and neither does a commit of an assignment that was withdrawn, because its record and its review reports stay, and its branch survives the removal.
+A branch at another tip, a missing branch, and a landing of the same source whose outcome is not recorded yet each retain the checkout, as ADR 0020 stops every other step on them: `integration_branch_moved` names both tips, `integration_branch_missing` names the branch, and `landing_pending` names the landing.
+A head that is not the handed-over commit, or a detached head, is `head_moved`, and it names the recorded branch and commit and the ones it found.
+A recorded tip that does not contain the recorded commit is `landing_not_held`, which only a corrupt record gives.
+A checkout that holds a commit no recorded landing carries holds unlanded work.
+That is a commit of an assignment that was withdrawn, and a replaced commit: the submitted commit of an attempt whose assignment was accepted through a different submission, as after a findings cycle.
+Removal refuses it as `unlanded_work` with its cause, `withdrawn` or `replaced`, whatever approval exists, and `operator cleanup show` lists it under `unlanded`.
+`crew next` offers no removal of it.
+Only the person removes it.
+A withdrawn attempt whose checkout holds no commit is removed like an accepted one, because nothing in it is lost.
 No part of this proof reads a remote, so a removal never waits for publish.
 
 Removal needs one more thing that acceptance does not grant: permission.
@@ -58,6 +65,9 @@ A search for a commit with an equal patch on the integration branch was rejected
 Acceptance already proves the patch, and a second proof of the same policy in a second place drifts from the first.
 It would also pass a branch that a person rebased, which ADR 0020 treats as a moved branch.
 
+Removing a replaced commit with no proof was rejected (D3 of the integrated pull request specification).
+Its record and its review reports stay, but the commit itself is on no integration branch, and Operator never tears down work that did not land.
+
 Dropping the commit proof was rejected.
 `git worktree remove` deletes the checkout directory and its administrative entry, and branch references, their commits, and the stash stack survive it.
 But while a checkout holds its branch, Git refuses to delete that branch, so the checkout is the last guard of the attempt branch, and the proof shows that the accepted work has its own home before that guard goes.
@@ -83,7 +93,9 @@ An unforced Herdr removal refuses a checkout with untracked files, and the launc
 
 Removal reads the integration branch and never moves it.
 A checkout that outlives its integration branch, for example after a person deletes the branch when its pull request merges, is refused, and a person removes it.
-After removal, a replaced commit survives only while nobody deletes its attempt branch.
+A checkout of withdrawn work that holds its commit, and a checkout that holds a replaced commit, each stay until a person removes it.
+So every findings cycle leaves one checkout for the person to remove.
+That cost is accepted, because Operator never tears down work that did not land.
 
 The state version stays at 1.
 The two new tables are added to the schema this release creates, and a state file that predates them is reported as unreadable rather than repaired in silence.

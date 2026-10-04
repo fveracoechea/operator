@@ -11,8 +11,8 @@
     "./cli": "./cli.ts"
   },
   "scripts": {
-    "format": "bunx --bun --no-install oxfmt cli.ts modules scripts herdr tools/oxlint dependency-cruiser.config.cjs package.json tsconfig.json .oxfmtrc.json .oxlintrc.json .github",
-    "format:check": "bunx --bun --no-install oxfmt --check cli.ts modules scripts herdr tools/oxlint dependency-cruiser.config.cjs package.json tsconfig.json .oxfmtrc.json .oxlintrc.json .github",
+    "format": "bunx --bun --no-install oxfmt cli.ts modules scripts herdr tools/oxlint dependency-cruiser.config.cjs package.json operator-gate.json tsconfig.json .oxfmtrc.json .oxlintrc.json .github",
+    "format:check": "bunx --bun --no-install oxfmt --check cli.ts modules scripts herdr tools/oxlint dependency-cruiser.config.cjs package.json operator-gate.json tsconfig.json .oxfmtrc.json .oxlintrc.json .github",
     "lint": "bunx --bun --no-install oxlint --deny-warnings cli.ts modules scripts herdr tools/oxlint dependency-cruiser.config.cjs",
     "lint:modules": "bun scripts/check-module-shape.ts && bunx --bun --no-install depcruise --config dependency-cruiser.config.cjs cli.ts modules scripts",
     "lint:skills": "bun scripts/check-skill-shape.ts",
@@ -20,9 +20,11 @@
     "release": "bun scripts/release.ts",
     "changeset": "bunx --bun @changesets/cli@3.0.3",
     "test:module-boundaries": "bun scripts/prove-module-boundaries.ts",
-    "test": "bun test --parallel=4",
+    "test": "bun test --parallel=4 --timeout=30000 --timings=test-timings.json",
+    "test:timings": "bun test --parallel=4 --timeout=30000 --timings=test-timings.json --update-timings",
     "typecheck": "bunx --bun --no-install tsc --noEmit -p tsconfig.json",
-    "quality": "bun run --parallel format:check lint typecheck lint:modules lint:skills test:module-boundaries test"
+    "quality": "bun run --parallel quality:static test",
+    "quality:static": "bun run --parallel format:check lint typecheck lint:modules lint:skills test:module-boundaries"
   },
   "dependencies": {
     "drizzle-orm": "0.44.6",

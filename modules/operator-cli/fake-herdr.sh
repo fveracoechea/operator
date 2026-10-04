@@ -67,13 +67,22 @@ answer() {
   plugin-list)
     if [ -f "$dir/plugin-missing" ]; then
       printf '{"result":{"plugins":[]}}\n'
+    elif [ -f "$dir/plugin-unlisted" ]; then
+      printf '{"result":{}}\n'
     else
       enabled=true
       [ -f "$dir/plugin-disabled" ] && enabled=false
       path="${HERDR_FAKE_PLUGIN_PATH:-}"
       [ -f "$dir/plugin-mismatch" ] && path="$dir/other/herdr-plugin.toml"
-      printf '{"result":{"plugins":[{"plugin_id":"operator.wake","manifest_path":"%s","enabled":%s,"min_herdr_version":"0.9.1","warnings":[]}]}}\n' "$path" "$enabled"
+      # An entry this release cannot read comes first, and the check skips it.
+      odd=''
+      [ -f "$dir/plugin-odd-entry" ] && odd='{"plugin_id":7},'
+      printf '{"result":{"plugins":[%s{"plugin_id":"operator.wake","manifest_path":"%s","enabled":%s,"min_herdr_version":"0.9.1","warnings":[]}]}}\n' "$odd" "$path" "$enabled"
     fi
+    ;;
+  plugin-config-dir)
+    # Herdr answers a plain path, so a wake keeps its bindings in the fake directory.
+    printf '%s\n' "$dir/plugin-config/${1:-}"
     ;;
   worktree-create)
     repo=$(value_of --cwd "$@")
@@ -88,10 +97,19 @@ answer() {
     path=$(value_of --path "$@")
     branch=$(value_of --branch "$@")
     base=$(value_of --base "$@")
+    # A test can make a gate checkout appear at another commit than the one the CLI named.
+    case "$branch" in operator/gate/*)
+      [ -f "$dir/gate-checkout-base" ] && base=$(cat "$dir/gate-checkout-base") ;;
+    esac
     git -C "$repo" worktree add -b "$branch" "$path" "$base" >/dev/null 2>&1 || exit 7
-    count=$(( $(cat "$dir/next-workspace" 2>/dev/null || echo 0) + 1 ))
-    printf '%s' "$count" > "$dir/next-workspace"
-    workspace="w$count"
+    # A gate checkout counts apart, so an Operative checkout keeps the workspace it had before
+    # the first code dispatch waited for a gate run.
+    counter="next-workspace"
+    prefix="w"
+    case "$branch" in operator/gate/*) counter="next-gate-workspace"; prefix="wg" ;; esac
+    count=$(( $(cat "$dir/$counter" 2>/dev/null || echo 0) + 1 ))
+    printf '%s' "$count" > "$dir/$counter"
+    workspace="$prefix$count"
     printf '%s|%s|%s|%s\n' "$workspace" "$path" "$repo" "$branch" >> "$dir/worktrees"
     if [ -f "$dir/block-brief" ]; then
       mkdir -p "$path/.operator/local/brief.md"
@@ -162,6 +180,21 @@ answer() {
     source=$(value_of --pane "$@")
     pane="${source%:*}:p2"
     printf '{"id":"cli:pane:split","result":{"type":"pane_info","pane":{"pane_id":"%s"}}}\n' "$pane"
+    ;;
+  pane-run)
+    # The line is typed into the pane shell, so the fake runs it as a shell would. `pane-run.hold`
+    # types nothing yet, which is a runner that has not started, and `pane-run.background` lets
+    # the line run on while the test acts.
+    line="${2:-}"
+    printf '%s\n' "$line" >> "$dir/pane-run-lines"
+    if [ -f "$dir/pane-run.hold" ]; then
+      :
+    elif [ -f "$dir/pane-run.background" ]; then
+      nohup bash -c "$line" >> "$dir/runner.log" 2>&1 &
+    else
+      bash -c "$line" >> "$dir/runner.log" 2>&1
+    fi
+    printf '{"id":"cli:pane:run","result":{"type":"ok"}}\n'
     ;;
   pane-process-info)
     pane=$(value_of --pane "$@")

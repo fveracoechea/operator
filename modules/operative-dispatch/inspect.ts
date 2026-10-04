@@ -1,4 +1,5 @@
 import { ContentIdentity } from "../content-identity/main.ts";
+import { ToolInvocation } from "../tool-invocation/main.ts";
 
 export type WorkInspection = {
   worktreePath: string;
@@ -11,13 +12,8 @@ export type WorkInspection = {
 };
 
 async function git(worktreePath: string, args: string[]): Promise<string | null> {
-  const child = Bun.spawn(["git", "-C", worktreePath, ...args], {
-    stdout: "pipe",
-    stderr: "pipe",
-    timeout: 30_000,
-  });
-  const [exitCode, stdout] = await Promise.all([child.exited, new Response(child.stdout).text()]);
-  return exitCode === 0 ? stdout : null;
+  const reading = await readGit(worktreePath, args);
+  return reading.status === "read" ? reading.value : null;
 }
 
 function lines(output: string | null): string[] {
@@ -69,45 +65,85 @@ export async function inspectWork(request: {
   return { ...inspection, identity: ContentIdentity.of(inspection) };
 }
 
-export type ReviewWorktreeInspection = {
-  present: boolean;
-  commits: string[];
-  changes: string[];
+/** One Git reading of a checkout, or why it could not be made. */
+export type Reading<Value> =
+  | { status: "read"; value: Value }
+  | { status: "unread"; detail: string };
+
+export type CheckoutInspection = {
+  // Each commit since the base, newest first, with the parents Git records for it.
+  commits: Reading<Array<{ commit: string; parents: string[] }>>;
+  // Every file the commits since the base add, change, or delete. A rename names both paths.
+  changedFiles: Reading<string[]>;
+  // Every file Git shows as not committed, outside the paths that Operator wrote.
+  uncommitted: Reading<string[]>;
 };
 
-/** Splits one porcelain line into its status and the path it names, rename targets included. */
-function changedPath(line: string): string {
-  const path = line.replace(/^\S+\s+/, "");
-  const renamed = path.split(" -> ");
-  return renamed[renamed.length - 1] ?? path;
+/**
+ * One Git reading of a checkout, as the checks of a result and the outside scan word it. The
+ * output stays byte for byte, so a NUL-separated list stays whole.
+ */
+export async function readGit(repoRoot: string, args: string[]): Promise<Reading<string>> {
+  const read = await ToolInvocation.git({
+    repoRoot,
+    args,
+    raw: true,
+    // A Git that is not on the path is the one failure with no exit to name.
+    failed: (failure) =>
+      failure.kind === "unavailable"
+        ? failure.detail
+        : `git ${args[0]} failed: ${failure.stderr.trim() || `exit ${failure.exitCode}`}`,
+  });
+  return read.status === "read" ? { status: "read", value: read.value } : read;
+}
+
+function mapped<Value>(reading: Reading<string>, map: (output: string) => Value): Reading<Value> {
+  return reading.status === "read" ? { status: "read", value: map(reading.value) } : reading;
+}
+
+/** NUL-separated output keeps a path with a space, a quote, or a newline whole. */
+function fields(output: string): string[] {
+  return output.split("\0").filter((one) => one.length > 0);
 }
 
 /**
- * Reads what a reviewer changed in its own checkout.
- * A launch writes its own inputs there, so those paths are excluded and whatever remains is
- * the reviewer's own edit. A review may read and run checks; it may never change the work.
+ * Reads what one checkout holds since its base, as the one inspection every check of a result
+ * or a review report reads. Rename detection is off, because its answer depends on the file
+ * content and it hides the old path of a rename, which is a write too (ADR 0018).
  */
-export async function inspectReviewWork(request: {
+export async function inspectCheckout(request: {
   worktreePath: string;
   baseCommit: string;
-  allowedPrefixes: string[];
-}): Promise<ReviewWorktreeInspection> {
-  const head = await git(request.worktreePath, ["rev-parse", "HEAD"]);
-  if (head === null) {
-    return { present: false, commits: [], changes: [] };
-  }
-
-  const [status, log] = await Promise.all([
+  writtenPrefixes: string[];
+}): Promise<CheckoutInspection> {
+  const range = `${request.baseCommit}..HEAD`;
+  const [log, diff, status] = await Promise.all([
+    readGit(request.worktreePath, ["log", "--format=%H %P", range]),
+    readGit(request.worktreePath, [
+      "diff",
+      "--name-only",
+      "-z",
+      "--no-renames",
+      request.baseCommit,
+      "HEAD",
+    ]),
     // Every untracked file is listed on its own, so a collapsed directory cannot hide an edit.
-    git(request.worktreePath, ["status", "--porcelain", "-uall"]),
-    git(request.worktreePath, ["log", "--format=%H", `${request.baseCommit}..HEAD`]),
+    readGit(request.worktreePath, ["status", "--porcelain=v1", "-z", "--no-renames", "-uall"]),
   ]);
 
   return {
-    present: true,
-    commits: lines(log),
-    changes: lines(status)
-      .map(changedPath)
-      .filter((path) => !request.allowedPrefixes.some((prefix) => path.startsWith(prefix))),
+    commits: mapped(log, (output) =>
+      lines(output).map((line) => {
+        const [commit = "", ...parents] = line.split(" ");
+        return { commit, parents };
+      }),
+    ),
+    changedFiles: mapped(diff, fields),
+    uncommitted: mapped(status, (output) =>
+      fields(output)
+        .map((entry) => entry.slice(3))
+        .filter((path) => !request.writtenPrefixes.some((prefix) => path.startsWith(prefix)))
+        .toSorted(),
+    ),
   };
 }

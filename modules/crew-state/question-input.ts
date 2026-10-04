@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { requirementSourceSchema } from "./requirement-source.ts";
 
 /**
  * The five subjects an Operator may never settle on its own.
@@ -25,6 +26,22 @@ export const HUMAN_ONLY_TRIGGERS = [
   "ambiguity",
   "conflicting-requirements",
 ] as const satisfies EscalationTrigger[];
+
+/**
+ * The subjects one authority cannot close, of those a question or a planning decision names.
+ * A person's own answer closes anything. An Operator decision closes none of them. A recorded
+ * requirement closes the three an approved source can state, and neither of the other two.
+ */
+export function unclosedBy(authority: string, triggers: EscalationTrigger[]): EscalationTrigger[] {
+  if (authority === "human-answer") {
+    return [];
+  }
+  if (authority === "operator-decision") {
+    return triggers;
+  }
+
+  return triggers.filter((one) => HUMAN_ONLY_TRIGGERS.some((human) => human === one));
+}
 
 const text = z.string().min(1);
 
@@ -64,18 +81,16 @@ export const answerInterpretationSchema = z.strictObject({
 
 export type AnswerInterpretation = z.infer<typeof answerInterpretationSchema>;
 
-const source = z.strictObject({ id: text, revision: text });
-
 /**
  * One answer. Each authority carries its own evidence rule, so the three are never confused:
- * a requirement quotes an approved source, a human answer quotes the person, and an Operator
- * decision quotes nobody because there is no human text behind it.
+ * a requirement quotes an approved source and names it by a stored copy, a human answer quotes
+ * the person, and an Operator decision quotes nobody because there is no human text behind it.
  */
 export const answerInputSchema = z.discriminatedUnion("authority", [
   z.strictObject({
     authority: z.literal("requirement"),
     exactText: text,
-    source,
+    source: requirementSourceSchema,
     interpretation: answerInterpretationSchema,
   }),
   z.strictObject({

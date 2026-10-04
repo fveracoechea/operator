@@ -7,7 +7,8 @@ import {
   reportOfContext,
   type Shared,
 } from "./dispatch-context.ts";
-import { unsettledOperations } from "./dispatch.ts";
+import { Attempt, type AttemptFacts } from "./attempt-machine.ts";
+import type { DispatchRow } from "./dispatch.ts";
 import { record } from "./operations.ts";
 
 export type AdoptResult =
@@ -24,6 +25,21 @@ export type AdoptResult =
   | { status: "writer-unknown"; attemptId: string; detail: string }
   | AttemptFailure
   | Shared;
+
+/** Reads whether the Operative of a planned launch still runs, which the adopt decision asks for. */
+async function gather(
+  projectRoot: string,
+  facts: AttemptFacts["adopt"],
+  dispatch: DispatchRow,
+): Promise<AttemptFacts["adopt"]> {
+  const inspection = await OperativeDispatch.inspect({
+    projectRoot,
+    agentName: dispatch.agentName,
+    worktreePath: dispatch.worktreePath,
+    baseCommit: dispatch.baseCommit,
+  });
+  return { ...facts, inspection };
+}
 
 /**
  * Moves one live attempt to the Operator that owns the crew now.
@@ -45,45 +61,14 @@ export async function adoptAttempt(request: {
   }
 
   const context = read.context;
-  if (context.current) {
-    return {
-      status: "already-adopted",
-      attemptId: request.attemptId,
-      assignmentId: context.attempt.assignmentId,
-    };
+  let facts: AttemptFacts["adopt"] = { context, attemptId: request.attemptId };
+  let decision = Attempt.decide("adopt", facts);
+  while ("need" in decision) {
+    facts = await gather(request.projectRoot, facts, decision.dispatch);
+    decision = Attempt.decide("adopt", facts);
   }
-
-  const pending = unsettledOperations(context.operations);
-  if (pending.length > 0) {
-    return {
-      status: "reconciliation-required",
-      attemptId: request.attemptId,
-      pending: pending.map((one) => one.kind),
-    };
-  }
-
-  const dispatch = context.dispatch;
-  if (dispatch !== null) {
-    const inspection = await OperativeDispatch.inspect({
-      projectRoot: request.projectRoot,
-      agentName: dispatch.agentName,
-      worktreePath: dispatch.worktreePath,
-      baseCommit: dispatch.baseCommit,
-    });
-    if (inspection.writer.state === "stopped") {
-      return {
-        status: "writer-stopped",
-        attemptId: request.attemptId,
-        agentName: dispatch.agentName,
-      };
-    }
-    if (inspection.writer.state === "unknown") {
-      return {
-        status: "writer-unknown",
-        attemptId: request.attemptId,
-        detail: inspection.writer.detail,
-      };
-    }
+  if ("refused" in decision) {
+    return decision.refused;
   }
 
   const written = await record(
@@ -107,7 +92,7 @@ export async function adoptAttempt(request: {
     status: "adopted",
     attemptId: request.attemptId,
     assignmentId: context.attempt.assignmentId,
-    report: dispatch === null ? null : reportOfContext(context, dispatch),
+    report: context.dispatch === null ? null : reportOfContext(context, context.dispatch),
     repeated: written.repeated,
   };
 }

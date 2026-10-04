@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { planDispatch, type Brief, type Snapshot } from "./plan.ts";
+import type { ReviewBrief } from "./review-brief.ts";
 
 const snapshot: Snapshot = {
   parentWorkspaceId: "w-renabler",
@@ -23,8 +24,10 @@ const brief: Brief = {
   requirementsIdentity: "requirements",
   permissions: { writePaths: [], allowedCommands: [], network: false },
   fixedInputs: [],
-  review: null,
-  rework: null,
+  planningRecords: [],
+  rules: { submit: [], report: [] },
+  gate: null,
+  role: { kind: "production" },
 };
 
 const protocolBrief: Brief = {
@@ -41,8 +44,10 @@ const protocolBrief: Brief = {
   requirementsIdentity: "requirements-1",
   permissions: { writePaths: ["modules/"], allowedCommands: ["bun test"], network: false },
   fixedInputs: [],
-  review: null,
-  rework: null,
+  planningRecords: [],
+  rules: { submit: [], report: [] },
+  gate: null,
+  role: { kind: "production" },
 };
 
 function plan(input: Brief) {
@@ -93,50 +98,79 @@ test("an Operative has readable project, ticket, purpose and role labels while i
   expect(plan(brief)).toEqual(first);
 });
 
+test("an item read from the tracker keeps its repository and number in its branch and labels", () => {
+  const planned = plan({ ...brief, sourceKey: "fveracoechea/operator-workspace#1501" });
+
+  expect(planned.branch).toBe("operator/operator-workspace-1501-abcdef12");
+  expect(planned.tabLabel).toContain("operator-workspace#1501 Operative: Migrate customer records");
+  expect(
+    plan({ ...brief, sourceKey: "fveracoechea/a-very-long-repository-name#1501" }).branch,
+  ).toBe("operator/a-very-long-reposit-1501-abcdef12");
+});
+
 test("review and rework labels identify their roles on the same ticket", () => {
   const review = plan({
     ...brief,
-    review: {
-      reviewId: "review",
-      attemptId: brief.attemptId,
-      submissionId: "submission",
-      submissionIdentity: "result",
-      resultKind: "non-code",
-      axes: [],
-      requiredCoverage: [],
-      producerAssignmentId: brief.assignmentId,
-      producerTitle: brief.title,
-      assignmentRevision: 1,
-      sourceRevision: "revision",
-      requirementsIdentity: "requirements",
-      reviewBase: null,
-      code: null,
-      checks: [],
-      concerns: [],
-      decisions: [],
-      artifacts: [],
-      priorRounds: [],
+    role: {
+      kind: "review",
+      review: {
+        reviewId: "review",
+        attemptId: brief.attemptId,
+        submissionId: "submission",
+        submissionIdentity: "result",
+        resultKind: "non-code",
+        axes: [],
+        requiredCoverage: [],
+        producerAssignmentId: brief.assignmentId,
+        producerTitle: brief.title,
+        assignmentRevision: 1,
+        sourceRevision: "revision",
+        requirementsIdentity: "requirements",
+        reviewBase: null,
+        code: null,
+        checks: [],
+        concerns: [],
+        decisions: [],
+        behaviorChanges: [],
+        artifacts: [],
+        spec: null,
+        fixedPoint: null,
+        readCommands: [],
+        integration: null,
+        basisQuestions: [],
+        priorRounds: [],
+        publishes: false,
+      },
     },
   });
   const rework = plan({
     ...brief,
-    rework: {
-      cycleId: "cycle",
-      reason: "findings",
-      cycleIndex: 1,
-      limit: 2,
-      approvalId: null,
-      instruction: "Fix the result.",
-      reviewId: "review",
-      submissionId: "submission",
-      submissionIdentity: "result",
-      resultKind: "non-code",
-      corrections: [],
-      conflicts: [],
-      combines: [],
-      checks: [],
-      code: null,
-      artifacts: [],
+    role: {
+      kind: "rework",
+      rework: {
+        cycleId: "cycle",
+        reason: "findings",
+        cycleIndex: 1,
+        limit: 2,
+        approvalId: null,
+        reviewId: "review",
+        submissionId: "submission",
+        submissionIdentity: "result",
+        resultKind: "non-code",
+        corrections: [],
+        conflicts: [],
+        combines: [],
+        checks: [],
+        code: null,
+        artifacts: [],
+        rounds: {
+          concerns: [],
+          decisions: [],
+          behaviorChanges: [],
+          answeredQuestions: [],
+          earlier: [],
+        },
+      },
     },
   });
 
@@ -162,4 +196,72 @@ test("source Operative instructions use the selected commit", () => {
   expect(plan.briefText).toContain(`${command} attempt acknowledge --request`);
   expect(plan.promptText).toContain(`${command} attempt acknowledge --request`);
   expect(plan.promptText).not.toContain("bun install --frozen-lockfile");
+});
+
+test("a producer brief lists each gate command after the submit rules, and permits it", () => {
+  const planned = plan({
+    ...protocolBrief,
+    gate: {
+      commit: "c".repeat(40),
+      commands: [{ name: "quality", line: "bun run quality", timeoutSeconds: 1800 }],
+    },
+  });
+
+  const submit = planned.briefText.indexOf("attempt submit --request");
+  const gate = planned.briefText.indexOf(
+    "- `quality`: `bun run quality` (time limit 1800 seconds)",
+  );
+  expect(submit).toBeGreaterThan(-1);
+  expect(gate).toBeGreaterThan(submit);
+  expect(planned.briefText).toContain(
+    `run each command of the project gate at commit ${"c".repeat(40)}`,
+  );
+  expect(planned.briefText).toContain("raise a question");
+  expect(planned.briefText).toContain("Run only these commands:\n- bun test\n- bun run quality\n");
+  expect(planned.allowedTools).toContain("Bash(bun run quality:*)");
+});
+
+// A host that never asks refuses each tool outside the list, so a producer could not make the
+// one commit of its code result (ADR 0006).
+const GIT_WRITE_RULES = ["Bash(git status:*)", "Bash(git add:*)", "Bash(git commit:*)"];
+
+test("a producer may stage and commit its result", () => {
+  expect(plan(protocolBrief).allowedTools).toEqual(expect.arrayContaining(GIT_WRITE_RULES));
+});
+
+test("a reviewer may not stage or commit", () => {
+  const review = {
+    reviewId: "review-1",
+    attemptId: "attempt-1",
+    submissionId: "submission-1",
+    submissionIdentity: "identity",
+    resultKind: "code",
+    axes: ["standards", "spec"],
+    requiredCoverage: ["diff"],
+    producerAssignmentId: "assignment-1",
+    producerTitle: "Produce a result",
+    assignmentRevision: 1,
+    sourceRevision: "revision-1",
+    requirementsIdentity: "requirements-1",
+    reviewBase: null,
+    code: null,
+    checks: [],
+    concerns: [],
+    decisions: [],
+    behaviorChanges: [],
+    artifacts: [],
+    spec: null,
+    fixedPoint: null,
+    readCommands: [],
+    integration: null,
+    basisQuestions: [],
+    priorRounds: [],
+    publishes: false,
+  } satisfies ReviewBrief;
+  const tools = plan({
+    ...protocolBrief,
+    kind: "review",
+    role: { kind: "review", review },
+  }).allowedTools;
+  for (const rule of GIT_WRITE_RULES) expect(tools).not.toContain(rule);
 });

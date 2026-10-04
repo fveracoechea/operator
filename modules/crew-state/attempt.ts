@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import type { AttemptState } from "./attempt-machine.ts";
 import type { CrewReader, CrewWriter } from "./database.ts";
 import { withdrawQuestions } from "./questions.ts";
 import { attempts } from "./schema.ts";
@@ -54,7 +55,7 @@ export function reassignAttempt(
  */
 export function endAttempt(
   db: CrewWriter,
-  request: { attempt: AttemptRow; state: string; now: string },
+  request: { attempt: AttemptRow; state: AttemptState; now: string },
 ): void {
   db.update(attempts)
     .set({
@@ -67,4 +68,18 @@ export function endAttempt(
 
   // An attempt that stopped writing holds no question. A replacement raises its own.
   withdrawQuestions(db, { attemptId: request.attempt.id, now: request.now });
+}
+
+/**
+ * Returns one accepted attempt to submitted, because a rewrite took its result out and its
+ * acceptance is taken again. The attempt already ended, so its revision and end time stay.
+ */
+export function reopenAttempt(
+  db: CrewWriter,
+  request: { attempt: AttemptRow; state: AttemptState },
+): void {
+  db.update(attempts)
+    .set({ state: request.state })
+    .where(eq(attempts.id, request.attempt.id))
+    .run();
 }

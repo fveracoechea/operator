@@ -12,12 +12,11 @@ export const OperativeCleanup = {
   },
 
   /**
-   * Reads one Operative checkout as a disposal decision needs it: the work it holds, the files
-   * nobody registered, and the commits no remote keeps. Every call here is a read.
+   * Reads one Operative checkout as a disposal decision needs it: its branch and head, the work
+   * it holds, and the files nobody registered. It reads no remote. Every call here is a read.
    */
   async inspect(request: {
     worktreePath: string;
-    baseCommit: string;
     allowedPrefixes: string[];
   }): Promise<CheckoutInspection> {
     return inspectCheckout(request);

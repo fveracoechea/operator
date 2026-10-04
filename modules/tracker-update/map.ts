@@ -48,6 +48,44 @@ function amendmentOf(comment: TrackerComment): MapAmendment | null {
   };
 }
 
+/** An amendment that was edited, or that was written against another baseline body, needs review. */
+function amendmentProblems(amendment: MapAmendment, baselineIdentity: string): Problem[] {
+  const problems: Problem[] = [];
+  if (amendment.edited) {
+    problems.push({
+      reason: "tracker.map_conflict",
+      detail: `Amendment ${amendment.url} was edited after it was written. An edited amendment is reviewed, never restored automatically.`,
+    });
+  }
+  if (
+    amendment.statedBaselineIdentity !== null &&
+    amendment.statedBaselineIdentity !== baselineIdentity
+  ) {
+    problems.push({
+      reason: "tracker.map_conflict",
+      detail: `Amendment ${amendment.url} was written against another baseline body. The baseline changed, which requires review rather than restoration.`,
+    });
+  }
+  return problems;
+}
+
+/** One map conflict for each key that more than one amendment holds, in first-seen key order. */
+function repeated(
+  amendments: MapAmendment[],
+  keysOf: (amendment: MapAmendment) => string[],
+  detailOf: (key: string, count: number) => string,
+): Problem[] {
+  const byKey = new Map<string, number>();
+  for (const amendment of amendments) {
+    for (const key of keysOf(amendment)) {
+      byKey.set(key, (byKey.get(key) ?? 0) + 1);
+    }
+  }
+  return [...byKey]
+    .filter(([, count]) => count > 1)
+    .map(([key, count]) => ({ reason: "tracker.map_conflict", detail: detailOf(key, count) }));
+}
+
 /**
  * Reads one map as its baseline body plus every explicit amendment.
  * Independent additions combine, and every reason the reading cannot be trusted is reported:
@@ -74,54 +112,21 @@ export function readMap(request: {
     });
   }
 
-  for (const amendment of amendments) {
-    if (amendment.edited) {
-      problems.push({
-        reason: "tracker.map_conflict",
-        detail: `Amendment ${amendment.url} was edited after it was written. An edited amendment is reviewed, never restored automatically.`,
-      });
-    }
-    if (
-      amendment.statedBaselineIdentity !== null &&
-      amendment.statedBaselineIdentity !== baselineIdentity
-    ) {
-      problems.push({
-        reason: "tracker.map_conflict",
-        detail: `Amendment ${amendment.url} was written against another baseline body. The baseline changed, which requires review rather than restoration.`,
-      });
-    }
-  }
-
-  const byOperation = new Map<string, MapAmendment[]>();
-  for (const amendment of amendments) {
-    byOperation.set(amendment.operationId, [
-      ...(byOperation.get(amendment.operationId) ?? []),
-      amendment,
-    ]);
-  }
-  for (const [operationId, held] of byOperation) {
-    if (held.length > 1) {
-      problems.push({
-        reason: "tracker.map_conflict",
-        detail: `Operation ${operationId} appears in ${held.length} amendments. A person selects the authoritative one.`,
-      });
-    }
-  }
-
-  const bySection = new Map<string, MapAmendment[]>();
-  for (const amendment of effective) {
-    for (const section of amendment.sections) {
-      bySection.set(section, [...(bySection.get(section) ?? []), amendment]);
-    }
-  }
-  for (const [section, held] of bySection) {
-    if (held.length > 1) {
-      problems.push({
-        reason: "tracker.map_conflict",
-        detail: `Section "${section}" is changed by ${held.length} amendments and none supersedes the others. Comment order does not select a winner.`,
-      });
-    }
-  }
+  problems.push(
+    ...amendments.flatMap((one) => amendmentProblems(one, baselineIdentity)),
+    ...repeated(
+      amendments,
+      (one) => [one.operationId],
+      (operationId, count) =>
+        `Operation ${operationId} appears in ${count} amendments. A person selects the authoritative one.`,
+    ),
+    ...repeated(
+      effective,
+      (one) => one.sections,
+      (section, count) =>
+        `Section "${section}" is changed by ${count} amendments and none supersedes the others. Comment order does not select a winner.`,
+    ),
+  );
 
   return {
     baselineIdentity,

@@ -1,29 +1,42 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+// Bun has no recursive directory removal API.
+import { mkdir, rm } from "node:fs/promises";
 import packageJson from "../../package.json" with { type: "json" };
-import { usage } from "./usage.ts";
+import { usage } from "./operations.ts";
 
 const repositoryRoot = new URL("../../", import.meta.url).pathname;
+// The CLI runs outside any project, so no local release selection reaches it. This file makes the
+// directory itself, because no other test file is sure to run first in the same shard.
+const outsideProject = `${Bun.env.TMPDIR ?? "/tmp"}/operator-cli-main-${crypto.randomUUID()}`;
+
+beforeAll(async () => {
+  await mkdir(outsideProject, { recursive: true });
+});
+
+afterAll(async () => {
+  await rm(outsideProject, { force: true, recursive: true });
+});
 
 async function runOperator(args: string[]) {
-  const process = Bun.spawn(["bun", `${repositoryRoot}cli.ts`, ...args], {
-    cwd: "/tmp/opencode",
+  const child = Bun.spawn([process.execPath, `${repositoryRoot}cli.ts`, ...args], {
+    cwd: outsideProject,
     stderr: "pipe",
     stdout: "pipe",
   });
 
   const [exitCode, stderr, stdout] = await Promise.all([
-    process.exited,
-    new Response(process.stderr).text(),
-    new Response(process.stdout).text(),
+    child.exited,
+    new Response(child.stderr).text(),
+    new Response(child.stdout).text(),
   ]);
 
   return { exitCode, stderr, stdout };
 }
 
 async function runImportedOperator(args: string[]) {
-  const process = Bun.spawn(
+  const child = Bun.spawn(
     [
-      "bun",
+      process.execPath,
       "--no-install",
       "-e",
       'import { main } from "@fveracoechea/operator/cli"; await main(Bun.argv.slice(1));',
@@ -38,9 +51,9 @@ async function runImportedOperator(args: string[]) {
   );
 
   const [exitCode, stderr, stdout] = await Promise.all([
-    process.exited,
-    new Response(process.stderr).text(),
-    new Response(process.stdout).text(),
+    child.exited,
+    new Response(child.stderr).text(),
+    new Response(child.stdout).text(),
   ]);
 
   return { exitCode, stderr, stdout };
@@ -132,6 +145,20 @@ describe("Operator CLI", () => {
     ["setup", "probe", "wibble", "--claude"],
     ["setup", "probe", "plan", "--claude", "--approved-probe", "abc"],
     ["setup", "probe", "apply", "--claude", "--approved-plan", "abc"],
+    // A flag the operation does not name.
+    ["work", "frontier", "--source", "source-1"],
+    ["publish", "plan", "--source", "source-1", "--request", "request-1"],
+    ["crew", "next", "--claude", "--request", "request-1"],
+    // A missing required flag.
+    ["publish", "apply", "--source", "source-1", "--plan-revision", "revision-1"],
+    ["gate", "show"],
+    // A value rule of the operation.
+    ["install", "matt", "apply", "--claude", "--commit", "abc", "--approved-plan", "plan-1"],
+    ["install", "matt", "apply", "--commit", "abc"],
+    ["wake", "check", "--root", ""],
+    ["wake", "arm", "--owner-label", "operator"],
+    // A host that is not one of the choices.
+    ["wake", "arm", "--owner-label", "operator", "--claude", "--operator-host", "bogus"],
   ];
 
   for (const args of unsupportedRequests) {
@@ -142,6 +169,35 @@ describe("Operator CLI", () => {
       expect(JSON.parse(result.stdout).reason).toBe("invalid_arguments");
     });
   }
+
+  test("refuses an operation with no target before its handler runs", async () => {
+    const result = await runOperator([
+      "install",
+      "matt",
+      "apply",
+      "--commit",
+      "a".repeat(40),
+      "--json",
+    ]);
+
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toBe(`${usage}\n`);
+    expect(JSON.parse(result.stdout)).toEqual({
+      schemaVersion: 1,
+      outcome: "invalid",
+      reason: "missing_target",
+      blockers: [{ reason: "missing_target", required: ["--opencode", "--claude"] }],
+      operation: "install_matt_apply",
+    });
+  });
+
+  test("prints the usage text byte for byte", async () => {
+    const result = await runOperator([]);
+
+    expect(result.stderr).toBe(
+      await Bun.file(new URL("usage.expected.txt", import.meta.url)).text(),
+    );
+  });
 
   test("lists every supported command in its usage", async () => {
     const result = await runOperator([]);

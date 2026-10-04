@@ -1,5 +1,10 @@
 import { OperativeDispatch } from "../operative-dispatch/main.ts";
-import { type AttemptFailure, readContext, type Shared } from "./dispatch-context.ts";
+import {
+  type AttemptFailure,
+  readContext,
+  type Shared,
+  type Snapshot,
+} from "./dispatch-context.ts";
 import { record } from "./operations.ts";
 import {
   ANSWER_DELIVERY,
@@ -9,6 +14,7 @@ import {
   settleOperation,
 } from "./dispatch.ts";
 import { mutate, readState } from "./operations.ts";
+import { Question, type QuestionNext } from "./question-machine.ts";
 import {
   type AnswerRow,
   answerRecordOf,
@@ -48,8 +54,9 @@ type Prepared = {
   question: QuestionRow;
   answer: AnswerRow;
   agentName: string;
-  snapshot: Parameters<typeof OperativeDispatch.deliverAnswer>[0]["snapshot"];
+  snapshot: Snapshot;
   operation: OperationRow | null;
+  next: QuestionNext["deliver"];
 };
 
 /**
@@ -136,7 +143,8 @@ export async function deliverAnswer(request: {
   }
 
   const recordedAnswer = answerRecordOf(answer, question);
-  const submitted = await OperativeDispatch.deliverAnswer({
+  const { status: state, detail } = await OperativeDispatch.perform({
+    kind: ANSWER_DELIVERY,
     agentName,
     snapshot: prepared.snapshot,
     answer: {
@@ -149,19 +157,6 @@ export async function deliverAnswer(request: {
       source: recordedAnswer.source,
     },
   });
-
-  const state =
-    submitted.status === "succeeded"
-      ? "succeeded"
-      : submitted.status === "failed"
-        ? "failed"
-        : "uncertain";
-  const detail =
-    submitted.status === "succeeded"
-      ? `Submitted the answer to ${agentName}.`
-      : submitted.status === "failed"
-        ? `${submitted.code}: ${submitted.detail}`
-        : submitted.detail;
 
   const { result: settled } = await mutate<{ status: "settled"; now: string }>(
     {
@@ -181,7 +176,7 @@ export async function deliverAnswer(request: {
         now,
       });
       if (state === "succeeded") {
-        recordDelivered(tx, { questionId: question.id, now });
+        recordDelivered(tx, { questionId: question.id, state: prepared.next, now });
       }
       // The write states when it happened, so the moment of delivery is never read back.
       return { commit: true, outcome: { status: "settled" as const, now } };
@@ -221,17 +216,9 @@ async function prepare(request: {
   }
 
   const question = found.question;
-  if (question.acknowledgedAt !== null) {
-    return {
-      status: "already-acknowledged",
-      questionId: question.id,
-      acknowledgedAt: question.acknowledgedAt,
-    };
-  }
-
-  const answerId = question.answerId;
-  if (answerId === null) {
-    return { status: "not-answered", questionId: question.id, state: question.state };
+  const decision = Question.decide("deliver", { row: question });
+  if ("refused" in decision) {
+    return decision.refused;
   }
 
   const read = await readContext(request.projectRoot, {
@@ -250,7 +237,7 @@ async function prepare(request: {
   }
 
   // A revision drops the answer it was given, so the recorded one always answers what is asked.
-  const answer = await readState(request.projectRoot, (db) => findAnswer(db, answerId));
+  const answer = await readState(request.projectRoot, (db) => findAnswer(db, question));
   if (answer.status !== "found") {
     return { status: "not-answered", questionId: question.id, state: question.state };
   }
@@ -267,6 +254,7 @@ async function prepare(request: {
     agentName: read.context.dispatch.agentName,
     snapshot: snapshot.snapshot,
     operation,
+    next: decision.next,
   };
 }
 
@@ -303,15 +291,9 @@ export async function acknowledgeAnswer(request: {
   }
 
   const question = found.question;
-  if (question.acknowledgedAt !== null) {
-    return {
-      status: "already-acknowledged",
-      questionId: question.id,
-      acknowledgedAt: question.acknowledgedAt,
-    };
-  }
-  if (question.deliveryOperationId === null) {
-    return { status: "not-delivered", questionId: question.id, state: question.state };
+  const decision = Question.decide("acknowledge", { row: question });
+  if ("refused" in decision) {
+    return decision.refused;
   }
 
   const read = await readContext(request.projectRoot, {
@@ -345,7 +327,7 @@ export async function acknowledgeAnswer(request: {
       input: { questionId: question.id, worktreePath: request.worktreePath },
     },
     ({ tx, now }) => {
-      recordQuestionAcknowledgement(tx, { questionId: question.id, now });
+      recordQuestionAcknowledgement(tx, { questionId: question.id, state: decision.next, now });
       if (delivery !== null && delivery.state !== "succeeded") {
         settleOperation(tx, {
           operationId: delivery.id,

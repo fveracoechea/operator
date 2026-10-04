@@ -1,10 +1,10 @@
 import type { CrewWriter } from "./database.ts";
 import { identityOf } from "./identity.ts";
-import type { AxisReport, ReviewReportInput, SubAgentRecord } from "./review-input.ts";
-import { findingId, REVIEW_AXES, type ReviewRow, updateReview } from "./review.ts";
-import { reviewFindings, reviewReports } from "./schema.ts";
-import { type ResultKind, requiredCoverage, storedResultKind } from "./submission-input.ts";
-import type { SubmissionRow } from "./submission.ts";
+import type { AxisReport } from "./review-input.ts";
+import { Review, type ReportRefusal, type ReportSubject } from "./review-machine.ts";
+import { findingId, type ReviewRow, updateReview } from "./review.ts";
+import { eq } from "drizzle-orm";
+import { reviewFindings, reviewReports, reviews } from "./schema.ts";
 
 export type ReportedFinding = {
   findingId: string;
@@ -19,7 +19,8 @@ export type ReportOutcome =
       status: "reported";
       reviewId: string;
       assignmentId: string;
-      submissionId: string;
+      submissionId: string | null;
+      snapshotId: string | null;
       findings: ReportedFinding[];
     }
   | {
@@ -29,53 +30,68 @@ export type ReportOutcome =
       reason: string;
       detail: string;
     }
-  | { status: "review-settled"; reviewId: string; state: string }
-  | { status: "submission-drift"; reviewId: string; recorded: string; stated: string }
-  | { status: "axes-incomplete"; reviewId: string; missing: string[] }
-  | {
-      status: "axes-not-parallel";
-      reviewId: string;
-      windows: Array<{ axis: string; startedAt: string; endedAt: string }>;
-    }
-  | { status: "host-mismatch"; reviewId: string; recorded: string; stated: string }
-  | { status: "sub-agent-host-mismatch"; reviewId: string; recorded: string; stated: string[] }
-  | { status: "sub-agent-failed"; reviewId: string; axes: string[] }
-  | {
-      status: "coverage-incomplete";
-      reviewId: string;
-      gaps: Array<{ axis: string; missing: string[] }>;
-    };
-
-/** The required axes one list does not state exactly once, which is what makes it incomplete. */
-function axesNotStatedOnce(entries: Array<{ axis: string }>): string[] {
-  return REVIEW_AXES.filter((axis) => entries.filter((one) => one.axis === axis).length !== 1);
-}
+  | ReportRefusal;
 
 /**
- * True when both sub-agent windows overlap.
- * The skill requires the two axes to run in parallel and in separate contexts, so a pair that
- * ran one after the other is a different review than the one that was approved.
+ * The rules this report refuses, in the order it checks them, each with the refusal name the CLI
+ * reports for it. The brief places these lines beside the report command and words none itself.
  */
-function ranInParallel(subAgents: SubAgentRecord[]): boolean {
-  const latestStart = subAgents
-    .map((one) => Date.parse(one.startedAt))
-    .reduce((highest, value) => Math.max(highest, value), Number.NEGATIVE_INFINITY);
-  const earliestEnd = subAgents
-    .map((one) => Date.parse(one.endedAt))
-    .reduce((lowest, value) => Math.min(lowest, value), Number.POSITIVE_INFINITY);
-  return latestStart < earliestEnd;
-}
+export const REPORT_RULES = [
+  // `recordReview` reads the reviewer checkout before it records anything.
+  {
+    refusal: "review_worktree_changed",
+    rule: "Never edit a file or commit in this checkout.",
+  },
+  {
+    refusal: "submission_drift",
+    rule: "`submissionIdentity` is the identity of the submission above.",
+  },
+  {
+    refusal: "review_host_mismatch",
+    rule: "`host` is the crew host under Effective configuration.",
+  },
+  {
+    refusal: "review_axes_incomplete",
+    rule: "`reports` and `subAgents` each name every axis exactly once.",
+  },
+  { refusal: "review_sub_agent_host_mismatch", rule: "Every sub-agent runs on that same host." },
+  {
+    refusal: "review_sub_agent_failed",
+    rule: "Every sub-agent completed. If one could not, record the blocker below instead.",
+  },
+  {
+    refusal: "review_axes_not_parallel",
+    rule: "The two sub-agent windows overlap, because the two axes run at the same time.",
+  },
+  {
+    refusal: "review_coverage_incomplete",
+    rule: "Each axis states in `checked` every reading that this result kind requires.",
+  },
+  {
+    refusal: "review_published_text_missing",
+    rule: "`published` holds the pull request text when the brief asks for it.",
+  },
+];
 
-function coverageGaps(
-  reports: AxisReport[],
-  resultKind: ResultKind,
-): Array<{ axis: string; missing: string[] }> {
-  const required = requiredCoverage(resultKind);
-  return reports.flatMap((report) => {
-    const missing = required.filter((token) => !report.checked.includes(token));
-    return missing.length === 0 ? [] : [{ axis: report.axis, missing }];
-  });
-}
+/**
+ * The rules a branch review report refuses beyond the shared ones, each with its refusal name.
+ * A branch finding is corrected by invalidating the assignment of one target commit, so a
+ * finding with no target, or with a commit outside the snapshot, could never be answered.
+ */
+export const BRANCH_REPORT_RULES = [
+  {
+    refusal: "review_finding_untargeted",
+    rule: "Every finding names at least one commit of the snapshot in `targets`.",
+  },
+  {
+    refusal: "review_finding_target_unknown",
+    rule: "Every target is the full SHA of one commit listed in the branch snapshot above.",
+  },
+  {
+    refusal: "review_cut_not_between_commits",
+    rule: "Each cut in `published.cuts` names, in landing order, a commit of the snapshot above that is not the head.",
+  },
+];
 
 /**
  * Records the two axis reports of one review, or the blocker that stopped it.
@@ -86,41 +102,23 @@ export function recordReviewReport(
   db: CrewWriter,
   request: {
     review: ReviewRow;
-    submission: SubmissionRow;
+    subject: ReportSubject;
     agentHost: string;
-    input: ReviewReportInput;
     now: string;
   },
 ): ReportOutcome {
-  const { review, submission, input } = request;
-
-  if (review.state !== "registered") {
-    return { status: "review-settled", reviewId: review.id, state: review.state };
-  }
-  // The report names the exact submission it read, so a moved result cannot pass as reviewed.
-  if (input.submissionIdentity !== submission.identity) {
-    return {
-      status: "submission-drift",
-      reviewId: review.id,
-      recorded: submission.identity,
-      stated: input.submissionIdentity,
-    };
-  }
-
-  // The stated host is what `review show` reports, so it must be the host the launch recorded.
-  if (input.host !== request.agentHost) {
-    return {
-      status: "host-mismatch",
-      reviewId: review.id,
-      recorded: request.agentHost,
-      stated: input.host,
-    };
-  }
+  const { review, subject } = request;
+  const input = subject.input;
+  const facts = { row: review, subject, agentHost: request.agentHost };
 
   if (input.kind === "blocked") {
+    const decided = Review.decide("block", facts);
+    if ("refused" in decided) {
+      return decided.refused;
+    }
     updateReview(db, {
       review,
-      state: "blocked",
+      state: decided.next,
       host: input.host,
       subAgents: null,
       blocker: input.blocker,
@@ -136,50 +134,15 @@ export function recordReviewReport(
     };
   }
 
-  const missing = [
-    ...new Set([...axesNotStatedOnce(input.reports), ...axesNotStatedOnce(input.subAgents)]),
-  ];
-  if (missing.length > 0) {
-    return { status: "axes-incomplete", reviewId: review.id, missing };
+  const decided = Review.decide("report", facts);
+  if ("refused" in decided) {
+    return decided.refused;
   }
-
-  // The sub-agents are native to the reviewer host, so they hold no Herdr slot of their own.
-  const foreign = [...new Set(input.subAgents.map((one) => one.host))].filter(
-    (host) => host !== request.agentHost,
-  );
-  if (foreign.length > 0) {
-    return {
-      status: "sub-agent-host-mismatch",
-      reviewId: review.id,
-      recorded: request.agentHost,
-      stated: foreign,
-    };
-  }
-
-  const failed = input.subAgents.filter((one) => one.status !== "completed").map((one) => one.axis);
-  if (failed.length > 0) {
-    return { status: "sub-agent-failed", reviewId: review.id, axes: failed };
-  }
-
-  if (!ranInParallel(input.subAgents)) {
-    return {
-      status: "axes-not-parallel",
-      reviewId: review.id,
-      windows: input.subAgents.map((one) => ({
-        axis: one.axis,
-        startedAt: one.startedAt,
-        endedAt: one.endedAt,
-      })),
-    };
-  }
-
-  const gaps = coverageGaps(input.reports, storedResultKind(submission.resultKind));
-  if (gaps.length > 0) {
-    return { status: "coverage-incomplete", reviewId: review.id, gaps };
-  }
+  const published = input.published ?? null;
 
   const findings: ReportedFinding[] = [];
-  for (const report of input.reports) {
+  const reports: Array<AxisReport & { findings: Array<{ targets?: string[] }> }> = input.reports;
+  for (const report of reports) {
     db.insert(reviewReports)
       .values({
         id: identityOf({ reviewId: review.id, axis: report.axis }).slice(0, 32),
@@ -210,6 +173,8 @@ export function recordReviewReport(
           followUp: null,
           disposedAt: null,
           recordedAt: request.now,
+          targets: finding.targets === undefined ? null : JSON.stringify(finding.targets),
+          correctionTarget: null,
         })
         .run();
       findings.push({
@@ -224,19 +189,26 @@ export function recordReviewReport(
 
   updateReview(db, {
     review,
-    state: "reported",
+    state: decided.next,
     host: input.host,
     subAgents: input.subAgents,
     blocker: null,
     reportedAt: request.now,
     now: request.now,
   });
+  if (published !== null) {
+    db.update(reviews)
+      .set({ publishedText: JSON.stringify(published) })
+      .where(eq(reviews.id, review.id))
+      .run();
+  }
 
   return {
     status: "reported",
     reviewId: review.id,
     assignmentId: review.assignmentId,
-    submissionId: submission.id,
+    submissionId: subject.kind === "submission" ? subject.submission.id : null,
+    snapshotId: subject.kind === "branch" ? subject.snapshot.id : null,
     findings,
   };
 }
