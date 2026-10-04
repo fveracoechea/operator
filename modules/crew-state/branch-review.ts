@@ -12,7 +12,8 @@ import { type DirectionRecord, raiseDirection } from "./direction.ts";
 import { identityOf } from "./identity.ts";
 import { fixedGateOf, integrationBranchOf } from "./integration.ts";
 import { sourceTextOf } from "./requirement-source.ts";
-import { REVIEW_AXES, reviewOfSubmission, type ReviewRow } from "./review.ts";
+import { REVIEW_AXES, reviewOfSubmission, type ReviewRow, withdrawReview } from "./review.ts";
+import { Review } from "./review-machine.ts";
 import { assignments, branchSnapshots, landings, reviews } from "./schema.ts";
 import { readStored } from "./stored.ts";
 import { type StoredCopy, specPathOf } from "./submission-store.ts";
@@ -483,13 +484,15 @@ export function closeBranchReviewsOf(
     const holds = storedSnapshotCommits(snapshot.commits).some(
       (one) => one.assignmentId === request.row.id,
     );
-    if (!holds || review.state === "reported" || review.state === "withdrawn") {
+    // A review already withdrawn is closed, so it closes no holder again.
+    if (
+      !holds ||
+      review.state === "withdrawn" ||
+      "refused" in Review.decide("withdraw", { row: review })
+    ) {
       continue;
     }
-    db.update(reviews)
-      .set({ state: "withdrawn", revision: review.revision + 1, updatedAt: request.now })
-      .where(eq(reviews.id, review.id))
-      .run();
+    withdrawReview(db, { review, now: request.now });
     const holder = readAssignment(db, review.assignmentId);
     if (holder !== null) {
       closed.push(holder);

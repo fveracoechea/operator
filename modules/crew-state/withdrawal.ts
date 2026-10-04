@@ -8,6 +8,8 @@ import { submissionsOf } from "./submission.ts";
 import { trackerOperationsOf } from "./tracker.ts";
 import { branchReviewHoldersOf, closeBranchReviewsOf } from "./branch-review.ts";
 import { intendedLandingOf, intentTouches } from "./landing-record.ts";
+import { Review } from "./review-machine.ts";
+import { withdrawReview } from "./review.ts";
 
 /**
  * Why one withdrawal waits. A withdrawal never stops work that nobody handed over, and recovery
@@ -153,11 +155,8 @@ export function withdrawAssignment(
 
   // The refusals above leave no review attempt active, so no review here is still read.
   for (const review of reviewsOfWork(db, row.id)) {
-    if (review.state !== "reported") {
-      db.update(reviews)
-        .set({ state: "withdrawn", revision: review.revision + 1, updatedAt: now })
-        .where(eq(reviews.id, review.id))
-        .run();
+    if ("next" in Review.decide("withdraw", { row: review })) {
+      withdrawReview(db, { review, now });
     }
     const holder = readAssignment(db, review.assignmentId);
     if (holder !== null && holder.state !== "accepted" && holder.state !== "withdrawn") {

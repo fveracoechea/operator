@@ -27,17 +27,12 @@ import { integrationBranchOf } from "./integration.ts";
 import { directionRecordOf } from "./direction.ts";
 import { calculateFrontier, type Frontier, undirected, unmetDependencies } from "./frontier.ts";
 import { openPauses } from "./invalidate.ts";
-import { outsideChangesOfSubmission, undisposedOutside } from "./outside-changes.ts";
+import { type OutsideChangeRow, outsideChangesOfSubmission } from "./outside-changes.ts";
 import { type DependencyRecord, dependencyRecords } from "./planning-record.ts";
 import { currentOwnership } from "./ownership.ts";
 import { blockingQuestions, triggersOf } from "./questions.ts";
-import {
-  corrections,
-  findingsOf,
-  reviewOfAssignment,
-  reviewOfSubmission,
-  undisposed,
-} from "./review.ts";
+import { findingsOf, reviewOfAssignment, reviewOfSubmission, undisposed } from "./review.ts";
+import { Review } from "./review-machine.ts";
 import { readSnapshot } from "./branch-review.ts";
 import { openCycleOf } from "./rework.ts";
 import { assignments, attempts, workSources } from "./schema.ts";
@@ -772,7 +767,15 @@ function readReview(
     revision: request.revision,
   };
 
-  if (review.state === "blocked") {
+  const owed = Review.owed({
+    row: review,
+    findings: findingsOf(db, review.id),
+    outside: outsideChangesOfSubmission(db, submission.id),
+  });
+  if (owed.owes === "report") {
+    return;
+  }
+  if (owed.owes === "replace") {
     into.add({
       ...subject,
       action: "replace_attempt",
@@ -781,71 +784,74 @@ function readReview(
     });
     return;
   }
-  if (review.state !== "reported") {
-    return;
-  }
-
-  const findings = findingsOf(db, review.id);
-  if (undisposed(findings).length > 0) {
+  if (owed.owes === "dispose") {
     into.add({
       ...subject,
       action: "dispose_findings",
-      detail: `${undisposed(findings).length} finding(s) carry no disposition.`,
+      detail: `${owed.findings.length} finding(s) carry no disposition.`,
       command: "operator review dispose",
     });
     return;
   }
-
-  if (corrections(findings).length > 0 && openCycleOf(db, request.assignmentId) === null) {
+  // Every later step waits while delegated rework is open.
+  if (openCycleOf(db, request.assignmentId) !== null) {
+    return;
+  }
+  if (owed.owes === "rework") {
     into.add({
       ...subject,
       action: "delegate_rework",
-      detail: `${corrections(findings).length} accepted correction(s) wait for a fresh Operative.`,
+      detail: `${owed.findings.length} accepted correction(s) wait for a fresh Operative.`,
       command: "operator work rework",
     });
     return;
   }
-
-  const outside = undisposedOutside(outsideChangesOfSubmission(db, submission.id));
-  if (outside.length > 0 && openCycleOf(db, request.assignmentId) === null) {
-    const security = outside.filter((one) => one.security === 1).length;
-    const draft: Draft = {
-      ...subject,
-      action: "dispose_outside_changes",
-      detail: `${outside.length} outside change(s) carry no disposition${security > 0 ? `, and ${security} touch a security permission` : ""}. Read them with \`operator review show\`.`,
-      command: "operator work dispose",
-    };
-    // A change to a hook or the checkout config is a security permission, so the user decides.
-    if (security > 0) {
-      draft.blocker = "approval_required";
-    }
-    into.add(draft);
+  if (owed.owes === "outside") {
+    into.add(outsideDraft(subject, owed.changes));
     return;
   }
-
-  if (openCycleOf(db, request.assignmentId) === null) {
-    if (submittedCommit(submission) !== null) {
-      readLanding(
-        db,
-        {
-          ...subject,
-          sourceId: request.sourceId,
-          submissionId: submission.id,
-          broken: request.broken.get(submission.id) ?? null,
-          rewrite: request.rewrites.get(submission.id) ?? null,
-          takeOutWaits: request.takeOutWaits.has(request.sourceId),
-        },
-        into,
-      );
-      return;
-    }
-    into.add({
-      ...subject,
-      action: "accept_assignment",
-      detail: "The review reported and every finding carries a disposition.",
-      command: "operator work accept",
-    });
+  if (submittedCommit(submission) !== null) {
+    readLanding(
+      db,
+      {
+        ...subject,
+        sourceId: request.sourceId,
+        submissionId: submission.id,
+        broken: request.broken.get(submission.id) ?? null,
+        rewrite: request.rewrites.get(submission.id) ?? null,
+        takeOutWaits: request.takeOutWaits.has(request.sourceId),
+      },
+      into,
+    );
+    return;
   }
+  into.add({
+    ...subject,
+    action: "accept_assignment",
+    detail: "The review reported and every finding carries a disposition.",
+    command: "operator work accept",
+  });
+}
+
+/**
+ * The step for the outside changes of one result that carry no disposition. A change to a hook
+ * or the checkout config is a security permission, so the user decides.
+ */
+function outsideDraft(
+  subject: { assignmentId: string; reviewId: string; revision: number },
+  outside: OutsideChangeRow[],
+): Draft {
+  const security = outside.filter((one) => one.security === 1).length;
+  const draft: Draft = {
+    ...subject,
+    action: "dispose_outside_changes",
+    detail: `${outside.length} outside change(s) carry no disposition${security > 0 ? `, and ${security} touch a security permission` : ""}. Read them with \`operator review show\`.`,
+    command: "operator work dispose",
+  };
+  if (security > 0) {
+    draft.blocker = "approval_required";
+  }
+  return draft;
 }
 
 /**

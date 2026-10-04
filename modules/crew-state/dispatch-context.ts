@@ -18,7 +18,8 @@ import {
   storedArtifacts,
 } from "./submission-store.ts";
 import { reviewReadCommands, SUBMIT_RULES } from "./submission.ts";
-import { BRANCH_REPORT_RULES, branchCoverage, REPORT_RULES } from "./review-report.ts";
+import { branchCoverage } from "./review-machine.ts";
+import { BRANCH_REPORT_RULES, REPORT_RULES } from "./review-report.ts";
 import { storedFixedInputs, storedPermissions, storedRequirements } from "./work-input.ts";
 import { REVIEW_AXES } from "./review.ts";
 import {

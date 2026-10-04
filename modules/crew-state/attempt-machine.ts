@@ -22,6 +22,7 @@ import type { BaseGateRefusal, BasePassed, BaseUnread } from "./gate-base.ts";
 import type { IntegrationRefusal } from "./integration.ts";
 import type { StateFailure } from "./operations.ts";
 import type { ReviewRow } from "./review.ts";
+import { Review } from "./review-machine.ts";
 
 /**
  * The attempt machine (ADR 0023, ADR 0005). One `attempts` row moves through these states.
@@ -752,7 +753,9 @@ function decideReplace(facts: ReplaceFacts): ReplaceDecision {
     throw new Error("A replacement decided its launch before the replace rows passed.");
   }
   const held = reviewHeldOf(context);
-  const open = held !== null && held.review.state !== "reported" ? held : null;
+  // The replacement reviewer reads the same fixed submission, so an unfinished review reopens.
+  const open =
+    held !== null && "next" in Review.decide("reopen", { row: held.review }) ? held : null;
   return {
     next: "replaced",
     dispatch,

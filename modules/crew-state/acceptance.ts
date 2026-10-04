@@ -4,15 +4,15 @@ import { endAttempt, readAttempt } from "./attempt.ts";
 import type { CrewWriter } from "./database.ts";
 import { activeAttempt, unmetDependencies } from "./frontier.ts";
 import {
-  corrections,
   findingsOf,
   missingAxes,
   reportsOf,
   type ReviewReportRow,
   reviewOfAssignment,
   reviewOfSubmission,
-  undisposed,
+  type ReviewRow,
 } from "./review.ts";
+import { Review } from "./review-machine.ts";
 import { type DirectionRecord, directionRecordOf, openDirectionsOf } from "./direction.ts";
 import { openPauses, resolveInvalidations } from "./invalidate.ts";
 import { outsideChangesOfSubmission, undisposedOutside } from "./outside-changes.ts";
@@ -204,6 +204,17 @@ function contradictedChecks(
   );
 }
 
+/** The refusal for a result whose review has not reported, with what stopped it, if anything. */
+function reviewIncomplete(submission: SubmissionRow, review: ReviewRow | null): AcceptResult {
+  return {
+    status: "review-incomplete",
+    assignmentId: submission.assignmentId,
+    reviewId: review === null ? null : review.id,
+    state: review === null ? "none" : review.state,
+    blocker: review === null || review.blocker === null ? null : JSON.parse(review.blocker),
+  };
+}
+
 /**
  * The review gates of one code or non-code submission.
  * Every gate is a recorded fact, so a process that exited, a missing input, an unavailable
@@ -212,17 +223,13 @@ function contradictedChecks(
 function reviewGate(db: CrewWriter, request: { submission: SubmissionRow }): AcceptResult | null {
   const { submission } = request;
   const review = reviewOfSubmission(db, submission.id);
-  if (review === null || review.state !== "reported") {
-    return {
-      status: "review-incomplete",
-      assignmentId: submission.assignmentId,
-      reviewId: review?.id ?? null,
-      state: review?.state ?? "none",
-      blocker:
-        review?.blocker === undefined || review.blocker === null
-          ? null
-          : JSON.parse(review.blocker),
-    };
+  if (review === null) {
+    return reviewIncomplete(submission, null);
+  }
+  // The outside changes are answered after the checks, so this gate reads only the findings.
+  const owed = Review.owed({ row: review, findings: findingsOf(db, review.id), outside: [] });
+  if (owed.owes === "report" || owed.owes === "replace") {
+    return reviewIncomplete(submission, review);
   }
 
   const missing = missingAxes(reportsOf(db, review.id));
@@ -235,25 +242,22 @@ function reviewGate(db: CrewWriter, request: { submission: SubmissionRow }): Acc
     };
   }
 
-  const findings = findingsOf(db, review.id);
-  const open = undisposed(findings);
-  if (open.length > 0) {
+  if (owed.owes === "dispose") {
     return {
       status: "findings-undisposed",
       assignmentId: submission.assignmentId,
       reviewId: review.id,
-      findingIds: open.map((one) => one.id),
+      findingIds: owed.findings.map((one) => one.id),
     };
   }
 
   // An accepted correction is delegated rework, so it blocks acceptance until that work lands.
-  const pending = corrections(findings);
-  if (pending.length > 0) {
+  if (owed.owes === "rework") {
     return {
       status: "rework-pending",
       assignmentId: submission.assignmentId,
       reviewId: review.id,
-      findingIds: pending.map((one) => one.id),
+      findingIds: owed.findings.map((one) => one.id),
     };
   }
 

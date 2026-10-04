@@ -51,15 +51,21 @@ const undecided = {
   disposedAt: null,
 } as const;
 
-function isSecurity(where: string): boolean {
-  return where === "git-hooks" || where === "git-config";
-}
-
 type Part = "parent" | "checkout";
 
-/** The scan part that holds one place, so a removal is proven by the part that found it. */
-function partOf(where: string): Part {
-  return where === "worktree-parent" ? "parent" : "checkout";
+/**
+ * Each place an outside scan reads: the scan part that holds it, so a removal is proven by the
+ * part that found it, and whether a change there touches a security permission.
+ */
+const PLACES = new Map<string, { part: Part; security: boolean }>([
+  ["worktree-parent", { part: "parent", security: false }],
+  ["checkout", { part: "checkout", security: false }],
+  ["git-hooks", { part: "checkout", security: true }],
+  ["git-config", { part: "checkout", security: true }],
+] satisfies Array<[z.infer<typeof place>, { part: Part; security: boolean }]>);
+
+function placeOf(where: string): { part: Part; security: boolean } {
+  return PLACES.get(where) ?? { part: "checkout", security: false };
 }
 
 /**
@@ -122,7 +128,7 @@ export function outsideChangesOf(request: {
           change: old === undefined ? "added" : now === undefined ? "removed" : "changed",
           before: old?.state ?? null,
           after: now?.state ?? null,
-          security: isSecurity(entry.place) ? 1 : 0,
+          security: placeOf(entry.place).security ? 1 : 0,
           ...undecided,
         },
       ];
@@ -237,7 +243,7 @@ function rescanned(
   row: OutsideChangeRow,
   scan: OutsideScan | null,
 ): { proven: boolean; found: string | null } {
-  const part = scan?.[partOf(row.place)];
+  const part = scan?.[placeOf(row.place).part];
   if (row.change === "unscanned" || part === undefined || part.status === "unread") {
     return { proven: false, found: part?.status === "unread" ? part.detail : null };
   }

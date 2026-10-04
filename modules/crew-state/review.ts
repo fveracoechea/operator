@@ -7,8 +7,11 @@ export const REVIEW_AXES = ["standards", "spec"] as const;
 
 export type ReviewAxis = (typeof REVIEW_AXES)[number];
 
-/** A review is registered until it either reports both axes or records what stopped it. */
-export type ReviewState = "registered" | "reported" | "blocked";
+/**
+ * A review is registered until it either reports both axes or records what stopped it. A
+ * withdrawal closes one that never reported. `review-machine.ts` holds its transitions.
+ */
+export type ReviewState = "registered" | "reported" | "blocked" | "withdrawn";
 
 export type ReviewRow = typeof reviews.$inferSelect;
 export type ReviewReportRow = typeof reviewReports.$inferSelect;
@@ -115,6 +118,14 @@ export function reopenReview(db: CrewWriter, request: { review: ReviewRow; now: 
       revision: request.review.revision + 1,
       updatedAt: request.now,
     })
+    .where(eq(reviews.id, request.review.id))
+    .run();
+}
+
+/** Closes one review that never reported. Only the review machine decides it may close. */
+export function withdrawReview(db: CrewWriter, request: { review: ReviewRow; now: string }): void {
+  db.update(reviews)
+    .set({ state: "withdrawn", revision: request.review.revision + 1, updatedAt: request.now })
     .where(eq(reviews.id, request.review.id))
     .run();
 }
