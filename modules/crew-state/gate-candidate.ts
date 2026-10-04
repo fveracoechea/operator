@@ -1,5 +1,5 @@
 import { readAssignment } from "./assignment.ts";
-import { type GateStartResult, startRun } from "./gate-start.ts";
+import { type GateStartResult, startOnStep, startRun } from "./gate-start.ts";
 import { fixedGateOf, integrationBranchOf } from "./integration.ts";
 import type { LandingRefusal } from "./branch-move.ts";
 import { candidateKey, planLanding } from "./landing.ts";
@@ -88,39 +88,33 @@ export async function startCandidateGateRun(request: {
     if (!("gate" in gated)) {
       return gated;
     }
-    const { gate } = gated;
-    if (gate.status === "passed") {
-      const last = rewritten.rewrite.gated.at(-1);
-      return {
-        status: "gate-passed",
-        key: { tree: last?.tree ?? "", declarationIdentity: row.gateIdentity },
-        commit: rewritten.rewrite.landing.plan.to,
-        runIds: [],
-      };
-    }
-    if (gate.status === "running") {
-      return {
-        status: "gate-running",
-        runId: gate.runIds[0] ?? "",
-        detail: `Gate run ${gate.runIds.join(", ")} still runs at commit ${gate.commit} of the rebuilt range.`,
-      };
-    }
-    return startRun({
-      ...request,
-      target: {
-        sourceId: assignment.sourceId,
-        commit: gate.commit,
-        key: gate.key,
-        commands: fixedGateOf(row).commands,
-        subject: {
-          kind: "rewrite",
-          assignmentId: assignment.id,
-          submissionId: submission.id,
-          tip: row.recordedTip,
-          parent: gate.parent,
-        },
-        checkoutBase: row.baseCommit,
+    const { rewrite } = rewritten;
+    return startOnStep({
+      step: gated.gate,
+      passed: {
+        commit: rewrite.landing.plan.to,
+        declarationIdentity: row.gateIdentity,
+        tree: rewrite.gated.at(-1)?.tree ?? null,
       },
+      range: "the rebuilt range",
+      start: (gate) =>
+        startRun({
+          ...request,
+          target: {
+            sourceId: assignment.sourceId,
+            commit: gate.commit,
+            key: gate.key,
+            commands: fixedGateOf(row).commands,
+            subject: {
+              kind: "rewrite",
+              assignmentId: assignment.id,
+              submissionId: submission.id,
+              tip: row.recordedTip,
+              parent: gate.parent,
+            },
+            checkoutBase: row.baseCommit,
+          },
+        }),
     });
   }
 

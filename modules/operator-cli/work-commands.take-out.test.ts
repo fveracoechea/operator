@@ -447,6 +447,23 @@ describe("operator work take-out takes the commits of withdrawn work out of the 
 
     // Nothing lands again, so no gate run is owed before the take-out.
     expect((await nextActions(workspace)).of("take_out_commit").blocker).toBeNull();
+    // A gate run on a range with no commit to gate starts nothing, and it names no tree.
+    const gateArgs = ["gate", "run", "--owner-token", producer.ownerToken, "--source", SOURCE];
+    const nothing = await runJson(workspace, [...gateArgs, "--request", request()]);
+    expect(nothing.json).toMatchObject({ outcome: "conflict", reason: "gate_passed" });
+    expect(nothing.json.blockers).toEqual([
+      {
+        reason: "gate_passed",
+        commit: before[0],
+        tree: "",
+        declarationIdentity: expect.any(String),
+        runIds: [],
+      },
+    ]);
+    const nothingText = await runOperator(workspace, [...gateArgs, "--request", request()]);
+    expect(nothingText.stdout).toContain(
+      `The key of commit ${before[0]} already passed in gate run . Nothing was started.`,
+    );
     const taken = await takeOut(workspace, producer, planRevision);
 
     expect(taken.json.reason).toBe("commits_taken_out");

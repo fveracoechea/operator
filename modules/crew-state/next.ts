@@ -16,6 +16,7 @@ import {
   type BaseGate,
   baseGateOf,
   candidateGateOf,
+  type GateStatus,
   isFirstCodeDispatch,
   runningRunOf,
 } from "./gate-runs.ts";
@@ -490,13 +491,8 @@ function readRebase(db: CrewReader, into: Collector): void {
     if (approved === undefined) {
       continue;
     }
-    const running = runningRunOf(db, source.id);
-    if (running !== null) {
-      into.wait({
-        wait: "gate_running",
-        sourceId: source.id,
-        detail: `Gate run ${running.id} of source ${source.id} runs first. One gate run of a source runs at a time.`,
-      });
+    // The rebase starts gate runs of its own, so it waits for the run in progress.
+    if (waitsForRun(db, source.id, { sourceId: source.id }, into)) {
       continue;
     }
     const newBase = approved.targets[1] ?? "<the new base>";
@@ -867,7 +863,6 @@ function readTakeOutsOf(
   const waiting = new Set<string>();
   for (const source of db.select().from(workSources).all()) {
     const intended = intendedLandingOf(db, source.id);
-    const pending = pendingTakeOutsOf(db, source.id);
     if (intended?.kind === "take-out") {
       waiting.add(source.id);
       into.add({
@@ -878,47 +873,40 @@ function readTakeOutsOf(
       });
       continue;
     }
-    if (pending.length === 0) {
+    const pending = pendingTakeOutsOf(db, source.id);
+    const [first] = pending;
+    if (first === undefined) {
       continue;
     }
     waiting.add(source.id);
     const read = request.takeOuts.get(source.id);
     const commits = pending.map((one) => one.landing.landedCommit).join(", ");
-    const revision = read?.planRevision ?? pending[0]?.planRevision ?? "";
-    const gate = read?.gate ?? null;
-    if (gate !== null && gate.status === "running") {
-      into.wait({
-        wait: "gate_running",
-        sourceId: source.id,
-        detail: `Gate run ${gate.runIds.join(", ")} runs on ${gate.commit} of the rebuilt range of the take-out. Its runner wakes the Operator at the end.`,
-      });
-      continue;
-    }
-    if (gate !== null && gate.status === "pending") {
-      const running = runningRunOf(db, source.id);
-      if (running !== null) {
-        into.wait({
-          wait: "gate_running",
-          sourceId: source.id,
-          detail: `Gate run ${running.id} of source ${source.id} runs first. One gate run of a source runs at a time.`,
-        });
-        continue;
-      }
-      into.add({
-        action: "run_gate",
-        sourceId: source.id,
-        detail: `The take-out of the withdrawn commit(s) ${commits} rebuilds the branch, and ${gate.commit} on ${gate.parent} is the next commit of the rebuilt range with no gate run at its key.`,
-        command: `operator gate run --source ${source.id}`,
-      });
-      continue;
-    }
     // A plan that read no range is left to the command, which names the refusal.
-    into.add({
+    const move: Draft = {
       action: "take_out_commit",
       sourceId: source.id,
       detail: `The integration branch still holds the withdrawn commit(s) ${commits}. Each later commit that lands again passed the project gate, so the take-out moves the branch once without them. Until then no production work of the source starts.`,
-      command: takeOutCommand(source.id, revision),
-    });
+      command: takeOutCommand(source.id, read?.planRevision ?? first.planRevision),
+    };
+    readGatedMove(
+      db,
+      {
+        step: read?.gate ?? { status: "passed" },
+        sourceId: source.id,
+        waiter: { sourceId: source.id },
+        passed: () => move,
+        running: (gate) =>
+          `Gate run ${gate.runIds.join(", ")} runs on ${gate.commit} of the rebuilt range of the take-out. Its runner wakes the Operator at the end.`,
+        failed: () => move,
+        pending: (gate) => ({
+          action: "run_gate",
+          sourceId: source.id,
+          detail: `The take-out of the withdrawn commit(s) ${commits} rebuilds the branch, and ${gate.commit} on ${gate.parent} is the next commit of the rebuilt range with no gate run at its key.`,
+          command: `operator gate run --source ${source.id}`,
+        }),
+      },
+      into,
+    );
   }
   return waiting;
 }
@@ -978,64 +966,46 @@ function readLanding(
     return;
   }
 
-  const gate = candidateGateOf(db, { sourceId, submissionId, tip: row.recordedTip });
-  const command = `operator gate run --assignment ${request.assignmentId}`;
-  switch (gate.status) {
-    case "passed":
-      into.add({
+  readGatedMove(
+    db,
+    {
+      step: candidateGateOf(db, { sourceId, submissionId, tip: row.recordedTip }),
+      sourceId,
+      waiter: { assignmentId: request.assignmentId },
+      passed: (gate) => ({
         ...subject,
         action: "accept_assignment",
-        detail: `The review reported, and the planned commit ${gate.commit ?? ""} on ${row.recordedTip} passed the project gate. Acceptance lands it on ${row.name}.`,
+        detail: `The review reported, and the planned commit ${gate.commit} on ${row.recordedTip} passed the project gate. Acceptance lands it on ${row.name}.`,
         command: "operator work accept",
-      });
-      return;
-    case "running":
-      into.wait({
-        wait: "gate_running",
-        assignmentId: request.assignmentId,
-        detail: `Gate run ${gate.run.id} runs on the planned commit ${gate.run.commit}. Its runner wakes the Operator at the end.`,
-      });
-      return;
-    case "failed":
-    case "flaky":
-      into.add({
+      }),
+      running: (gate) =>
+        `Gate run ${gate.run.id} runs on the planned commit ${gate.run.commit}. Its runner wakes the Operator at the end.`,
+      failed: (gate) => ({
         ...subject,
         action: "delegate_rework",
-        detail: `The planned commit ${gate.commit ?? ""} on ${row.recordedTip} is ${gate.status} in gate run ${gate.failed.map((one) => one.id).join(", ")}, so it does not land. Delegate an integration cycle, with the reason "integration": it carries the failed run, and it starts from the recorded tip of ${row.name}.`,
+        detail: `The planned commit ${gate.commit} on ${row.recordedTip} is ${gate.status} in gate run ${gate.failed.map((one) => one.id).join(", ")}, so it does not land. Delegate an integration cycle, with the reason "integration": it carries the failed run, and it starts from the recorded tip of ${row.name}.`,
         command: INTEGRATION_COMMAND,
-      });
-      return;
-    default: {
-      if (broken !== null) {
-        into.add({
-          ...subject,
-          action: "delegate_rework",
-          detail:
-            broken.cause === "conflict"
-              ? `Commit ${broken.commit} conflicts with the tip ${broken.tip} of ${broken.branch} in ${broken.paths.join(", ")}, so it does not land. Delegate an integration cycle, with the reason "integration": it starts from the recorded tip.`
-              : `Commit ${broken.commit} would land on the tip ${broken.tip} of ${broken.branch} as another patch, so it does not land as it was reviewed. Delegate an integration cycle, with the reason "integration": it starts from the recorded tip.`,
-          command: INTEGRATION_COMMAND,
-        });
-        return;
-      }
-      // One gate run of a source runs at a time, so a candidate waits for the run in progress.
-      const running = runningRunOf(db, sourceId);
-      if (running !== null) {
-        into.wait({
-          wait: "gate_running",
-          assignmentId: request.assignmentId,
-          detail: `Gate run ${running.id} of source ${sourceId} runs first. One gate run of a source runs at a time.`,
-        });
-        return;
-      }
-      into.add({
-        ...subject,
-        action: "run_gate",
-        detail: `The review reported. Acceptance lands the result on ${row.name} only after its planned commit on ${row.recordedTip} passes the project gate.`,
-        command,
-      });
-    }
-  }
+      }),
+      pending: () =>
+        broken === null
+          ? {
+              ...subject,
+              action: "run_gate",
+              detail: `The review reported. Acceptance lands the result on ${row.name} only after its planned commit on ${row.recordedTip} passes the project gate.`,
+              command: `operator gate run --assignment ${request.assignmentId}`,
+            }
+          : {
+              ...subject,
+              action: "delegate_rework",
+              detail:
+                broken.cause === "conflict"
+                  ? `Commit ${broken.commit} conflicts with the tip ${broken.tip} of ${broken.branch} in ${broken.paths.join(", ")}, so it does not land. Delegate an integration cycle, with the reason "integration": it starts from the recorded tip.`
+                  : `Commit ${broken.commit} would land on the tip ${broken.tip} of ${broken.branch} as another patch, so it does not land as it was reviewed. Delegate an integration cycle, with the reason "integration": it starts from the recorded tip.`,
+              command: INTEGRATION_COMMAND,
+            },
+    },
+    into,
+  );
 }
 
 /**
@@ -1070,50 +1040,105 @@ function readRewrite(
     return;
   }
   // A plan that read no range is left to acceptance, which names the refusal.
-  const gate = rewrite?.gate ?? { status: "passed" as const };
-  switch (gate.status) {
-    case "passed":
-      into.add({
+  readGatedMove(
+    db,
+    {
+      step: rewrite?.gate ?? { status: "passed" },
+      sourceId,
+      waiter: { assignmentId: request.assignmentId },
+      passed: () => ({
         ...subject,
         action: "accept_assignment",
         detail: `The review reported, and each commit of the rebuilt range passed the project gate. Acceptance puts the correction in the place of ${rewrite?.replaced ?? "the landed commit"} and moves ${rewrite?.branch ?? "the branch"} once.`,
         command: "operator work accept",
-      });
-      return;
-    case "running":
-      into.wait({
-        wait: "gate_running",
-        assignmentId: request.assignmentId,
-        detail: `Gate run ${gate.runIds.join(", ")} runs on ${gate.commit} of the rebuilt range. Its runner wakes the Operator at the end.`,
-      });
-      return;
-    case "failed":
-    case "flaky":
-      into.add({
+      }),
+      running: (gate) =>
+        `Gate run ${gate.runIds.join(", ")} runs on ${gate.commit} of the rebuilt range. Its runner wakes the Operator at the end.`,
+      failed: (gate) => ({
         ...subject,
         action: "delegate_rework",
         detail: `The correction ${gate.commit} on ${gate.parent} is ${gate.status} in gate run ${gate.runIds.join(", ")}, so it does not land. Delegate an integration cycle, with the reason "integration": it carries the failed run, and it starts from the parent of the replaced commit.`,
         command: INTEGRATION_COMMAND,
-      });
-      return;
-    default: {
-      const running = runningRunOf(db, sourceId);
-      if (running !== null) {
-        into.wait({
-          wait: "gate_running",
-          assignmentId: request.assignmentId,
-          detail: `Gate run ${running.id} of source ${sourceId} runs first. One gate run of a source runs at a time.`,
-        });
-        return;
-      }
-      into.add({
+      }),
+      pending: (gate) => ({
         ...subject,
         action: "run_gate",
         detail: `The review reported. The rebuilt range of the correction is gated in order, and ${gate.commit} on ${gate.parent} is the next commit with no gate run at its key.`,
         command: `operator gate run --assignment ${request.assignmentId}`,
-      });
-    }
+      }),
+    },
+    into,
+  );
+}
+
+type Step = { status: GateStatus };
+type StepAt<S extends Step, K extends GateStatus> = Extract<S, { status: K }>;
+
+function hasStatus<S extends Step, K extends GateStatus>(
+  step: S,
+  ...statuses: K[]
+): step is StepAt<S, K> {
+  return statuses.some((one) => one === step.status);
+}
+
+/** Who waits for a gate run in `crew next`: an assignment, or a source as a whole. */
+type Waiter = { assignmentId: string } | { sourceId: string };
+
+/**
+ * One gate run of a source runs at a time. A move that starts one waits for the run in progress,
+ * and the wait is recorded here.
+ */
+function waitsForRun(db: CrewReader, sourceId: string, waiter: Waiter, into: Collector): boolean {
+  const running = runningRunOf(db, sourceId);
+  if (running === null) {
+    return false;
   }
+  into.wait({
+    wait: "gate_running",
+    ...waiter,
+    detail: `Gate run ${running.id} of source ${sourceId} runs first. One gate run of a source runs at a time.`,
+  });
+  return true;
+}
+
+/** A move behind the project gate, and what it owes in each state of its gate step. */
+type GatedMove<S extends Step> = {
+  step: S;
+  sourceId: string;
+  waiter: Waiter;
+  /** The move itself. */
+  passed: (step: StepAt<S, "passed">) => Draft;
+  /** The detail of the wait for the run of the step. */
+  running: (step: StepAt<S, "running">) => string;
+  failed: (step: StepAt<S, "failed" | "flaky">) => Draft;
+  pending: (step: StepAt<S, "pending">) => Draft;
+};
+
+/**
+ * Turns one gate step into what `crew next` owes: a wait for its run, the move, the answer to a
+ * failed or flaky key, or what a pending key owes. A gate run waits while another gate run of
+ * the source runs.
+ */
+function readGatedMove<S extends Step>(db: CrewReader, gated: GatedMove<S>, into: Collector): void {
+  const { step } = gated;
+  if (hasStatus(step, "running")) {
+    into.wait({ wait: "gate_running", ...gated.waiter, detail: gated.running(step) });
+    return;
+  }
+  const draft = hasStatus(step, "passed")
+    ? gated.passed(step)
+    : hasStatus(step, "failed", "flaky")
+      ? gated.failed(step)
+      : hasStatus(step, "pending")
+        ? gated.pending(step)
+        : null;
+  if (draft === null) {
+    return;
+  }
+  if (draft.action === "run_gate" && waitsForRun(db, gated.sourceId, gated.waiter, into)) {
+    return;
+  }
+  into.add(draft);
 }
 
 /** The command of an integration cycle. Its input names the reason and no revision (ADR 0020). */

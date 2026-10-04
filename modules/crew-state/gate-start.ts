@@ -3,27 +3,28 @@ import { basename, dirname } from "node:path";
 import { HerdrControl } from "../herdr-control/main.ts";
 import { ProjectGate } from "../project-gate/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
-import { approvalCovers, readApproval } from "./approvals.ts";
+import { readApproval } from "./approvals.ts";
+import { GateRun, type GateRunNext, type GateRunRefusal, type RunnerRead } from "./gate-machine.ts";
 import { mutate, readState, type RequestFailure, type StateFailure } from "./operations.ts";
 import { requireOwnership } from "./ownership.ts";
 import {
   checkoutOf,
-  FRESH_SERIES_ACTION,
   failedRunsAtKey,
   type DeclaredCommand,
   type GateCheckoutRow,
   type GateKey,
+  type GatePlace,
+  type GateStep,
   type GateSubject,
+  type OpenPlace,
   type GateRunRecord,
   gateRunRecordOf,
-  insertGateRun,
   keyStatus,
-  keyText,
   readGateRun,
   runningRunOf,
 } from "./gate-runs.ts";
 import { sourceSlug } from "./integration.ts";
-import { gateCheckouts, workSources } from "./schema.ts";
+import { gateCheckouts, gateRuns, workSources } from "./schema.ts";
 import { eq } from "drizzle-orm";
 
 type GateRead = Awaited<ReturnType<typeof ProjectGate.read>>;
@@ -39,17 +40,10 @@ export type GateStartResult =
   | { status: "unknown-source"; sourceId: string }
   | { status: "project-gate-unusable"; gate: Exclude<GateRead, { status: "declared" }> }
   | { status: "commit-unread"; commit: string; detail: string }
-  | { status: "gate-passed"; key: GateKey; commit: string; runIds: string[] }
+  | GateRunRefusal["start"]
   | { status: "gate-running"; runId: string; detail: string }
-  | { status: "gate-runner-unknown"; runId: string; detail: string }
-  | { status: "fresh-series-not-needed"; key: GateKey }
-  | {
-      status: "fresh-series-not-approved";
-      key: GateKey;
-      // The exact request a person approves: the key and every failed run it answers.
-      request: { action: string; targets: string[]; scope: string; requestRevision: string };
-      found: string;
-    }
+  // A gated move with no commit to gate passed with no run, so it names no tree.
+  | { status: "nothing-to-gate"; commit: string; declarationIdentity: string }
   | { status: "gate-branch-exists"; branch: string; path: string }
   | { status: "gate-checkout-failed"; detail: string; uncertain: boolean }
   | {
@@ -100,7 +94,7 @@ export async function readGateKey(request: { projectRoot: string; commit: string
 }
 
 /** A runner is live while a process in its pane names its run. The shell itself stays. */
-async function runnerLive(run: { id: string; paneId: string }) {
+async function runnerLive(run: { id: string; paneId: string }): Promise<RunnerRead> {
   const read = await HerdrControl.readPaneProcesses({ paneId: run.paneId });
   if (read.status === "unknown") {
     return { status: "unknown" as const, detail: read.detail };
@@ -251,18 +245,40 @@ export async function startGateRun(
   });
 }
 
-/** Starts one run on one target, under the rules every gate run shares. */
-// oxlint-disable-next-line complexity -- Each refusal is one recorded rule of the gate start.
-export async function startRun(
-  request: StartRequest & { target: GateTarget },
-): Promise<GateStartResult> {
-  const { target } = request;
-  const { key } = target;
-  const keyName = keyText(key);
-  const gate = { commit: target.commit, commands: target.commands };
-  const sourceId = target.sourceId;
+/**
+ * The start on a move that gates its places in order (ADR 0021). A move whose places all passed
+ * starts nothing and names the key of its last place, or nothing to gate when it has no place. A
+ * running place waits for its one run, and any other place goes to `start`.
+ */
+export async function startOnStep<Place extends GatePlace, R>(request: {
+  step: GateStep<Place>;
+  passed: { commit: string; declarationIdentity: string; tree: string | null };
+  /** The move, as the detail of a running place names it. */
+  range: string;
+  start: (place: OpenPlace<Place>) => Promise<R>;
+}): Promise<GateStartResult | R> {
+  const { step, passed } = request;
+  if (step.status === "passed") {
+    const { commit, declarationIdentity, tree } = passed;
+    return tree === null
+      ? { status: "nothing-to-gate", commit, declarationIdentity }
+      : { status: "gate-passed", key: { tree, declarationIdentity }, commit, runIds: [] };
+  }
+  if (step.status === "running") {
+    const [runId] = step.runIds;
+    return {
+      status: "gate-running",
+      runId,
+      detail: `Gate run ${step.runIds.join(", ")} still runs at commit ${step.commit} of ${request.range}.`,
+    };
+  }
+  return request.start(step);
+}
 
-  const read = await readState(request.projectRoot, (db) => {
+/** The facts of one start that crew state holds, read under the owner. */
+async function readStartFacts(request: StartRequest & { target: GateTarget }) {
+  const { sourceId, key } = request.target;
+  return readState(request.projectRoot, (db) => {
     const owned = requireOwnership(db, request.ownerToken);
     if (owned.status === "unowned") return { status: "unowned" as const };
     if (owned.status === "stale") {
@@ -272,86 +288,33 @@ export async function startRun(
     if (source.length === 0) {
       return { status: "unknown-source" as const, sourceId };
     }
-    const approval = request.approvalId === null ? null : readApproval(db, request.approvalId);
     return {
       status: "read" as const,
       running: runningRunOf(db, sourceId),
       verdict: keyStatus(db, key),
       failed: failedRunsAtKey(db, key).map((one) => one.id),
-      approval,
+      approval:
+        request.approvalId === null
+          ? null
+          : { id: request.approvalId, row: readApproval(db, request.approvalId) },
       checkout: checkoutOf(db, sourceId),
     };
   });
-  if (read.status !== "read") {
-    return read;
-  }
+}
 
-  let replaces: string | null = null;
-  if (read.running !== null) {
-    const runner = await runnerLive(read.running);
-    if (runner.status === "unknown") {
-      return { status: "gate-runner-unknown", runId: read.running.id, detail: runner.detail };
-    }
-    if (runner.status === "live") {
-      return {
-        status: "gate-running",
-        runId: read.running.id,
-        detail: `Gate run ${read.running.id} of this source is still running at commit ${read.running.commit}.`,
-      };
-    }
-    replaces = read.running.id;
-  }
-
-  if (read.verdict.status === "passed") {
-    return {
-      status: "gate-passed",
-      key,
-      commit: gate.commit,
-      runIds: read.verdict.passed.map((one) => one.id),
-    };
-  }
-
-  // Only a person starts a fresh series, with an approval that names the key and every failed run.
-  let series: string | null = null;
-  if (request.approvalId !== null) {
-    if (read.failed.length === 0) {
-      return { status: "fresh-series-not-needed", key };
-    }
-    const check = {
-      action: FRESH_SERIES_ACTION,
-      targets: [keyName, ...read.failed],
-      scope: sourceId,
-      requestRevision: keyName,
-    };
-    const coverage = read.approval === null ? null : approvalCovers(read.approval, check);
-    if (coverage?.status !== "covers") {
-      return {
-        status: "fresh-series-not-approved",
-        key,
-        request: check,
-        found:
-          coverage === null
-            ? `No approval ${request.approvalId} is recorded.`
-            : coverage.status === "revoked"
-              ? `Approval ${request.approvalId} was revoked.`
-              : `Approval ${request.approvalId} does not match the ${coverage.field}.`,
-      };
-    }
-    series = request.approvalId;
-  }
-
-  const checkout = await ensureCheckout({
-    projectRoot: request.projectRoot,
-    sourceId,
-    commit: target.checkoutBase,
-    recorded: read.checkout,
-  });
-  if (checkout.status !== "ready") {
-    return checkout;
-  }
-
+/**
+ * Records the run, its checkout when none is recorded, and the stop of the run it replaces, in
+ * one transaction. A run of the source that started in between wins.
+ */
+async function recordStart(
+  request: StartRequest & { target: GateTarget },
+  start: GateRunNext["start"],
+  checkout: Omit<GateCheckoutRow, "createdAt">,
+) {
+  const { target } = request;
+  const { sourceId } = target;
   const runId = crypto.randomUUID();
-  const { repeated, result } = await mutate<
+  return mutate<
     | { status: "recorded"; runId: string }
     | { status: "gate-running"; runId: string; detail: string }
   >(
@@ -363,15 +326,15 @@ export async function startRun(
       operation: "gate_run",
       input: {
         sourceId,
-        commit: gate.commit,
-        key,
+        commit: target.commit,
+        key: target.key,
         subject: target.subject,
         approvalId: request.approvalId,
       },
     },
     ({ tx, now }) => {
       const running = runningRunOf(tx, sourceId);
-      if (running !== null && running.id !== replaces) {
+      if (running !== null && running.id !== start.replaces) {
         return {
           commit: false,
           outcome: {
@@ -383,25 +346,76 @@ export async function startRun(
       }
       if (checkoutOf(tx, sourceId) === null) {
         tx.insert(gateCheckouts)
-          .values({ ...checkout.checkout, createdAt: now })
+          .values({ ...checkout, createdAt: now })
           .run();
       }
-      insertGateRun(tx, {
-        runId,
-        sourceId,
-        subject: target.subject,
-        key,
-        commit: gate.commit,
-        commands: gate.commands,
-        series,
-        replaces,
-        ownerToken: request.ownerToken,
-        paneId: checkout.checkout.paneId,
-        now,
-      });
+      // The replaced run keeps no outcome. It stops, so it never reads as running again.
+      const replaced = start.replaces === null ? null : readGateRun(tx, start.replaces);
+      const stop = replaced === null ? null : GateRun.decide("replace", { run: replaced });
+      if (replaced !== null && stop !== null && "next" in stop) {
+        tx.update(gateRuns)
+          .set({ state: stop.next, detail: `Replaced by gate run ${runId}.` })
+          .where(eq(gateRuns.id, replaced.id))
+          .run();
+      }
+      tx.insert(gateRuns)
+        .values({
+          id: runId,
+          sourceId,
+          subject: JSON.stringify(target.subject),
+          tree: target.key.tree,
+          declarationIdentity: target.key.declarationIdentity,
+          commit: target.commit,
+          commands: JSON.stringify(target.commands),
+          series: start.series,
+          replaces: start.replaces,
+          ownerToken: request.ownerToken,
+          paneId: checkout.paneId,
+          state: start.state,
+          detail: null,
+          startedAt: now,
+          begunAt: null,
+          finishedAt: null,
+        })
+        .run();
       return { commit: true, outcome: { status: "recorded" as const, runId } };
     },
   );
+}
+
+/** Starts one run on one target, under the rules every gate run shares. */
+export async function startRun(
+  request: StartRequest & { target: GateTarget },
+): Promise<GateStartResult> {
+  const { target } = request;
+  const read = await readStartFacts(request);
+  if (read.status !== "read") {
+    return read;
+  }
+  const decided = GateRun.decide("start", {
+    sourceId: target.sourceId,
+    key: target.key,
+    commit: target.commit,
+    running:
+      read.running === null ? null : { run: read.running, runner: await runnerLive(read.running) },
+    verdict: read.verdict,
+    failed: read.failed,
+    approval: read.approval,
+  });
+  if ("refused" in decided) {
+    return decided.refused;
+  }
+
+  const checkout = await ensureCheckout({
+    projectRoot: request.projectRoot,
+    sourceId: target.sourceId,
+    commit: target.checkoutBase,
+    recorded: read.checkout,
+  });
+  if (checkout.status !== "ready") {
+    return checkout;
+  }
+  const { repeated, result } = await recordStart(request, decided.next, checkout.checkout);
   if (result.status !== "recorded") {
     return result;
   }

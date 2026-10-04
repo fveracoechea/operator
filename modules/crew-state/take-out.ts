@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { IntegrationBranch } from "../integration-branch/main.ts";
 import { registerBranchReview, type RegisteredBranchReview } from "./branch-review.ts";
 import type { CrewReader, CrewWriter } from "./database.ts";
-import { type GateStartResult, startRun } from "./gate-start.ts";
+import { type GateStartResult, startOnStep, startRun } from "./gate-start.ts";
 import { fixedGateOf, type IntegrationBranchRow, integrationBranchOf } from "./integration.ts";
 import { BranchMove, type LandingRefusal, type MoveNext, type PlanRefusal } from "./branch-move.ts";
 import {
@@ -688,44 +688,42 @@ export async function startTakeOutGateRun(request: {
   }
   const { row } = planned;
   const rewrite = planned.rebuild?.rewrite ?? null;
-  const gated =
-    rewrite === null
-      ? { gate: { status: "passed" } as RangeGate }
-      : await readState(request.projectRoot, (db) => ({ gate: rangeGateOf(db, rewrite) }));
+  // A take-out that leaves only the record rebuilds no range, so it has no commit to gate.
+  if (rewrite === null) {
+    return {
+      status: "nothing-to-gate",
+      commit: row.recordedTip,
+      declarationIdentity: row.gateIdentity,
+    };
+  }
+  const gated = await readState(request.projectRoot, (db) => ({ gate: rangeGateOf(db, rewrite) }));
   if (!("gate" in gated)) {
     return gated;
   }
-  const { gate } = gated;
-  if (gate.status === "passed") {
-    const last = rewrite?.gated.at(-1);
-    return {
-      status: "gate-passed",
-      key: { tree: last?.tree ?? "", declarationIdentity: row.gateIdentity },
-      commit: rewrite?.landing.plan.to ?? row.recordedTip,
-      runIds: [],
-    };
-  }
-  if (gate.status === "running") {
-    return {
-      status: "gate-running",
-      runId: gate.runIds[0] ?? "",
-      detail: `Gate run ${gate.runIds.join(", ")} still runs at commit ${gate.commit} of the rebuilt range.`,
-    };
-  }
-  return startRun({
-    ...request,
-    target: {
-      sourceId: request.sourceId,
-      commit: gate.commit,
-      key: gate.key,
-      commands: fixedGateOf(row).commands,
-      subject: {
-        kind: "take-out",
-        sourceId: request.sourceId,
-        tip: row.recordedTip,
-        parent: gate.parent,
-      },
-      checkoutBase: row.baseCommit,
+  return startOnStep({
+    step: gated.gate,
+    passed: {
+      commit: rewrite.landing.plan.to,
+      declarationIdentity: row.gateIdentity,
+      tree: rewrite.gated.at(-1)?.tree ?? null,
     },
+    range: "the rebuilt range",
+    start: (gate) =>
+      startRun({
+        ...request,
+        target: {
+          sourceId: request.sourceId,
+          commit: gate.commit,
+          key: gate.key,
+          commands: fixedGateOf(row).commands,
+          subject: {
+            kind: "take-out",
+            sourceId: request.sourceId,
+            tip: row.recordedTip,
+            parent: gate.parent,
+          },
+          checkoutBase: row.baseCommit,
+        },
+      }),
   });
 }

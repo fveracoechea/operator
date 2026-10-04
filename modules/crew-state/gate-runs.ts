@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import type { CrewReader, CrewWriter } from "./database.ts";
+import type { CrewReader } from "./database.ts";
 import {
   assignments,
   attemptDispatch,
@@ -127,6 +127,48 @@ export function keyStatus(db: CrewReader, key: GateKey): KeyStatus {
   return passed.length > 0 ? { status: "passed", passed } : { status: "pending" };
 }
 
+/** The five verdicts of a key, which every gated move reads. */
+export type GateStatus = KeyStatus["status"];
+
+/** One commit that a gated move gates, under its key. */
+export type GatePlace = { commit: string; key: GateKey };
+
+/**
+ * Where the project gate stands on a move that gates its places in order: the first place whose
+ * key has not passed, with its runs. A running place names its one run, and a move with every
+ * place passed names none.
+ */
+export type GateStep<Place extends GatePlace> =
+  | { status: "passed" }
+  | (Place & { status: "running"; runIds: [string] })
+  | OpenPlace<Place>;
+
+/** A place with no run in progress whose key did not pass. The next run of the move starts on it. */
+export type OpenPlace<Place extends GatePlace> =
+  | (Place & { status: "pending"; runIds: string[] })
+  | (Place & { status: "failed" | "flaky"; runIds: string[] });
+
+/** Gates the places of one move in order, and stops at the first one whose key has not passed. */
+export function gateStepOf<Place extends GatePlace>(
+  db: CrewReader,
+  places: Place[],
+): GateStep<Place> {
+  for (const place of places) {
+    const verdict = keyStatus(db, place.key);
+    switch (verdict.status) {
+      case "passed":
+        continue;
+      case "pending":
+        return { status: "pending", ...place, runIds: [] };
+      case "running":
+        return { status: "running", ...place, runIds: [verdict.run.id] };
+      default:
+        return { status: verdict.status, ...place, runIds: verdict.failed.map((one) => one.id) };
+    }
+  }
+  return { status: "passed" };
+}
+
 export function readGateRun(db: CrewReader, runId: string): GateRunRow | null {
   return db.select().from(gateRuns).where(eq(gateRuns.id, runId)).all()[0] ?? null;
 }
@@ -181,14 +223,17 @@ export type BaseGate =
   | { status: "passed"; commit: string; run: GateRunRow }
   | { status: "failed" | "flaky"; commit: string; failed: GateRunRow[] };
 
+export type CandidateGate = (KeyStatus & { commit: string }) | { status: "pending"; commit: null };
+
 /**
  * Where the candidate of one submission on one tip stands. A run at another tip gated another
- * candidate, so it proves nothing here. The verdict is the verdict of the key of the latest run.
+ * candidate, so it proves nothing here. The verdict is the verdict of the key of the latest run,
+ * and a candidate with no run names no commit.
  */
 export function candidateGateOf(
   db: CrewReader,
   request: { sourceId: string; submissionId: string; tip: string },
-): KeyStatus & { commit: string | null } {
+): CandidateGate {
   const runs = db
     .select()
     .from(gateRuns)
@@ -268,48 +313,3 @@ export function gateRunRecordOf(db: CrewReader, run: GateRunRow) {
 }
 
 export type GateRunRecord = ReturnType<typeof gateRunRecordOf>;
-
-export function insertGateRun(
-  db: CrewWriter,
-  request: {
-    runId: string;
-    sourceId: string;
-    subject: GateSubject;
-    key: GateKey;
-    commit: string;
-    commands: DeclaredCommand[];
-    series: string | null;
-    replaces: string | null;
-    ownerToken: string;
-    paneId: string;
-    now: string;
-  },
-): void {
-  // The replaced run keeps no outcome. It stops, so it never reads as running again.
-  if (request.replaces !== null) {
-    db.update(gateRuns)
-      .set({ state: "stopped", detail: `Replaced by gate run ${request.runId}.` })
-      .where(and(eq(gateRuns.id, request.replaces), eq(gateRuns.state, "running")))
-      .run();
-  }
-  db.insert(gateRuns)
-    .values({
-      id: request.runId,
-      sourceId: request.sourceId,
-      subject: JSON.stringify(request.subject),
-      tree: request.key.tree,
-      declarationIdentity: request.key.declarationIdentity,
-      commit: request.commit,
-      commands: JSON.stringify(request.commands),
-      series: request.series,
-      replaces: request.replaces,
-      ownerToken: request.ownerToken,
-      paneId: request.paneId,
-      state: "running",
-      detail: null,
-      startedAt: request.now,
-      begunAt: null,
-      finishedAt: null,
-    })
-    .run();
-}

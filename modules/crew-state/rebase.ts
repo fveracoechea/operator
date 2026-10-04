@@ -6,8 +6,8 @@ import { approvedPlan, REBASE_ACTION } from "./approvals.ts";
 import { type RegisteredBranchReview, registerBranchReview } from "./branch-review.ts";
 import { BranchMove, type MoveNext, type MoveRefusal } from "./branch-move.ts";
 import type { CrewReader, CrewWriter } from "./database.ts";
-import { type GateKey, keyStatus } from "./gate-runs.ts";
-import { type GateStartResult, startRun } from "./gate-start.ts";
+import { type GateKey, type GateStep, gateStepOf } from "./gate-runs.ts";
+import { type GateStartResult, startOnStep, startRun } from "./gate-start.ts";
 import { identityOf } from "./identity.ts";
 import { fixedGateOf, type IntegrationBranchRow, integrationBranchOf } from "./integration.ts";
 import { writeLandingStates } from "./landing.ts";
@@ -93,15 +93,7 @@ export type RebaseRefusal = {
 export type RebasePlace = { commit: string; parent: string | null; key: GateKey };
 
 /** Where the project gate stands on a rebase: the first place that has not passed. */
-export type RebaseGate =
-  | { status: "passed" }
-  | {
-      status: "pending" | "running" | "failed" | "flaky";
-      commit: string;
-      parent: string | null;
-      key: GateKey;
-      runIds: string[];
-    };
+export type RebaseGate = GateStep<RebasePlace>;
 
 type Move = { base: string; tip: string };
 
@@ -113,10 +105,10 @@ type UnwrittenPreview = {
   status: "planned";
   sourceId: string;
   target: { name: string; tip: string } | null;
-  places: RebasePlace[];
   refusals: RebaseRefusal[];
 } & (
   | {
+      places: RebasePlace[];
       branch: string | null;
       planRevision: null;
       from: Move | null;
@@ -126,6 +118,8 @@ type UnwrittenPreview = {
       approval: null;
     }
   | {
+      /** The new base, then each commit that lands again. */
+      places: [RebasePlace, ...RebasePlace[]];
       branch: string;
       planRevision: string;
       from: Move;
@@ -308,25 +302,6 @@ function recordOf(
       })),
     ),
   };
-}
-
-/** Gates the places of a rebase in order, and stops at the first one whose key has not passed. */
-function gateOf(db: CrewReader, places: RebasePlace[]): RebaseGate {
-  for (const place of places) {
-    const verdict = keyStatus(db, place.key);
-    if (verdict.status === "passed") {
-      continue;
-    }
-    switch (verdict.status) {
-      case "pending":
-        return { status: "pending", ...place, runIds: [] };
-      case "running":
-        return { status: "running", ...place, runIds: [verdict.run.id] };
-      default:
-        return { status: verdict.status, ...place, runIds: verdict.failed.map((one) => one.id) };
-    }
-  }
-  return { status: "passed" };
 }
 
 /** The full plan, written to a local file, while the command report stays a summary (R5). */
@@ -535,7 +510,7 @@ export async function planRebase(request: {
 
   const record = recordOf(plan, new Map(chain.map((one) => [one.commit, one.rows])));
   const declarationIdentity = row.gateIdentity;
-  const places: RebasePlace[] = [
+  const places: [RebasePlace, ...RebasePlace[]] = [
     { commit: newBase, parent: null, key: { tree: plan.base.tree, declarationIdentity } },
     ...plan.relanded.map((one) => ({
       commit: one.commit,
@@ -544,7 +519,7 @@ export async function planRebase(request: {
     })),
   ];
   const gate = await readState(request.projectRoot, (db) => ({
-    verdict: gateOf(db, places),
+    verdict: gateStepOf(db, places),
     // A result that leaves the branch while a tracker step says it is done waits on a person.
     held: trackerHold(
       db,
@@ -862,39 +837,33 @@ export async function startRebaseGateRun(request: {
   if (preview.planRevision === null || read.row === null) {
     return { status: "rebase-refused", preview };
   }
-  const { gate } = preview;
-  if (gate.status === "passed") {
-    return {
-      status: "gate-passed",
-      key: preview.places.at(-1)?.key ?? { tree: "", declarationIdentity: "" },
-      commit: preview.to.tip,
-      runIds: [],
-    };
-  }
-  if (gate.status === "running") {
-    return {
-      status: "gate-running",
-      runId: gate.runIds[0] ?? "",
-      detail: `Gate run ${gate.runIds.join(", ")} still runs at commit ${gate.commit} of the rebase.`,
-    };
-  }
-  // Nothing reruns a failed key by itself. Only a person starts a fresh series, with an approval.
-  if ((gate.status === "failed" || gate.status === "flaky") && request.approvalId === null) {
-    return { status: "rebase-gate-failed", gate: { ...gate, status: gate.status } };
-  }
-  return startRun({
-    ...request,
-    target: {
-      sourceId: request.sourceId,
-      commit: gate.commit,
-      key: gate.key,
-      commands: fixedGateOf(read.row).commands,
-      // The new base is gated as a base, so publish reads it as the integration base it becomes.
-      subject:
-        gate.parent === null
-          ? { kind: "base" }
-          : { kind: "rebase", base: preview.to.base, parent: gate.parent },
-      checkoutBase: gate.commit,
+  const [base, ...relanded] = preview.places;
+  const { key } = relanded.at(-1) ?? base;
+  const { row } = read;
+  return startOnStep({
+    step: preview.gate,
+    passed: { commit: preview.to.tip, ...key },
+    range: "the rebase",
+    start: async (gate) => {
+      // Nothing reruns a failed key by itself. Only a person starts a fresh series, with an approval.
+      if (gate.status !== "pending" && request.approvalId === null) {
+        return { status: "rebase-gate-failed" as const, gate: { ...gate, status: gate.status } };
+      }
+      return startRun({
+        ...request,
+        target: {
+          sourceId: request.sourceId,
+          commit: gate.commit,
+          key: gate.key,
+          commands: fixedGateOf(row).commands,
+          // The new base is gated as a base, so publish reads it as the integration base it becomes.
+          subject:
+            gate.parent === null
+              ? { kind: "base" }
+              : { kind: "rebase", base: preview.to.base, parent: gate.parent },
+          checkoutBase: gate.commit,
+        },
+      });
     },
   });
 }

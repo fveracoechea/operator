@@ -12,12 +12,8 @@ import { reconcileAttempt } from "./dispatch-reconcile.ts";
 import { replaceAttempt } from "./dispatch-replace.ts";
 import { showAttempt } from "./dispatch-report.ts";
 import { readCapacity } from "./capacity.ts";
-import {
-  beginGateRun,
-  type CommandOutcome,
-  recordGateCommand,
-  stopGateRun,
-} from "./gate-record.ts";
+import type { CommandOutcome } from "./gate-machine.ts";
+import { beginGateRun, recordGateCommand, stopGateRun } from "./gate-record.ts";
 import { checkoutOf, gateRunRecordOf, readGateRun } from "./gate-runs.ts";
 import { startCandidateGateRun } from "./gate-candidate.ts";
 import { startGateRun } from "./gate-start.ts";

@@ -308,6 +308,23 @@ async function runStart(parsed: ParsedArguments): Promise<Handled> {
           `The key of commit ${result.commit} already passed in gate run ${result.runIds.join(", ")}. Nothing was started.`,
         ],
       });
+    // A move with no commit to gate reports as a passed key with an empty tree and no run.
+    case "nothing-to-gate":
+      return refuse({
+        json: parsed.json,
+        operation,
+        outcome: "conflict",
+        reason: "gate_passed",
+        detail: {
+          commit: result.commit,
+          tree: "",
+          declarationIdentity: result.declarationIdentity,
+          runIds: [],
+        },
+        lines: [
+          `The key of commit ${result.commit} already passed in gate run . Nothing was started.`,
+        ],
+      });
     case "gate-running":
       return refuse({
         json: parsed.json,

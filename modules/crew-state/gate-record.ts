@@ -9,25 +9,14 @@ import {
   gateRunRecordOf,
   readGateRun,
 } from "./gate-runs.ts";
+import { type CommandOutcome, GateRun, type GateRunRefusal } from "./gate-machine.ts";
 import { gateRunCommands, gateRuns } from "./schema.ts";
 
 type Located = { projectRoot: string };
 
 export type RunnerRefusal =
   | { status: "unknown-gate-run"; runId: string }
-  | { status: "gate-run-not-running"; runId: string; state: string }
-  | { status: "gate-run-begun"; runId: string }
-  | { status: "gate-run-not-begun"; runId: string }
-  | { status: "gate-command-out-of-order"; runId: string; expected: number; position: number };
-
-export type CommandOutcome = {
-  position: number;
-  outcome: "passed" | "failed";
-  exitCode: number | null;
-  reason: "timed-out" | null;
-  outputPath: string;
-  outputIdentity: string;
-};
+  | GateRunRefusal["begin" | "command" | "stop"];
 
 type Written =
   | { status: "recorded"; run: GateRunRecord }
@@ -67,12 +56,6 @@ async function asRunOwner(
       if (run === null) {
         return { commit: false, outcome: { status: "unknown-gate-run", runId: request.runId } };
       }
-      if (run.state !== "running") {
-        return {
-          commit: false,
-          outcome: { status: "gate-run-not-running", runId: run.id, state: run.state },
-        };
-      }
       const refused = body({ tx, run, now });
       if (refused !== null) {
         return { commit: false, outcome: refused };
@@ -89,8 +72,9 @@ export async function beginGateRun(request: Located & { runId: string }): Promis
   return asRunOwner(
     { ...request, step: "begin", input: { runId: request.runId } },
     ({ tx, run, now }) => {
-      if (run.begunAt !== null) {
-        return { status: "gate-run-begun", runId: run.id };
+      const decided = GateRun.decide("begin", { run });
+      if ("refused" in decided) {
+        return decided.refused;
       }
       tx.update(gateRuns).set({ begunAt: now }).where(eq(gateRuns.id, run.id)).run();
       return null;
@@ -109,18 +93,15 @@ export async function recordGateCommand(
   return asRunOwner(
     { ...request, step: `command.${command.position}`, input: command },
     ({ tx, run, now }) => {
-      if (run.begunAt === null) {
-        return { status: "gate-run-not-begun", runId: run.id };
-      }
-      const expected = commandsOfRun(tx, run.id).length;
       const declared = declaredCommands(run);
-      if (command.position !== expected || declared[command.position] === undefined) {
-        return {
-          status: "gate-command-out-of-order",
-          runId: run.id,
-          expected,
-          position: command.position,
-        };
+      const decided = GateRun.decide("command", {
+        run,
+        command,
+        declared,
+        recorded: commandsOfRun(tx, run.id).length,
+      });
+      if ("refused" in decided) {
+        return decided.refused;
       }
 
       const rows = declared.flatMap((one, position): Array<typeof gateRunCommands.$inferInsert> => {
@@ -160,10 +141,9 @@ export async function recordGateCommand(
       });
       tx.insert(gateRunCommands).values(rows).run();
 
-      const last = command.position === declared.length - 1;
-      if (command.outcome === "failed" || last) {
+      if (decided.next !== "running") {
         tx.update(gateRuns)
-          .set({ state: command.outcome, finishedAt: now })
+          .set({ state: decided.next, finishedAt: now })
           .where(eq(gateRuns.id, run.id))
           .run();
       }
@@ -182,8 +162,12 @@ export async function stopGateRun(
   return asRunOwner(
     { ...request, step: "stop", input: { detail: request.detail } },
     ({ tx, run }) => {
+      const decided = GateRun.decide("stop", { run });
+      if ("refused" in decided) {
+        return decided.refused;
+      }
       tx.update(gateRuns)
-        .set({ state: "stopped", detail: request.detail })
+        .set({ state: decided.next, detail: request.detail })
         .where(eq(gateRuns.id, run.id))
         .run();
       return null;

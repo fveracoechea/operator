@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { IntegrationBranch } from "../integration-branch/main.ts";
 import { moveAssignment, readAssignment } from "./assignment.ts";
 import type { CrewReader, CrewWriter } from "./database.ts";
-import { type GateKey, keyStatus } from "./gate-runs.ts";
+import { type GatePlace, type GateStep, gateStepOf, keyStatus } from "./gate-runs.ts";
 import type { IntegrationBranchRow } from "./integration.ts";
 import { branchRefusalOf, type LandingRefusal, type PlanRefusal } from "./branch-move.ts";
 import type { PlannedMove } from "./landing.ts";
@@ -437,18 +437,11 @@ export function planTakeOutRebuild(request: {
   });
 }
 
+/** One commit of a rebuilt range. `correction` marks the correction, which an integration cycle answers. */
+type RangePlace = GatePlace & { parent: string; correction: boolean };
+
 /** Where the project gate stands on a rebuilt range: the first commit that has not passed. */
-export type RangeGate =
-  | { status: "passed" }
-  | {
-      status: "pending" | "running" | "failed" | "flaky";
-      commit: string;
-      parent: string;
-      key: GateKey;
-      runIds: string[];
-      // True when it is the correction itself, which an integration cycle then answers.
-      correction: boolean;
-    };
+export type RangeGate = GateStep<RangePlace>;
 
 /**
  * Gates a rebuilt range in order and stops at the first commit whose key has not passed (ADR
@@ -457,28 +450,15 @@ export type RangeGate =
  */
 export function rangeGateOf(db: CrewReader, rewrite: PlannedRewrite): RangeGate {
   const declarationIdentity = rewrite.landing.row.gateIdentity;
-  for (const [index, one] of rewrite.gated.entries()) {
-    const key = { tree: one.tree, declarationIdentity };
-    const verdict = keyStatus(db, key);
-    if (verdict.status === "passed") {
-      continue;
-    }
-    const place = {
+  return gateStepOf(
+    db,
+    rewrite.gated.map((one, index) => ({
       commit: one.commit,
       parent: one.parent,
-      key,
+      key: { tree: one.tree, declarationIdentity },
       correction: rewrite.correction && index === 0,
-    };
-    switch (verdict.status) {
-      case "pending":
-        return { status: "pending", ...place, runIds: [] };
-      case "running":
-        return { status: "running", ...place, runIds: [verdict.run.id] };
-      default:
-        return { status: verdict.status, ...place, runIds: verdict.failed.map((run) => run.id) };
-    }
-  }
-  return { status: "passed" };
+    })),
+  );
 }
 
 /** The gate of acceptance on a rebuilt range, as the refusal that `work accept` reports. */
