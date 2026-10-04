@@ -4,6 +4,7 @@ import type { OutsideChangeRow } from "./outside-changes.ts";
 import type { BranchReportInput, DispositionInput } from "./review-input.ts";
 import { Review, type ReportSubject } from "./review-machine.ts";
 import type { ReviewFindingRow, ReviewRow } from "./review.ts";
+import type { SubmissionRow } from "./submission.ts";
 
 const HOST = "claude";
 const COMMIT_A = "a".repeat(40);
@@ -43,7 +44,8 @@ const snapshot: BranchSnapshotRow = {
   createdAt: "2026-10-03T00:00:00.000Z",
 };
 
-const published = { title: "T", summary: "S", startHere: "H", mergeDanger: "D", cuts: [] };
+const text = { title: "T", summary: "S", startHere: "H", mergeDanger: "D" };
+const published = { ...text, cuts: [] };
 
 function axisReport(axis: "standards" | "spec", targets: string[]) {
   return {
@@ -153,6 +155,136 @@ test("a report is refused by the first failed rule, in the order of the table", 
       findings: [{ axis: "spec", key: "spec-1", targets: ["c".repeat(40)] }],
     },
   });
+});
+
+/** The content guards of a report, in the order of the table. */
+const CONTENT_FAILURES = [
+  "axes-incomplete",
+  "sub-agent-host-mismatch",
+  "sub-agent-failed",
+  "axes-not-parallel",
+  "coverage-incomplete",
+  "finding-untargeted",
+  "finding-target-unknown",
+  "cut-not-between-commits",
+] as const;
+
+type ContentFailure = (typeof CONTENT_FAILURES)[number] | "published-text-missing";
+
+/**
+ * One report content that fails exactly the named guards. Each failure changes a part of the
+ * report that no other guard reads, so any set of them can fail at once.
+ */
+function failing(failures: ReadonlySet<ContentFailure>) {
+  const has = (one: ContentFailure) => failures.has(one);
+  const standards = {
+    ...subAgent("standards", "2026-10-03T00:00:00.000Z", "2026-10-03T00:01:00.000Z"),
+    host: has("sub-agent-host-mismatch") ? "codex" : HOST,
+    status: has("sub-agent-failed") ? ("failed" as const) : ("completed" as const),
+  };
+  const spec = subAgent(
+    "spec",
+    has("axes-not-parallel") ? "2026-10-03T00:02:00.000Z" : "2026-10-03T00:00:30.000Z",
+    "2026-10-03T00:03:00.000Z",
+  );
+  const standardsReport = axisReport("standards", has("finding-untargeted") ? [] : [COMMIT_A]);
+  const specReport = axisReport(
+    "spec",
+    has("finding-target-unknown") ? ["c".repeat(40)] : [COMMIT_B],
+  );
+  return {
+    host: HOST,
+    // A sub-agent that names the other axis leaves its own axis unstated.
+    subAgents: [standards, has("axes-incomplete") ? { ...spec, axis: "standards" as const } : spec],
+    reports: [
+      has("coverage-incomplete") ? { ...standardsReport, checked: ["diff"] } : standardsReport,
+      specReport,
+    ],
+    // A cut after the last commit falls inside no gap.
+    cuts: has("cut-not-between-commits") ? [{ ...text, after: COMMIT_B, reason: "R" }] : [],
+    text: has("published-text-missing") ? undefined : text,
+  };
+}
+
+/** The refusal of each report as one failure after the other is mended, first to last. */
+function refusalOrder(
+  failures: readonly ContentFailure[],
+  decide: (content: ReturnType<typeof failing>) => { refused: { status: string } } | object,
+): Array<string | null> {
+  return failures.map((_one, index) => {
+    const decided = decide(failing(new Set(failures.slice(index))));
+    return "refused" in decided ? decided.refused.status : null;
+  });
+}
+
+test("a report is refused by its first failed content rule, in the order of the table", () => {
+  const order = refusalOrder(CONTENT_FAILURES, ({ host, subAgents, reports, cuts }) =>
+    Review.decide("report", {
+      row: reviewRow("registered"),
+      subject: branch({
+        kind: "reported",
+        snapshotIdentity: snapshot.identity,
+        host,
+        subAgents,
+        reports,
+        published: { ...text, cuts },
+      }),
+      agentHost: HOST,
+    }),
+  );
+  expect(order).toEqual([...CONTENT_FAILURES]);
+});
+
+test("a published result review needs its text after every other content rule", () => {
+  const submission: SubmissionRow = {
+    id: "submission-1",
+    assignmentId: "item-a",
+    attemptId: "attempt-1",
+    resultKind: "code",
+    assignmentRevision: 1,
+    sourceRevision: "1",
+    requirementsIdentity: "requirements-identity",
+    artifacts: "[]",
+    artifactsIdentity: "artifacts-identity",
+    checks: "[]",
+    concerns: "[]",
+    decisions: "[]",
+    behaviorChanges: null,
+    code: null,
+    reviewBase: null,
+    identity: "submission-identity",
+    state: "submitted",
+    revision: 1,
+    submittedAt: "2026-10-03T00:00:00.000Z",
+    updatedAt: "2026-10-03T00:00:00.000Z",
+  };
+  const failures = [
+    ...CONTENT_FAILURES.filter((one) => !one.startsWith("finding-") && !one.startsWith("cut-")),
+    "published-text-missing" as const,
+  ];
+  const order = refusalOrder(failures, ({ host, subAgents, reports, text: stated }) =>
+    Review.decide("report", {
+      row: { ...reviewRow("registered"), submissionId: "submission-1", snapshotId: null },
+      subject: {
+        kind: "submission",
+        submission,
+        publishes: true,
+        input: {
+          kind: "reported",
+          submissionIdentity: submission.identity,
+          host,
+          subAgents,
+          reports: reports.map(({ findings, ...report }) => ({
+            ...report,
+            findings: findings.map(({ targets: _targets, ...one }) => one),
+          })),
+          published: stated,
+        },
+      },
+      agentHost: HOST,
+    }),
+  );
+  expect(order).toEqual(failures);
 });
 
 test("a blocker checks only its subject, because it carries no content", () => {

@@ -159,10 +159,12 @@ export function moveAssignment(
     .where(eq(assignments.id, row.id))
     .run();
 
-  const { cycle, invalidation, direction } = next.closes;
+  const { cycle, answeredBy, invalidation, direction } = next.closes;
   if (cycle !== undefined) {
     db.update(reworkCycles)
-      .set({ state: cycle, updatedAt: now })
+      // Drizzle leaves out an undefined value, so a close that names no attempt keeps the one
+      // the cycle holds.
+      .set({ state: cycle, attemptId: answeredBy, updatedAt: now })
       .where(and(eq(reworkCycles.assignmentId, row.id), eq(reworkCycles.state, "open")))
       .run();
   }

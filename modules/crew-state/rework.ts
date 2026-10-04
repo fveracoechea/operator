@@ -100,17 +100,3 @@ export function insertCycle(
     })
     .run();
 }
-
-/**
- * Closes one cycle against the attempt that handed over its combined revision.
- * The cycle names that attempt, so the record shows which fresh Operative did the rework.
- */
-export function closeCycle(
-  db: CrewWriter,
-  request: { cycle: ReworkCycleRow; attemptId: string; now: string },
-): void {
-  db.update(reworkCycles)
-    .set({ state: "submitted", attemptId: request.attemptId, updatedAt: request.now })
-    .where(eq(reworkCycles.id, request.cycle.id))
-    .run();
-}

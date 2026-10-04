@@ -89,7 +89,7 @@ async function beginCleanup(
       recorded,
       state: recorded === null ? "none" : cleanupRecordOf(recorded).state,
     },
-    facts: { context, operationId: operation?.id ?? null },
+    facts: { context, operationId: operation?.id ?? null, resumed: operation !== undefined },
   };
 }
 

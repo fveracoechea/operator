@@ -52,6 +52,8 @@ export type CleanupFacts = {
   context: CleanupContext;
   /** The external effect this cleanup opened, in this run or in a former one. */
   operationId: string | null;
+  /** True when a former run left the effect open, so this run recovers it and opens none. */
+  resumed: boolean;
   inspection?: CheckoutInspection;
   identity?: IdentityMatch;
   preserved?: Outcome<typeof OperativeCleanup.preserve>;
@@ -67,7 +69,7 @@ export type CleanupFacts = {
   removed?: Outcome<typeof OperativeCleanup.remove>;
 };
 
-export type CleanupFact = Exclude<keyof CleanupFacts, "context" | "operationId">;
+export type CleanupFact = Exclude<keyof CleanupFacts, "context" | "operationId" | "resumed">;
 
 /** What one cleanup run does next. */
 export type CleanupDecision =
@@ -272,8 +274,8 @@ const REMOVE_ROWS: readonly Row[] = [
   }),
   // A removal that already landed but never answered is settled from what Herdr shows now,
   // ahead of every identity read, because the checkout it would read from is already gone.
-  row([], ({ operationId, recovery, context }) => {
-    if (operationId === null) return null;
+  row([], ({ resumed, recovery, context }) => {
+    if (!resumed) return null;
     if (recovery === undefined) return { need: "recovery" };
     if (recovery.status === "unknown") {
       return blocked([{ reason: "checkout_unknown", detail: recovery.detail }]);

@@ -12,7 +12,7 @@ import {
   type QuestionInput,
   questionInputSchema,
 } from "./question-input.ts";
-import { BLOCKING_STATES, type QuestionState } from "./question-machine.ts";
+import { BLOCKING_STATES, Question, type QuestionState } from "./question-machine.ts";
 import { type RecordedSource, SOURCE_KINDS, storedPathOf } from "./requirement-source.ts";
 import { answers, questions } from "./schema.ts";
 import { readStored, readStoredValue } from "./stored.ts";
@@ -210,15 +210,16 @@ export function withdrawQuestions(
   db: CrewWriter,
   request: { attemptId: string; now: string },
 ): void {
-  db.update(questions)
-    .set({ state: "withdrawn", updatedAt: request.now })
-    .where(
-      and(
-        eq(questions.attemptId, request.attemptId),
-        inArray(questions.state, [...BLOCKING_STATES]),
-      ),
-    )
-    .run();
+  const raised = db.select().from(questions).where(eq(questions.attemptId, request.attemptId));
+  for (const row of raised.all()) {
+    const decision = Question.decide("withdraw", { row });
+    if ("next" in decision) {
+      db.update(questions)
+        .set({ state: decision.next, updatedAt: request.now })
+        .where(eq(questions.id, row.id))
+        .run();
+    }
+  }
 }
 
 /** The question one recorded delivery carries the answer of. */

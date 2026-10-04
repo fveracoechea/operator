@@ -114,10 +114,11 @@ test("a claim refuses settled work, then a live attempt, then a stale revision, 
 });
 
 test("only claimed work hands a result over", () => {
-  expect(Assignment.decide("submit", { row: assignmentRow("claimed") })).toEqual({
-    next: { state: "awaiting-review", closes: {} },
+  // The move closes the cycle the result answers, under the attempt that handed it over.
+  expect(Assignment.decide("submit", { row: assignmentRow("claimed"), attemptId: "a-2" })).toEqual({
+    next: { state: "awaiting-review", closes: { cycle: "submitted", answeredBy: "a-2" } },
   });
-  expect(Assignment.decide("submit", { row: assignmentRow("rework") })).toEqual({
+  expect(Assignment.decide("submit", { row: assignmentRow("rework"), attemptId: "a-2" })).toEqual({
     refused: { status: "not-claimed", assignmentId: "assignment-1", state: "rework" },
   });
 });

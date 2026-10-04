@@ -47,6 +47,8 @@ export type DirectionRequestState = "open" | "directed" | "withdrawn";
 /** The state each open correction record of the assignment closes to with one move. */
 export type CorrectionClose = {
   cycle?: ReworkCycleState;
+  /** The attempt whose result answers the closed cycle, which the cycle then names. */
+  answeredBy?: string;
   invalidation?: InvalidationState;
   direction?: DirectionRequestState;
 };
@@ -222,7 +224,8 @@ export type AssignmentFacts = {
     /** What the frontier did with this assignment. The frontier owns the dispatch rules. */
     offered: "dispatchable" | "planning" | { blockers: FrontierBlocker[] };
   };
-  submit: { row: AssignmentRow };
+  /** The attempt that hands the result over. */
+  submit: { row: AssignmentRow; attemptId: string };
   rework: { row: AssignmentRow; revision: number; open: { id: string; reason: string } | null };
   invalidate: {
     row: AssignmentRow;
@@ -626,8 +629,15 @@ function to(state: AssignmentState, closes: CorrectionClose = {}) {
 /** The transition table of an assignment: the guards of each event in order, and the next state. */
 const ASSIGNMENT_TABLE: { [E in AssignmentEvent]: Entry<E> } = {
   claim: { refusal: (facts) => firstRefusal(CLAIM_GUARDS, facts), next: to("claimed") },
-  // Only a claimed production assignment hands a result over.
-  submit: { refusal: from(["claimed"], notClaimed), next: to("awaiting-review") },
+  // Only a claimed production assignment hands a result over. A combined revision closes the
+  // cycle it answers, and names the fresh Operative that did it.
+  submit: {
+    refusal: from(["claimed"], notClaimed),
+    next: ({ attemptId }) => ({
+      state: "awaiting-review",
+      closes: { cycle: "submitted", answeredBy: attemptId },
+    }),
+  },
   rework: { refusal: (facts) => firstRefusal(REWORK_GUARDS, facts), next: to("rework") },
   invalidate: {
     refusal: (facts) => firstRefusal(INVALIDATE_GUARDS, facts),

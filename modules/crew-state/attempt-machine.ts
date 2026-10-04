@@ -834,8 +834,8 @@ const SUBMIT_ROWS: ReadonlyArray<Row<SubmitFacts, { refused: SubmitRefusal }>> =
           refused: { status: "planning-only", assignmentId: assignment.id, kind: assignment.kind },
         },
   // The assignment machine says which state hands a result over.
-  ({ assignment }) => {
-    const decided = Assignment.decide("submit", { row: assignment });
+  ({ assignment, attemptId }) => {
+    const decided = Assignment.decide("submit", { row: assignment, attemptId });
     return "refused" in decided ? { refused: decided.refused } : null;
   },
   ({ assignment, stated }) =>

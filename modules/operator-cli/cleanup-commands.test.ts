@@ -148,6 +148,11 @@ function reasons(result: { json: { blockers: Blocker[] } }): string[] {
   return result.json.blockers.map((one) => one.reason);
 }
 
+/** How many times the fake Herdr was asked for its worktree list so far. */
+async function worktreeLists(workspace: Workspace): Promise<number> {
+  return (await herdrCalls(workspace)).filter((line) => line.startsWith("worktree list")).length;
+}
+
 /** Grants the approval one blocked removal asked for, exactly as it named it. */
 async function grantRemoval(
   workspace: Workspace,
@@ -641,10 +646,14 @@ describe("operator cleanup remove", () => {
     expect(unapproved.json.blockers[0].targets).toEqual([producer.worktreePath]);
 
     await grantRemoval(workspace, producer.ownerToken, unapproved.json.blockers[0]);
+    const listsBefore = await worktreeLists(workspace);
     const removed = await remove(workspace, producer.ownerToken, producer.attemptId);
 
     expect(removed.exitCode).toBe(0);
     expect(removed.json.reason).toBe("worktree_removed");
+    // A new removal reads the checkout from Herdr for its inspection and for its identity, and
+    // never asks Herdr again to recover an effect that this same run just opened.
+    expect((await worktreeLists(workspace)) - listsBefore).toBe(2);
     expect(await Bun.file(`${producer.worktreePath}/README.md`).exists()).toBe(false);
 
     // The evidence outlives the checkout, and nothing else the crew owns is touched.
@@ -861,6 +870,49 @@ describe("operator cleanup remove", () => {
     expect(
       (await herdrCalls(workspace)).filter((line) => line.startsWith("worktree remove")),
     ).toHaveLength(1);
+  });
+
+  test("blocks a lost removal while Herdr cannot say whether the checkout is gone", async () => {
+    const workspace = await makeWorkspace();
+    const { producer } = await acceptedCycle(workspace);
+    await close(workspace, producer.ownerToken, producer.attemptId);
+    const asked = await remove(workspace, producer.ownerToken, producer.attemptId);
+    await grantRemoval(workspace, producer.ownerToken, asked.json.blockers[0]);
+    await Bun.write(`${workspace.herdr}/worktree-remove.lost`, "");
+    const uncertain = await remove(workspace, producer.ownerToken, producer.attemptId);
+    expect(uncertain.json.reason).toBe("cleanup_uncertain");
+
+    await rm(`${workspace.herdr}/worktree-remove.lost`);
+    await Bun.write(`${workspace.herdr}/worktree-list.error`, "server_busy");
+    const blocked = await remove(workspace, producer.ownerToken, producer.attemptId);
+
+    expect(blocked.exitCode).toBe(3);
+    expect(blocked.json.blockers).toEqual([
+      { reason: "checkout_unknown", detail: "server_busy: the fake refused" },
+    ]);
+    // A removal this run did not open is recovered, never sent a second time.
+    expect(
+      (await herdrCalls(workspace)).filter((line) => line.startsWith("worktree remove")),
+    ).toHaveLength(1);
+  });
+
+  test("refuses a new removal while Herdr cannot list the checkout", async () => {
+    const workspace = await makeWorkspace();
+    const { producer } = await acceptedCycle(workspace);
+    await close(workspace, producer.ownerToken, producer.attemptId);
+    const asked = await remove(workspace, producer.ownerToken, producer.attemptId);
+    await grantRemoval(workspace, producer.ownerToken, asked.json.blockers[0]);
+    await Bun.write(`${workspace.herdr}/worktree-list.error`, "server_busy");
+
+    const blocked = await remove(workspace, producer.ownerToken, producer.attemptId);
+
+    expect(blocked.exitCode).toBe(3);
+    expect(blocked.json.blockers).toEqual([
+      { reason: "checkout_unknown", detail: "server_busy: the fake refused" },
+    ]);
+    expect((await herdrCalls(workspace)).some((line) => line.startsWith("worktree remove"))).toBe(
+      false,
+    );
   });
 });
 
@@ -1211,6 +1263,63 @@ describe("interrupted cleanups", () => {
 });
 
 describe("retention holds and recorded cleanups", () => {
+  test("a second hold reports the first, and a release needs a current hold", async () => {
+    const workspace = await makeWorkspace();
+    const { producer } = await acceptedCycle(workspace);
+    const hold = (reason: string) =>
+      writeInput(workspace, { reason, detail: "The checkout is still being read." }).then(
+        (inputPath) =>
+          runJson(workspace, [
+            "cleanup",
+            "hold",
+            "--request",
+            request(),
+            "--owner-token",
+            producer.ownerToken,
+            "--attempt",
+            producer.attemptId,
+            "--input",
+            inputPath,
+          ]),
+      );
+    const release = (revision: number) =>
+      runJson(workspace, [
+        "cleanup",
+        "release",
+        "--request",
+        request(),
+        "--owner-token",
+        producer.ownerToken,
+        "--attempt",
+        producer.attemptId,
+        "--revision",
+        String(revision),
+      ]);
+
+    const first = await hold("first-reason");
+    expect(first.json.reason).toBe("resources_held");
+    const again = await hold("second-reason");
+    expect(again.exitCode).toBe(0);
+    expect(again.json.reason).toBe("resources_already_held");
+    expect(again.json.blockers).toEqual([]);
+    expect(again.json.data).toEqual({ ...first.json.data, repeated: false });
+
+    const stale = await release(2);
+    expect(stale.exitCode).toBe(4);
+    expect(stale.json.reason).toBe("stale_revision");
+    expect(stale.json.blockers).toEqual([
+      { reason: "stale_revision", holdId: first.json.data.holdId, recordedRevision: 1 },
+    ]);
+
+    expect((await release(1)).json.reason).toBe("resources_released");
+    const missing = await release(2);
+    expect(missing.exitCode).toBe(3);
+    expect(missing.json.reason).toBe("no_retention_hold");
+    expect(missing.json.blockers).toEqual([
+      { reason: "no_retention_hold", attemptId: producer.attemptId },
+    ]);
+  });
+
   test("a hold stops every cleanup and outlives the session that placed it", async () => {
     const workspace = await makeWorkspace();
     const { producer } = await acceptedCycle(workspace);

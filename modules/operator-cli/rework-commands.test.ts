@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test as bunTest } from "bun:test";
 import { ContentIdentity } from "../content-identity/main.ts";
 import {
@@ -216,6 +217,16 @@ describe("operator work rework", () => {
       "# Result\n\nThe quality gate passed.\n",
     );
     expect(second.submitted.json.data.reworkCycleId).toBe(delegated.json.data.cycleId);
+    // The submit closes the cycle it answers, and the cycle names the Operative that did it.
+    const state = new Database(`${workspace.repo}/.operator/local/crew-state.sqlite`, {
+      readonly: true,
+    });
+    expect(
+      state
+        .query("select state, attempt_id as attemptId from rework_cycles where id = ?")
+        .get(delegated.json.data.cycleId),
+    ).toEqual({ state: "submitted", attemptId: reworked.attemptId });
+    state.close();
     // A second round is a separate review assignment, so a separate reviewer takes it.
     expect(second.submitted.json.data.reviewAssignmentId).not.toBe(
       submitted.json.data.reviewAssignmentId,

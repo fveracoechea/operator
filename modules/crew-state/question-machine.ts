@@ -12,8 +12,18 @@ export type QuestionState = "open" | "answered" | "delivered" | "resolved" | "wi
 /** The states in which a question still holds its Operative. */
 export const BLOCKING_STATES = ["open", "answered", "delivered"] as const;
 
-/** The events that move one question. A reapplied answer is an answer. */
-export type QuestionEvent = "raise" | "revise" | "answer" | "escalate" | "deliver" | "acknowledge";
+/**
+ * The events that move one question. A reapplied answer is an answer. The end of an attempt
+ * withdraws each question it raised.
+ */
+export type QuestionEvent =
+  | "raise"
+  | "revise"
+  | "answer"
+  | "escalate"
+  | "deliver"
+  | "acknowledge"
+  | "withdraw";
 
 /**
  * What each event reads before it decides. The caller gathers these facts. An event on a
@@ -33,6 +43,7 @@ export type QuestionFacts = {
   };
   deliver: { row: QuestionRow };
   acknowledge: { row: QuestionRow };
+  withdraw: { row: QuestionRow };
 };
 
 type Mismatch = { status: "question-mismatch"; questionId: string; attemptId: string };
@@ -50,6 +61,7 @@ export type QuestionRefusal = {
   escalate: Stale | Closed | DeliveryStarted;
   deliver: Acknowledged | { status: "not-answered"; questionId: string; state: string };
   acknowledge: Acknowledged | { status: "not-delivered"; questionId: string; state: string };
+  withdraw: Closed;
 };
 
 /** The state each event moves a question to. A null state leaves the state as it is. */
@@ -60,6 +72,7 @@ export type QuestionNext = {
   escalate: "open" | null;
   deliver: "delivered";
   acknowledge: "resolved";
+  withdraw: "withdrawn";
 };
 
 type Guard<F, R> = (facts: F) => R | null;
@@ -154,6 +167,9 @@ const QUESTION_TABLE: { [E in QuestionEvent]: Entry<E> } = {
     ],
     next: () => "resolved",
   },
+  // A question that no longer blocks its Operative is history, and the end of its attempt
+  // leaves it as it is.
+  withdraw: { guards: [blocking], next: () => "withdrawn" },
 };
 
 export const Question = {

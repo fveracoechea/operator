@@ -12,7 +12,7 @@ import {
 import { identityOf } from "./identity.ts";
 import { assignments, landings, reviews, submissions } from "./schema.ts";
 import { REVIEW_AXES } from "./review.ts";
-import { closeCycle, openCycleOf } from "./rework.ts";
+import { openCycleOf } from "./rework.ts";
 import { storedRequirements } from "./work-input.ts";
 import { type outsideChangesOf, recordOutsideChanges } from "./outside-changes.ts";
 import { type SubmissionInput, storedCode } from "./submission-input.ts";
@@ -356,7 +356,7 @@ export function submitResult(
     return decision.refused;
   }
   // The attempt machine already refused each state the assignment machine hands no result from.
-  const handed = Assignment.decide("submit", { row: assignment });
+  const handed = Assignment.decide("submit", { row: assignment, attemptId: attempt.id });
   if ("refused" in handed) {
     return handed.refused;
   }
@@ -409,11 +409,8 @@ export function submitResult(
     now: request.now,
   });
 
-  // A combined revision closes the cycle it answers, and names the fresh Operative that did it.
+  // The submit move closes the cycle this combined revision answers.
   const cycle = openCycleOf(db, assignment.id);
-  if (cycle !== null) {
-    closeCycle(db, { cycle, attemptId: attempt.id, now: request.now });
-  }
 
   endAttempt(db, { attempt, state: decision.next, now: request.now });
 

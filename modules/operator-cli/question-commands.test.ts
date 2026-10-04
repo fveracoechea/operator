@@ -79,6 +79,26 @@ async function dispatchedCrew(workspace: Workspace, keys: string[] = ["21.1"]): 
   });
 
   const first = registered.assignments[0] ?? { assignmentId: "" };
+  const operative = await dispatchOperative(workspace, {
+    ownerToken,
+    assignmentId: first.assignmentId,
+    worktree: `${workspace.root}/operative`,
+  });
+
+  return {
+    ownerToken,
+    ...operative,
+    assignmentId: first.assignmentId,
+    registered: registered.assignments,
+  };
+}
+
+/** Claims one registered assignment and dispatches an acknowledged Operative into a worktree. */
+async function dispatchOperative(
+  workspace: Workspace,
+  request_: { ownerToken: string; assignmentId: string; worktree: string },
+) {
+  const { ownerToken, assignmentId, worktree } = request_;
   const claimed = await runJson(workspace, [
     "work",
     "claim",
@@ -87,7 +107,7 @@ async function dispatchedCrew(workspace: Workspace, keys: string[] = ["21.1"]): 
     "--owner-token",
     ownerToken,
     "--assignment",
-    first.assignmentId,
+    assignmentId,
     "--revision",
     "1",
   ]);
@@ -95,7 +115,6 @@ async function dispatchedCrew(workspace: Workspace, keys: string[] = ["21.1"]): 
   const head = (await Bun.$`git -C ${workspace.repo} rev-parse HEAD`.quiet()).stdout
     .toString()
     .trim();
-  const worktree = `${workspace.root}/operative`;
   await passBaseGate(workspace, {
     ownerToken,
     attemptId: claimed.json.data.attemptId,
@@ -122,13 +141,18 @@ async function dispatchedCrew(workspace: Workspace, keys: string[] = ["21.1"]): 
   );
 
   return {
-    ownerToken,
     worktree,
-    assignmentId: first.assignmentId,
-    assignmentRevision: claimed.json.data.revision,
-    attemptId: claimed.json.data.attemptId,
-    registered: registered.assignments,
+    assignmentRevision: claimed.json.data.revision as number,
+    attemptId: claimed.json.data.attemptId as string,
   };
+}
+
+async function acknowledge(workspace: Workspace, crew: { worktree: string }, questionId: string) {
+  return runJson(
+    workspace,
+    ["question", "acknowledge", "--request", request(), "--question", questionId],
+    crew.worktree,
+  );
 }
 
 type QuestionOverrides = {
@@ -1219,6 +1243,53 @@ describe("operator question deliver", () => {
 });
 
 describe("operator question revise", () => {
+  test("refuses by the first failed guard: owner, revision, closed, then delivery", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace, ["21.1", "21.2"]);
+    const other = await dispatchOperative(workspace, {
+      ownerToken: crew.ownerToken,
+      assignmentId: crew.registered[1]?.assignmentId ?? "",
+      worktree: `${workspace.root}/other-operative`,
+    });
+    const raised = await raise(workspace, crew);
+    const questionId = raised.json.data.questionId;
+    await answer(workspace, crew, { questionId, revision: 1 });
+    await deliver(workspace, crew, questionId);
+
+    // Only the delivery fails while the answer is still on its way.
+    const started = await revise(workspace, crew, questionId, 1);
+    expect(started.exitCode).toBe(4);
+    expect(started.json.reason).toBe("delivery_started");
+    expect(started.json.blockers).toEqual([
+      { reason: "delivery_started", questionId, state: "delivered" },
+    ]);
+
+    // The acknowledgement closes the question, and its delivery stays started. Each request
+    // below fails every guard that the one after it fails, and one guard more, in table order.
+    expect((await acknowledge(workspace, crew, questionId)).exitCode).toBe(0);
+
+    const mismatch = await revise(workspace, other, questionId, 2);
+    expect(mismatch.exitCode).toBe(4);
+    expect(mismatch.json.reason).toBe("question_mismatch");
+    expect(mismatch.json.blockers).toEqual([
+      { reason: "question_mismatch", questionId, attemptId: crew.attemptId },
+    ]);
+
+    const stale = await revise(workspace, crew, questionId, 2);
+    expect(stale.exitCode).toBe(4);
+    expect(stale.json.reason).toBe("stale_question_revision");
+    expect(stale.json.blockers).toEqual([
+      { reason: "stale_question_revision", questionId, recordedRevision: 1 },
+    ]);
+
+    const closed = await revise(workspace, crew, questionId, 1);
+    expect(closed.exitCode).toBe(4);
+    expect(closed.json.reason).toBe("question_closed");
+    expect(closed.json.blockers).toEqual([
+      { reason: "question_closed", questionId, state: "resolved" },
+    ]);
+  });
+
   test("refuses to change a question while a delivered answer could still arrive", async () => {
     const workspace = await makeWorkspace();
     const crew = await dispatchedCrew(workspace);
@@ -1537,10 +1608,54 @@ describe("a withdrawn question", () => {
 
     expect(refused.exitCode).toBe(4);
     expect(refused.json.reason).toBe("question_closed");
+    expect(refused.json.blockers).toEqual([
+      { reason: "question_closed", questionId, state: "withdrawn" },
+    ]);
 
     // It stays out of the frontier, so no dead attempt is reported as waiting on an answer.
     const after = await runJson(workspace, ["work", "frontier"]);
     expect(after.json.data.questions).toEqual([]);
+  });
+});
+
+describe("operator question acknowledge", () => {
+  test("refuses an answer that was never sent", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+    const questionId = raised.json.data.questionId;
+    await answer(workspace, crew, { questionId, revision: 1 });
+
+    const refused = await acknowledge(workspace, crew, questionId);
+
+    expect(refused.exitCode).toBe(3);
+    expect(refused.json.reason).toBe("question_not_delivered");
+    expect(refused.json.blockers).toEqual([
+      { reason: "question_not_delivered", questionId, state: "answered" },
+    ]);
+  });
+
+  test("reports a second acknowledgement, and a delivery after it, as already done", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+    const questionId = raised.json.data.questionId;
+    await answer(workspace, crew, { questionId, revision: 1 });
+    await deliver(workspace, crew, questionId);
+    const first = await acknowledge(workspace, crew, questionId);
+    expect(first.json.reason).toBe("question_acknowledged");
+
+    const again = await acknowledge(workspace, crew, questionId);
+    expect(again.exitCode).toBe(0);
+    expect(again.json.reason).toBe("question_already_acknowledged");
+    expect(again.json.blockers).toEqual([]);
+    const acknowledgedAt = again.json.data.acknowledgedAt;
+    expect(again.json.data).toEqual({ questionId, acknowledgedAt });
+
+    const delivered = await deliver(workspace, crew, questionId);
+    expect(delivered.exitCode).toBe(0);
+    expect(delivered.json.reason).toBe("question_already_acknowledged");
+    expect(delivered.json.data).toEqual({ questionId, acknowledgedAt });
   });
 });
 
