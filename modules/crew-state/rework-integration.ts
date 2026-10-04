@@ -6,7 +6,7 @@ import type { PlanRefusal } from "./branch-move.ts";
 import { candidateKey, planLanding } from "./landing.ts";
 import { type LandingRow, replacedLandingOf } from "./landing-record.ts";
 import { readState, type StateFailure } from "./operations.ts";
-import { planRewrite, rangeGateOf } from "./rewrite.ts";
+import { planRewrite, type RangeGate, rangeGateOf } from "./rewrite.ts";
 import type { ReworkIntegration } from "./rework-input.ts";
 import { latestSubmission, reviewedBaseOf, submittedCommit } from "./submission.ts";
 import type { StoredArtifact } from "./submission-store.ts";
@@ -180,6 +180,24 @@ export async function readIntegrationEvidence(request: {
 }
 
 /**
+ * The failed or flaky run at the place of the correction itself, or null when the range has no
+ * such run. Only a failed or flaky step names its failed runs, and the latest one is the evidence.
+ */
+function correctionFailureOf(
+  db: CrewReader,
+  gate: RangeGate,
+): { cause: "gate-failed" | "gate-flaky"; run: GateRunRow } | null {
+  if ((gate.status !== "failed" && gate.status !== "flaky") || !gate.correction) {
+    return null;
+  }
+  const latest = gate.runIds.at(-1);
+  const run = latest === undefined ? null : readGateRun(db, latest);
+  return run === null
+    ? null
+    : { cause: gate.status === "failed" ? "gate-failed" : "gate-flaky", run };
+}
+
+/**
  * Plans the rewrite of one correction again (ADR 0020). The correction lands on the parent of the
  * commit it replaces, so a conflict, a changed patch, or a failed or flaky run at its own place
  * names that parent as its tip, and the integration cycle starts there. A later commit that fails
@@ -219,14 +237,8 @@ async function readRewriteEvidence(request: {
     return planned;
   }
   return readState(request.projectRoot, (db): IntegrationRead => {
-    const gate = rangeGateOf(db, planned.rewrite);
-    const run = gate.status === "passed" ? null : readGateRun(db, gate.runIds.at(-1) ?? "");
-    if (
-      gate.status === "passed" ||
-      !gate.correction ||
-      (gate.status !== "failed" && gate.status !== "flaky") ||
-      run === null
-    ) {
+    const failure = correctionFailureOf(db, rangeGateOf(db, planned.rewrite));
+    if (failure === null) {
       return {
         status: "lands-cleanly",
         assignmentId: request.assignmentId,
@@ -240,11 +252,11 @@ async function readRewriteEvidence(request: {
       submissionId: request.submissionId,
       integration: {
         ...base,
-        cause: gate.status === "failed" ? "gate-failed" : "gate-flaky",
+        cause: failure.cause,
         paths: [],
-        gateRunId: run.id,
+        gateRunId: failure.run.id,
       },
-      outputs: outputsOf(db, run),
+      outputs: outputsOf(db, failure.run),
     };
   });
 }

@@ -214,11 +214,12 @@ export function isFirstCodeDispatch(db: CrewReader, sourceId: string): boolean {
 }
 
 /**
- * Where the integration base of one source stands, read from its latest base run. A stopped run
- * proved nothing, so it reads as no run, with the reason it stopped.
+ * Where the integration base of one source stands, read from its latest base run, in the states
+ * of a gate step. A stopped run proved nothing, so the base stays pending, with the reason it
+ * stopped.
  */
 export type BaseGate =
-  | { status: "none"; stopped: GateRunRow | null }
+  | { status: "pending"; stopped: GateRunRow | null }
   | { status: "running"; run: GateRunRow }
   | { status: "passed"; commit: string; run: GateRunRow }
   | { status: "failed" | "flaky"; commit: string; failed: GateRunRow[] };
@@ -265,7 +266,7 @@ export function baseGateOf(db: CrewReader, sourceId: string): BaseGate {
     .toSorted(byStart);
   const latest = runs.at(-1);
   if (latest === undefined) {
-    return { status: "none", stopped: null };
+    return { status: "pending", stopped: null };
   }
   if (latest.state === "running") {
     return { status: "running", run: latest };
@@ -278,7 +279,7 @@ export function baseGateOf(db: CrewReader, sourceId: string): BaseGate {
   if (verdict.status === "failed" || verdict.status === "flaky") {
     return { status: verdict.status, commit: latest.commit, failed: verdict.failed };
   }
-  return { status: "none", stopped: latest.state === "stopped" ? latest : null };
+  return { status: "pending", stopped: latest.state === "stopped" ? latest : null };
 }
 
 /** The states of one gate run, as `gate_runs.state` records them (ADR 0021). */

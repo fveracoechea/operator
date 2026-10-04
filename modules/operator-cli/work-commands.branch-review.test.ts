@@ -257,6 +257,12 @@ describe("the branch review of an integration branch", () => {
     expect(next.forAction("dispose_findings").map((one) => one.reviewId)).toContain(
       registered.reviewId,
     );
+    expect(
+      next.forAction("dispose_findings").find((one) => one.reviewId === registered.reviewId)
+        ?.detail,
+    ).toBe(
+      "1 branch finding(s) carry no disposition. A corrected one names its one target assignment.",
+    );
 
     const disposed = await disposeFindings(workspace, producer, registered.reviewId, [
       {

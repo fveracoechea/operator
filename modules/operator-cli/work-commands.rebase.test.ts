@@ -256,6 +256,9 @@ describe("operator work rebase moves the integration branch to a new base behind
 
     await grant(workspace, producer, approval);
     const offered = (await nextActions(workspace)).of("rebase_integration");
+    expect(offered.detail).toBe(
+      `An integration-rebase approval of ${before.name} onto ${newBase} is recorded. Run the rebase: it moves the branch only after the new base and each commit that lands again passed the project gate, and it names the next gate run until then.`,
+    );
     expect(offered.command).toBe(
       `operator work rebase --source ${SOURCE} --base ${newBase} --plan-revision ${planRevision}`,
     );

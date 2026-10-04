@@ -298,6 +298,8 @@ function plannedRewriteOf(request: {
   return {
     landing: {
       row: request.row,
+      // A take-out with no later commit gates nothing, so it has the empty tree of PlannedMove.
+      // The intent request hashes this tree, so a recorded intent keeps its identity.
       tree: gated.at(-1)?.tree ?? "",
       plan: {
         status: "ready",

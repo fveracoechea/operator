@@ -339,6 +339,7 @@ describe("an integration cycle", () => {
     expect(next.of("direct_limit")).toMatchObject({
       assignmentId: producer.assignmentId,
       blocker: "direction_required",
+      detail: "rework_cycles reached 3. Only the user can direct it.",
     });
   });
 

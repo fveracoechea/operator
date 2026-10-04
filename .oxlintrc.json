@@ -7,11 +7,5 @@
     "anti-slop/no-widen-then-assert": "error",
     "oxc/no-accumulating-spread": "error",
     "complexity": ["error", { "max": 15 }]
-  },
-  "overrides": [
-    {
-      "files": ["modules/crew-state/next.ts"],
-      "rules": { "complexity": ["error", { "max": 30 }] }
-    }
-  ]
+  }
 }

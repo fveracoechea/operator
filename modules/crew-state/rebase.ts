@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { IntegrationBranch } from "../integration-branch/main.ts";
 import { PullRequestStack } from "../pull-request-stack/main.ts";
-import { approvedPlan, REBASE_ACTION } from "./approvals.ts";
+import { approvedPlan, grantedApprovalsOf, REBASE_ACTION } from "./approvals.ts";
 import { type RegisteredBranchReview, registerBranchReview } from "./branch-review.ts";
 import { BranchMove, type MoveNext, type MoveRefusal } from "./branch-move.ts";
 import type { CrewReader, CrewWriter } from "./database.ts";
@@ -151,6 +151,33 @@ export function rebaseRevisionOf(request: {
   newBase: string;
 }): string {
   return identityOf(request);
+}
+
+/**
+ * The granted rebase approval of the plan of today, or null. A rebase plan names two targets, the
+ * recorded base and the new base, so an approval that names no new base binds no plan. Only an
+ * approval of the recorded base and tip, and its new base, binds the plan of today.
+ */
+export function approvedRebaseOf(
+  db: CrewReader,
+  branch: IntegrationBranchRow,
+): { newBase: string; planRevision: string } | null {
+  for (const one of grantedApprovalsOf(db, REBASE_ACTION, branch.sourceId)) {
+    const [from, newBase] = one.targets;
+    if (from !== branch.baseCommit || newBase === undefined) {
+      continue;
+    }
+    const planned = rebaseRevisionOf({
+      sourceId: branch.sourceId,
+      branch: branch.name,
+      from: { base: branch.baseCommit, tip: branch.recordedTip },
+      newBase,
+    });
+    if (one.requestRevision === planned) {
+      return { newBase, planRevision: one.requestRevision };
+    }
+  }
+  return null;
 }
 
 /** The rebase of one source whose move has no recorded outcome, or null. */

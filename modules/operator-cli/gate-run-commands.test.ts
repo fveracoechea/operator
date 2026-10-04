@@ -37,6 +37,11 @@ function gateOf(...commands: Array<{ name: string; argv: string[]; timeoutSecond
   };
 }
 
+/** The `crew next` detail of a base that failed or is flaky at one commit. */
+function baseBlocked(state: "failed" | "flaky", commit: string, runIds: string): string {
+  return `The integration base of source ${SOURCE} is ${state} at commit ${commit} in gate run ${runIds}, and it is not fixed. Only the user clears it: by a fixed main branch and a new base commit, or by an approval of a fresh series that names the key and each failed run. Read a run with \`operator gate show --run <id>\`.`;
+}
+
 /** One production assignment of the source, claimed and not dispatched. */
 async function claimFirst(workspace: Workspace) {
   const ownerToken = await ownCrew(workspace);
@@ -136,6 +141,9 @@ describe("the gate on the integration base", () => {
     expect(await Bun.file(`${claimed.worktreePath}/.git`).exists()).toBe(false);
     const waiting = await nextActions(workspace);
     expect(waiting.of("run_gate")).toMatchObject({ attemptId: claimed.attemptId, blocker: null });
+    expect(waiting.of("run_gate").detail).toBe(
+      `The first code dispatch of source ${SOURCE} fixes its integration base, so the base commit passes the project gate first. Run the gate on the commit you will dispatch from.`,
+    );
     expect(waiting.names).not.toContain("dispatch_attempt");
 
     const ran = await gate(workspace, {
@@ -183,7 +191,7 @@ describe("the gate on the integration base", () => {
     expect(await Bun.file(`${claimed.worktreePath}/.git`).exists()).toBe(false);
     const blocked = await nextActions(workspace);
     expect(blocked.of("run_gate")).toMatchObject({ blocker: "gate_failed" });
-    expect(blocked.of("run_gate").detail).toContain(failedRun);
+    expect(blocked.of("run_gate").detail).toBe(baseBlocked("failed", claimed.commit, failedRun));
 
     await Bun.write(`${workspace.root}/flag`, "");
     const passed = await gate(workspace, {
@@ -196,7 +204,9 @@ describe("the gate on the integration base", () => {
       reason: "gate_flaky",
       blockers: [{ runIds: [failedRun] }],
     });
-    expect((await nextActions(workspace)).of("run_gate").blocker).toBe("gate_flaky");
+    const flaky = (await nextActions(workspace)).of("run_gate");
+    expect(flaky.blocker).toBe("gate_flaky");
+    expect(flaky.detail).toBe(baseBlocked("flaky", claimed.commit, failedRun));
   });
 
   test("a command over its time limit fails as timed-out, and each later command is not-run", async () => {

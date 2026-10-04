@@ -39,8 +39,8 @@ import { assignments, attempts, workSources } from "./schema.ts";
 import type { BrokenLanding, RewriteRead } from "./next-landings.ts";
 import { openPublicationOf } from "./publish.ts";
 import { storedEffect } from "./stack-records.ts";
-import { intendedRebaseOf, rebaseRevisionOf } from "./rebase.ts";
-import { grantedApprovalsOf, PUBLISH_ACTION, REBASE_ACTION } from "./approvals.ts";
+import { approvedRebaseOf, intendedRebaseOf } from "./rebase.ts";
+import { grantedApprovalsOf, PUBLISH_ACTION } from "./approvals.ts";
 import { recallOffer } from "./recall.ts";
 import { conflictSettlementOf } from "./stack-parts.ts";
 import type { RetargetDue } from "./publication-machine.ts";
@@ -489,30 +489,19 @@ function readRebase(db: CrewReader, into: Collector): void {
       });
       continue;
     }
-    const approved = grantedApprovalsOf(db, REBASE_ACTION, source.id).find((one) => {
-      const [from, to] = one.targets;
-      // Only an approval of the plan of today: the recorded base and tip, and its new base.
-      const planned = rebaseRevisionOf({
-        sourceId: source.id,
-        branch: branch.name,
-        from: { base: branch.baseCommit, tip: branch.recordedTip },
-        newBase: to ?? "",
-      });
-      return from === branch.baseCommit && one.requestRevision === planned;
-    });
-    if (approved === undefined) {
+    const approved = approvedRebaseOf(db, branch);
+    if (approved === null) {
       continue;
     }
     // The rebase starts gate runs of its own, so it waits for the run in progress.
     if (waitsForRun(db, source.id, { sourceId: source.id }, into)) {
       continue;
     }
-    const newBase = approved.targets[1] ?? "<the new base>";
     into.add({
       action: "rebase_integration",
       sourceId: source.id,
-      detail: `An integration-rebase approval of ${branch.name} onto ${newBase} is recorded. Run the rebase: it moves the branch only after the new base and each commit that lands again passed the project gate, and it names the next gate run until then.`,
-      command: `operator work rebase --source ${source.id} --base ${newBase} --plan-revision ${approved.requestRevision}`,
+      detail: `An integration-rebase approval of ${branch.name} onto ${approved.newBase} is recorded. Run the rebase: it moves the branch only after the new base and each commit that lands again passed the project gate, and it names the next gate run until then.`,
+      command: `operator work rebase --source ${source.id} --base ${approved.newBase} --plan-revision ${approved.planRevision}`,
     });
   }
 }
@@ -546,32 +535,34 @@ function readBaseGate(
   const { gate } = base;
   const subject = { assignmentId: request.assignmentId, attemptId: request.attemptId };
 
-  if (gate.status === "running") {
-    into.wait({
-      wait: "gate_running",
-      ...subject,
-      detail: `Gate run ${gate.run.id} of source ${base.sourceId} runs at commit ${gate.run.commit}. Its runner wakes the Operator at the end. If its pane shows no runner, \`operator gate run\` replaces it.`,
-    });
-    return;
-  }
-  if (gate.status === "failed" || gate.status === "flaky") {
-    const runs = gate.failed.map((one) => one.id).join(", ");
-    into.add({
-      action: "run_gate",
-      ...subject,
-      blocker: gate.status === "failed" ? "gate_failed" : "gate_flaky",
-      detail: `The integration base of source ${base.sourceId} is ${gate.status} at commit ${gate.commit} in gate run ${runs}, and it is not fixed. Only the user clears it: by a fixed main branch and a new base commit, or by an approval of a fresh series that names the key and each failed run. Read a run with \`operator gate show --run <id>\`.`,
-      command: "operator gate run",
-    });
-    return;
-  }
-  if (gate.status === "none") {
-    into.add({
-      action: "run_gate",
-      ...subject,
-      detail: `The first code dispatch of source ${base.sourceId} fixes its integration base, so the base commit passes the project gate first. Run the gate on the commit you will dispatch from.${gate.stopped === null ? "" : ` Gate run ${gate.stopped.id} stopped with no outcome: ${gate.stopped.detail ?? "no reason recorded"}.`}`,
-      command: "operator gate run",
-    });
+  switch (gate.status) {
+    case "running":
+      into.wait({
+        wait: "gate_running",
+        ...subject,
+        detail: `Gate run ${gate.run.id} of source ${base.sourceId} runs at commit ${gate.run.commit}. Its runner wakes the Operator at the end. If its pane shows no runner, \`operator gate run\` replaces it.`,
+      });
+      return;
+    case "failed":
+    case "flaky":
+      into.add({
+        action: "run_gate",
+        ...subject,
+        blocker: gate.status === "failed" ? "gate_failed" : "gate_flaky",
+        detail: `The integration base of source ${base.sourceId} is ${gate.status} at commit ${gate.commit} in gate run ${gate.failed.map((one) => one.id).join(", ")}, and it is not fixed. Only the user clears it: by a fixed main branch and a new base commit, or by an approval of a fresh series that names the key and each failed run. Read a run with \`operator gate show --run <id>\`.`,
+        command: "operator gate run",
+      });
+      return;
+    case "pending":
+      into.add({
+        action: "run_gate",
+        ...subject,
+        detail: `The first code dispatch of source ${base.sourceId} fixes its integration base, so the base commit passes the project gate first. Run the gate on the commit you will dispatch from.${gate.stopped === null ? "" : ` Gate run ${gate.stopped.id} stopped with no outcome: ${gate.stopped.detail ?? "no reason recorded"}.`}`,
+        command: "operator gate run",
+      });
+      return;
+    case "passed":
+      return;
   }
 }
 
@@ -1384,6 +1375,9 @@ export function calculateUnowned(request: { capacity: Capacity; readiness: Readi
  * Reads everything one crew may do next and writes nothing.
  * The frontier stays the only rule for what may start, so this adds no order of its own to the
  * work it offers: it reports the frontier's order and the steps the recorded state still owes.
+ * Each reader reads the recorded states of one kind of subject, in this order: the attempts, the
+ * questions, the take-outs, the assignments, the sources, and then the frontier. A wait keeps the
+ * order it is read in, and so do actions of one rank, so this order is part of the report.
  */
 export function calculateNext(
   db: CrewReader,
@@ -1403,183 +1397,16 @@ export function calculateNext(
   const into = collector();
 
   readReadiness(request.readiness, into);
-
-  const held = allAttempts(db).map((attempt) => ({
-    attempt,
-    unsettled: unsettledOperations(liveOperations(db, attempt.id)).map((one) => one.kind),
-  }));
-  const unsettled = new Set(
-    held.flatMap((one) => (one.unsettled.length === 0 ? [] : [one.attempt.id])),
-  );
-
-  const gateSources = new Set<string>();
-  for (const { attempt, unsettled: pending } of held) {
-    const assignment = readAssignment(db, attempt.assignmentId);
-    if (assignment === null) {
-      continue;
-    }
-
-    if (attempt.state === "active") {
-      const first =
-        assignment.kind === "production" && isFirstCodeDispatch(db, assignment.sourceId);
-      readActiveAttempt(
-        db,
-        {
-          attemptId: attempt.id,
-          assignmentId: attempt.assignmentId,
-          ownedByCurrent: ownership !== null && ownership.token === attempt.ownerToken,
-          unsettled: pending,
-          baseGate: first
-            ? {
-                sourceId: assignment.sourceId,
-                gate: baseGateOf(db, assignment.sourceId),
-                reported: gateSources,
-              }
-            : null,
-          integration: tipStartOf(db, assignment),
-          branchHead: branchHeadOf(db, assignment.id),
-        },
-        into,
-      );
-      continue;
-    }
-
-    // A replaced attempt handed its checkout and its agent name to the replacement, so the
-    // disposal of those resources belongs to the attempt that holds them now.
-    if (attempt.state === "submitted" || attempt.state === "accepted") {
-      readCleanupOf(
-        db,
-        {
-          attemptId: attempt.id,
-          assignmentId: attempt.assignmentId,
-          removable: removableAfterClosure(db, { attemptId: attempt.id, state: assignment.state }),
-        },
-        into,
-      );
-    }
-  }
-
+  const unsettled = readAttempts(db, ownership, into);
   readQuestions(db, unsettled, into);
   const takeOutWaits = readTakeOutsOf(db, { takeOuts: request.takeOuts }, into);
-
   const paused = openPauses(db);
-  for (const row of db
-    .select()
-    .from(assignments)
-    .all()
-    .toSorted((left, right) => left.id.localeCompare(right.id))) {
-    // A withdrawal is terminal and closed every open record of its work, so it owes nothing.
-    if (row.state === "withdrawn") {
-      continue;
-    }
-    for (const direction of undirected(db, row.id)) {
-      const record = directionRecordOf(direction);
-      into.add({
-        action: "direct_limit",
-        assignmentId: row.id,
-        revision: record.revision,
-        blocker: "direction_required",
-        detail: `${record.limitKind} reached ${record.limitValue}. Only the user can direct it.`,
-        command: "operator approval grant",
-      });
-    }
-
-    // Work that read an invalid result waits for the corrected one, so it is reported as the
-    // wait it is rather than left out of the reading.
-    const invalid = paused.get(row.id);
-    if (invalid !== undefined) {
-      into.wait({
-        wait: "input_invalidated",
-        assignmentId: row.id,
-        detail: `This work read a result a defect was found in: ${invalid.join(", ")}.`,
-      });
-      continue;
-    }
-
-    if (row.state === "awaiting-review") {
-      readReview(
-        db,
-        {
-          assignmentId: row.id,
-          revision: row.revision,
-          sourceId: row.sourceId,
-          broken: request.broken,
-          rewrites: request.rewrites,
-          takeOutWaits,
-        },
-        into,
-      );
-    }
-
-    // A branch review gates the publish, so each of its findings is answered whatever state its
-    // own assignment is in. A corrected one invalidates its target in the same answer.
-    if (isReview(row.kind)) {
-      const branch = reviewOfAssignment(db, row.id);
-      const open = branch === null ? [] : undisposed(findingsOf(db, branch.id));
-      if (branch !== null && branch.snapshotId !== null && open.length > 0) {
-        into.add({
-          action: "dispose_findings",
-          assignmentId: row.id,
-          reviewId: branch.id,
-          revision: row.revision,
-          detail: `${open.length} branch finding(s) carry no disposition. A corrected one names its one target assignment.`,
-          command: "operator review dispose",
-        });
-      }
-    }
-
-    // A review assignment holds no result of its own, so it is accepted once it reported.
-    if (row.state === "claimed" && isReview(row.kind)) {
-      const review = reviewOfAssignment(db, row.id);
-      if (review !== null && review.state === "reported") {
-        into.add({
-          action: "accept_assignment",
-          assignmentId: row.id,
-          reviewId: review.id,
-          revision: row.revision,
-          detail: "This reviewer reported both axes, so its own assignment can be accepted.",
-          command: "operator work accept",
-        });
-      }
-    }
-
-    if (row.state === "accepted") {
-      readTracker(db, row.id, row.revision, into);
-    }
+  const steps = { paused, broken: request.broken, rewrites: request.rewrites, takeOutWaits };
+  for (const row of allAssignments(db)) {
+    readAssignmentSteps(db, row, steps, into);
   }
-
-  readRebase(db, into);
-  readPublish(db, into);
-
-  // Planning work is never dispatched. Once its dependencies land, the crew prepares its record
-  // and the Operator records the acceptance.
-  for (const entry of frontier.planning) {
-    if (paused.has(entry.assignmentId) || unmetDependencies(db, entry.assignmentId).length > 0) {
-      continue;
-    }
-
-    into.add({
-      action: "resolve_planning",
-      assignmentId: entry.assignmentId,
-      revision: entry.revision,
-      planningRecords: dependencyRecords(db, entry.assignmentId),
-      detail:
-        entry.state === "invalidated"
-          ? "The planning decision was invalidated, so the crew prepares it again with a new planning record."
-          : "Planning work is registered so dependencies resolve. The crew prepares its planning record.",
-      command: "operator work accept",
-    });
-  }
-
-  for (const entry of frontier.dispatchable) {
-    into.add({
-      action: "claim_assignment",
-      assignmentId: entry.assignmentId,
-      revision: entry.revision,
-      detail: `${entry.kind} work the frontier offers now.`,
-      command: "operator work claim",
-    });
-  }
+  readSourceSteps(db, into);
+  readFrontier(db, { frontier, paused }, into);
 
   return {
     status: "reported",
@@ -1596,4 +1423,238 @@ export function calculateNext(
     waits: into.waits(),
     frontier,
   };
+}
+
+type Ownership = ReturnType<typeof currentOwnership>;
+type AttemptRow = typeof attempts.$inferSelect;
+type AssignmentRow = typeof assignments.$inferSelect;
+
+/**
+ * Reads each attempt, oldest first, and gives the attempts that hold an operation with no proved
+ * outcome. The base gate of a source is reported once, however many of its attempts wait for it.
+ */
+function readAttempts(db: CrewReader, ownership: Ownership, into: Collector): Set<string> {
+  const held = allAttempts(db).map((attempt) => ({
+    attempt,
+    unsettled: unsettledOperations(liveOperations(db, attempt.id)).map((one) => one.kind),
+  }));
+  const gateSources = new Set<string>();
+  for (const one of held) {
+    readAttempt(db, { ...one, ownership, gateSources }, into);
+  }
+  return new Set(held.flatMap((one) => (one.unsettled.length === 0 ? [] : [one.attempt.id])));
+}
+
+/**
+ * What one attempt owes in its recorded state. An active attempt owes its launch, or it waits for
+ * its Operative. A replaced attempt handed its checkout and its agent name to the replacement, so
+ * the disposal of those resources belongs to the attempt that holds them now.
+ */
+function readAttempt(
+  db: CrewReader,
+  request: {
+    attempt: AttemptRow;
+    unsettled: string[];
+    ownership: Ownership;
+    gateSources: Set<string>;
+  },
+  into: Collector,
+): void {
+  const { attempt, ownership } = request;
+  const assignment = readAssignment(db, attempt.assignmentId);
+  if (assignment === null) {
+    return;
+  }
+
+  if (attempt.state === "active") {
+    const first = assignment.kind === "production" && isFirstCodeDispatch(db, assignment.sourceId);
+    readActiveAttempt(
+      db,
+      {
+        attemptId: attempt.id,
+        assignmentId: attempt.assignmentId,
+        ownedByCurrent: ownership !== null && ownership.token === attempt.ownerToken,
+        unsettled: request.unsettled,
+        baseGate: first
+          ? {
+              sourceId: assignment.sourceId,
+              gate: baseGateOf(db, assignment.sourceId),
+              reported: request.gateSources,
+            }
+          : null,
+        integration: tipStartOf(db, assignment),
+        branchHead: branchHeadOf(db, assignment.id),
+      },
+      into,
+    );
+    return;
+  }
+
+  if (attempt.state === "submitted" || attempt.state === "accepted") {
+    readCleanupOf(
+      db,
+      {
+        attemptId: attempt.id,
+        assignmentId: attempt.assignmentId,
+        removable: removableAfterClosure(db, { attemptId: attempt.id, state: assignment.state }),
+      },
+      into,
+    );
+  }
+}
+
+/** The assignments of one crew, in the order of their ids. */
+function allAssignments(db: CrewReader): AssignmentRow[] {
+  return db
+    .select()
+    .from(assignments)
+    .all()
+    .toSorted((left, right) => left.id.localeCompare(right.id));
+}
+
+/**
+ * The steps one assignment owes in its recorded state. A withdrawal is terminal and closed every
+ * open record of its work, so it owes nothing. Work that read an invalid result waits for the
+ * corrected one, so it is reported as the wait it is rather than left out of the reading.
+ */
+function readAssignmentSteps(
+  db: CrewReader,
+  row: AssignmentRow,
+  request: {
+    paused: Map<string, string[]>;
+    broken: Map<string, BrokenLanding>;
+    rewrites: Map<string, RewriteRead>;
+    takeOutWaits: Set<string>;
+  },
+  into: Collector,
+): void {
+  if (row.state === "withdrawn") {
+    return;
+  }
+  for (const direction of undirected(db, row.id)) {
+    const record = directionRecordOf(direction);
+    into.add({
+      action: "direct_limit",
+      assignmentId: row.id,
+      revision: record.revision,
+      blocker: "direction_required",
+      detail: `${record.limitKind} reached ${record.limitValue}. Only the user can direct it.`,
+      command: "operator approval grant",
+    });
+  }
+
+  const invalid = request.paused.get(row.id);
+  if (invalid !== undefined) {
+    into.wait({
+      wait: "input_invalidated",
+      assignmentId: row.id,
+      detail: `This work read a result a defect was found in: ${invalid.join(", ")}.`,
+    });
+    return;
+  }
+
+  if (row.state === "awaiting-review") {
+    readReview(
+      db,
+      {
+        assignmentId: row.id,
+        revision: row.revision,
+        sourceId: row.sourceId,
+        broken: request.broken,
+        rewrites: request.rewrites,
+        takeOutWaits: request.takeOutWaits,
+      },
+      into,
+    );
+  }
+  if (isReview(row.kind)) {
+    readBranchReview(db, row, into);
+  }
+  if (row.state === "accepted") {
+    readTracker(db, row.id, row.revision, into);
+  }
+}
+
+/**
+ * The steps of the assignment of one reviewer. A branch review gates the publish, so each of its
+ * findings is answered whatever state its own assignment is in, and a corrected one invalidates
+ * its target in the same answer. A review assignment holds no result of its own, so it is
+ * accepted once it reported.
+ */
+function readBranchReview(db: CrewReader, row: AssignmentRow, into: Collector): void {
+  const review = reviewOfAssignment(db, row.id);
+  if (review === null) {
+    return;
+  }
+  const open = review.snapshotId === null ? [] : undisposed(findingsOf(db, review.id));
+  if (open.length > 0) {
+    into.add({
+      action: "dispose_findings",
+      assignmentId: row.id,
+      reviewId: review.id,
+      revision: row.revision,
+      detail: `${open.length} branch finding(s) carry no disposition. A corrected one names its one target assignment.`,
+      command: "operator review dispose",
+    });
+  }
+  if (row.state === "claimed" && review.state === "reported") {
+    into.add({
+      action: "accept_assignment",
+      assignmentId: row.id,
+      reviewId: review.id,
+      revision: row.revision,
+      detail: "This reviewer reported both axes, so its own assignment can be accepted.",
+      command: "operator work accept",
+    });
+  }
+}
+
+/**
+ * The steps each source owes: first its rebase, then its publish. Each one reads every source, so
+ * the waits of all rebases come before the waits of all publishes.
+ */
+function readSourceSteps(db: CrewReader, into: Collector): void {
+  readRebase(db, into);
+  readPublish(db, into);
+}
+
+/**
+ * The work the frontier offers. Planning work is never dispatched. Once its dependencies land,
+ * the crew prepares its record and the Operator records the acceptance.
+ */
+function readFrontier(
+  db: CrewReader,
+  request: { frontier: Frontier; paused: Map<string, string[]> },
+  into: Collector,
+): void {
+  for (const entry of request.frontier.planning) {
+    if (
+      request.paused.has(entry.assignmentId) ||
+      unmetDependencies(db, entry.assignmentId).length > 0
+    ) {
+      continue;
+    }
+
+    into.add({
+      action: "resolve_planning",
+      assignmentId: entry.assignmentId,
+      revision: entry.revision,
+      planningRecords: dependencyRecords(db, entry.assignmentId),
+      detail:
+        entry.state === "invalidated"
+          ? "The planning decision was invalidated, so the crew prepares it again with a new planning record."
+          : "Planning work is registered so dependencies resolve. The crew prepares its planning record.",
+      command: "operator work accept",
+    });
+  }
+
+  for (const entry of request.frontier.dispatchable) {
+    into.add({
+      action: "claim_assignment",
+      assignmentId: entry.assignmentId,
+      revision: entry.revision,
+      detail: `${entry.kind} work the frontier offers now.`,
+      command: "operator work claim",
+    });
+  }
 }

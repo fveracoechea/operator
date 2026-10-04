@@ -650,7 +650,9 @@ describe("the next-actions contract", () => {
 
     const paused = reported.waits.find((one) => one.assignmentId === dependent);
     expect(paused?.wait).toBe("input_invalidated");
-    expect(paused?.detail).toContain(producer.assignmentId);
+    expect(paused?.detail).toBe(
+      `This work read a result a defect was found in: ${producer.assignmentId}.`,
+    );
   });
 
   test("answers a project with no crew state in the shape every reading uses", async () => {
