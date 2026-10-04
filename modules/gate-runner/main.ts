@@ -97,6 +97,24 @@ async function runCommand(request: {
   }
 }
 
+type StatusOf<Call extends (request: never) => Promise<{ result: { status: string } }>> = Awaited<
+  ReturnType<Call>
+>["result"]["status"];
+
+/**
+ * How one runner ends: the state its run reached, or the crew-state status that stopped it from
+ * reading or writing its run.
+ */
+type RunnerStatus =
+  | "running"
+  | "passed"
+  | "failed"
+  | "stopped"
+  | StatusOf<typeof CrewState.gateRun>
+  | Exclude<StatusOf<typeof CrewState.beginGateRun>, "recorded">
+  | Exclude<StatusOf<typeof CrewState.stopGateRun>, "recorded">
+  | Exclude<StatusOf<typeof CrewState.recordGateCommand>, "recorded">;
+
 /**
  * The Operator runner of one gate run (ADR 0021). It runs in the pane of the gate checkout, and
  * it records each outcome itself, so no outcome is ever read from pane text. Every write runs
@@ -108,9 +126,9 @@ export const GateRunner = {
     runId: string;
     /** The command that wakes an idle Operator, because a plain command fires no agent event. */
     wakeCommand: string[];
-  }): Promise<{ status: string; lines: string[] }> {
+  }): Promise<{ status: RunnerStatus; lines: string[] }> {
     const lines: string[] = [];
-    const finish = async (status: string) => {
+    const finish = async (status: RunnerStatus) => {
       const wake = Bun.spawn(request.wakeCommand, {
         cwd: request.projectRoot,
         stdin: "ignore",

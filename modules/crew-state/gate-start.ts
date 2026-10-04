@@ -225,7 +225,7 @@ type StartRequest = {
  * the project root. One run of a source runs at a time, and a run with no outcome is replaced
  * only after its pane shows that the runner stopped.
  */
-export async function startGateRun(
+export async function startBaseGateRun(
   request: StartRequest & { sourceId: string; commit: string },
 ): Promise<GateStartResult> {
   const keyed = await readGateKey({ projectRoot: request.projectRoot, commit: request.commit });

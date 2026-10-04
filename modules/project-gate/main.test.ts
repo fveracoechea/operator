@@ -43,7 +43,7 @@ async function commit(root: string, declaration: unknown): Promise<string> {
 }
 
 const VALID = {
-  $schema: ProjectGate.schemaReference(),
+  $schema: "./node_modules/@fveracoechea/operator/gate.schema.json",
   commands: [
     { name: "install", argv: ["bun", "install", "--frozen-lockfile"], timeoutSeconds: 300 },
     { name: "quality", argv: ["bun", "run", "quality"], timeoutSeconds: 1800 },

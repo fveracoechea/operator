@@ -2,9 +2,6 @@ import { z } from "zod";
 
 export const GATE_PATH = "operator-gate.json";
 
-/** The path an installed release keeps its generated gate schema at, from the repository root. */
-export const GATE_SCHEMA_REFERENCE = "./node_modules/@fveracoechea/operator/gate.schema.json";
-
 // A command is an argument list with no shell, so no quoting fault or second command can hide in it.
 const gateCommand = z.strictObject({
   name: z.string().min(1),

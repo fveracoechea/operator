@@ -15,9 +15,8 @@ import { readCapacity } from "./capacity.ts";
 import type { CommandOutcome } from "./gate-machine.ts";
 import { beginGateRun, recordGateCommand, stopGateRun } from "./gate-record.ts";
 import { checkoutOf, gateRunRecordOf, readGateRun } from "./gate-runs.ts";
-import { startCandidateGateRun } from "./gate-candidate.ts";
-import { startGateRun } from "./gate-start.ts";
-import { readTakeOuts, startTakeOutGateRun, takeOutWithdrawn } from "./take-out.ts";
+import { type GateStartSubject, startSubjectGateRun } from "./gate-subject.ts";
+import { readTakeOuts, takeOutWithdrawn } from "./take-out.ts";
 import { acceptWithLanding } from "./accept-landing.ts";
 import { landingRefused } from "./branch-move.ts";
 import { claimAssignment } from "./claims.ts";
@@ -32,7 +31,7 @@ import {
   planStack,
   retargetPublish,
 } from "./publish-status.ts";
-import { applyRebase, planRebase, startRebaseGateRun } from "./rebase.ts";
+import { applyRebase, planRebase } from "./rebase.ts";
 import { applyRecall, planRecall } from "./recall.ts";
 import { STACK_FAULT_ACTION } from "./stack-parts.ts";
 import { preparePlanningRecord, showPlanningRecord } from "./planning-record.ts";
@@ -593,48 +592,22 @@ export const CrewState = {
   },
 
   /**
-   * Starts one gate run on the integration base of one source (ADR 0021). The run is recorded,
-   * then an Operator runner is typed into the pane of the gate checkout of the source. It takes
-   * no crew slot, and one run of a source runs at a time.
+   * Starts one gate run on one subject (ADR 0021): the candidate of one code result, the
+   * integration base of a source at a commit, the first place of a rebase onto a new base that
+   * has not passed, or the first commit of the rebuilt range of a take-out whose key has not
+   * passed. The run is recorded, then an Operator runner is typed into the pane of the gate
+   * checkout of the source. It takes no crew slot, and one run of a source runs at a time.
+   * `operator work accept`, `operator work rebase`, and `operator work take-out` move only after
+   * the key of each commit they land passed.
    */
   async startGateRun(
     request: Mutation & {
-      sourceId: string;
-      commit: string;
+      subject: GateStartSubject;
       approvalId: string | null;
       runnerLine: (runId: string) => string;
     },
   ) {
-    return startGateRun(request);
-  },
-
-  /**
-   * Starts one gate run on the candidate of one code result: the planned commit of its landing on
-   * the recorded tip. `operator work accept` lands only after the key of that commit passed.
-   */
-  async startCandidateGateRun(
-    request: Mutation & {
-      assignmentId: string;
-      approvalId: string | null;
-      runnerLine: (runId: string) => string;
-    },
-  ) {
-    return startCandidateGateRun(request);
-  },
-
-  /**
-   * Starts one gate run on the rebuilt range of the take-out of one source: the first commit that
-   * lands again whose key has not passed. `operator work take-out` moves only after every commit
-   * of the range passed.
-   */
-  async startTakeOutGateRun(
-    request: Mutation & {
-      sourceId: string;
-      approvalId: string | null;
-      runnerLine: (runId: string) => string;
-    },
-  ) {
-    return startTakeOutGateRun(request);
+    return startSubjectGateRun(request);
   },
 
   /**
@@ -645,21 +618,6 @@ export const CrewState = {
    */
   async takeOut(request: Mutation & { sourceId: string; planRevision: string }) {
     return refusingLandings(takeOutWithdrawn(request));
-  },
-
-  /**
-   * Starts one gate run on the first place of a rebase onto a new base that has not passed: the
-   * new base, then each commit that lands again on it, in order (ADR 0021).
-   */
-  async startRebaseGateRun(
-    request: Mutation & {
-      sourceId: string;
-      newBase: string;
-      approvalId: string | null;
-      runnerLine: (runId: string) => string;
-    },
-  ) {
-    return startRebaseGateRun(request);
   },
 
   /**

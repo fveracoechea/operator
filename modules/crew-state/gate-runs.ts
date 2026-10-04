@@ -8,7 +8,7 @@ import {
   gateRunCommands,
   gateRuns,
 } from "./schema.ts";
-import { readStored } from "./stored.ts";
+import { readStored, readStoredValue } from "./stored.ts";
 
 export type GateRunRow = typeof gateRuns.$inferSelect;
 export type GateCommandRow = typeof gateRunCommands.$inferSelect;
@@ -281,6 +281,9 @@ export function baseGateOf(db: CrewReader, sourceId: string): BaseGate {
   return { status: "none", stopped: latest.state === "stopped" ? latest : null };
 }
 
+/** The states of one gate run, as `gate_runs.state` records them (ADR 0021). */
+export const gateRunStateSchema = z.enum(["running", "passed", "failed", "stopped"]);
+
 /** One run as a reader states it. The output stays in its artifact, and only its path is named. */
 export function gateRunRecordOf(db: CrewReader, run: GateRunRow) {
   const recorded = commandsOfRun(db, run.id);
@@ -292,7 +295,7 @@ export function gateRunRecordOf(db: CrewReader, run: GateRunRow) {
     commit: run.commit,
     series: run.series,
     replaces: run.replaces,
-    state: run.state,
+    state: readStoredValue("gate run state", gateRunStateSchema, run.state),
     detail: run.detail,
     startedAt: run.startedAt,
     finishedAt: run.finishedAt,

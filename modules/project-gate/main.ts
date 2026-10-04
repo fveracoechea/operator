@@ -5,7 +5,6 @@ import {
   commandLine,
   describeIssue,
   GATE_PATH,
-  GATE_SCHEMA_REFERENCE,
   type GateCommand,
   gateDeclarationSchema,
 } from "./declaration.ts";
@@ -57,11 +56,6 @@ export const ProjectGate = {
   /** The repository-relative path of the declaration. */
   path(): string {
     return GATE_PATH;
-  },
-
-  /** The `$schema` value that names the schema of the installed release. */
-  schemaReference(): string {
-    return GATE_SCHEMA_REFERENCE;
   },
 
   jsonSchemaText(): string {

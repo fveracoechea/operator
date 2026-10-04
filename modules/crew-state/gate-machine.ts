@@ -1,9 +1,11 @@
+import type { z } from "zod";
 import { type ApprovalRow, approvalCovers } from "./approvals.ts";
 import {
   type DeclaredCommand,
   FRESH_SERIES_ACTION,
   type GateKey,
   type GateRunRow,
+  gateRunStateSchema,
   type KeyStatus,
   keyText,
 } from "./gate-runs.ts";
@@ -12,7 +14,7 @@ import {
  * The gate run machine (ADR 0021). One `gate_runs` row starts `running` and ends `passed`,
  * `failed`, or `stopped`. The verdict of its key is read from the series, as `KeyStatus`.
  */
-export type GateRunState = "running" | "passed" | "failed" | "stopped";
+export type GateRunState = z.infer<typeof gateRunStateSchema>;
 
 /**
  * The events that move one run. A start records a new run, a begin is the first write of its
