@@ -6,7 +6,7 @@ import { type AnswerDelivery, answerDocument } from "./answer.ts";
 import { prepareInputs } from "./inputs.ts";
 import { inspectCheckout, inspectWork, type WorkInspection } from "./inspect.ts";
 import { type PlanningInput, planningRecordsSection } from "./planning-brief.ts";
-import { readReference } from "./reference.ts";
+import { inspectReference, readReference } from "./reference.ts";
 import { BRIEF_PATH, LOCAL_ROOT, opencodeFiles, REFERENCE_PATH, RELEASE_PATH } from "./plan.ts";
 import { readSnapshot } from "./snapshot.ts";
 import { scanOutside } from "./scan.ts";
@@ -173,6 +173,15 @@ export const OperativeDispatch = {
    */
   async readReference(request: { worktreePath: string }) {
     return readReference(request.worktreePath);
+  },
+
+  /**
+   * Inspects the control reference one Operative worktree carries.
+   * A file that is there but is not a complete reference is malformed, not missing, so a
+   * command can name that case instead of telling the Operative it runs elsewhere.
+   */
+  async inspectReference(request: { worktreePath: string }) {
+    return inspectReference(request.worktreePath);
   },
 
   /**

@@ -1191,7 +1191,7 @@ export type Answered = { lines: string[]; exitCode: number | null };
 export async function answerOf(one: RefusalCase): Promise<Answered> {
   const methods: Record<string, unknown> = one.runner === true ? GateRunner : CrewState;
   const original = methods[one.method];
-  const readReference = OperativeDispatch.readReference;
+  const inspectReference = OperativeDispatch.inspectReference;
   const log = console.log;
   const cwd = process.cwd();
   const project = mkdtempSync(join(tmpdir(), "operator-refusals-"));
@@ -1200,13 +1200,16 @@ export async function answerOf(one: RefusalCase): Promise<Answered> {
   methods[one.method] = async () =>
     one.bare === true ? one.result : { repeated: false, result: one.result };
   if (one.reference === true) {
-    OperativeDispatch.readReference = async () => ({
-      controllingCheckout: project,
-      assignmentId: "a1",
-      attemptId: "t1",
-      branch: "br",
-      baseCommit: "bc",
-      worktreePath: project,
+    OperativeDispatch.inspectReference = async () => ({
+      status: "read",
+      reference: {
+        controllingCheckout: project,
+        assignmentId: "a1",
+        attemptId: "t1",
+        branch: "br",
+        baseCommit: "bc",
+        worktreePath: project,
+      },
     });
   }
   console.log = (...parts: unknown[]) => {
@@ -1222,7 +1225,7 @@ export async function answerOf(one: RefusalCase): Promise<Answered> {
     process.chdir(cwd);
     console.log = log;
     methods[one.method] = original;
-    OperativeDispatch.readReference = readReference;
+    OperativeDispatch.inspectReference = inspectReference;
     process.exitCode = 0;
     rmSync(project, { recursive: true, force: true });
   }

@@ -211,6 +211,7 @@ export type Reason =
   | "attempt_not_current"
   | "attempt_not_dispatched"
   | "attempt_reference_missing"
+  | "attempt_reference_malformed"
   | "attempt_reference_mismatch"
   | "attempt_dispatched"
   | "acknowledgement_pending"

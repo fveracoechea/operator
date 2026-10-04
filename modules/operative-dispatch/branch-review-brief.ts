@@ -1,4 +1,4 @@
-import { type CommandRule, REFERENCE_RULE, ruleLines } from "./command-rules.ts";
+import { type CommandRule, REFERENCE_RULES, ruleLines } from "./command-rules.ts";
 import { type RoleCopies, storedCopy } from "./fixed-result.ts";
 import { PUBLISHED_TEXT_LINES, PUBLISHED_TEXT_SHAPE, REVIEW_INPUT_DIR } from "./review-brief.ts";
 
@@ -183,7 +183,7 @@ export function branchReviewProtocolSection(
     `${invocation} attempt acknowledge --request <a new identity you generate> --attempt ${review.attemptId} --json`,
     "```",
     "",
-    ...ruleLines([REFERENCE_RULE]),
+    ...ruleLines(REFERENCE_RULES),
     "Write your result to a JSON file, then record it:",
     "",
     "```",

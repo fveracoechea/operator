@@ -8,7 +8,7 @@ import {
   branchSnapshotSection,
   copiesOf as branchReviewCopiesOf,
 } from "./branch-review-brief.ts";
-import { type CommandRule, REFERENCE_RULE, ruleLines } from "./command-rules.ts";
+import { type CommandRule, REFERENCE_RULES, ruleLines } from "./command-rules.ts";
 import type { RoleCopies } from "./fixed-result.ts";
 import {
   type ReviewBrief,
@@ -322,7 +322,7 @@ function productionProtocolSection(brief: Brief, invocation: string): string[] {
     `${invocation} attempt acknowledge --request <a new identity you generate> --attempt ${brief.attemptId} --json`,
     "```",
     "",
-    ...ruleLines([REFERENCE_RULE]),
+    ...ruleLines(REFERENCE_RULES),
     "The Operator treats you as started only after that acknowledgement.",
     "Report progress, questions, and results through the Operator CLI, never through terminal text alone.",
     "",

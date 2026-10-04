@@ -14,6 +14,8 @@ An installed task skill may help with the work.
 
 Read the approved scope, the acceptance requirements, and the fixed inputs together.
 Plan what you will deliver, and how you will show that each requirement holds.
+Take each fact of the attempt, such as its identity, the controlling checkout, the branch, or the base commit, from the brief or from a CLI result.
+Under `.operator/local/`, read only the brief and the files it names, and change none of the files the Operator wrote there.
 The project instructions in this worktree hold the rules of the project, so read them before you change code.
 
 ## Do the work

@@ -979,6 +979,89 @@ describe("acknowledgement", () => {
     expect(result.json.reason).toBe("attempt_reference_mismatch");
   });
 
+  // A reference that is there but unusable is a different case from a command that runs in the
+  // wrong directory, so its reason and its message must not send the Operative elsewhere.
+  test("refuses a missing, malformed, or mismatched reference in the worktree by name", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await claimedAttempt(workspace);
+    await dispatch(workspace, crew);
+    const operative = `${workspace.root}/operative`;
+    const path = `${operative}/.operator/local/attempt.json`;
+    const written = await Bun.file(path).text();
+    const acknowledgeAs = (attemptId: string) =>
+      runJson(
+        workspace,
+        ["attempt", "acknowledge", "--request", request(), "--attempt", attemptId],
+        operative,
+      );
+    const humanAcknowledge = () =>
+      runOperator(
+        workspace,
+        ["attempt", "acknowledge", "--request", request(), "--attempt", crew.attemptId],
+        operative,
+      );
+
+    await rm(path);
+    const missing = await acknowledgeAs(crew.attemptId);
+    expect(missing.exitCode).toBe(3);
+    expect(missing.json.reason).toBe("attempt_reference_missing");
+
+    const { attemptId: _, ...withoutAttempt } = JSON.parse(written);
+    const malformed = [
+      { text: "{ not json", problem: "not-json", fields: [] },
+      { text: "[]\n", problem: "not-object", fields: [] },
+      {
+        text: JSON.stringify({ ...withoutAttempt, branch: "" }),
+        problem: "incomplete",
+        fields: ["attemptId", "branch"],
+      },
+    ];
+    for (const one of malformed) {
+      await Bun.write(path, one.text);
+      const refused = await acknowledgeAs(crew.attemptId);
+      expect({ text: one.text, exitCode: refused.exitCode, json: refused.json }).toEqual({
+        text: one.text,
+        exitCode: 2,
+        json: {
+          schemaVersion: 1,
+          outcome: "invalid",
+          reason: "attempt_reference_malformed",
+          blockers: [
+            {
+              reason: "attempt_reference_malformed",
+              attemptId: crew.attemptId,
+              problem: one.problem,
+              fields: one.fields,
+            },
+          ],
+          operation: "attempt_acknowledge",
+        },
+      });
+      const human = await humanAcknowledge();
+      expect(human.stdout).toContain("cannot use");
+      expect(human.stdout).not.toContain("carries no");
+    }
+    expect((await humanAcknowledge()).stdout).toContain(
+      "It has no usable value for: attemptId, branch.",
+    );
+
+    const other = crypto.randomUUID();
+    await Bun.write(path, JSON.stringify({ ...JSON.parse(written), attemptId: other }));
+    const changed = await acknowledgeAs(crew.attemptId);
+    expect(changed.exitCode).toBe(4);
+    expect(changed.json.blockers).toEqual([
+      { reason: "attempt_reference_mismatch", attemptId: crew.attemptId, recordedAttemptId: other },
+    ]);
+
+    await Bun.write(path, written);
+    const named = await acknowledgeAs(other);
+    expect(named.exitCode).toBe(4);
+    expect(named.json.reason).toBe("attempt_reference_mismatch");
+
+    // No refusal recorded anything, so the restored reference acknowledges.
+    expect((await acknowledgeAs(crew.attemptId)).json.reason).toBe("attempt_acknowledged");
+  });
+
   // The reference file names the project root, so its absence comes first. The mismatch comes
   // before the request input and before every refusal that the crew state gives.
   test("refuses in the order: missing reference, mismatch, input, crew state", async () => {
