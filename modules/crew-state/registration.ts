@@ -2,7 +2,13 @@
 import { realpath } from "node:fs/promises";
 import { and, eq } from "drizzle-orm";
 import type { CrewReader, CrewWriter } from "./database.ts";
-import { type AssignmentRow, insertAssignment, readAssignment } from "./assignment.ts";
+import {
+  type AssignmentContent,
+  type AssignmentRow,
+  insertAssignment,
+  readAssignment,
+  reviseAssignment,
+} from "./assignment.ts";
 import { matchApproval } from "./approvals.ts";
 import { ContentIdentity } from "../content-identity/main.ts";
 import { assignmentId, identityOf } from "./identity.ts";
@@ -39,10 +45,12 @@ import {
 } from "./work-input.ts";
 import { writePathsReader } from "./write-path-grants.ts";
 import { overlappingPaths, overlapsCommand } from "./write-paths.ts";
-import { recordedLanding } from "./submission.ts";
-import { type WithdrawalRefusal, withdrawAssignment, withdrawalRefusals } from "./withdrawal.ts";
-import { laterCommitsOf, pendingTakeOutsOf } from "./take-out.ts";
-import { currentLandingOf } from "./landing-record.ts";
+import {
+  type PlannedWithdrawal,
+  type PlannedWithdrawalRefusal,
+  planWithdrawal,
+  withdrawAssignment,
+} from "./withdrawal.ts";
 import { registerBranchReview, type RegisteredBranchReview } from "./branch-review.ts";
 
 export type RegisteredAssignment = {
@@ -81,21 +89,6 @@ export type PlannedItem = {
   // A new read keeps a recorded item that did not change, and updates one that no work read.
   change: "new" | "updated" | "unchanged";
   dependsOn: Array<{ sourceId: string; key: string }>;
-};
-
-/**
- * One recorded item that the read no longer finds, because a person removed its issue from the
- * parent. The plan records it as withdrawn behind the approval of this plan revision.
- */
-export type PlannedWithdrawal = {
-  key: string;
-  assignmentId: string;
-  state: string;
-  // The commit that carries its accepted code result, or null when none landed.
-  landing: string | null;
-  // The landed commits above that commit, oldest first, which the take-out rebuilds. They are
-  // read from the crew state with no Git read (ADR 0020).
-  rebuilds: string[];
 };
 
 /**
@@ -162,15 +155,7 @@ export type Refusal =
     }
   | { reason: "withdrawn_item_readded"; key: string; assignmentId: string }
   | { reason: "blocker_withdrawn"; key: string; blocker: string; assignmentId: string }
-  | WithdrawalRefusal
-  | {
-      // A withdrawal of landed work while an earlier take-out of the source still waits. Each
-      // take-out is bound to one plan revision, so the person withdraws it after that one (D5).
-      reason: "take_out_pending";
-      key: string;
-      assignmentId: string;
-      pending: string[];
-    }
+  | PlannedWithdrawalRefusal
   | {
       reason: "withdrawal_dependent_pending";
       key: string;
@@ -419,10 +404,13 @@ type RecordedSource = {
   parentIssueId: number | null;
 };
 
-type Recorded = {
+type RecordedSources = {
   sources: RecordedSource[];
   // A source an earlier release registered has no parent issue, so its map issue names it.
   sourcesWithoutParent: Map<string, string>;
+};
+
+type Recorded = RecordedSources & {
   byIssueId: Map<number, RecordedIssue>;
   // A binding an earlier release recorded holds no database id, so only its key can match.
   byKey: Map<string, RecordedIssue>;
@@ -436,24 +424,9 @@ type Recorded = {
   attempted: Set<string>;
 };
 
-function recordedIssues(db: CrewReader): Recorded {
-  const recorded: Recorded = {
-    sources: [],
-    sourcesWithoutParent: new Map(),
-    byIssueId: new Map(),
-    byKey: new Map(),
-    keyById: new Map(),
-    edges: dependencyEdges(db),
-    dependents: new Map(),
-    withdrawn: new Set(),
-    attempted: new Set(
-      db
-        .select()
-        .from(attempts)
-        .all()
-        .map((one) => one.assignmentId),
-    ),
-  };
+/** Every registered source in source order, with each one an earlier release left without parent. */
+function recordedSources(db: CrewReader): RecordedSources {
+  const recorded: RecordedSources = { sources: [], sourcesWithoutParent: new Map() };
   for (const source of db.select().from(workSources).orderBy(workSources.orderIndex).all()) {
     const location =
       source.trackerLocation === null ? null : storedTrackerLocation(source.trackerLocation);
@@ -469,11 +442,38 @@ function recordedIssues(db: CrewReader): Recorded {
       recorded.sourcesWithoutParent.set(keyOf(location.repository, location.mapIssue), source.id);
     }
   }
-  for (const [waiting, blockers] of recorded.edges) {
+  return recorded;
+}
+
+/** The assignments that wait on each one, from the edges of each one that waits. */
+function dependentsOf(edges: Map<string, string[]>): Map<string, string[]> {
+  const dependents = new Map<string, string[]>();
+  for (const [waiting, blockers] of edges) {
     for (const blocker of blockers) {
-      recorded.dependents.set(blocker, [...(recorded.dependents.get(blocker) ?? []), waiting]);
+      dependents.set(blocker, [...(dependents.get(blocker) ?? []), waiting]);
     }
   }
+  return dependents;
+}
+
+function recordedIssues(db: CrewReader): Recorded {
+  const edges = dependencyEdges(db);
+  const recorded: Recorded = {
+    ...recordedSources(db),
+    byIssueId: new Map(),
+    byKey: new Map(),
+    keyById: new Map(),
+    edges,
+    dependents: dependentsOf(edges),
+    withdrawn: new Set(),
+    attempted: new Set(
+      db
+        .select()
+        .from(attempts)
+        .all()
+        .map((one) => one.assignmentId),
+    ),
+  };
   for (const row of db.select().from(assignments).orderBy(assignments.orderIndex).all()) {
     recorded.keyById.set(row.id, row.sourceKey);
     if (row.state === "withdrawn") {
@@ -506,30 +506,47 @@ function matchRecorded(
   return recorded.byIssueId.get(issue.issueId) ?? recorded.byKey.get(issue.key) ?? null;
 }
 
+/** The kind a recorded specification or ticket item keeps when the input does not restate it. */
+function recordedKind(row: AssignmentRow): AssignmentKind {
+  return row.kind === "planning" ? "planning" : "production";
+}
+
 /**
- * The planning boundary of one item. A wayfinder item takes it from its one type label, and a
- * stated kind may only repeat it. A specification or ticket item takes it from the input.
+ * The planning boundary and the planning type of one open item, with what refuses them. A
+ * wayfinder item takes both from its one type label, and a stated kind may only repeat it. A
+ * specification or ticket item takes its kind from the input, and a recorded one keeps its kind
+ * when the input does not restate it.
  */
-function kindFor(
+function kindOf(
   sourceKind: WorkInput["sourceKind"],
   item: ReadItem,
   stated: WorkItem | undefined,
-  refusals: Refusal[],
-): AssignmentKind | null {
+  row: AssignmentRow | null,
+): { kind: AssignmentKind | null; planningType: PlanningType | null; refusals: Refusal[] } {
   if (sourceKind !== "wayfinder") {
-    return stated?.kind ?? null;
+    const kind = stated?.kind ?? (row === null ? null : recordedKind(row));
+    return { kind, planningType: null, refusals: [] };
   }
 
   const label = item.labels.length === 1 ? item.labels[0] : undefined;
-  const kind = label === undefined ? null : kindOfWayfinderType(label.slice("wayfinder:".length));
+  const type = label === undefined ? null : label.slice("wayfinder:".length);
+  const kind = type === null ? null : kindOfWayfinderType(type);
+  const planningType = planningTypeOf(type);
   if (label === undefined || kind === null) {
-    refusals.push({ reason: "wayfinder_type_unreadable", key: item.key, labels: item.labels });
-    return null;
+    return {
+      kind: null,
+      planningType,
+      refusals: [{ reason: "wayfinder_type_unreadable", key: item.key, labels: item.labels }],
+    };
   }
-  if (stated?.kind !== undefined && stated.kind !== kind) {
-    refusals.push({ reason: "item_kind_contradicted", key: item.key, stated: stated.kind, label });
-  }
-  return kind;
+  return {
+    kind,
+    planningType,
+    refusals:
+      stated?.kind !== undefined && stated.kind !== kind
+        ? [{ reason: "item_kind_contradicted", key: item.key, stated: stated.kind, label }]
+        : [],
+  };
 }
 
 /** What the input states that the checkout must hold, and what the checkout holds. */
@@ -575,6 +592,8 @@ type PlanContext = {
   // The recorded items of this source by issue database id, and their keys by the read key.
   held: Map<number, AssignmentRow>;
   heldKeys: Map<string, string>;
+  // The recorded items of this source that the read no longer finds, so this plan withdraws them.
+  missing: AssignmentRow[];
   // Every assignment that is withdrawn, earlier or by this plan.
   withdrawn: Set<string>;
   // When the integration base of this source was fixed, and when each recorded assignment
@@ -731,15 +750,19 @@ function executionOf(
 }
 
 /**
- * Whether a recorded item differs from what a new read gives: its text, its kind, its place,
- * its blocking links, or the execution fields the input states for it.
+ * How one read item changes against its recorded item: new when none is recorded, updated when
+ * its text, its kind, its place, its blocking links, or the execution fields the input states
+ * for it differ, and unchanged otherwise.
  */
-function changed(
+function changeOf(
   context: PlanContext,
   read: { item: ReadItem; own: WorkItem | undefined; kind: AssignmentKind | null },
-  row: AssignmentRow,
+  row: AssignmentRow | null,
   planned: { planningType: string | null; blockers: ReturnType<typeof planBlockers> },
-): boolean {
+): PlannedItem["change"] {
+  if (row === null) {
+    return "new";
+  }
   const { item, own, kind } = read;
   const wayfinder = context.input.sourceKind === "wayfinder";
   const binding = row.trackerBinding === null ? null : storedTrackerBinding(row.trackerBinding);
@@ -760,15 +783,10 @@ function changed(
     fixedInputs: storedFixedInputs(row.fixedInputs),
     kind: row.kind,
   };
-  return (
-    tracker ||
+  return tracker ||
     (own !== undefined && executionOf(own, wayfinder) !== executionOf(recorded, wayfinder))
-  );
-}
-
-/** The kind a recorded specification or ticket item keeps when the input does not restate it. */
-function recordedKind(row: AssignmentRow): AssignmentKind {
-  return row.kind === "planning" ? "planning" : "production";
+    ? "updated"
+    : "unchanged";
 }
 
 /** What refuses one item that this registration would write, new or updated, in a fixed order. */
@@ -806,25 +824,26 @@ function recordRefusals(
   return refusals;
 }
 
+/** What one read item adds to the plan. Each list keeps the order of the read. */
+type ReadItemPlan = {
+  refusals: Refusal[];
+  satisfied: SatisfiedBlocker[];
+  item: PlannedItem | null;
+  skipped: { key: string; position: number } | null;
+};
+
 /**
  * Plans one open item: its refusals first, then those of its blockers by key. A recorded item
  * that did not change is kept, and one that changed is updated only when no work has read it.
  */
-function planItem(
-  context: PlanContext,
-  item: ReadItem,
-): { refusals: Refusal[]; satisfied: SatisfiedBlocker[]; item: PlannedItem | null } {
+function planItem(context: PlanContext, item: ReadItem): ReadItemPlan {
   const own = context.stated.get(item.key);
   const row = context.held.get(item.issueId) ?? null;
-  const kindRefusals: Refusal[] = [];
-  const kind =
-    row !== null && context.input.sourceKind !== "wayfinder"
-      ? (own?.kind ?? recordedKind(row))
-      : kindFor(context.input.sourceKind, item, own, kindRefusals);
-  const planningType =
-    context.input.sourceKind === "wayfinder" && item.labels.length === 1
-      ? planningTypeOf(item.labels[0]?.slice("wayfinder:".length) ?? null)
-      : null;
+  const {
+    kind,
+    planningType,
+    refusals: kindRefusals,
+  } = kindOf(context.input.sourceKind, item, own, row);
   const blockers = planBlockers(
     context,
     item,
@@ -834,82 +853,110 @@ function planItem(
   const gaps = context.gaps
     .filter((one) => one.list === "blockers" && one.key === item.key)
     .map((gap): Refusal => ({ reason: "tracker_read_incomplete", ...gap }));
-  const change =
-    row === null
-      ? "new"
-      : changed(context, { item, own, kind }, row, { planningType, blockers })
-        ? "updated"
-        : "unchanged";
-  const planned = (key: string): PlannedItem | null =>
-    kind === null
-      ? null
-      : {
-          key,
-          issueId: item.issueId,
-          position: item.position,
-          title: item.title,
-          kind,
-          planningType,
-          executable: isExecutable(kind),
-          change,
-          dependsOn: blockers.dependsOn,
-        };
-
-  if (row !== null && change === "unchanged") {
-    return {
-      refusals: [...kindRefusals, ...gaps],
-      satisfied: blockers.satisfied,
-      item: planned(row.sourceKey),
-    };
-  }
+  const change = changeOf(context, { item, own, kind }, row, { planningType, blockers });
   // Its writer or its dependents read the recorded text, so the change goes in a new sub-issue.
-  if (row !== null && (row.state !== "registered" || context.recorded.attempted.has(row.id))) {
-    return {
-      refusals: [
-        ...kindRefusals,
-        { reason: "recorded_item_changed", key: item.key, assignmentId: row.id, state: row.state },
-        ...gaps,
-      ],
-      satisfied: blockers.satisfied,
-      item: null,
-    };
-  }
+  const read: Refusal | null =
+    row !== null &&
+    change === "updated" &&
+    (row.state !== "registered" || context.recorded.attempted.has(row.id))
+      ? { reason: "recorded_item_changed", key: item.key, assignmentId: row.id, state: row.state }
+      : null;
+  const refusals =
+    change === "unchanged"
+      ? [...kindRefusals, ...gaps]
+      : read === null
+        ? [
+            ...recordRefusals(context, { item, own, kind, recorded: row !== null, kindRefusals }),
+            ...gaps,
+            ...blockers.refusals,
+          ]
+        : [...kindRefusals, read, ...gaps];
 
   return {
-    refusals: [
-      ...recordRefusals(context, { item, own, kind, recorded: row !== null, kindRefusals }),
-      ...gaps,
-      ...blockers.refusals,
-    ],
+    refusals,
     satisfied: blockers.satisfied,
-    item: planned(row?.sourceKey ?? item.key),
+    item:
+      kind === null || read !== null
+        ? null
+        : {
+            key: row?.sourceKey ?? item.key,
+            issueId: item.issueId,
+            position: item.position,
+            title: item.title,
+            kind,
+            planningType,
+            executable: isExecutable(kind),
+            change,
+            dependsOn: blockers.dependsOn,
+          },
+    skipped: null,
   };
 }
 
 /** A recorded item the read finds closed. Only accepted work may close, because Operator closes it. */
-function planClosed(row: AssignmentRow, item: ReadItem): Refusal | PlannedItem {
+function planClosed(row: AssignmentRow, item: ReadItem): ReadItemPlan {
   if (row.state !== "accepted") {
     return {
-      reason: "recorded_item_closed",
-      key: item.key,
-      assignmentId: row.id,
-      state: row.state,
-      hint: CLOSED_ITEM_HINT,
+      refusals: [
+        {
+          reason: "recorded_item_closed",
+          key: item.key,
+          assignmentId: row.id,
+          state: row.state,
+          hint: CLOSED_ITEM_HINT,
+        },
+      ],
+      satisfied: [],
+      item: null,
+      skipped: null,
     };
   }
-  const kind = row.kind === "planning" ? "planning" : "production";
+  const kind = recordedKind(row);
   return {
-    key: row.sourceKey,
-    issueId: item.issueId,
-    position: item.position,
-    title: item.title,
-    kind,
-    planningType: planningTypeOf(row.planningType),
-    executable: isExecutable(kind),
-    change: "unchanged",
-    // A closed item reads no blockers, and accepted work waits on nothing.
-    dependsOn: [],
+    refusals: [],
+    satisfied: [],
+    item: {
+      key: row.sourceKey,
+      issueId: item.issueId,
+      position: item.position,
+      title: item.title,
+      kind,
+      planningType: planningTypeOf(row.planningType),
+      executable: isExecutable(kind),
+      change: "unchanged",
+      // A closed item reads no blockers, and accepted work waits on nothing.
+      dependsOn: [],
+    },
+    skipped: null,
   };
+}
+
+/**
+ * Plans one item of the read on one of four paths: an issue of a withdrawn item, a closed issue
+ * that no item records, a closed recorded item, or an open item.
+ */
+function planReadItem(context: PlanContext, item: ReadItem): ReadItemPlan {
+  const row = context.held.get(item.issueId);
+  // The issue matches its withdrawn item by its database id, so a new sub-issue carries the work.
+  if (row?.state === "withdrawn") {
+    return {
+      refusals: [{ reason: "withdrawn_item_readded", key: item.key, assignmentId: row.id }],
+      satisfied: [],
+      item: null,
+      skipped: null,
+    };
+  }
+  if (item.state !== "closed") {
+    return planItem(context, item);
+  }
+  return row === undefined
+    ? {
+        refusals: [],
+        satisfied: [],
+        item: null,
+        skipped: { key: item.key, position: item.position },
+      }
+    : planClosed(row, item);
 }
 
 /**
@@ -917,7 +964,7 @@ function planClosed(row: AssignmentRow, item: ReadItem): Refusal | PlannedItem {
  * parent, so it matches first. A source with the same key and another parent is a refusal.
  */
 function matchSource(
-  recorded: Recorded,
+  recorded: RecordedSources,
   parent: { issueId: number; key: string },
 ): { source: RecordedSource | null; clash: boolean } {
   const source = recorded.sources.find((one) => one.parentIssueId === parent.issueId) ?? null;
@@ -1035,6 +1082,52 @@ function dependentRefusals(
   });
 }
 
+/** What every item of one read is planned against, read from the crew state once. */
+function planContext(
+  db: CrewReader,
+  request: {
+    input: WorkInput;
+    found: FoundIdentities;
+    read: Extract<SourceRead, { status: "read" }>;
+    recorded: Recorded;
+    existing: RecordedSource | null;
+  },
+): PlanContext {
+  const { input, found, read, recorded, existing } = request;
+  // GitHub answers a renamed repository under its new name, so a new source takes the name the
+  // read gives, and a registered source keeps the id it was registered under.
+  const sourceKey = existing?.id ?? read.parent.key;
+  const repository = read.parent.repository.toLowerCase();
+  const held = heldItems(db, existing?.id ?? null);
+  // A person withdraws an item by removing its issue from the parent, so the read misses it.
+  const readIds = new Set(read.items.map((one) => one.issueId));
+  const missing = [...held]
+    .filter(([issueId, row]) => row.state !== "withdrawn" && !readIds.has(issueId))
+    .map(([, row]) => row);
+  return {
+    input,
+    found,
+    recorded,
+    sourceKey,
+    repository,
+    recordedRepository: existing?.repository ?? repository,
+    openKeys: new Set(read.items.filter((one) => one.state === "open").map((one) => one.key)),
+    stated: new Map(input.items.map((one) => [one.issue, one])),
+    gaps: read.gaps,
+    held,
+    heldKeys: new Map(
+      read.items.flatMap((one) => {
+        const row = held.get(one.issueId);
+        return row === undefined ? [] : [[one.key, row.sourceKey]];
+      }),
+    ),
+    missing,
+    withdrawn: new Set([...recorded.withdrawn, ...missing.map((row) => row.id)]),
+    baseFixedAt: baseFixedAtOf(db, sourceKey),
+    completedAt: completionTimes(db),
+  };
+}
+
 /**
  * The registration plan of one read and one input. It changes nothing, so a preview and a
  * registration compute the same plan from the same read, the same input, and the same state.
@@ -1044,14 +1137,13 @@ export function planRegistration(
   request: { input: WorkInput; read: SourceRead; found: FoundIdentities },
 ): RegistrationPlan {
   const { input, read, found } = request;
-  const repository = input.source.split("#")[0] ?? "";
   const refusals: Refusal[] = [];
   const plan: RegistrationPlan = {
     source: {
       id: input.source,
       kind: input.sourceKind,
       revision: read.status === "read" ? textIdentity(read.parent) : null,
-      repository,
+      repository: input.source.split("#")[0] ?? "",
       change: "new",
     },
     planRevision: identityOf({ read: canonicalRead(read), input } satisfies PlanBasis),
@@ -1063,176 +1155,149 @@ export function planRegistration(
     refusals,
   };
 
-  if (read.status === "source-missing") {
-    refusals.push({ reason: "source_not_found", key: read.key });
-    return plan;
-  }
-  if (read.status === "source-unreadable") {
-    refusals.push({ reason: "tracker_read_incomplete", ...read.gap });
+  if (read.status !== "read") {
+    refusals.push(
+      read.status === "source-missing"
+        ? { reason: "source_not_found", key: read.key }
+        : { reason: "tracker_read_incomplete", ...read.gap },
+    );
     return plan;
   }
 
   const recorded = recordedIssues(db);
   const { source: existing, clash } = matchSource(recorded, read.parent);
-  // GitHub answers a renamed repository under its new name, so a new source takes the name the
-  // read gives, and a registered source keeps the id it was registered under.
-  const sourceKey = existing?.id ?? read.parent.key;
+  const context = planContext(db, { input, found, read, recorded, existing });
+  const { sourceKey } = context;
   plan.source.id = sourceKey;
-  plan.source.repository = read.parent.repository.toLowerCase();
+  plan.source.repository = context.repository;
   if (existing !== null) {
     plan.source.change = existing.revision === plan.source.revision ? "unchanged" : "changed";
   }
   refusals.push(...sourceRefusals(recorded, { read, input, sourceKey, existing, clash }));
-
-  const open = read.items.filter((one) => one.state === "open");
-  if (open.length === 0 && read.gaps.length === 0) {
+  if (context.openKeys.size === 0 && read.gaps.length === 0) {
     refusals.push({ reason: "source_without_items", key: sourceKey });
   }
 
-  const held = heldItems(db, existing?.id ?? null);
-  // A person withdraws an item by removing its issue from the parent, so the read misses it.
-  const readIds = new Set(read.items.map((one) => one.issueId));
-  const missing = [...held]
-    .filter(([issueId, row]) => row.state !== "withdrawn" && !readIds.has(issueId))
-    .map(([, row]) => row);
-  const context: PlanContext = {
-    input,
-    found,
-    recorded,
-    sourceKey,
-    repository: plan.source.repository,
-    recordedRepository: existing?.repository ?? plan.source.repository,
-    openKeys: new Set(open.map((one) => one.key)),
-    stated: new Map(input.items.map((one) => [one.issue, one])),
-    gaps: read.gaps,
-    held,
-    heldKeys: new Map(
-      read.items.flatMap((one) => {
-        const row = held.get(one.issueId);
-        return row === undefined ? [] : [[one.key, row.sourceKey]];
-      }),
-    ),
-    withdrawn: new Set([...recorded.withdrawn, ...missing.map((row) => row.id)]),
-    baseFixedAt: baseFixedAtOf(db, sourceKey),
-    completedAt: completionTimes(db),
-  };
+  const planned = read.items.map((item) => planReadItem(context, item));
+  refusals.push(...planned.flatMap((one) => one.refusals));
+  plan.satisfiedBlockers.push(...planned.flatMap((one) => one.satisfied));
+  plan.items.push(...planned.flatMap((one) => (one.item === null ? [] : [one.item])));
+  plan.skipped.push(...planned.flatMap((one) => (one.skipped === null ? [] : [one.skipped])));
 
-  for (const item of read.items) {
-    const row = held.get(item.issueId);
-    // The issue matches its withdrawn item by its database id, so a new sub-issue carries the work.
-    if (row !== undefined && row.state === "withdrawn") {
-      refusals.push({ reason: "withdrawn_item_readded", key: item.key, assignmentId: row.id });
-      continue;
-    }
-    if (item.state === "closed") {
-      if (row === undefined) {
-        plan.skipped.push({ key: item.key, position: item.position });
-      } else {
-        const closed = planClosed(row, item);
-        if ("reason" in closed) {
-          refusals.push(closed);
-        } else {
-          plan.items.push(closed);
-        }
-      }
-      continue;
-    }
+  const withdrawals = context.missing.map((row) => ({ row, ...planWithdrawal(db, row) }));
+  plan.withdrawals.push(...withdrawals.map((one) => one.withdrawal));
+  refusals.push(
+    ...withdrawals.flatMap((one) => [
+      ...one.refusals,
+      ...dependentRefusals(context, plan.items, one.row),
+    ]),
+  );
 
-    const planned = planItem(context, item);
-    refusals.push(...planned.refusals);
-    plan.satisfiedBlockers.push(...planned.satisfied);
-    if (planned.item !== null) {
-      plan.items.push(planned.item);
-    }
-  }
-
-  for (const row of missing) {
-    const planned = planWithdrawal(db, row);
-    plan.withdrawals.push(planned.withdrawal);
-    refusals.push(...planned.refusals);
-    refusals.push(...dependentRefusals(context, plan.items, row));
-  }
-
-  for (const one of input.items.toSorted((a, b) => a.issue.localeCompare(b.issue))) {
-    if (!context.openKeys.has(one.issue)) {
-      refusals.push({ reason: "input_issue_outside_source", key: one.issue });
-    }
-  }
+  refusals.push(
+    ...input.items
+      .toSorted((a, b) => a.issue.localeCompare(b.issue))
+      .filter((one) => !context.openKeys.has(one.issue))
+      .map((one): Refusal => ({ reason: "input_issue_outside_source", key: one.issue })),
+  );
 
   const cycle = cycleOf(recorded, sourceKey, plan.items);
   if (cycle !== null) {
     refusals.push({ reason: "dependency_cycle", key: cycle[0] ?? sourceKey, cycle });
   }
 
-  if (
+  plan.approval =
     plan.source.change === "changed" ||
     plan.items.some((one) => one.change === "updated") ||
     plan.withdrawals.length > 0
-  ) {
-    plan.approval = {
-      action: REGISTRATION_CHANGE_APPROVAL,
-      targets: [sourceKey],
-      scope: sourceKey,
-      requestRevision: plan.planRevision,
-    };
-  }
-
+      ? {
+          action: REGISTRATION_CHANGE_APPROVAL,
+          targets: [sourceKey],
+          scope: sourceKey,
+          requestRevision: plan.planRevision,
+        }
+      : null;
   return plan;
 }
 
+type ReadSource = Extract<SourceRead, { status: "read" }>;
+
 /**
- * The withdrawal of one recorded item that the read does not find, with what refuses it. Its
- * recorded landing and the later commits that the take-out rebuilds are read from the crew state
- * with no Git read. A second withdrawal of landed work waits until the earlier take-out of the
- * source ran, because each take-out is bound to the one plan revision that recorded it (D5).
+ * Whether one plan may be recorded now: it is the revision that was previewed, nothing refuses
+ * it, and the person approved it when it records a change.
  */
-function planWithdrawal(
+function checkPlan(
   db: CrewReader,
-  row: AssignmentRow,
-): { withdrawal: PlannedWithdrawal; refusals: Refusal[] } {
-  const waiting = pendingTakeOutsOf(db, row.sourceId);
-  const landed = currentLandingOf(db, row.id);
-  const refusals: Refusal[] =
-    landed !== null && waiting.length > 0
-      ? [
-          {
-            reason: "take_out_pending",
-            key: row.sourceKey,
-            assignmentId: row.id,
-            pending: waiting.map((one) => one.assignmentId),
-          },
-        ]
-      : [];
-  return {
-    withdrawal: {
-      key: row.sourceKey,
-      assignmentId: row.id,
-      state: row.state,
-      landing: recordedLanding(db, row.id),
-      rebuilds:
-        landed === null
-          ? []
-          : laterCommitsOf(db, { sourceId: row.sourceId, commit: landed.landedCommit }),
-    },
-    refusals: [...refusals, ...withdrawalRefusals(db, row)],
-  };
+  plan: RegistrationPlan,
+  request: { read: SourceRead; planRevision: string; differences: PlanDifference[] | null },
+):
+  | Exclude<RegisterResult, { status: "registered" }>
+  | { status: "recordable"; read: ReadSource; revision: string } {
+  const { read } = request;
+  if (plan.planRevision !== request.planRevision) {
+    return {
+      status: "plan-revision-changed",
+      requested: request.planRevision,
+      found: plan.planRevision,
+      differences: request.differences,
+    };
+  }
+  if (plan.refusals.length > 0 || read.status !== "read" || plan.source.revision === null) {
+    return { status: "refused", plan };
+  }
+  if (plan.approval !== null && matchApproval(db, plan.approval).status !== "matched") {
+    return { status: "approval-required", approval: plan.approval };
+  }
+  return { status: "recordable", read, revision: plan.source.revision };
 }
 
-/** Writes the new content of one recorded item that no work has read. */
-function updateAssignment(
+/** Records a new source, or the new revision of a registered one, and gives its order index. */
+function recordSource(
   db: CrewWriter,
   request: {
-    row: AssignmentRow;
-    issue: ReadItem;
-    item: PlannedItem;
-    stated: WorkItem;
-    sourceRevision: string;
+    plan: RegistrationPlan;
+    parent: ReadSource["parent"];
+    sourceKind: WorkInput["sourceKind"];
+    revision: string;
     now: string;
   },
-): AssignmentRow {
-  const { row, issue, item, stated } = request;
-  const values = {
-    sourceRevision: request.sourceRevision,
+): number {
+  const { plan, parent, revision } = request;
+  const existing = matchSource(recordedSources(db), parent).source;
+  if (existing !== null) {
+    if (plan.source.change === "changed") {
+      db.update(workSources).set({ revision }).where(eq(workSources.id, existing.id)).run();
+    }
+    return existing.orderIndex;
+  }
+
+  const orderIndex = db.select().from(workSources).all().length;
+  db.insert(workSources)
+    .values({
+      id: plan.source.id,
+      kind: request.sourceKind,
+      revision,
+      tracker: "github",
+      trackerLocation: JSON.stringify({
+        repository: parent.repository,
+        mapIssue: request.sourceKind === "wayfinder" ? parent.number : null,
+        parent: { issue: parent.number, issueId: parent.issueId },
+      }),
+      orderIndex,
+      registeredAt: request.now,
+    })
+    .run();
+  return orderIndex;
+}
+
+/** The content one planned item records: the text of its issue and the fields its input states. */
+function contentOf(
+  issue: ReadItem,
+  item: PlannedItem,
+  stated: WorkItem,
+  sourceRevision: string,
+): AssignmentContent {
+  return {
+    sourceRevision,
     trackerBinding: JSON.stringify({
       repository: issue.repository,
       issue: issue.number,
@@ -1243,16 +1308,95 @@ function updateAssignment(
     planningType: item.planningType,
     approvedScope: issue.body,
     scopeIdentity: textIdentity(issue),
-    acceptanceRequirements: JSON.stringify(stated.acceptanceRequirements),
-    permissions: JSON.stringify(stated.permissions),
-    fixedInputs: JSON.stringify(stated.fixedInputs),
-    fixedInputsIdentity: identityOf(stated.fixedInputs),
-    revision: row.revision + 1,
-    updatedAt: request.now,
+    acceptanceRequirements: stated.acceptanceRequirements,
+    permissions: stated.permissions,
+    fixedInputs: stated.fixedInputs,
   };
-  db.update(assignments).set(values).where(eq(assignments.id, row.id)).run();
-  db.delete(assignmentDependencies).where(eq(assignmentDependencies.assignmentId, row.id)).run();
-  return { ...row, ...values };
+}
+
+/**
+ * Records each new and changed item of the plan, and the position of each recorded one. The
+ * stored sub-issue position only breaks ties, so a new position needs no approval.
+ */
+function recordItems(
+  db: CrewWriter,
+  request: {
+    plan: RegistrationPlan;
+    read: ReadSource;
+    input: WorkInput;
+    revision: string;
+    now: string;
+  },
+) {
+  const { plan, read, revision, now } = request;
+  const held = heldItems(db, plan.source.id);
+  const readById = new Map(read.items.map((one) => [one.issueId, one]));
+  const statedByKey = new Map(request.input.items.map((one) => [one.issue, one]));
+  const registered: RegisteredAssignment[] = [];
+  const updated: RegisteredAssignment[] = [];
+  for (const item of plan.items) {
+    const issue = readById.get(item.issueId);
+    if (issue === undefined) {
+      throw new Error(`the plan names ${item.key}, which its own read does not hold`);
+    }
+    const row = held.get(item.issueId);
+    if (row !== undefined && row.orderIndex !== item.position) {
+      db.update(assignments)
+        .set({ orderIndex: item.position })
+        .where(eq(assignments.id, row.id))
+        .run();
+    }
+    if (item.change === "unchanged") {
+      continue;
+    }
+    const stated = statedByKey.get(issue.key);
+    if (stated === undefined) {
+      throw new Error(`the plan names ${item.key}, which its own input does not hold`);
+    }
+    const content = contentOf(issue, item, stated, revision);
+    if (row === undefined) {
+      const inserted = insertAssignment(
+        db,
+        { ...content, sourceId: plan.source.id, sourceKey: item.key, orderIndex: item.position },
+        now,
+      );
+      registered.push(reported(inserted));
+    } else {
+      const moved = { ...row, orderIndex: item.position };
+      updated.push(reported(reviseAssignment(db, { row: moved, content, now })));
+    }
+  }
+  return { registered, updated };
+}
+
+/**
+ * Records each planned withdrawal under the plan revision. Operator writes nothing to the
+ * tracker here: the removal the person made is the record.
+ */
+function recordWithdrawals(db: CrewWriter, plan: RegistrationPlan, now: string) {
+  return plan.withdrawals.map((one) => {
+    const row = readAssignment(db, one.assignmentId);
+    if (row === null) {
+      throw new Error(`the plan withdraws ${one.key}, which the crew state does not hold`);
+    }
+    withdrawAssignment(db, { row, planRevision: plan.planRevision, now });
+    return reported({ ...row, state: "withdrawn", revision: row.revision + 1 });
+  });
+}
+
+/** Records the dependencies of each new and changed item. A revised item dropped its old ones. */
+function recordDependencies(db: CrewWriter, plan: RegistrationPlan): void {
+  for (const item of plan.items.filter((one) => one.change !== "unchanged")) {
+    for (const dependency of item.dependsOn) {
+      db.insert(assignmentDependencies)
+        .values({
+          assignmentId: assignmentId(plan.source.id, item.key),
+          dependsOnId: assignmentId(dependency.sourceId, dependency.key),
+        })
+        .onConflictDoNothing()
+        .run();
+    }
+  }
 }
 
 /**
@@ -1272,136 +1416,19 @@ export function registerWork(
     now: string;
   },
 ): RegisterResult {
-  const { input, read, found, now } = request;
-  const plan = planRegistration(db, { input, read, found });
-  if (plan.planRevision !== request.planRevision) {
-    return {
-      status: "plan-revision-changed",
-      requested: request.planRevision,
-      found: plan.planRevision,
-      differences: request.differences,
-    };
-  }
-  if (plan.refusals.length > 0 || read.status !== "read" || plan.source.revision === null) {
-    return { status: "refused", plan };
-  }
-  if (plan.approval !== null && matchApproval(db, plan.approval).status !== "matched") {
-    return { status: "approval-required", approval: plan.approval };
+  const { input, now } = request;
+  const plan = planRegistration(db, { input, read: request.read, found: request.found });
+  const checked = checkPlan(db, plan, request);
+  if (checked.status !== "recordable") {
+    return checked;
   }
 
-  const parent = read.parent;
-  const revision = plan.source.revision;
-  const existing = matchSource(recordedIssues(db), parent).source;
-  const orderIndex = existing?.orderIndex ?? db.select().from(workSources).all().length;
-  if (existing === null) {
-    db.insert(workSources)
-      .values({
-        id: plan.source.id,
-        kind: input.sourceKind,
-        revision,
-        tracker: "github",
-        trackerLocation: JSON.stringify({
-          repository: parent.repository,
-          mapIssue: input.sourceKind === "wayfinder" ? parent.number : null,
-          parent: { issue: parent.number, issueId: parent.issueId },
-        }),
-        orderIndex,
-        registeredAt: now,
-      })
-      .run();
-  } else if (plan.source.change === "changed") {
-    db.update(workSources).set({ revision }).where(eq(workSources.id, existing.id)).run();
-  }
-
-  const held = heldItems(db, plan.source.id);
-  const readById = new Map(read.items.map((one) => [one.issueId, one]));
-  const statedByKey = new Map(input.items.map((one) => [one.issue, one]));
-  const registered: RegisteredAssignment[] = [];
-  const updated: RegisteredAssignment[] = [];
-  for (const item of plan.items) {
-    const issue = readById.get(item.issueId);
-    const stated = issue === undefined ? undefined : statedByKey.get(issue.key);
-    const row = held.get(item.issueId);
-    if (issue === undefined) {
-      throw new Error(`the plan names ${item.key}, which its own read does not hold`);
-    }
-    // The stored sub-issue position only breaks ties, so a new position needs no approval.
-    if (row !== undefined && row.orderIndex !== item.position) {
-      db.update(assignments)
-        .set({ orderIndex: item.position })
-        .where(eq(assignments.id, row.id))
-        .run();
-    }
-    if (item.change === "unchanged") {
-      continue;
-    }
-    if (stated === undefined) {
-      throw new Error(`the plan names ${item.key}, which its own input does not hold`);
-    }
-    if (row !== undefined) {
-      updated.push(
-        reported(
-          updateAssignment(db, {
-            row: { ...row, orderIndex: item.position },
-            issue,
-            item,
-            stated,
-            sourceRevision: revision,
-            now,
-          }),
-        ),
-      );
-      continue;
-    }
-    const inserted = insertAssignment(
-      db,
-      {
-        sourceId: plan.source.id,
-        sourceKey: item.key,
-        sourceRevision: revision,
-        trackerBinding: JSON.stringify({
-          repository: issue.repository,
-          issue: issue.number,
-          issueId: issue.issueId,
-        }),
-        title: issue.title,
-        kind: item.kind,
-        planningType: item.planningType,
-        orderIndex: item.position,
-        approvedScope: issue.body,
-        scopeIdentity: textIdentity(issue),
-        acceptanceRequirements: stated.acceptanceRequirements,
-        permissions: stated.permissions,
-        fixedInputs: stated.fixedInputs,
-      },
-      now,
-    );
-    registered.push(reported(inserted));
-  }
-
-  // Operator writes nothing to the tracker here: the removal the person made is the record.
-  const withdrawn: RegisteredAssignment[] = [];
-  for (const one of plan.withdrawals) {
-    const row = readAssignment(db, one.assignmentId);
-    if (row === null) {
-      throw new Error(`the plan withdraws ${one.key}, which the crew state does not hold`);
-    }
-    withdrawAssignment(db, { row, planRevision: plan.planRevision, now });
-    withdrawn.push(reported({ ...row, state: "withdrawn", revision: row.revision + 1 }));
-  }
-
-  for (const item of plan.items.filter((one) => one.change !== "unchanged")) {
-    for (const dependency of item.dependsOn) {
-      db.insert(assignmentDependencies)
-        .values({
-          assignmentId: assignmentId(plan.source.id, item.key),
-          dependsOnId: assignmentId(dependency.sourceId, dependency.key),
-        })
-        .onConflictDoNothing()
-        .run();
-    }
-  }
-
+  const { read, revision } = checked;
+  const sourceKind = input.sourceKind;
+  const orderIndex = recordSource(db, { plan, parent: read.parent, sourceKind, revision, now });
+  const { registered, updated } = recordItems(db, { plan, read, input, revision, now });
+  const withdrawn = recordWithdrawals(db, plan, now);
+  recordDependencies(db, plan);
   // The withdrawal that makes the integration branch final registers its branch review in the
   // same change (ADR 0017). A withdrawn commit that the branch still holds waits for its take-out.
   const branchReview =
@@ -1417,7 +1444,7 @@ export function registerWork(
     .map(reported);
   return {
     status: "registered",
-    source: { id: plan.source.id, kind: input.sourceKind, revision, orderIndex },
+    source: { id: plan.source.id, kind: sourceKind, revision, orderIndex },
     planRevision: plan.planRevision,
     registered,
     updated,

@@ -1,0 +1,266 @@
+{
+  "source": {
+    "id": "fveracoechea/operator#93",
+    "kind": "specification",
+    "revision": "14d60dc0c88ab1c61cc386a25a7ac5df792a7c07c369a8c955a6bc2a83ca85f4",
+    "repository": "fveracoechea/operator",
+    "change": "unchanged"
+  },
+  "planRevision": "8b904ad4750600255c8d115981806d013c0bb02d9e849a110abf30a5f230534f",
+  "approval": {
+    "action": "registration-change",
+    "targets": ["fveracoechea/operator#93"],
+    "scope": "fveracoechea/operator#93",
+    "requestRevision": "8b904ad4750600255c8d115981806d013c0bb02d9e849a110abf30a5f230534f"
+  },
+  "items": [
+    {
+      "key": "fveracoechea/operator#10",
+      "issueId": 2709400010,
+      "position": 1,
+      "title": "Item b",
+      "kind": "production",
+      "planningType": null,
+      "executable": true,
+      "change": "unchanged",
+      "dependsOn": [
+        {
+          "sourceId": "fveracoechea/operator#93",
+          "key": "fveracoechea/operator#40"
+        }
+      ]
+    },
+    {
+      "key": "fveracoechea/operator#50",
+      "issueId": 2709400050,
+      "position": 3,
+      "title": "Item n",
+      "kind": "production",
+      "planningType": null,
+      "executable": true,
+      "change": "new",
+      "dependsOn": []
+    },
+    {
+      "key": "fveracoechea/operator#52",
+      "issueId": 2709400052,
+      "position": 5,
+      "title": "Item p",
+      "kind": "production",
+      "planningType": null,
+      "executable": true,
+      "change": "new",
+      "dependsOn": []
+    },
+    {
+      "key": "someone/elsewhere#53",
+      "issueId": 3530600053,
+      "position": 6,
+      "title": "Item o",
+      "kind": "production",
+      "planningType": null,
+      "executable": true,
+      "change": "new",
+      "dependsOn": []
+    }
+  ],
+  "withdrawals": [
+    {
+      "key": "fveracoechea/operator#40",
+      "assignmentId": "9dbc41220a04bbb98f030bd8401ca5c8",
+      "state": "registered",
+      "landing": null,
+      "rebuilds": []
+    }
+  ],
+  "skipped": [],
+  "satisfiedBlockers": [],
+  "refusals": [
+    {
+      "reason": "recorded_item_changed",
+      "key": "fveracoechea/operator#30",
+      "assignmentId": "ff3316e054eb5be363462e128a8d5dd2",
+      "state": "claimed"
+    },
+    {
+      "reason": "recorded_item_closed",
+      "key": "fveracoechea/operator#20",
+      "assignmentId": "a9423c911a9f4ce9d6fccc9baf82bea0",
+      "state": "registered",
+      "hint": "remove it from its parent to withdraw it, or reopen it"
+    },
+    {
+      "reason": "blocker_unregistered",
+      "key": "fveracoechea/operator#50",
+      "blocker": "fveracoechea/operator#80"
+    },
+    {
+      "reason": "input_issue_missing",
+      "key": "fveracoechea/operator#51"
+    },
+    {
+      "reason": "write_paths_required",
+      "key": "fveracoechea/operator#52"
+    },
+    {
+      "reason": "executable_item_in_other_repository",
+      "key": "someone/elsewhere#53",
+      "repository": "someone/elsewhere"
+    },
+    {
+      "reason": "withdrawal_dependent_pending",
+      "key": "fveracoechea/operator#40",
+      "assignmentId": "9dbc41220a04bbb98f030bd8401ca5c8",
+      "dependent": "2d6cd674e92784a0ce815079cd398849",
+      "dependentKey": "fveracoechea/operator#10"
+    }
+  ],
+  "basis": {
+    "read": {
+      "status": "read",
+      "parent": {
+        "key": "fveracoechea/operator#93",
+        "issueId": 2709400093,
+        "state": "open",
+        "title": "Issue 93",
+        "body": "The body of issue 93.",
+        "labels": []
+      },
+      "items": [
+        {
+          "key": "fveracoechea/operator#30",
+          "issueId": 2709400030,
+          "state": "open",
+          "title": "Item a",
+          "body": "A changed scope after the claim.",
+          "labels": [],
+          "position": 0,
+          "blockers": []
+        },
+        {
+          "key": "fveracoechea/operator#10",
+          "issueId": 2709400010,
+          "state": "open",
+          "title": "Item b",
+          "body": "The approved scope of item b.",
+          "labels": [],
+          "position": 1,
+          "blockers": [
+            {
+              "key": "fveracoechea/operator#40",
+              "issueId": 2709400040,
+              "state": "open"
+            }
+          ]
+        },
+        {
+          "key": "fveracoechea/operator#20",
+          "issueId": 2709400020,
+          "state": "closed",
+          "title": "Item c",
+          "body": "The approved scope of item c.",
+          "labels": [],
+          "position": 2,
+          "blockers": []
+        },
+        {
+          "key": "fveracoechea/operator#50",
+          "issueId": 2709400050,
+          "state": "open",
+          "title": "Item n",
+          "body": "The approved scope of item n.",
+          "labels": [],
+          "position": 3,
+          "blockers": [
+            {
+              "key": "fveracoechea/operator#80",
+              "issueId": 2709400080,
+              "state": "open"
+            }
+          ]
+        },
+        {
+          "key": "fveracoechea/operator#51",
+          "issueId": 2709400051,
+          "state": "open",
+          "title": "Item m",
+          "body": "The approved scope of item m.",
+          "labels": [],
+          "position": 4,
+          "blockers": []
+        },
+        {
+          "key": "fveracoechea/operator#52",
+          "issueId": 2709400052,
+          "state": "open",
+          "title": "Item p",
+          "body": "The approved scope of item p.",
+          "labels": [],
+          "position": 5,
+          "blockers": []
+        },
+        {
+          "key": "someone/elsewhere#53",
+          "issueId": 3530600053,
+          "state": "open",
+          "title": "Item o",
+          "body": "The approved scope of item o.",
+          "labels": [],
+          "position": 6,
+          "blockers": []
+        }
+      ],
+      "gaps": []
+    },
+    "input": {
+      "sourceKind": "specification",
+      "source": "fveracoechea/operator#93",
+      "items": [
+        {
+          "issue": "fveracoechea/operator#30",
+          "acceptanceRequirements": ["The quality gate passes."],
+          "permissions": {
+            "writePaths": ["modules/a/"],
+            "allowedCommands": ["bun test"],
+            "network": false
+          },
+          "fixedInputs": [],
+          "kind": "production"
+        },
+        {
+          "issue": "fveracoechea/operator#50",
+          "acceptanceRequirements": ["The quality gate passes."],
+          "permissions": {
+            "writePaths": ["modules/n/"],
+            "allowedCommands": ["bun test"],
+            "network": false
+          },
+          "fixedInputs": [],
+          "kind": "production"
+        },
+        {
+          "issue": "fveracoechea/operator#52",
+          "acceptanceRequirements": ["The quality gate passes."],
+          "permissions": {
+            "writePaths": [],
+            "allowedCommands": [],
+            "network": false
+          },
+          "fixedInputs": [],
+          "kind": "production"
+        },
+        {
+          "issue": "someone/elsewhere#53",
+          "acceptanceRequirements": ["The quality gate passes."],
+          "permissions": {
+            "writePaths": ["modules/o/"],
+            "allowedCommands": ["bun test"],
+            "network": false
+          },
+          "fixedInputs": [],
+          "kind": "production"
+        }
+      ]
+    }
+  }
+}

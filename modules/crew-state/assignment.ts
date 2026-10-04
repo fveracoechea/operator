@@ -4,7 +4,13 @@ import type { AssignmentNext } from "./assignment-machine.ts";
 import type { CrewReader, CrewWriter } from "./database.ts";
 import { assignmentId, identityOf } from "./identity.ts";
 import { readStoredValue } from "./stored.ts";
-import { assignments, directionRequests, invalidations, reworkCycles } from "./schema.ts";
+import {
+  assignmentDependencies,
+  assignments,
+  directionRequests,
+  invalidations,
+  reworkCycles,
+} from "./schema.ts";
 
 export type AssignmentRow = typeof assignments.$inferSelect;
 
@@ -39,16 +45,13 @@ export function readAssignment(db: CrewReader, id: string): AssignmentRow | null
   return db.select().from(assignments).where(eq(assignments.id, id)).all()[0] ?? null;
 }
 
-/** What the caller decides about one new assignment. Everything else follows from registration. */
-export type NewAssignment = {
-  sourceId: string;
-  sourceKey: string;
+/** What one assignment holds to do its work: its scope and the execution fields it runs with. */
+export type AssignmentContent = {
   sourceRevision: string;
   trackerBinding: string | null;
   title: string;
   kind: string;
   planningType: string | null;
-  orderIndex: number;
   approvedScope: string;
   scopeIdentity: string | null;
   acceptanceRequirements: string[];
@@ -61,9 +64,36 @@ export type NewAssignment = {
   }>;
 };
 
+/** What the caller decides about one new assignment. Everything else follows from registration. */
+export type NewAssignment = AssignmentContent & {
+  sourceId: string;
+  sourceKey: string;
+  orderIndex: number;
+};
+
 /** The next free order index inside one source. */
 export function nextOrderIndex(held: AssignmentRow[]): number {
   return held.reduce((highest, row) => Math.max(highest, row.orderIndex + 1), 0);
+}
+
+/**
+ * The stored columns of one assignment content. A new row and a revised row both take them
+ * from here, so a content column added to the table cannot reach one path and miss the other.
+ */
+function assignmentValuesOf(content: AssignmentContent) {
+  return {
+    sourceRevision: content.sourceRevision,
+    trackerBinding: content.trackerBinding,
+    title: content.title,
+    kind: content.kind,
+    planningType: content.planningType,
+    approvedScope: content.approvedScope,
+    scopeIdentity: content.scopeIdentity,
+    acceptanceRequirements: JSON.stringify(content.acceptanceRequirements),
+    permissions: JSON.stringify(content.permissions),
+    fixedInputs: JSON.stringify(content.fixedInputs),
+    fixedInputsIdentity: identityOf(content.fixedInputs),
+  };
 }
 
 /**
@@ -80,18 +110,8 @@ export function insertAssignment(
     id: assignmentId(request.sourceId, request.sourceKey),
     sourceId: request.sourceId,
     sourceKey: request.sourceKey,
-    sourceRevision: request.sourceRevision,
-    trackerBinding: request.trackerBinding,
-    title: request.title,
-    kind: request.kind,
-    planningType: request.planningType,
     orderIndex: request.orderIndex,
-    approvedScope: request.approvedScope,
-    scopeIdentity: request.scopeIdentity,
-    acceptanceRequirements: JSON.stringify(request.acceptanceRequirements),
-    permissions: JSON.stringify(request.permissions),
-    fixedInputs: JSON.stringify(request.fixedInputs),
-    fixedInputsIdentity: identityOf(request.fixedInputs),
+    ...assignmentValuesOf(request),
     state: "registered",
     revision: 1,
     registeredAt: now,
@@ -101,6 +121,25 @@ export function insertAssignment(
 
   db.insert(assignments).values(row).run();
   return row;
+}
+
+/**
+ * Writes the new content of one recorded assignment that no work has read, and drops its
+ * recorded dependencies, because the new content states them again.
+ */
+export function reviseAssignment(
+  db: CrewWriter,
+  request: { row: AssignmentRow; content: AssignmentContent; now: string },
+): AssignmentRow {
+  const { row, now } = request;
+  const values = {
+    ...assignmentValuesOf(request.content),
+    revision: row.revision + 1,
+    updatedAt: now,
+  };
+  db.update(assignments).set(values).where(eq(assignments.id, row.id)).run();
+  db.delete(assignmentDependencies).where(eq(assignmentDependencies.assignmentId, row.id)).run();
+  return { ...row, ...values };
 }
 
 /**

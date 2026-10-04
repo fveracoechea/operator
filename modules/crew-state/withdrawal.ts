@@ -5,10 +5,11 @@ import { type AssignmentRow, moveAssignment, readAssignment } from "./assignment
 import { Assignment } from "./assignment-machine.ts";
 import { activeAttempt } from "./frontier.ts";
 import { assignments, reviews } from "./schema.ts";
-import { submissionsOf } from "./submission.ts";
+import { recordedLanding, submissionsOf } from "./submission.ts";
 import { trackerOperationsOf } from "./tracker.ts";
 import { branchReviewHoldersOf, branchReviewsHolding } from "./branch-review.ts";
-import { intendedLandingOf, intentTouches } from "./landing-record.ts";
+import { currentLandingOf, intendedLandingOf, intentTouches } from "./landing-record.ts";
+import { laterCommitsOf, pendingTakeOutsOf } from "./take-out.ts";
 import { Review } from "./review-machine.ts";
 import { type ReviewRow, withdrawReview } from "./review.ts";
 
@@ -44,6 +45,33 @@ export type WithdrawalRefusal =
       landingId: string;
       pendingAssignmentId: string;
     };
+
+/**
+ * One recorded item that the read no longer finds, because a person removed its issue from the
+ * parent. The plan records it as withdrawn behind the approval of this plan revision.
+ */
+export type PlannedWithdrawal = {
+  key: string;
+  assignmentId: string;
+  state: string;
+  // The commit that carries its accepted code result, or null when none landed.
+  landing: string | null;
+  // The landed commits above that commit, oldest first, which the take-out rebuilds. They are
+  // read from the crew state with no Git read (ADR 0020).
+  rebuilds: string[];
+};
+
+/** Why one planned withdrawal waits: an earlier take-out of its source, or one withdrawal rule. */
+export type PlannedWithdrawalRefusal =
+  | {
+      // A withdrawal of landed work while an earlier take-out of the source still waits. Each
+      // take-out is bound to one plan revision, so the person withdraws it after that one (D5).
+      reason: "take_out_pending";
+      key: string;
+      assignmentId: string;
+      pending: string[];
+    }
+  | WithdrawalRefusal;
 
 // A tracker step in one of these states has a recorded outcome. Every other state is unsettled.
 const SETTLED_TRACKER_STATES = new Set(["verified", "failed"]);
@@ -175,4 +203,42 @@ export function withdrawAssignment(
   for (const review of [...reviewsOfWork(db, row.id), ...branchReviewsHolding(db, row)]) {
     closeReview(db, { review, planRevision, now });
   }
+}
+
+/**
+ * The withdrawal of one recorded item that the read does not find, with what refuses it. Its
+ * recorded landing and the later commits that the take-out rebuilds are read from the crew state
+ * with no Git read. A second withdrawal of landed work waits until the earlier take-out of the
+ * source ran, because each take-out is bound to the one plan revision that recorded it (D5).
+ */
+export function planWithdrawal(
+  db: CrewReader,
+  row: AssignmentRow,
+): { withdrawal: PlannedWithdrawal; refusals: PlannedWithdrawalRefusal[] } {
+  const waiting = pendingTakeOutsOf(db, row.sourceId);
+  const landed = currentLandingOf(db, row.id);
+  const refusals: PlannedWithdrawalRefusal[] =
+    landed !== null && waiting.length > 0
+      ? [
+          {
+            reason: "take_out_pending",
+            key: row.sourceKey,
+            assignmentId: row.id,
+            pending: waiting.map((one) => one.assignmentId),
+          },
+        ]
+      : [];
+  return {
+    withdrawal: {
+      key: row.sourceKey,
+      assignmentId: row.id,
+      state: row.state,
+      landing: recordedLanding(db, row.id),
+      rebuilds:
+        landed === null
+          ? []
+          : laterCommitsOf(db, { sourceId: row.sourceId, commit: landed.landedCommit }),
+    },
+    refusals: [...refusals, ...withdrawalRefusals(db, row)],
+  };
 }

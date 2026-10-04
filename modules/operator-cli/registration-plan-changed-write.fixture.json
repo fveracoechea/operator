@@ -1,0 +1,185 @@
+{
+  "report": {
+    "schemaVersion": 1,
+    "outcome": "completed",
+    "reason": "work_registered",
+    "blockers": [],
+    "operation": "work_register",
+    "data": {
+      "source": {
+        "id": "fveracoechea/operator#93",
+        "kind": "specification",
+        "revision": "6b943f9d8890ea877917f7369e31cca01e80074ab92e13a5b287952321412818",
+        "orderIndex": 1
+      },
+      "planRevision": "52be79b60f6b02a8c0b7f2a2682b87f19605ebfccdfc4e0135253d3ca126ecdd",
+      "counts": {
+        "registered": 1,
+        "updated": 1,
+        "withdrawn": 1
+      },
+      "overlaps": {
+        "pairCount": 0,
+        "sourceKeys": [],
+        "command": "operator work overlaps --source fveracoechea/operator#93"
+      },
+      "branchReview": null,
+      "repeated": false,
+      "frontier": "operator work frontier"
+    }
+  },
+  "rows": {
+    "sources": [
+      {
+        "id": "fveracoechea/operator#93",
+        "kind": "specification",
+        "revision": "6b943f9d8890ea877917f7369e31cca01e80074ab92e13a5b287952321412818",
+        "tracker_location": "{\"repository\":\"fveracoechea/operator\",\"mapIssue\":null,\"parent\":{\"issue\":93,\"issueId\":2709400093}}",
+        "order_index": 1
+      },
+      {
+        "id": "fveracoechea/operator#94",
+        "kind": "specification",
+        "revision": "10a03495e4d2b63b0912d27bb2663c72eb0438f456671a7fcdccf1e374ee9d13",
+        "tracker_location": "{\"repository\":\"fveracoechea/operator\",\"mapIssue\":null,\"parent\":{\"issue\":94,\"issueId\":2709400094}}",
+        "order_index": 0
+      }
+    ],
+    "assignments": [
+      {
+        "id": "2d6cd674e92784a0ce815079cd398849",
+        "source_id": "fveracoechea/operator#93",
+        "source_key": "fveracoechea/operator#10",
+        "source_revision": "6b943f9d8890ea877917f7369e31cca01e80074ab92e13a5b287952321412818",
+        "tracker_binding": "{\"repository\":\"fveracoechea/operator\",\"issue\":10,\"issueId\":2709400010}",
+        "title": "Item b",
+        "kind": "production",
+        "planning_type": null,
+        "order_index": 1,
+        "approved_scope": "A sharper scope.",
+        "scope_identity": "80cbbe6a1b9247b9820f06307c89c1483289754a9100afe6ca5d3539bcf3477a",
+        "acceptance_requirements": "[\"The quality gate passes.\"]",
+        "permissions": "{\"writePaths\":[\"modules/b/\"],\"allowedCommands\":[\"bun test\"],\"network\":false}",
+        "fixed_inputs": "[]",
+        "fixed_inputs_identity": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "state": "registered",
+        "revision": 2,
+        "withdrawn_under": null
+      },
+      {
+        "id": "3596bbe5b597069dfc478811df5d9e13",
+        "source_id": "fveracoechea/operator#93",
+        "source_key": "fveracoechea/operator#50",
+        "source_revision": "6b943f9d8890ea877917f7369e31cca01e80074ab92e13a5b287952321412818",
+        "tracker_binding": "{\"repository\":\"fveracoechea/operator\",\"issue\":50,\"issueId\":2709400050}",
+        "title": "Item d",
+        "kind": "production",
+        "planning_type": null,
+        "order_index": 4,
+        "approved_scope": "The approved scope of item d.",
+        "scope_identity": "5cd2616256bd2c3d7eff5a3dd9de46dbcbb86c96bc74ce860ed68edeec409c32",
+        "acceptance_requirements": "[\"The quality gate passes.\"]",
+        "permissions": "{\"writePaths\":[\"modules/d/\"],\"allowedCommands\":[\"bun test\"],\"network\":false}",
+        "fixed_inputs": "[]",
+        "fixed_inputs_identity": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "state": "registered",
+        "revision": 1,
+        "withdrawn_under": null
+      },
+      {
+        "id": "9dbc41220a04bbb98f030bd8401ca5c8",
+        "source_id": "fveracoechea/operator#93",
+        "source_key": "fveracoechea/operator#40",
+        "source_revision": "14d60dc0c88ab1c61cc386a25a7ac5df792a7c07c369a8c955a6bc2a83ca85f4",
+        "tracker_binding": "{\"repository\":\"fveracoechea/operator\",\"issue\":40,\"issueId\":2709400040}",
+        "title": "Item w",
+        "kind": "production",
+        "planning_type": null,
+        "order_index": 3,
+        "approved_scope": "The approved scope of item w.",
+        "scope_identity": "1aa67e44af9cda8fad3aaa12f105294be65a2306654778a023a887d4bea905b4",
+        "acceptance_requirements": "[\"The quality gate passes.\"]",
+        "permissions": "{\"writePaths\":[\"modules/w/\"],\"allowedCommands\":[\"bun test\"],\"network\":false}",
+        "fixed_inputs": "[]",
+        "fixed_inputs_identity": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "state": "withdrawn",
+        "revision": 2,
+        "withdrawn_under": "52be79b60f6b02a8c0b7f2a2682b87f19605ebfccdfc4e0135253d3ca126ecdd"
+      },
+      {
+        "id": "a9423c911a9f4ce9d6fccc9baf82bea0",
+        "source_id": "fveracoechea/operator#93",
+        "source_key": "fveracoechea/operator#20",
+        "source_revision": "14d60dc0c88ab1c61cc386a25a7ac5df792a7c07c369a8c955a6bc2a83ca85f4",
+        "tracker_binding": "{\"repository\":\"fveracoechea/operator\",\"issue\":20,\"issueId\":2709400020}",
+        "title": "Item c",
+        "kind": "planning",
+        "planning_type": null,
+        "order_index": 2,
+        "approved_scope": "The approved scope of item c.",
+        "scope_identity": "fbfe42fc45dbe9e0ac5ef4cb82f3ca17f6b765426395348e39131aa1c2386655",
+        "acceptance_requirements": "[\"The quality gate passes.\"]",
+        "permissions": "{\"writePaths\":[\"modules/c/\"],\"allowedCommands\":[\"bun test\"],\"network\":false}",
+        "fixed_inputs": "[]",
+        "fixed_inputs_identity": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "state": "accepted",
+        "revision": 2,
+        "withdrawn_under": null
+      },
+      {
+        "id": "f686ed4f2249514ebf6f6a9e677fb8dc",
+        "source_id": "fveracoechea/operator#94",
+        "source_key": "fveracoechea/operator#70",
+        "source_revision": "10a03495e4d2b63b0912d27bb2663c72eb0438f456671a7fcdccf1e374ee9d13",
+        "tracker_binding": "{\"repository\":\"fveracoechea/operator\",\"issue\":70,\"issueId\":2709400070}",
+        "title": "Item x",
+        "kind": "planning",
+        "planning_type": null,
+        "order_index": 0,
+        "approved_scope": "The approved scope of item x.",
+        "scope_identity": "06f77b1e771a22b7aa9093642bfa00b870ea4aec49ce4b2d74c18fc216a818a1",
+        "acceptance_requirements": "[\"The quality gate passes.\"]",
+        "permissions": "{\"writePaths\":[\"modules/x/\"],\"allowedCommands\":[\"bun test\"],\"network\":false}",
+        "fixed_inputs": "[]",
+        "fixed_inputs_identity": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "state": "registered",
+        "revision": 1,
+        "withdrawn_under": null
+      },
+      {
+        "id": "ff3316e054eb5be363462e128a8d5dd2",
+        "source_id": "fveracoechea/operator#93",
+        "source_key": "fveracoechea/operator#30",
+        "source_revision": "14d60dc0c88ab1c61cc386a25a7ac5df792a7c07c369a8c955a6bc2a83ca85f4",
+        "tracker_binding": "{\"repository\":\"fveracoechea/operator\",\"issue\":30,\"issueId\":2709400030}",
+        "title": "Item a",
+        "kind": "production",
+        "planning_type": null,
+        "order_index": 0,
+        "approved_scope": "The approved scope of item a.",
+        "scope_identity": "bd86140707bed3d477de5c56b4bede64f0252dc61ebe653aa5eab97a394c25bd",
+        "acceptance_requirements": "[\"The quality gate passes.\"]",
+        "permissions": "{\"writePaths\":[\"modules/a/\"],\"allowedCommands\":[\"bun test\"],\"network\":false}",
+        "fixed_inputs": "[]",
+        "fixed_inputs_identity": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "state": "registered",
+        "revision": 1,
+        "withdrawn_under": null
+      }
+    ],
+    "dependencies": [
+      {
+        "assignment_id": "2d6cd674e92784a0ce815079cd398849",
+        "depends_on_id": "ff3316e054eb5be363462e128a8d5dd2"
+      },
+      {
+        "assignment_id": "3596bbe5b597069dfc478811df5d9e13",
+        "depends_on_id": "f686ed4f2249514ebf6f6a9e677fb8dc"
+      },
+      {
+        "assignment_id": "3596bbe5b597069dfc478811df5d9e13",
+        "depends_on_id": "ff3316e054eb5be363462e128a8d5dd2"
+      }
+    ]
+  }
+}

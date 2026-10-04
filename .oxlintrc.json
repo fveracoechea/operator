@@ -12,7 +12,6 @@
     {
       "files": [
         "modules/crew-state/next.ts",
-        "modules/crew-state/registration.ts",
         "modules/operator-cli/arguments.ts",
         "modules/operator-cli/run.ts",
         "modules/operator-cli/setup-command.ts",

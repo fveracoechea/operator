@@ -1,0 +1,222 @@
+{
+  "source": {
+    "id": "fveracoechea/operator#93",
+    "kind": "wayfinder",
+    "revision": "14d60dc0c88ab1c61cc386a25a7ac5df792a7c07c369a8c955a6bc2a83ca85f4",
+    "repository": "fveracoechea/operator",
+    "change": "new"
+  },
+  "planRevision": "2d1bb9c8ebbc098c1f5daaa59476dcff06aaaa7b2c32cec3086deb268c727fee",
+  "approval": null,
+  "items": [
+    {
+      "key": "fveracoechea/operator#30",
+      "issueId": 2709400030,
+      "position": 0,
+      "title": "Item r",
+      "kind": "planning",
+      "planningType": "research",
+      "executable": false,
+      "change": "new",
+      "dependsOn": []
+    },
+    {
+      "key": "fveracoechea/operator#31",
+      "issueId": 2709400031,
+      "position": 1,
+      "title": "Item t",
+      "kind": "production",
+      "planningType": null,
+      "executable": true,
+      "change": "new",
+      "dependsOn": [
+        {
+          "sourceId": "fveracoechea/operator#93",
+          "key": "fveracoechea/operator#30"
+        }
+      ]
+    },
+    {
+      "key": "fveracoechea/operator#32",
+      "issueId": 2709400032,
+      "position": 2,
+      "title": "Item k",
+      "kind": "production",
+      "planningType": null,
+      "executable": true,
+      "change": "new",
+      "dependsOn": []
+    },
+    {
+      "key": "fveracoechea/operator#34",
+      "issueId": 2709400034,
+      "position": 4,
+      "title": "Item f",
+      "kind": "production",
+      "planningType": null,
+      "executable": true,
+      "change": "new",
+      "dependsOn": []
+    }
+  ],
+  "withdrawals": [],
+  "skipped": [],
+  "satisfiedBlockers": [],
+  "refusals": [
+    {
+      "reason": "item_kind_contradicted",
+      "key": "fveracoechea/operator#32",
+      "stated": "planning",
+      "label": "wayfinder:task"
+    },
+    {
+      "reason": "wayfinder_type_unreadable",
+      "key": "fveracoechea/operator#33",
+      "labels": []
+    },
+    {
+      "reason": "fixed_input_mismatch",
+      "key": "fveracoechea/operator#34",
+      "name": "brief",
+      "path": "docs/missing.md",
+      "statedIdentity": "0000000000000000000000000000000000000000000000000000000000000000",
+      "foundIdentity": null
+    }
+  ],
+  "basis": {
+    "read": {
+      "status": "read",
+      "parent": {
+        "key": "fveracoechea/operator#93",
+        "issueId": 2709400093,
+        "state": "open",
+        "title": "Issue 93",
+        "body": "The body of issue 93.",
+        "labels": []
+      },
+      "items": [
+        {
+          "key": "fveracoechea/operator#30",
+          "issueId": 2709400030,
+          "state": "open",
+          "title": "Item r",
+          "body": "The approved scope of item r.",
+          "labels": ["wayfinder:research"],
+          "position": 0,
+          "blockers": []
+        },
+        {
+          "key": "fveracoechea/operator#31",
+          "issueId": 2709400031,
+          "state": "open",
+          "title": "Item t",
+          "body": "The approved scope of item t.",
+          "labels": ["wayfinder:task"],
+          "position": 1,
+          "blockers": [
+            {
+              "key": "fveracoechea/operator#30",
+              "issueId": 2709400030,
+              "state": "open"
+            }
+          ]
+        },
+        {
+          "key": "fveracoechea/operator#32",
+          "issueId": 2709400032,
+          "state": "open",
+          "title": "Item k",
+          "body": "The approved scope of item k.",
+          "labels": ["wayfinder:task"],
+          "position": 2,
+          "blockers": []
+        },
+        {
+          "key": "fveracoechea/operator#33",
+          "issueId": 2709400033,
+          "state": "open",
+          "title": "Item z",
+          "body": "The approved scope of item z.",
+          "labels": [],
+          "position": 3,
+          "blockers": []
+        },
+        {
+          "key": "fveracoechea/operator#34",
+          "issueId": 2709400034,
+          "state": "open",
+          "title": "Item f",
+          "body": "The approved scope of item f.",
+          "labels": ["wayfinder:task"],
+          "position": 4,
+          "blockers": []
+        }
+      ],
+      "gaps": []
+    },
+    "input": {
+      "sourceKind": "wayfinder",
+      "source": "fveracoechea/operator#93",
+      "items": [
+        {
+          "issue": "fveracoechea/operator#30",
+          "acceptanceRequirements": ["The quality gate passes."],
+          "permissions": {
+            "writePaths": ["modules/r/"],
+            "allowedCommands": ["bun test"],
+            "network": false
+          },
+          "fixedInputs": []
+        },
+        {
+          "issue": "fveracoechea/operator#31",
+          "acceptanceRequirements": ["The quality gate passes."],
+          "permissions": {
+            "writePaths": ["modules/t/"],
+            "allowedCommands": ["bun test"],
+            "network": false
+          },
+          "fixedInputs": []
+        },
+        {
+          "issue": "fveracoechea/operator#32",
+          "acceptanceRequirements": ["The quality gate passes."],
+          "permissions": {
+            "writePaths": ["modules/k/"],
+            "allowedCommands": ["bun test"],
+            "network": false
+          },
+          "fixedInputs": [],
+          "kind": "planning"
+        },
+        {
+          "issue": "fveracoechea/operator#33",
+          "acceptanceRequirements": ["The quality gate passes."],
+          "permissions": {
+            "writePaths": ["modules/z/"],
+            "allowedCommands": ["bun test"],
+            "network": false
+          },
+          "fixedInputs": []
+        },
+        {
+          "issue": "fveracoechea/operator#34",
+          "acceptanceRequirements": ["The quality gate passes."],
+          "permissions": {
+            "writePaths": ["modules/f/"],
+            "allowedCommands": ["bun test"],
+            "network": false
+          },
+          "fixedInputs": [
+            {
+              "name": "brief",
+              "kind": "path",
+              "value": "docs/missing.md",
+              "contentIdentity": "0000000000000000000000000000000000000000000000000000000000000000"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
