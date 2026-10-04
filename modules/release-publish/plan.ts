@@ -1,5 +1,6 @@
 import { OperatorRelease } from "../operator-release/main.ts";
 import { readMerged, readRelease, readTag } from "./github-release.ts";
+import { DeliveryPath, type DeliveryPathName } from "./delivery.ts";
 import { type JournalRead, type PathRecord, readJournal } from "./journal.ts";
 import { readVersion } from "./jsr-registry.ts";
 
@@ -7,8 +8,6 @@ export const REPOSITORY = "fveracoechea/operator";
 export const JSR_SCOPE = "fveracoechea";
 export const JSR_PACKAGE = "operator";
 export const JSR_API = "https://api.jsr.io";
-
-export type DeliveryPath = "github-source" | "jsr";
 
 export type ReleaseBlocker = {
   reason:
@@ -24,7 +23,7 @@ export type ReleaseBlocker = {
 };
 
 export type PathState = {
-  path: DeliveryPath;
+  path: DeliveryPathName;
   state: "missing" | "published" | "blocked";
   detail: string;
 };
@@ -79,43 +78,133 @@ async function readPublishedVersion(request: PlanRequest, version: string) {
   return readVersion({ ...jsrSettings(request), version });
 }
 
+type Inspection = Awaited<ReturnType<typeof OperatorRelease.inspect>>;
+
 function artifactBlockers(request: {
   notes: string | null;
-  version: string;
-  inspection: Awaited<ReturnType<typeof OperatorRelease.inspect>>;
-  manifestCommit: string | undefined;
+  inspection: Inspection;
   commit: string;
 }): ReleaseBlocker[] {
+  const { inspection } = request;
   const blockers: ReleaseBlocker[] = [];
   if (request.notes === null) {
     blockers.push(
       blocker(
         "changelog_missing",
-        `CHANGELOG.md has no notes for version ${request.version}.`,
+        `CHANGELOG.md has no notes for version ${inspection.version}.`,
         "Add this version's changeset notes before publishing the release.",
       ),
     );
   }
-  if (request.inspection.status === "incomplete") {
+  if (inspection.status === "incomplete") {
     blockers.push(
       blocker(
         "artifact_incomplete",
-        `The artifact is missing ${request.inspection.missing.join(", ")}.`,
+        `The artifact is missing ${inspection.missing.join(", ")}.`,
         "Build the release artifact again from the release commit.",
       ),
     );
   }
-  if (request.manifestCommit !== undefined && request.manifestCommit !== request.commit) {
+  if (inspection.commit !== null && inspection.commit !== request.commit) {
     blockers.push(
       blocker(
         "artifact_changed",
-        `The artifact was built from commit ${request.manifestCommit}, and this release names ${request.commit}.`,
+        `The artifact was built from commit ${inspection.commit}, and this release names ${request.commit}.`,
         "Build the artifact from the commit this release names.",
       ),
     );
   }
   return blockers;
 }
+
+/** The verdict of the publication record: whether it reads, and whether it delivered this artifact. */
+function journalBlockers(journal: JournalRead, inspection: Inspection): ReleaseBlocker[] {
+  if (journal.state === "unreadable") {
+    return [
+      blocker(
+        "unreadable_journal",
+        `The publication record cannot be read: ${journal.detail}`,
+        "Decide what the publication record should be, then plan the release again.",
+      ),
+    ];
+  }
+  if (
+    journal.state === "read" &&
+    journal.journal.artifactIdentity !== inspection.artifactIdentity
+  ) {
+    return [
+      blocker(
+        "artifact_changed",
+        "The artifact differs from the one the recorded publication delivered, so a retry would send different content under the same version.",
+        "Restore the artifact the recorded publication delivered, or publish changed content as a new version.",
+      ),
+    ];
+  }
+  return [];
+}
+
+/** The verdict of the release branch: whether it holds the commit this release names. */
+function mergeBlockers(
+  merged: Awaited<ReturnType<typeof readMerged>>,
+  request: { commit: string; base: string },
+): ReleaseBlocker[] {
+  if (merged.status === "not-merged") {
+    return [
+      blocker(
+        "commit_not_merged",
+        `Commit ${request.commit} is ${merged.comparison} ${request.base}, so it is not a merged commit.`,
+        "Publish only a commit that is merged into the release branch.",
+      ),
+    ];
+  }
+  if (merged.status === "unknown") {
+    return [
+      blocker(
+        "commit_not_merged",
+        `Whether ${request.commit} is merged could not be established: ${merged.detail}`,
+        "Establish that the commit is merged, then plan the release again.",
+      ),
+    ];
+  }
+  return [];
+}
+
+/** What the plan of one delivery path decides on, read from the plan of its release. */
+export function pathFacts(
+  release: {
+    state: "due" | "released";
+    source: { tag: Awaited<ReturnType<typeof readTag>> };
+    commit: string;
+  },
+  path: PathState,
+) {
+  return {
+    path: path.path,
+    released: release.state === "released",
+    observed: path.state === "published",
+    taggedCommit: release.source.tag.status === "present" ? release.source.tag.sha : null,
+    commit: release.commit,
+  };
+}
+
+/** The blocker each refusal of a delivery path plan gives. */
+const PATH_REFUSALS: Record<
+  "tag_moved" | "version_published",
+  (facts: { tag: string; taggedCommit: string | null; version: string }) => ReleaseBlocker
+> = {
+  tag_moved: ({ tag, taggedCommit }) =>
+    blocker(
+      "tag_moved",
+      `The tag ${tag} already names commit ${taggedCommit}, and that release is not complete. A published tag is never moved.`,
+      `Run the publication of commit ${taggedCommit} again, so the missing path receives the artifact built there.`,
+    ),
+  version_published: ({ version }) =>
+    blocker(
+      "version_published",
+      `JSR already holds ${JSR_SCOPE}/${JSR_PACKAGE}@${version}, and this release has no record of publishing it.`,
+      "Publish the changed content as a new version.",
+    ),
+};
 
 /**
  * Inspects the exact artifact, commit, and published state one release would act on.
@@ -126,49 +215,14 @@ function artifactBlockers(request: {
 export async function computeReleasePlan(request: PlanRequest) {
   const repository = request.repository ?? REPOSITORY;
   const inspection = await OperatorRelease.inspect({ artifactRoot: request.artifactRoot });
-  const manifest: { version?: string; commit?: string } = (await Bun.file(
-    `${request.artifactRoot}/release.json`,
-  ).exists())
-    ? await Bun.file(`${request.artifactRoot}/release.json`).json()
-    : {};
-  const version = manifest.version ?? "0.0.0";
+  const { version } = inspection;
   const tag = `v${version}`;
   const notes = await releaseNotes(
     request.changelogPath ?? new URL("../../CHANGELOG.md", import.meta.url).pathname,
     version,
   );
 
-  const blockers = artifactBlockers({
-    notes,
-    version,
-    inspection,
-    manifestCommit: manifest.commit,
-    commit: request.commit,
-  });
-
   const journal: JournalRead = await readJournal(request.journalPath);
-  if (journal.state === "unreadable") {
-    blockers.push(
-      blocker(
-        "unreadable_journal",
-        `The publication record cannot be read: ${journal.detail}`,
-        "Decide what the publication record should be, then plan the release again.",
-      ),
-    );
-  }
-  if (
-    journal.state === "read" &&
-    journal.journal.artifactIdentity !== inspection.artifactIdentity
-  ) {
-    blockers.push(
-      blocker(
-        "artifact_changed",
-        "The artifact differs from the one the recorded publication delivered, so a retry would send different content under the same version.",
-        "Restore the artifact the recorded publication delivered, or publish changed content as a new version.",
-      ),
-    );
-  }
-
   const [merged, tagState, releaseState, publishedVersion] = await Promise.all([
     readMerged({ repository, base: request.base, commit: request.commit }),
     readTag({ repository, tag }),
@@ -176,60 +230,15 @@ export async function computeReleasePlan(request: PlanRequest) {
     readPublishedVersion(request, version),
   ]);
 
-  if (merged.status === "not-merged") {
-    blockers.push(
-      blocker(
-        "commit_not_merged",
-        `Commit ${request.commit} is ${merged.comparison} ${request.base}, so it is not a merged commit.`,
-        "Publish only a commit that is merged into the release branch.",
-      ),
-    );
-  }
-  if (merged.status === "unknown") {
-    blockers.push(
-      blocker(
-        "commit_not_merged",
-        `Whether ${request.commit} is merged could not be established: ${merged.detail}`,
-        "Establish that the commit is merged, then plan the release again.",
-      ),
-    );
-  }
-  const recorded: Partial<Record<DeliveryPath, PathRecord>> =
+  const recorded: Partial<Record<DeliveryPathName, PathRecord>> =
     journal.state === "read" ? journal.journal.paths : {};
-  const sourceDone =
-    tagState.status === "present" && releaseState.status === "present"
-      ? `The tag ${tag} and its release already exist.`
-      : null;
+  const sourceHeld = tagState.status === "present" && releaseState.status === "present";
+  const sourceDone = sourceHeld ? `The tag ${tag} and its release already exist.` : null;
 
   const jsrPublished = publishedVersion.status === "succeeded" && publishedVersion.value.published;
   // Every push to the release branch carries the version of the last release until the next
   // version pull request merges. Both paths already hold that version, so nothing is due.
-  const state: "due" | "released" =
-    tagState.status === "present" && releaseState.status === "present" && jsrPublished
-      ? "released"
-      : "due";
-
-  if (state === "due" && tagState.status === "present" && tagState.sha !== request.commit) {
-    blockers.push(
-      blocker(
-        "tag_moved",
-        `The tag ${tag} already names commit ${tagState.sha}, and that release is not complete. A published tag is never moved.`,
-        `Run the publication of commit ${tagState.sha} again, so the missing path receives the artifact built there.`,
-      ),
-    );
-  }
-
-  // A version this release tried to send may have landed after the client failed, so only a
-  // version with no record of this release at all belongs to someone else.
-  if (state === "due" && jsrPublished && recorded.jsr === undefined) {
-    blockers.push(
-      blocker(
-        "version_published",
-        `JSR already holds ${JSR_SCOPE}/${JSR_PACKAGE}@${version}, and this release has no record of publishing it.`,
-        "Publish the changed content as a new version.",
-      ),
-    );
-  }
+  const state: "due" | "released" = sourceHeld && jsrPublished ? "released" : "due";
 
   const paths: PathState[] = [
     {
@@ -244,6 +253,25 @@ export async function computeReleasePlan(request: PlanRequest) {
         ? `JSR already holds version ${version}.`
         : `JSR does not hold version ${version} yet.`,
     },
+  ];
+
+  const taggedCommit = tagState.status === "present" ? tagState.sha : null;
+  const pathBlockers = paths.flatMap((path) => {
+    const decision = DeliveryPath.decide(
+      DeliveryPath.state(recorded[path.path]),
+      "plan",
+      pathFacts({ state, source: { tag: tagState }, commit: request.commit }, path),
+    );
+    return "refused" in decision
+      ? [PATH_REFUSALS[decision.refused]({ tag, taggedCommit, version })]
+      : [];
+  });
+
+  const blockers = [
+    ...artifactBlockers({ notes, inspection, commit: request.commit }),
+    ...journalBlockers(journal, inspection),
+    ...mergeBlockers(merged, request),
+    ...pathBlockers,
   ];
 
   const body = {

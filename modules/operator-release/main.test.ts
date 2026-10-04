@@ -213,6 +213,52 @@ describe("the release artifact", () => {
     expect(inspection.missing).toContain("config.schema.json");
   });
 
+  test("reads the version and the commit the artifact's release record names", async () => {
+    const { artifactRoot } = await buildArtifact();
+    const recorded = await Bun.file(`${artifactRoot}/release.json`).json();
+
+    const inspection = await OperatorRelease.inspect({ artifactRoot });
+
+    expect(inspection.version).toBe(recorded.version);
+    expect(inspection.commit).toBe(commit);
+  });
+
+  test("reads no version from the package manifest of an artifact with no release record", async () => {
+    const { artifactRoot } = await buildArtifact();
+    await rm(`${artifactRoot}/release.json`);
+
+    const inspection = await OperatorRelease.inspect({ artifactRoot });
+
+    expect(inspection.status).toBe("incomplete");
+    expect(inspection.version).toBe("0.0.0");
+    expect(inspection.commit).toBeNull();
+  });
+
+  async function refusal(artifactRoot: string): Promise<string> {
+    return OperatorRelease.inspect({ artifactRoot }).then(
+      () => "inspected",
+      (error: unknown) => (error instanceof Error ? error.message : String(error)),
+    );
+  }
+
+  test("refuses a release record that names its version or commit as something other than text", async () => {
+    const { artifactRoot } = await buildArtifact();
+    const recorded = await Bun.file(`${artifactRoot}/release.json`).json();
+
+    await Bun.write(`${artifactRoot}/release.json`, JSON.stringify({ ...recorded, version: 1 }));
+    expect(await refusal(artifactRoot)).toBe(
+      `The release record ${artifactRoot}/release.json names version as something other than text.`,
+    );
+
+    await Bun.write(
+      `${artifactRoot}/release.json`,
+      JSON.stringify({ ...recorded, version: 1, commit: false }),
+    );
+    expect(await refusal(artifactRoot)).toBe(
+      `The release record ${artifactRoot}/release.json names version and commit as something other than text.`,
+    );
+  });
+
   test("runs the built command through the same importable entry point", async () => {
     const { artifactRoot } = await buildArtifact();
     // A real installation keeps its dependencies beside the package, so the fixture does too.

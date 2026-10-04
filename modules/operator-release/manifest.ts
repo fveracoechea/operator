@@ -95,3 +95,35 @@ export async function readReleaseManifest(root = packageRoot): Promise<ReleaseMa
     artifactIdentity: text(recorded?.artifactIdentity),
   };
 }
+
+/** The fields of an artifact's release record that a publication acts on. */
+const artifactRecord = z.looseObject({
+  version: z.string().optional(),
+  commit: z.string().optional(),
+});
+
+/**
+ * Reads the version and the commit one built artifact names, from its own release record only.
+ * The package manifest is not read, because a publication names exactly the version the
+ * artifact was built as. An artifact with no record names version 0.0.0 and no commit. A record
+ * that names either one as something other than text is refused, because only a hand edit
+ * writes it so and no release may be published from a guess.
+ */
+export async function readArtifactRelease(
+  artifactRoot: string,
+): Promise<{ version: string; commit: string | null }> {
+  const path = `${artifactRoot}/${RELEASE_MANIFEST_PATH}`;
+  const file = Bun.file(path);
+  if (!(await file.exists())) {
+    return { version: "0.0.0", commit: null };
+  }
+
+  const parsed = artifactRecord.safeParse(await file.json());
+  if (!parsed.success) {
+    const fields = [...new Set(parsed.error.issues.map((issue) => issue.path.join(".")))];
+    throw new Error(
+      `The release record ${path} names ${fields.join(" and ")} as something other than text.`,
+    );
+  }
+  return { version: parsed.data.version ?? "0.0.0", commit: parsed.data.commit ?? null };
+}

@@ -1,7 +1,13 @@
 import { SkillInstall } from "../skill-install/main.ts";
 import { buildArtifact } from "./build.ts";
 import { identifyArtifact, REQUIRED_PARTS, scanFiles } from "./inventory.ts";
-import { packageRoot, installationRoot, readLockData, readReleaseManifest } from "./manifest.ts";
+import {
+  installationRoot,
+  packageRoot,
+  readArtifactRelease,
+  readLockData,
+  readReleaseManifest,
+} from "./manifest.ts";
 
 export const OperatorRelease = {
   /**
@@ -53,7 +59,10 @@ export const OperatorRelease = {
     return scanFiles(request.artifactRoot.replace(/\/$/, ""));
   },
 
-  /** Reports whether one artifact directory holds every part a release must carry. */
+  /**
+   * Reports whether one artifact directory holds every part a release must carry, and the
+   * version and commit its release record names.
+   */
   async inspect(request: { artifactRoot: string }) {
     const root = request.artifactRoot.replace(/\/$/, "");
     const present = await Promise.all(
@@ -63,6 +72,7 @@ export const OperatorRelease = {
       })),
     );
     const missing = present.filter((part) => !part.found).map((part) => part.path);
+    const { version, commit } = await readArtifactRelease(root);
 
     return {
       status: missing.length === 0 ? ("complete" as const) : ("incomplete" as const),
@@ -70,6 +80,8 @@ export const OperatorRelease = {
       artifactIdentity: await identifyArtifact(root),
       required: REQUIRED_PARTS,
       missing,
+      version,
+      commit,
     };
   },
 };

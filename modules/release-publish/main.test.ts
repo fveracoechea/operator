@@ -150,7 +150,11 @@ describe("the release plan", () => {
 
     const plan = await ReleasePublish.plan(request(fake));
 
-    expect(plan.blockers.map((one) => one.reason)).toContain("tag_moved");
+    expect(plan.blockers).toContainEqual({
+      reason: "tag_moved",
+      detail: `The tag v${version} already names commit ${OTHER_COMMIT}, and that release is not complete. A published tag is never moved.`,
+      nextAction: `Run the publication of commit ${OTHER_COMMIT} again, so the missing path receives the artifact built there.`,
+    });
   });
 
   test("reports a version an earlier commit released in full as released", async () => {
@@ -179,7 +183,32 @@ describe("the release plan", () => {
 
     const plan = await ReleasePublish.plan(request(fake));
 
-    expect(plan.blockers.map((one) => one.reason)).toContain("version_published");
+    expect(plan.blockers).toEqual([
+      {
+        reason: "version_published",
+        detail: `JSR already holds fveracoechea/operator@${version}, and this release has no record of publishing it.`,
+        nextAction: "Publish the changed content as a new version.",
+      },
+    ]);
+  });
+
+  test("allows a version the registry holds after this release recorded a send of it", async () => {
+    await Bun.write(
+      journalPath,
+      `${JSON.stringify({
+        schemaVersion: 1,
+        releaseId: "earlier",
+        version,
+        commit: COMMIT,
+        artifactIdentity: (await OperatorRelease.inspect({ artifactRoot })).artifactIdentity,
+        paths: { jsr: { state: "uncertain", detail: "timeout", reference: null, at: "t" } },
+      })}\n`,
+    );
+    const fake = await jsrFake({ published: [version] });
+
+    const plan = await ReleasePublish.plan(request(fake));
+
+    expect(plan.blockers).toEqual([]);
   });
 });
 
@@ -218,9 +247,23 @@ describe("the publication", () => {
   test("delivers both paths from one commit", async () => {
     const fake = await jsrFake();
 
-    const result = await ReleasePublish.publish(request(fake));
+    const result = await ReleasePublish.publish(request(fake, { now: "2026-10-03T00:00:00.000Z" }));
 
     expect(result.status).toBe("published");
+    expect(result.status === "published" && result.journal.paths).toEqual({
+      "github-source": {
+        state: "published",
+        detail: `The tag v${version} and its release were created.`,
+        reference: `https://github.test/releases/v${version}`,
+        at: expect.any(String),
+      },
+      jsr: {
+        state: "published",
+        detail: `JSR published version ${version}.`,
+        reference: null,
+        at: "2026-10-03T00:00:00.000Z",
+      },
+    });
     const [call, ...more] = await fake.calls();
     expect(more).toEqual([]);
     expect(call?.version).toBe(version);
@@ -440,6 +483,31 @@ describe("a source path that is half delivered", () => {
     // The tag the first attempt created is never written a second time.
     const calls = await Bun.file(`${ghDirectory}/calls.log`).text();
     expect(calls.split("\n").filter((line) => line.includes("git/refs")).length).toBe(1);
+  });
+});
+
+describe("a path that already holds the version", () => {
+  test("is recorded as published from what it holds, and is not sent", async () => {
+    await seedGithub({
+      compare: { [COMMIT]: "behind" },
+      tags: { [`v${version}`]: COMMIT },
+      releases: {
+        [`v${version}`]: `https://github.com/fveracoechea/operator/releases/v${version}`,
+      },
+    });
+    const fake = await jsrFake();
+
+    const result = await ReleasePublish.publish(request(fake, { now: "2026-10-03T00:00:00.000Z" }));
+
+    expect(result.status).toBe("published");
+    expect(result.status === "published" && result.journal.paths["github-source"]).toEqual({
+      state: "published",
+      detail: `The tag v${version} and its release already exist.`,
+      reference: null,
+      at: "2026-10-03T00:00:00.000Z",
+    });
+    const calls = await Bun.file(`${ghDirectory}/calls.log`).text();
+    expect(calls.split("\n").filter((line) => line.includes("git/refs")).length).toBe(0);
   });
 });
 
