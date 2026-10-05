@@ -59,6 +59,11 @@ The person commits the file, because setup does not write it and you commit noth
 Then dispatch from a commit that holds it.
 A review attempt reads no gate at dispatch, because its registered commands already permit the gate commands.
 
+## Skill copies come from the release
+
+Dispatch copies the skills of the selected release into each worktree, and it fails at `input_preparation` with `skill_copy_conflict` when the launch commit holds a different copy.
+A tracked copy that crew work changed after the integration base is not a conflict: the launch keeps that copy and records it, so a review reads the skill text the result wrote.
+
 ## Pending is the normal answer
 
 Herdr acknowledges that it submitted the brief, not that the Operative read it.

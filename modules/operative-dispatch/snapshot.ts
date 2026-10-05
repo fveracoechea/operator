@@ -27,7 +27,10 @@ const snapshotSchema = z.looseObject({
     identity: z.string().nullable(),
     path: z.string().nullable(),
   }),
-  skills: z.looseObject({ identity: z.string() }),
+  skills: z.looseObject({
+    identity: z.string(),
+    committed: z.array(z.object({ path: z.string(), identity: z.string().nullable() })).optional(),
+  }),
 });
 
 export type RecordedSnapshot = z.infer<typeof snapshotSchema>;

@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { IntegrationBranch } from "../integration-branch/main.ts";
+import { OperativeDispatch } from "../operative-dispatch/main.ts";
 import { ProjectGate } from "../project-gate/main.ts";
 import type { CrewReader, CrewWriter } from "./database.ts";
 import type { AttemptContext } from "./dispatch.ts";
@@ -75,6 +76,40 @@ export async function gateOfAttempt(request: {
     return fixedGateOf(row);
   }
   return ProjectGate.read({ repository: request.projectRoot, commit: request.baseCommit });
+}
+
+/**
+ * The skill copies a new launch of one source keeps from its commit. The person approved the
+ * integration base, so a copy that crew work changed after it is work under review. A source
+ * with no branch yet launches from the base its first code dispatch fixes, so it keeps none.
+ */
+export async function committedSkillsOf(request: {
+  projectRoot: string;
+  sourceId: string;
+  agentHost: string | null;
+  commit: string;
+}): Promise<
+  | { status: "ok"; committed: Awaited<ReturnType<typeof OperativeDispatch.committedSkills>> }
+  | StateFailure
+> {
+  const row = await readState(request.projectRoot, (db) =>
+    integrationBranchOf(db, request.sourceId),
+  );
+  if (row !== null && "status" in row) {
+    return row;
+  }
+  return {
+    status: "ok",
+    committed:
+      row === null
+        ? []
+        : await OperativeDispatch.committedSkills({
+            projectRoot: request.projectRoot,
+            agentHost: request.agentHost,
+            integrationBase: row.baseCommit,
+            commit: request.commit,
+          }),
+  };
 }
 
 /** What the first code dispatch fixes on its source, after its base passed the project gate. */

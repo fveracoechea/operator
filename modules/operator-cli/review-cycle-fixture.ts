@@ -92,6 +92,7 @@ export async function startProducer(
     // The items registered with it in the same source. Each depends on the producer unless it
     // names its own dependencies.
     dependents?: Dependent[];
+    writePaths?: string[];
   } = {},
 ) {
   const env = options.env ?? {};
@@ -117,7 +118,11 @@ export async function startProducer(
           title: "Build the reviewed result path",
           body: "Build the reviewed result path.",
           acceptanceRequirements: REQUIREMENTS,
-          permissions: { writePaths: ["docs/"], allowedCommands: ["bun test"], network: false },
+          permissions: {
+            writePaths: options.writePaths ?? ["docs/"],
+            allowedCommands: ["bun test"],
+            network: false,
+          },
           fixedInputs,
         },
         ...(options.dependents ?? []).map((item) => ({

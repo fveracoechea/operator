@@ -298,9 +298,14 @@ export async function prepareInputs(request: Request): Promise<PrepareOutcome> {
     };
   }
 
+  // A copy that crew work changed after the integration base is kept as the commit holds it.
+  // Any other changed copy still blocks, so a copy a person changed is never replaced.
+  const { skills } = request.snapshot;
+  const committed = skills.committed ?? [];
   const copied = await SkillInstall.run({
     projectRoot: request.plan.worktreePath,
     targets: [target],
+    committed,
   });
   if (copied.conflicts.length > 0) {
     return {
@@ -315,6 +320,7 @@ export async function prepareInputs(request: Request): Promise<PrepareOutcome> {
   const verified = await SkillInstall.inspect({
     projectRoot: request.plan.worktreePath,
     targets: [target],
+    committed,
   });
   if (verified.missing.length > 0 || verified.conflicts.length > 0) {
     return {
@@ -344,6 +350,6 @@ export async function prepareInputs(request: Request): Promise<PrepareOutcome> {
 
   return {
     status: "prepared",
-    inputs: [...inputs, { path: target, identity: request.snapshot.skills.identity }],
+    inputs: [...inputs, { path: target, identity: skills.identity }],
   };
 }

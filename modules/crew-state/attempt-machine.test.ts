@@ -184,29 +184,32 @@ test("a new dispatch reads each fact in the order of the table", () => {
   const integration = { status: "ok" as const, start: null };
   expect(
     Attempt.decide("dispatch", newDispatch({ parent, current: SNAPSHOT, integration })),
-  ).toEqual({
+  ).toEqual({ need: "skills", baseCommit: "base", agentHost: "claude-code" });
+
+  // The launch snapshot names each skill copy the launch keeps from its commit.
+  const committed = [{ path: ".claude/skills/operative/SKILL.md", identity: "crew" }];
+  const skills = { status: "ok" as const, committed };
+  const snapshot = { ...SNAPSHOT, skills: { identity: "skills", committed } };
+  const read = { parent, current: SNAPSHOT, integration, skills };
+  expect(Attempt.decide("dispatch", newDispatch(read))).toEqual({
     need: "launch",
-    snapshot: SNAPSHOT,
+    snapshot,
     baseCommit: "base",
     branch: null,
     worktreePath: null,
   });
 
   const launch = planned();
-  expect(
-    Attempt.decide("dispatch", newDispatch({ parent, current: SNAPSHOT, integration, launch })),
-  ).toEqual({ need: "base", baseCommit: "base" });
+  expect(Attempt.decide("dispatch", newDispatch({ ...read, launch }))).toEqual({
+    need: "base",
+    baseCommit: "base",
+  });
 
   const base = { status: "ok" as const, base: null };
-  expect(
-    Attempt.decide(
-      "dispatch",
-      newDispatch({ parent, current: SNAPSHOT, integration, launch, base }),
-    ),
-  ).toEqual({
+  expect(Attempt.decide("dispatch", newDispatch({ ...read, launch, base }))).toEqual({
     next: "active",
     launch: {
-      snapshot: SNAPSHOT,
+      snapshot,
       baseCommit: "base",
       brief: BRIEF,
       plan: launch.plan,
@@ -230,6 +233,7 @@ test("a dispatch refuses an unusable brief gate before it reads the base gate", 
     parent: { status: "found", value: { workspaceId: "w-operator" } },
     current: SNAPSHOT,
     integration: { status: "ok", start: null },
+    skills: { status: "ok", committed: [] },
     launch: GATE_UNUSABLE,
   });
   expect(Attempt.decide("dispatch", facts)).toEqual({ refused: GATE_UNUSABLE });
@@ -248,6 +252,7 @@ test("a dispatch refuses a base gate that did not pass before a host it cannot n
     parent: { status: "found", value: { workspaceId: "w-operator" } },
     current: SNAPSHOT,
     integration: { status: "ok", start: null },
+    skills: { status: "ok", committed: [] },
     launch: { status: "host-unnamed" },
     base,
   });

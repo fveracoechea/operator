@@ -100,3 +100,7 @@ A rule that the crew must follow and that no check enforces is committed to the 
 
 The reviewer works in the submitted commit, so a result that edits the project instructions is reviewed under the rules it wrote.
 The write paths that the user approved are the authority for that edit, and the edit is visible in the diff.
+
+A project can track the Operator-owned skills, so a result can edit a skill that each launch installs.
+The person approved the integration base, so a launch keeps a tracked skill copy that crew work changed after that base, and its launch snapshot names that copy.
+A copy that already differs at the integration base still blocks the launch, so the launch never replaces a copy that a person changed.

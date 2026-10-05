@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 // Bun has no recursive directory removal API.
 import { rm, symlink } from "node:fs/promises";
+import { ContentIdentity } from "../content-identity/main.ts";
 import { SkillInstall } from "./main.ts";
 
 const cliPath = new URL("../../cli.ts", import.meta.url).pathname;
@@ -138,6 +139,55 @@ describe("Operator release skill contents", () => {
 
     expect(first).toMatch(/^[0-9a-f]{64}$/);
     expect(second).toBe(first);
+  });
+});
+
+describe("skill copies a commit holds in place of the release", () => {
+  test("names each copy changed after the approved commit, and keeps only those", async () => {
+    const root = await makeProject();
+    const git = (args: string[]) =>
+      Bun.$`git -C ${root} -c user.email=t@example.com -c user.name=Test ${args}`.quiet();
+    const head = async () => (await git(["rev-parse", "HEAD"])).text().trim();
+    await git(["init", "-q"]);
+    await SkillInstall.run({ projectRoot: root, targets: ["claude-code"] });
+    // A person changed this copy before the approved commit, so it stays a conflict.
+    await Bun.write(`${root}/.claude/skills/bun/SKILL.md`, "# A person's edit\n");
+    await git(["add", "-A"]);
+    await git(["commit", "-qm", "approved"]);
+    const approved = await head();
+    await Bun.write(`${root}/.claude/skills/operative/SKILL.md`, "# A crew edit\n");
+    await Bun.write(`${root}/.claude/skills/operator/NEW.md`, "# A new topic\n");
+    await rm(`${root}/.claude/skills/operator/WAKE.md`);
+    await Bun.write(`${root}/.claude/skills/bun/SKILL.md`, "# A crew edit\n");
+    await git(["add", "-A"]);
+    await git(["commit", "-qm", "work"]);
+
+    const committed = await SkillInstall.committedCopies({
+      repoRoot: root,
+      target: "claude-code",
+      approved,
+      commit: await head(),
+    });
+
+    expect(committed).toEqual([
+      {
+        path: ".claude/skills/operative/SKILL.md",
+        identity: ContentIdentity.ofText("# A crew edit\n"),
+      },
+      {
+        path: ".claude/skills/operator/NEW.md",
+        identity: ContentIdentity.ofText("# A new topic\n"),
+      },
+      { path: ".claude/skills/operator/WAKE.md", identity: null },
+    ]);
+    const inspected = await SkillInstall.inspect({
+      projectRoot: root,
+      targets: ["claude-code"],
+      committed,
+    });
+    expect(inspected.conflicts).toEqual([
+      { skill: "bun", target: "claude-code", paths: [".claude/skills/bun/SKILL.md"] },
+    ]);
   });
 });
 

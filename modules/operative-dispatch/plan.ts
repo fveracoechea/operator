@@ -88,7 +88,9 @@ export type Snapshot = {
     | { delivery: string | null; commit: string | null; packageVersion: string | null }
     | undefined;
   lock: { name: string | null; state: string; identity: string | null; path: string | null };
-  skills: { identity: string };
+  // `committed` names each skill copy the launch commit holds in place of the release copy,
+  // which crew work changed after the integration base. A launch with none leaves it out.
+  skills: { identity: string; committed?: Array<{ path: string; identity: string | null }> };
 };
 
 export type DispatchPlan = {
@@ -457,6 +459,9 @@ function briefDocument(request: {
     `- Operator release: ${snapshot.release.version} (${snapshot.release.identity})`,
     `- Lock data: ${snapshot.lock.name ?? "none"} (${snapshot.lock.identity ?? "none"})`,
     `- Skills: ${snapshot.skills.identity}`,
+    ...(snapshot.skills.committed ?? []).map(
+      (one) => `- Skill copy of the base commit: ${one.path} (${one.identity ?? "no file"})`,
+    ),
     "",
     ...role.protocol,
   ].join("\n");

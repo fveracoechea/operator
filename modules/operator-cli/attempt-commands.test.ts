@@ -1667,6 +1667,73 @@ describe("operator attempt dispatch for a review", () => {
   });
 });
 
+// This repository tracks its bundled skills, and each host directory links to them, so a result
+// can change a skill that the next launch installs.
+const OPERATIVE_SKILL = new URL("../../skills/operative/SKILL.md", import.meta.url).pathname;
+
+async function makeSkillTrackingWorkspace(operative: string) {
+  const workspace = await makeReviewWorkspace(fixtures, {
+    files: { "skills/operative/SKILL.md": operative },
+  });
+  await Bun.$`mkdir -p ${workspace.repo}/.agents/skills`.quiet();
+  await Bun.$`ln -s ../../skills/operative ${workspace.repo}/.agents/skills/operative`.quiet();
+  await Bun.$`ln -s ../../.agents/skills/operative ${workspace.repo}/.claude/skills/operative`.quiet();
+  await Bun.$`git -C ${workspace.repo} add -A`.quiet();
+  await Bun.$`git -C ${workspace.repo} -c user.email=t@example.com -c user.name=Test commit -qm skills`.quiet();
+  return workspace;
+}
+
+describe("operator attempt dispatch of a tracked skill copy", () => {
+  test("keeps a skill copy that crew work changed after the integration base", async () => {
+    const release = await Bun.file(OPERATIVE_SKILL).text();
+    const workspace = await makeSkillTrackingWorkspace(release);
+    const producer = await startProducer(workspace, undefined, { writePaths: ["skills/"] });
+    const changed = `${release}\nA crew change under review.\n`;
+    const artifact = await commitArtifact(
+      workspace,
+      producer,
+      changed,
+      "skills/operative/SKILL.md",
+    );
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
+    expect(submitted.json.reason).toBe("result_submitted");
+
+    const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
+
+    expect(reviewer.dispatched.json.reason).toBe("acknowledgement_pending");
+    const copy = `${reviewer.worktreePath}/.claude/skills/operative/SKILL.md`;
+    expect(await Bun.file(copy).text()).toBe(changed);
+    // The launch record names the copy the reviewer loads in place of the release copy.
+    const released = await Bun.file(`${reviewer.worktreePath}/.operator/local/release.json`).json();
+    expect(released.skills.committed).toEqual([
+      { path: ".claude/skills/operative/SKILL.md", identity: ContentIdentity.ofText(changed) },
+    ]);
+    const brief = await Bun.file(`${reviewer.worktreePath}/.operator/local/brief.md`).text();
+    expect(brief).toContain(
+      `- Skill copy of the base commit: .claude/skills/operative/SKILL.md (${ContentIdentity.ofText(changed)})`,
+    );
+  });
+
+  test("refuses a skill copy that already differs at the integration base", async () => {
+    const release = await Bun.file(OPERATIVE_SKILL).text();
+    const workspace = await makeSkillTrackingWorkspace(`${release}\nA change of the person.\n`);
+
+    const producer = await startProducer(workspace, undefined, {
+      writePaths: ["skills/"],
+      acknowledge: false,
+    });
+
+    expect(producer.dispatched.reason).toBe("dispatch_stage_failed");
+    expect(producer.dispatched.blockers[0]).toMatchObject({
+      stage: "input_preparation",
+      detail:
+        "skill_copy_conflict: The worktree holds changed skill copies: .claude/skills/operative/SKILL.md",
+    });
+    const starts = (await herdrCalls(workspace)).filter((line) => line.startsWith("agent start "));
+    expect(starts).toHaveLength(0);
+  });
+});
+
 describe("operator attempt replace for a review", () => {
   test("a replacement reviewer reopens a blocked review, and the attempts are bounded", async () => {
     const workspace = await makeReviewingWorkspace();
