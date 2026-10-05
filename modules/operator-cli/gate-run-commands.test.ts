@@ -504,6 +504,17 @@ describe("the gate on the integration base", () => {
     expect(typed).not.toContain("echo");
   });
 
+  test("a runner line whose Herdr answer is lost stays uncertain", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const claimed = await claimFirst(workspace);
+    // The fake types the line and then exits 1 with a text that is not JSON.
+    await Bun.write(`${workspace.herdr}/pane-run.lost`, "");
+
+    const ran = await gate(workspace, { ownerToken: claimed.ownerToken, commit: claimed.commit });
+
+    expect(ran.json).toMatchObject({ outcome: "uncertain", reason: "gate_runner_not_typed" });
+  });
+
   test("a gate branch that already exists is refused before Herdr creates anything", async () => {
     const workspace = await makeReviewWorkspace(fixtures);
     const claimed = await claimFirst(workspace);

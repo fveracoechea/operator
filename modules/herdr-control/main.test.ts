@@ -188,3 +188,21 @@ test("a Claude Code agent with an allow list never asks, and the list closes its
     ["agent", "start", "operative-2", "--kind", "opencode", "--pane", "w1:p1"],
   ]);
 });
+
+// Herdr 0.9.1 answers an accepted `pane run` with exit 0 and no byte on stdout or stderr.
+test("a typed line that Herdr accepts with an empty answer is a success, and a lost one is not", async () => {
+  const answers = [
+    { exitCode: 0, stdout: "", stderr: "" },
+    { exitCode: 1, stdout: "", stderr: "" },
+    { exitCode: 0, stdout: "herdr: the answer was lost", stderr: "" },
+    { exitCode: 1, stdout: "", stderr: '{"error":{"code":"pane_not_found","message":"gone"}}' },
+  ];
+  const outcomes: string[] = [];
+  for (const answer of answers) {
+    spyOn(ToolInvocation, "run").mockResolvedValue({ status: "completed", ...answer });
+    const outcome = await HerdrControl.runInPane({ paneId: "w1:p1", line: "true" });
+    outcomes.push(outcome.status === "failed" ? `failed ${outcome.code}` : outcome.status);
+  }
+
+  expect(outcomes).toEqual(["succeeded", "uncertain", "uncertain", "failed pane_not_found"]);
+});

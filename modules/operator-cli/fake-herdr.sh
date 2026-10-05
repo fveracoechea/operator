@@ -194,7 +194,9 @@ answer() {
     else
       bash -c "$line" >> "$dir/runner.log" 2>&1
     fi
-    printf '{"id":"cli:pane:run","result":{"type":"ok"}}\n'
+    # Herdr 0.9.1 accepts a typed line with exit 0 and writes nothing to stdout or stderr,
+    # whatever the line itself exits with.
+    true
     ;;
   pane-process-info)
     pane=$(value_of --pane "$@")
@@ -286,4 +288,5 @@ if [ -f "$dir/$key.lost" ]; then
   exit 1
 fi
 
-printf '%s\n' "$response"
+# An empty answer stays empty, as Herdr writes no byte for a command it answers with no body.
+[ -z "$response" ] || printf '%s\n' "$response"

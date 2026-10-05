@@ -37,6 +37,8 @@ function readResult(body: unknown): unknown {
 export async function invokeHerdr(request: {
   args: string[];
   timeoutMs: number;
+  /** Herdr accepts this command with exit 0 and writes no body, as `pane run` does. */
+  silentOnSuccess?: boolean;
 }): Promise<HerdrOutcome<unknown>> {
   const invoked = await ToolInvocation.run({
     tool: "herdr",
@@ -48,6 +50,11 @@ export async function invokeHerdr(request: {
   }
   if (invoked.status === "no-answer") {
     return { status: "uncertain", detail: invoked.detail };
+  }
+
+  const silent = invoked.stdout.trim() === "" && invoked.stderr.trim() === "";
+  if (request.silentOnSuccess === true && invoked.exitCode === 0 && silent) {
+    return { status: "succeeded", value: null };
   }
 
   let body: unknown;
