@@ -36,7 +36,10 @@ export type Workspace = {
 };
 
 export type WorkspaceOptions = {
-  /** The contents of `.operator/config.json` in the fixture repository. */
+  /**
+   * The contents of `.operator/config.json` in the fixture repository, or null for a project
+   * that the CLI has not set up yet.
+   */
   config?: unknown;
   /** Extra files committed into the fixture repository before the first commit. */
   files?: Record<string, string>;
@@ -92,8 +95,11 @@ export function workspaces() {
         await Bun.$`chmod +x ${workspace.bin}/${name}`.quiet();
       }
 
-      const config = options.config ?? { crew: { host: "claude-code" } };
-      await Bun.write(`${workspace.repo}/.operator/config.json`, `${JSON.stringify(config)}\n`);
+      const config =
+        options.config === undefined ? { crew: { host: "claude-code" } } : options.config;
+      if (config !== null) {
+        await Bun.write(`${workspace.repo}/.operator/config.json`, `${JSON.stringify(config)}\n`);
+      }
       await Bun.write(`${workspace.repo}/README.md`, "# Fixture\n");
       const gate = options.gate === undefined ? FIXTURE_GATE : options.gate;
       if (gate !== null) {

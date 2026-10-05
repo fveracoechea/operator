@@ -575,11 +575,14 @@ describe("what an installed project tells an agent", () => {
     expect(named).toEqual([]);
   });
 
-  test("states the CLI rule and the command that reports the selected release", async () => {
+  test("states the CLI rule, the inputs an agent reads, and the command that reports the release", async () => {
     const root = await installedProject();
     const instructions = await Bun.file(`${root}/AGENTS.md`).text();
     const operatorSkill = await Bun.file(`${root}/.claude/skills/operator/SKILL.md`).text();
 
+    expect(instructions).toContain(
+      "Read only these Operator files directly: your dispatch brief, its fixed artifacts, and each file a CLI result names.",
+    );
     expect(instructions).toContain(
       "Read and change all other Operator configuration and state through Operator CLI commands",
     );
@@ -587,6 +590,18 @@ describe("what an installed project tells an agent", () => {
     expect(operatorSkill).toContain(
       "Read and change Operator configuration and state only through CLI commands.",
     );
+    expect(operatorSkill).toContain(
+      "You may read a brief, its fixed artifacts, and each CLI output",
+    );
+    expect(operatorSkill).toContain("You may write JSON requests for `--input`.");
     expect(operatorSkill).toContain("bun run operator --version --json");
+    // An Operative launched on either host reads the same rule.
+    for (const path of [".claude/skills/operative/SKILL.md", ".agents/skills/operative/SKILL.md"]) {
+      const operativeSkill = await Bun.file(`${root}/${path}`).text();
+      expect(operativeSkill).toContain("from the brief or from a CLI result.");
+      expect(operativeSkill).toContain(
+        "Under `.operator/local/`, read only the brief and the files it names",
+      );
+    }
   });
 });
