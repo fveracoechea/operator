@@ -575,7 +575,8 @@ function commandText(text: string): string {
 export function writeJsonResult(result: JsonResult): void {
   console.log(
     JSON.stringify({ schemaVersion: 1, ...result }, (key: string, value: unknown) => {
-      if (key === "nextActions" && Array.isArray(value)) {
+      // A probe plan names the fixture command among its credentials.
+      if ((key === "nextActions" || key === "credentials") && Array.isArray(value)) {
         return value.map((one: unknown) => (typeof one === "string" ? commandText(one) : one));
       }
       return (key === "command" || key === "nextAction" || key === "reproof") &&

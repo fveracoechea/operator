@@ -12,3 +12,4 @@ The `operator` skill uses that report to choose the invocation, and it no longer
 No shipped skill names the configuration, the release selection, the readiness evidence, the control reference, the setup journal, or the crew database as a file to read.
 A missing probe fixture, an unnamed host, and an invalid configuration now name the `operator config` command that sets or shows the setting.
 The skills and the README call a plan file that a CLI result names a CLI output.
+In `--json` results, readiness next actions and the probe fixture credential now name the command that runs the selected release, as the other commands do.

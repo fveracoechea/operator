@@ -1173,8 +1173,9 @@ describe("operator setup probe", () => {
     // No fixture is configured, so the plan says the tracker checks reach nothing.
     expect(shown.json.data.fixture).toBe(null);
     expect(shown.json.data.credentials.join(" ")).toContain("No probe fixture is configured");
+    // The fixture command runs through the invocation of the selected release.
     expect(shown.json.data.credentials.join(" ")).toContain(
-      "`operator config plan --set probe.githubFixture.repository=<owner/repo> --set probe.githubFixture.issue=<number>`",
+      `\`bunx "github:fveracoechea/operator#${SELECTED_COMMIT}" config plan --set probe.githubFixture.repository=<owner/repo> --set probe.githubFixture.issue=<number>\``,
     );
     expect(shown.json.data.cleanup.join(" ")).toContain("removes no Operative worktree");
   });
