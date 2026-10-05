@@ -142,22 +142,35 @@ export function stillWritingBlockers(request: {
     : [];
 }
 
+/** A blocker names this many paths at most, so an install output of thousands stays readable. */
+const NAMED_PATHS = 20;
+
+function pathsOf(paths: string[]): { paths: string[]; omitted: number } {
+  return {
+    paths: paths.slice(0, NAMED_PATHS),
+    omitted: Math.max(0, paths.length - NAMED_PATHS),
+  };
+}
+
 /**
- * The gates the checkout itself answers.
- * Work nobody registered and files a default status listing hides are each a reason to retain
- * the checkout rather than to discard uncertain work.
+ * The gate the checkout answers for both outcomes. Work nobody registered is a reason to retain
+ * the checkout and the process that may still owe it, rather than to discard uncertain work.
  */
 export function checkoutBlockers(inspection: CheckoutInspection): CleanupBlocker[] {
-  const blockers: CleanupBlocker[] = [];
+  return inspection.unexpectedWork.length === 0
+    ? []
+    : [{ reason: "unexpected_work", ...pathsOf(inspection.unexpectedWork) }];
+}
 
-  if (inspection.unexpectedWork.length > 0) {
-    blockers.push({ reason: "unexpected_work", paths: inspection.unexpectedWork });
-  }
-  if (inspection.unknownIgnored.length > 0) {
-    blockers.push({ reason: "unexpected_files", paths: inspection.unknownIgnored });
-  }
-
-  return blockers;
+/**
+ * The gate of ignored files, which only a removal reads (ADR 0010). A default status listing
+ * hides them, and the removal deletes them. A closure deletes no file, so a gate command such
+ * as an install, whose output the project ignores, never holds the process.
+ */
+export function ignoredFileBlockers(inspection: CheckoutInspection): CleanupBlocker[] {
+  return inspection.unknownIgnored.length === 0
+    ? []
+    : [{ reason: "unexpected_files", ...pathsOf(inspection.unknownIgnored) }];
 }
 
 /**

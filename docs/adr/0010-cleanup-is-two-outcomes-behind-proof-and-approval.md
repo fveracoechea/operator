@@ -7,7 +7,10 @@ Each one recovers on its own after a restart, and `operator cleanup show` report
 
 Closure runs only after a durable handoff: a submitted result, or the two axis reports of a review.
 It also reads the source revision and the acceptance requirements the result was produced against, the question the attempt may still wait on, and the checkout itself.
-Work nobody registered, files a default status listing hides, an occupant this attempt never launched, and a child tool that outlived the host each retain the resources and name themselves as blockers.
+Work nobody registered, an occupant this attempt never launched, and a child tool that outlived the host each retain the resources and name themselves as blockers.
+Files a default status listing hides retain the checkout at removal, and they do not hold the closure.
+A closure deletes no file, and the removal reads them again before anything is deleted.
+So the ignored output of a gate command, such as an install, never holds the process.
 
 Closure inventories the evidence before it stops anything.
 The brief, the control reference, the release record, and every artifact the submission fixed are copied into the controlling checkout and read back by content.
@@ -56,6 +59,9 @@ Herdr owns these resources; an unsafe checkout is Herdr's refusal to report, not
 
 Reading only `git status` was rejected.
 It hides ignored files, which is exactly where work nobody registered would sit unnoticed until it was gone.
+
+Holding the closure on ignored files was rejected.
+Every Operative that runs an install command of the gate then holds its process, and a closure deletes none of the files that the check protects.
 
 A remote copy of every commit of the attempt was rejected.
 Nothing pushes the integration branch before publish, a merge landing and a rewrite give an accepted result a new commit, and a replaced result never reaches a remote, so that proof would refuse almost every removal.

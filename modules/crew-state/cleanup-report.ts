@@ -23,8 +23,9 @@ export type CleanupBlocker =
   | { reason: "handoff_missing"; detail: string }
   | { reason: "revisions_changed"; input: string; recorded: string; found: string }
   | { reason: "question_open"; questionId: string; state: string }
-  | { reason: "unexpected_work"; paths: string[] }
-  | { reason: "unexpected_files"; paths: string[] }
+  // A blocker names the first paths only, and `omitted` counts the rest.
+  | { reason: "unexpected_work"; paths: string[]; omitted: number }
+  | { reason: "unexpected_files"; paths: string[]; omitted: number }
   | { reason: "evidence_missing"; name: string; path: string }
   | { reason: "evidence_changed"; name: string; path: string; expected: string; found: string }
   | { reason: "unfamiliar_process"; occupants: string[]; childTools: string[] }

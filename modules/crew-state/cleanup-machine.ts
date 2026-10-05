@@ -6,6 +6,7 @@ import { type CleanupKind, type CleanupState, type EvidenceItem } from "./cleanu
 import type { CheckoutInspection, CleanupContext } from "./cleanup-context.ts";
 import {
   checkoutBlockers,
+  ignoredFileBlockers,
   handoffBlockers,
   headBlockers,
   holdBlocker,
@@ -270,6 +271,7 @@ const REMOVE_ROWS: readonly Row[] = [
           },
       ...headBlockers({ context, inspection }),
       ...checkoutBlockers(inspection),
+      ...ignoredFileBlockers(inspection),
     ]);
   }),
   // A removal that already landed but never answered is settled from what Herdr shows now,
