@@ -41,7 +41,7 @@ export const ARTIFACT_RULES = [
   },
   {
     refusal: "artifact_identity_changed",
-    rule: "Each path artifact states the content identity of that file.",
+    rule: "Each path artifact states the content identity of that file, which is the SHA-256 hex digest of its bytes.",
   },
 ];
 
