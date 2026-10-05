@@ -54,10 +54,11 @@ Never repair a conflict by overwriting a file the user changed.
 Report the conflict and ask.
 
 A plan reports a conflict, and writes nothing, when Operator files are already tracked by Git, when the existing configuration is invalid, when the marked Operator instruction section was changed, or when an installed skill copy differs from this release.
+A marked section that an earlier release wrote is not a conflict, and the plan proposes the section of this release in its place.
 
 Setup owns these files:
 
-- `.operator/config.json`, created only when it is missing.
+- The project configuration, created only when it is missing.
 - `.operator/config.schema.json`, the editor schema for the configuration.
 - `.gitignore`, which receives one marked block that ignores `/.operator/`.
 - `AGENTS.md`, which receives one marked Operator section.

@@ -20,14 +20,18 @@ function runtimeSupported(args: string[], version: string, supportedBun: string)
   return false;
 }
 
-function reportVersion(args: string[], version: string): boolean {
+async function reportVersion(args: string[], version: string): Promise<boolean> {
   if (args.length === 2 && args.includes("--version") && args.includes("--json")) {
     writeJsonResult({
       outcome: "completed",
       reason: "version_reported",
       blockers: [],
       operation: "version",
-      data: { operatorVersion: version, bunVersion: Bun.version },
+      data: {
+        operatorVersion: version,
+        bunVersion: Bun.version,
+        selection: await ReleaseInstall.selected({ projectRoot: process.cwd() }),
+      },
     });
     process.exitCode = exitCodeByOutcome.completed;
     return true;
@@ -95,6 +99,6 @@ export async function run(args: string[]): Promise<void> {
   if (await releaseMismatch(args, command, rest)) return;
   if (command !== undefined && (await runOperation(command, rest))) return;
 
-  if (reportVersion(args, version)) return;
+  if (await reportVersion(args, version)) return;
   rejectArguments(args.includes("--json"));
 }

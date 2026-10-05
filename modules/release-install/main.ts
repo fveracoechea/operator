@@ -40,6 +40,24 @@ export const ReleaseInstall = {
   },
 
   /**
+   * Reports the selected release and the command this project runs Operator with, so an agent
+   * learns them from the CLI and never opens the selection record. Writes nothing.
+   */
+  async selected(request: { projectRoot: string }) {
+    const read = await readSelection(request.projectRoot);
+    if (read.state !== "read") return read;
+    const { delivery, version, commit, packageVersion } = read.selection;
+    return {
+      state: "selected" as const,
+      delivery,
+      version,
+      commit,
+      packageVersion,
+      invocation: ReleaseInstall.invocation(read.selection),
+    };
+  },
+
+  /**
    * Records one exact release selection. Bun owns the project's dependency and lock data.
    */
   async select(request: { projectRoot: string; selection: ReleaseSelection }) {

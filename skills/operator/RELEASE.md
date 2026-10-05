@@ -18,6 +18,8 @@ A change to any of them makes a new identifier, and the old approval is refused.
 
 `apply` reports the exact command the project runs Operator with.
 Give that command to the user; Operator never retrieves a package itself.
+An update does not change the marked Operator section in `AGENTS.md`.
+Run `setup plan` after it, and apply the approved plan when it proposes the section of the new release.
 
 ## What an update refuses
 

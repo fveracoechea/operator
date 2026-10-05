@@ -344,6 +344,44 @@ describe("operator setup apply", () => {
     ]);
   });
 
+  test("replaces the section of an earlier release only under an approved plan", async () => {
+    // The exact section that Operator 0.1.0 to 0.6.0 wrote.
+    const earlier = [
+      "<!-- operator:instructions -->",
+      "## Operator",
+      "",
+      "This project is coordinated with Operator.",
+      "Load the `operator` skill before you delegate work, change the crew configuration, or run a setup operation.",
+      "Operator configuration lives in `.operator/config.json`, which is local to this checkout and is not committed.",
+      "<!-- /operator:instructions -->",
+    ].join("\n");
+    const root = await makeProject();
+    await planAndApply(root, ["--opencode"]);
+    await Bun.write(`${root}/AGENTS.md`, `# House rules\n\n${earlier}\n\nRun the tests.\n`);
+
+    const plan = await runJson(root, ["setup", "plan", "--opencode"]);
+
+    expect(plan.exitCode).toBe(0);
+    expect(plan.json.data.changes).toEqual([
+      expect.objectContaining({ path: "AGENTS.md", kind: "replace" }),
+    ]);
+    expect(await Bun.file(`${root}/AGENTS.md`).text()).toContain(earlier);
+
+    const applied = await runJson(root, [
+      "setup",
+      "apply",
+      "--opencode",
+      "--approved-plan",
+      plan.json.data.planId,
+    ]);
+    const instructions = await Bun.file(`${root}/AGENTS.md`).text();
+
+    expect(applied.json.reason).toBe("setup_applied");
+    expect(instructions).not.toContain(earlier);
+    expect(instructions.startsWith("# House rules\n\n<!-- operator:instructions -->")).toBe(true);
+    expect(instructions.endsWith("<!-- /operator:instructions -->\n\nRun the tests.\n")).toBe(true);
+  });
+
   test("reports tracked Operator files without changing the Git index", async () => {
     const root = await makeProject({ ".operator/config.json": "{}" });
     await Bun.$`git init -q`.cwd(root).quiet();
@@ -498,5 +536,57 @@ describe("operator setup rollback", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.json.reason).toBe("setup_complete");
+  });
+});
+
+describe("what an installed project tells an agent", () => {
+  // The files Operator owns. An agent reads and changes them only through CLI commands, so no
+  // installed instruction names one: the selection, the configuration, the readiness evidence,
+  // the control reference, the setup journal, and the crew database.
+  const ownedFiles =
+    /(?<![\w-])(?:selection\.json|config\.json|readiness\.json|attempt\.json|setup-journal\.json|crew-state\.sqlite)/g;
+
+  async function installedProject(): Promise<string> {
+    const root = await makeProject();
+    await runOperator(root, ["install", "--opencode", "--claude"]);
+    await planAndApply(root, ["--opencode", "--claude"]);
+    return root;
+  }
+
+  test("names no Operator-owned file in an installed skill or the instruction section", async () => {
+    const root = await installedProject();
+    const read = (await filesUnder(root)).filter(
+      (path) => path === "AGENTS.md" || /^\.(?:agents|claude)\/skills\/.*\.md$/.test(path),
+    );
+
+    const named = (
+      await Promise.all(
+        read.map(async (path) =>
+          [...(await Bun.file(`${root}/${path}`).text()).matchAll(ownedFiles)].map(
+            (match) => `${path}: ${match[0]}`,
+          ),
+        ),
+      )
+    ).flat();
+
+    expect(read).toContain("AGENTS.md");
+    expect(read).toContain(".claude/skills/operator/SKILL.md");
+    expect(read).toContain(".agents/skills/operative/SKILL.md");
+    expect(named).toEqual([]);
+  });
+
+  test("states the CLI rule and the command that reports the selected release", async () => {
+    const root = await installedProject();
+    const instructions = await Bun.file(`${root}/AGENTS.md`).text();
+    const operatorSkill = await Bun.file(`${root}/.claude/skills/operator/SKILL.md`).text();
+
+    expect(instructions).toContain(
+      "Read and change all other Operator configuration and state through Operator CLI commands",
+    );
+    expect(instructions).toContain("JSON requests for the `--input`");
+    expect(operatorSkill).toContain(
+      "Read and change Operator configuration and state only through CLI commands.",
+    );
+    expect(operatorSkill).toContain("bun run operator --version --json");
   });
 });

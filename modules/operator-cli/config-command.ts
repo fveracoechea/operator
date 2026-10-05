@@ -67,7 +67,10 @@ function recovery(detail: string): Refusal {
     outcome: "conflict",
     reason: "config_recovery_required",
     detail: { detail },
-    lines: [detail, "Inspect the configuration and the apply record before retrying."],
+    lines: [
+      detail,
+      "Run `operator config recover`. If it still refuses, ask the person what the configuration should hold.",
+    ],
   };
 }
 
@@ -147,7 +150,10 @@ function applyRefusals(parsed: ParsedArguments) {
       outcome: "failed",
       reason: "config_write_failed",
       detail: { detail: result.detail },
-      lines: [result.detail, "Inspect the configuration and the apply record before retrying."],
+      lines: [
+        result.detail,
+        "Run `operator config recover`. If it still refuses, ask the person what the configuration should hold.",
+      ],
     }),
     ...approvalRefusals((result: Extract<Applied, { status: `approval-${string}` }>) => ({
       ids: { approvedPlanId: parsed.approvedPlan ?? null, currentPlanId: result.plan.planId },

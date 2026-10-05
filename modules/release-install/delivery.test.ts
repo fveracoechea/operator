@@ -249,7 +249,10 @@ describe("the JSR delivery path", () => {
     const result = await run([...launcher, "--version", "--json"], project);
 
     expect(result.exitCode).toBe(0);
-    expect(JSON.parse(result.stdout).data).toMatchObject({ operatorVersion: version });
+    expect(JSON.parse(result.stdout).data).toMatchObject({
+      operatorVersion: version,
+      selection: { state: "selected", delivery: "jsr", invocation: "bun run operator" },
+    });
     const selected = await ReleaseInstall.selection({ projectRoot: project });
     expect(selected.state).toBe("read");
     if (selected.state !== "read") return;

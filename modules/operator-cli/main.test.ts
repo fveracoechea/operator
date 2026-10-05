@@ -85,6 +85,7 @@ describe("Operator CLI", () => {
         data: {
           operatorVersion: packageJson.version,
           bunVersion: Bun.version,
+          selection: { state: "missing" },
         },
       })}\n`,
     });
@@ -95,7 +96,8 @@ describe("Operator CLI", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe("");
-    expect(JSON.parse(result.stdout)).toEqual({
+    // The repository root may hold a release selection of its own, so only the versions are fixed.
+    expect(JSON.parse(result.stdout)).toMatchObject({
       schemaVersion: 1,
       outcome: "completed",
       reason: "version_reported",

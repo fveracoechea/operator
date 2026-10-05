@@ -479,6 +479,7 @@ export const usage = [
     ),
   ),
   "",
+  "`--version --json` also reports the release this project selected and the command that runs it.",
   "A host is `opencode` or `claude-code`.",
   "A delivery path is `github-source` or `jsr`; `jsr` also needs an exact package version.",
   "Config fields: operator.host/model, crew.host/model/reasoningEffort/maxActiveAgents, probe.githubFixture.repository/issue/mapIssue.",

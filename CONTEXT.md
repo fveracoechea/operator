@@ -365,6 +365,11 @@ The file in an Operative worktree that names the controlling checkout, assignmen
 The CLI reads it when an Operative reports, instead of searching nearby directories for crew state.
 The Operative never opens it: the brief and the CLI results carry every fact it holds.
 
+**CLI output**:
+A file that a CLI result names by path, such as a registration, publish, or rebase plan file.
+An agent reads it as part of that result.
+It is not Operator-owned state, and the agent never changes it.
+
 **Axis report**:
 One half of a result review or a branch review, written by one native sub-agent of the reviewer host.
 The Standards axis and the Spec axis stay separate and are never merged or reranked.

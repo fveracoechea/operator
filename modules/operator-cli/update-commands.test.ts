@@ -543,6 +543,49 @@ describe("operator update apply", () => {
   });
 });
 
+describe("operator --version --json", () => {
+  test("reports the selected source release and its invocation through the version read", async () => {
+    const before = await runJson(workspace, ["--version"]);
+    const { applied } = await apply();
+    const after = await runJson(workspace, ["--version"]);
+
+    expect(before.json.data.selection).toEqual({ state: "missing" });
+    expect(after.exitCode).toBe(0);
+    expect(after.json.data.selection).toEqual({
+      state: "selected",
+      delivery: "github-source",
+      version: applied.json.data.selection.version,
+      commit,
+      packageVersion: null,
+      invocation: `bunx "github:fveracoechea/operator#${commit}"`,
+    });
+  });
+
+  test("reports the project script as the invocation of a registry release", async () => {
+    await apply(["--delivery", "jsr", "--package-version", "1.2.3"]);
+
+    const result = await runJson(workspace, ["--version"]);
+
+    expect(result.json.data.selection).toMatchObject({
+      state: "selected",
+      delivery: "jsr",
+      packageVersion: "1.2.3",
+      invocation: "bun run operator",
+    });
+  });
+
+  test("reports an unreadable selection through the version read", async () => {
+    await Bun.write(`${workspace.repo}/.operator/install/selection.json`, "{", {
+      createPath: true,
+    });
+
+    const result = await runJson(workspace, ["--version"]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.json.data.selection).toMatchObject({ state: "unreadable" });
+  });
+});
+
 describe("recorded formats", () => {
   test("stops every crew command while the recorded state is older than this release", async () => {
     await ownCrew(workspace);

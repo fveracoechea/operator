@@ -361,6 +361,9 @@ describe("operator setup readiness", () => {
       state: "unverified",
       reason: "host_unnamed",
     });
+    expect(checkNamed(result.json, "operator-selection")?.nextAction).toContain(
+      " config plan --set operator.host=<host>`",
+    );
     expect(result.json.data.state).toBe("unverified");
   });
 
@@ -524,6 +527,29 @@ describe("operator setup readiness", () => {
     expect(result.json.data.configured).toBe(false);
   });
 
+  test("sends the Operator section of an earlier release to setup", async () => {
+    const path = await makeFullPath();
+    const root = await makeProject();
+    await configure(root, path, ["--claude"]);
+    const instructions = await Bun.file(`${root}/AGENTS.md`).text();
+    await Bun.write(
+      `${root}/AGENTS.md`,
+      instructions.replace(
+        /## Operator[^]*?(?=<!-- \/operator:instructions -->)/,
+        "## Operator\n\nThis project is coordinated with Operator.\nLoad the `operator` skill before you delegate work, change the crew configuration, or run a setup operation.\nOperator configuration lives in `.operator/config.json`, which is local to this checkout and is not committed.\n",
+      ),
+    );
+
+    const result = await runJson(root, path, ["setup", "readiness", "--claude"]);
+
+    expect(checkNamed(result.json, "instruction-loading", "claude-code")).toMatchObject({
+      reason: "instructions_missing",
+      conflict: false,
+      detail: expect.stringContaining("Operator section of an earlier release"),
+      nextAction: expect.stringContaining(" setup plan`"),
+    });
+  });
+
   test("blocks an invalid configuration without repairing it", async () => {
     const path = await makeFullPath();
     const root = await makeProject();
@@ -538,6 +564,9 @@ describe("operator setup readiness", () => {
       reason: "invalid_configuration",
       conflict: true,
     });
+    expect(checkNamed(result.json, "configuration")?.nextAction).toContain(
+      " config show` to see each invalid field",
+    );
   });
 
   test("reports readiness for a person without JSON", async () => {
@@ -1144,6 +1173,9 @@ describe("operator setup probe", () => {
     // No fixture is configured, so the plan says the tracker checks reach nothing.
     expect(shown.json.data.fixture).toBe(null);
     expect(shown.json.data.credentials.join(" ")).toContain("No probe fixture is configured");
+    expect(shown.json.data.credentials.join(" ")).toContain(
+      "`operator config plan --set probe.githubFixture.repository=<owner/repo> --set probe.githubFixture.issue=<number>`",
+    );
     expect(shown.json.data.cleanup.join(" ")).toContain("removes no Operative worktree");
   });
 
