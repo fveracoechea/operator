@@ -354,11 +354,13 @@ export const HerdrControl = {
   /**
    * Types one line into a pane shell. Herdr joins its words with no quoting, so the caller passes
    * the whole line as one argument, already quoted for the shell. It reports no exit status.
+   * Herdr 0.9.1 accepts the line with exit 0 and an empty answer, so that answer is a success.
    */
   async runInPane(request: { paneId: string; line: string }): Promise<HerdrOutcome<null>> {
     const outcome = await invokeHerdr({
       args: ["pane", "run", request.paneId, request.line],
       timeoutMs: READ_TIMEOUT_MS,
+      silentOnSuccess: true,
     });
     return outcome.status === "succeeded" ? { status: "succeeded", value: null } : outcome;
   },

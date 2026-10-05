@@ -29,5 +29,8 @@ Run `bun run lint:modules` to enforce module shape, boundaries, and dependency c
 
 This project is coordinated with Operator.
 Load the `operator` skill before you delegate work, change the crew configuration, or run a setup operation.
-Operator configuration lives in `.operator/config.json`, which is local to this checkout and is not committed.
+Read only these Operator files directly: your dispatch brief, its fixed artifacts, and each file a CLI result names.
+Read and change all other Operator configuration and state through Operator CLI commands, such as `config show` and `config plan`.
+You may write JSON requests for the `--input` of a command.
+Operator configuration is local to this checkout and is not committed.
 <!-- /operator:instructions -->

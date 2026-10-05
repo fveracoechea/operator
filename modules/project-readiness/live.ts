@@ -246,7 +246,7 @@ export const probeFixtureRequirements = [
 ];
 
 export const PROBE_FIXTURE_MISSING =
-  "No probe fixture is configured, so every GitHub check is skipped and stays unverified. Set `probe.githubFixture` in `.operator/config.json`.";
+  "No probe fixture is configured, so every GitHub check is skipped and stays unverified. Plan the fixture with `operator config plan --set probe.githubFixture.repository=<owner/repo> --set probe.githubFixture.issue=<number>`. Add `--set probe.githubFixture.mapIssue=<number>` when the map issue is a different issue. Apply the plan with `operator config apply`, the same `--set` flags, and `--approved-plan <planId>`.";
 
 export const probeCleanup = [
   "The worktree-removal check removes the Herdr test worktree it created, because removing it is the check.",

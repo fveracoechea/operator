@@ -20,20 +20,54 @@ function runtimeSupported(args: string[], version: string, supportedBun: string)
   return false;
 }
 
-function reportVersion(args: string[], version: string): boolean {
+type Selection = Awaited<ReturnType<typeof ReleaseInstall.selection>>;
+
+/** The selected release as the version command reports it, with the command that runs it. */
+function reportedSelection(selection: Selection) {
+  if (selection.state !== "selected") return selection;
+  const { delivery, version, commit, packageVersion } = selection.selection;
+  return {
+    state: selection.state,
+    delivery,
+    version,
+    commit,
+    packageVersion,
+    invocation: ReleaseInstall.invocation(selection.selection),
+  };
+}
+
+function selectionLines(selection: Selection): string[] {
+  const reported = reportedSelection(selection);
+  if (reported.state === "missing")
+    return ["Selection: missing. This project selected no release."];
+  if (reported.state === "unreadable") return [`Selection: unreadable. ${reported.detail}`];
+  return [
+    "Selection: selected.",
+    `  Delivery: ${reported.delivery}`,
+    `  Version: ${reported.version}${reported.packageVersion === null ? "" : ` (package ${reported.packageVersion})`}`,
+    `  Commit: ${reported.commit}`,
+    `  Invocation: ${reported.invocation}`,
+  ];
+}
+
+function reportVersion(args: string[], version: string, selection: Selection): boolean {
   if (args.length === 2 && args.includes("--version") && args.includes("--json")) {
     writeJsonResult({
       outcome: "completed",
       reason: "version_reported",
       blockers: [],
       operation: "version",
-      data: { operatorVersion: version, bunVersion: Bun.version },
+      data: {
+        operatorVersion: version,
+        bunVersion: Bun.version,
+        selection: reportedSelection(selection),
+      },
     });
     process.exitCode = exitCodeByOutcome.completed;
     return true;
   }
   if (args.length === 1 && args[0] === "--version") {
-    console.log(`operator ${version}`);
+    console.log([`operator ${version}`, ...selectionLines(selection)].join("\n"));
     process.exitCode = exitCodeByOutcome.completed;
     return true;
   }
@@ -45,11 +79,11 @@ async function releaseMismatch(
   args: string[],
   command: string | undefined,
   rest: string[],
+  selected: Selection,
 ): Promise<boolean> {
-  const selected = await ReleaseInstall.selection({ projectRoot: process.cwd() });
   useProjectInvocation(
-    selected.state === "read" ? selected.selection.delivery : null,
-    selected.state === "read" ? selected.selection.commit : null,
+    selected.state === "selected" ? selected.selection.delivery : null,
+    selected.state === "selected" ? selected.selection.commit : null,
     commandWords,
   );
   if (
@@ -57,7 +91,7 @@ async function releaseMismatch(
     command === "install" ||
     (command === "setup" && rest[0] === "readiness") ||
     args.includes("--version") ||
-    selected.state !== "read"
+    selected.state !== "selected"
   )
     return false;
 
@@ -92,9 +126,10 @@ export async function run(args: string[]): Promise<void> {
   if (!runtimeSupported(args, version, supportedBun)) return;
 
   const [command, ...rest] = args;
-  if (await releaseMismatch(args, command, rest)) return;
+  const selection = await ReleaseInstall.selection({ projectRoot: process.cwd() });
+  if (await releaseMismatch(args, command, rest, selection)) return;
   if (command !== undefined && (await runOperation(command, rest))) return;
 
-  if (reportVersion(args, version)) return;
+  if (reportVersion(args, version, selection)) return;
   rejectArguments(args.includes("--json"));
 }

@@ -115,5 +115,5 @@ A later edit of the file does not change the record, and the copy never enters a
 Operator copies an explicit list into a worktree: the project configuration, its schema, a release record, the frozen lock data, a control reference, the brief, the artifacts of the planning records the brief carries, and the skills of this release.
 No credential is copied, and no other file leaves the controlling checkout.
 
-An Operative reads the crew state through the control reference at `.operator/local/attempt.json`.
-It never searches nearby directories for a state file.
+An Operative takes each fact of its attempt from the brief and from CLI results.
+The CLI reads the control reference for each Operative command, so the Operative never opens it and never searches nearby directories for a state file.

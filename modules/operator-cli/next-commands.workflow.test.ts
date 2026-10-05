@@ -606,6 +606,119 @@ describe("a fresh Operator after session loss", () => {
   });
 });
 
+/** Claims the work `crew next` offers for one assignment, at the revision it names. */
+async function claimOffered(workspace: Workspace, ownerToken: string, assignmentId: string) {
+  const offered = (await nextActions(workspace))
+    .forAction("claim_assignment")
+    .find((one) => one.assignmentId === assignmentId);
+  const claimed = await runJson(workspace, [
+    "work",
+    "claim",
+    "--request",
+    request(),
+    "--owner-token",
+    ownerToken,
+    "--assignment",
+    assignmentId,
+    "--revision",
+    String(offered?.revision),
+  ]);
+  return claimed.json.data.attemptId as string;
+}
+
+/** Runs the dispatch command that `crew next` names, as an Operator types it. */
+async function runOffered(workspace: Workspace, ownerToken: string, command: string) {
+  const [, ...args] = command.split(" ");
+  return runJson(workspace, [
+    ...args,
+    "--request",
+    request(),
+    "--owner-token",
+    ownerToken,
+    "--worktree",
+    `${workspace.root}/offered-${crypto.randomUUID().slice(0, 8)}`,
+  ]);
+}
+
+describe("the commit a dispatch of submitted work starts from", () => {
+  test("a review dispatch names the submitted commit, so the Operator never reads Git", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const producer = await startProducer(workspace);
+    const artifact = await commitArtifact(workspace, producer, "the result\n");
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
+    const reviewAttempt = await claimOffered(
+      workspace,
+      producer.ownerToken,
+      submitted.json.data.reviewAssignmentId,
+    );
+
+    const offered = (await nextActions(workspace))
+      .forAction("dispatch_attempt")
+      .find((one) => one.attemptId === reviewAttempt);
+
+    expect(offered?.command).toBe(
+      `operator attempt dispatch --attempt ${reviewAttempt} --commit ${artifact.commit}`,
+    );
+    expect(offered?.detail).toContain(artifact.commit);
+    const dispatched = await runOffered(workspace, producer.ownerToken, offered?.command ?? "");
+    expect(dispatched.json.reason).toBe("acknowledgement_pending");
+  });
+
+  test("a findings rework dispatch names the submitted commit it reworks", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const producer = await startProducer(workspace);
+    const artifact = await commitArtifact(workspace, producer, "the result\n");
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
+    const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
+    await reportReview(
+      workspace,
+      reviewer,
+      submitted.json.data.reviewId,
+      reportBody({
+        submissionIdentity: submitted.json.data.identity,
+        host: workspace.host,
+        standardsFindings: [
+          {
+            key: "coverage",
+            severity: "blocker",
+            summary: "The reader path has no test.",
+            evidence: "modules/x.ts",
+          },
+        ],
+      }),
+    );
+    const shown = await runJson(workspace, [
+      "review",
+      "show",
+      "--review",
+      submitted.json.data.reviewId,
+    ]);
+    await disposeFindings(workspace, producer, submitted.json.data.reviewId, [
+      {
+        findingId: shown.json.data.findings[0].findingId,
+        disposition: "corrected",
+        reason: "The reader path needs its test.",
+      },
+    ]);
+    await delegateRework(workspace, producer, {
+      revision: submitted.json.data.revision,
+      body: { reason: "findings", reviewId: submitted.json.data.reviewId, conflicts: [] },
+    });
+    const reworkAttempt = await claimOffered(workspace, producer.ownerToken, producer.assignmentId);
+
+    const offered = (await nextActions(workspace))
+      .forAction("dispatch_attempt")
+      .find((one) => one.attemptId === reworkAttempt);
+
+    expect(offered?.command).toBe(
+      `operator attempt dispatch --attempt ${reworkAttempt} --commit ${artifact.commit}`,
+    );
+    expect(offered?.detail).toContain(artifact.commit);
+    const dispatched = await runOffered(workspace, producer.ownerToken, offered?.command ?? "");
+    expect(dispatched.json.reason).toBe("acknowledgement_pending");
+  });
+});
+
 describe("crew capacity", () => {
   test("offers three assignments to a crew of three and holds one slot for review", async () => {
     const workspace = await makeReviewWorkspace(fixtures);

@@ -211,6 +211,7 @@ export type Reason =
   | "attempt_not_current"
   | "attempt_not_dispatched"
   | "attempt_reference_missing"
+  | "attempt_reference_malformed"
   | "attempt_reference_mismatch"
   | "attempt_dispatched"
   | "acknowledgement_pending"
@@ -573,11 +574,16 @@ function commandText(text: string): string {
 
 export function writeJsonResult(result: JsonResult): void {
   console.log(
-    JSON.stringify({ schemaVersion: 1, ...result }, (key: string, value: unknown) =>
-      (key === "command" || key === "nextAction" || key === "reproof") && typeof value === "string"
+    JSON.stringify({ schemaVersion: 1, ...result }, (key: string, value: unknown) => {
+      // A probe plan names the fixture command among its credentials.
+      if ((key === "nextActions" || key === "credentials") && Array.isArray(value)) {
+        return value.map((one: unknown) => (typeof one === "string" ? commandText(one) : one));
+      }
+      return (key === "command" || key === "nextAction" || key === "reproof") &&
+        typeof value === "string"
         ? commandText(value)
-        : value,
-    ),
+        : value;
+    }),
   );
 }
 

@@ -13,6 +13,7 @@ import {
   submissionBody,
   submit,
   type Workspace,
+  writeInput,
 } from "./review-cycle-fixture.ts";
 import type { Reason } from "./result.ts";
 import { headCommit, requestId as request, runJson, workspaces } from "./workspace-fixture.ts";
@@ -30,7 +31,13 @@ afterEach(async () => {
   await fixtures.removeAll();
 });
 
-const COMMANDS = ["attempt acknowledge", "attempt submit", "review report"] as const;
+const COMMANDS = [
+  "attempt acknowledge",
+  "attempt submit",
+  "review report",
+  "question raise",
+  "question acknowledge",
+] as const;
 type Command = (typeof COMMANDS)[number];
 
 const HEADER = "This command refuses, with the named reason, when you break one of its rules:";
@@ -44,6 +51,8 @@ function blocksByCommand(brief: string): Record<Command, string[]> {
     "attempt acknowledge": [],
     "attempt submit": [],
     "review report": [],
+    "question raise": [],
+    "question acknowledge": [],
   };
   const parts = brief.split("```");
   for (let index = 1; index < parts.length; index += 2) {
@@ -95,6 +104,83 @@ async function acknowledge(workspace: Workspace, attemptId: string, cwd: string)
   );
 }
 
+type Reported = Awaited<ReturnType<Scenario>>;
+
+/**
+ * The rules of the control reference, which every command of a brief states.
+ * `run` runs the command from one directory as one attempt. Each scenario restores the reference
+ * it changed, so the next rule still reaches its check.
+ */
+function referenceRules(
+  workspace: Workspace,
+  operative: { attemptId: string; worktreePath: string },
+  run: (cwd: string, attemptId: string) => Promise<Reported>,
+): Rule[] {
+  const path = `${operative.worktreePath}/.operator/local/attempt.json`;
+  return [
+    {
+      refusal: "attempt_reference_missing",
+      rule: "Run this from this worktree.",
+      breaks: () => run(workspace.root, operative.attemptId),
+    },
+    {
+      refusal: "attempt_reference_malformed",
+      rule: "Never change a file that the Operator wrote under `.operator/local/`.",
+      breaks: async () => {
+        const written = await Bun.file(path).text();
+        await Bun.write(path, "{}\n");
+        const reported = await run(operative.worktreePath, operative.attemptId);
+        await Bun.write(path, written);
+        return reported;
+      },
+    },
+    {
+      refusal: "attempt_reference_mismatch",
+      rule: "`--attempt` is the attempt in the Identity section.",
+      breaks: () => run(operative.worktreePath, crypto.randomUUID()),
+    },
+  ];
+}
+
+/** A command with no `--attempt` names no attempt, so it cannot refuse a mismatch. */
+function withoutAttempt(rules: Rule[]): Rule[] {
+  return rules.filter((one) => one.refusal !== "attempt_reference_mismatch");
+}
+
+/** The two question commands of every brief, run as the brief writes them. */
+function questionRules(
+  workspace: Workspace,
+  operative: { attemptId: string; worktreePath: string },
+): Pick<Record<Command, Rule[]>, "question raise" | "question acknowledge"> {
+  return {
+    "question raise": referenceRules(workspace, operative, async (cwd, attemptId) =>
+      runJson(
+        workspace,
+        [
+          "question",
+          "raise",
+          "--request",
+          request(),
+          "--attempt",
+          attemptId,
+          "--input",
+          await writeInput(workspace, {}),
+        ],
+        cwd,
+      ),
+    ),
+    "question acknowledge": withoutAttempt(
+      referenceRules(workspace, operative, (cwd) =>
+        runJson(
+          workspace,
+          ["question", "acknowledge", "--request", request(), "--question", "question-1"],
+          cwd,
+        ),
+      ),
+    ),
+  };
+}
+
 async function submittedResult(workspace: Workspace, producer: Producer) {
   const base = await headCommit(workspace);
   const artifact = await commitArtifact(workspace, producer, "# Result\n");
@@ -114,14 +200,13 @@ describe("the brief states each refusal beside its command", () => {
     expect(brief).toContain(`- Requirements identity: ${REQUIREMENTS_IDENTITY}`);
 
     await expectParity(brief, {
-      "attempt acknowledge": [
-        {
-          refusal: "attempt_reference_missing",
-          rule: "Run this and every later command of this brief from this worktree.",
-          breaks: () => acknowledge(workspace, producer.attemptId, workspace.root),
-        },
-      ],
+      "attempt acknowledge": referenceRules(workspace, producer, (cwd, attemptId) =>
+        acknowledge(workspace, attemptId, cwd),
+      ),
       "attempt submit": [
+        ...referenceRules(workspace, producer, (cwd, attemptId) =>
+          submit(workspace, { ...producer, worktreePath: cwd }, body, attemptId),
+        ),
         {
           refusal: "attempt_not_acknowledged",
           rule: "Run this only after the acknowledgement above succeeded.",
@@ -152,7 +237,7 @@ describe("the brief states each refusal beside its command", () => {
         },
         {
           refusal: "artifact_identity_changed",
-          rule: "Each path artifact states the content identity of that file.",
+          rule: "Each path artifact states the content identity of that file, which is the SHA-256 hex digest of its bytes.",
           breaks: () =>
             submit(workspace, producer, {
               ...body,
@@ -203,6 +288,7 @@ describe("the brief states each refusal beside its command", () => {
         },
       ],
       "review report": [],
+      ...questionRules(workspace, producer),
     });
     // Every refusal left the attempt running, so the result that keeps every rule submits.
     expect((await submit(workspace, producer, body)).json.reason).toBe("result_submitted");
@@ -236,16 +322,17 @@ describe("the brief states each refusal beside its command", () => {
       );
 
     await expectParity(brief, {
-      "attempt acknowledge": [
-        {
-          refusal: "attempt_reference_missing",
-          rule: "Run this and every later command of this brief from this worktree.",
-          breaks: () => acknowledge(workspace, reviewer.attemptId, workspace.root),
-        },
-      ],
+      "attempt acknowledge": referenceRules(workspace, reviewer, (cwd, attemptId) =>
+        acknowledge(workspace, attemptId, cwd),
+      ),
       // The reviewer receives none of the producer's rules.
       "attempt submit": [],
       "review report": [
+        ...withoutAttempt(
+          referenceRules(workspace, reviewer, (cwd) =>
+            reportReview(workspace, { worktreePath: cwd }, reviewId, {}),
+          ),
+        ),
         {
           refusal: "attempt_not_acknowledged",
           rule: "Run this only after the acknowledgement above succeeded.",
@@ -313,6 +400,7 @@ describe("the brief states each refusal beside its command", () => {
           breaks: () => reportWith({ published: null }),
         },
       ],
+      ...questionRules(workspace, reviewer),
     });
     // A producer launch rule written as prose is still a producer rule, so none appears at all.
     for (const producerRule of [
@@ -399,5 +487,188 @@ describe("every brief", () => {
     for (const worktree of [producer.worktreePath, reviewer.worktreePath]) {
       expect(await Bun.file(`${worktree}/.operator/local/brief.md`).text()).toContain(rule);
     }
+  });
+});
+
+/** The one value a text line states after its label, or a failure that names the label. */
+function stated(text: string, pattern: RegExp): string[] {
+  const found = text.match(pattern);
+  if (found === null) throw new Error(`The text states no ${pattern}.`);
+  return found.slice(1);
+}
+
+/**
+ * The arguments of one command that a brief or a delivered answer writes, with its placeholders
+ * filled. The test runs the command as the text words it, so a text that names the wrong attempt
+ * or the wrong flag fails here.
+ */
+function writtenCommand(text: string, command: string, input: string | null): string[] {
+  const line = text.split("\n").find((one) => one.includes(` ${command} --request`));
+  if (line === undefined) throw new Error(`The text writes no ${command} command.`);
+  const words = line
+    .slice(line.indexOf(command))
+    .replace("<a new identity you generate>", request())
+    .replace("<path>", input ?? "<path>")
+    .split(" ");
+  // The runner adds the JSON flag itself.
+  return words.filter((word) => word !== "--json");
+}
+
+/**
+ * An Operative that knows only its worktree.
+ * It reads the brief its shipped skill names, writes each request where the brief says, runs each
+ * command as the brief or the delivered answer words it, and takes every value from those texts,
+ * its own files, or a CLI result. Nothing here holds the crew state or the control reference.
+ */
+async function operate(operative: {
+  worktree: string;
+  run: (args: string[]) => ReturnType<typeof runJson>;
+  /** The Operator answers the question, and the answer arrives as text in the terminal. */
+  answered: (questionId: string) => Promise<string>;
+}) {
+  const { worktree, run } = operative;
+  const skill = await Bun.file(`${worktree}/.claude/skills/operative/SKILL.md`).text();
+  const [briefPath] = stated(skill, /^Read `([^`]+)` first\.$/m);
+  const brief = await Bun.file(`${worktree}/${briefPath}`).text();
+  // The shipped workflow never sends the Operative to the control reference or the crew state.
+  for (const text of [brief, skill]) {
+    expect(text).not.toMatch(/attempt\.json|control reference|crew-state|crew state/);
+  }
+
+  const [attemptId] = stated(brief, /^- Attempt: (\S+)$/m);
+  const [revision] = stated(brief, /^- Assignment revision: (\d+)$/m);
+  const [sourceRevision] = stated(brief, /^- Source: .* at revision (\S+)$/m);
+  const [branch, baseCommit] = stated(brief, /^- Branch: (\S+) from commit (\S+)$/m);
+  const [requirementsIdentity] = stated(brief, /^- Requirements identity: (\S+)$/m);
+  const [writePath] = stated(brief, /^Write only inside these paths:\n- (\S+)$/m);
+  const [outbox] = stated(brief, /^Write each file you pass with `--input` under `([^`]+)`\.$/m);
+  const [digest] = stated(brief, /content identity of that file, which is the (SHA-256) hex/);
+  const gate = [...brief.matchAll(/^- `([^`]+)`: `([^`]+)` \(time limit \d+ seconds\)$/gm)];
+  expect(gate.length).toBeGreaterThan(0);
+  async function requestFile(body: unknown): Promise<string> {
+    const path = `${worktree}/${outbox}${crypto.randomUUID()}.json`;
+    await Bun.write(path, JSON.stringify(body));
+    return path;
+  }
+
+  const acknowledged = await run(writtenCommand(brief, "attempt acknowledge", null));
+  expect(acknowledged.json.reason).toBe("attempt_acknowledged");
+
+  const raised = await run(
+    writtenCommand(
+      brief,
+      "question raise",
+      await requestFile({
+        question: "Does the result keep the old heading?",
+        evidence: [{ label: "scope", detail: "The scope names no heading." }],
+        options: [
+          { name: "keep", detail: "Keep the heading.", risk: "None." },
+          { name: "drop", detail: "Drop the heading.", risk: "Readers lose it." },
+        ],
+        recommendation: "Keep the heading.",
+        affectedScope: [`${writePath}result.md`],
+        independentWork: ["The result text continues."],
+        escalationTriggers: [],
+      }),
+    ),
+  );
+  expect(raised.json.reason).toBe("question_raised");
+  const answer = await operative.answered(raised.json.data.questionId);
+  const answerAcknowledged = await run(writtenCommand(answer, "question acknowledge", null));
+
+  const relative = `${writePath}result.md`;
+  await Bun.write(`${worktree}/${relative}`, "# Result\n");
+  await Bun.$`git -C ${worktree} add ${relative}`.quiet();
+  await Bun.$`git -C ${worktree} -c user.email=t@example.com -c user.name=Test commit -m result`.quiet();
+  const head = async (args: string[]) =>
+    (await Bun.$`git -C ${worktree} ${args}`.quiet()).stdout.toString().trim();
+  expect(await head(["branch", "--show-current"])).toBe(`${branch}`);
+  const resultCommit = await head(["rev-parse", "HEAD"]);
+  const bytes = await Bun.file(`${worktree}/${relative}`).bytes();
+  expect(digest).toBe("SHA-256");
+  const contentIdentity = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
+
+  const submitted = await run(
+    writtenCommand(
+      brief,
+      "attempt submit",
+      await requestFile({
+        resultKind: "code",
+        assignmentRevision: Number(revision),
+        sourceRevision,
+        requirementsIdentity,
+        artifacts: [{ name: "result", kind: "path", value: relative, contentIdentity }],
+        checks: gate.map(([, name, command]) => ({ name, command, outcome: "passed", detail: "" })),
+        concerns: [],
+        decisions: [],
+        behaviorChanges: [],
+        code: { baseCommit, resultCommit, mergeBase: baseCommit, branch },
+      }),
+    ),
+  );
+  return {
+    attemptId,
+    answer: answerAcknowledged.json.reason,
+    submitted: submitted.json.reason,
+  };
+}
+
+describe("an Operative works from its brief", () => {
+  test("acknowledges, asks, takes the answer, and submits through the CLI with only the brief", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const producer = await startProducer(workspace, undefined, { acknowledge: false });
+    const reference = Bun.file(`${producer.worktreePath}/.operator/local/attempt.json`);
+    const written = await reference.text();
+
+    const reported = await operate({
+      worktree: producer.worktreePath,
+      run: (args) => runJson(workspace, args, producer.worktreePath),
+      answered: async (questionId) => {
+        const answered = await runJson(workspace, [
+          "question",
+          "answer",
+          "--request",
+          request(),
+          "--owner-token",
+          producer.ownerToken,
+          "--question",
+          questionId,
+          "--revision",
+          "1",
+          "--input",
+          await writeInput(workspace, {
+            authority: "human-answer",
+            exactText: "keep it",
+            interpretation: {
+              summary: "Keep the heading.",
+              directives: ["Keep the old heading."],
+              appliesTo: ["docs/"],
+            },
+          }),
+        ]);
+        expect(answered.json.reason).toBe("answer_recorded");
+        const delivered = await runJson(workspace, [
+          "question",
+          "deliver",
+          "--request",
+          request(),
+          "--owner-token",
+          producer.ownerToken,
+          "--question",
+          questionId,
+        ]);
+        expect(delivered.json.reason).toBe("answer_delivered");
+        // The Herdr fake keeps the last text it typed into the pane of the Operative.
+        return Bun.file(`${workspace.herdr}/last-prompt`).text();
+      },
+    });
+
+    expect(reported).toEqual({
+      attemptId: producer.attemptId,
+      answer: "question_acknowledged",
+      submitted: "result_submitted",
+    });
+    // No step, and no command it ran, changed the control reference.
+    expect(await reference.text()).toBe(written);
   });
 });

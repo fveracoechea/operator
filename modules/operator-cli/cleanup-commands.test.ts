@@ -45,8 +45,23 @@ afterEach(async () => {
 });
 
 // A configured project ignores what Operator writes into a checkout, and `*.tmp` gives the
-// tests one ignored path that Operator never wrote.
-const IGNORE_RULES = [".operator/", ".claude/skills/", ".agents/skills/", "*.tmp", ""].join("\n");
+// tests one ignored path that Operator never wrote. `node_modules/` holds what an install
+// command of the project gate writes.
+const IGNORE_RULES = [
+  ".operator/",
+  ".claude/skills/",
+  ".agents/skills/",
+  "*.tmp",
+  "node_modules/",
+  "",
+].join("\n");
+
+/** Writes what `bun install` leaves in a checkout: many ignored files nobody registered. */
+async function writeInstallOutput(worktreePath: string, packages: number): Promise<void> {
+  for (let index = 0; index < packages; index += 1) {
+    await Bun.write(`${worktreePath}/node_modules/pkg-${index}/index.js`, "export {};\n");
+  }
+}
 
 const SKILL_PATH: Record<Host, string> = {
   "claude-code": ".claude/skills/code-review/SKILL.md",
@@ -322,7 +337,7 @@ describe("operator cleanup close", () => {
     );
   });
 
-  test("retains the process when the checkout holds work or files nobody registered", async () => {
+  test("retains the process when the checkout holds work nobody registered", async () => {
     const workspace = await makeWorkspace();
     const { producer } = await acceptedCycle(workspace);
     await Bun.write(`${producer.worktreePath}/notes.md`, "a human edit\n");
@@ -331,9 +346,22 @@ describe("operator cleanup close", () => {
     const blocked = await close(workspace, producer.ownerToken, producer.attemptId);
 
     expect(blocked.exitCode).toBe(3);
-    expect(reasons(blocked)).toEqual(["unexpected_work", "unexpected_files"]);
-    expect(blocked.json.blockers[0].paths).toEqual(["notes.md"]);
-    expect(blocked.json.blockers[1].paths).toEqual(["scratch.tmp"]);
+    // A closure deletes no file, so the ignored file is left for the removal to read.
+    expect(reasons(blocked)).toEqual(["unexpected_work"]);
+    expect(blocked.json.blockers[0]).toMatchObject({ paths: ["notes.md"], omitted: 0 });
+  });
+
+  test("closes a submitted Operative whose gate install left ignored output", async () => {
+    const workspace = await makeWorkspace();
+    const producer = await startProducer(workspace);
+    const artifact = await commitArtifact(workspace, producer, "# Result\n\nThe finished work.\n");
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
+    expect(submitted.json.reason).toBe("result_submitted");
+    await writeInstallOutput(producer.worktreePath, 30);
+
+    const closed = await close(workspace, producer.ownerToken, producer.attemptId);
+
+    expect(closed.json.reason).toBe("process_closed");
   });
 
   test("retains the process when the brief in the checkout is not the brief it was launched with", async () => {
@@ -684,6 +712,23 @@ describe("operator cleanup remove", () => {
     expect(stored.toSorted()).toEqual(["brief", "control-reference", "release"]);
   });
 
+  test("retains a checkout that holds ignored files, and names only the first of them", async () => {
+    const workspace = await makeWorkspace();
+    const { producer } = await acceptedCycle(workspace);
+    expect((await close(workspace, producer.ownerToken, producer.attemptId)).json.reason).toBe(
+      "process_closed",
+    );
+    await writeInstallOutput(producer.worktreePath, 30);
+    await Bun.write(`${producer.worktreePath}/scratch.tmp`, "an ignored file\n");
+
+    const blocked = await remove(workspace, producer.ownerToken, producer.attemptId);
+
+    expect(blocked.exitCode).toBe(3);
+    const files = blocked.json.blockers.find((one: Blocker) => one.reason === "unexpected_files");
+    expect(files.paths).toHaveLength(20);
+    expect(files.omitted).toBe(11);
+  });
+
   test("refuses a removal while the process closure is not recorded as done", async () => {
     const workspace = await makeWorkspace();
     const { producer } = await acceptedCycle(workspace);
@@ -805,6 +850,37 @@ describe("operator cleanup remove", () => {
     expect((await herdrCalls(workspace)).some((line) => line.startsWith("worktree remove"))).toBe(
       false,
     );
+  });
+
+  test("names a malformed control reference apart from a missing one", async () => {
+    const workspace = await makeWorkspace();
+    const { producer } = await acceptedCycle(workspace);
+    await close(workspace, producer.ownerToken, producer.attemptId);
+    const reference = `${producer.worktreePath}/.operator/local/attempt.json`;
+    const mismatch = async () =>
+      (await remove(workspace, producer.ownerToken, producer.attemptId)).json.blockers[0]
+        .mismatches;
+
+    await Bun.write(reference, "not json\n");
+    const malformed = await mismatch();
+    await Bun.write(reference, "{}\n");
+    const incomplete = await mismatch();
+    await rm(reference);
+    const missing = await mismatch();
+
+    const recorded = producer.worktreePath;
+    expect(malformed).toEqual([
+      { field: "control-reference", recorded, found: "malformed: not-json" },
+    ]);
+    expect(incomplete).toEqual([
+      {
+        field: "control-reference",
+        recorded,
+        found:
+          "malformed: incomplete (controllingCheckout, assignmentId, attemptId, branch, baseCommit, worktreePath)",
+      },
+    ]);
+    expect(missing).toEqual([{ field: "control-reference", recorded, found: "none" }]);
   });
 
   test("refuses a removal when Herdr names no workspace or branch for the checkout", async () => {

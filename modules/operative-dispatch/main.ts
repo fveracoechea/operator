@@ -6,7 +6,7 @@ import { type AnswerDelivery, answerDocument } from "./answer.ts";
 import { prepareInputs } from "./inputs.ts";
 import { inspectCheckout, inspectWork, type WorkInspection } from "./inspect.ts";
 import { type PlanningInput, planningRecordsSection } from "./planning-brief.ts";
-import { readReference } from "./reference.ts";
+import { inspectReference } from "./reference.ts";
 import { BRIEF_PATH, LOCAL_ROOT, opencodeFiles, REFERENCE_PATH, RELEASE_PATH } from "./plan.ts";
 import { readSnapshot } from "./snapshot.ts";
 import { scanOutside } from "./scan.ts";
@@ -166,13 +166,9 @@ function performAnswerDelivery(
 }
 
 export const OperativeDispatch = {
-  /**
-   * Reads the control reference one Operative worktree carries.
-   * It names the controlling checkout, so an Operative never searches nearby directories for
-   * the crew state that governs it.
-   */
-  async readReference(request: { worktreePath: string }) {
-    return readReference(request.worktreePath);
+  /** Tells a missing reference from a malformed one, so no command sends the Operative elsewhere. */
+  async inspectReference(request: { worktreePath: string }) {
+    return inspectReference(request.worktreePath);
   },
 
   /**

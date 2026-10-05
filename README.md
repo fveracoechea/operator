@@ -264,7 +264,8 @@ A corrected branch finding invalidates the assignment that it targets, and the n
 
 `publish plan` changes nothing.
 It names the plan revision, the new remote branches, the target branch, and whether the head merges cleanly onto the target.
-Every title and body is in a file under `.operator/local/publish-plans/`. Read that file.
+Every title and body is in a plan file under `.operator/local/publish-plans/` that the result names.
+Read that CLI output.
 The CLI renders each body from the records and the published text, and the Operator writes no word of it.
 Your `publish` approval binds the exact plan revision, so it covers every title, body, and cut point.
 It also names each tracker step after the merge as a target: the resolution and the completion of each ticket, with the resolution text already rendered, and `github:<owner>/<repo>#<n>:map_amendment` when the source has a map issue.
@@ -312,7 +313,9 @@ A merge before the recall ends the change: the defect becomes a new issue, which
 A moved target branch never changes an accepted patch by itself.
 The integration base changes only through a rebase that you approve.
 The Operator proposes a rebase when the head does not merge cleanly onto the target, when you want a newer target, or after you settled each stack fault of a publication.
-`work rebase --source <source> --base <sha>` plans it, changes nothing, and writes every commit to a file under `.operator/local/rebase-plans/`.
+`work rebase --source <source> --base <sha>` plans it and changes nothing.
+It writes every commit to a plan file under `.operator/local/rebase-plans/`.
+That plan file is a CLI output, and the result names it.
 Your `integration-rebase` approval names the old base, the new base, and the plan revision.
 The new base and each commit that lands again pass the project gate first, in order.
 A commit whose pull request merged leaves the branch. A commit whose patch changes on the new base is taken out and comes back through an integration cycle.
@@ -390,6 +393,11 @@ The waits and the actions of one rank keep the order of the readers.
 ## CLI conventions
 
 Use `bun run operator --version` for human output or `bun run operator --version --json` for the versioned machine result from a target project root.
+Both forms also report the release that the project selected.
+The machine result puts it under `data.selection`.
+Its `state` is `selected`, `missing`, or `unreadable`.
+A selected release also has its `delivery`, `version`, `commit`, and `packageVersion`.
+Its `invocation` is the command that runs Operator in the project.
 The package also exports `main(args)` from `@fveracoechea/operator/cli`.
 
 The exit meanings are the same for every command.
@@ -410,6 +418,14 @@ A refused mutation records nothing, so the CLI checks a repeat of it again again
 After an identity records an outcome, the CLI refuses the same identity with different input.
 
 A request that takes a JSON file with `--input` also reads standard input when you pass `-`.
+
+An agent reads and changes Operator configuration and state only through CLI commands.
+It reads its dispatch brief and the fixed artifacts that the brief names.
+It also reads each file that a CLI result names, such as `planPath` and the publish and rebase plan files.
+Those files are CLI outputs, not state to change.
+An agent may write the JSON request that a command reads with `--input`.
+The marked section that setup writes in `AGENTS.md` states this rule.
+A section that an earlier release wrote changes only when you approve a new `setup plan` that proposes the section of this release.
 
 ## Project installation and setup
 
@@ -459,7 +475,7 @@ An unchanged rerun writes nothing.
 
 Setup owns these files:
 
-- `.operator/config.json` and `.operator/config.schema.json`.
+- The project configuration and its editor schema, `.operator/config.schema.json`.
 - One marked `/.operator/` block in `.gitignore`.
 - One marked Operator section in `AGENTS.md`.
 - An `@AGENTS.md` import in `CLAUDE.md`.
@@ -631,7 +647,7 @@ Static checks observe these items:
 Static checks never prove host termination, the native review sub-agents, or provider compatibility.
 Those need a live probe.
 
-The CLI resolves each selection field on its own, from a session override, then `.operator/config.json`, then the host default.
+The CLI resolves each selection field on its own, from a session override, then the project configuration that `bun run operator config show` reports, then the host default.
 A missing Crew host follows the Operator host, and a missing model stays with the selected host default.
 Operator never substitutes an unavailable host or model, and it never guesses a host that nothing names.
 Set `crew.reasoningEffort` through `bun run operator config plan` and `bun run operator config apply` to `low`, `medium`, `high`, `xhigh`, or `max` for new Operative launches.
@@ -667,9 +683,12 @@ It builds a synthetic repository under `.operator/local/probe/`, asks Herdr for 
 The synthetic repository holds a copy of your instruction files and the skills this release installs, so the loading check reads your own contents back.
 It reaches no project issue, no Operative worktree, no branch, no remote, and no release.
 
-```json
-{ "probe": { "githubFixture": { "repository": "you/probe-fixture", "issue": 7, "mapIssue": 7 } } }
+```sh
+bun run operator config plan --set probe.githubFixture.repository=you/probe-fixture --set probe.githubFixture.issue=7 --json
 ```
+
+Apply that plan with `bun run operator config apply`, the same flags, and `--approved-plan <planId>`.
+Add `--set probe.githubFixture.mapIssue=<number>` when the map issue is a different issue.
 
 If a project names no fixture, every tracker check stays skipped.
 That project is then never ready and never releasable, and the plan says so before anything runs.
@@ -684,7 +703,7 @@ bun run operator setup probe cleanup --approved-cleanup <cleanupId> --json
 
 It removes nothing else, and the recorded observations stay, so every failed attempt outlives its resources.
 
-Operator records live results in `.operator/local/readiness.json` as a list of attempts, and only appends to it.
+Operator records live results in its readiness evidence as a list of attempts, and only appends to it.
 The setup journal and readiness evidence are local CLI records, not agent instructions.
 Use `bun run operator setup readiness` or `bun run operator crew next` to read their conclusions in text, and add `--json` when a caller needs structured fields.
 The crew's concurrent assignments and ownership live in SQLite.
@@ -749,7 +768,8 @@ A claim recomputes the same frontier, so it can never take work the frontier wit
 When two claims race, one caller gets the assignment, and the other names the attempt that already holds it.
 
 The crew limit is three active agents by default.
-Set it with `crew.maxActiveAgents` in `.operator/config.json`.
+Plan the change with `bun run operator config plan --set crew.maxActiveAgents=<n>`.
+Apply it with `bun run operator config apply`, the same `--set` flag, and `--approved-plan <planId>`.
 A limit of two or more keeps one slot for review, so production work never fills the crew.
 A limit of one runs one assignment at a time.
 The frontier offers queued review before new production work.
@@ -803,6 +823,13 @@ A dispatch therefore reports `pending` until the Operative acknowledges its assi
 ```sh
 bun run operator attempt acknowledge --request <id> --attempt <id> --json
 ```
+
+Every command the Operative runs reads the control reference of the worktree it runs in.
+The Operative never opens that file, because the brief states every fact it holds.
+The command refuses with `attempt_reference_missing` when the directory carries no reference.
+It refuses with `attempt_reference_malformed` when the reference is not a readable file, not JSON, not an object, or not complete.
+It refuses with `attempt_reference_mismatch` when `--attempt` and the reference name different attempts.
+The brief states each refusal beside each command that can give it.
 
 A Herdr call that never answered is uncertain, because a timeout does not prove that the effect did not happen.
 The attempt then blocks until you reconcile it against what Herdr and the checkout show.

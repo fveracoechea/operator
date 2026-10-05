@@ -1,5 +1,6 @@
 Usage:
   operator --version [--json]
+    Reports this release and the release this project selected: its state, delivery, version, commit, and invocation.
   operator healthcheck (--opencode | --claude | --opencode --claude) [--operator-host <host>] [--operator-model <model>] [--crew-host <host>] [--crew-model <model>] [--json]
   operator install (--opencode | --claude | --opencode --claude) [--json]
   operator install matt plan (--opencode | --claude | --opencode --claude) [--json]

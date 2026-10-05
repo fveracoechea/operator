@@ -1,7 +1,7 @@
 import { registerSource, sourceIdOf, workspaceTarget } from "./source-fixture.ts";
 import { afterEach, describe, expect, test as bunTest } from "bun:test";
-// Bun has no recursive directory removal API.
-import { rm } from "node:fs/promises";
+// Bun has no recursive directory removal, directory creation, or chmod API.
+import { chmod, mkdir, rm } from "node:fs/promises";
 import { ContentIdentity } from "../content-identity/main.ts";
 import { OperatorRelease } from "../operator-release/main.ts";
 import { ReleaseInstall } from "../release-install/main.ts";
@@ -979,6 +979,103 @@ describe("acknowledgement", () => {
     expect(result.json.reason).toBe("attempt_reference_mismatch");
   });
 
+  // A reference that is there but unusable is a different case from a command that runs in the
+  // wrong directory, so its reason and its message must not send the Operative elsewhere.
+  test("refuses a missing, malformed, or mismatched reference in the worktree by name", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await claimedAttempt(workspace);
+    await dispatch(workspace, crew);
+    const operative = `${workspace.root}/operative`;
+    const path = `${operative}/.operator/local/attempt.json`;
+    const written = await Bun.file(path).text();
+    const acknowledgeAs = (attemptId: string) =>
+      runJson(
+        workspace,
+        ["attempt", "acknowledge", "--request", request(), "--attempt", attemptId],
+        operative,
+      );
+    const humanAcknowledge = () =>
+      runOperator(
+        workspace,
+        ["attempt", "acknowledge", "--request", request(), "--attempt", crew.attemptId],
+        operative,
+      );
+
+    await rm(path);
+    const missing = await acknowledgeAs(crew.attemptId);
+    expect(missing.exitCode).toBe(3);
+    expect(missing.json.reason).toBe("attempt_reference_missing");
+
+    const { attemptId: _, ...withoutAttempt } = JSON.parse(written);
+    const write = (text: string) => async () => {
+      await Bun.write(path, text);
+    };
+    // Anything at the path that is not a readable file is malformed, never missing.
+    const malformed = [
+      { at: "directory", place: () => mkdir(path), problem: "unreadable", fields: [] },
+      {
+        at: "unreadable file",
+        place: async () => {
+          await Bun.write(path, written);
+          await chmod(path, 0o000);
+        },
+        problem: "unreadable",
+        fields: [],
+      },
+      { at: "not JSON", place: write("{ not json"), problem: "not-json", fields: [] },
+      { at: "array", place: write("[]\n"), problem: "not-object", fields: [] },
+      {
+        at: "incomplete",
+        place: write(JSON.stringify({ ...withoutAttempt, branch: "" })),
+        problem: "incomplete",
+        fields: ["attemptId", "branch"],
+      },
+    ];
+    for (const one of malformed) {
+      await rm(path, { recursive: true, force: true });
+      await one.place();
+      const refused = await acknowledgeAs(crew.attemptId);
+      expect({ at: one.at, exitCode: refused.exitCode, json: refused.json }).toEqual({
+        at: one.at,
+        exitCode: 2,
+        json: {
+          schemaVersion: 1,
+          outcome: "invalid",
+          reason: "attempt_reference_malformed",
+          blockers: [
+            {
+              reason: "attempt_reference_malformed",
+              attemptId: crew.attemptId,
+              problem: one.problem,
+              fields: one.fields,
+            },
+          ],
+          operation: "attempt_acknowledge",
+        },
+      });
+      const human = await humanAcknowledge();
+      expect({ at: one.at, exitCode: human.exitCode }).toEqual({ at: one.at, exitCode: 2 });
+      for (const field of one.fields) expect(human.stdout).toContain(field);
+      expect(human.stdout).not.toContain("carries no");
+    }
+
+    const other = crypto.randomUUID();
+    await Bun.write(path, JSON.stringify({ ...JSON.parse(written), attemptId: other }));
+    const changed = await acknowledgeAs(crew.attemptId);
+    expect(changed.exitCode).toBe(4);
+    expect(changed.json.blockers).toEqual([
+      { reason: "attempt_reference_mismatch", attemptId: crew.attemptId, recordedAttemptId: other },
+    ]);
+
+    await Bun.write(path, written);
+    const named = await acknowledgeAs(other);
+    expect(named.exitCode).toBe(4);
+    expect(named.json.reason).toBe("attempt_reference_mismatch");
+
+    // No refusal recorded anything, so the restored reference acknowledges.
+    expect((await acknowledgeAs(crew.attemptId)).json.reason).toBe("attempt_acknowledged");
+  });
+
   // The reference file names the project root, so its absence comes first. The mismatch comes
   // before the request input and before every refusal that the crew state gives.
   test("refuses in the order: missing reference, mismatch, input, crew state", async () => {
@@ -1567,6 +1664,73 @@ describe("operator attempt dispatch for a review", () => {
     // The reviewer host never started, so no partial review exists to reconcile.
     const starts = (await herdrCalls(workspace)).filter((line) => line.startsWith("agent start "));
     expect(starts).toHaveLength(1);
+  });
+});
+
+// This repository tracks its bundled skills, and each host directory links to them, so a result
+// can change a skill that the next launch installs.
+const OPERATIVE_SKILL = new URL("../../skills/operative/SKILL.md", import.meta.url).pathname;
+
+async function makeSkillTrackingWorkspace(operative: string) {
+  const workspace = await makeReviewWorkspace(fixtures, {
+    files: { "skills/operative/SKILL.md": operative },
+  });
+  await Bun.$`mkdir -p ${workspace.repo}/.agents/skills`.quiet();
+  await Bun.$`ln -s ../../skills/operative ${workspace.repo}/.agents/skills/operative`.quiet();
+  await Bun.$`ln -s ../../.agents/skills/operative ${workspace.repo}/.claude/skills/operative`.quiet();
+  await Bun.$`git -C ${workspace.repo} add -A`.quiet();
+  await Bun.$`git -C ${workspace.repo} -c user.email=t@example.com -c user.name=Test commit -qm skills`.quiet();
+  return workspace;
+}
+
+describe("operator attempt dispatch of a tracked skill copy", () => {
+  test("keeps a skill copy that crew work changed after the integration base", async () => {
+    const release = await Bun.file(OPERATIVE_SKILL).text();
+    const workspace = await makeSkillTrackingWorkspace(release);
+    const producer = await startProducer(workspace, undefined, { writePaths: ["skills/"] });
+    const changed = `${release}\nA crew change under review.\n`;
+    const artifact = await commitArtifact(
+      workspace,
+      producer,
+      changed,
+      "skills/operative/SKILL.md",
+    );
+    const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
+    expect(submitted.json.reason).toBe("result_submitted");
+
+    const reviewer = await startReviewer(workspace, producer, submitted.json, artifact.commit);
+
+    expect(reviewer.dispatched.json.reason).toBe("acknowledgement_pending");
+    const copy = `${reviewer.worktreePath}/.claude/skills/operative/SKILL.md`;
+    expect(await Bun.file(copy).text()).toBe(changed);
+    // The launch record names the copy the reviewer loads in place of the release copy.
+    const released = await Bun.file(`${reviewer.worktreePath}/.operator/local/release.json`).json();
+    expect(released.skills.committed).toEqual([
+      { path: ".claude/skills/operative/SKILL.md", identity: ContentIdentity.ofText(changed) },
+    ]);
+    const brief = await Bun.file(`${reviewer.worktreePath}/.operator/local/brief.md`).text();
+    expect(brief).toContain(
+      `- Skill copy changed after the integration base: .claude/skills/operative/SKILL.md (${ContentIdentity.ofText(changed)})`,
+    );
+  });
+
+  test("refuses a skill copy that already differs at the integration base", async () => {
+    const release = await Bun.file(OPERATIVE_SKILL).text();
+    const workspace = await makeSkillTrackingWorkspace(`${release}\nA change of the person.\n`);
+
+    const producer = await startProducer(workspace, undefined, {
+      writePaths: ["skills/"],
+      acknowledge: false,
+    });
+
+    expect(producer.dispatched.reason).toBe("dispatch_stage_failed");
+    expect(producer.dispatched.blockers[0]).toMatchObject({
+      stage: "input_preparation",
+      detail:
+        "skill_copy_conflict: The worktree holds changed skill copies: .claude/skills/operative/SKILL.md",
+    });
+    const starts = (await herdrCalls(workspace)).filter((line) => line.startsWith("agent start "));
+    expect(starts).toHaveLength(0);
   });
 });
 

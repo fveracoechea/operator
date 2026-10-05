@@ -15,13 +15,15 @@ Silence is never consent.
 This skill works the same on OpenCode and on Claude Code.
 Nothing here depends on which host you run on, and a crew may mix the two.
 
-Read `.operator/install/selection.json` when it exists to choose the selected delivery.
-Before selection, use the JSR project script to set up the project and select the release.
-For `jsr`, run Operator from the project root with `bun run operator`.
-The project defines that script in `package.json` for its JSR devDependency.
-For `github-source`, use `bunx "github:fveracoechea/operator#<full-commit>"` with the exact `commit` in the selection.
+Run `bun run operator --version --json` from the project root to choose the invocation.
+`data.selection` reports the selected `delivery`, `version`, `commit`, and `packageVersion`, and the `invocation` that runs Operator in this project.
+A project with no `operator` script gets the same report from `bunx github:fveracoechea/operator --version --json`.
+When `data.selection.state` is `missing`, use the JSR project script to set up the project and select the release.
+When `data.selection.state` is `unreadable`, give `data.selection.detail` to the user, ask the user to correct the selection, and run the report again.
+For `jsr`, the invocation is `bun run operator`, which the project defines in `package.json` for its JSR devDependency.
+For `github-source`, it is `bunx "github:fveracoechea/operator#<full-commit>"` at the selected `commit`.
 The examples below show the JSR command.
-On a selected source delivery, replace their `bun run operator` prefix with the pinned `bunx` command.
+On a selected source delivery, replace their `bun run operator` prefix with the reported invocation.
 
 ## The rules of the person
 
@@ -85,6 +87,10 @@ separate outcomes, and it reports what it could not establish rather than writin
 The steps of a code result run only after its pull request merged; [PUBLISH.md](PUBLISH.md) covers them.
 
 ## Rules
+
+Read and change Operator configuration and state only through CLI commands.
+You may read a brief, its fixed artifacts, and each CLI output, which is a file a CLI result names, such as a `planPath`.
+You may write JSON requests for `--input`.
 
 Ask the user before you write to a project.
 Show the exact proposed changes first, then apply the approved plan.

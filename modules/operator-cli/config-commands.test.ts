@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test as bunTest } from "bun:test";
 // Bun has no file removal API.
 import { rm } from "node:fs/promises";
-import { runJson, runOperator, workspaces } from "./workspace-fixture.ts";
+import { runJson, runOperator, type Workspace, workspaces } from "./workspace-fixture.ts";
 
 // Config tests run multiple CLI processes against a project fixture.
 // Each test states its own bound, because a process-wide default would set the bound of every
@@ -94,8 +94,10 @@ describe("operator config", () => {
     );
     const planText = await runOperator(workspace, ["config", "plan", ...edits]);
     const missingText = await runOperator(workspace, ["config", "apply", ...edits]);
+    const approveAt = planText.stdout.indexOf("Approve with: ");
+    expect(approveAt).toBeGreaterThan(0);
     expect(missingText.stdout).toBe(
-      `Approval is required. Nothing was written.\n${planText.stdout}`,
+      `Approval is required. Nothing was written.\n${planText.stdout.slice(0, approveAt)}Make a new plan and show it to the person for approval: operator config plan ${edits.join(" ")}\n`,
     );
     expect(await file.text()).toBe(before);
 
@@ -157,9 +159,13 @@ describe("operator config", () => {
       "--approved-plan",
       plan.json.data.planId,
     ]);
+    // Only `config plan` prints the approval, so an agent never approves a changed plan for the
+    // person. The refusal shows the new plan and points to `config plan` again.
+    const planShown = planText.stdout.slice(0, planText.stdout.indexOf("Approve with: "));
     expect(staleText.stdout).toBe(
-      `The file or proposed edit changed. Nothing was written.\n${planText.stdout}`,
+      `The file or proposed edit changed. Nothing was written.\n${planShown}Make a new plan and show it to the person for approval: operator config plan --set crew.reasoningEffort=medium\n`,
     );
+    expect(planShown).toContain(`Configuration plan ${applied.json.data.planId}`);
     expect(await file.text()).toBe(changed);
   });
 
@@ -386,6 +392,123 @@ describe("operator config", () => {
     );
   });
 
+  test("an agent changes an installed project under approval with only CLI results", async () => {
+    // A project with Git, the fakes, and the Claude Code host, and no Operator file yet.
+    const workspace = await fixtures.make({
+      config: null,
+      tools: { claude: 'echo "2.1.0 (Claude Code)"' },
+    });
+    const commit = "c".repeat(40);
+    expect((await runJson(workspace, ["install", "--claude"])).json.reason).toBe(
+      "skills_installed",
+    );
+    const setup = await runJson(workspace, ["setup", "plan", "--claude"]);
+    const setupArgs = ["setup", "apply", "--claude", "--approved-plan", setup.json.data.planId];
+    expect((await runJson(workspace, setupArgs)).json.reason).toBe("setup_applied");
+    const update = await runJson(workspace, ["update", "plan", "--claude", "--commit", commit]);
+    const updateArgs = ["update", "apply", "--claude", "--commit", commit, "--approved-update"];
+    expect((await runJson(workspace, [...updateArgs, update.json.data.updateId])).json.reason).toBe(
+      "update_applied",
+    );
+
+    // From here the agent acts only on what a CLI result reports.
+    const version = await runJson(workspace, ["--version"]);
+    const invocation: string = version.json.data.selection.invocation;
+    expect(invocation).toBe(`bunx "github:fveracoechea/operator#${commit}"`);
+    // The fixture runs the same CLI entry in place of the invocation, which would fetch the release.
+    function argumentsOf(command: string, values: Record<string, string> = {}): string[] {
+      expect(command.startsWith(`${invocation} `)).toBe(true);
+      let rest = command.slice(invocation.length + 1);
+      for (const [placeholder, value] of Object.entries(values)) {
+        rest = rest.replaceAll(placeholder, value);
+      }
+      return rest.split(" ");
+    }
+
+    const unready = await runJson(workspace, ["setup", "readiness", "--claude"]);
+    const unnamed: Array<{ check: string; nextAction: string }> = unready.json.blockers.filter(
+      (one: { reason: string }) => one.reason === "host_unnamed",
+    );
+    expect(unnamed.map((one) => one.check)).toEqual(["operator-selection", "crew-selection"]);
+    // Each blocker names the configuration command that sets its host.
+    const hostEdits = unnamed.flatMap((one) => {
+      const named = argumentsOf(/`([^`]+)`/.exec(one.nextAction)?.[1] ?? "", {
+        "<host>": "claude-code",
+      });
+      expect(named.slice(0, 2)).toEqual(["config", "plan"]);
+      return named.slice(2);
+    });
+    const before = await runJson(workspace, ["crew", "next", "--claude"]);
+    expect(before.json.data.capacity).toMatchObject({ limit: 3, limitSource: "operator-default" });
+    const shown = await runJson(workspace, ["config", "show"]);
+    expect(shown.json.data.selection.crew.host).toEqual({ value: null, source: "unnamed" });
+
+    const edits = [...hostEdits, "--set", "crew.maxActiveAgents=2"];
+    const plan = await runJson(workspace, ["config", "plan", ...edits]);
+    expect(plan.json.data.after.crew).toEqual({ host: "claude-code", maxActiveAgents: 2 });
+    const approved = ["--approved-plan", plan.json.data.planId];
+
+    // The approval covers these exact edits, so other edits under it are stale.
+    const otherEdits = [...hostEdits, "--set", "crew.maxActiveAgents=4"];
+    const changedInputs = await runJson(workspace, ["config", "apply", ...otherEdits, ...approved]);
+    expect(changedInputs.exitCode).toBe(4);
+    expect(changedInputs.json.reason).toBe("approval_stale");
+
+    // Another session changes the file after the plan, so the approval no longer covers it.
+    const other = ["--set", "crew.reasoningEffort=high"];
+    const otherPlan = await runJson(workspace, ["config", "plan", ...other]);
+    expect(
+      (
+        await runJson(workspace, [
+          "config",
+          "apply",
+          ...other,
+          "--approved-plan",
+          otherPlan.json.data.planId,
+        ])
+      ).json.reason,
+    ).toBe("config_applied");
+    const changedFile = await runJson(workspace, ["config", "apply", ...edits, ...approved]);
+    expect(changedFile.exitCode).toBe(4);
+    expect(changedFile.json.reason).toBe("approval_stale");
+    expect((await runJson(workspace, ["config", "show"])).json.data.config.crew).toEqual({
+      reasoningEffort: "high",
+    });
+
+    const replanned = await runJson(workspace, ["config", "plan", ...edits]);
+    expect(replanned.json.data.planId).toBe(changedFile.json.blockers[0].currentPlanId);
+    expect(replanned.json.data.after.crew).toEqual({
+      host: "claude-code",
+      maxActiveAgents: 2,
+      reasoningEffort: "high",
+    });
+    const applied = await runJson(workspace, [
+      "config",
+      "apply",
+      ...edits,
+      "--approved-plan",
+      replanned.json.data.planId,
+    ]);
+    expect(applied.json.reason).toBe("config_applied");
+
+    const ready = await runJson(workspace, ["setup", "readiness", "--claude"]);
+    expect(
+      ready.json.blockers.filter((one: { check: string }) => one.check.endsWith("-selection")),
+    ).toEqual([]);
+    expect(ready.json.data.selection.crew).toMatchObject({
+      host: "claude-code",
+      hostSource: "project-configuration",
+    });
+    const after = await runJson(workspace, ["crew", "next", "--claude"]);
+    expect(after.json.data.capacity).toMatchObject({
+      limit: 2,
+      limitSource: "project-configuration",
+    });
+    for (const action of after.json.data.actions) {
+      argumentsOf(action.command);
+    }
+  });
+
   test("does not accept config edit flags on another command", async () => {
     const workspace = await fixtures.make();
     const result = await runOperator(workspace, [
@@ -397,5 +520,80 @@ describe("operator config", () => {
     ]);
     expect(result.exitCode).toBe(2);
     expect(JSON.parse(result.stdout).reason).toBe("invalid_arguments");
+  });
+});
+
+describe("operator config in a project that selected a source release", () => {
+  const commit = "d".repeat(40);
+  const invocation = `bunx "github:fveracoechea/operator#${commit}"`;
+
+  /** Records the source release through an approved update, as a person does. */
+  async function selectSource(workspace: Workspace): Promise<void> {
+    const planned = await runJson(workspace, ["update", "plan", "--claude", "--commit", commit]);
+    await runJson(workspace, [
+      "update",
+      "apply",
+      "--claude",
+      "--commit",
+      commit,
+      "--approved-update",
+      planned.json.data.updateId,
+    ]);
+  }
+
+  test("names the exact apply command that the person approves", async () => {
+    const workspace = await fixtures.make({
+      config: {
+        crew: { host: "opencode", model: "openai/gpt-6-sol" },
+        probe: { githubFixture: { repository: "owner/repo", issue: 50 } },
+      },
+    });
+    await selectSource(workspace);
+    const edits = ["--set", "crew.reasoningEffort=high", "--unset", "probe.githubFixture"];
+
+    const planned = await runJson(workspace, ["config", "plan", ...edits]);
+    const shown = await runOperator(workspace, ["config", "plan", ...edits]);
+
+    const approve = `Approve with: ${invocation} config apply --set crew.reasoningEffort=high --unset probe.githubFixture --approved-plan ${planned.json.data.planId}`;
+    expect(shown.stdout.split("\n")).toContain(approve);
+    // The printed command runs as shown.
+    const words = approve.slice(`Approve with: ${invocation} `.length).split(" ");
+    const applied = await runJson(workspace, words);
+    expect(applied.json.reason).toBe("config_applied");
+  });
+
+  test("gives the setup and recovery next actions the project invocation", async () => {
+    const workspace = await fixtures.make();
+    await selectSource(workspace);
+    const plan = await runJson(workspace, ["config", "plan", "--set", "crew.reasoningEffort=high"]);
+    await Bun.write(
+      `${workspace.repo}/.operator/local/config-apply.json`,
+      JSON.stringify({
+        planId: plan.json.data.planId,
+        generation: null,
+        editsIdentity: plan.json.data.editsIdentity,
+        previousIdentity: plan.json.data.previousIdentity,
+        nextIdentity: plan.json.data.nextIdentity,
+        state: "pending",
+      }),
+      { createPath: true },
+    );
+    await Bun.write(`${workspace.repo}/.operator/config.json`, '{"crew":{"host":"opencode"}}\n');
+
+    const recovered = await runJson(workspace, ["config", "recover"]);
+
+    expect(recovered.json.reason).toBe("config_recovery_required");
+    expect(recovered.json.blockers[0].nextAction).toStartWith(
+      `Run \`${invocation} config recover\`.`,
+    );
+
+    await rm(`${workspace.repo}/.operator/config.json`);
+    await rm(`${workspace.repo}/.operator/local/config-apply.json`);
+    const missing = await runJson(workspace, ["config", "show"]);
+
+    expect(missing.json.reason).toBe("not_configured");
+    expect(missing.json.blockers[0].nextAction).toBe(
+      `Run \`${invocation} setup plan\`, then apply the approved plan.`,
+    );
   });
 });

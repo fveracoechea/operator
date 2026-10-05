@@ -1,5 +1,6 @@
 import type { HerdrControl } from "../herdr-control/main.ts";
 import { OperativeDispatch } from "../operative-dispatch/main.ts";
+import type { SkillInstall } from "../skill-install/main.ts";
 import type {
   Brief,
   DispatchPlan,
@@ -272,9 +273,13 @@ type DispatchFacts = {
   parent?: Awaited<ReturnType<typeof HerdrControl.findPaneWorkspace>> | null;
   current?: Snapshot;
   integration?: { status: "ok"; start: string | null } | IntegrationRefusal | StateFailure;
+  /** The skill copies a new launch keeps from its commit. */
+  skills?: { status: "ok"; committed: CommittedSkills } | StateFailure;
   launch?: LaunchPlan;
   base?: { status: "ok"; base: BasePassed | null } | BaseGateRefusal | BaseUnread | StateFailure;
 };
+
+type CommittedSkills = Awaited<ReturnType<typeof SkillInstall.committedCopies>>;
 
 export type DispatchRefusal =
   | { status: "snapshot-drift"; attemptId: string; drift: SnapshotDrift[] }
@@ -307,6 +312,7 @@ export type Launch = {
 type DispatchDecision =
   | { refused: DispatchRefusal }
   | { need: "parent" | "current" | "integration" }
+  | { need: "skills"; baseCommit: string; agentHost: string | null }
   | {
       need: "launch";
       snapshot: Snapshot;
@@ -338,9 +344,14 @@ function snapshotOf(facts: DispatchFacts): Snapshot | null {
   if (facts.current === undefined) {
     return null;
   }
+  const committed = facts.skills?.status === "ok" ? facts.skills.committed : [];
+  const current =
+    committed.length === 0
+      ? facts.current
+      : { ...facts.current, skills: { ...facts.current.skills, committed } };
   return facts.parent?.status === "found"
-    ? { ...facts.current, parentWorkspaceId: facts.parent.value.workspaceId }
-    : facts.current;
+    ? { ...current, parentWorkspaceId: facts.parent.value.workspaceId }
+    : current;
 }
 
 // A correction of a landed commit takes the place of that commit, so it starts on the parent
@@ -463,6 +474,14 @@ const BASE_ROWS: ReadonlyArray<Row<Based, DispatchDecision>> = [
 ];
 
 const LAUNCH_ROWS: ReadonlyArray<Row<Based, DispatchDecision>> = [
+  // A new launch records the skill copies it keeps from its commit, so a recovery restores them.
+  ({ context, skills, snapshot, baseCommit }) => {
+    if (context.dispatch !== null) return null;
+    if (skills === undefined) {
+      return { need: "skills", baseCommit, agentHost: snapshot.selection.crew.host };
+    }
+    return skills.status === "ok" ? null : { refused: skills };
+  },
   ({ context, launch, snapshot, baseCommit, requested }) => {
     if (launch === undefined) {
       return {

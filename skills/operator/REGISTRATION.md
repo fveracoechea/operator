@@ -19,7 +19,7 @@ The input is a JSON file, or `-` to read standard input.
 
 `--plan` reads the tracker and changes nothing.
 It reports a summary: the counts of new, updated, unchanged, and withdrawn items, satisfied blockers, closed sub-issues, and refusals, the `planRevision`, and the `planPath`.
-The full plan is the file at `planPath`: every item in item order, every withdrawal, every satisfied blocker, and every refusal in item order and then by blocker key.
+The full plan is the file at `planPath`, a CLI output that you read: every item in item order, every withdrawal, every satisfied blocker, and every refusal in item order and then by blocker key.
 Do not read the whole file yourself.
 Give the path to the crew or the person who settles the refusals.
 

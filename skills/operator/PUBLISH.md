@@ -30,7 +30,7 @@ The reviewer wrote the title, the summary, where to start reading, the merge dan
 
 The report is a summary.
 It names the plan revision, the new remote branch, the target branch, the tip of the target, how far the target moved since the base, whether the head merges cleanly onto it, and each rule reading it could not verify.
-Every title and body is in the file it names under `.operator/local/publish-plans/`.
+Every title and body is in the plan file it names under `.operator/local/publish-plans/`, a CLI output that you read.
 Do not paste the body into the conversation.
 Point the person to that file.
 
@@ -179,7 +179,7 @@ bun run operator publish recall --source <source id> --json
 
 The plan names each open pull request from the part that holds the commit up. The parts below stay open.
 Each one gets one comment, which the CLI renders from the defect or the withdrawal record, so you write no reason.
-The report is a summary, and every comment is in the file it names under `.operator/local/publish-plans/`.
+The report is a summary, and every comment is in the plan file it names under `.operator/local/publish-plans/`, a CLI output that you read.
 Ask the person to read it and approve the exact request: action `stack-recall`, each pull request as `<owner>/<repo>#<n>`, the source as scope, and the recall plan revision as request revision.
 Then recall:
 
@@ -222,7 +222,7 @@ bun run operator work rebase --source <source id> --base <sha> --json
 
 The plan changes nothing that others read.
 Its report is a summary: the old and new base, how many commits leave the branch because their pull request merged, how many land again, how many are taken out, and the next place to gate.
-Every commit is in the file it names under `.operator/local/rebase-plans/`.
+Every commit is in the plan file it names under `.operator/local/rebase-plans/`, a CLI output that you read.
 Ask the person to read it and to approve the exact request it names: action `integration-rebase`, the old base and the new base as targets, the source as scope, and the plan revision as request revision.
 Then `crew next` offers `rebase_integration` with the command to run:
 

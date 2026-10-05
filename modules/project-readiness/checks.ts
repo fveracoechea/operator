@@ -221,7 +221,8 @@ function configurationCheck(observation: Observation): Check {
     return check("configuration", null, "", {
       reason: "invalid_configuration",
       detail: invalid.detail,
-      nextAction: `Correct ${CONFIG_PATH} yourself, then check again.`,
+      nextAction:
+        "Run `operator config show` to see each invalid field, ask the person what the configuration should hold, then check again.",
       conflict: true,
       paths: [CONFIG_PATH],
     });
@@ -276,7 +277,7 @@ function selectionCheck(observation: Observation, role: "operator" | "crew"): Ch
     return unmetCheck(name, null, "unverified", {
       reason: "host_unnamed",
       detail: `No session override and no project configuration names the ${role} host, so this selection cannot be checked.`,
-      nextAction: `Pass --${role}-host, or set ${role}.host in ${CONFIG_PATH}.`,
+      nextAction: `Pass --${role}-host, or plan ${role}.host with \`operator config plan --set ${role}.host=<host>\` and apply the approved plan.`,
     });
   }
 
@@ -350,7 +351,11 @@ function instructionCheck(observation: Observation, target: Target): Check {
   if (missing.length > 0) {
     return check("instruction-loading", target, "", {
       reason: "instructions_missing",
-      detail: `${target} does not load the Operator instructions from ${missing.join(" and ")}.`,
+      detail: observation.plan.changes.some(
+        (change) => change.code === "earlier_instructions_replaced",
+      )
+        ? `${INSTRUCTIONS_PATH} holds the Operator section of an earlier release, so ${target} does not load the instructions of this one.`
+        : `${target} does not load the Operator instructions from ${missing.join(" and ")}.`,
       nextAction: "Run `operator setup plan`, then apply the approved plan.",
       paths: missing,
     });

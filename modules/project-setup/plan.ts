@@ -9,6 +9,8 @@ export type SetupChange = {
   path: string;
   kind: "create" | "append" | "replace";
   reason: string;
+  /** Names a change that a reader such as readiness reports apart from the others. */
+  code?: "earlier_instructions_replaced";
   addedText: string;
   nextText: string;
   previousText: string | null;
@@ -52,9 +54,26 @@ const instructionsSection = [
   "",
   "This project is coordinated with Operator.",
   "Load the `operator` skill before you delegate work, change the crew configuration, or run a setup operation.",
-  "Operator configuration lives in `.operator/config.json`, which is local to this checkout and is not committed.",
+  "Read only these Operator files directly: your dispatch brief, its fixed artifacts, and each file a CLI result names.",
+  "Read and change all other Operator configuration and state through Operator CLI commands, such as `config show` and `config plan`.",
+  "You may write JSON requests for the `--input` of a command.",
+  "Operator configuration is local to this checkout and is not committed.",
   INSTRUCTIONS_END,
 ].join("\n");
+
+// The sections earlier releases wrote. Setup proposes this release's section in place of one of
+// them under the usual plan approval; any other text in the markers is a person's edit.
+const earlierSections = [
+  [
+    INSTRUCTIONS_BEGIN,
+    "## Operator",
+    "",
+    "This project is coordinated with Operator.",
+    "Load the `operator` skill before you delegate work, change the crew configuration, or run a setup operation.",
+    "Operator configuration lives in `.operator/config.json`, which is local to this checkout and is not committed.",
+    INSTRUCTIONS_END,
+  ].join("\n"),
+];
 
 const GIT_TIMEOUT_MS = 30_000;
 
@@ -205,8 +224,26 @@ async function planInstructions(projectRoot: string): Promise<PlanStep> {
     };
   }
 
-  // The marked section, markers included, must be exactly the one this release writes.
-  if (previousText.slice(begin, end + INSTRUCTIONS_END.length) !== instructionsSection) {
+  // Only a section that a release wrote is replaced; other text in the markers is a person's edit.
+  const section = previousText.slice(begin, end + INSTRUCTIONS_END.length);
+  if (earlierSections.includes(section)) {
+    const nextText =
+      previousText.slice(0, begin) +
+      instructionsSection +
+      previousText.slice(end + INSTRUCTIONS_END.length);
+    return {
+      change: {
+        path: INSTRUCTIONS_PATH,
+        kind: "replace",
+        reason: "Replace the Operator instruction section of an earlier release.",
+        code: "earlier_instructions_replaced",
+        addedText: instructionsSection,
+        nextText,
+        previousText,
+      },
+    };
+  }
+  if (section !== instructionsSection) {
     return {
       conflict: {
         reason: "instructions_modified",

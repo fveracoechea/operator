@@ -41,6 +41,8 @@ The CLI fixes where a dispatch starts. Name a commit only where this list says s
 - A correction of a landed commit starts on the parent of that commit, with no `--commit`, as [INVALIDATION.md](INVALIDATION.md) describes.
 - A review starts from the submitted commit.
 
+For a review and for a findings or diagnostic rework, the `dispatch_attempt` action of `crew next` names the submitted commit in its `command`, so you never read it from Git.
+
 A branch that holds any other commit than its recorded tip stops every production dispatch of its source with `integration_branch_moved`.
 The refusal names the recorded tip, the tip it found, and each worktree that has the branch checked out.
 You never reset the branch and never dispatch from the tip it found. Report both tips to the user, who puts the branch back.
@@ -58,6 +60,11 @@ Dispatch and replace of a production attempt refuse with `project_gate_missing`,
 The person commits the file, because setup does not write it and you commit nothing.
 Then dispatch from a commit that holds it.
 A review attempt reads no gate at dispatch, because its registered commands already permit the gate commands.
+
+## Skill copies come from the release
+
+Dispatch copies the skills of the selected release into each worktree, and it fails at `input_preparation` with `skill_copy_conflict` when the launch commit holds a different copy.
+A tracked copy that crew work changed after the integration base is not a conflict: the launch keeps that copy and records it, so a review reads the skill text the result wrote.
 
 ## Pending is the normal answer
 

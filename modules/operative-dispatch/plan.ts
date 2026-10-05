@@ -8,7 +8,12 @@ import {
   branchSnapshotSection,
   copiesOf as branchReviewCopiesOf,
 } from "./branch-review-brief.ts";
-import { type CommandRule, REFERENCE_RULE, ruleLines } from "./command-rules.ts";
+import {
+  ATTEMPT_REFERENCE_RULES,
+  type CommandRule,
+  REFERENCE_RULES,
+  ruleLines,
+} from "./command-rules.ts";
 import type { RoleCopies } from "./fixed-result.ts";
 import {
   type ReviewBrief,
@@ -27,6 +32,7 @@ import {
   reworkProtocolSection,
   reworkResultSection,
 } from "./rework-brief.ts";
+import type { RecordedSnapshot } from "./snapshot.ts";
 
 /**
  * The one role a brief gives its agent. A producer makes a result, a rework Operative corrects
@@ -83,7 +89,9 @@ export type Snapshot = {
     | { delivery: string | null; commit: string | null; packageVersion: string | null }
     | undefined;
   lock: { name: string | null; state: string; identity: string | null; path: string | null };
-  skills: { identity: string };
+  // `committed` names each skill copy the launch commit holds in place of the release copy,
+  // which crew work changed after the integration base. A launch with none leaves it out.
+  skills: { identity: string; committed?: RecordedSnapshot["skills"]["committed"] };
 };
 
 export type DispatchPlan = {
@@ -264,6 +272,7 @@ function questionSection(brief: Brief, invocation: string): string[] {
     `${invocation} question raise --request <a new identity you generate> --attempt ${brief.attemptId} --input <path> --json`,
     "```",
     "",
+    ...ruleLines(ATTEMPT_REFERENCE_RULES),
     "The report states the question, its evidence, its options, your recommendation, the scope that waits, and the work you continue meanwhile.",
     "Only that scope waits, so keep the independent work moving.",
     "Acknowledge the answer you receive before you act on it:",
@@ -272,6 +281,7 @@ function questionSection(brief: Brief, invocation: string): string[] {
     `${invocation} question acknowledge --request <a new identity you generate> --question <id> --json`,
     "```",
     "",
+    ...ruleLines(REFERENCE_RULES),
     "An answer never widens the authority limits above.",
     "",
     "A person may write to you directly in this terminal.",
@@ -322,7 +332,7 @@ function productionProtocolSection(brief: Brief, invocation: string): string[] {
     `${invocation} attempt acknowledge --request <a new identity you generate> --attempt ${brief.attemptId} --json`,
     "```",
     "",
-    ...ruleLines([REFERENCE_RULE]),
+    ...ruleLines(ATTEMPT_REFERENCE_RULES),
     "The Operator treats you as started only after that acknowledgement.",
     "Report progress, questions, and results through the Operator CLI, never through terminal text alone.",
     "",
@@ -332,7 +342,7 @@ function productionProtocolSection(brief: Brief, invocation: string): string[] {
     `${invocation} attempt submit --request <a new identity you generate> --attempt ${brief.attemptId} --input <path> --json`,
     "```",
     "",
-    ...ruleLines(brief.rules.submit),
+    ...ruleLines([...ATTEMPT_REFERENCE_RULES, ...brief.rules.submit]),
     ...gateLines(brief),
     "A submission is a handoff to a separate review, never accepted completion.",
     "",
@@ -450,6 +460,10 @@ function briefDocument(request: {
     `- Operator release: ${snapshot.release.version} (${snapshot.release.identity})`,
     `- Lock data: ${snapshot.lock.name ?? "none"} (${snapshot.lock.identity ?? "none"})`,
     `- Skills: ${snapshot.skills.identity}`,
+    ...(snapshot.skills.committed ?? []).map(
+      (one) =>
+        `- Skill copy changed after the integration base: ${one.path} (${one.identity ?? "no file"})`,
+    ),
     "",
     ...role.protocol,
   ].join("\n");

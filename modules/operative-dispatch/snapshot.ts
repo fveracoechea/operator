@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SkillInstall } from "../skill-install/main.ts";
 
 // The launch inputs a dispatch needs from a recorded snapshot. Unknown keys are kept, because the
 // record belongs to the release that wrote it and a recovery must not narrow it.
@@ -27,7 +28,10 @@ const snapshotSchema = z.looseObject({
     identity: z.string().nullable(),
     path: z.string().nullable(),
   }),
-  skills: z.looseObject({ identity: z.string() }),
+  skills: z.looseObject({
+    identity: z.string(),
+    committed: SkillInstall.committedCopiesSchema().optional(),
+  }),
 });
 
 export type RecordedSnapshot = z.infer<typeof snapshotSchema>;

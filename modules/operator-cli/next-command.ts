@@ -1,6 +1,5 @@
 import { CrewState } from "../crew-state/main.ts";
 import { ProjectReadiness } from "../project-readiness/main.ts";
-import { ReleaseInstall } from "../release-install/main.ts";
 import type { ParsedArguments } from "./arguments.ts";
 import { reportSharedFailure } from "./crew-result.ts";
 import { blockerData } from "./readiness-command.ts";
@@ -79,20 +78,9 @@ export async function runCrewNext(parsed: ParsedArguments): Promise<Handled> {
     return "reported";
   }
 
-  const selection = await ReleaseInstall.selection({ projectRoot: process.cwd() });
-  const invocation =
-    selection.state === "read" && selection.selection.delivery === "jsr"
-      ? "bun run operator"
-      : "operator";
-  const command = (text: string) => text.replace(/^operator(?=\s|$)/, invocation);
+  // Each command names the selected release through the one rendering of `report`.
   const { verdict, blockers, ...schedule } = result;
-  const actions = schedule.actions.map((action) => ({
-    ...action,
-    command: command(action.command),
-    planningRecords:
-      action.planningRecords?.map((one) => ({ ...one, command: command(one.command) })) ?? null,
-  }));
-  const { waits } = schedule;
+  const { actions, waits } = schedule;
   report({
     json: parsed.json,
     result: {
@@ -100,7 +88,7 @@ export async function runCrewNext(parsed: ParsedArguments): Promise<Handled> {
       reason: verdict.reason,
       blockers: [...readinessBlockers(readiness), ...blockers],
       operation: "crew_next",
-      data: { ...schedule, actions, readiness },
+      data: { ...schedule, readiness },
     },
     lines: [
       `Crew limit ${result.capacity.limit} (${result.capacity.limitSource}), review reserve ${result.capacity.reviewReserve}.`,

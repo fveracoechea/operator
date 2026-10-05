@@ -473,6 +473,7 @@ function usageToken(token: Token): string {
 export const usage = [
   "Usage:",
   "  operator --version [--json]",
+  "    Reports this release and the release this project selected: its state, delivery, version, commit, and invocation.",
   ...Object.entries(operations).flatMap(([words, entry]) =>
     entry.usage.map((tokens) =>
       ["  operator", words, ...tokens.map(usageToken), "[--json]"].join(" "),

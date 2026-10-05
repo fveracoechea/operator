@@ -20,7 +20,7 @@ The command reads the machine and the project and writes nothing.
 Each field is resolved on its own, in this order.
 
 1. The session override flags: `--operator-host`, `--operator-model`, `--crew-host`, `--crew-model`.
-2. The project configuration in `.operator/config.json`.
+2. The project configuration, which `bun run operator config show --json` reports.
 3. The host default. A missing Crew host follows the Operator host. A missing model stays with the selected host default, never the Operator model.
 
 Operator never substitutes a host or a model.
@@ -73,7 +73,7 @@ The plan shows what the run would use, before anything launches.
 Show the whole plan to the user and get their approval before you apply it.
 The approval is bound to the plan revision, so a change to the project, the selection, or what the plan declares makes a new `probeId` and refuses the old approval.
 
-The probe acts only on resources it makes for itself and on the fixture named by `probe.githubFixture` in `.operator/config.json`.
+The probe acts only on resources it makes for itself and on the fixture that `probe.githubFixture` names in the project configuration.
 A project with no fixture keeps every GitHub check skipped, so it stays unverified until the user names one.
 Use the configuration commands in [SETUP.md](SETUP.md) to plan and apply the fixture fields.
 
@@ -100,7 +100,8 @@ Another apply waits until the interrupted resources are settled or cancelled.
 
 ## Recorded evidence
 
-A live probe records each attempt in `.operator/local/readiness.json`.
+A live probe records each attempt in the readiness evidence of the project.
+Read that evidence only through `setup readiness` and `crew next`.
 Attempts are appended and never rewritten, and each observation holds its state, the versions and inputs it ran against, its outputs, its evidence, and the state of what it left behind.
 A record that names no approved probe has no provenance, and the whole file is then refused.
 

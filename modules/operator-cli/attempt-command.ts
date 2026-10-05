@@ -239,7 +239,7 @@ const dispatchRefusals = {
     detail: { attemptId: result.attemptId },
     lines: [
       "No crew host is selected, so this release cannot choose one for you.",
-      "Set `crew.host` in the Operator configuration, or pass `--crew-host`.",
+      "Plan `crew.host` with `operator config plan --set crew.host=<host>` and apply the approved plan, or pass `--crew-host`.",
     ],
   }),
   "effort-unsupported": (result) => ({

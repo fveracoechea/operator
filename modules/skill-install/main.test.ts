@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 // Bun has no recursive directory removal API.
 import { rm, symlink } from "node:fs/promises";
+import { ContentIdentity } from "../content-identity/main.ts";
 import { SkillInstall } from "./main.ts";
 
 const cliPath = new URL("../../cli.ts", import.meta.url).pathname;
@@ -138,6 +139,93 @@ describe("Operator release skill contents", () => {
 
     expect(first).toMatch(/^[0-9a-f]{64}$/);
     expect(second).toBe(first);
+  });
+});
+
+describe("skill copies a commit holds in place of the release", () => {
+  test("names each copy changed after the approved commit, and keeps only those", async () => {
+    const root = await makeProject();
+    const git = (args: string[]) =>
+      Bun.$`git -C ${root} -c user.email=t@example.com -c user.name=Test ${args}`.quiet();
+    const head = async () => (await git(["rev-parse", "HEAD"])).text().trim();
+    await git(["init", "-q"]);
+    await SkillInstall.run({ projectRoot: root, targets: ["claude-code"] });
+    // A person changed this copy before the approved commit, so it stays a conflict.
+    await Bun.write(`${root}/.claude/skills/bun/SKILL.md`, "# A person's edit\n");
+    await git(["add", "-A"]);
+    await git(["commit", "-qm", "approved"]);
+    const approved = await head();
+    await Bun.write(`${root}/.claude/skills/operative/SKILL.md`, "# A crew edit\n");
+    await Bun.write(`${root}/.claude/skills/operator/NEW.md`, "# A new topic\n");
+    await rm(`${root}/.claude/skills/operator/WAKE.md`);
+    await Bun.write(`${root}/.claude/skills/bun/SKILL.md`, "# A crew edit\n");
+    await git(["add", "-A"]);
+    await git(["commit", "-qm", "work"]);
+
+    const committed = await SkillInstall.committedCopies({
+      projectRoot: root,
+      target: "claude-code",
+      base: approved,
+      commit: await head(),
+    });
+
+    expect(committed).toEqual([
+      {
+        path: ".claude/skills/operative/SKILL.md",
+        identity: ContentIdentity.ofText("# A crew edit\n"),
+      },
+      {
+        path: ".claude/skills/operator/NEW.md",
+        identity: ContentIdentity.ofText("# A new topic\n"),
+      },
+      { path: ".claude/skills/operator/WAKE.md", identity: null },
+    ]);
+    const inspected = await SkillInstall.inspect({
+      projectRoot: root,
+      targets: ["claude-code"],
+      committed,
+    });
+    expect(inspected.conflicts).toEqual([
+      { skill: "bun", target: "claude-code", paths: [".claude/skills/bun/SKILL.md"] },
+    ]);
+  });
+});
+
+describe("a skill directory that crew work removed", () => {
+  test("stays removed, because its removal is a committed change", async () => {
+    const root = await makeProject();
+    const git = (args: string[]) =>
+      Bun.$`git -C ${root} -c user.email=t@example.com -c user.name=Test ${args}`.quiet();
+    const head = async () => (await git(["rev-parse", "HEAD"])).text().trim();
+    await git(["init", "-q"]);
+    await SkillInstall.run({ projectRoot: root, targets: ["claude-code"] });
+    await git(["add", "-A"]);
+    await git(["commit", "-qm", "base"]);
+    const base = await head();
+    const released = await filesUnder(`${root}/.claude/skills/operator`);
+    await rm(`${root}/.claude/skills/operator`, { recursive: true });
+    await git(["add", "-A"]);
+    await git(["commit", "-qm", "work"]);
+
+    const committed = await SkillInstall.committedCopies({
+      projectRoot: root,
+      target: "claude-code",
+      base,
+      commit: await head(),
+    });
+    const copied = await SkillInstall.run({
+      projectRoot: root,
+      targets: ["claude-code"],
+      committed,
+    });
+
+    expect(committed).toEqual(
+      released.map((path) => ({ path: `.claude/skills/operator/${path}`, identity: null })),
+    );
+    expect(copied.conflicts).toEqual([]);
+    expect(copied.installed).toEqual([]);
+    // The checkout holds exactly the reviewed commit, with no skill copy written back.
+    expect((await git(["status", "--porcelain", "--untracked-files=all"])).text()).toBe("");
   });
 });
 

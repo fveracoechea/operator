@@ -27,14 +27,34 @@ function planData(plan: Plan) {
   };
 }
 
-function planLines(plan: Plan): string[] {
+/** Repeats the edits that produced this plan, so the next command names the same change. */
+function editWords(parsed: ParsedArguments): string[] {
+  // A value with a shell character is quoted, so the printed command runs as shown.
+  const word = (text: string) =>
+    /^[\w./=:@+,-]+$/.test(text) ? text : `'${text.replaceAll("'", `'\\''`)}'`;
+  return [
+    ...parsed.configSets.map((edit) => `--set ${word(edit)}`),
+    ...parsed.configUnsets.map((path) => `--unset ${word(path)}`),
+  ];
+}
+
+/**
+ * The plan and the one step that follows it. Only `config plan` prints the approval command,
+ * because the person approves the plan it shows. A refused apply points to a new plan, so an
+ * agent never approves a changed plan in place of the person.
+ */
+function planLines(parsed: ParsedArguments, plan: Plan, step: "approve" | "plan-again"): string[] {
+  const approve = ["operator config apply", ...editWords(parsed), `--approved-plan ${plan.planId}`];
+  const planAgain = ["operator config plan", ...editWords(parsed)];
   return [
     `Configuration plan ${plan.planId}: ${plan.changed ? "change" : "no change"} to ${plan.path}.`,
     `Current file (${plan.previousIdentity}):`,
     plan.previousText,
     `Proposed file (${plan.nextIdentity}):`,
     plan.nextText,
-    "Apply this plan with the same --set and --unset flags and --approved-plan <planId>.",
+    step === "approve"
+      ? `Approve with: ${approve.join(" ")}`
+      : `Make a new plan and show it to the person for approval: ${planAgain.join(" ")}`,
   ];
 }
 
@@ -46,28 +66,35 @@ function failure(
     | { status: "invalid"; issues: string[] }
     | { status: "invalid-input"; issues: string[] },
 ): Refusal {
-  const missing = result.status === "missing";
+  if (result.status === "missing") {
+    const issues = ["This project has no Operator configuration."];
+    // The JSON writer gives a next action the project invocation, so the command runs as shown.
+    const nextAction = "Run `operator setup plan`, then apply the approved plan.";
+    return {
+      outcome: "missing-condition",
+      reason: "not_configured",
+      detail: { path: OperatorConfig.configPath(), issues, nextAction },
+      lines: [...issues, nextAction],
+    };
+  }
   const invalidInput = result.status === "invalid-input";
-  const reason = missing
-    ? "not_configured"
-    : invalidInput
-      ? "invalid_config_change"
-      : "invalid_configuration";
-  const issues = missing ? ["Run operator setup first."] : result.issues;
   return {
-    outcome: missing ? "missing-condition" : invalidInput ? "invalid" : "conflict",
-    reason,
-    detail: { path: OperatorConfig.configPath(), issues },
-    lines: issues,
+    outcome: invalidInput ? "invalid" : "conflict",
+    reason: invalidInput ? "invalid_config_change" : "invalid_configuration",
+    detail: { path: OperatorConfig.configPath(), issues: result.issues },
+    lines: result.issues,
   };
 }
+
+const RECOVER_ACTION =
+  "Run `operator config recover`. If it still refuses, ask the person what the configuration should hold.";
 
 function recovery(detail: string): Refusal {
   return {
     outcome: "conflict",
     reason: "config_recovery_required",
-    detail: { detail },
-    lines: [detail, "Inspect the configuration and the apply record before retrying."],
+    detail: { detail, nextAction: RECOVER_ACTION },
+    lines: [detail, RECOVER_ACTION],
   };
 }
 
@@ -131,7 +158,7 @@ export async function runPlan(parsed: ParsedArguments): Promise<void> {
       operation: "config_plan",
       data: planData(result),
     },
-    lines: planLines(result),
+    lines: planLines(parsed, result, "approve"),
   });
 }
 
@@ -146,8 +173,8 @@ function applyRefusals(parsed: ParsedArguments) {
     "write-failed": (result) => ({
       outcome: "failed",
       reason: "config_write_failed",
-      detail: { detail: result.detail },
-      lines: [result.detail, "Inspect the configuration and the apply record before retrying."],
+      detail: { detail: result.detail, nextAction: RECOVER_ACTION },
+      lines: [result.detail, RECOVER_ACTION],
     }),
     ...approvalRefusals((result: Extract<Applied, { status: `approval-${string}` }>) => ({
       ids: { approvedPlanId: parsed.approvedPlan ?? null, currentPlanId: result.plan.planId },
@@ -156,7 +183,7 @@ function applyRefusals(parsed: ParsedArguments) {
         required: "Approval is required. Nothing was written.",
         stale: "The file or proposed edit changed. Nothing was written.",
       },
-      lines: planLines(result.plan),
+      lines: planLines(parsed, result.plan, "plan-again"),
       data: planData(result.plan),
     })),
   } satisfies Refusals<Applied>;

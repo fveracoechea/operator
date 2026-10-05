@@ -34,7 +34,10 @@ export const ReleaseInstall = {
     return { selection: SELECTION_PATH };
   },
 
-  /** Reads the exact release this project selected. Writes nothing. */
+  /**
+   * Reads the exact release this project selected: `missing`, `unreadable` with its detail, or
+   * `selected` with the record. A caller learns the selection here and never opens the file.
+   */
   async selection(request: { projectRoot: string }) {
     return readSelection(request.projectRoot);
   },

@@ -39,8 +39,11 @@ async function runImportedOperator(args: string[]) {
       process.execPath,
       "--no-install",
       "-e",
-      'import { main } from "@fveracoechea/operator/cli"; await main(Bun.argv.slice(1));',
+      // The package resolves from the repository root, and the command then runs outside any
+      // project, so the repository's own release selection never reaches it.
+      'import { main } from "@fveracoechea/operator/cli"; process.chdir(Bun.argv[1]); await main(Bun.argv.slice(2));',
       "--",
+      outsideProject,
       ...args,
     ],
     {
@@ -66,7 +69,7 @@ describe("Operator CLI", () => {
     expect(result).toEqual({
       exitCode: 0,
       stderr: "",
-      stdout: `operator ${packageJson.version}\n`,
+      stdout: `operator ${packageJson.version}\nSelection: missing. This project selected no release.\n`,
     });
   });
 
@@ -85,6 +88,7 @@ describe("Operator CLI", () => {
         data: {
           operatorVersion: packageJson.version,
           bunVersion: Bun.version,
+          selection: { state: "missing" },
         },
       })}\n`,
     });
@@ -104,6 +108,7 @@ describe("Operator CLI", () => {
       data: {
         operatorVersion: packageJson.version,
         bunVersion: Bun.version,
+        selection: { state: "missing" },
       },
     });
   });

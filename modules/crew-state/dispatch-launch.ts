@@ -24,6 +24,7 @@ import {
 } from "./dispatch-context.ts";
 import { checkBaseGate } from "./gate-base.ts";
 import {
+  committedSkillsOf,
   createIntegrationBranch,
   type IntegrationFix,
   type IntegrationRefusal,
@@ -103,6 +104,16 @@ async function gather(
           attemptId,
           requested: request.baseCommit,
           planned: context.dispatch !== null,
+        }),
+      };
+    case "skills":
+      return {
+        ...facts,
+        skills: await committedSkillsOf({
+          projectRoot,
+          sourceId: context.assignment.sourceId,
+          agentHost: need.agentHost,
+          commit: need.baseCommit,
         }),
       };
     case "launch":

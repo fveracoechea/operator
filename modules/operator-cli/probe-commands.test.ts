@@ -737,6 +737,12 @@ describe("operator setup probe apply", () => {
       expect(result.exitCode).toBe(3);
       expect(result.json.reason).toBe("probe_incomplete");
       expect(observed(result.json, "github-comment")).toMatchObject({ state: "skipped" });
+      expect(observed(result.json, "github-comment")?.detail).toContain(
+        "`operator config plan --set probe.githubFixture.repository=<owner/repo> --set probe.githubFixture.issue=<number>`",
+      );
+      expect(observed(result.json, "github-comment")?.detail).toContain(
+        "`operator config apply`, the same `--set` flags, and `--approved-plan <planId>`.",
+      );
       expect((await githubCalls(bare)).filter((one) => !one.endsWith("--version"))).toEqual([]);
       const readiness = await runJson(bare, ["setup", "readiness", ...selection]);
       expect(readiness.json.data.state).toBe("unverified");
