@@ -51,7 +51,7 @@ import {
   publishLaneOf,
   retargetsDue,
 } from "./publish-status.ts";
-import { latestSubmission, submittedCommit } from "./submission.ts";
+import { latestSubmission, readSubmission, submittedCommit } from "./submission.ts";
 import {
   readBinding,
   TRACKER_STEPS,
@@ -662,6 +662,33 @@ function tipStartOf(
       };
 }
 
+/**
+ * The submitted commit that a launch names with `--commit`: the result a review reads, or the
+ * result a findings or diagnostic cycle reworks. The attempt that submitted it has ended, so
+ * `crew next` is where the Operator reads it. Null for every other launch.
+ */
+function submittedStartOf(
+  db: CrewReader,
+  assignment: { id: string; kind: string },
+): { commit: string; role: string } | null {
+  if (isReview(assignment.kind)) {
+    const review = reviewOfAssignment(db, assignment.id);
+    const submission =
+      review?.submissionId == null ? null : readSubmission(db, review.submissionId);
+    const commit = submission === null ? null : submittedCommit(submission);
+    return commit === null ? null : { commit, role: "This review reads the submitted commit" };
+  }
+  const cycle = openCycleOf(db, assignment.id);
+  if (cycle === null || (cycle.reason !== "findings" && cycle.reason !== "diagnostic")) {
+    return null;
+  }
+  const submission = readSubmission(db, cycle.submissionId);
+  const commit = submission === null ? null : submittedCommit(submission);
+  return commit === null
+    ? null
+    : { commit, role: `This ${cycle.reason} cycle reworks the submitted commit` };
+}
+
 const LAUNCHING = "This launch is planned and has not finished every effect.";
 
 /** What a claimed attempt with no plan starts from, which its dispatch command follows. */
@@ -669,10 +696,14 @@ function claimedDetail(request: {
   baseGate: { gate: BaseGate } | null;
   integration: { recordedTip: string; place: string } | null;
   branchHead: string | null;
+  submitted: { commit: string; role: string } | null;
 }): string {
   const base = request.baseGate?.gate;
   if (base?.status === "passed") {
     return `This assignment is claimed and has no Operative yet. The integration base passed the gate at commit ${base.commit} in gate run ${base.run.id}, so dispatch from that commit.`;
+  }
+  if (request.submitted !== null) {
+    return `This assignment is claimed and has no Operative yet. ${request.submitted.role} ${request.submitted.commit}, so dispatch with --commit ${request.submitted.commit}.`;
   }
   if (request.integration !== null) {
     return `This assignment is claimed and has no Operative yet. It starts from ${request.integration.recordedTip}, ${request.integration.place}, so dispatch with no --commit.`;
@@ -696,6 +727,8 @@ function readActiveAttempt(
     integration: { name: string; recordedTip: string; place: string } | null;
     /** The head a branch review reads, or null for every other assignment. */
     branchHead: string | null;
+    /** The submitted commit a review or a findings or diagnostic cycle starts from, or null. */
+    submitted: { commit: string; role: string } | null;
   },
   into: Collector,
 ): void {
@@ -742,7 +775,11 @@ function readActiveAttempt(
       assignmentId: request.assignmentId,
       attemptId: request.attemptId,
       detail: launch === "launching" ? LAUNCHING : claimedDetail(request),
-      command: "operator attempt dispatch",
+      // A new launch of submitted work names its commit, which no other record shows the Operator.
+      command:
+        launch === "unplanned" && request.submitted !== null
+          ? `operator attempt dispatch --attempt ${request.attemptId} --commit ${request.submitted.commit}`
+          : "operator attempt dispatch",
     });
     return;
   }
@@ -1551,6 +1588,7 @@ function readAttempt(
           : null,
         integration: tipStartOf(db, assignment),
         branchHead: branchHeadOf(db, assignment.id),
+        submitted: submittedStartOf(db, assignment),
       },
       into,
     );

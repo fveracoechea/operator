@@ -44,6 +44,7 @@ A one-agent crew can therefore run the reviewer at once.
 
 Claim and dispatch the review assignment like any other.
 Start it from the commit the submission recorded.
+The `dispatch_attempt` action of `crew next` names that commit in its `command`.
 Exit 4 with `review_base_changed` means you named a different commit, and review inputs stay fixed.
 
 The reviewer loads the existing `code-review` skill and runs the Standards and Spec axes as native sub-agents of its own host.
