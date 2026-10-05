@@ -352,7 +352,7 @@ function instructionCheck(observation: Observation, target: Target): Check {
     return check("instruction-loading", target, "", {
       reason: "instructions_missing",
       detail: observation.plan.changes.some(
-        (change) => change.path === INSTRUCTIONS_PATH && change.kind === "replace",
+        (change) => change.code === "earlier_instructions_replaced",
       )
         ? `${INSTRUCTIONS_PATH} holds the Operator section of an earlier release, so ${target} does not load the instructions of this one.`
         : `${target} does not load the Operator instructions from ${missing.join(" and ")}.`,

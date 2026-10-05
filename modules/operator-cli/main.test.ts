@@ -66,7 +66,7 @@ describe("Operator CLI", () => {
     expect(result).toEqual({
       exitCode: 0,
       stderr: "",
-      stdout: `operator ${packageJson.version}\n`,
+      stdout: `operator ${packageJson.version}\nSelection: missing. This project selected no release.\n`,
     });
   });
 

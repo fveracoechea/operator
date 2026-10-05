@@ -19,6 +19,7 @@ Run `bun run operator --version --json` from the project root to choose the invo
 `data.selection` reports the selected `delivery`, `version`, `commit`, and `packageVersion`, and the `invocation` that runs Operator in this project.
 A project with no `operator` script gets the same report from `bunx github:fveracoechea/operator --version --json`.
 When `data.selection.state` is `missing`, use the JSR project script to set up the project and select the release.
+When `data.selection.state` is `unreadable`, give `data.selection.detail` to the user, ask the user to correct the selection, and run the report again.
 For `jsr`, the invocation is `bun run operator`, which the project defines in `package.json` for its JSR devDependency.
 For `github-source`, it is `bunx "github:fveracoechea/operator#<full-commit>"` at the selected `commit`.
 The examples below show the JSR command.

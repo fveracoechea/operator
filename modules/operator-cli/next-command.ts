@@ -81,7 +81,7 @@ export async function runCrewNext(parsed: ParsedArguments): Promise<Handled> {
 
   const selection = await ReleaseInstall.selection({ projectRoot: process.cwd() });
   const invocation =
-    selection.state === "read" && selection.selection.delivery === "jsr"
+    selection.state === "selected" && selection.selection.delivery === "jsr"
       ? "bun run operator"
       : "operator";
   const command = (text: string) => text.replace(/^operator(?=\s|$)/, invocation);

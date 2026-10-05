@@ -118,7 +118,9 @@ describe("the GitHub source delivery path", () => {
     const machine = await run(["./node_modules/.bin/operator", "--version", "--json"], consumer);
 
     expect(readable.exitCode).toBe(0);
-    expect(readable.stdout.trim()).toBe(`operator ${version}`);
+    expect(readable.stdout).toBe(
+      `operator ${version}\nSelection: missing. This project selected no release.\n`,
+    );
     expect(JSON.parse(machine.stdout).data).toMatchObject({ operatorVersion: version });
   });
 
@@ -254,8 +256,8 @@ describe("the JSR delivery path", () => {
       selection: { state: "selected", delivery: "jsr", invocation: "bun run operator" },
     });
     const selected = await ReleaseInstall.selection({ projectRoot: project });
-    expect(selected.state).toBe("read");
-    if (selected.state !== "read") return;
+    expect(selected.state).toBe("selected");
+    if (selected.state !== "selected") return;
     expect(ReleaseInstall.commands({ selection: selected.selection }).run).toBe(
       "bun run operator <operation>",
     );
@@ -330,7 +332,7 @@ describe("the JSR delivery path", () => {
         selectionPath,
         JSON.stringify({ ...selected, releaseIdentity: "9".repeat(64) }),
       );
-      expect((await ReleaseInstall.selection({ projectRoot: project })).state).toBe("read");
+      expect((await ReleaseInstall.selection({ projectRoot: project })).state).toBe("selected");
       const refused = await run(
         [...launcher, "setup", "probe", "apply", "--claude", "--approved-probe", "wrong", "--json"],
         project,

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test as bunTest } from "bun:test";
 // Bun has no file removal API.
 import { rm } from "node:fs/promises";
-import { runJson, runOperator, workspaces } from "./workspace-fixture.ts";
+import { runJson, runOperator, type Workspace, workspaces } from "./workspace-fixture.ts";
 
 // Config tests run multiple CLI processes against a project fixture.
 // Each test states its own bound, because a process-wide default would set the bound of every
@@ -397,5 +397,80 @@ describe("operator config", () => {
     ]);
     expect(result.exitCode).toBe(2);
     expect(JSON.parse(result.stdout).reason).toBe("invalid_arguments");
+  });
+});
+
+describe("operator config in a project that selected a source release", () => {
+  const commit = "d".repeat(40);
+  const invocation = `bunx "github:fveracoechea/operator#${commit}"`;
+
+  /** Records the source release through an approved update, as a person does. */
+  async function selectSource(workspace: Workspace): Promise<void> {
+    const planned = await runJson(workspace, ["update", "plan", "--claude", "--commit", commit]);
+    await runJson(workspace, [
+      "update",
+      "apply",
+      "--claude",
+      "--commit",
+      commit,
+      "--approved-update",
+      planned.json.data.updateId,
+    ]);
+  }
+
+  test("names the exact apply command that the person approves", async () => {
+    const workspace = await fixtures.make({
+      config: {
+        crew: { host: "opencode", model: "openai/gpt-6-sol" },
+        probe: { githubFixture: { repository: "owner/repo", issue: 50 } },
+      },
+    });
+    await selectSource(workspace);
+    const edits = ["--set", "crew.reasoningEffort=high", "--unset", "probe.githubFixture"];
+
+    const planned = await runJson(workspace, ["config", "plan", ...edits]);
+    const shown = await runOperator(workspace, ["config", "plan", ...edits]);
+
+    const approve = `Approve with: ${invocation} config apply --set crew.reasoningEffort=high --unset probe.githubFixture --approved-plan ${planned.json.data.planId}`;
+    expect(shown.stdout.split("\n")).toContain(approve);
+    // The printed command runs as shown.
+    const words = approve.slice(`Approve with: ${invocation} `.length).split(" ");
+    const applied = await runJson(workspace, words);
+    expect(applied.json.reason).toBe("config_applied");
+  });
+
+  test("gives the setup and recovery next actions the project invocation", async () => {
+    const workspace = await fixtures.make();
+    await selectSource(workspace);
+    const plan = await runJson(workspace, ["config", "plan", "--set", "crew.reasoningEffort=high"]);
+    await Bun.write(
+      `${workspace.repo}/.operator/local/config-apply.json`,
+      JSON.stringify({
+        planId: plan.json.data.planId,
+        generation: null,
+        editsIdentity: plan.json.data.editsIdentity,
+        previousIdentity: plan.json.data.previousIdentity,
+        nextIdentity: plan.json.data.nextIdentity,
+        state: "pending",
+      }),
+      { createPath: true },
+    );
+    await Bun.write(`${workspace.repo}/.operator/config.json`, '{"crew":{"host":"opencode"}}\n');
+
+    const recovered = await runJson(workspace, ["config", "recover"]);
+
+    expect(recovered.json.reason).toBe("config_recovery_required");
+    expect(recovered.json.blockers[0].nextAction).toStartWith(
+      `Run \`${invocation} config recover\`.`,
+    );
+
+    await rm(`${workspace.repo}/.operator/config.json`);
+    await rm(`${workspace.repo}/.operator/local/config-apply.json`);
+    const missing = await runJson(workspace, ["config", "show"]);
+
+    expect(missing.json.reason).toBe("not_configured");
+    expect(missing.json.blockers[0].nextAction).toBe(
+      `Run \`${invocation} setup plan\`, then apply the approved plan.`,
+    );
   });
 });

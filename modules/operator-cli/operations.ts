@@ -473,13 +473,13 @@ function usageToken(token: Token): string {
 export const usage = [
   "Usage:",
   "  operator --version [--json]",
+  "    Reports this release and the release this project selected: its state, delivery, version, commit, and invocation.",
   ...Object.entries(operations).flatMap(([words, entry]) =>
     entry.usage.map((tokens) =>
       ["  operator", words, ...tokens.map(usageToken), "[--json]"].join(" "),
     ),
   ),
   "",
-  "`--version --json` also reports the release this project selected and the command that runs it.",
   "A host is `opencode` or `claude-code`.",
   "A delivery path is `github-source` or `jsr`; `jsr` also needs an exact package version.",
   "Config fields: operator.host/model, crew.host/model/reasoningEffort/maxActiveAgents, probe.githubFixture.repository/issue/mapIssue.",

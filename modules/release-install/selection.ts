@@ -44,7 +44,7 @@ export function issueLines(error: z.ZodError): string[] {
 export type SelectionRead =
   | { state: "missing" }
   | { state: "unreadable"; detail: string }
-  | { state: "read"; selection: ReleaseSelection };
+  | { state: "selected"; selection: ReleaseSelection };
 
 export async function readSelection(projectRoot: string): Promise<SelectionRead> {
   const file = Bun.file(`${projectRoot}/${SELECTION_PATH}`);
@@ -61,7 +61,7 @@ export async function readSelection(projectRoot: string): Promise<SelectionRead>
 
   const result = selectionSchema.safeParse(parsed);
   return result.success
-    ? { state: "read", selection: result.data }
+    ? { state: "selected", selection: result.data }
     : { state: "unreadable", detail: issueLines(result.error).join("; ") };
 }
 

@@ -369,6 +369,8 @@ The Operative never opens it: the brief and the CLI results carry every fact it 
 A file that a CLI result names by path, such as a registration, publish, or rebase plan file.
 An agent reads it as part of that result.
 It is not Operator-owned state, and the agent never changes it.
+The text that a command prints is the CLI result, not a CLI output.
+_Avoid_: stdout, result file, artifact
 
 **Axis report**:
 One half of a result review or a branch review, written by one native sub-agent of the reviewer host.

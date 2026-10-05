@@ -313,7 +313,9 @@ A merge before the recall ends the change: the defect becomes a new issue, which
 A moved target branch never changes an accepted patch by itself.
 The integration base changes only through a rebase that you approve.
 The Operator proposes a rebase when the head does not merge cleanly onto the target, when you want a newer target, or after you settled each stack fault of a publication.
-`work rebase --source <source> --base <sha>` plans it, changes nothing, and writes every commit to a plan file under `.operator/local/rebase-plans/`, a CLI output that the result names.
+`work rebase --source <source> --base <sha>` plans it and changes nothing.
+It writes every commit to a plan file under `.operator/local/rebase-plans/`.
+That plan file is a CLI output, and the result names it.
 Your `integration-rebase` approval names the old base, the new base, and the plan revision.
 The new base and each commit that lands again pass the project gate first, in order.
 A commit whose pull request merged leaves the branch. A commit whose patch changes on the new base is taken out and comes back through an integration cycle.
@@ -391,7 +393,11 @@ The waits and the actions of one rank keep the order of the readers.
 ## CLI conventions
 
 Use `bun run operator --version` for human output or `bun run operator --version --json` for the versioned machine result from a target project root.
-The machine result also reports the release the project selected under `data.selection`: its `delivery`, `version`, `commit`, `packageVersion`, and the `invocation` that runs Operator in the project.
+Both forms also report the release that the project selected.
+The machine result puts it under `data.selection`.
+Its `state` is `selected`, `missing`, or `unreadable`.
+A selected release also has its `delivery`, `version`, `commit`, and `packageVersion`.
+Its `invocation` is the command that runs Operator in the project.
 The package also exports `main(args)` from `@fveracoechea/operator/cli`.
 
 The exit meanings are the same for every command.
@@ -414,7 +420,8 @@ After an identity records an outcome, the CLI refuses the same identity with dif
 A request that takes a JSON file with `--input` also reads standard input when you pass `-`.
 
 An agent reads and changes Operator configuration and state only through CLI commands.
-It reads its dispatch brief, the fixed artifacts the brief names, and each file a CLI result names, such as `planPath` and the publish and rebase plan files.
+It reads its dispatch brief and the fixed artifacts that the brief names.
+It also reads each file that a CLI result names, such as `planPath` and the publish and rebase plan files.
 Those files are CLI outputs, not state to change.
 An agent may write the JSON request that a command reads with `--input`.
 The marked section that setup writes in `AGENTS.md` states this rule.
@@ -761,7 +768,8 @@ A claim recomputes the same frontier, so it can never take work the frontier wit
 When two claims race, one caller gets the assignment, and the other names the attempt that already holds it.
 
 The crew limit is three active agents by default.
-Change it with `bun run operator config plan --set crew.maxActiveAgents=<n>`, then apply the approved plan with `bun run operator config apply`.
+Plan the change with `bun run operator config plan --set crew.maxActiveAgents=<n>`.
+Apply it with `bun run operator config apply`, the same `--set` flag, and `--approved-plan <planId>`.
 A limit of two or more keeps one slot for review, so production work never fills the crew.
 A limit of one runs one assignment at a time.
 The frontier offers queued review before new production work.

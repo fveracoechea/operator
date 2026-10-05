@@ -1177,6 +1177,9 @@ describe("operator setup probe", () => {
     expect(shown.json.data.credentials.join(" ")).toContain(
       `\`bunx "github:fveracoechea/operator#${SELECTED_COMMIT}" config plan --set probe.githubFixture.repository=<owner/repo> --set probe.githubFixture.issue=<number>\``,
     );
+    expect(shown.json.data.credentials.join(" ")).toContain(
+      `\`bunx "github:fveracoechea/operator#${SELECTED_COMMIT}" config apply\`, the same \`--set\` flags, and \`--approved-plan <planId>\`.`,
+    );
     expect(shown.json.data.cleanup.join(" ")).toContain("removes no Operative worktree");
   });
 

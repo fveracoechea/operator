@@ -245,7 +245,7 @@ export async function computeUpdatePlan(request: UpdateRequest): Promise<UpdateP
   };
 
   const plan: UpdatePlanBody = {
-    from: recorded.state === "read" ? recorded.selection : null,
+    from: recorded.state === "selected" ? recorded.selection : null,
     to,
     targets: request.targets.toSorted(),
     skills: { install: skills.missing, conflicts: skills.conflicts },

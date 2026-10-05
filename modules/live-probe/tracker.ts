@@ -519,7 +519,7 @@ export async function runTrackerChecks(request: {
       staged: TRACKER_CHECKS.map((name) =>
         skipped(
           name,
-          "No probe fixture is configured, so this check reached no tracker. Plan it with `operator config plan --set probe.githubFixture.repository=<owner/repo> --set probe.githubFixture.issue=<number>`, add `--set probe.githubFixture.mapIssue=<number>` for a separate map issue, then apply the approved plan with `operator config apply`.",
+          "No probe fixture is configured, so this check reached no tracker. Plan the fixture with `operator config plan --set probe.githubFixture.repository=<owner/repo> --set probe.githubFixture.issue=<number>`. Add `--set probe.githubFixture.mapIssue=<number>` when the map issue is a different issue. Apply the plan with `operator config apply`, the same `--set` flags, and `--approved-plan <planId>`.",
         ),
       ),
       resources: [],

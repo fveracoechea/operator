@@ -9,6 +9,8 @@ export type SetupChange = {
   path: string;
   kind: "create" | "append" | "replace";
   reason: string;
+  /** Names a change that a reader such as readiness reports apart from the others. */
+  code?: "earlier_instructions_replaced";
   addedText: string;
   nextText: string;
   previousText: string | null;
@@ -222,7 +224,7 @@ async function planInstructions(projectRoot: string): Promise<PlanStep> {
     };
   }
 
-  // The marked section, markers included, must be exactly the one this release writes.
+  // Only a section that a release wrote is replaced; other text in the markers is a person's edit.
   const section = previousText.slice(begin, end + INSTRUCTIONS_END.length);
   if (earlierSections.includes(section)) {
     const nextText =
@@ -234,6 +236,7 @@ async function planInstructions(projectRoot: string): Promise<PlanStep> {
         path: INSTRUCTIONS_PATH,
         kind: "replace",
         reason: "Replace the Operator instruction section of an earlier release.",
+        code: "earlier_instructions_replaced",
         addedText: instructionsSection,
         nextText,
         previousText,

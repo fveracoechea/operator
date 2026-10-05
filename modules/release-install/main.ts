@@ -34,27 +34,12 @@ export const ReleaseInstall = {
     return { selection: SELECTION_PATH };
   },
 
-  /** Reads the exact release this project selected. Writes nothing. */
+  /**
+   * Reads the exact release this project selected: `missing`, `unreadable` with its detail, or
+   * `selected` with the record. A caller learns the selection here and never opens the file.
+   */
   async selection(request: { projectRoot: string }) {
     return readSelection(request.projectRoot);
-  },
-
-  /**
-   * Reports the selected release and the command this project runs Operator with, so an agent
-   * learns them from the CLI and never opens the selection record. Writes nothing.
-   */
-  async selected(request: { projectRoot: string }) {
-    const read = await readSelection(request.projectRoot);
-    if (read.state !== "read") return read;
-    const { delivery, version, commit, packageVersion } = read.selection;
-    return {
-      state: "selected" as const,
-      delivery,
-      version,
-      commit,
-      packageVersion,
-      invocation: ReleaseInstall.invocation(read.selection),
-    };
   },
 
   /**

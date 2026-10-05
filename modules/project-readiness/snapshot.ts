@@ -50,7 +50,7 @@ export async function readLaunchSnapshot(request: {
     SkillInstall.identity(),
     ReleaseInstall.selection({ projectRoot: request.projectRoot }),
   ]);
-  const installed = selected.state === "read" ? selected.selection : null;
+  const installed = selected.state === "selected" ? selected.selection : null;
   const selection = AgentSelection.resolve({
     overrides: request.overrides,
     configuration: configuration.selection,
