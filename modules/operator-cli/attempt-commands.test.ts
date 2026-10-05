@@ -1710,7 +1710,7 @@ describe("operator attempt dispatch of a tracked skill copy", () => {
     ]);
     const brief = await Bun.file(`${reviewer.worktreePath}/.operator/local/brief.md`).text();
     expect(brief).toContain(
-      `- Skill copy of the base commit: .claude/skills/operative/SKILL.md (${ContentIdentity.ofText(changed)})`,
+      `- Skill copy changed after the integration base: .claude/skills/operative/SKILL.md (${ContentIdentity.ofText(changed)})`,
     );
   });
 

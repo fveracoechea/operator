@@ -32,6 +32,7 @@ import {
   reworkProtocolSection,
   reworkResultSection,
 } from "./rework-brief.ts";
+import type { RecordedSnapshot } from "./snapshot.ts";
 
 /**
  * The one role a brief gives its agent. A producer makes a result, a rework Operative corrects
@@ -90,7 +91,7 @@ export type Snapshot = {
   lock: { name: string | null; state: string; identity: string | null; path: string | null };
   // `committed` names each skill copy the launch commit holds in place of the release copy,
   // which crew work changed after the integration base. A launch with none leaves it out.
-  skills: { identity: string; committed?: Array<{ path: string; identity: string | null }> };
+  skills: { identity: string; committed?: RecordedSnapshot["skills"]["committed"] };
 };
 
 export type DispatchPlan = {
@@ -460,7 +461,8 @@ function briefDocument(request: {
     `- Lock data: ${snapshot.lock.name ?? "none"} (${snapshot.lock.identity ?? "none"})`,
     `- Skills: ${snapshot.skills.identity}`,
     ...(snapshot.skills.committed ?? []).map(
-      (one) => `- Skill copy of the base commit: ${one.path} (${one.identity ?? "no file"})`,
+      (one) =>
+        `- Skill copy changed after the integration base: ${one.path} (${one.identity ?? "no file"})`,
     ),
     "",
     ...role.protocol,

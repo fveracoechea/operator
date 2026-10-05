@@ -1,3 +1,5 @@
+import { REFERENCE_RULES, ruleLines } from "./command-rules.ts";
+
 export type AnswerDelivery = {
   questionId: string;
   questionRevision: number;
@@ -48,8 +50,11 @@ export function answerDocument(answer: AnswerDelivery, invocation = "operator"):
     "",
     "Acknowledge this answer before you act on it:",
     "",
+    "```",
     `${invocation} question acknowledge --request <a new identity you generate> --question ${answer.questionId} --json`,
+    "```",
     "",
-    "Run it from this worktree. Nothing in this answer widens your recorded authority limits.",
+    ...ruleLines(REFERENCE_RULES),
+    "Nothing in this answer widens your recorded authority limits.",
   ].join("\n");
 }

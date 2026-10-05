@@ -59,7 +59,7 @@ A marked section that an earlier release wrote is not a conflict, and the plan p
 Setup owns these files:
 
 - The project configuration, created only when it is missing.
-- `.operator/config.schema.json`, the editor schema for the configuration.
+- The editor schema for the configuration, which an editor reads to check it.
 - `.gitignore`, which receives one marked block that ignores `/.operator/`.
 - `AGENTS.md`, which receives one marked Operator section.
 - `CLAUDE.md`, which receives an `@AGENTS.md` import when the Claude Code target is selected.

@@ -1,8 +1,8 @@
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { IntegrationBranch } from "../integration-branch/main.ts";
-import { OperativeDispatch } from "../operative-dispatch/main.ts";
 import { ProjectGate } from "../project-gate/main.ts";
+import { SkillInstall } from "../skill-install/main.ts";
 import type { CrewReader, CrewWriter } from "./database.ts";
 import type { AttemptContext } from "./dispatch.ts";
 import { readState, type StateFailure } from "./operations.ts";
@@ -78,6 +78,8 @@ export async function gateOfAttempt(request: {
   return ProjectGate.read({ repository: request.projectRoot, commit: request.baseCommit });
 }
 
+type CommittedSkills = Awaited<ReturnType<typeof SkillInstall.committedCopies>>;
+
 /**
  * The skill copies a new launch of one source keeps from its commit. The person approved the
  * integration base, so a copy that crew work changed after it is work under review. A source
@@ -88,10 +90,7 @@ export async function committedSkillsOf(request: {
   sourceId: string;
   agentHost: string | null;
   commit: string;
-}): Promise<
-  | { status: "ok"; committed: Awaited<ReturnType<typeof OperativeDispatch.committedSkills>> }
-  | StateFailure
-> {
+}): Promise<{ status: "ok"; committed: CommittedSkills } | StateFailure> {
   const row = await readState(request.projectRoot, (db) =>
     integrationBranchOf(db, request.sourceId),
   );
@@ -103,10 +102,10 @@ export async function committedSkillsOf(request: {
     committed:
       row === null
         ? []
-        : await OperativeDispatch.committedSkills({
+        : await SkillInstall.committedCopies({
             projectRoot: request.projectRoot,
-            agentHost: request.agentHost,
-            integrationBase: row.baseCommit,
+            target: request.agentHost,
+            base: row.baseCommit,
             commit: request.commit,
           }),
   };

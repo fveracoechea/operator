@@ -1170,6 +1170,39 @@ describe("operator question deliver", () => {
     expect(frontier.json.data.questions).toEqual([]);
   });
 
+  test("the delivered answer states each refusal of question acknowledge by name", async () => {
+    const workspace = await makeWorkspace();
+    const crew = await dispatchedCrew(workspace);
+    const raised = await raise(workspace, crew);
+    const questionId = raised.json.data.questionId;
+    await answer(workspace, crew, { questionId, revision: 1 }, { authority: "human-answer" });
+    await deliver(workspace, crew, questionId);
+    const sent = await Bun.file(`${workspace.herdr}/last-prompt`).text();
+
+    // The answer states the same lines as the brief, so an Operative reads one rule set.
+    expect(sent).toContain(
+      [
+        "This command refuses, with the named reason, when you break one of its rules:",
+        "",
+        "- `attempt_reference_missing`: Run this from this worktree.",
+        "- `attempt_reference_malformed`: Never change a file that the Operator wrote under `.operator/local/`.",
+      ].join("\n"),
+    );
+    const acknowledge = (cwd: string) =>
+      runJson(
+        workspace,
+        ["question", "acknowledge", "--request", request(), "--question", questionId],
+        cwd,
+      );
+    expect((await acknowledge(workspace.repo)).json.reason).toBe("attempt_reference_missing");
+    const reference = `${crew.worktree}/.operator/local/attempt.json`;
+    const written = await Bun.file(reference).text();
+    await Bun.write(reference, "{}\n");
+    expect((await acknowledge(crew.worktree)).json.reason).toBe("attempt_reference_malformed");
+    await Bun.write(reference, written);
+    expect((await acknowledge(crew.worktree)).json.reason).toBe("question_acknowledged");
+  });
+
   test("an uncertain delivery blocks another delivery until it is reconciled", async () => {
     const workspace = await makeWorkspace();
     const crew = await dispatchedCrew(workspace);

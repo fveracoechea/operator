@@ -1,7 +1,7 @@
 import { ContentIdentity } from "../content-identity/main.ts";
 import { type BundledSkill, readBundledSkills, sameBytes, scanFiles } from "./assets.ts";
-import { type CommittedCopy, committedCopies } from "./committed.ts";
-import { type SkillTarget, skillTargets } from "./targets.ts";
+import { type CommittedCopy, committedCopies, committedCopiesSchema } from "./committed.ts";
+import { isSkillTarget, type SkillTarget, skillTargets } from "./targets.ts";
 import { MattSkills } from "./upstream.ts";
 
 type Placement = { skill: string; target: SkillTarget; path: string };
@@ -36,8 +36,11 @@ async function inspectCopy(
   const absoluteRoot = `${projectRoot}/${relativeRoot}`;
   const placement = { skill: skill.name, target, path: relativeRoot };
   const existing = await scanFiles(absoluteRoot);
+  // A skill directory that crew work removed is a committed change like any other, so the
+  // checkout keeps it removed instead of installing it again.
+  const committedHere = committed.some((one) => one.path.startsWith(`${relativeRoot}/`));
 
-  if (existing.length === 0) {
+  if (existing.length === 0 && !committedHere) {
     return {
       placement,
       state: "install",
@@ -141,21 +144,33 @@ export const SkillInstall = {
   },
 
   /**
-   * Names the skill copies one commit holds in place of this release, where the approved commit
-   * still held what this release writes. Work after the approved commit changed each of them.
-   * A copy that already differs at the approved commit is not named, so it stays a conflict.
+   * Names the skill copies one commit holds in place of this release, where the base commit
+   * still held what this release writes. Work after the base commit changed each of them.
+   * A copy that already differs at the base is not named, so it stays a conflict. A host this
+   * release installs no skills for has none.
    */
   async committedCopies(request: {
-    repoRoot: string;
-    target: SkillTarget;
-    approved: string;
+    projectRoot: string;
+    target: string | null;
+    base: string;
     commit: string;
   }): Promise<CommittedCopy[]> {
+    const { target } = request;
+    if (!isSkillTarget(target) || request.base === request.commit) {
+      return [];
+    }
     return committedCopies({
-      ...request,
-      root: skillTargets[request.target],
+      repoRoot: request.projectRoot,
+      root: skillTargets[target],
       skills: await readBundledSkills(),
+      base: request.base,
+      commit: request.commit,
     });
+  },
+
+  /** The shape of the committed copies a launch records, so its reader parses this one shape. */
+  committedCopiesSchema() {
+    return committedCopiesSchema;
   },
 
   /**

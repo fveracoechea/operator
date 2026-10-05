@@ -163,9 +163,9 @@ describe("skill copies a commit holds in place of the release", () => {
     await git(["commit", "-qm", "work"]);
 
     const committed = await SkillInstall.committedCopies({
-      repoRoot: root,
+      projectRoot: root,
       target: "claude-code",
-      approved,
+      base: approved,
       commit: await head(),
     });
 
@@ -188,6 +188,44 @@ describe("skill copies a commit holds in place of the release", () => {
     expect(inspected.conflicts).toEqual([
       { skill: "bun", target: "claude-code", paths: [".claude/skills/bun/SKILL.md"] },
     ]);
+  });
+});
+
+describe("a skill directory that crew work removed", () => {
+  test("stays removed, because its removal is a committed change", async () => {
+    const root = await makeProject();
+    const git = (args: string[]) =>
+      Bun.$`git -C ${root} -c user.email=t@example.com -c user.name=Test ${args}`.quiet();
+    const head = async () => (await git(["rev-parse", "HEAD"])).text().trim();
+    await git(["init", "-q"]);
+    await SkillInstall.run({ projectRoot: root, targets: ["claude-code"] });
+    await git(["add", "-A"]);
+    await git(["commit", "-qm", "base"]);
+    const base = await head();
+    const released = await filesUnder(`${root}/.claude/skills/operator`);
+    await rm(`${root}/.claude/skills/operator`, { recursive: true });
+    await git(["add", "-A"]);
+    await git(["commit", "-qm", "work"]);
+
+    const committed = await SkillInstall.committedCopies({
+      projectRoot: root,
+      target: "claude-code",
+      base,
+      commit: await head(),
+    });
+    const copied = await SkillInstall.run({
+      projectRoot: root,
+      targets: ["claude-code"],
+      committed,
+    });
+
+    expect(committed).toEqual(
+      released.map((path) => ({ path: `.claude/skills/operator/${path}`, identity: null })),
+    );
+    expect(copied.conflicts).toEqual([]);
+    expect(copied.installed).toEqual([]);
+    // The checkout holds exactly the reviewed commit, with no skill copy written back.
+    expect((await git(["status", "--porcelain", "--untracked-files=all"])).text()).toBe("");
   });
 });
 

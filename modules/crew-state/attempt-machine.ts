@@ -1,5 +1,6 @@
 import type { HerdrControl } from "../herdr-control/main.ts";
 import { OperativeDispatch } from "../operative-dispatch/main.ts";
+import type { SkillInstall } from "../skill-install/main.ts";
 import type {
   Brief,
   DispatchPlan,
@@ -278,7 +279,7 @@ type DispatchFacts = {
   base?: { status: "ok"; base: BasePassed | null } | BaseGateRefusal | BaseUnread | StateFailure;
 };
 
-type CommittedSkills = Awaited<ReturnType<typeof OperativeDispatch.committedSkills>>;
+type CommittedSkills = Awaited<ReturnType<typeof SkillInstall.committedCopies>>;
 
 export type DispatchRefusal =
   | { status: "snapshot-drift"; attemptId: string; drift: SnapshotDrift[] }

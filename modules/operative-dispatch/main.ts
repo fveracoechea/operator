@@ -226,29 +226,6 @@ export const OperativeDispatch = {
   },
 
   /**
-   * Names the skill copies a new launch keeps from its commit: each one that crew work changed
-   * after the integration base, which still held the release copy. The person approved that
-   * base, so a later change is work under review. A copy that already differs at the base is
-   * not named, so input preparation still refuses it.
-   */
-  async committedSkills(request: {
-    projectRoot: string;
-    agentHost: string | null;
-    integrationBase: string;
-    commit: string;
-  }): Promise<NonNullable<Snapshot["skills"]["committed"]>> {
-    if (!hasAgentKind(request.agentHost) || request.integrationBase === request.commit) {
-      return [];
-    }
-    return SkillInstall.committedCopies({
-      repoRoot: request.projectRoot,
-      target: request.agentHost,
-      approved: request.integrationBase,
-      commit: request.commit,
-    });
-  },
-
-  /**
    * Renders the planning records one brief carries.
    * The spec copy that a result review reads renders the same section, so the Spec axis reads
    * the decisions in the words that the producer received.

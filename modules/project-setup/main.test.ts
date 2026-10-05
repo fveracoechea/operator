@@ -541,10 +541,12 @@ describe("operator setup rollback", () => {
 
 describe("what an installed project tells an agent", () => {
   // The files Operator owns. An agent reads and changes them only through CLI commands, so no
-  // installed instruction names one: the selection, the configuration, the readiness evidence,
-  // the control reference, the setup journal, and the crew database.
+  // installed instruction names one: the selection, the configuration and its editor schema,
+  // the configuration apply receipt and write lock, the readiness evidence, the control
+  // reference, the launch record, the setup journal, the crew database, the dispatch outbox,
+  // and the update backups. A brief and a publish plan are not here: an agent reads both.
   const ownedFiles =
-    /(?<![\w-])(?:selection\.json|config\.json|readiness\.json|attempt\.json|setup-journal\.json|crew-state\.sqlite)/g;
+    /(?<![\w-])(?:selection\.json|config\.json|config\.schema\.json|config-apply\.json|config-write\.sqlite|readiness\.json|attempt\.json|release\.json|setup-journal\.json|crew-state\.sqlite|outbox\/|backups\/)/g;
 
   async function installedProject(): Promise<string> {
     const root = await makeProject();

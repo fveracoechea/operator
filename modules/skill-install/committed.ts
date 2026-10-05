@@ -1,9 +1,17 @@
+import { z } from "zod";
 import { ContentIdentity } from "../content-identity/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { type BundledSkill, sameBytes } from "./assets.ts";
 
-/** One skill copy a commit holds in place of the release copy. A null identity holds no file. */
-export type CommittedCopy = { path: string; identity: string | null };
+/**
+ * The skill copies a commit holds in place of the release copy. A null identity holds no file.
+ * A launch records them, so its reader parses this one shape.
+ */
+export const committedCopiesSchema = z.array(
+  z.object({ path: z.string(), identity: z.string().nullable() }),
+);
+
+export type CommittedCopy = z.infer<typeof committedCopiesSchema>[number];
 
 const NO_OBJECT = /^0+$/;
 // Git answers a link it cannot follow with a second line that names it.
@@ -42,7 +50,34 @@ async function treesOf(repoRoot: string, specs: string[]): Promise<Array<string 
 /** One file that differs between two trees of one skill directory. */
 type Change = { path: string; modes: string[]; before: string; after: string };
 
-async function changesOf(repoRoot: string, before: string, after: string): Promise<Change[]> {
+/**
+ * Each file of one tree, as a change that removes it. A later commit that holds no directory
+ * there removed every file the earlier one held.
+ */
+async function removalsOf(repoRoot: string, before: string): Promise<Change[]> {
+  const read = await ToolInvocation.git({
+    repoRoot,
+    args: ["ls-tree", "-r", "-z", before],
+    raw: true,
+  });
+  if (read.status !== "read") return [];
+
+  return read.value
+    .split("\0")
+    .filter((entry) => entry !== "")
+    .map((entry) => {
+      const [fields = "", path = ""] = entry.split("\t");
+      const [mode = "", , sha = ""] = fields.split(" ");
+      return { path, modes: [mode, "000000"], before: sha, after: "0".repeat(sha.length) };
+    });
+}
+
+async function changesOf(
+  repoRoot: string,
+  before: string,
+  after: string | null,
+): Promise<Change[]> {
+  if (after === null) return removalsOf(repoRoot, before);
   const read = await ToolInvocation.git({
     repoRoot,
     args: ["diff-tree", "-r", "-z", "--no-renames", before, after],
@@ -68,7 +103,7 @@ async function changesOf(repoRoot: string, before: string, after: string): Promi
 
 /**
  * The identity one changed file has at the later commit, or undefined when the copy is not kept:
- * the approved commit did not hold what the release writes there, or Git could not read it.
+ * the base commit did not hold what the release writes there, or Git could not read it.
  * A link or a submodule inside a skill directory is never kept, because the copy step compares
  * files.
  */
@@ -79,11 +114,11 @@ async function keptIdentity(
 ): Promise<string | null | undefined> {
   if (!change.modes.every((mode) => mode === "000000" || mode.startsWith("100"))) return undefined;
 
-  const approved = await blob(repoRoot, change.before);
+  const atBase = await blob(repoRoot, change.before);
   const held =
     release === null
-      ? approved === null
-      : approved !== null && approved !== undefined && sameBytes(approved, release);
+      ? atBase === null
+      : atBase !== null && atBase !== undefined && sameBytes(atBase, release);
   if (!held) return undefined;
 
   const committed = await blob(repoRoot, change.after);
@@ -93,21 +128,22 @@ async function keptIdentity(
 }
 
 /**
- * The skill copies one commit holds in place of the release copy, where the approved commit
- * still held what the release writes. Only work after the approved commit changed them.
+ * The skill copies one commit holds in place of the release copy, where the base commit still
+ * held what the release writes. Only work after the base commit changed them, and a skill
+ * directory that work removed is a change of each file it held.
  */
 export async function committedCopies(request: {
   repoRoot: string;
   root: string;
   skills: BundledSkill[];
-  approved: string;
+  base: string;
   commit: string;
 }): Promise<CommittedCopy[]> {
   const { repoRoot, root, skills } = request;
   const trees = await treesOf(
     repoRoot,
     skills.flatMap((skill) => [
-      `${request.approved}:${root}/${skill.name}`,
+      `${request.base}:${root}/${skill.name}`,
       `${request.commit}:${root}/${skill.name}`,
     ]),
   );
@@ -116,7 +152,7 @@ export async function committedCopies(request: {
   for (const [index, skill] of skills.entries()) {
     const before = trees[index * 2] ?? null;
     const after = trees[index * 2 + 1] ?? null;
-    if (before === null || after === null || before === after) continue;
+    if (before === null || before === after) continue;
 
     for (const change of await changesOf(repoRoot, before, after)) {
       const release = skill.assets.find((asset) => asset.path === change.path)?.bytes ?? null;

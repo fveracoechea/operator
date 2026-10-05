@@ -94,8 +94,10 @@ describe("operator config", () => {
     );
     const planText = await runOperator(workspace, ["config", "plan", ...edits]);
     const missingText = await runOperator(workspace, ["config", "apply", ...edits]);
+    const approveAt = planText.stdout.indexOf("Approve with: ");
+    expect(approveAt).toBeGreaterThan(0);
     expect(missingText.stdout).toBe(
-      `Approval is required. Nothing was written.\n${planText.stdout}`,
+      `Approval is required. Nothing was written.\n${planText.stdout.slice(0, approveAt)}Make a new plan and show it to the person for approval: operator config plan ${edits.join(" ")}\n`,
     );
     expect(await file.text()).toBe(before);
 
@@ -157,9 +159,13 @@ describe("operator config", () => {
       "--approved-plan",
       plan.json.data.planId,
     ]);
+    // Only `config plan` prints the approval, so an agent never approves a changed plan for the
+    // person. The refusal shows the new plan and points to `config plan` again.
+    const planShown = planText.stdout.slice(0, planText.stdout.indexOf("Approve with: "));
     expect(staleText.stdout).toBe(
-      `The file or proposed edit changed. Nothing was written.\n${planText.stdout}`,
+      `The file or proposed edit changed. Nothing was written.\n${planShown}Make a new plan and show it to the person for approval: operator config plan --set crew.reasoningEffort=medium\n`,
     );
+    expect(planShown).toContain(`Configuration plan ${applied.json.data.planId}`);
     expect(await file.text()).toBe(changed);
   });
 

@@ -1,5 +1,7 @@
 import { registerSource, workspaceTarget } from "./source-fixture.ts";
 import { afterEach, describe, expect, test as bunTest } from "bun:test";
+import { OperatorRelease } from "../operator-release/main.ts";
+import { ReleaseInstall } from "../release-install/main.ts";
 import {
   acceptProduction,
   commitArtifact,
@@ -24,6 +26,7 @@ import {
   passBaseGate,
   requestId as request,
   runJson,
+  runOperator,
   stopFakeAgents,
   workspaces,
 } from "./workspace-fixture.ts";
@@ -128,6 +131,33 @@ describe("the next actions", () => {
     expect(reported.json.reason).toBe("next_actions_reported");
     expect(reported.names).toEqual(["prove_readiness", "own_crew"]);
     expect(reported.of("own_crew").command).toBe("operator crew own");
+  });
+
+  test("names each command through the selected github-source release", async () => {
+    const workspace = await makeReviewWorkspace(fixtures);
+    const commit = "a".repeat(40);
+    const release = await OperatorRelease.identify();
+    await ReleaseInstall.select({
+      projectRoot: workspace.repo,
+      selection: {
+        schemaVersion: 1,
+        delivery: "github-source",
+        version: release.version,
+        commit,
+        releaseIdentity: release.identity,
+        skillsIdentity: release.skillsIdentity,
+        packageVersion: null,
+        upstreamSkills: [],
+        selectedAt: new Date().toISOString(),
+      },
+    });
+    const source = `bunx "github:fveracoechea/operator#${commit}"`;
+
+    const reported = await nextActions(workspace);
+    const text = await runOperator(workspace, ["crew", "next", "--claude"]);
+
+    expect(reported.of("own_crew").command).toBe(`${source} crew own`);
+    expect(text.stdout).toContain(`Run: ${source} crew own`);
   });
 
   test("puts readiness first and leaves that decision with the user", async () => {

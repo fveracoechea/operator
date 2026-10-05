@@ -662,6 +662,16 @@ function tipStartOf(
       };
 }
 
+/** The launch that starts from a submitted commit: a review, or a findings or diagnostic cycle. */
+type SubmittedReader = "review" | "findings" | "diagnostic";
+type SubmittedStart = { commit: string; reader: SubmittedReader };
+
+const SUBMITTED_READ = {
+  review: "This review reads the submitted commit",
+  findings: "This findings cycle reworks the submitted commit",
+  diagnostic: "This diagnostic cycle reworks the submitted commit",
+} satisfies Record<SubmittedReader, string>;
+
 /**
  * The submitted commit that a launch names with `--commit`: the result a review reads, or the
  * result a findings or diagnostic cycle reworks. The attempt that submitted it has ended, so
@@ -670,23 +680,17 @@ function tipStartOf(
 function submittedStartOf(
   db: CrewReader,
   assignment: { id: string; kind: string },
-): { commit: string; role: string } | null {
-  if (isReview(assignment.kind)) {
-    const review = reviewOfAssignment(db, assignment.id);
-    const submission =
-      review?.submissionId == null ? null : readSubmission(db, review.submissionId);
-    const commit = submission === null ? null : submittedCommit(submission);
-    return commit === null ? null : { commit, role: "This review reads the submitted commit" };
-  }
-  const cycle = openCycleOf(db, assignment.id);
-  if (cycle === null || (cycle.reason !== "findings" && cycle.reason !== "diagnostic")) {
-    return null;
-  }
-  const submission = readSubmission(db, cycle.submissionId);
+): SubmittedStart | null {
+  const cycle = isReview(assignment.kind) ? null : openCycleOf(db, assignment.id);
+  const read: { reader: SubmittedReader; submissionId: string | null | undefined } | null =
+    isReview(assignment.kind)
+      ? { reader: "review", submissionId: reviewOfAssignment(db, assignment.id)?.submissionId }
+      : cycle !== null && (cycle.reason === "findings" || cycle.reason === "diagnostic")
+        ? { reader: cycle.reason, submissionId: cycle.submissionId }
+        : null;
+  const submission = read?.submissionId == null ? null : readSubmission(db, read.submissionId);
   const commit = submission === null ? null : submittedCommit(submission);
-  return commit === null
-    ? null
-    : { commit, role: `This ${cycle.reason} cycle reworks the submitted commit` };
+  return read === null || commit === null ? null : { commit, reader: read.reader };
 }
 
 const LAUNCHING = "This launch is planned and has not finished every effect.";
@@ -696,14 +700,14 @@ function claimedDetail(request: {
   baseGate: { gate: BaseGate } | null;
   integration: { recordedTip: string; place: string } | null;
   branchHead: string | null;
-  submitted: { commit: string; role: string } | null;
+  submitted: SubmittedStart | null;
 }): string {
   const base = request.baseGate?.gate;
   if (base?.status === "passed") {
     return `This assignment is claimed and has no Operative yet. The integration base passed the gate at commit ${base.commit} in gate run ${base.run.id}, so dispatch from that commit.`;
   }
   if (request.submitted !== null) {
-    return `This assignment is claimed and has no Operative yet. ${request.submitted.role} ${request.submitted.commit}, so dispatch with --commit ${request.submitted.commit}.`;
+    return `This assignment is claimed and has no Operative yet. ${SUBMITTED_READ[request.submitted.reader]} ${request.submitted.commit}, so dispatch with --commit ${request.submitted.commit}.`;
   }
   if (request.integration !== null) {
     return `This assignment is claimed and has no Operative yet. It starts from ${request.integration.recordedTip}, ${request.integration.place}, so dispatch with no --commit.`;
@@ -728,7 +732,7 @@ function readActiveAttempt(
     /** The head a branch review reads, or null for every other assignment. */
     branchHead: string | null;
     /** The submitted commit a review or a findings or diagnostic cycle starts from, or null. */
-    submitted: { commit: string; role: string } | null;
+    submitted: SubmittedStart | null;
   },
   into: Collector,
 ): void {

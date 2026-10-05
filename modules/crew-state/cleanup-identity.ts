@@ -33,6 +33,18 @@ function mismatchesOf(confirmed: Confirmed[]): IdentityMismatch[] {
   return confirmed.flatMap((one) => ("mismatch" in one ? [one.mismatch] : []));
 }
 
+type UnreadReference = Exclude<
+  Awaited<ReturnType<typeof OperativeDispatch.inspectReference>>,
+  { status: "read" }
+>;
+
+/** A malformed reference is named apart from a missing one, so the reader knows a file is there. */
+function unreadReference(inspected: UnreadReference): string {
+  if (inspected.status === "missing") return "none";
+  const fields = inspected.fields.length === 0 ? "" : ` (${inspected.fields.join(", ")})`;
+  return `malformed: ${inspected.problem}${fields}`;
+}
+
 /**
  * Proves that every name this cleanup would act on belongs to this attempt.
  * The repository, the assignment, the attempt, the Herdr handles, the checkout on disk, its
@@ -76,7 +88,13 @@ export async function matchIdentity(request: {
   if (inspected.status !== "read") {
     return {
       status: "identity-mismatch",
-      mismatches: [{ field: "control-reference", recorded: dispatch.worktreePath, found: "none" }],
+      mismatches: [
+        {
+          field: "control-reference",
+          recorded: dispatch.worktreePath,
+          found: unreadReference(inspected),
+        },
+      ],
     };
   }
 

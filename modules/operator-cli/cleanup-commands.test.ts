@@ -852,6 +852,37 @@ describe("operator cleanup remove", () => {
     );
   });
 
+  test("names a malformed control reference apart from a missing one", async () => {
+    const workspace = await makeWorkspace();
+    const { producer } = await acceptedCycle(workspace);
+    await close(workspace, producer.ownerToken, producer.attemptId);
+    const reference = `${producer.worktreePath}/.operator/local/attempt.json`;
+    const mismatch = async () =>
+      (await remove(workspace, producer.ownerToken, producer.attemptId)).json.blockers[0]
+        .mismatches;
+
+    await Bun.write(reference, "not json\n");
+    const malformed = await mismatch();
+    await Bun.write(reference, "{}\n");
+    const incomplete = await mismatch();
+    await rm(reference);
+    const missing = await mismatch();
+
+    const recorded = producer.worktreePath;
+    expect(malformed).toEqual([
+      { field: "control-reference", recorded, found: "malformed: not-json" },
+    ]);
+    expect(incomplete).toEqual([
+      {
+        field: "control-reference",
+        recorded,
+        found:
+          "malformed: incomplete (controllingCheckout, assignmentId, attemptId, branch, baseCommit, worktreePath)",
+      },
+    ]);
+    expect(missing).toEqual([{ field: "control-reference", recorded, found: "none" }]);
+  });
+
   test("refuses a removal when Herdr names no workspace or branch for the checkout", async () => {
     const workspace = await makeWorkspace();
     const { producer } = await acceptedCycle(workspace);

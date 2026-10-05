@@ -27,30 +27,34 @@ function planData(plan: Plan) {
   };
 }
 
-/** Repeats the edits that produced this plan, so the approval names the same change. */
-function approvalCommand(parsed: ParsedArguments, plan: Plan): string {
-  const edits = [
-    ...parsed.configSets.map((edit) => ["--set", edit] as const),
-    ...parsed.configUnsets.map((path) => ["--unset", path] as const),
-  ];
+/** Repeats the edits that produced this plan, so the next command names the same change. */
+function editWords(parsed: ParsedArguments): string[] {
   // A value with a shell character is quoted, so the printed command runs as shown.
   const word = (text: string) =>
     /^[\w./=:@+,-]+$/.test(text) ? text : `'${text.replaceAll("'", `'\\''`)}'`;
   return [
-    "operator config apply",
-    ...edits.map(([flag, value]) => `${flag} ${word(value)}`),
-    `--approved-plan ${plan.planId}`,
-  ].join(" ");
+    ...parsed.configSets.map((edit) => `--set ${word(edit)}`),
+    ...parsed.configUnsets.map((path) => `--unset ${word(path)}`),
+  ];
 }
 
-function planLines(parsed: ParsedArguments, plan: Plan): string[] {
+/**
+ * The plan and the one step that follows it. Only `config plan` prints the approval command,
+ * because the person approves the plan it shows. A refused apply points to a new plan, so an
+ * agent never approves a changed plan in place of the person.
+ */
+function planLines(parsed: ParsedArguments, plan: Plan, step: "approve" | "plan-again"): string[] {
+  const approve = ["operator config apply", ...editWords(parsed), `--approved-plan ${plan.planId}`];
+  const planAgain = ["operator config plan", ...editWords(parsed)];
   return [
     `Configuration plan ${plan.planId}: ${plan.changed ? "change" : "no change"} to ${plan.path}.`,
     `Current file (${plan.previousIdentity}):`,
     plan.previousText,
     `Proposed file (${plan.nextIdentity}):`,
     plan.nextText,
-    `Approve with: ${approvalCommand(parsed, plan)}`,
+    step === "approve"
+      ? `Approve with: ${approve.join(" ")}`
+      : `Make a new plan and show it to the person for approval: ${planAgain.join(" ")}`,
   ];
 }
 
@@ -154,7 +158,7 @@ export async function runPlan(parsed: ParsedArguments): Promise<void> {
       operation: "config_plan",
       data: planData(result),
     },
-    lines: planLines(parsed, result),
+    lines: planLines(parsed, result, "approve"),
   });
 }
 
@@ -179,7 +183,7 @@ function applyRefusals(parsed: ParsedArguments) {
         required: "Approval is required. Nothing was written.",
         stale: "The file or proposed edit changed. Nothing was written.",
       },
-      lines: planLines(parsed, result.plan),
+      lines: planLines(parsed, result.plan, "plan-again"),
       data: planData(result.plan),
     })),
   } satisfies Refusals<Applied>;
