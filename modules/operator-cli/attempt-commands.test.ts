@@ -1,7 +1,7 @@
 import { registerSource, sourceIdOf, workspaceTarget } from "./source-fixture.ts";
 import { afterEach, describe, expect, test as bunTest } from "bun:test";
-// Bun has no recursive directory removal API.
-import { rm } from "node:fs/promises";
+// Bun has no recursive directory removal, directory creation, or chmod API.
+import { chmod, mkdir, rm } from "node:fs/promises";
 import { ContentIdentity } from "../content-identity/main.ts";
 import { OperatorRelease } from "../operator-release/main.ts";
 import { ReleaseInstall } from "../release-install/main.ts";
@@ -1007,20 +1007,36 @@ describe("acknowledgement", () => {
     expect(missing.json.reason).toBe("attempt_reference_missing");
 
     const { attemptId: _, ...withoutAttempt } = JSON.parse(written);
+    const write = (text: string) => async () => {
+      await Bun.write(path, text);
+    };
+    // Anything at the path that is not a readable file is malformed, never missing.
     const malformed = [
-      { text: "{ not json", problem: "not-json", fields: [] },
-      { text: "[]\n", problem: "not-object", fields: [] },
+      { at: "directory", place: () => mkdir(path), problem: "unreadable", fields: [] },
       {
-        text: JSON.stringify({ ...withoutAttempt, branch: "" }),
+        at: "unreadable file",
+        place: async () => {
+          await Bun.write(path, written);
+          await chmod(path, 0o000);
+        },
+        problem: "unreadable",
+        fields: [],
+      },
+      { at: "not JSON", place: write("{ not json"), problem: "not-json", fields: [] },
+      { at: "array", place: write("[]\n"), problem: "not-object", fields: [] },
+      {
+        at: "incomplete",
+        place: write(JSON.stringify({ ...withoutAttempt, branch: "" })),
         problem: "incomplete",
         fields: ["attemptId", "branch"],
       },
     ];
     for (const one of malformed) {
-      await Bun.write(path, one.text);
+      await rm(path, { recursive: true, force: true });
+      await one.place();
       const refused = await acknowledgeAs(crew.attemptId);
-      expect({ text: one.text, exitCode: refused.exitCode, json: refused.json }).toEqual({
-        text: one.text,
+      expect({ at: one.at, exitCode: refused.exitCode, json: refused.json }).toEqual({
+        at: one.at,
         exitCode: 2,
         json: {
           schemaVersion: 1,
@@ -1038,12 +1054,10 @@ describe("acknowledgement", () => {
         },
       });
       const human = await humanAcknowledge();
-      expect(human.stdout).toContain("cannot use");
+      expect({ at: one.at, exitCode: human.exitCode }).toEqual({ at: one.at, exitCode: 2 });
+      for (const field of one.fields) expect(human.stdout).toContain(field);
       expect(human.stdout).not.toContain("carries no");
     }
-    expect((await humanAcknowledge()).stdout).toContain(
-      "It has no usable value for: attemptId, branch.",
-    );
 
     const other = crypto.randomUUID();
     await Bun.write(path, JSON.stringify({ ...JSON.parse(written), attemptId: other }));

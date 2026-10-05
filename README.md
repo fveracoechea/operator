@@ -818,8 +818,10 @@ bun run operator attempt acknowledge --request <id> --attempt <id> --json
 
 Every command the Operative runs reads the control reference of the worktree it runs in.
 The Operative never opens that file, because the brief states every fact it holds.
-The command refuses with `attempt_reference_missing` when the directory carries no reference, with `attempt_reference_malformed` when the reference is not JSON, not an object, or not complete, and with `attempt_reference_mismatch` when the reference names another attempt.
-The brief states each of these refusals beside its acknowledge command.
+The command refuses with `attempt_reference_missing` when the directory carries no reference.
+It refuses with `attempt_reference_malformed` when the reference is not a readable file, not JSON, not an object, or not complete.
+It refuses with `attempt_reference_mismatch` when `--attempt` and the reference name different attempts.
+The brief states each refusal beside each command that can give it.
 
 A Herdr call that never answered is uncertain, because a timeout does not prove that the effect did not happen.
 The attempt then blocks until you reconcile it against what Herdr and the checkout show.

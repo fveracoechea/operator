@@ -13,6 +13,7 @@ import {
   submissionBody,
   submit,
   type Workspace,
+  writeInput,
 } from "./review-cycle-fixture.ts";
 import type { Reason } from "./result.ts";
 import { headCommit, requestId as request, runJson, workspaces } from "./workspace-fixture.ts";
@@ -30,7 +31,13 @@ afterEach(async () => {
   await fixtures.removeAll();
 });
 
-const COMMANDS = ["attempt acknowledge", "attempt submit", "review report"] as const;
+const COMMANDS = [
+  "attempt acknowledge",
+  "attempt submit",
+  "review report",
+  "question raise",
+  "question acknowledge",
+] as const;
 type Command = (typeof COMMANDS)[number];
 
 const HEADER = "This command refuses, with the named reason, when you break one of its rules:";
@@ -44,6 +51,8 @@ function blocksByCommand(brief: string): Record<Command, string[]> {
     "attempt acknowledge": [],
     "attempt submit": [],
     "review report": [],
+    "question raise": [],
+    "question acknowledge": [],
   };
   const parts = brief.split("```");
   for (let index = 1; index < parts.length; index += 2) {
@@ -95,20 +104,24 @@ async function acknowledge(workspace: Workspace, attemptId: string, cwd: string)
   );
 }
 
+type Reported = Awaited<ReturnType<Scenario>>;
+
 /**
- * The rules of the control reference, which every acknowledge command states.
- * Each scenario restores the reference it changed, so the next rule still reaches its check.
+ * The rules of the control reference, which every command of a brief states.
+ * `run` runs the command from one directory as one attempt. Each scenario restores the reference
+ * it changed, so the next rule still reaches its check.
  */
 function referenceRules(
   workspace: Workspace,
   operative: { attemptId: string; worktreePath: string },
+  run: (cwd: string, attemptId: string) => Promise<Reported>,
 ): Rule[] {
   const path = `${operative.worktreePath}/.operator/local/attempt.json`;
   return [
     {
       refusal: "attempt_reference_missing",
-      rule: "Run this and every later command of this brief from this worktree.",
-      breaks: () => acknowledge(workspace, operative.attemptId, workspace.root),
+      rule: "Run this from this worktree.",
+      breaks: () => run(workspace.root, operative.attemptId),
     },
     {
       refusal: "attempt_reference_malformed",
@@ -116,7 +129,7 @@ function referenceRules(
       breaks: async () => {
         const written = await Bun.file(path).text();
         await Bun.write(path, "{}\n");
-        const reported = await acknowledge(workspace, operative.attemptId, operative.worktreePath);
+        const reported = await run(operative.worktreePath, operative.attemptId);
         await Bun.write(path, written);
         return reported;
       },
@@ -124,9 +137,48 @@ function referenceRules(
     {
       refusal: "attempt_reference_mismatch",
       rule: "`--attempt` is the attempt in the Identity section.",
-      breaks: () => acknowledge(workspace, crypto.randomUUID(), operative.worktreePath),
+      breaks: () => run(operative.worktreePath, crypto.randomUUID()),
     },
   ];
+}
+
+/** A command with no `--attempt` names no attempt, so it cannot refuse a mismatch. */
+function withoutAttempt(rules: Rule[]): Rule[] {
+  return rules.filter((one) => one.refusal !== "attempt_reference_mismatch");
+}
+
+/** The two question commands of every brief, run as the brief writes them. */
+function questionRules(
+  workspace: Workspace,
+  operative: { attemptId: string; worktreePath: string },
+): Pick<Record<Command, Rule[]>, "question raise" | "question acknowledge"> {
+  return {
+    "question raise": referenceRules(workspace, operative, async (cwd, attemptId) =>
+      runJson(
+        workspace,
+        [
+          "question",
+          "raise",
+          "--request",
+          request(),
+          "--attempt",
+          attemptId,
+          "--input",
+          await writeInput(workspace, {}),
+        ],
+        cwd,
+      ),
+    ),
+    "question acknowledge": withoutAttempt(
+      referenceRules(workspace, operative, (cwd) =>
+        runJson(
+          workspace,
+          ["question", "acknowledge", "--request", request(), "--question", "question-1"],
+          cwd,
+        ),
+      ),
+    ),
+  };
 }
 
 async function submittedResult(workspace: Workspace, producer: Producer) {
@@ -148,8 +200,13 @@ describe("the brief states each refusal beside its command", () => {
     expect(brief).toContain(`- Requirements identity: ${REQUIREMENTS_IDENTITY}`);
 
     await expectParity(brief, {
-      "attempt acknowledge": [...referenceRules(workspace, producer)],
+      "attempt acknowledge": referenceRules(workspace, producer, (cwd, attemptId) =>
+        acknowledge(workspace, attemptId, cwd),
+      ),
       "attempt submit": [
+        ...referenceRules(workspace, producer, (cwd, attemptId) =>
+          submit(workspace, { ...producer, worktreePath: cwd }, body, attemptId),
+        ),
         {
           refusal: "attempt_not_acknowledged",
           rule: "Run this only after the acknowledgement above succeeded.",
@@ -231,6 +288,7 @@ describe("the brief states each refusal beside its command", () => {
         },
       ],
       "review report": [],
+      ...questionRules(workspace, producer),
     });
     // Every refusal left the attempt running, so the result that keeps every rule submits.
     expect((await submit(workspace, producer, body)).json.reason).toBe("result_submitted");
@@ -264,10 +322,17 @@ describe("the brief states each refusal beside its command", () => {
       );
 
     await expectParity(brief, {
-      "attempt acknowledge": [...referenceRules(workspace, reviewer)],
+      "attempt acknowledge": referenceRules(workspace, reviewer, (cwd, attemptId) =>
+        acknowledge(workspace, attemptId, cwd),
+      ),
       // The reviewer receives none of the producer's rules.
       "attempt submit": [],
       "review report": [
+        ...withoutAttempt(
+          referenceRules(workspace, reviewer, (cwd) =>
+            reportReview(workspace, { worktreePath: cwd }, reviewId, {}),
+          ),
+        ),
         {
           refusal: "attempt_not_acknowledged",
           rule: "Run this only after the acknowledgement above succeeded.",
@@ -335,6 +400,7 @@ describe("the brief states each refusal beside its command", () => {
           breaks: () => reportWith({ published: null }),
         },
       ],
+      ...questionRules(workspace, reviewer),
     });
     // A producer launch rule written as prose is still a producer rule, so none appears at all.
     for (const producerRule of [

@@ -1,54 +1,42 @@
+import { z } from "zod";
 import { REFERENCE_PATH } from "./plan.ts";
 
-export type AttemptReference = {
-  controllingCheckout: string;
-  assignmentId: string;
-  attemptId: string;
-  branch: string;
-  baseCommit: string;
-  worktreePath: string;
-};
+const referenceSchema = z.object({
+  controllingCheckout: z.string().min(1),
+  assignmentId: z.string().min(1),
+  attemptId: z.string().min(1),
+  branch: z.string().min(1),
+  baseCommit: z.string().min(1),
+  worktreePath: z.string().min(1),
+});
 
-/**
- * What one worktree carries at its control reference path.
- * A file that is there but cannot be read as a complete reference is malformed, not missing,
- * so a command can tell an Operative that runs elsewhere from a reference that was changed.
- */
+export type AttemptReference = z.infer<typeof referenceSchema>;
+
+// Anything unusable at the path is malformed, not missing: the Operative runs in the right place.
 export type ReferenceInspection =
   | { status: "read"; reference: AttemptReference }
   | { status: "missing" }
-  | { status: "malformed"; problem: "not-json" | "not-object" | "incomplete"; fields: string[] };
-
-const FIELDS = [
-  "controllingCheckout",
-  "assignmentId",
-  "attemptId",
-  "branch",
-  "baseCommit",
-  "worktreePath",
-] as const satisfies ReadonlyArray<keyof AttemptReference>;
-
-function readString(source: object, key: string): string | null {
-  const value = Reflect.get(source, key);
-  return typeof value === "string" && value.length > 0 ? value : null;
-}
-
-function complete(
-  reference: Record<keyof AttemptReference, string | null>,
-): reference is AttemptReference {
-  return Object.values(reference).every((value) => value !== null);
-}
+  | {
+      status: "malformed";
+      problem: "unreadable" | "not-json" | "not-object" | "incomplete";
+      fields: string[];
+    };
 
 /** Inspects one worktree's control reference, and names what makes it unusable. */
 export async function inspectReference(worktreePath: string): Promise<ReferenceInspection> {
-  const file = Bun.file(`${worktreePath}/${REFERENCE_PATH}`);
-  if (!(await file.exists())) {
-    return { status: "missing" };
+  let text: string;
+  try {
+    text = await Bun.file(`${worktreePath}/${REFERENCE_PATH}`).text();
+  } catch (error) {
+    const code = error instanceof Error && "code" in error ? error.code : null;
+    return code === "ENOENT" || code === "ENOTDIR"
+      ? { status: "missing" }
+      : { status: "malformed", problem: "unreadable", fields: [] };
   }
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(await file.text());
+    parsed = JSON.parse(text);
   } catch {
     return { status: "malformed", problem: "not-json", fields: [] };
   }
@@ -57,24 +45,11 @@ export async function inspectReference(worktreePath: string): Promise<ReferenceI
     return { status: "malformed", problem: "not-object", fields: [] };
   }
 
-  const reference = {
-    controllingCheckout: readString(parsed, "controllingCheckout"),
-    assignmentId: readString(parsed, "assignmentId"),
-    attemptId: readString(parsed, "attemptId"),
-    branch: readString(parsed, "branch"),
-    baseCommit: readString(parsed, "baseCommit"),
-    worktreePath: readString(parsed, "worktreePath"),
-  };
-  if (!complete(reference)) {
-    const absent = FIELDS.filter((field) => reference[field] === null);
-    return { status: "malformed", problem: "incomplete", fields: absent };
+  const read = referenceSchema.safeParse(parsed);
+  if (!read.success) {
+    const fields = new Set(read.error.issues.map((issue) => String(issue.path[0])));
+    return { status: "malformed", problem: "incomplete", fields: [...fields] };
   }
 
-  return { status: "read", reference };
-}
-
-/** Reads one worktree's control reference. A reference that is not complete is not a reference. */
-export async function readReference(worktreePath: string): Promise<AttemptReference | null> {
-  const inspected = await inspectReference(worktreePath);
-  return inspected.status === "read" ? inspected.reference : null;
+  return { status: "read", reference: read.data };
 }

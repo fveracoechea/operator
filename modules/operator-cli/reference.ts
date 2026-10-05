@@ -3,11 +3,12 @@ import { OperativeDispatch } from "../operative-dispatch/main.ts";
 import type { ParsedArguments } from "./arguments.ts";
 import { type Operation, report } from "./result.ts";
 
-type Reference = NonNullable<Awaited<ReturnType<typeof OperativeDispatch.readReference>>>;
+type Inspected = Awaited<ReturnType<typeof OperativeDispatch.inspectReference>>;
 
-export type ReferenceRead = { status: "read"; reference: Reference } | { status: "reported" };
+export type ReferenceRead = Extract<Inspected, { status: "read" }> | { status: "reported" };
 
 const PROBLEM_LINES = {
+  unreadable: "Its control reference is not a file this command can read.",
   "not-json": "Its control reference is not valid JSON.",
   "not-object": "Its control reference is not a JSON object.",
   incomplete: "Its control reference is not complete.",

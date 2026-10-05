@@ -70,16 +70,17 @@ export async function matchIdentity(request: {
     return { status: "checkout-in-use", attemptIds: request.context.otherOccupants };
   }
 
-  const reference = await OperativeDispatch.readReference({
+  const inspected = await OperativeDispatch.inspectReference({
     worktreePath: dispatch.worktreePath,
   });
-  if (reference === null) {
+  if (inspected.status !== "read") {
     return {
       status: "identity-mismatch",
       mismatches: [{ field: "control-reference", recorded: dispatch.worktreePath, found: "none" }],
     };
   }
 
+  const { reference } = inspected;
   const stated = mismatchesOf([
     confirm("repository", request.projectRoot, reference.controllingCheckout),
     confirm("assignment", assignment.id, reference.assignmentId),

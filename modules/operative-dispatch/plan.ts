@@ -8,7 +8,12 @@ import {
   branchSnapshotSection,
   copiesOf as branchReviewCopiesOf,
 } from "./branch-review-brief.ts";
-import { type CommandRule, REFERENCE_RULES, ruleLines } from "./command-rules.ts";
+import {
+  ATTEMPT_REFERENCE_RULES,
+  type CommandRule,
+  REFERENCE_RULES,
+  ruleLines,
+} from "./command-rules.ts";
 import type { RoleCopies } from "./fixed-result.ts";
 import {
   type ReviewBrief,
@@ -264,6 +269,7 @@ function questionSection(brief: Brief, invocation: string): string[] {
     `${invocation} question raise --request <a new identity you generate> --attempt ${brief.attemptId} --input <path> --json`,
     "```",
     "",
+    ...ruleLines(ATTEMPT_REFERENCE_RULES),
     "The report states the question, its evidence, its options, your recommendation, the scope that waits, and the work you continue meanwhile.",
     "Only that scope waits, so keep the independent work moving.",
     "Acknowledge the answer you receive before you act on it:",
@@ -272,6 +278,7 @@ function questionSection(brief: Brief, invocation: string): string[] {
     `${invocation} question acknowledge --request <a new identity you generate> --question <id> --json`,
     "```",
     "",
+    ...ruleLines(REFERENCE_RULES),
     "An answer never widens the authority limits above.",
     "",
     "A person may write to you directly in this terminal.",
@@ -322,7 +329,7 @@ function productionProtocolSection(brief: Brief, invocation: string): string[] {
     `${invocation} attempt acknowledge --request <a new identity you generate> --attempt ${brief.attemptId} --json`,
     "```",
     "",
-    ...ruleLines(REFERENCE_RULES),
+    ...ruleLines(ATTEMPT_REFERENCE_RULES),
     "The Operator treats you as started only after that acknowledgement.",
     "Report progress, questions, and results through the Operator CLI, never through terminal text alone.",
     "",
@@ -332,7 +339,7 @@ function productionProtocolSection(brief: Brief, invocation: string): string[] {
     `${invocation} attempt submit --request <a new identity you generate> --attempt ${brief.attemptId} --input <path> --json`,
     "```",
     "",
-    ...ruleLines(brief.rules.submit),
+    ...ruleLines([...ATTEMPT_REFERENCE_RULES, ...brief.rules.submit]),
     ...gateLines(brief),
     "A submission is a handoff to a separate review, never accepted completion.",
     "",
