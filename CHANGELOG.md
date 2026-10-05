@@ -1,5 +1,63 @@
 # @fveracoechea/operator
 
+## 0.7.0
+
+### Minor Changes
+
+- 77b8700: After you upgrade, run `setup plan` and apply the plan.
+  Until you apply it, `setup readiness` reports `instructions_missing` and names the earlier Operator section of `AGENTS.md`.
+  `setup plan` proposes the new section in place of the section that an earlier release wrote.
+  The new section tells an agent to read and change Operator configuration and state only through CLI commands.
+  It no longer names the configuration file.
+  It says that an agent reads its dispatch brief, the fixed artifacts, and each file that a CLI result names.
+  It also says that an agent may write JSON requests for `--input`.
+
+### Patch Changes
+
+- 6a086c7: `operator crew next` now names the submitted commit in the `dispatch_attempt` action of a review and of a findings or diagnostic rework.
+  The `command` reads `operator attempt dispatch --attempt <id> --commit <sha>`, and the `detail` names the same commit.
+  Before, the action named no commit, `attempt dispatch` with no `--commit` refused with `commit_required`, and the Operator had to read the commit from Git.
+- 77b8700: `operator --version` now also shows the release that the project selected.
+  `operator --version --json` reports it under `data.selection`.
+  A selected release has its `delivery`, `version`, `commit`, `packageVersion`, and `invocation`.
+  The `invocation` is the command that runs Operator in the project.
+- 77b8700: `operator config plan` now ends with the exact `config apply` command to approve, with the same `--set` and `--unset` flags.
+  Only `config plan` shows that command.
+  When `config apply` refuses with `approval_required` or `approval_stale`, it shows the current plan and points to `config plan` again.
+  So the person approves each changed plan before an agent can apply it.
+- 649c40f: `operator gate run` now reports a started runner as `pending` with `gate_run_started`.
+  Herdr accepts the runner line with exit 0 and an empty answer.
+  Before, Operator read that empty answer as `uncertain` with `gate_runner_not_typed` while the runner ran.
+  An answer that is lost, or that Operator cannot read, is still `uncertain`.
+- 0d4cd77: A producer brief now states how to compute the content identity of a path artifact: the SHA-256 hex digest of the file bytes.
+  The rule appears beside `attempt submit` with the `artifact_identity_changed` refusal, so an Operative builds its result from the brief alone.
+- 86009c8: `operator cleanup close` no longer refuses an Operative because its checkout holds Git-ignored files, such as the `node_modules` that an install command of the gate writes.
+  A closure deletes no file, and `operator cleanup remove` still refuses a checkout with ignored files that nobody registered.
+  The `unexpected_work` and `unexpected_files` blockers now name the first 20 paths, and `omitted` counts the rest.
+- 77b8700: In `--json` results, a missing configuration and a configuration that needs recovery now give a `nextAction`.
+- 77b8700: In `--json` results, readiness next actions and the probe fixture credential now name the command that runs the selected release.
+  The other commands already do this.
+- 9f51c22: `attempt dispatch` no longer refuses a launch because crew work changed an Operator-owned skill that the project tracks.
+  Before, a result that edited a tracked skill copy made every later launch at that commit fail at `input_preparation` with `skill_copy_conflict`, so the result could not be reviewed and no later production dispatch could start from the integration branch.
+  Now a launch keeps a committed copy that changed after the integration base, and the launch snapshot and the brief name it.
+  A skill directory that crew work removed after the integration base stays removed, so the worktree holds the commit under review.
+  A copy that already differs at the integration base still refuses, so a copy that a person changed is never replaced.
+- 77b8700: A cleanup that refuses with `identity_mismatch` now names a malformed control reference apart from a missing one.
+  For a malformed reference, the `control-reference` mismatch reports `found` as `malformed:` with the problem and each field that has no usable value.
+  A missing reference still reports `none`.
+- 17a1207: An Operative takes every fact of its attempt from its brief and from CLI results, and never opens the control reference.
+  A command that an Operative runs now refuses with `attempt_reference_malformed` when the control reference is not a readable file, is not JSON, is not an object, or is not complete.
+  The refusal names the problem and each field that has no usable value, and it no longer says that the directory carries no reference.
+  Each brief now states each of these refusals beside each command that can give it: `attempt acknowledge`, `attempt submit`, `question raise`, `question acknowledge`, and `review report`.
+  The answer that `question deliver` sends states the refusals of `question acknowledge` in the same words.
+  The `operative` skill tells the Operative to read only the brief and the files it names under `.operator/local/`.
+- 77b8700: The `operator` skill now reads the selected release from `operator --version --json` and takes the invocation from it.
+  It no longer reads the release selection file.
+  No shipped skill names the configuration, its editor schema, the release selection, the readiness evidence, the control reference, the launch record, the setup journal, or the crew database as a file to read.
+  The skills and the README call a plan file that a CLI result names a CLI output.
+- 77b8700: A missing probe fixture, an unnamed host, and an invalid configuration now name the `operator config` command that sets or shows the setting.
+  The probe fixture message also names the flags that `operator config apply` takes.
+
 ## 0.6.0
 
 ### Minor Changes
