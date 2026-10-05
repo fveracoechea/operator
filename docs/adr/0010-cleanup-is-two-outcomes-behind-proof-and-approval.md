@@ -105,3 +105,9 @@ That cost is accepted, because Operator never tears down work that did not land.
 
 The state version stays at 1.
 The two new tables are added to the schema this release creates, and a state file that predates them is reported as unreadable rather than repaired in silence.
+
+## Amendment, 2026-10-05
+
+Files that a default status listing hides held the closure and the removal before this date.
+Now they retain only the checkout at removal.
+The ignored output of a gate command, such as an install, held the process of each Operative that ran it, and a closure deletes no file that the check protects.
