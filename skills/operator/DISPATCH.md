@@ -77,6 +77,7 @@ Do not start a second writer.
 ## An Operative never asks the person
 
 Dispatch starts a Claude Code Operative with `--permission-mode dontAsk` and an allow list built from its brief.
+The allow list is in `.operator/local/claude-settings.json` in the Operative worktree, and the launch passes it with `--settings`.
 A producer may also run `git status`, `git add`, and `git commit`, so it can make the one commit of its result.
 A reviewer may not.
 Its host refuses every other tool and never shows a permission prompt.

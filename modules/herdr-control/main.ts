@@ -272,24 +272,26 @@ export const HerdrControl = {
       : { status: "succeeded", value: { paneId } };
   },
 
-  /** Starts the agent host in a prepared pane. An allow list makes Claude Code never ask (ADR 0006). */
+  /**
+   * Starts the agent host in a prepared pane. A settings file with an allow list makes Claude Code
+   * never ask (ADR 0006). Herdr types the launch into the pane shell as one line, and macOS cuts
+   * that line at 1024 bytes, so the line names the file and never carries the list (#196).
+   */
   async startAgent(request: {
     name: string;
     kind: string;
     paneId: string;
     model?: string | null;
     reasoningEffort?: string | null;
-    allowedTools?: string[] | null;
+    settingsPath?: string | null;
   }): Promise<HerdrOutcome<Agent>> {
     const effort = request.reasoningEffort ?? null;
-    const allowed = request.allowedTools ?? null;
-    // `--allowedTools` takes every argument after it, so it closes the list.
+    const settings = request.settingsPath ?? null;
     const hostArgs =
       request.kind === "claude"
         ? [
             ...(effort === null ? [] : ["--effort", effort]),
-            ...(allowed === null ? [] : ["--permission-mode", "dontAsk"]),
-            ...(allowed === null || allowed.length === 0 ? [] : ["--allowedTools", ...allowed]),
+            ...(settings === null ? [] : ["--permission-mode", "dontAsk", "--settings", settings]),
           ]
         : effort === null
           ? []

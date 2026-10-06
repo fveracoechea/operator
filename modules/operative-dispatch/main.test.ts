@@ -1,5 +1,6 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { HerdrControl } from "../herdr-control/main.ts";
+import { ToolInvocation } from "../tool-invocation/main.ts";
 import { OperativeDispatch } from "./main.ts";
 import { planDispatch, type Brief, type Snapshot } from "./plan.ts";
 
@@ -9,6 +10,7 @@ afterEach(() => {
   spyOn(HerdrControl, "startAgent").mockRestore();
   spyOn(HerdrControl, "labelAgent").mockRestore();
   spyOn(HerdrControl, "submitPrompt").mockRestore();
+  spyOn(ToolInvocation, "run").mockRestore();
 });
 
 test("dispatch groups the worktree under the Operator and labels the launched agent", async () => {
@@ -204,4 +206,111 @@ test("each launch stage words its recorded detail", async () => {
   expect(
     await OperativeDispatch.perform({ ...stage, kind: "prompt_delivery", workspaceId: "w-child" }),
   ).toEqual({ status: "succeeded", detail: "Submitted the brief to operative-abcdef12." });
+});
+
+/** One word as a shell reads it. Herdr types each argument after `--` into the pane shell. */
+function shellWord(word: string): string {
+  return /^[A-Za-z0-9_./:=@%+-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`;
+}
+
+// Herdr types the launch into the pane shell as one line, and macOS cuts a terminal input line
+// at 1024 bytes (`getconf MAX_CANON /dev/tty`), so a longer line never starts the host (#196).
+test("a Claude Code launch line stays inside the terminal input limit for many write paths", async () => {
+  const snapshot: Snapshot = {
+    selection: { crew: { host: "claude-code", model: "claude-sonnet-5", reasoningEffort: "high" } },
+    release: { version: "0.7.0", identity: "release" },
+    installation: { delivery: "github-source", commit: "f".repeat(40), packageVersion: null },
+    lock: {
+      name: "bun.lock",
+      state: "present",
+      identity: "lock",
+      path: "/projects/operator/bun.lock",
+    },
+    skills: { identity: "skills" },
+  };
+  const writePaths = Array.from(
+    { length: 20 },
+    (_, index) => `modules/operative-dispatch/feature-${index}/main.ts`,
+  );
+  const brief: Brief = {
+    assignmentId: "assignment-stable",
+    assignmentRevision: 1,
+    attemptId: "abcdef12-3456-7890-abcd-ef1234567890",
+    sourceId: "github",
+    sourceKey: "fveracoechea/operator#192",
+    sourceRevision: "revision",
+    title: "Change many files",
+    kind: "production",
+    approvedScope: "Change many files.",
+    acceptanceRequirements: [],
+    requirementsIdentity: "requirements",
+    permissions: { writePaths, allowedCommands: ["bun test"], network: false },
+    fixedInputs: [],
+    planningRecords: [],
+    rules: { submit: [], report: [] },
+    gate: {
+      commit: "base",
+      commands: [
+        { name: "quality", line: "bun run quality", timeoutSeconds: 600 },
+        { name: "modules", line: "bun run lint:modules", timeoutSeconds: 600 },
+      ],
+    },
+    role: { kind: "production" },
+  };
+  const plan = planDispatch({
+    projectRoot: "/projects/operator",
+    brief,
+    snapshot,
+    baseCommit: "base",
+    branch: null,
+    worktreePath: null,
+    agentHost: "claude-code",
+    agentKind: "claude",
+  });
+  spyOn(HerdrControl, "findRootPane").mockResolvedValue({
+    status: "found",
+    value: { paneId: "w-child:p1" },
+  });
+  spyOn(HerdrControl, "labelAgent").mockResolvedValue({ status: "succeeded", value: null });
+  const run = spyOn(ToolInvocation, "run").mockImplementation(async ({ args }) => ({
+    status: "completed",
+    exitCode: 0,
+    stdout: JSON.stringify({
+      result: { agent: { name: args[2], pane_id: "w-child:p1", agent_status: "idle" } },
+    }),
+    stderr: "",
+  }));
+
+  expect(
+    await OperativeDispatch.perform({
+      kind: "agent_start",
+      projectRoot: "/projects/operator",
+      plan,
+      snapshot,
+      workspaceId: "w-child",
+    }),
+  ).toMatchObject({ status: "succeeded" });
+
+  const args = run.mock.calls[0]?.[0].args ?? [];
+  const line = ["claude", ...args.slice(args.indexOf("--") + 1)].map(shellWord).join(" ");
+  expect(new TextEncoder().encode(line).length).toBeLessThan(1024);
+
+  // The line names the settings file, and the file carries the whole allow list.
+  expect(args.slice(args.indexOf("--") + 1)).toEqual([
+    "--model",
+    "claude-sonnet-5",
+    "--effort",
+    "high",
+    "--permission-mode",
+    "dontAsk",
+    "--settings",
+    `${plan.worktreePath}/.operator/local/claude-settings.json`,
+  ]);
+  expect(plan.hostSettings?.path).toBe(".operator/local/claude-settings.json");
+  expect(JSON.parse(plan.hostSettings?.text ?? "{}")).toEqual({
+    permissions: { allow: plan.allowedTools },
+  });
+  for (const path of writePaths) {
+    expect(plan.allowedTools).toContain(`Edit(./${path})`);
+  }
 });

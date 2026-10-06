@@ -20,7 +20,7 @@ Recovery restores that record.
 A drifted input blocks the attempt and names each changed field, and a session override cannot replace it.
 New work uses current settings; work already in progress does not.
 
-Each Operative worktree receives the project configuration, its schema, a release record, the frozen lock data, a control reference, the brief, and the skills of this release.
+Each Operative worktree receives the project configuration, its schema, a release record, the frozen lock data, a control reference, the brief, the host permission settings of a Claude Code launch, and the skills of this release.
 No other file is copied out of the controlling checkout, so credentials stay in the host credential store.
 Every copy is read back and compared before any agent starts.
 A path fixed input is not copied.

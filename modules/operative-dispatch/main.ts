@@ -116,7 +116,8 @@ async function startAgent({ plan, workspaceId }: StageRequest): Promise<Performe
     paneId: pane.value.paneId,
     model: plan.agentModel,
     reasoningEffort: plan.agentReasoningEffort,
-    allowedTools: plan.allowedTools,
+    settingsPath:
+      plan.hostSettings === null ? null : `${plan.worktreePath}/${plan.hostSettings.path}`,
   });
   if (started.status !== "succeeded") {
     return unsettledOf(started);

@@ -561,10 +561,14 @@ describe("operator attempt dispatch", () => {
     const dispatched = await dispatch(workspace, crew);
     expect(dispatched.json.reason).toBe("acknowledgement_pending");
     const start = (await calls(workspace)).find((line) => line.startsWith("agent start")) ?? "";
-    expect(start).toContain(
-      "--kind claude --pane w1:p1 -- --model claude-sonnet-5 --effort high --permission-mode dontAsk --allowedTools ",
+    // The line names the settings file and never carries the allow list, so it stays short (#196).
+    const settingsPath = `${workspace.root}/operative/.operator/local/claude-settings.json`;
+    expect(start.trim()).toEndWith(
+      `--kind claude --pane w1:p1 -- --model claude-sonnet-5 --effort high --permission-mode dontAsk --settings ${settingsPath}`,
     );
 
+    const settings = await Bun.file(settingsPath).json();
+    const allowed: string[] = settings.permissions.allow;
     const brief = await Bun.file(`${workspace.root}/operative/.operator/local/brief.md`).text();
     const commands = [...brief.matchAll(/^(.+? (?:attempt|question|review) [a-z]+) --/gm)].map(
       (match) => match[1],
@@ -572,12 +576,12 @@ describe("operator attempt dispatch", () => {
     expect(commands).toContain("operator attempt acknowledge");
     expect(commands).toContain("operator attempt submit");
     expect(commands).toContain("operator question raise");
-    for (const command of commands) expect(start).toContain(`Bash(${command}:*)`);
-    expect(start).toContain("Bash(bun test:*)");
-    expect(start).toContain("Edit(./modules/**)");
+    for (const command of commands) expect(allowed).toContain(`Bash(${command}:*)`);
+    expect(allowed).toContain("Bash(bun test:*)");
+    expect(allowed).toContain("Edit(./modules/**)");
     expect(brief).toContain("under `.operator/local/outbox/`");
-    expect(start).toContain("Edit(./.operator/local/outbox/**)");
-    expect(start).not.toContain("WebFetch");
+    expect(allowed).toContain("Edit(./.operator/local/outbox/**)");
+    expect(allowed).not.toContain("WebFetch");
   });
 
   test("gives an OpenCode Operative no Claude Code permission mode", async () => {
@@ -591,6 +595,9 @@ describe("operator attempt dispatch", () => {
     expect((await calls(workspace)).find((line) => line.startsWith("agent start"))).not.toContain(
       "--permission-mode",
     );
+    expect(
+      await Bun.file(`${workspace.root}/operative/.operator/local/claude-settings.json`).exists(),
+    ).toBe(false);
   });
 
   test("refuses OpenCode effort without an explicit supported model before creating a worktree", async () => {
