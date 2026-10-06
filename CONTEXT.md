@@ -408,6 +408,19 @@ It records the registration plan revision whose approval recorded it.
 A commit of it that the integration branch holds is taken out of that branch, bound to that plan revision, and until then no production work of its work source starts.
 _Avoid_: cancel, drop, descope, abandon, revert, for this act
 
+**Source reset**:
+The end of one whole work source, on the instruction of the person, so that the crew can change direction or start from scratch.
+It is recorded behind the approval of a reset plan, only when no attempt of the source is running, and its history stays.
+It removes nothing: each worktree, branch, and published pull request that the plan lists stays until its own cleanup or recall.
+After it, any issue can be registered again, the same parent issue included, as a new work source.
+An Operator decision never starts one.
+_Avoid_: withdrawal, cancel, abandon, for this act
+
+**Source archive**:
+The read-only record of one finished or reset work source, moved out of the crew state so that the crew state holds only open work.
+The crew state keeps a short record that points to it, and its history stays readable until a prune deletes it.
+_Avoid_: backup, for this record
+
 **Review capability**:
 The reviewer host's ability to run the required review sub-agents.
 An unavailable capability is a recorded blocker, never permission for a single-context self-review.
