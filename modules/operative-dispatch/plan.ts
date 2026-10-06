@@ -111,6 +111,8 @@ export type DispatchPlan = {
   agentReasoningEffort: string | null;
   // The only tools the host runs with no prompt, because it refuses the rest and never asks.
   allowedTools: string[];
+  // The Claude Code settings file that carries the allow list, or null for a host that reads none.
+  hostSettings: { path: string; text: string } | null;
   briefPath: string;
   briefText: string;
   briefIdentity: string;
@@ -139,6 +141,12 @@ export const REFERENCE_PATH = ".operator/local/attempt.json";
 export const RELEASE_PATH = ".operator/local/release.json";
 /** Where a launched agent writes each file it passes to `--input`. */
 export const OUTBOX_PATH = ".operator/local/outbox/";
+/**
+ * The Claude Code settings one launch starts with. Herdr types the launch into the pane shell as
+ * one line, and macOS cuts that line at 1024 bytes, so the allow list goes in this file and the
+ * line only names it (#196).
+ */
+export const HOST_SETTINGS_PATH = ".operator/local/claude-settings.json";
 
 /**
  * The two OpenCode files a launch with a reasoning effort writes into the worktree.
@@ -577,6 +585,17 @@ export function planDispatch(request: {
   });
   const briefIdentity = ContentIdentity.ofText(briefText);
   const promptText = promptDocument(request.brief, request.snapshot);
+  const tools = allowedTools(
+    request.brief,
+    ReleaseInstall.invocation(request.snapshot.installation ?? {}),
+  );
+  const hostSettings =
+    request.agentKind === "claude"
+      ? {
+          path: HOST_SETTINGS_PATH,
+          text: `${JSON.stringify({ permissions: { allow: tools } }, null, 2)}\n`,
+        }
+      : null;
 
   // Each role reads its fixed copies, never the worktree that produced them, under its own
   // directory. The planning artifacts are copied by the same step.
@@ -599,16 +618,19 @@ export function planDispatch(request: {
     agentHost: request.agentHost,
     agentModel: request.snapshot.selection.crew.model,
     agentReasoningEffort: request.snapshot.selection.crew.reasoningEffort ?? null,
-    allowedTools: allowedTools(
-      request.brief,
-      ReleaseInstall.invocation(request.snapshot.installation ?? {}),
-    ),
+    allowedTools: tools,
+    hostSettings,
     briefPath: BRIEF_PATH,
     briefText,
     briefIdentity,
     promptText,
     // Delivery identity covers the brief the prompt points at, so a changed brief is a new prompt.
-    promptIdentity: ContentIdentity.of({ promptText, briefIdentity }),
+    // It also covers the host settings, so a recovery that would start other permissions refuses.
+    promptIdentity: ContentIdentity.of(
+      hostSettings === null
+        ? { promptText, briefIdentity }
+        : { promptText, briefIdentity, hostSettings: ContentIdentity.ofText(hostSettings.text) },
+    ),
     snapshotIdentity: ContentIdentity.of(request.snapshot),
     extraInputs,
     fixedPaths: fixedPaths(request.brief),

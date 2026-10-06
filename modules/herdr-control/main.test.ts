@@ -135,7 +135,7 @@ test("the visible agent name does not change the handle used for prompts", async
   ]);
 });
 
-test("a Claude Code agent with an allow list never asks, and the list closes its arguments", async () => {
+test("a Claude Code agent with a settings file never asks, and the line only names the file", async () => {
   const calls: string[][] = [];
   spyOn(ToolInvocation, "run").mockImplementation(async ({ args }) => {
     calls.push(args);
@@ -154,14 +154,14 @@ test("a Claude Code agent with an allow list never asks, and the list closes its
     paneId: "w1:p1",
     model: "claude-sonnet-5",
     reasoningEffort: "high",
-    allowedTools: ["Bash(operator attempt acknowledge:*)", "Edit(./modules/**)"],
+    settingsPath: "/w/operative-1/.operator/local/claude-settings.json",
   });
   await HerdrControl.startAgent({ name: "probe-1", kind: "claude", paneId: "w1:p1" });
   await HerdrControl.startAgent({
     name: "operative-2",
     kind: "opencode",
     paneId: "w1:p1",
-    allowedTools: ["Bash(operator attempt acknowledge:*)"],
+    settingsPath: "/w/operative-2/.operator/local/claude-settings.json",
   });
 
   expect(calls).toEqual([
@@ -180,9 +180,8 @@ test("a Claude Code agent with an allow list never asks, and the list closes its
       "high",
       "--permission-mode",
       "dontAsk",
-      "--allowedTools",
-      "Bash(operator attempt acknowledge:*)",
-      "Edit(./modules/**)",
+      "--settings",
+      "/w/operative-1/.operator/local/claude-settings.json",
     ],
     ["agent", "start", "probe-1", "--kind", "claude", "--pane", "w1:p1"],
     ["agent", "start", "operative-2", "--kind", "opencode", "--pane", "w1:p1"],

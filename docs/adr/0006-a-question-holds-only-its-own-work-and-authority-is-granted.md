@@ -7,6 +7,9 @@ That report carries no authority of its own: the request shape refuses any other
 An Operative never addresses the person, so its agent host must not ask the person for a permission.
 Dispatch starts a Claude Code Operative with `--permission-mode dontAsk` and an allow list.
 The list comes from the brief: the Operator CLI operations it names, its allowed commands, its write paths, the outbox for `--input` files, and the web tools when it permits the network.
+The allow list is in a settings file under `.operator/local/` in the worktree, and the launch line names that file with `--settings`.
+Herdr types the launch into the pane shell as one line, and macOS cuts a terminal input line at 1024 bytes, so a list on the line stops the launch of a brief with a few write paths.
+The launch identity covers the content of the file, so a recovery starts with the same permissions.
 An Operative that produces a result also gets `git status`, `git add`, and `git commit`, because its code result is one commit (ADR 0015).
 A reviewer gets none of them, because it changes nothing.
 The host refuses every other tool, and the Operative reports the refusal as a blocked report.

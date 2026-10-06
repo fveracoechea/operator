@@ -228,6 +228,9 @@ function records({ projectRoot, plan, snapshot }: Request): Write[] {
       }),
     },
     { path: plan.briefPath, bytes: encoder.encode(plan.briefText) },
+    ...(plan.hostSettings === null
+      ? []
+      : [{ path: plan.hostSettings.path, bytes: encoder.encode(plan.hostSettings.text) }]),
   ];
 }
 

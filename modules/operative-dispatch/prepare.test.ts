@@ -245,5 +245,9 @@ test("prepare copies and verifies each input and names their count", async () =>
     workspaceId: null,
   });
 
-  expect(outcome).toEqual({ status: "succeeded", detail: "Copied and verified 6 input(s)." });
+  expect(outcome).toEqual({ status: "succeeded", detail: "Copied and verified 7 input(s)." });
+  // A Claude Code launch reads its allow list from this file, never from the launch line (#196).
+  expect(
+    await Bun.file(join(one.worktreePath, ".operator/local/claude-settings.json")).text(),
+  ).toBe(one.plan.hostSettings?.text ?? "");
 });
