@@ -68,6 +68,17 @@ A general delegation to decide from a named source does not make each decision a
 **Human answer**:
 A response given by the user to a question. An Operator inference or summary is not itself a human answer.
 
+**Operator home**:
+The two device folders where Operator keeps everything that it owns: one for the device settings, and one for the state of every registered project.
+No checkout and no worktree holds an Operator file.
+_Avoid_: `.operator` folder, local folder
+
+**Device settings**:
+The settings that apply to every project on one device: the Operator and Crew hosts and models, the reasoning effort, and the crew limit.
+The crew limit counts the active agents of every project on the device.
+When a person manages the settings outside Operator, Operator reads them and never changes them.
+_Avoid_: project configuration
+
 **Operator release**:
 A matched version of the Operator CLI and Operator-owned skills, released together. Required upstream skills have separate revisions.
 It carries its own record of the version, the commit, and the supported runtime, because a registry rewrites the package manifest of a published copy.
@@ -81,7 +92,7 @@ The exact release one project coordinates with: its delivery path, its full comm
 A missing or mismatched installation, and missing lock data, stop the work that reads it; they never permit another installation to stand in.
 
 **Release artifact**:
-The built contents of one release: runnable ESM, the public declarations, the complete owned-skill directories, the Herdr plugin, and the generated configuration schema.
+The built contents of one release: runnable ESM, the public declarations, the complete owned-skill directories, the Herdr plugin, and the generated settings schema.
 It is identified by every byte it holds, so changed content is a different release.
 
 **Release publication**:
@@ -98,7 +109,7 @@ A file an earlier release wrote is refused until an approved update migrates it 
 
 **Effective selection**:
 The Operator and Crew host and model that a launch would use.
-Each field is resolved on its own from the session override, then the project configuration, then the host default.
+Each field is resolved on its own from the session override, then the device settings, then the host default.
 An unavailable explicit selection is an error, never permission to substitute.
 
 **Configured**:
@@ -118,12 +129,8 @@ It proves what a static check cannot, such as host termination, the native revie
 
 **Probe plan**:
 The declaration of what one live probe would use, made before anything launches.
-It names the hosts and models, the provider use, the credentials, the fixture requirements, the temporary resources, the expected costs, and the cleanup.
+It names the hosts and models, the provider use, the credentials, the temporary resources, the expected costs, and the cleanup.
 It carries a revision, and an approval is bound to that revision.
-
-**Probe fixture**:
-The tracker repository and issue a live probe writes to instead of a project issue.
-It is named in configuration, so a probe with none skips every tracker check.
 
 **Probe attempt**:
 One recorded run of the approved live checks.
@@ -432,7 +439,7 @@ It keeps the inspected checkout and branch.
 **Tracker binding**:
 The tracker, the repository, and the issue one assignment was registered from.
 An issue number alone does not name an item, because a sub-issue can live in another repository.
-It is fixed at registration, so a later configuration change cannot redirect work that already exists.
+It is fixed at registration, so a later change of the device settings cannot redirect work that already exists.
 
 **Tracker location**:
 Where one work source lives in its tracker: its repository and its parent issue, if it has one.
