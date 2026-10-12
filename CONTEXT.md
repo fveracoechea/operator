@@ -79,6 +79,18 @@ The crew limit counts the active agents of every project on the device.
 When a person manages the settings outside Operator, Operator reads them and never changes them.
 _Avoid_: project configuration
 
+**Registered project**:
+One repository that the person registered on the device, named by its GitHub owner and repository.
+It has one controlling checkout, and two clones of one repository are one registered project.
+Registering a project writes nothing to the repository, and removing it deletes the project's history and touches no checkout.
+It is not the registration of work, which records a work source of a registered project.
+_Avoid_: setup, for registering a project
+
+**Controlling checkout**:
+The one clone of a registered project that holds the crew's refs and where the Operator runs its commands.
+It is recorded when the project is registered, and it moves to another clone of the same repository only when no work source of the project is open.
+A linked worktree or a bare repository cannot be one.
+
 **Operator release**:
 A matched version of the Operator CLI and Operator-owned skills, released together. Required upstream skills have separate revisions.
 It carries its own record of the version, the commit, and the supported runtime, because a registry rewrites the package manifest of a published copy.
@@ -113,7 +125,7 @@ Each field is resolved on its own from the session override, then the device set
 An unavailable explicit selection is an error, never permission to substitute.
 
 **Configured**:
-The state of a project whose approved setup plan is complete and whose selected files and settings validate.
+The state of a registered project whose controlling checkout exists, whose remote still names the project, whose checkout holds no `.operator` folder of an earlier release, and whose device settings validate.
 
 **Ready**:
 The state of a configured project whose required checks passed for its exact effective selection and evidence inputs.
