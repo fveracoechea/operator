@@ -1,6 +1,7 @@
 # Operator
 
-Shared language for the Operator project's agent coordination workflow.
+Shared language for Operator's declarative and deterministic agent coordination workflow.
+Agents and sub-agents follow its applicable next actions so they do not have to reconstruct the workflow themselves.
 
 ## Language
 
@@ -293,6 +294,8 @@ _Avoid_: decision record, Decision section
 **Next actions**:
 The ordered list of what one crew may do now, with the waits that hold the rest.
 It is one read that changes nothing, and it is the only schedule, so a session keeps no queue beside it.
+The same recorded state and observed facts give the same ordered actions and waits.
+Agents follow these actions instead of deciding the workflow order themselves.
 An action that names a blocker waits on a person; a standing precondition is reported first and never decides whether the crew can advance.
 
 **Wake binding**:
