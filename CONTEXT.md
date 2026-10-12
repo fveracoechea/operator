@@ -172,6 +172,8 @@ An approved specification, a ready ticket, and a wayfinder map are the three sup
 Operator reads each one from the tracker, as a parent issue with its sub-issues or as one issue, and never creates the issues.
 Its revision is the identity of the approved text of that parent issue or that one issue, so a comment or a closed ticket does not change it.
 It is finished when every integrated pull request of its last stack publication merged with a merge commit, or a person settled its merge by another method, and every tracker step of its items is verified, or, when it has nothing to publish, when the rest of its work is accepted and its tracker steps are verified.
+Each registration of a parent issue is a new work source, and only one work source of a parent issue is open at a time.
+A work source is ended when it is finished or reset.
 
 **Registration plan**:
 The preview of what one registration would record, read from the tracker together with the Operator's input.
@@ -433,7 +435,16 @@ It is recorded behind the approval of a reset plan, only when no attempt of the 
 It removes nothing: each worktree, branch, and published pull request that the plan lists stays until its own cleanup or recall.
 After it, any issue can be registered again, the same parent issue included, as a new work source.
 An Operator decision never starts one.
+Each assignment of the source ends with it, and no assignment of another work source may depend on one of them.
+It changes nothing in the tracker.
+A withdrawal ends one assignment while its work source continues, and a source reset ends the whole source.
 _Avoid_: withdrawal, cancel, abandon, for this act
+
+**Reset plan**:
+The preview of one source reset.
+It names each assignment that ends, and each worktree, branch, pull request, and retention hold that stays.
+It carries a revision, and the reset refuses when a fresh read gives a different one.
+While a person's approval of it is unused, no new work of its source starts.
 
 **Source archive**:
 The read-only record of one finished or reset work source, moved out of the crew state so that the crew state holds only open work.
