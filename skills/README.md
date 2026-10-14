@@ -11,7 +11,8 @@ A `SKILL.md` is a router and stays under 150 lines, and every markdown file besi
 `bun run quality` fails on any of those four rules.
 
 - **[adr](./adr/SKILL.md)** - Use when recording an architectural decision, when an existing ADR in docs/adr looks stale against the code, or when a change contradicts an ADR.
-- **[bun](./bun/SKILL.md)** - Use when writing or reviewing Bun code including runtime, bun test, Bun.serve, bundler, bun install, or scripts.
+- **[bun](./bun/SKILL.md)** - Use when writing or reviewing Bun code including runtime, bun test and its mocks, Bun.serve, bundler, bun install, or scripts.
+- **[collections-and-iteration](./collections-and-iteration/SKILL.md)** - Use when code sorts, filters or looks up in an array, Set or Map, or loops over a collection or an object.
 - **[deep-modules](./deep-modules/SKILL.md)** - Use when adding or changing a feature in a TypeScript app: a screen and its data, where new or shared code goes, a sub-module, or a module test.
 - **[no-slop](./no-slop/SKILL.md)** - Use when writing or editing prose, documentation, code comments, commit messages, or issue and pull request text.
 - **[operative](./operative/SKILL.md)** - Use when dispatched for production or rework with a fixed Operator brief.

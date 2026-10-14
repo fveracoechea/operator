@@ -8,7 +8,7 @@ Every other file is private, and files inside the module import each other with 
 | File                                   | Holds                                                                  | Environment                        |
 | -------------------------------------- | ---------------------------------------------------------------------- | ---------------------------------- |
 | `main.ts`                              | one exported PascalCase interface object (`Invoices`, `Auth`, `Cache`) | a module that callers import       |
-| `main.server.ts`, `main.client.ts`     | a second interface object, bound to one side of the boundary           | full-stack                         |
+| `main.server.ts`                       | a second interface object, for server code only                        | full-stack                         |
 | `schemas.ts` or `schemas.generated.ts` | the wire shapes as Zod, and the types inferred from them               | a module whose data crosses a wire |
 | `$functions.ts`                        | the server functions and server-function middleware                    | TanStack Start                     |
 
@@ -33,7 +33,7 @@ This applies to a full-stack app, where one module holds code for both sides.
 
 - `main.server.ts` holds a server-only interface object: `Auth`, `Cache`, `Http`.
 - `main.ts` holds an isomorphic interface object, or the one the browser uses. TanStack Start renders every component in the route tree on the server, even under `ssr: 'data-only'`, so a `.client.ts` file on that path fails the SSR build.
-- A module with an object for each side has two entry files, each with one object.
+- A module with an object for each side has two entry files, `main.ts` and `main.server.ts`, each with one object.
 
 The file name tells where code runs.
 `.server.ts` and `.client.ts` mark a file that belongs to one environment, and a plain `.ts` file runs on both.

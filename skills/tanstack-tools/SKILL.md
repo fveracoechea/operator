@@ -26,8 +26,8 @@ Load one for a substantial change, and skip it for a rename or a fix inside a pa
 From the workspace root:
 
 - Pick the runner from the lockfile: `bunx` for `bun.lock` or `bun.lockb`, `pnpm dlx` for `pnpm-lock.yaml`, `npx` for `package-lock.json` or `npm-shrinkwrap.json`. With any other lockfile, or none, `bunx` when it is installed and `npx` otherwise.
-- Run `<runner> @tanstack/intent@latest list`, load the closest match, and follow it. A second package earns a second load. For Start work, the core skill of `@tanstack/start-client-core` routes to the rest.
-- Use the project's `intent` script when `package.json` has one. Another dependency can own `node_modules/.bin/intent` and crash the lookup; the script runs `node_modules/@tanstack/intent/dist/cli.mjs` directly.
+- Run `list`, then `load <package>#<skill>` for the closest match, and follow it. Run both through the project's `intent` script when `package.json` has one, and through `<runner> @tanstack/intent@latest` otherwise. A second package earns a second load. For Start work, the core skill of `@tanstack/start-client-core` routes to the rest.
+- The script exists because another dependency can own `node_modules/.bin/intent`; it runs `node_modules/@tanstack/intent/dist/cli.mjs` directly. The `Load:` line under each skill in `list` calls that bare binary, so take only its `<package>#<skill>`.
 
 `intent.skills` in `package.json` is the allowlist of packages that may contribute skills, and `intent.exclude` drops single skills after it resolves.
 Only a package that ships a `skills/` directory is found, so add a package to the allowlist when its skills first appear upstream; added earlier, `list` reports it as undiscovered.
@@ -46,6 +46,7 @@ Only a package that ships a `skills/` directory is found, so add a package to th
 
 ### Query (`@tanstack/react-query`)
 
+- **Transforming query data with `select`**: [query-select.md](query-select.md).
 - **Writing or changing a mutation**: [query-mutations.md](query-mutations.md).
 
 ### Form (`@tanstack/react-form`)
