@@ -1,9 +1,25 @@
 # One read-only command owns the coordination order, and a new owner adopts an attempt explicitly
 
+## Status
+
+Accepted. Amended 2026-10-12: Make deterministic scheduling and CLI-owned mechanical steps explicit, as clarified in [Map the global Operator home and the source reset](https://github.com/fveracoechea/operator/issues/199#issuecomment-6127524771).
+
+## Context
+
+Operator needed a declarative and deterministic process that guided agents and sub-agents through the workflow.
+A session-local schedule could disagree with recorded state, and each agent would have to reconstruct the workflow order and its blockers.
+
+## Decision
+
 `operator crew next` is the only schedule.
 It reads readiness, the frontier order, dependency gates, review priority, capacity, pending acknowledgements, open questions, undisposed findings, unfinished tracker steps, and unfinished cleanup, and reports them as one ranked list of actions with the waits that hold the rest.
 The Operator skill takes the first action, runs the command it names, and reads again.
 The rules therefore keep one owner, and a session cannot hold a queue that disagrees with the state.
+
+The same recorded state and observed facts give the same ordered next actions and waits.
+The CLI provides the operations that perform the mechanical steps behind those actions.
+Agents and sub-agents invoke those operations rather than reconstruct the workflow rules or perform its mechanical steps themselves.
+The person still supplies each decision and approval that the workflow requires.
 
 The order is declared once, in the crew state, as a list of action names.
 Recovery comes before conversation, conversation before a pipeline step, and a launch last.
@@ -18,7 +34,7 @@ A takeover replaces the ownership token, so every attempt the former Operator cl
 Adoption is the new owner's statement that it read what one attempt still holds, and it changes nothing about the work, the checkout, the brief, or the questions.
 It runs only on settled effects and a live writer.
 
-## Considered options
+## Alternatives considered
 
 Reporting readiness as its own command and leaving the skill to combine the two readings was rejected.
 Two reads that the skill joins are two schedules, and the join is exactly the rule that has to have one owner.
@@ -45,3 +61,5 @@ The tracker step rule now has one rendering, which both `operator tracker show` 
 
 A live probe is not implemented in this release, so no project can reach readiness and the readiness precondition stays listed.
 That is honest, and the skill says to settle it with the user before a launch.
+
+Related: ADR-0023 (the declared state machines that provide the next actions).

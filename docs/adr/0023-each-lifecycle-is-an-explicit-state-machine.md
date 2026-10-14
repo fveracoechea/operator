@@ -2,9 +2,12 @@
 
 ## Status
 
-Accepted - 2026-10-03. Decided in #126, first applied in #128.
+Accepted - 2026-10-03. Decided in #126, first applied in #128. Amended 2026-10-12: Make declarative and deterministic workflow control an explicit project goal, as clarified in [Map the global Operator home and the source reset](https://github.com/fveracoechea/operator/issues/199#issuecomment-6127524771).
 
 ## Context
+
+Operator needed a declarative and deterministic process that guided agents and sub-agents through its workflow.
+Agents needed applicable next actions and operations that performed the mechanical steps, so they did not have to reconstruct or execute those steps themselves.
 
 Operator records many things that move through a lifecycle: an assignment, an attempt, a landing, an integration branch, a gate run, a review, an approval, a stack publication, a rebase, a recall, a tracker step, a question, and a cleanup.
 The rules of each lifecycle were spread over the commands that moved it.
@@ -12,6 +15,12 @@ Each command held its own chain of refusal guards, two commands that moved the s
 The chains grew so long that a complexity limit could be met only by cutting them into small helpers that each hid one guard, and a new command could drift from the rules of the commands beside it.
 
 ## Decision
+
+Operator's workflow is declarative and deterministic.
+The CLI owns its state machines and returns the applicable next actions to agents and sub-agents.
+The same state, event, and observed facts give the same transition, effects, or refusal.
+CLI operations perform the mechanical workflow steps, and agents invoke those operations rather than implement the protocol themselves.
+Agents remain responsible for the reasoning, implementation, and review of their assigned work, and the person supplies required decisions and approvals.
 
 Each lifecycle of one recorded thing is one explicit state machine, owned by the module that owns the recorded thing. A machine has five parts:
 
@@ -45,12 +54,16 @@ Later machines:
 
 ## Consequences
 
+- Workflow rules live in the declared machines and their operations.
+  Agent instructions point to the applicable next actions and commands rather than provide a second implementation of those rules.
 - The refusals of one lifecycle are read in one table, and they can be tested with no database.
 - ADR-0010 and ADR-0006 stay true. The cleanup and question machines record the same rules in one place.
 - The other lifecycles move to this shape one at a time. Each such change updates the ADR whose names it touches.
 
 ## Alternatives considered
 
+- **Let agents interpret the workflow and perform its mechanical steps.** Different sessions can choose different steps from the same facts, and each must reconstruct the guards and recovery rules.
+  The accepted cost of CLI-owned control is that a workflow rule change needs a corresponding change to the declared machines and operations.
 - **Keep the guards in each command and only cut long functions into helpers.** This meets the complexity limit, but each helper hides one guard behind a name, the refusal order spreads over many places, and two commands that move the same record still drift.
 - **One generic engine that runs every machine.** The machines differ in their facts and their effects, so a shared engine needs callbacks for each one. Only the shape is shared: each machine has its own table and its own decision.
 - **A state column for each derived lifecycle.** Where a closed set of derived state names already says the state, a column adds a migration for no gain. The derived set is the state of the machine.

@@ -1,6 +1,7 @@
 # Operator
 
-Shared language for the Operator project's agent coordination workflow.
+Shared language for Operator's declarative and deterministic agent coordination workflow.
+Agents and sub-agents follow its applicable next actions so they do not have to reconstruct the workflow themselves.
 
 ## Language
 
@@ -68,6 +69,29 @@ A general delegation to decide from a named source does not make each decision a
 **Human answer**:
 A response given by the user to a question. An Operator inference or summary is not itself a human answer.
 
+**Operator home**:
+The two device folders where Operator keeps everything that it owns: one for the device settings, and one for the state of every registered project.
+No checkout and no worktree holds an Operator file.
+_Avoid_: `.operator` folder, local folder
+
+**Device settings**:
+The settings that apply to every project on one device: the Operator and Crew hosts and models, the reasoning effort, and the crew limit.
+The crew limit counts the active agents of every project on the device.
+When a person manages the settings outside Operator, Operator reads them and never changes them.
+_Avoid_: project configuration
+
+**Registered project**:
+One repository that the person registered on the device, named by its GitHub owner and repository.
+It has one controlling checkout, and two clones of one repository are one registered project.
+Registering a project writes nothing to the repository, and removing it deletes the project's history and touches no checkout.
+It is not the registration of work, which records a work source of a registered project.
+_Avoid_: setup, for registering a project
+
+**Controlling checkout**:
+The one clone of a registered project that holds the crew's refs and where the Operator runs its commands.
+It is recorded when the project is registered, and it moves to another clone of the same repository only when no work source of the project is open.
+A linked worktree or a bare repository cannot be one.
+
 **Operator release**:
 A matched version of the Operator CLI and Operator-owned skills, released together. Required upstream skills have separate revisions.
 It carries its own record of the version, the commit, and the supported runtime, because a registry rewrites the package manifest of a published copy.
@@ -81,7 +105,7 @@ The exact release one project coordinates with: its delivery path, its full comm
 A missing or mismatched installation, and missing lock data, stop the work that reads it; they never permit another installation to stand in.
 
 **Release artifact**:
-The built contents of one release: runnable ESM, the public declarations, the complete owned-skill directories, the Herdr plugin, and the generated configuration schema.
+The built contents of one release: runnable ESM, the public declarations, the complete owned-skill directories, the Herdr plugin, and the generated settings schema.
 It is identified by every byte it holds, so changed content is a different release.
 
 **Release publication**:
@@ -98,11 +122,11 @@ A file an earlier release wrote is refused until an approved update migrates it 
 
 **Effective selection**:
 The Operator and Crew host and model that a launch would use.
-Each field is resolved on its own from the session override, then the project configuration, then the host default.
+Each field is resolved on its own from the session override, then the device settings, then the host default.
 An unavailable explicit selection is an error, never permission to substitute.
 
 **Configured**:
-The state of a project whose approved setup plan is complete and whose selected files and settings validate.
+The state of a registered project whose controlling checkout exists, whose remote still names the project, whose checkout holds no `.operator` folder of an earlier release, and whose device settings validate.
 
 **Ready**:
 The state of a configured project whose required checks passed for its exact effective selection and evidence inputs.
@@ -118,12 +142,8 @@ It proves what a static check cannot, such as host termination, the native revie
 
 **Probe plan**:
 The declaration of what one live probe would use, made before anything launches.
-It names the hosts and models, the provider use, the credentials, the fixture requirements, the temporary resources, the expected costs, and the cleanup.
+It names the hosts and models, the provider use, the credentials, the temporary resources, the expected costs, and the cleanup.
 It carries a revision, and an approval is bound to that revision.
-
-**Probe fixture**:
-The tracker repository and issue a live probe writes to instead of a project issue.
-It is named in configuration, so a probe with none skips every tracker check.
 
 **Probe attempt**:
 One recorded run of the approved live checks.
@@ -153,6 +173,8 @@ An approved specification, a ready ticket, and a wayfinder map are the three sup
 Operator reads each one from the tracker, as a parent issue with its sub-issues or as one issue, and never creates the issues.
 Its revision is the identity of the approved text of that parent issue or that one issue, so a comment or a closed ticket does not change it.
 It is finished when every integrated pull request of its last stack publication merged with a merge commit, or a person settled its merge by another method, and every tracker step of its items is verified, or, when it has nothing to publish, when the rest of its work is accepted and its tracker steps are verified.
+Each registration of a parent issue is a new work source, and only one work source of a parent issue is open at a time.
+A work source is ended when it is finished or reset.
 
 **Registration plan**:
 The preview of what one registration would record, read from the tracker together with the Operator's input.
@@ -272,6 +294,8 @@ _Avoid_: decision record, Decision section
 **Next actions**:
 The ordered list of what one crew may do now, with the waits that hold the rest.
 It is one read that changes nothing, and it is the only schedule, so a session keeps no queue beside it.
+The same recorded state and observed facts give the same ordered actions and waits.
+Agents follow these actions instead of deciding the workflow order themselves.
 An action that names a blocker waits on a person; a standing precondition is reported first and never decides whether the crew can advance.
 
 **Wake binding**:
@@ -408,6 +432,28 @@ It records the registration plan revision whose approval recorded it.
 A commit of it that the integration branch holds is taken out of that branch, bound to that plan revision, and until then no production work of its work source starts.
 _Avoid_: cancel, drop, descope, abandon, revert, for this act
 
+**Source reset**:
+The end of one whole work source, on the instruction of the person, so that the crew can change direction or start from scratch.
+It is recorded behind the approval of a reset plan, only when no attempt of the source is running, and its history stays.
+It removes nothing: each worktree, branch, and published pull request that the plan lists stays until its own cleanup or recall.
+After it, any issue can be registered again, the same parent issue included, as a new work source.
+An Operator decision never starts one.
+Each assignment of the source ends with it, and no assignment of another work source may depend on one of them.
+It changes nothing in the tracker.
+A withdrawal ends one assignment while its work source continues, and a source reset ends the whole source.
+_Avoid_: withdrawal, cancel, abandon, for this act
+
+**Reset plan**:
+The preview of one source reset.
+It names each assignment that ends, and each worktree, branch, pull request, and retention hold that stays.
+It carries a revision, and the reset refuses when a fresh read gives a different one.
+While a person's approval of it is unused, no new work of its source starts.
+
+**Source archive**:
+The read-only record of one finished or reset work source, moved out of the crew state so that the crew state holds only open work.
+The crew state keeps a short record that points to it, and its history stays readable until a prune deletes it.
+_Avoid_: backup, for this record
+
 **Review capability**:
 The reviewer host's ability to run the required review sub-agents.
 An unavailable capability is a recorded blocker, never permission for a single-context self-review.
@@ -419,7 +465,7 @@ It keeps the inspected checkout and branch.
 **Tracker binding**:
 The tracker, the repository, and the issue one assignment was registered from.
 An issue number alone does not name an item, because a sub-issue can live in another repository.
-It is fixed at registration, so a later configuration change cannot redirect work that already exists.
+It is fixed at registration, so a later change of the device settings cannot redirect work that already exists.
 
 **Tracker location**:
 Where one work source lives in its tracker: its repository and its parent issue, if it has one.

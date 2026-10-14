@@ -11,6 +11,19 @@ Operator is based on [Matt Pocock's agent skills and workflow](https://github.co
 His skills guide the work from clarifying a goal and writing a spec through tickets, implementation, and review.
 Operator builds on that workflow by coordinating the agents, worktrees, and recorded decisions that carry the work between those steps.
 
+## Project goal
+
+Operator's goal is to make agent coordination a declarative and deterministic process.
+Its CLI owns the workflow state machines and provides the applicable next actions to agents and sub-agents.
+Declared states, events, and guards determine which steps may run and why other steps must wait.
+The same state, event, and observed facts give the same transition or refusal.
+
+Agents invoke the operations that the CLI provides, and those operations perform the mechanical workflow steps.
+Agents do the reasoning, implementation, and review of their assigned work, and the person supplies the decisions and approvals that the workflow requires.
+They do not reconstruct the workflow rules, maintain a separate schedule, or perform a CLI-owned operation by hand.
+
+See [ADR 0023](docs/adr/0023-each-lifecycle-is-an-explicit-state-machine.md) for the state machines and [ADR 0011](docs/adr/0011-one-read-only-command-owns-the-coordination-order.md) for the next actions.
+
 ## Status
 
 Every step of the first orchestration workflow works end to end: project setup, release selection and updates, readiness, the live probe, crew state, dispatch, questions, review, rework, tracker completion, cleanup, and the coordination loop.
@@ -39,13 +52,13 @@ Operator adds the coordination rules, the skills, and the CLI operations that He
 
 ## Requirements
 
-| Tool | Why |
-| --- | --- |
-| [Bun](https://bun.com) 1.4.0 or later | Runs the CLI. The CLI refuses an earlier Bun. |
-| Git | Holds the project and each Operative worktree. |
-| [Herdr](https://herdr.dev/) | Creates worktrees, launches agents, and reads their panes. |
-| GitHub CLI (`gh`) | Reads and writes the tracker. GitHub is the only tracker this release supports. |
-| Claude Code, OpenCode, or both | The agent hosts for the Operator and the crew. |
+| Tool                                  | Why                                                                             |
+| ------------------------------------- | ------------------------------------------------------------------------------- |
+| [Bun](https://bun.com) 1.4.0 or later | Runs the CLI. The CLI refuses an earlier Bun.                                   |
+| Git                                   | Holds the project and each Operative worktree.                                  |
+| [Herdr](https://herdr.dev/)           | Creates worktrees, launches agents, and reads their panes.                      |
+| GitHub CLI (`gh`)                     | Reads and writes the tracker. GitHub is the only tracker this release supports. |
+| Claude Code, OpenCode, or both        | The agent hosts for the Operator and the crew.                                  |
 
 Optional: [`jq`](https://jqlang.github.io/jq/) lets agents select fields from the CLI's `--json` output without reading the full result.
 Operator does not require `jq` to run.
@@ -402,15 +415,15 @@ The package also exports `main(args)` from `@fveracoechea/operator/cli`.
 
 The exit meanings are the same for every command.
 
-| Exit | Meaning |
-| ---: | --- |
-| 0 | Completed |
-| 1 | Definite failure |
-| 2 | Invalid request or input |
-| 3 | Missing condition or approval |
-| 4 | State or ownership conflict |
-| 5 | Uncertain external effect |
-| 6 | Recorded operation still pending |
+| Exit | Meaning                          |
+| ---: | -------------------------------- |
+|    0 | Completed                        |
+|    1 | Definite failure                 |
+|    2 | Invalid request or input         |
+|    3 | Missing condition or approval    |
+|    4 | State or ownership conflict      |
+|    5 | Uncertain external effect        |
+|    6 | Recorded operation still pending |
 
 Every mutation carries a request identity, `--request <id>`.
 A repeat under the same identity returns the recorded result of a mutation that changed state, with no new effect, and `repeated` in the result says so.
@@ -630,11 +643,11 @@ bun run operator setup readiness --claude --operator-host claude-code --json
 The command reads the machine and the project and writes nothing.
 It reports one of three states beside a separate `configured` field.
 
-| State | Meaning |
-| --- | --- |
-| `blocked` | A required check failed. The blockers name the reason, the paths, and the next action. |
-| `unverified` | Every required static check passed, and required live evidence is missing or stale. |
-| `ready` | Every required check passed against the current inputs. |
+| State        | Meaning                                                                                |
+| ------------ | -------------------------------------------------------------------------------------- |
+| `blocked`    | A required check failed. The blockers name the reason, the paths, and the next action. |
+| `unverified` | Every required static check passed, and required live evidence is missing or stale.    |
+| `ready`      | Every required check passed against the current inputs.                                |
 
 Static checks observe these items:
 
@@ -1042,11 +1055,11 @@ bun run operator work rework --request <id> --owner-token <token> --assignment <
 
 The request names one reason.
 
-| Reason | What the cycle answers |
-| --- | --- |
-| `findings` | The accepted corrections of a reported review whose findings all carry a disposition. |
-| `integration` | The revisions it combines. It names a review only when it answers one. |
-| `diagnostic` | The recorded checks that a test infrastructure failure may be behind. At least one of them must not have passed. |
+| Reason        | What the cycle answers                                                                                           |
+| ------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `findings`    | The accepted corrections of a reported review whose findings all carry a disposition.                            |
+| `integration` | The revisions it combines. It names a review only when it answers one.                                           |
+| `diagnostic`  | The recorded checks that a test infrastructure failure may be behind. At least one of them must not have passed. |
 
 A cycle answers a review that already reported, whatever its reason.
 Each cycle states the Operator instruction and the conflicts the Operative must settle, and it records no resolution of its own.
@@ -1102,10 +1115,10 @@ bun run operator tracker map --assignment <id> --json
 
 The request names one step.
 
-| Step | Effect |
-| --- | --- |
-| `resolution` | Writes the decision comment. |
-| `completion` | Closes the ticket with an explicit reason. |
+| Step            | Effect                                      |
+| --------------- | ------------------------------------------- |
+| `resolution`    | Writes the decision comment.                |
+| `completion`    | Closes the ticket with an explicit reason.  |
 | `map_amendment` | Appends one amendment to the wayfinder map. |
 
 The ticket comes from the source the assignment was registered from, so the CLI refuses a request that names another repository or issue.
@@ -1209,11 +1222,11 @@ Each action names the command to run, the record it acts on, and the revision to
 Each action carries the blocker a person must settle, or nothing when the session can act alone.
 The exit meaning says what the session may do on its own.
 
-| Exit | Meaning for `crew next` |
-| ---: | --- |
-| 0 | At least one action needs nobody else. |
-| 3 | Every open crew action waits on a person, and the result names each blocker. |
-| 6 | Nothing can advance. The Operator reports the waits and yields. |
+| Exit | Meaning for `crew next`                                                      |
+| ---: | ---------------------------------------------------------------------------- |
+|    0 | At least one action needs nobody else.                                       |
+|    3 | Every open crew action waits on a person, and the result names each blocker. |
+|    6 | Nothing can advance. The Operator reports the waits and yields.              |
 
 A project that is not ready is a standing precondition, not a refusal.
 Continuing without proven readiness is the user's decision, and settling it starts no work.
@@ -1260,15 +1273,15 @@ Each module exports one interface object from `main.ts`, and `bun run lint:modul
 `skills/` holds the skills that ship with a release.
 `.agents/skills/` holds this repository's own development skills, and `skills-lock.json` records their upstream sources and hashes.
 
-| Area | Tool |
-| --- | --- |
-| Runtime, package manager, and tests | Bun |
-| Language | TypeScript, checked with `tsc` |
-| Linting | Oxlint |
-| Formatting | Oxfmt |
-| Module boundaries | dependency-cruiser |
-| Versioning | Changesets |
-| Distribution | GitHub-hosted source and JSR |
+| Area                                | Tool                           |
+| ----------------------------------- | ------------------------------ |
+| Runtime, package manager, and tests | Bun                            |
+| Language                            | TypeScript, checked with `tsc` |
+| Linting                             | Oxlint                         |
+| Formatting                          | Oxfmt                          |
+| Module boundaries                   | dependency-cruiser             |
+| Versioning                          | Changesets                     |
+| Distribution                        | GitHub-hosted source and JSR   |
 
 [Map the first Operator orchestration workflow](https://github.com/fveracoechea/operator/issues/1) holds the approved scope and the decision tickets.
 The approved [CLI and skill distribution contract](https://github.com/fveracoechea/operator/issues/7#issuecomment-5729841818) settles exact release selection, skill installation, updates, and runtime boundaries.
