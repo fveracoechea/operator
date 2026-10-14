@@ -17,6 +17,7 @@ A `SKILL.md` is a router and stays under 150 lines, and every markdown file besi
 - **[no-slop](./no-slop/SKILL.md)** - Use when writing or editing prose, documentation, code comments, commit messages, or issue and pull request text.
 - **[operative](./operative/SKILL.md)** - Use when dispatched for production or rework with a fixed Operator brief.
 - **[operator](./operator/SKILL.md)** - Use when preparing a project for Operator, running approved work through a crew, or resuming an Operator session that ended.
+- **[parallel-pr-review](./parallel-pr-review/SKILL.md)** - Use when reviewing several pull requests at once, one agent per pull request, or a pull request stack, and summarizing the verdicts or posting them to Slack.
 - **[pr-review](./pr-review/SKILL.md)** - Use when reviewing a pull request by number or URL, or posting review comments on one.
 - **[react-best-practices](./react-best-practices/SKILL.md)** - Use when writing, reviewing or changing client side React: useEffect, useState, Suspense, derived state, re-render, a lazy chunk, or data waterfall.
 - **[react-composition](./react-composition/SKILL.md)** - Use when designing, changing or reviewing the API of a React component: boolean props, render props, several parts that share state, or sibling component that must read state.
