@@ -18,7 +18,7 @@ Each agent reads that file before it reviews, and the prompt below says so.
 - Pull requests, as numbers or URLs, with optional short titles. Keep the order.
 - Optional Slack target, a thread URL or a channel. Without one, skip step 7.
 - Optional setup steps, for example `bun install` and a copy of the untracked `.env*` files from the main checkout. The default is the dependency install of the lockfile.
-- Event mode. `verdict` (default) approves with no blocker and requests changes with one or more. `comment` posts `COMMENT`.
+- Event mode. `verdict` (default) uses the event rule in step 3 of the prompt. `comment` posts `COMMENT` on every pull request.
 
 Agents post with no second approval.
 Get the user's authorization first, and keep their exact words for the prompt.
@@ -59,6 +59,7 @@ herdr agent prompt review-<n> "$(cat <prompt-file>)" --wait --until working --ti
 
 Start the first agent alone as a smoke test, then the others in parallel.
 Write each prompt to a file from this template. Drop the stack line when there is no stack.
+In `comment` mode and on your own pull request, step 3 is "Post one review with event COMMENT."
 
 ```text
 /pr-review <n>
@@ -69,7 +70,7 @@ PR #<n> is stacked on PR #<m>. Review only its own diff: gh pr diff <n>.
 
 1. Setup: <setup steps>. Do not commit copied files.
 2. Read ~/OPINIONS.md first. Base every finding on those opinions, then on the repo code style, and name the opinion that a finding breaks. Review with pr-review. Run lint, typecheck, and the tests that touch the changed code. Put a check that fails only on files this PR does not change in "noise", not in the review.
-3. Post one review with event <APPROVE if no blocker, else REQUEST_CHANGES | COMMENT>.
+3. Post one review. Use APPROVE when you have no blocker, and COMMENT when you have blockers. Use REQUEST_CHANGES only for a strong breach of ~/OPINIONS.md or of an established best practice, or for a security concern, and name it in the review body.
 4. Write pr-review-result.json in this worktree:
    {"number", "event", "url", "blockers": [], "nice_to_haves": [], "left_out": [], "noise": []}
    One sentence per item. left_out is what the pr-review caps cut.
@@ -96,9 +97,9 @@ gh api --paginate repos/<owner>/<repo>/pulls/<n>/reviews \
   | sort | tail -n 1
 ```
 
-The review must be new, on `headRefOid`, and in the state of its event.
+The review must be new, on `headRefOid`, and in the state of the event in the result file.
 
-- If there is no review, prompt the agent "Post the review now with event <event>, then write the result file." and wait again.
+- If there is no review, prompt the agent "Post the review now with the event rule of step 3, then write the result file." and wait again.
 - If GitHub and the result file differ, use the GitHub values and note it.
 - If there is no result file, use the GitHub review and the pane.
 
