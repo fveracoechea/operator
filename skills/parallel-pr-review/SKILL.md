@@ -6,47 +6,39 @@ compatibility: Requires Herdr (HERDR_ENV=1), the gh CLI, Claude Code agents, and
 
 # Parallel pull request review
 
-This skill runs one `pr-review` for each pull request at the same time, and returns one short bullet for each pull request.
-Each review is one Claude agent in its own Herdr worktree.
+Each pull request gets one Claude agent in its own Herdr worktree, and the agent runs `pr-review`.
+You read their results, verify each verdict on GitHub, and write one bullet per pull request.
+GitHub is the source of truth, and an agent report is a claim.
 
-You are the orchestrator.
-The agents read the code and post the reviews.
-You read their short results, verify each verdict on GitHub, and write the summary.
-GitHub is the source of truth for a verdict, and an agent report is a claim.
+The agents base every review on the user's opinions in `~/OPINIONS.md`.
+Each agent reads that file before it reviews, and the prompt below says so.
 
 ## Inputs
 
-- The pull requests, as a number or a URL each, with an optional short title. Keep the order that the user gave.
-- An optional Slack target, as a thread URL or a channel. Post to Slack only when the user gave one.
-- Optional setup steps for each worktree, for example `bun install` and a copy of the untracked `.env*` files from the main checkout. With no steps, the agent installs the dependencies with the package manager of the lockfile.
-- An optional event mode. The default `verdict` mode approves a pull request with no blocker, and requests changes on a pull request with one or more blockers. The `comment` mode posts every review with the `COMMENT` event.
+- Pull requests, as numbers or URLs, with optional short titles. Keep the order.
+- Optional Slack target, a thread URL or a channel. Without one, skip step 7.
+- Optional setup steps, for example `bun install` and a copy of the untracked `.env*` files from the main checkout. The default is the dependency install of the lockfile.
+- Event mode. `verdict` (default) approves with no blocker and requests changes with one or more. `comment` posts `COMMENT`.
 
-Each agent posts its review with no second approval, so get the authorization before step 1.
-When the request does not say to post the reviews, ask once.
-Keep the exact words of the user that authorize the post, because each agent prompt quotes them.
+Agents post with no second approval.
+Get the user's authorization first, and keep their exact words for the prompt.
 
-## Run ledger
+Keep a ledger file in your scratch directory with each value you create: PR number, ref, branch, worktree path, workspace id, pane id, agent name.
+Cleanup removes only what the ledger names.
 
-Write a ledger file in your scratch directory before you create the first worktree.
-Give it one entry for each pull request: the number, the fetched ref, the branch, the worktree path, the workspace id, the pane id, the agent name, the result file path, and the files that setup copied.
-Add each value when you create it.
-Cleanup removes only what the ledger names, and the ledger survives a context compaction.
+## 1. Read the pull requests
 
-## Steps
+Load the `herdr` skill. Run `gh api user --jq .login`, then for each pull request:
 
-### 1. Read the pull requests
+```sh
+gh pr view <n> --json number,title,url,author,state,headRefName,headRefOid,baseRefName
+```
 
-Load the `herdr` skill and check that `HERDR_ENV` is `1`.
-Run `gh api user --jq .login` to get your login.
-For each pull request, run `gh pr view <n> --repo <owner>/<repo> --json number,title,url,author,isDraft,state,headRefName,headRefOid,baseRefName`.
+- Skip a pull request that is not `OPEN`, and tell the user.
+- A `baseRefName` that is the `headRefName` of another listed pull request makes a stack. That agent reviews only against its own base.
+- On your own pull request GitHub refuses `APPROVE` and `REQUEST_CHANGES`, so use `COMMENT`.
 
-- A pull request that is not `OPEN` gets no review. Tell the user.
-- A pull request whose `baseRefName` is the `headRefName` of another pull request in the list is part of a stack. Its agent reviews only the diff against its own base.
-- GitHub refuses `APPROVE` and `REQUEST_CHANGES` on your own pull request. When `author.login` is your login, that pull request gets the `COMMENT` event.
-
-Done when each pull request has its head commit, its base branch, and its event.
-
-### 2. Create one worktree for each pull request
+## 2. Create the worktrees
 
 ```sh
 git fetch origin
@@ -55,45 +47,48 @@ herdr worktree create --cwd "$PWD" --branch review/pr-<n> --base origin/pr/<n> \
   --path ~/.herdr/worktrees/<repo>/review-pr-<n> --label "review #<n>" --no-focus
 ```
 
-The pull request ref works for a pull request from a fork too.
-Check that `git rev-parse origin/pr/<n>` gives `headRefOid`.
-Read the workspace id and the root pane id from the JSON result, and write them to the ledger.
+Read the workspace id and root pane id from the JSON result.
+When the branch or path exists already, stop and ask the user.
 
-When the branch or the path exists already, an earlier run made it.
-Do not use it again and do not remove it.
-Apply the checks in [CLEANUP.md](CLEANUP.md) and ask the user what to do.
+## 3. Start the agents and send the prompts
 
-### 3. Start the agents
+```sh
+herdr agent start review-<n> --kind claude --pane <pane-id> --timeout 60000
+herdr agent prompt review-<n> "$(cat <prompt-file>)" --wait --until working --timeout 60000
+```
 
-Run `herdr agent start review-<n> --kind claude --pane <pane-id> --timeout 60000`.
-Start the first agent alone as a smoke test.
-When it is ready, start the other agents in parallel.
+Start the first agent alone as a smoke test, then the others in parallel.
+Write each prompt to a file from this template. Drop the stack line when there is no stack.
 
-### 4. Send the prompts
+```text
+/pr-review <n>
 
-Read [AGENT-PROMPT.md](AGENT-PROMPT.md), and write one prompt file for each pull request.
-Send each one with `herdr agent prompt review-<n> "$(cat <prompt-file>)" --wait --until working --timeout 60000`.
-This command returns when the agent starts to work, so all the reviews run at the same time.
+The user authorized the post in these words: "<user's words>". Post without asking for approval.
+This worktree is at the PR head <headRefOid>. Do not run gh pr checkout. The base is <baseRefName>.
+PR #<n> is stacked on PR #<m>. Review only its own diff: gh pr diff <n>.
 
-### 5. Wait for the agents
+1. Setup: <setup steps>. Do not commit copied files.
+2. Read ~/OPINIONS.md first. Base every finding on those opinions, then on the repo code style, and name the opinion that a finding breaks. Review with pr-review. Run lint, typecheck, and the tests that touch the changed code. Put a check that fails only on files this PR does not change in "noise", not in the review.
+3. Post one review with event <APPROVE if no blocker, else REQUEST_CHANGES | COMMENT>.
+4. Write pr-review-result.json in this worktree:
+   {"number", "event", "url", "blockers": [], "nice_to_haves": [], "left_out": [], "noise": []}
+   One sentence per item. left_out is what the pr-review caps cut.
+5. Reply with the event and the review URL.
 
-For each agent, run `herdr agent wait review-<n> --timeout 3600000` as a separate background command, in parallel.
-A wait returns when the agent is `idle`, `done`, or `blocked`.
-A wait that exits with an error, or with no output, is a failure and not a finished review.
-Read `herdr agent get review-<n>` to learn the state.
+Do not commit, push, or change the PR branch.
+```
 
+## 4. Wait
+
+Run `herdr agent wait review-<n> --timeout 3600000` for each agent, in parallel, in the background.
+A wait that errors or prints nothing is a failure, not a finished review.
 For a `blocked` agent, read `herdr agent read review-<n> --source recent-unwrapped --lines 60`.
-Answer a question only when it is about the setup steps, a read, a check, or the review post.
-Give every other question to the user.
+Answer only setup, check, and post questions. Give the rest to the user.
+With a Slack thread target, read the thread while you wait.
 
-When the user gave a Slack thread, read it while you wait, as [SUMMARY.md](SUMMARY.md) says.
+## 5. Verify on GitHub
 
-Done when each agent is `idle` or `done`, and each wait has reported.
-
-### 6. Verify each verdict on GitHub
-
-Read each result file.
-Then get the latest review that you posted on each pull request:
+Read each `pr-review-result.json` with `jq`. Then:
 
 ```sh
 gh api --paginate repos/<owner>/<repo>/pulls/<n>/reviews \
@@ -101,26 +96,48 @@ gh api --paginate repos/<owner>/<repo>/pulls/<n>/reviews \
   | sort | tail -n 1
 ```
 
-Always use `--paginate`, because a pull request with many reviews shows nothing on page one.
-The review is good when it was submitted after the run started, its state matches the event (`APPROVED`, `CHANGES_REQUESTED`, or `COMMENTED`), its `commit_id` is `headRefOid`, and its URL is the URL in the result file.
+The review must be new, on `headRefOid`, and in the state of its event.
 
-- When there is no review, the agent did not post. Prompt it to post now, as [AGENT-PROMPT.md](AGENT-PROMPT.md) says, and wait again.
-- When the review and the result file do not agree, GitHub is correct. Write the GitHub values in the summary, and put the mismatch in the notes.
-- When there is no result file, use the GitHub review, and read the pane for the findings.
+- If there is no review, prompt the agent "Post the review now with event <event>, then write the result file." and wait again.
+- If GitHub and the result file differ, use the GitHub values and note it.
+- If there is no result file, use the GitHub review and the pane.
 
-Done when each pull request has one verified review.
+## 6. Summarize
 
-### 7. Write the summary
+One lead line with the verdict count and shared facts, then one bullet per pull request in the user's order.
+A bullet is a review link, the short title, and the top one or two points.
+Put the verdict at the front of each bullet only when verdicts differ.
+Name shared noise once in the lead line.
 
-Read [SUMMARY.md](SUMMARY.md).
-Give the summary to the user, and post it to Slack when the user gave a target.
+```markdown
+All 12 reviews are posted. **Every PR has changes requested.** Lint, typecheck and tests pass on all of them.
 
-### 8. Clean up
+- [#1486](https://github.com/<owner>/<repo>/pull/1486#pullrequestreview-5523325175) shell: the narrow layout reads the window width, not the stage pane, and every status chip is green.
+- [#1496](https://github.com/<owner>/<repo>/pull/1496#pullrequestreview-5523310135) Inventory empty: it says "No line items" with no check. Fold it into #1512 or change the copy.
+```
 
-Read [CLEANUP.md](CLEANUP.md).
-Ask the user before you remove a review worktree.
+In the terminal only, add notes: agents that needed a nudge, GitHub mismatches, `COMMENT` on your own pull requests, `left_out` findings with an offer to add them.
 
-## Worktrees from other runs
+## 7. Post to Slack (optional)
 
-A worktree that the ledger does not name is out of scope.
-When the user asks you to remove old worktrees, apply the checks in [CLEANUP.md](CLEANUP.md), and remove only a worktree whose work is safe.
+Do this step only when the user gave a Slack target. Post the summary without the notes.
+Load `slack:slack-messaging`, then post with `slack_send_message` and `channel_id`.
+For a thread, add `thread_ts`. The thread URL `.../archives/<channel_id>/p1792003966909819` gives `1792003966.909819`.
+Give the user the link of the posted message.
+
+## 8. Clean up
+
+Ask before you remove anything. Keep a worktree and tell the user why when any check fails:
+
+- `git -C <path> status --porcelain` shows only `pr-review-result.json` and the setup copies.
+- `git -C <path> log --oneline origin/pr/<n>..HEAD` is empty.
+- `herdr agent get review-<n>` is `idle` or `done`.
+
+```sh
+herdr worktree remove --workspace <workspace-id> --force
+git branch -D review/pr-<n>
+git update-ref -d refs/remotes/origin/pr/<n>
+```
+
+A worktree outside the ledger is out of scope.
+When the user asks to remove one, also require a merged PR (`gh pr list --head <branch> --state all`) or HEAD on a remote branch (`git branch -r --contains HEAD`), and keep its branch.
