@@ -1,5 +1,32 @@
 # @fveracoechea/operator
 
+## 0.8.0
+
+### Minor Changes
+
+- 44f008e: Ship the `collections-and-iteration` skill from Jarvis.
+  It covers how to sort an array you do not own, narrow a map that can miss with one typed `reduce`, index a collection that a loop reads, and walk a collection or an object.
+  `operator install` copies it into a project beside the other bundled skills.
+
+### Patch Changes
+
+- 6db320b: A Claude Code Operative now starts with any number of write paths and allowed commands.
+  Dispatch writes the allow list to `.operator/local/claude-settings.json` in the worktree and passes `--settings <file>` in place of `--allowedTools <entries...>`.
+  The launch line has the same length for every brief, so it stays inside the 1024-byte terminal input limit of macOS.
+  The permissions do not change: `dontAsk`, the same allow list, and no permission prompt.
+  The launch identity covers the settings content, so a recovery starts with the same permissions.
+- 44f008e: Sync the `tanstack-tools` skill with Jarvis.
+  A new topic covers how to transform query data with `select`.
+  The Start topic tells an agent to render a date in the zone of the viewer, not in a zone that the server pins.
+  The charts topic follows TanStack Charts 1.0: a ranked, a categorical, and a tone paint, a neutral for a folded tail, one shared animation object, and an exact version pin.
+  The `intent` steps run `list` and `load` through the project's `intent` script when one exists.
+- 44f008e: The `bun` skill now has a `bun test` section from Jarvis.
+  It tells an agent to run each test file with `--isolate`, to name no path root in the `test` script, to import the code under test after `mock.module`, and to set each mock default again after `jest.resetAllMocks`.
+  It also tells an agent to assert the parts of an `Intl` format, and to wait for a removed element without `expect` on a DOM node.
+- 44f008e: The `deep-modules` skill no longer offers `main.client.ts` as an entry file, as in Jarvis.
+  TanStack Start renders every route component on the server, so a module has `main.ts` and, for server-only code, `main.server.ts`.
+  The entry-file lint pattern no longer allows `main.client`.
+
 ## 0.7.0
 
 ### Minor Changes
