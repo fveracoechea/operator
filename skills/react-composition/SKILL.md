@@ -16,3 +16,4 @@ A part that the caller places, or leaves out, adds no state to the body.
 
 - **One component that has too many modes**: [component-api.md](component-api.md).
 - **A component of several parts that share state**: [compound-components.md](compound-components.md).
+- **Parts that share state with phases**, such as closed and open: [state-machine.md](state-machine.md).
