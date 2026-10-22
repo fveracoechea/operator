@@ -100,7 +100,7 @@ export const TaskPanel = {
 }
 ```
 
-## Call `useState`, a Query hook or a store in the provider only
+## Call `useState`, `useReducer`, a Query hook, a store or a shared machine's runner in the provider only
 
 No part can then tell which one feeds it, so you swap the provider and the parts stay as they are.
 A new task holds a draft in local state.
@@ -214,8 +214,9 @@ A provider that wraps the whole route renders the whole route.
 
 ## Steps
 
-1. Write the context type with `state`, `actions` and `meta`, and the hook that throws when the provider is missing.
-2. Cut the component into parts, and let each part read the hook.
-3. Move the state and the server calls into a provider component.
-4. Put the provider where every part is inside it, and no more of the tree than that.
-5. Export the parts as one object, and delete the props that carried the shared state.
+1. When the parts share state with phases, write the machine first, then the context type from its states. See [state-machine.md](state-machine.md).
+2. Write the context type with `state`, `actions` and `meta`, and the hook that throws when the provider is missing.
+3. Cut the component into parts, and let each part read the hook.
+4. Move the state and the server calls into a provider component.
+5. Put the provider where every part is inside it, and no more of the tree than that.
+6. Export the parts as one object, and delete the props that carried the shared state.
