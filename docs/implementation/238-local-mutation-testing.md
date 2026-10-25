@@ -55,19 +55,19 @@ The README shows only the available local script.
 
 ## Verification
 
-Verified with Bun 1.4.4 on Linux.
+Verified with Bun 1.4.4 and CI's Bun 1.4.2 on Linux.
 
 | Command                                                       | Result                                                                                                                                |
 | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | `bun run test ./scripts/mutate.test.ts` before implementation | Red. The script did not exist.                                                                                                        |
 | Targeted mutation command tests during implementation         | Red, then green for weak assertions, missing direct tests, invalid suppression reasons, scenario mapping, and changed-line selection. |
 | `bun install --frozen-lockfile`                               | Passed with no dependency changes.                                                                                                    |
-| `bun run quality`                                             | Passed all static checks, all 17 deliberate module-boundary violations, and 201 tests.                                                |
+| `bun run quality`                                             | Passed all static checks, all 17 deliberate module-boundary violations, and 202 tests after CI corrections.                           |
 | `bun run mutate lib/sha256.ts`                                | Exit 0. Three killed mutants, no survivors, untested units, or incomplete results.                                                    |
 
 `bun run mutate lib/sha256.test.ts` also exited 0 with the same three killed mutants.
-`bun run test --rerun-each=3` passed 603 executions with no observed flake after review corrections.
-`bun run test:timings` passed 201 tests and recorded the new test-file timings.
+`TMPDIR=/tmp/opencode bun run test --rerun-each=3` passed 606 executions with no observed flake after CI corrections.
+`TMPDIR=/tmp/opencode bun run test:timings` passed 202 tests and recorded the new test-file timings.
 `bun run test modules/operator-release` passed all 28 installed-delivery and release tests.
 `bun run mutate --since HEAD` exited 0 on the clean committed checkout without selecting unrelated units.
 The skill-shape checker passed against an isolated directory containing only the new development skill.
@@ -92,6 +92,25 @@ The Standards review found a missing changeset for bundled guidance and a guidan
 Added the patch changeset and renamed the test to `mutation-policy.guidance.test.ts` so a policy mutation run includes it.
 The Spec review found that uppercase `ALL` bypassed the wildcard-suppression guard.
 Reproduced its false exit 0 through the command, rejected wildcard names without case sensitivity, and added direct and command regressions.
+
+The first pushed run exposed two CI-only test setup problems in run `40237284401`.
+Mutation and lint tests assumed the OpenCode scratch directory existed on every host.
+They now use the platform temporary root and honor a supplied `TMPDIR`.
+`tools/oxlint/check.test.ts` reproduces the bad directory choice through a real child test and lint command, then verifies the corrected location.
+The CLI effect tests also inherited a runtime transpiler cache location on the development host.
+On CI, Bun wrote that cache into their isolated home and broke the no-write assertions.
+The tests now disable that unrelated runtime cache and clear the inherited cache root.
+They retain all no-write assertions and change no production behavior.
+
+Downloaded the official Bun 1.4.2 executable into an isolated scratch directory to use CI's runtime without changing the person's installation.
+This command reproduced all 29 CLI test failures before the cache correction, then passed after it:
+
+```sh
+env -u XDG_CACHE_HOME PATH="/tmp/opencode/operator-bun142/bun-linux-x64:$PATH" TMPDIR=/tmp/opencode /tmp/opencode/operator-bun142/bun-linux-x64/bun run test ./modules/operator-cli/run.test.ts
+```
+
+The same environment with `bun run quality` passed all static checks and 202 tests.
+With `bun run test --rerun-each=3`, it passed 606 executions without an observed flake.
 
 No real legacy state was inspected or changed.
 No release was published and no PR was merged.

@@ -1,9 +1,10 @@
 import { afterAll, expect, test } from "bun:test";
 // Bun has no temporary directory or recursive removal API.
 import { mkdtemp, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
-const root = await mkdtemp("/tmp/opencode/operator-mutate-");
+const root = await mkdtemp(path.join(tmpdir(), "operator-mutate-"));
 const script = path.join(import.meta.dir, "mutate.ts");
 
 afterAll(async () => {

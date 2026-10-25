@@ -1,6 +1,8 @@
 import { afterAll, beforeAll } from "bun:test";
 // Bun has no recursive copy, temporary directory, or directory removal API.
 import { cp, mkdtemp, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { z } from "zod";
 
 const sourceRoot = new URL("../../", import.meta.url).pathname;
@@ -13,7 +15,7 @@ export function lintProject() {
   let root = "";
   let previous = "";
   beforeAll(async () => {
-    root = await mkdtemp("/tmp/opencode/operator-lint-");
+    root = await mkdtemp(path.join(tmpdir(), "operator-lint-"));
     for (const entry of [
       "cli.ts",
       "modules",

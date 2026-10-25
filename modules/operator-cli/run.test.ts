@@ -27,6 +27,9 @@ test("version reports the running release without project release selection", as
     cwd: root,
     env: {
       ...process.env,
+      // Runtime caches are not Operator writes and must not enter the effect fixture.
+      BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
+      XDG_CACHE_HOME: undefined,
       HOME: root,
       XDG_CONFIG_HOME: `${root}/config`,
       XDG_STATE_HOME: `${root}/state`,
@@ -59,6 +62,8 @@ test("help names only the available commands", async () => {
     stderr: "pipe",
     env: {
       ...process.env,
+      BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
+      XDG_CACHE_HOME: undefined,
       HOME: root,
       XDG_CONFIG_HOME: `${root}/config`,
       XDG_STATE_HOME: `${root}/state`,
@@ -109,6 +114,8 @@ test.each(
     cwd: root,
     env: {
       ...process.env,
+      BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
+      XDG_CACHE_HOME: undefined,
       PATH: `${root}/no-tools`,
       HOME: root,
       XDG_CONFIG_HOME: `${root}/config`,

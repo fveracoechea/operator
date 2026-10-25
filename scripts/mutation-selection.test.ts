@@ -1,10 +1,11 @@
 import { afterAll, expect, test } from "bun:test";
 // Bun has no temporary directory or recursive removal API.
 import { mkdtemp, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { changedRanges, parseMutationArgs, selectMutationUnits } from "./mutation-selection.ts";
 
-const root = await mkdtemp("/tmp/opencode/operator-mutation-selection-");
+const root = await mkdtemp(path.join(tmpdir(), "operator-mutation-selection-"));
 afterAll(async () => {
   await rm(root, { force: true, recursive: true });
 });
