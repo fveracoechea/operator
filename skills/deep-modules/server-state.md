@@ -5,6 +5,17 @@
 Declare environment variables in validated files, `.server.ts` for server-only values and `.client.ts` for values the bundler may inline, and read `process.env` or `import.meta.env` nowhere else.
 Validate them at startup, so a bad value fails the boot.
 
+### Operator environment ownership
+
+In Operator, use `Environment.read()` from `modules/environment/main.ts` for validated values.
+The CLI reads the startup snapshot once.
+Use `Environment.child(overrides)` for subprocess environments and `Environment.parse(values)` for supplied module inputs.
+`operator/env-through-schema` rejects raw environment reads and writes outside that owner and its exact fake-tool exemptions in `.oxlintrc.json`.
+Tests have no general exemption.
+Supply isolated `HOME`, `XDG_CONFIG_HOME`, and `XDG_STATE_HOME` values to CLI children.
+`OperatorHome.resolve()` owns Operator paths and refuses real default settings or state roots in test mode, including aliases and descendants.
+The preload requires test mode, and tests do not change the parent environment.
+
 In a full-stack app, a module reads a server value inside the method that needs it, never at load time:
 
 ```ts

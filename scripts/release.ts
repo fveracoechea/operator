@@ -10,12 +10,24 @@
 
 import { OperatorRelease } from "../modules/operator-release/main.ts";
 import { ReleasePublish } from "../modules/release-publish/main.ts";
+import { Environment } from "../modules/environment/main.ts";
 
 const sourceRoot = new URL("../", import.meta.url).pathname.replace(/\/$/, "");
 
 // The official `jsr` client is pinned in the development dependencies, so the publication runs
 // that exact version and never one this machine happens to have installed.
-process.env.PATH = `${sourceRoot}/node_modules/.bin:${process.env.PATH ?? ""}`;
+// Re-enter with a child-only PATH. The parent process environment is never changed.
+const environment = Environment.read();
+const clientPath = `${sourceRoot}/node_modules/.bin`;
+if (!environment.PATH.split(":").includes(clientPath)) {
+  const child = Bun.spawn([process.execPath, import.meta.path, ...Bun.argv.slice(2)], {
+    env: Environment.child({ PATH: `${clientPath}:${environment.PATH}` }),
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  process.exit(await child.exited);
+}
 
 function flag(args: string[], name: string): string | undefined {
   const index = args.indexOf(`--${name}`);

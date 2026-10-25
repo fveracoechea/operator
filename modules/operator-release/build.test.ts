@@ -1,10 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
+import { Environment } from "../environment/main.ts";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
 import { buildArtifact } from "./build.ts";
 import { releaseSchema } from "./test-schemas.ts";
 
-const root = `${Bun.env.TMPDIR ?? "/tmp"}/operator-build-${crypto.randomUUID()}`;
+const root = `${Environment.read().TMPDIR ?? "/tmp"}/operator-build-${crypto.randomUUID()}`;
 const sourceRoot = new URL("../../", import.meta.url).pathname.replace(/\/$/, "");
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });

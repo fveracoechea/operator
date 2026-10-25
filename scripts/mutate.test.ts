@@ -1,4 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
+import { Environment } from "../modules/environment/main.ts";
 // Bun has no temporary directory or recursive removal API.
 import { mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -15,7 +16,7 @@ async function mutate(cwd: string, args: string[]) {
   const child = Bun.spawn([process.execPath, script, ...args], {
     cwd,
     env: {
-      ...process.env,
+      ...Environment.child(),
       HOME: root,
       XDG_CONFIG_HOME: `${root}/config`,
       XDG_STATE_HOME: `${root}/state`,
@@ -51,7 +52,7 @@ function git(cwd: string, ...args: string[]): string {
   const child = Bun.spawnSync(["git", ...args], {
     cwd,
     env: {
-      ...process.env,
+      ...Environment.child(),
       HOME: root,
       GIT_CONFIG_GLOBAL: "/dev/null",
       GIT_CONFIG_NOSYSTEM: "1",
@@ -303,7 +304,7 @@ test("removing the summary's guidance topic makes its real check fail", async ()
         stdout: "pipe",
         stderr: "pipe",
         env: {
-          ...process.env,
+          ...Environment.child(),
           HOME: root,
           XDG_CONFIG_HOME: `${root}/config`,
           XDG_STATE_HOME: `${root}/state`,

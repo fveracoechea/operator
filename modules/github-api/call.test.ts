@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { Environment } from "../environment/main.ts";
 // Bun has no chmod or recursive directory removal API.
 import { chmod, rm } from "node:fs/promises";
 import { z } from "zod";
@@ -19,7 +20,7 @@ test.each([
   { response: "HTTP/2.0 200 OK\n\nnot JSON", status: "uncertain" },
   { response: "not HTTP", status: "uncertain" },
 ])("classifies the external GitHub answer as $status", async ({ response, status }) => {
-  const root = `${Bun.env.TMPDIR ?? "/tmp"}/operator-github-api-${crypto.randomUUID()}`;
+  const root = `${Environment.read().TMPDIR ?? "/tmp"}/operator-github-api-${crypto.randomUUID()}`;
   roots.push(root);
   await Bun.write(
     `${root}/bin/gh`,
@@ -35,7 +36,7 @@ test.each([
     ],
     {
       env: {
-        ...process.env,
+        ...Environment.child(),
         PATH: `${root}/bin`,
         HOME: root,
         XDG_CONFIG_HOME: `${root}/config`,

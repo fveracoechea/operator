@@ -1,10 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
+import { Environment } from "../environment/main.ts";
 // Bun has no chmod or recursive directory removal API.
 import { chmod, rm } from "node:fs/promises";
 import { z } from "zod";
 import { releaseFakeStateSchema } from "./fake-publish-state.ts";
 
-const root = `${Bun.env.TMPDIR ?? "/tmp"}/operator-github-release-${crypto.randomUUID()}`;
+const root = `${Environment.read().TMPDIR ?? "/tmp"}/operator-github-release-${crypto.randomUUID()}`;
 const modulePath = new URL("./github-release.ts", import.meta.url).pathname;
 const fakePath = new URL("./fake-gh.ts", import.meta.url).pathname;
 afterEach(async () => {
@@ -37,7 +38,7 @@ const results = [
 console.log(JSON.stringify(results));`;
   const child = Bun.spawn([process.execPath, "-e", code], {
     env: {
-      ...process.env,
+      ...Environment.child(),
       PATH: `${root}/bin`,
       HOME: root,
       RELEASE_GH_DIR: root,

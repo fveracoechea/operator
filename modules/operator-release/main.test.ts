@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test as bunTest } from "bun:test";
+import { Environment } from "../environment/main.ts";
 // Bun has no recursive directory removal or symlink API.
 import { rm, symlink } from "node:fs/promises";
 import { OperatorRelease } from "./main.ts";
@@ -21,7 +22,7 @@ afterEach(async () => {
 });
 
 function outputRoot(): string {
-  const path = `${Bun.env.TMPDIR ?? "/tmp"}/operator-release-${crypto.randomUUID()}`;
+  const path = `${Environment.read().TMPDIR ?? "/tmp"}/operator-release-${crypto.randomUUID()}`;
   outputs.push(path);
   return path;
 }
@@ -246,7 +247,16 @@ describe("the release artifact", () => {
         "--version",
         "--json",
       ],
-      { cwd: sourceRoot, stderr: "pipe", stdout: "pipe" },
+      {
+        cwd: sourceRoot,
+        stderr: "pipe",
+        stdout: "pipe",
+        env: Environment.child({
+          HOME: `${artifactRoot}.home`,
+          XDG_CONFIG_HOME: `${artifactRoot}.config`,
+          XDG_STATE_HOME: `${artifactRoot}.state`,
+        }),
+      },
     );
     const [exitCode, stdout] = await Promise.all([child.exited, new Response(child.stdout).text()]);
 

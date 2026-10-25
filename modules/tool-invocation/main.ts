@@ -1,3 +1,5 @@
+import { Environment } from "../environment/main.ts";
+
 type Invocation =
   | { status: "completed"; exitCode: number; stdout: string; stderr: string }
   | { status: "unavailable"; tool: string; detail: string }
@@ -12,7 +14,8 @@ export const ToolInvocation = {
     timeoutMs: number;
   }): Promise<Invocation> {
     // Bun.which caches the startup path unless the caller supplies PATH.
-    const path = Bun.which(input.tool, { PATH: process.env.PATH ?? "" });
+    const environment = Environment.child();
+    const path = Bun.which(input.tool, { PATH: Environment.read().PATH });
     if (path === null) {
       return {
         status: "unavailable",
@@ -22,6 +25,7 @@ export const ToolInvocation = {
     }
     const child = Bun.spawn([path, ...input.args], {
       cwd: input.cwd,
+      env: environment,
       stdin: input.input === undefined ? "ignore" : new TextEncoder().encode(input.input),
       stdout: "pipe",
       stderr: "pipe",

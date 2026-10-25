@@ -5,9 +5,20 @@
   "jsPlugins": [
     { "name": "anti-slop", "specifier": "./tools/oxlint/anti-slop/index.ts" },
     { "name": "unthrown", "specifier": "@unthrown/oxlint" },
-    { "name": "custom-tests", "specifier": "./tools/oxlint/custom-tests/index.ts" }
+    { "name": "custom-tests", "specifier": "./tools/oxlint/custom-tests/index.ts" },
+    { "name": "operator", "specifier": "./tools/oxlint/operator/index.ts" }
   ],
   "rules": {
+    "operator/env-through-schema": [
+      "error",
+      {
+        "allowFiles": [
+          "modules/environment/main.ts",
+          "modules/release-publish/fake-gh.ts",
+          "modules/release-publish/fake-jsr-client.ts"
+        ]
+      }
+    ],
     "anti-slop/no-chained-type-assertions": "error",
     "anti-slop/no-conditional-empty-object-spread": "error",
     "anti-slop/no-reduce-accumulator-copy": "error",

@@ -5,6 +5,7 @@ import {
   beforeEach,
   describe,
   expect,
+  spyOn,
   test as bunTest,
 } from "bun:test";
 import { z } from "zod";
@@ -14,6 +15,7 @@ import { OperatorRelease } from "../operator-release/main.ts";
 import { releaseFakeStateSchema, type ReleaseFakeState } from "./fake-publish-state.ts";
 import { type JsrFake, type JsrFakeOptions, startJsrFake } from "./fake-jsr.ts";
 import { ReleasePublish } from "./main.ts";
+import { Environment } from "../environment/main.ts";
 
 const sourceRoot = new URL("../../", import.meta.url).pathname.replace(/\/$/, "");
 const fakeGhPath = new URL("./fake-gh.ts", import.meta.url).pathname;
@@ -39,11 +41,13 @@ let binDirectory = "";
 let journalPath = "";
 let version = "";
 
-const inheritedPath = process.env.PATH ?? "";
+const inheritedEnvironment = Environment.read();
+const inheritedPath = inheritedEnvironment.PATH;
+let environmentSpy: ReturnType<typeof spyOn<typeof Environment, "read">> | undefined;
 
 // A hook does not take the bound of its test, so the one build states its own (#186).
 beforeAll(async () => {
-  builtRoot = `${Bun.env.TMPDIR ?? "/tmp"}/operator-publish-built-${crypto.randomUUID()}`;
+  builtRoot = `${Environment.read().TMPDIR ?? "/tmp"}/operator-publish-built-${crypto.randomUUID()}`;
   await OperatorRelease.build({ sourceRoot, artifactRoot: builtRoot, commit: COMMIT });
   version = z
     .object({ version: z.string() })
@@ -55,7 +59,7 @@ afterAll(async () => {
 });
 
 afterEach(async () => {
-  process.env.PATH = inheritedPath;
+  environmentSpy?.mockRestore();
   for (const fake of fakes.splice(0)) {
     await fake.stop();
   }
@@ -88,7 +92,7 @@ async function seedFault(name: string, kind: string, remaining = 1): Promise<voi
 }
 
 beforeEach(async () => {
-  root = `${Bun.env.TMPDIR ?? "/tmp"}/operator-publish-${crypto.randomUUID()}`;
+  root = `${Environment.read().TMPDIR ?? "/tmp"}/operator-publish-${crypto.randomUUID()}`;
   roots.push(root);
   artifactRoot = `${root}/artifact`;
   ghDirectory = `${root}/gh`;
@@ -104,7 +108,10 @@ beforeEach(async () => {
     `#!/bin/sh\nRELEASE_GH_DIR=${ghDirectory} exec bun ${fakeGhPath} "$@"\n`,
   );
   await Bun.$`chmod +x ${binDirectory}/gh`.quiet();
-  process.env.PATH = fixturePath();
+  environmentSpy = spyOn(Environment, "read").mockReturnValue({
+    ...inheritedEnvironment,
+    PATH: fixturePath(),
+  });
 
   await seedGithub({
     compare: { [COMMIT]: "behind", [OTHER_COMMIT]: "diverged" },

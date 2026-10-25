@@ -32,6 +32,7 @@ Keep single-use details with their module.
 ## Breaking workflow replacement
 
 The legacy CLI workflows are removed under #235 before their device-level replacements land.
-Only help and version reporting are available in this slice.
+Help, version reporting, and device settings commands are available.
+For settings edits, environment values, and isolated test roots, read `docs/implementation/239-device-settings.md`.
 Read `docs/implementation/235-legacy-removal.md` for the inventory and verification.
 Do not inspect, migrate, repair, or remove real legacy Operator state.

@@ -1,9 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { Environment } from "../environment/main.ts";
 // Bun has no recursive copy, symlink, or directory removal API.
 import { cp, mkdir, rm, symlink } from "node:fs/promises";
 import { OperatorRelease } from "./main.ts";
 import { ReleasePublish } from "../release-publish/main.ts";
 import { packageSchema, jsrSchema, releaseSchema, versionSchema } from "./test-schemas.ts";
+import { z } from "zod";
 import {
   registryDependencies,
   registryManifest,
@@ -12,7 +14,7 @@ import {
 } from "./fake-registry.ts";
 
 const sourceRoot = new URL("../../", import.meta.url).pathname.replace(/\/$/, "");
-const root = `${Bun.env.TMPDIR ?? "/tmp"}/operator-delivery-${crypto.randomUUID()}`;
+const root = `${Environment.read().TMPDIR ?? "/tmp"}/operator-delivery-${crypto.randomUUID()}`;
 const sourceRepository = `${root}/source`;
 const artifactRoot = `${root}/artifact`;
 const registryProject = `${root}/registry-project`;
@@ -25,7 +27,7 @@ async function run(command: string[], cwd: string, extra: Record<string, string>
   const child = Bun.spawn(command, {
     cwd,
     env: {
-      ...process.env,
+      ...Environment.child(),
       HOME: `${root}/home`,
       XDG_CONFIG_HOME: `${root}/config`,
       XDG_STATE_HOME: `${root}/state`,
@@ -242,3 +244,62 @@ test("the built runtime refuses unsupported Bun before any command handler", asy
   }
   expect(await Bun.file(`${root}/.operator/config.json`).exists()).toBe(false);
 });
+
+test("device settings examples work through installed source and registry commands", async () => {
+  const invocations = [
+    {
+      name: "source",
+      cwd: sourceProject,
+      command: [`${sourceProject}/node_modules/.bin/operator`],
+    },
+    {
+      name: "registry",
+      cwd: registryProject,
+      command: [
+        process.execPath,
+        "-e",
+        'const { main } = await import("@fveracoechea/operator/cli"); await main(Bun.argv.slice(1));',
+        "--",
+      ],
+    },
+  ];
+  for (const invocation of invocations) {
+    const isolated = {
+      XDG_CONFIG_HOME: `${root}/${invocation.name}-config`,
+      XDG_STATE_HOME: `${root}/${invocation.name}-state`,
+    };
+    const show = await run(
+      [...invocation.command, "config", "show", "--json"],
+      invocation.cwd,
+      isolated,
+    );
+    expect(show.exitCode).toBe(0);
+    expect(JSON.parse(show.stdout)).toMatchObject({
+      reason: "settings_read",
+      data: { exists: false },
+    });
+    const edit = ["--set", "superAgent.host=opencode"];
+    const plan = await run(
+      [...invocation.command, "config", "plan", ...edit, "--json"],
+      invocation.cwd,
+      isolated,
+    );
+    expect(plan.exitCode).toBe(0);
+    const id = z.object({ data: z.object({ planId: z.string() }) }).parse(JSON.parse(plan.stdout))
+      .data.planId;
+    const applied = await run(
+      [...invocation.command, "config", "apply", ...edit, "--plan", id, "--json"],
+      invocation.cwd,
+      isolated,
+    );
+    expect(applied.exitCode).toBe(0);
+    expect(JSON.parse(applied.stdout)).toMatchObject({ reason: "settings_applied" });
+    const recovered = await run(
+      [...invocation.command, "config", "recover", "--json"],
+      invocation.cwd,
+      isolated,
+    );
+    expect(recovered.exitCode).toBe(0);
+    expect(JSON.parse(recovered.stdout)).toMatchObject({ data: { state: "complete" } });
+  }
+}, 300_000);

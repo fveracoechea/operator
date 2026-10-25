@@ -1,10 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
+import { Environment } from "../environment/main.ts";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
 import { readVersion } from "./jsr-registry.ts";
 import { z } from "zod";
 
-const root = `${Bun.env.TMPDIR ?? "/tmp"}/operator-jsr-registry-${crypto.randomUUID()}`;
+const root = `${Environment.read().TMPDIR ?? "/tmp"}/operator-jsr-registry-${crypto.randomUUID()}`;
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
@@ -53,7 +54,7 @@ test("a missing dependency installer prevents publication and removes only its s
     ],
     {
       env: {
-        ...process.env,
+        ...Environment.child(),
         PATH: `${root}/no-tools`,
         HOME: root,
         TMPDIR: root,

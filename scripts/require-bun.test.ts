@@ -1,10 +1,11 @@
 import { expect, test } from "bun:test";
+import { Environment } from "../modules/environment/main.ts";
 
 const scriptPath = new URL("./require-bun.ts", import.meta.url).pathname;
 
 async function runPreinstall(userAgent: string) {
   const child = Bun.spawn(["bun", scriptPath], {
-    env: { ...Bun.env, npm_config_user_agent: userAgent },
+    env: Environment.child({ npm_config_user_agent: userAgent }),
     stderr: "pipe",
     stdout: "pipe",
   });

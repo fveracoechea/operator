@@ -7,7 +7,7 @@ Personal skills and CLI tools for coordinating coding agents in OpenCode and Cla
 Issue [#234](https://github.com/fveracoechea/operator/issues/234) defines the device-level replacement.
 This branch starts with [#235](https://github.com/fveracoechea/operator/issues/235), which removes the legacy architecture before new workflows land.
 It is not an intermediate release.
-Only help and version reporting are available in this slice.
+Help, version reporting, and device settings commands are available.
 
 Finish old work with the old release before updating to the eventual breaking release.
 This code does not inspect, migrate, repair, or delete legacy Operator state.
@@ -16,7 +16,7 @@ Do not use it to resume an old session.
 The device-level design in `CONTEXT.md` and `docs/adr/` remains planned.
 The base lint policy in ADR-0018 is now enforced.
 Local mutation testing from ADR-0016 is also available for repository development.
-Device settings, registration, migrations, launch profiles, personal skill installation, assignments, reviews, and the global Herdr plugin are not implemented here.
+Registration, migrations, launch profiles, personal skill installation, assignments, reviews, and the global Herdr plugin are not implemented here.
 There are no replacement-command placeholders or compatibility aliases.
 
 ## Run the retained CLI
@@ -40,6 +40,39 @@ An installed package exports `main(args)` from `@fveracoechea/operator/cli`.
 Source-package installation provides the `operator` binary without an install-time build.
 JSR rewrites the package manifest and drops its binary declaration.
 The exported CLI remains usable, but the new global JSR launcher and Nix delivery are later implementation slices.
+
+## Device settings
+
+Linux and macOS use the same XDG layout.
+Settings are in `$XDG_CONFIG_HOME/operator/config.json`, or `~/.config/operator/config.json` when the variable is unset.
+Settings receipts and their SQLite write lock are in `$XDG_STATE_HOME/operator/config/`, or `~/.local/state/operator/config/`.
+An explicitly empty or relative root is an error before any command runs.
+There is no `OPERATOR_HOME`, cache root, or runtime root.
+
+```sh
+bun cli.ts config show --json
+bun cli.ts config plan --set superAgent.host=opencode --json
+bun cli.ts config apply --set superAgent.host=opencode --plan <plan-id> --json
+bun cli.ts config recover --json
+```
+
+Use the plan ID returned by `config plan` and repeat the same edits for `config apply`.
+`--set` and `--unset` accept `superAgent.host`, `superAgent.model`, `superAgent.reasoningEffort`, and the corresponding `workerAgent` fields.
+Hosts are `opencode` and `claude-code`.
+Effort values are `low`, `medium`, and `high`.
+These commands validate document structure, not host model availability or launch selection, which remain in #241.
+An absent document reads as empty role settings and creates no files.
+The first applied edit creates the document with `$schema` set to `./config.schema.json`.
+An applied edit also writes current editor support unless that destination is linked or read-only.
+Inspection and planning write nothing.
+
+Apply refuses a stale plan and protects repeated or interrupted writes with a durable receipt and a process-safe SQLite lock.
+Recovery reconciles the receipt from the recorded before and after file identities, without editing settings.
+An unmatched or unreadable receipt remains blocked for inspection.
+An unconfirmed write exits with code 5 and requires recovery, not a blind new edit.
+Linked or read-only settings remain readable, but edits refuse with instructions to change their external owner, such as Nix or Home Manager.
+Settings commands do not inspect legacy state or change a project checkout.
+See `docs/implementation/239-device-settings.md` for the state diagram and test rules.
 
 ## Retained code and checks
 
@@ -92,6 +125,6 @@ bun scripts/release.ts build --out dist --commit <full-commit>
 ```
 
 Build writes runnable ESM, declarations, complete retained skills, documentation, and a content-identified release record.
-The removed configuration schemas and old Herdr hooks no longer ship.
+The old project configuration schemas and Herdr hooks no longer ship.
 The maintainer-only `plan` and `publish` operations remain in `scripts/release.ts` for the release workflow.
 Do not publish this partial implementation.

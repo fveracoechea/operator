@@ -1,4 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
+import { Environment } from "../../modules/environment/main.ts";
 // Bun has no temporary directory, directory creation, or recursive removal API.
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -27,7 +28,7 @@ test("lint in the supplied root", async () => {
   );
   const child = Bun.spawn([process.execPath, "test", "--isolate", entry], {
     cwd: directory,
-    env: { ...process.env, TMPDIR: temporary },
+    env: Environment.child({ TMPDIR: temporary }),
     stdout: "pipe",
     stderr: "pipe",
   });

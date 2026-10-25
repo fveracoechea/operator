@@ -2,7 +2,7 @@
 
 /**
  * Run the Operator CLI under Bun from an installed release or a source checkout.
- * Help and version reporting do not read project or device state.
+ * Help and version reporting validate the environment without reading project or device state.
  * @module
  */
 

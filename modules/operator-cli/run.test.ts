@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { Environment } from "../environment/main.ts";
 // Bun has no temporary directory or recursive directory removal API.
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -26,7 +27,7 @@ test("version reports the running release without project release selection", as
   const child = Bun.spawn([process.execPath, cli, "--version", "--json"], {
     cwd: root,
     env: {
-      ...process.env,
+      ...Environment.child(),
       // Runtime caches are not Operator writes and must not enter the effect fixture.
       BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
       XDG_CACHE_HOME: undefined,
@@ -61,7 +62,7 @@ test("help names only the available commands", async () => {
     stdout: "pipe",
     stderr: "pipe",
     env: {
-      ...process.env,
+      ...Environment.child(),
       BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
       XDG_CACHE_HOME: undefined,
       HOME: root,
@@ -71,7 +72,9 @@ test("help names only the available commands", async () => {
   });
   const [code, output] = await Promise.all([child.exited, new Response(child.stdout).text()]);
   expect(code).toBe(0);
-  expect(output).toBe("Usage: operator --help | --version [--json]\n");
+  expect(output).toBe(
+    "Usage: operator --help | --version [--json]\n       operator config show | recover [--json]\n       operator config plan | apply (--set field=value | --unset field)... [--plan id] [--json]\n",
+  );
   expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([]);
 });
 
@@ -81,7 +84,6 @@ test.each(
     ["setup", "probe", "apply"],
     ["install"],
     ["update", "apply"],
-    ["config", "show"],
     ["healthcheck"],
     ["crew", "own"],
     ["crew", "next"],
@@ -113,7 +115,7 @@ test.each(
   const child = Bun.spawn([process.execPath, cli, ...args, "--json"], {
     cwd: root,
     env: {
-      ...process.env,
+      ...Environment.child(),
       BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
       XDG_CACHE_HOME: undefined,
       PATH: `${root}/no-tools`,
@@ -135,7 +137,9 @@ test.each(
     reason: "invalid_arguments",
     outcome: "invalid",
   });
-  expect(error).toBe("Usage: operator --help | --version [--json]\n");
+  expect(error).toBe(
+    "Usage: operator --help | --version [--json]\n       operator config show | recover [--json]\n       operator config plan | apply (--set field=value | --unset field)... [--plan id] [--json]\n",
+  );
   expect(await Bun.file(legacy).text()).toBe("unfinished work\n");
   expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([
     ".operator/untouched",

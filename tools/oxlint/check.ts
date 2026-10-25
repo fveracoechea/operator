@@ -14,6 +14,7 @@ const diagnosticSchema = z.object({
 export function lintProject() {
   let root = "";
   let previous = "";
+  let previousText: string | null = null;
   beforeAll(async () => {
     root = await mkdtemp(path.join(tmpdir(), "operator-lint-"));
     for (const entry of [
@@ -37,8 +38,15 @@ export function lintProject() {
     source: string,
     options: { path?: string; files?: Record<string, string> } = {},
   ) {
-    if (previous) await rm(`${root}/${previous}`, { force: true });
+    if (previous) {
+      await (previousText === null
+        ? rm(`${root}/${previous}`, { force: true })
+        : Bun.write(`${root}/${previous}`, previousText));
+    }
     previous = options.path ?? "lib/lint-probe.ts";
+    previousText = (await Bun.file(`${root}/${previous}`).exists())
+      ? await Bun.file(`${root}/${previous}`).text()
+      : null;
     // One-line examples need the policy's blank line after imports, with no behavior fixes.
     const spaced = source.replaceAll(/(from ["'][^"']+["'];)\s*/gu, "$1\n\n");
     await Bun.write(`${root}/${previous}`, spaced, { createPath: true });
