@@ -31,10 +31,18 @@ const breaks = [
   },
   {
     file: "cli.mts",
-    search: '      : "unknown";\n}',
-    replacement: '      : "not-done";\n}',
+    search: '        : "unknown",\n  );',
+    replacement: '        : "not-done",\n  );',
     test: "cases.test.ts",
     filter: "plain assignment recovers before-effect",
+  },
+  {
+    file: "cli.mts",
+    search:
+      'return err({\n      type: "invalid-response",\n      evidence: "unknown",\n      detail: diagnostic(cause).message,\n    });',
+    replacement: "throw cause;",
+    test: "cases.test.ts",
+    filter: "plain assignment keeps malformed recovery",
   },
   {
     file: "effect-runtime.mts",

@@ -9,6 +9,7 @@ import {
   designs,
   diagnostic,
   err,
+  ok,
   type Execute,
   type OperationError,
   type Receipt,
@@ -39,6 +40,7 @@ const requestSchema = z.discriminatedUnion("command", [
     defaultBase: z.boolean().default(true),
     draftValid: z.boolean().default(true),
     failingCI: z.boolean().default(false),
+    observationMode: z.enum(["valid", "invalid-json"]).default("valid"),
     head: z.string().optional(),
     key: z.string().default("obsolete-effect"),
   }),
@@ -89,7 +91,7 @@ function report(
 async function invoke(
   root: string,
   key: string,
-  mode: Step["mode"] | "observe",
+  mode: Step["mode"] | "observe" | "observe-invalid-json",
   signal: AbortSignal,
 ): Promise<Wire> {
   const child = Bun.spawn([process.execPath, `${import.meta.dir}/external.mts`, root, key, mode], {
@@ -151,27 +153,51 @@ async function execute(
   }
 }
 
-async function observe(root: string, key: string): Promise<"done" | "not-done" | "unknown"> {
-  const wire = await invoke(root, key, "observe", new AbortController().signal);
-  if (wire.exitCode !== 0) return "unknown";
+async function observe(
+  root: string,
+  key: string,
+  mode: Step["observationMode"],
+): Promise<Result<"done" | "not-done" | "unknown", OperationError>> {
+  const wire = await invoke(
+    root,
+    key,
+    mode === "invalid-json" ? "observe-invalid-json" : "observe",
+    new AbortController().signal,
+  );
+  if (wire.exitCode !== 0)
+    return err({ type: "tool", evidence: "unknown", exitCode: wire.exitCode, stderr: wire.stderr });
+  let raw: unknown;
+  try {
+    raw = JSON.parse(wire.stdout);
+  } catch (cause) {
+    return err({
+      type: "invalid-response",
+      evidence: "unknown",
+      detail: diagnostic(cause).message,
+    });
+  }
   const parsed = z
     .object({ evidence: z.enum(["applied", "not-applied", "unknown"]) })
-    .safeParse(JSON.parse(wire.stdout));
-  if (!parsed.success) return "unknown";
-  return parsed.data.evidence === "applied"
-    ? "done"
-    : parsed.data.evidence === "not-applied"
-      ? "not-done"
-      : "unknown";
+    .safeParse(raw);
+  if (!parsed.success)
+    return err({ type: "invalid-response", evidence: "unknown", detail: parsed.error.message });
+  return ok(
+    parsed.data.evidence === "applied"
+      ? "done"
+      : parsed.data.evidence === "not-applied"
+        ? "not-done"
+        : "unknown",
+  );
 }
 
 async function runAssignment(root: string, input: Step) {
   using db = open(root);
   const current = assignment.stateSchema.parse(read(db).state);
-  const observation =
+  const observed: Result<assignment.Facts["observation"], OperationError> =
     input.action === "recover" && current.operation.status !== "idle"
-      ? await observe(root, current.operation.key)
-      : "unknown";
+      ? await observe(root, current.operation.key, input.observationMode)
+      : ok("unknown");
+  if (!observed.ok) return report("assignment", ok(read(db)), observed.error);
   const facts: assignment.Facts = {
     dependenciesReady: true,
     actor: "worker",
@@ -181,7 +207,7 @@ async function runAssignment(root: string, input: Step) {
     threadsResolved: input.threadsResolved,
     defaultBase: input.defaultBase,
     safeToRemove: true,
-    observation,
+    observation: observed.value,
   };
   const event: assignment.Event =
     input.action === "result"
@@ -214,10 +240,11 @@ async function runReview(root: string, input: Step) {
   });
   if (git.exitCode !== 0) throw new Error(git.stderr.toString());
   const head = git.stdout.toString().trim();
-  const observation =
+  const observed: Result<review.Facts["observation"], OperationError> =
     input.action === "recover" && current.operation.status !== "idle"
-      ? await observe(root, current.operation.effect.key)
-      : "unknown";
+      ? await observe(root, current.operation.effect.key, input.observationMode)
+      : ok("unknown");
+  if (!observed.ok) return report("review", ok(read(db)), observed.error);
   const facts: review.Facts = {
     head,
     relation: "fast-forward",
@@ -226,7 +253,7 @@ async function runReview(root: string, input: Step) {
     origin: "slack",
     ownPr: false,
     activity: "none",
-    observation,
+    observation: observed.value,
     worker: "running",
   };
   const event: review.Event =

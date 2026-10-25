@@ -1150,7 +1150,9 @@ result.map(brokenCode);   // Callback defects still exist.</code></pre>
                   annotation gap. CLI tests found unwanted cleanup execution during recovery. A
                   direct callback test found defect masking during Effect cancellation. Each now has
                   a passing check. The browser check found mobile grid overflow, fixed by allowing
-                  columns to shrink without expanding the page.
+                  columns to shrink without expanding the page. Spec review found malformed recovery
+                  JSON reaching the defect handler. The boundary now returns an uncertain typed
+                  failure with diagnostics and preserves owner state.
                 </td>
               </tr>
               <tr>

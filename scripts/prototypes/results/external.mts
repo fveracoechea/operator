@@ -6,7 +6,16 @@ const [root, key, mode] = z
   .tuple([
     z.string(),
     z.string(),
-    z.enum(["applied", "rejected", "invalid", "tool", "lost", "timeout", "observe"]),
+    z.enum([
+      "applied",
+      "rejected",
+      "invalid",
+      "tool",
+      "lost",
+      "timeout",
+      "observe",
+      "observe-invalid-json",
+    ]),
   ])
   .parse(Bun.argv.slice(2));
 // The external process must acquire this lock, so a caller cannot hide an open write transaction.
@@ -16,7 +25,11 @@ using external = new Database(`${root}/external.sqlite`, { create: true, strict:
 external.run(
   "PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS calls (key TEXT NOT NULL, applied INTEGER NOT NULL)",
 );
-if (mode === "observe") {
+if (mode === "observe" || mode === "observe-invalid-json") {
+  if (mode === "observe-invalid-json") {
+    console.log("{malformed evidence");
+    process.exit(0);
+  }
   const record = external
     .query<{ applied: number }, [string]>(
       "SELECT applied FROM calls WHERE key=? ORDER BY rowid DESC LIMIT 1",

@@ -96,6 +96,9 @@ Recovery never grants an automatic retry.
 An explicit retry requires established non-application and rechecks current owner guards.
 The review retry reads the real scratch Git head, rechecks draft validity, and uses current CI facts.
 The owner rejects old result keys after a new attempt.
+Malformed recovery JSON returns a typed uncertain failure with diagnostics.
+It changes no owner state and grants no retry.
+Use `observationMode: "invalid-json"` with `action: "recover"` to exercise that fixture failure.
 
 No class instance, runtime description, or Error object is persisted.
 Only plain workflow state and controlled evidence cross the SQLite boundary.

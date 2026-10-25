@@ -197,6 +197,31 @@ for (const design of designs) {
           expect(state.operation.effect).toBe("delete-remote-branch");
         expect(await calls(root)).toBe(1);
       }));
+    test(`${design} ${workflow} keeps malformed recovery evidence uncertain`, () =>
+      withRoot(async (root) => {
+        await command(root, { command: "init", workflow });
+        await command(root, step(design, workflow, { mode: "lost" }));
+        const before = await show(root);
+        const result = await command(
+          root,
+          step(design, workflow, {
+            action: "recover",
+            revision: 2,
+            observationMode: "invalid-json",
+          }),
+        );
+        expect(result.code).toBe(5);
+        expect(result.output?.outcome).toBe("uncertain");
+        expect(result.output?.reason).toBe("invalid-response");
+        expect(result.output?.blockers).toEqual([
+          { type: "invalid-response", evidence: "unknown", detail: expect.any(String) },
+        ]);
+        expect(await show(root)).toEqual(before);
+        expect(await calls(root)).toBe(1);
+        const retry = await command(root, step(design, workflow, { action: "retry", revision: 2 }));
+        expect(retry.output?.reason).toBe("reconcile-before-retry");
+        expect(await calls(root)).toBe(1);
+      }));
     test(`${design} ${workflow} exposes callback defects without declaring non-application`, () =>
       withRoot(async (root) => {
         await command(root, { command: "init", workflow });
