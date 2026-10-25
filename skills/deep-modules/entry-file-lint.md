@@ -8,9 +8,9 @@ A `no-restricted-imports` pattern, in oxlint or ESLint, rejects every import fro
 "no-restricted-imports": ["error", {"patterns": [{
   "group": [
     "@/modules/*/*", "@/modules/*/**", "**/modules/*/*", "**/modules/*/**",
-    "!@/modules/*/main", "!@/modules/*/main.server", "!@/modules/*/main.client",
+    "!@/modules/*/main", "!@/modules/*/main.server",
     "!@/modules/*/$functions", "!@/modules/*/schemas", "!@/modules/*/schemas.generated",
-    "!**/modules/*/main", "!**/modules/*/main.server", "!**/modules/*/main.client",
+    "!**/modules/*/main", "!**/modules/*/main.server",
     "!**/modules/*/$functions", "!**/modules/*/schemas", "!**/modules/*/schemas.generated"
   ],
   "message": "Import a module through its entry files, or put the helper on its interface object. Inside a module, use relative imports."

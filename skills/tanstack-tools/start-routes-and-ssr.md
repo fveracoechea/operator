@@ -94,3 +94,19 @@ Register them in `createStart` and read their context from the global start cont
 
 `headers()` on the root route owns the document's policy.
 A per-request value reaches it through `ssr.nonce`, not a module-level variable.
+
+## Render a date on the viewer's zone
+
+A Start route renders on the server first, and the server's zone is not the viewer's.
+A formatter that pins `timeZone` to make the two renders agree shows every viewer a zone that is not theirs.
+Format with the viewer's zone and the pinned locale, and give the server what it needs to match:
+
+- A date that must render on the server takes the viewer's zone and a request-time `now` from the router context, which a request middleware fills.
+- Any other date renders on the client, behind a placeholder of the same size.
+
+```ts
+const DAY = new Intl.DateTimeFormat('en-US', {dateStyle: 'medium'})
+```
+
+A formatter that must pin a zone reads a calendar date the server wrote down, such as `2026-12-31`, which is the same day everywhere.
+Pin UTC on both the parse and the format, and write the reason beside it once.
