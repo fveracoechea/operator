@@ -1,5 +1,9 @@
 # Setup approval by plan identity, with a write-ahead recovery journal
 
+## Status
+
+Superseded by ADR-0024.
+
 `operator setup` must show its exact changes and write nothing until the unchanged plan is approved, but Operator CLI commands are non-interactive.
 So `setup plan` returns a `planId`, the SHA-256 of the selected targets plus the path, kind, observed content, and proposed content of every change, and `setup apply` recomputes the plan and refuses any approval that does not match.
 The identity is derived from the observed project, so a changed project or a changed target invalidates the old approval without any stored session state.

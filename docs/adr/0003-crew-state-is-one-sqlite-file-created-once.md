@@ -1,5 +1,9 @@
 # Crew state is one SQLite file that Operator creates once and never replaces
 
+## Status
+
+Superseded by ADR-0026.
+
 Assignments, attempts, ownership, source revisions, fixed inputs, dependencies, permissions, and request records are one consistent picture.
 A frontier answer reads all of them together, so they live in one SQLite database, `.operator/local/crew-state.sqlite`, read and written through Drizzle and Bun SQLite.
 

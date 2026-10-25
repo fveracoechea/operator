@@ -1,5 +1,9 @@
 # The frontier is the only dispatch rule, and review holds the last crew slot
 
+## Status
+
+Superseded by ADR-0030.
+
 `operator work frontier` reads the dependency, ordering, write-path, and capacity rules and reports the assignments a crew may start now.
 `operator work claim` recomputes the same frontier and refuses any assignment the frontier withheld.
 The rules therefore have one owner, and a claim cannot take work that the reported frontier did not offer.

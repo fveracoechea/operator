@@ -1,5 +1,9 @@
 # One release is one matched version, delivered twice and never replaced
 
+## Status
+
+Superseded by ADR-0027.
+
 A release is one version of the CLI code and the Operator-owned skills together.
 They ship from one commit, under one version, because a project that ran one release of the code against the workflow instructions of another would follow rules its CLI does not enforce.
 

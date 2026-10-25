@@ -1,5 +1,9 @@
 # An integration branch is reviewed as a whole before it is published
 
+## Status
+
+Superseded by ADR-0035.
+
 A result review reads one submission alone, from the base of its own dispatch.
 It sees the results that its assignment depends on, but not a commit that landed in parallel or after its dispatch.
 A defect that shows only as the relation between two commits, such as a pattern that one commit removes and a later commit adds again, is therefore invisible to every result review.

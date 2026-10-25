@@ -1,5 +1,9 @@
 # A live probe proves itself on its own resources, and every attempt is kept
 
+## Status
+
+Superseded by ADR-0029.
+
 A static check reads the machine and the project.
 A live check has to launch agents, spend provider tokens, and write to a tracker, so it needs something to act on.
 

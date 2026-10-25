@@ -24,6 +24,10 @@ They do not reconstruct the workflow rules, maintain a separate schedule, or per
 
 See [ADR 0023](docs/adr/0023-each-lifecycle-is-an-explicit-state-machine.md) for the state machines and [ADR 0011](docs/adr/0011-one-read-only-command-owns-the-coordination-order.md) for the next actions.
 
+The accepted device-level design in [CONTEXT.md](CONTEXT.md) and the active ADRs is planned, not yet implemented.
+It uses SuperAgents and WorkerAgents, PR and report assignments, and CLI-owned workflow operations over Herdr.
+The runtime commands, diagrams, and installation instructions below describe the current release and will change with the implementation.
+
 ## Status
 
 Every step of the first orchestration workflow works end to end: project setup, release selection and updates, readiness, the live probe, crew state, dispatch, questions, review, rework, tracker completion, cleanup, and the coordination loop.

@@ -1,5 +1,9 @@
 # The CLI lands each accepted commit, and the integration branch moves only from its recorded tip
 
+## Status
+
+Superseded by ADR-0030.
+
 `operator work accept` lands a code result on the integration branch of its source as the last step of acceptance.
 Every other gate of ADR 0007, and a passing gate run on the planned commit (ADR 0021), pass first, then the branch moves, and then acceptance is recorded.
 So the branch never holds a commit that failed another gate, and acceptance never refuses after a commit is on the branch.

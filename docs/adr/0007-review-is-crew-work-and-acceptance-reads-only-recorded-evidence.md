@@ -1,5 +1,9 @@
 # Review is ordinary crew work, and acceptance reads only recorded evidence
 
+## Status
+
+Superseded by ADR-0035.
+
 `operator attempt submit` is the durable handoff of one result.
 It fixes the assignment revision, the requirement revision, the acceptance requirements it was produced against, every artifact with its content identity, every check with its outcome, the known concerns, the decisions the Operative made, the behavior changes with their basis, the outside changes the launch scan found, and the code revisions where there are any.
 A path artifact is copied into a durable store at submission and verified against the identity the Operative stated, so the reviewer reads a fixed copy instead of a worktree another attempt may still change.

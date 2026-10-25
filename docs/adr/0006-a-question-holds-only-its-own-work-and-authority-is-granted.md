@@ -1,5 +1,9 @@
 # A question holds only its own work, and authority is granted rather than inferred
 
+## Status
+
+Superseded by ADR-0033.
+
 An Operative that cannot continue inside its authority limits raises one question.
 The blocked report states the question, its evidence, its options, the Operative's recommendation, the scope that waits, and the work that continues without the answer.
 That report carries no authority of its own: the request shape refuses any other field, so an Operative cannot widen what the Operator may then do.

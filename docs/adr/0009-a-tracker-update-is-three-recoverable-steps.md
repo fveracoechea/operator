@@ -1,5 +1,9 @@
 # A tracker update is three recoverable steps, and an unproven write is never repeated
 
+## Status
+
+Superseded by ADR-0030.
+
 Completing work on a tracker is three separate outcomes: the resolution is recorded, the ticket is completed, and the map is amended.
 Each one holds its own intent, its own write attempts, its own evidence, and its own recovery action.
 The whole update completes only when every applicable step is verified, and a verified step is never written again to repair another.

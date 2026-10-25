@@ -1,5 +1,9 @@
 # Dispatch is staged, and an unproven external effect blocks instead of repeating
 
+## Status
+
+Superseded by ADR-0031.
+
 `operator attempt dispatch` fixes the whole launch before it acts.
 The recorded plan holds the attempt, the explicit base commit, the branch, the checkout path, the launch snapshot, the brief identity, and the prompt identity.
 Each of the four external effects then records its intent and its own identity before the call and its outcome after it.
@@ -61,7 +65,6 @@ Each stage carries its own derived identity, so a replay returns the recorded ou
 
 Copying the controlling checkout's `.operator` directory into the worktree was rejected.
 That directory holds the crew state and whatever else the user keeps there, and a launch must copy an explicit list.
-
 
 One shared rule block, registered as a fixed input on every item, was rejected.
 It needs no new code, and the hand-run flow that this crew automates used one.

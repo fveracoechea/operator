@@ -1,5 +1,9 @@
 # The CLI publishes the stack, a person merges it with merge commits, and its tickets complete after the merge
 
+## Status
+
+Superseded by ADR-0030.
+
 Operator could land, gate, and review an integration branch, but nothing pushed it, opened its pull requests, or wrote their bodies.
 In a flow run by hand, the main agent pushed a new branch, opened the pull request, wrote one line for each commit with its issue, and wrote a "Done in" link on each issue last, because a rebuilt history changes every commit.
 The tracker resolution of a code result was written at acceptance, before any commit had a final place, and a branch finding could then reopen a ticket that was already closed.

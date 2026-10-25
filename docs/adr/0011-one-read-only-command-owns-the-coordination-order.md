@@ -1,65 +1,39 @@
-# One read-only command owns the coordination order, and a new owner adopts an attempt explicitly
+# ADR-0011: One next-actions read owns the coordination order
 
 ## Status
 
-Accepted. Amended 2026-10-12: Make deterministic scheduling and CLI-owned mechanical steps explicit, as clarified in [Map the global Operator home and the source reset](https://github.com/fveracoechea/operator/issues/199#issuecomment-6127524771).
+Accepted.
+Decided in #199.
+Amended 2026-10-24: Limit coordination to the retained workflows and include PR and report completion, as resolved in #231 and #233.
 
 ## Context
 
-Operator needed a declarative and deterministic process that guided agents and sub-agents through the workflow.
-A session-local schedule could disagree with recorded state, and each agent would have to reconstruct the workflow order and its blockers.
+Operator needed a declarative and deterministic process that guided agents and subagents through their workflows.
+A session-local schedule could disagree with recorded state and made each agent reconstruct the workflow order and its blockers.
+Simpler workflows removed many recorded steps but still needed one answer about what could run next.
 
 ## Decision
 
-`operator crew next` is the only schedule.
-It reads readiness, the frontier order, dependency gates, review priority, capacity, pending acknowledgements, open questions, undisposed findings, unfinished tracker steps, and unfinished cleanup, and reports them as one ranked list of actions with the waits that hold the rest.
-The Operator skill takes the first action, runs the command it names, and reads again.
-The rules therefore keep one owner, and a session cannot hold a queue that disagrees with the state.
+One read of next actions owns the coordination order.
+The same recorded state and observed facts give the same applicable actions and waits.
+The CLI reports ready assignments, idle workers with PR actions, reports awaiting acceptance, interrupted workers that need attention, failed cleanup, and ended sources.
+Review waits also report the applicable review and Slack transport actions.
+Agents invoke the named CLI operations rather than keep a separate schedule or perform the CLI's mechanical steps themselves.
 
-The same recorded state and observed facts give the same ordered next actions and waits.
-The CLI provides the operations that perform the mechanical steps behind those actions.
-Agents and sub-agents invoke those operations rather than reconstruct the workflow rules or perform its mechanical steps themselves.
-The person still supplies each decision and approval that the workflow requires.
-
-The order is declared once, in the crew state, as a list of action names.
-Recovery comes before conversation, conversation before a pipeline step, and a launch last.
-A session that finds an unsettled effect or an unadopted attempt therefore settles it before it starts new work.
-
-The exit meaning answers what this session may do on its own: work it can start now, a wait, or a decision only a person can take.
-A crew action that waits on a person outranks a wait, because waiting settles nothing a person holds.
-Readiness is reported as a standing precondition rather than as a refusal: a project that is not ready is the user's decision, and settling it starts no work, so it never decides whether the crew can advance.
-
-`operator attempt adopt` is the step ADR 0005 left to this workflow.
-A takeover replaces the ownership token, so every attempt the former Operator claimed stops being the current writer.
-Adoption is the new owner's statement that it read what one attempt still holds, and it changes nothing about the work, the checkout, the brief, or the questions.
-It runs only on settled effects and a live writer.
-
-## Alternatives considered
-
-Reporting readiness as its own command and leaving the skill to combine the two readings was rejected.
-Two reads that the skill joins are two schedules, and the join is exactly the rule that has to have one owner.
-
-Filtering launch actions out while readiness is unproven was rejected.
-The CLI cannot know whether the user accepts an unverified project, and hiding the work would make the report disagree with the frontier.
-
-Adopting an attempt automatically inside `operator crew own` was rejected.
-A takeover happens when the former session is gone, so the new owner has not yet read what any of those attempts hold, and reconciliation has not run.
-
-Adopting a stopped writer was rejected.
-An attempt whose Operative is gone needs its partial work inspected, which `operator attempt replace` already does under its own approval.
+Herdr activity is an observation, not completion evidence.
+A stopped or idle worker can require attention without having submitted a report or completed a PR.
+The SuperAgent supplies the coordination judgment and obtains the person's decisions when authority is unclear.
 
 ## Consequences
 
-`operator work frontier` stays.
-It prints the order, the gates, and the capacity on their own, and `operator crew next` carries the same reading.
+- New workflow operations must be reachable through the next actions, or agents cannot discover them through the protocol.
+- Maintaining one coordination answer costs explicit rules for both PR and report work and for interrupted workers.
+- CLI decisions remain deterministic even though GitHub, Herdr, and Slack observations change over time.
 
-Every new named operation has to appear in the next actions, or a session will not find it.
-The action names and the blockers they carry are a durable contract, held as union types so a rename is a compile error and an unreportable blocker never reaches a caller.
-The refusal `map_amendment_approval_required` is a member of the reason union, and the map amendment of a code result that waits for its `map-amendment` approval is `record_tracker` with `approval_required` (ADR 0022).
+## Alternatives considered
 
-The tracker step rule now has one rendering, which both `operator tracker show` and the next actions read.
+- A queue in the SuperAgent's conversation was rejected because a restart loses it and it can disagree with Operator state.
+- Independent command reports that agents combine into a schedule were rejected because the combination becomes a second implementation of workflow order.
+- Treating a host completion event as accepted work was rejected because it proves neither a durable report nor a verified merge.
 
-A live probe is not implemented in this release, so no project can reach readiness and the readiness precondition stays listed.
-That is honest, and the skill says to settle it with the user before a launch.
-
-Related: ADR-0023 (the declared state machines that provide the next actions).
+Related: ADR-0023, declarative machines provide the workflow states; ADR-0030, PR owners follow the feedback loop; ADR-0033, report acceptance is distinct from worker activity; ADR-0035, review waits own review operations.

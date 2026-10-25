@@ -1,5 +1,9 @@
 # Cleanup is two recorded outcomes, each behind its own proof and approval
 
+## Status
+
+Superseded by ADR-0030.
+
 `operator cleanup close` ends one Operative process.
 `operator cleanup remove` disposes of one Operative checkout.
 They are separate records on one attempt, so a stop that cannot be proven never holds back a disposal that is already safe, and a refused disposal never reopens a process that is already closed.

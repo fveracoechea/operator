@@ -1,5 +1,9 @@
 # A planning decision is recorded at acceptance and reaches its direct dependents
 
+## Status
+
+Superseded by ADR-0033.
+
 Planning work reaches accepted completion with no attempt, as ADR 0004 records.
 The Operator is read-only and keeps its own context low, so the crew does the reading and prepares the decision, and the Operator brings each question to the user and records the acceptance.
 That acceptance records a planning record, and `operator work accept` refuses planning work without one, also when the planning work was invalidated and is decided again.

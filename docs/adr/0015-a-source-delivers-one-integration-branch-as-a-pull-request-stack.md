@@ -1,5 +1,9 @@
 # A source delivers one integration branch as a pull request stack
 
+## Status
+
+Superseded by ADR-0030.
+
 One work source delivers its code through one integration branch.
 The branch collects one commit for each accepted code result, in the order the commits land.
 A dependent assignment starts from the integration branch, so its base holds every result it depends on.

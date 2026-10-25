@@ -1,5 +1,9 @@
 # Every commit of an integration branch passes the project gate before it lands
 
+## Status
+
+Superseded by ADR-0030.
+
 A result review reads one commit on the base of its own dispatch, and the checks of that result ran on that tree.
 When other results land first, the commit lands on a tip that neither its producer nor its reviewer ever read, and a rewrite gives every later commit a tree that nobody ran a check on.
 In a flow run by hand, the main agent ran the gate at every commit in a spare checkout, once after integration and again after the history changed, and one failure was found only that way.

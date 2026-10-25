@@ -1,5 +1,9 @@
 # A source is read from the tracker and never created by Operator
 
+## Status
+
+Superseded by ADR-0030.
+
 `operator work register` reads a work source from its tracker.
 A specification and a wayfinder map are a parent issue with its sub-issues, and a ticket is one issue.
 Operator never creates an issue.

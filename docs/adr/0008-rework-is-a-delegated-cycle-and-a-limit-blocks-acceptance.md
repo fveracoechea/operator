@@ -1,5 +1,9 @@
 # Rework is a delegated cycle, and a reached limit or a found defect blocks acceptance
 
+## Status
+
+Superseded by ADR-0030.
+
 `operator work rework` delegates one correction round on one submitted result, and `operator work invalidate` delegates one on an accepted result that a defect was found in.
 The cycle is registered against the producer assignment, never against the review, so the assignment returns to the frontier and the correction reaches a fresh Operative through the ordinary claim and dispatch path.
 A fresh Operative is a new attempt, in a new agent session and a new checkout.

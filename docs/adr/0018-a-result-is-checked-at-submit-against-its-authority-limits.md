@@ -1,5 +1,9 @@
 # A result is checked against its authority limits at submit, and a change outside its worktree waits for a disposition
 
+## Status
+
+Superseded by ADR-0030.
+
 The brief of an Operative states its write paths, but a brief is text.
 In a flow run by hand, an agent wrote a file outside its worktree, and one report said "no behavior change" when the change had some.
 Nothing checked either one.

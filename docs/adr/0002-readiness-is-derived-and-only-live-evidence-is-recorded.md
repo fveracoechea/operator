@@ -1,7 +1,11 @@
 # Readiness is derived on each run, and only live evidence is recorded
 
-A project is *configured* when its approved setup plan is complete and its selected files and settings validate.
-It is *ready* only when the required checks passed for that exact configuration.
+## Status
+
+Superseded by ADR-0029.
+
+A project is _configured_ when its approved setup plan is complete and its selected files and settings validate.
+It is _ready_ only when the required checks passed for that exact configuration.
 
 Every static check, such as tool presence, skill contents, instruction loading, release match, and lock data, is cheap and observes the current machine and project.
 So readiness recomputes them on every run and writes nothing.
