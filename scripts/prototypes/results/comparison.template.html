@@ -433,7 +433,9 @@
         Six executable options for Operator's PR merge and review posting.<br />Same ordered tables,
         same external operations, same tests.
       </p>
-      <p><span class="status">For your consideration. No option is selected.</span></p>
+      <p>
+        <span class="status">Selected by the person. Unthrown core and all nine Oxlint rules.</span>
+      </p>
       <p class="muted">
         Issue <a href="https://github.com/fveracoechea/operator/issues/261">#261</a>. Bun 1.4.3,
         TypeScript 6.0.3, neverthrow 8.2.0, Effect 4.0.6, unthrown 5.12.1. Checked on Linux.
@@ -442,15 +444,17 @@
     <main>
       <section id="recommendation" class="split">
         <div class="panel recommendation">
-          <h2>My recommendation</h2>
+          <h2>Approved decision</h2>
           <p>
-            <strong>Favor unthrown's core Result and AsyncResult for these operations.</strong>
+            <strong
+              >Use unthrown core Result and AsyncResult, with every supplied Oxlint rule.</strong
+            >
           </p>
           <p>
             It passes the same command cases, captures callback defects separately, and supplies
             tested Oxlint diagnostics without adopting Effect's scheduler. Keep errors, evidence,
-            and retry rules with their owners. This replaces my earlier neverthrow recommendation,
-            not your right to choose.
+            and retry rules with their owners. The person selected this contract and all opt-in lint
+            rules. ADR-0019 records the decision. Production adoption is not implemented here.
           </p>
           <p>
             Ordinary Promise is sufficient for the neverthrow and plain options. Unthrown's eager
@@ -464,29 +468,29 @@
             must-use check. No library strengthens evidence or retry authority.
           </p>
           <p>
-            <strong>Costs to accept.</strong> A third Result state, eager async work, an exhaustive
+            <strong>Accepted costs.</strong> A third Result state, eager async work, an exhaustive
             matcher vocabulary, and incomplete syntactic lint checks. The core has no runtime
             dependencies. The Drizzle package does not support SQLite. A Zod async throwing
             transform leaks an unhandled rejection through Standard Schema, even without the bridge.
-            Neither integration is a reason to adopt it unchanged.
+            The person rejected both integration packages. Async queries and helpers can use core
+            fromPromise thunks. Synchronous work can use fromThrowable. SQLite writes stay
+            synchronous.
           </p>
         </div>
         <div class="panel">
-          <h2>When I would choose differently</h2>
+          <h2>Alternatives not selected</h2>
           <p>
-            <strong>Neverthrow with Promise.</strong> Choose it for a simpler two-state Result and
-            native async/await. It remains a strong alternative. Callback defects reject to the
-            outer boundary, and the demonstrated Oxlint must-use coverage is weaker.
+            <strong>Neverthrow with Promise.</strong> A simpler two-state Result and native
+            async/await. It remains a valid alternative. Callback defects reject to the outer
+            boundary, and the demonstrated Oxlint must-use coverage is weaker.
           </p>
           <p>
-            <strong>Plain union.</strong> Choose it if avoiding a dependency matters more than
-            standard composition methods. It passed the same behavior tests. It is the closest
-            alternative, not an unsafe fallback.
+            <strong>Plain union.</strong> Avoids a dependency but leaves composition helpers and
+            agent guidance to Operator. It passed the same behavior tests.
           </p>
           <p>
-            <strong>Effect Result.</strong> Choose it if Operator already uses Effect's value tools.
-            A value import does not require running an Effect, but no existing caller needs that
-            ecosystem.
+            <strong>Effect Result.</strong> A value import does not require running an Effect, but
+            no existing caller needs that ecosystem.
           </p>
           <p>
             <strong>Effect runtime.</strong> Reconsider it when real callers need structured
@@ -494,13 +498,14 @@
             These bounded sequential commands do not establish that need.
           </p>
           <p>
-            <strong>Not recommended.</strong> Blanket adoption of unthrown's integrations or lint
-            preset, a generic workflow engine, a global error registry, or catch-and-retry around a
-            whole command. Core selection does not select #237's lint policy.
+            <strong>Not selected.</strong> Unthrown's Drizzle or Zod and Standard Schema
+            integrations, a generic workflow engine, a global error registry, or catch-and-retry
+            around a whole command. All nine unthrown lint rules are explicitly selected for #237,
+            including opt-in rules.
           </p>
           <small
-            >This is a recommendation only. An approved qualifying ADR must precede dependent
-            production adoption. The production CLI still has help and version only.</small
+            >The decision is recorded in ADR-0019. Lint adoption belongs to #237. The production CLI
+            still has help and version only.</small
           >
         </div>
       </section>
@@ -821,8 +826,8 @@
                   not prove handling.
                 </li>
                 <li>
-                  The optional no-throw rule would need an exception for this CLI's deliberate
-                  defect rethrow.
+                  The selected no-throw rule requires adoption to reconcile this prototype's
+                  deliberate defect rethrow under the enabled policy.
                 </li>
                 <li>
                   Drizzle is PostgreSQL only. Zod's async throwing transform has a tested rejection
@@ -836,6 +841,10 @@
 
       <section id="unthrown-integrations">
         <h2>What unthrown's integrations actually cover</h2>
+        <p>
+          Both integration packages are rejected for production. These examples remain comparison
+          evidence. Drizzle itself and Zod itself remain separate from that package decision.
+        </p>
         <div class="split">
           <div class="panel">
             <h3>Standard Schema and Zod</h3>
@@ -1201,7 +1210,8 @@ result.map(brokenCode);   // Callback defects still exist.</code></pre>
           </ul>
           <p>
             Assessment used Oxlint 1.87.0 and oxlint-tsgolint 7.0.2003 in scratch only. It adds no
-            production rule, changes no approved #237 policy, and decides no #219 parser exemption.
+            production rule. The person's later decision adds all unthrown rules to #237's approved
+            policy. No #219 parser exemption is decided.
           </p>
           <p>
             A library selection does not approve a second linter or a new custom must-use rule.
@@ -1224,7 +1234,7 @@ result.map(brokenCode);   // Callback defects still exist.</code></pre>
               <tr>
                 <th>Rule</th>
                 <th>Observed guidance</th>
-                <th>Preset</th>
+                <th>Upstream preset</th>
               </tr>
             </thead>
             <tbody>
@@ -1280,8 +1290,8 @@ result.map(brokenCode);   // Callback defects still exist.</code></pre>
               <tr>
                 <td>no-throw</td>
                 <td>
-                  Rejects every throw statement. It is too broad to select automatically for this
-                  CLI.
+                  Rejects every throw statement. The person explicitly selected it, so adoption must
+                  reconcile deliberate exception boundaries under the enabled rule.
                 </td>
                 <td>Opt-in</td>
               </tr>
@@ -1302,9 +1312,10 @@ result.map(brokenCode);   // Callback defects still exist.</code></pre>
           rejection callback, so that native promise rule does not close the last gap.
         </p>
         <p>
-          Diagnostics name the problem and a repair, but do not link to an Operator skill topic. No
-          production preset, custom rule, second linter, #237 change, or #219 parser exemption is
-          selected. The human must decide which checks justify their false positives and gaps.
+          Diagnostics name the problem and a repair, but do not link to an Operator skill topic. The
+          person selected all nine rules as errors for #237, including the three upstream opt-in
+          rules. No second linter, new custom must-use rule, or #219 parser exemption is selected.
+          Exact pins and reviewed upgrades define the rule set, not a moving upstream default.
         </p>
       </section>
 
@@ -1479,9 +1490,10 @@ bun run quality</code></pre>
           handling.
         </p>
         <p class="footnote">
-          <strong>Your decision is still open.</strong> Approving errors as values does not approve
-          a library. No production dependency, ADR selection, later ticket, push, merge, or release
-          follows from viewing this page.
+          <strong>The person selected unthrown.</strong> ADR-0019 records core Result and
+          AsyncResult, all nine supplied Oxlint rules including opt-in rules, and no unthrown
+          Drizzle or Zod and Standard Schema integrations. This decision record does not implement
+          later tickets, merge the delivery PR, or publish a release.
         </p>
       </section>
     </main>

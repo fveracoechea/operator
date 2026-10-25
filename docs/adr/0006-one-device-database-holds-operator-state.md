@@ -49,4 +49,4 @@ SuperAgents choose parallel work without a device-wide agent quota.
 - An integer version beside migration history was rejected because two format authorities can disagree.
 - Supervisor ownership and request-replay protocols were rejected because transition guards protect the workflow from duplicate operations.
 
-Related: ADR-0004, device settings and state ownership; ADR-0005, registration creates project identity; ADR-0007, automatic compatibility and verified migration backups; ADR-0003, state guards own transitions; ADR-0009, static readiness does not replace integrity protection.
+Related: ADR-0004, device settings and state ownership; ADR-0005, registration creates project identity; ADR-0007, automatic compatibility and verified migration backups; ADR-0003, state guards own transitions; ADR-0009, static readiness does not replace integrity protection; ADR-0019, core Result boundaries without unthrown's database integration.

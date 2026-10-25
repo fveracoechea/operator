@@ -4,6 +4,7 @@
 
 Accepted - 2026-10-24.
 Decided in #200 and #201, with environment ownership resolved in #202.
+Amended 2026-10-25: #261 adds all unthrown Oxlint rules, including opt-in rules, to the selected policy.
 Planned, not yet implemented.
 
 ## Context
@@ -18,6 +19,7 @@ Operator adopts the selected built-in and custom oxlint checks, including type-a
 Exact dependency pins make tool upgrades visible and reproducible.
 There is no violation baseline or suppression campaign that leaves the newly selected policy unenforced.
 Test-specific exceptions remain explicit rather than weakening the production checks.
+The unthrown rules selected in ADR-0019 join this policy as errors, including every opt-in rule.
 
 The linter owns dependency-cycle detection instead of a second dependency-analysis tool.
 Existing module-boundary checks retain the rules they already enforce rather than duplicate them in imported plugins.
@@ -43,4 +45,4 @@ Unselected style restrictions and application-specific rules do not enter the po
 - A separate reviewed-version record and drift check were rejected because they duplicate the dependency pin and lock.
 - Deferring fixes behind a baseline was rejected because a newly selected error policy must apply to the code it checks.
 
-Related: ADR-0004, validated environment and path ownership; ADR-0016, local mutation testing complements enforced checks without becoming a gate.
+Related: ADR-0004, validated environment and path ownership; ADR-0016, local mutation testing complements enforced checks without becoming a gate; ADR-0019, selected errors-as-values contract and unthrown lint rules.

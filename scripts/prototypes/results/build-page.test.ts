@@ -15,7 +15,8 @@ test("the offline comparison page embeds the current executable sources", async 
   ]) {
     expect(html).toContain(`id="${name}"`);
   }
-  expect(html).toContain("No option is selected.");
-  expect(html).toContain("My recommendation");
+  expect(html).toContain("Selected by the person. Unthrown core and all nine Oxlint rules.");
+  expect(html).toContain("Approved decision");
+  expect(html).not.toContain("No option is selected.");
   expect(html).not.toMatch(/<script[^>]+src=|<link[^>]+href=|<iframe/i);
 });

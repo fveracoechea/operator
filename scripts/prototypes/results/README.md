@@ -1,13 +1,14 @@
 # Errors-as-values experiment, issue 261
 
-Disposable code for the person's library decision.
-No option is selected, and no dependency is added to Operator.
+Disposable evidence for the person's approved unthrown decision in [ADR-0019](../../../docs/adr/0019-unthrown-separates-operational-failures-from-defects.md).
+Unthrown is selected, but no production dependency is installed by this experiment.
 The production CLI still supports help and version only.
 
 Open [comparison.html](comparison.html) directly in a browser.
 It is self-contained, has code snippets from the executable sources, and includes an interactive failure walkthrough, pros and cons, a recommendation, and evidence limits.
 The walkthrough illustrates tested paths, but it does not run the libraries in the browser.
-The person's preference for neverthrow is not approval of a production contract.
+The person selected unthrown core, all nine supplied Oxlint rules including opt-in rules, and no unthrown Drizzle or Zod and Standard Schema integrations.
+Production lint adoption belongs to #237, not this decision record.
 
 ## Run
 
@@ -40,10 +41,10 @@ bun "$scratch/results/cli.mts" "$root" <<'JSON'
 {"command":"init","workflow":"assignment"}
 JSON
 bun "$scratch/results/cli.mts" "$root" <<'JSON'
-{"command":"step","workflow":"assignment","design":"neverthrow-promise","revision":0,"action":"merge","mode":"lost"}
+{"command":"step","workflow":"assignment","design":"unthrown","revision":0,"action":"merge","mode":"lost"}
 JSON
 bun "$scratch/results/cli.mts" "$root" <<'JSON'
-{"command":"step","workflow":"assignment","design":"neverthrow-promise","revision":2,"action":"recover"}
+{"command":"step","workflow":"assignment","design":"unthrown","revision":2,"action":"recover"}
 JSON
 ```
 
@@ -111,10 +112,11 @@ It uses a private token solely to cross SQLite's throw-based rollback boundary.
 Unknown exceptions still propagate.
 This is a bounded raw SQLite demonstration, not adoption of a production schema or proof of Drizzle's integration.
 
-## Recommendation, not selection
+## Approved selection
 
-Favor unthrown 5.12.1 core Result and AsyncResult for these operations.
-This replaces the earlier neverthrow recommendation, not the person's library choice.
+The person selected unthrown core Result and AsyncResult after inspecting this comparison.
+The demonstrated core and lint plugin pin is 5.12.1.
+This replaces the earlier agent-only recommendation and neverthrow preference.
 The same CLI cases pass, callback defects stay separate from modeled errors, and its Oxlint plugin supplies tested diagnostics without an Effect scheduler.
 Its core has no runtime dependencies.
 The costs are a third Result state, eager async construction, an exhaustive matcher vocabulary, and incomplete syntactic enforcement.
@@ -126,7 +128,10 @@ Neverthrow with ordinary `Promise<Result<T, E>>` remains a strong alternative fo
 Native Promise passes the same cases and is sufficient for that option.
 Unthrown's AsyncResult adds a non-rejecting internal callback/defect contract, not stronger evidence, transaction, cancellation, or retry guarantees.
 The edge's match handlers can still throw or reject.
-Neither a core library choice nor this recommendation selects a lint preset or an integration.
+The person also selected every supplied Oxlint rule, including all opt-in rules, and rejected unthrown's Drizzle and Zod and Standard Schema integrations.
+Use core fromPromise thunks for async database calls and helpers, with qualification into modeled failures or defects.
+Synchronous work can use fromThrowable, and SQLite write transactions must remain synchronous.
+Returning Err or Defect after a write must roll back through the state owner's transaction policy.
 
 The plain union remains a valid dependency-free alternative.
 Do not turn it into a homemade general Result library.
@@ -153,7 +158,8 @@ It rejects floating promises, floating thenables, and direct unsafe extraction.
 It proves that a synchronous ignored Result and an awaited-but-discarded Result still pass.
 The direct method restriction is syntactic and does not prove alias analysis.
 Neverthrow's documented ESLint plugin needs TypeScript parser services that Oxlint's JavaScript plugin API does not expose.
-No production must-use policy, second linter, #237 rule change, or #219 parser exemption is selected here.
+The approved addition to #237 is every supplied unthrown Oxlint rule as an error.
+No second linter, new custom must-use rule, or #219 parser exemption is selected.
 
 `unthrown-lint.mts` checks published @unthrown/oxlint 5.12.1 with Oxlint 1.83.0 and 1.87.0.
 The former matches Operator's current pin, while the latter is this comparison's type-aware pin.
@@ -162,10 +168,27 @@ The full recommended preset accepts a valid exhaustive handler.
 Six gaps still pass, including imported producers, dropped chains, unused bound Results, unannotated local producers, and an alias to Error.
 Type-aware no-floating-promises also misses the dropped AsyncResult chain because its then method has no rejection callback.
 Diagnostics name a repair but do not include an Operator skill-topic pointer.
-The no-throw, no-get-or-throw, and prefer-pre-lifted rules are opt-in.
-No-throw would need a narrow exception for the CLI's deliberate defect rethrow.
+The complete approved rule list is:
+
+- `unthrown/no-ambiguous-error-type`
+- `unthrown/no-async-result-race`
+- `unthrown/no-catch-all-pattern`
+- `unthrown/no-unhandled-result`
+- `unthrown/no-unused-matcher`
+- `unthrown/prefer-async-result`
+- `unthrown/no-get-or-throw`
+- `unthrown/no-throw`
+- `unthrown/prefer-pre-lifted`
+
+The last three are upstream opt-in rules and are explicitly selected too.
+The implementation must reconcile deliberate exception boundaries under the enabled no-throw policy, not silently disable it.
+Future plugin upgrades remain reviewed exact-pin changes, not automatic approval of new upstream rules.
 
 ## Integration evidence and limits
+
+These integration examples remain comparison evidence only.
+The person rejected both integration packages for production use.
+This does not reject Drizzle itself or Zod itself.
 
 `unthrown.cases.mts` uses Bun's built-in assertions and narrowing guards.
 No Vitest dependency or Bun matcher framework is needed.
@@ -207,7 +230,8 @@ Using a root Effect import avoids that exact import-map question but is not proo
 
 No live GitHub reconciliation, exactly-once guarantee, remote undo, production Drizzle behavior, JSR publication, Nix installation, macOS behavior, or scale benchmark is established.
 No real legacy Operator state or host permissions are read or changed.
-No later ticket, ADR selection, merge, or release follows from this experiment.
+ADR-0019 records the approved selection.
+No implementation of a later ticket, merge, or release follows from this decision-record update.
 
 ## Page maintenance
 
@@ -221,4 +245,4 @@ The page test rejects stale embedded code.
 `browser-check.mjs` is an optional Playwright check of all six choices, uncertain recovery, absent evidence, and mobile overflow.
 Supply an installed scratch Playwright module as its first argument.
 It adds no root dependency and saves screenshots under `/tmp/opencode/operator-261-browser/`.
-The comparison and approved decision, if any, belong on #261 before dependent production adoption.
+The comparison and approved decision belong on #261 before dependent production adoption.

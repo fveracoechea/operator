@@ -41,4 +41,4 @@ Host activity remains distinct from report submission, report acceptance, and PR
 - One generic engine for every machine was rejected because the machines have different facts and effects and would need callbacks for each workflow.
 - Retaining unused machines was rejected because their maintenance cost remains even when no session needs them.
 
-Related: ADR-0001, one coordination answer reads these states; ADR-0006, state storage and transaction boundaries; ADR-0010, PR assignment lifecycle; ADR-0012, source lifecycle; ADR-0013, report assignment lifecycle; ADR-0015, review-request lifecycle.
+Related: ADR-0001, one coordination answer reads these states; ADR-0006, state storage and transaction boundaries; ADR-0010, PR assignment lifecycle; ADR-0012, source lifecycle; ADR-0013, report assignment lifecycle; ADR-0015, review-request lifecycle; ADR-0019, errors as values leave workflow policy with its owner.
