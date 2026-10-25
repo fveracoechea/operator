@@ -38,14 +38,19 @@ Name no path root in the `test` script, since bun finds every test file on its o
 
 ### Import the module dynamically after `mock.module`
 
+Check the repository's lint policy before using module replacement.
+Operator enables `anti-slop/no-module-mocking` without a test exception.
+In Operator, use a scoped public-method spy, a function fake, or a controlled external tool instead.
+The examples below apply only where the repository permits module replacement.
+
 `mock.module` runs in file order, after the static imports around it have evaluated.
 The real module has already loaded and run its load-time code by then, and the mock only swaps the live bindings.
 When the suite must never load the original, import the code under test dynamically, after the mock.
 
 ```ts
-mock.module('./billing-client', () => ({charge: mock(async () => 'ok')}))
+mock.module("./billing-client", () => ({ charge: mock(async () => "ok") }));
 
-const {checkout} = await import('./checkout')
+const { checkout } = await import("./checkout");
 ```
 
 ### Restate each default after `jest.resetAllMocks`
@@ -55,9 +60,9 @@ A `beforeEach` that resets must set each default again.
 
 ```ts
 beforeEach(() => {
-  jest.resetAllMocks()
-  charge.mockImplementation(async () => 'ok')
-})
+  jest.resetAllMocks();
+  charge.mockImplementation(async () => "ok");
+});
 ```
 
 ### Assert an `Intl` formatter's fields, never its joining text
@@ -67,8 +72,8 @@ A test that asserts the whole string passes in one engine and fails in the other
 Assert the locale and the parts.
 
 ```ts
-const parts = new Intl.DateTimeFormat('en-US', OPTIONS).formatToParts(at)
-expect(parts.find(part => part.type === 'hour')?.value).toBe('9')
+const parts = new Intl.DateTimeFormat("en-US", OPTIONS).formatToParts(at);
+expect(parts.find((part) => part.type === "hour")?.value).toBe("9");
 ```
 
 ### Wait for a removal with a helper, never with `expect` on a node
@@ -78,7 +83,7 @@ When a check fails, Bun describes the received value for the message, and a node
 Wait for an element to leave with `waitForElementToBeRemoved`, or with a removal helper that polls a query and asserts on a boolean.
 
 ```ts
-await waitForElementToBeRemoved(() => screen.queryByText('Saving'))
+await waitForElementToBeRemoved(() => screen.queryByText("Saving"));
 ```
 
 `waitForElementToBeRemoved` rejects an element that is already gone, so a helper serves the case where it may be.

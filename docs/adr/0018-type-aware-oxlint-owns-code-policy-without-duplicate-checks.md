@@ -4,8 +4,9 @@
 
 Accepted - 2026-10-24.
 Decided in #200 and #201, with environment ownership resolved in #202.
-Amended 2026-10-25: #261 adds all unthrown Oxlint rules, including opt-in rules, to the selected policy.
-Planned, not yet implemented.
+Amended 2026-10-25: #261 adds every unthrown Oxlint rule, and #237 adds async correctness, unsafe-data checks, and a classic complexity ceiling of 14.
+The base lint policy is implemented in #237.
+Environment ownership remains planned for its device-settings slice.
 
 ## Context
 
@@ -20,6 +21,11 @@ Exact dependency pins make tool upgrades visible and reproducible.
 There is no violation baseline or suppression campaign that leaves the newly selected policy unenforced.
 Test-specific exceptions remain explicit rather than weakening the production checks.
 The unthrown rules selected in ADR-0019 join this policy as errors, including every opt-in rule.
+Promise callbacks must match the caller's completion contract.
+Unsafe data flows require boundary validation rather than assertions, including in tests.
+Returning a promise requires an await where omitting it changes catch or finally behavior, without requiring awaits on every return.
+Classic cyclomatic complexity has a ceiling of 14 across production code, tooling, and tests.
+This is a maintenance limit, not proof of correctness or a scientifically distinct threshold.
 
 The linter owns dependency-cycle detection instead of a second dependency-analysis tool.
 Existing module-boundary checks retain the rules they already enforce rather than duplicate them in imported plugins.
@@ -37,6 +43,7 @@ Unselected style restrictions and application-specific rules do not enter the po
 - Type-aware lint adds a toolchain dependency and test-specific settings that upgrades must verify.
 - Replacing a checker requires preserving deliberate-break proof rather than treating a new command's success as evidence.
 - Review must assess upgrades without a separate drift gate.
+- Complexity findings require simpler branching or extraction of a clear operation, not arbitrary wrappers or a different counting variant.
 
 ## Alternatives considered
 

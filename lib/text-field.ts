@@ -1,5 +1,6 @@
+import { z } from "zod";
+
 export function textField(source: unknown, key: string): string | null {
-  if (source === null || typeof source !== "object") return null;
-  const value: unknown = Reflect.get(source, key);
-  return typeof value === "string" ? value : null;
+  const parsed = z.object({ [key]: z.string() }).safeParse(source);
+  return parsed.success ? (parsed.data[key] ?? null) : null;
 }

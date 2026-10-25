@@ -5,6 +5,8 @@
  * the real one, and both read one state, so a version the client sends is a version JSR holds.
  */
 
+import { z } from "zod";
+
 const fakeClientPath = new URL("./fake-jsr-client.ts", import.meta.url).pathname;
 
 export type JsrClientBehaviour = "publishes" | "refuses" | "publishes-then-fails";
@@ -16,23 +18,26 @@ export type JsrFakeOptions = {
   client?: JsrClientBehaviour;
 };
 
-export type JsrClientCall = {
-  args: string[];
-  cwd: string;
-  version: string;
-  /** Every staged file the client could publish, with the installed dependencies left out. */
-  files: string[];
-  /** The dependencies installed beside the staged files, which the client resolves imports from. */
-  installed: string[];
-};
+const clientCallSchema = z.object({
+  args: z.array(z.string()),
+  cwd: z.string(),
+  version: z.string(),
+  files: z.array(z.string()),
+  installed: z.array(z.string()),
+});
+export type JsrClientCall = z.infer<typeof clientCallSchema>;
 
-export type JsrFakeState = { published: string[]; client: JsrClientBehaviour };
+export const jsrFakeStateSchema = z.object({
+  published: z.array(z.string()),
+  client: z.enum(["publishes", "refuses", "publishes-then-fails"]),
+});
+export type JsrFakeState = z.infer<typeof jsrFakeStateSchema>;
 
 export type JsrFake = {
   api: string;
   fetch: typeof fetch;
   calls: () => Promise<JsrClientCall[]>;
-  stop: () => void;
+  stop: () => Promise<void>;
 };
 
 /**
@@ -62,7 +67,7 @@ export async function startJsrFake(
       const url = new URL(incoming.url);
       const version = /^\/scopes\/([^/]+)\/packages\/([^/]+)\/versions\/(.+)$/.exec(url.pathname);
       if (version?.[3] !== undefined && incoming.method === "GET") {
-        const current: JsrFakeState = await Bun.file(statePath).json();
+        const current = jsrFakeStateSchema.parse(await Bun.file(statePath).json());
         return current.published.includes(version[3])
           ? Response.json({ version: version[3], yanked: false })
           : Response.json({ code: "not_found", message: "Not Found" }, { status: 404 });
@@ -80,7 +85,7 @@ export async function startJsrFake(
       return text
         .split("\n")
         .filter((line) => line.length > 0)
-        .map((line) => JSON.parse(line));
+        .map((line) => clientCallSchema.parse(JSON.parse(line)));
     },
     stop: () => server.stop(true),
   };

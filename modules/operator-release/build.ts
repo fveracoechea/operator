@@ -1,11 +1,14 @@
 // Bun has no directory creation, removal, or path manipulation API.
 import { mkdir, rm } from "node:fs/promises";
-import { dirname, relative, resolve } from "node:path";
+import path from "node:path";
+// Bun has no invariant assertion API outside its test runner.
+import assert from "node:assert/strict";
 import { z } from "zod";
 import { identifyArtifact, RELEASE_MANIFEST_PATH, scanFiles } from "./inventory.ts";
 import { rewriteSpecifiers } from "./specifiers.ts";
 
 const ENTRY_POINT = "cli.ts";
+const { dirname, relative, resolve } = path;
 const README_SOURCE = "docs/jsr/README.md";
 
 /** The transpiler refuses a shebang, so the executable line travels beside the source it leads. */
@@ -21,9 +24,10 @@ function documentEntryPoint(source: string, compiled: string): string {
   const mainDoc = docs.find((match) =>
     source.slice(match.index + match[0].length).startsWith("\nexport async function main("),
   )?.[0];
-  if (!moduleDoc || !mainDoc || !compiled.includes("export async function main(")) {
-    throw new Error("The CLI entry point must document its module and main function.");
-  }
+  assert(
+    moduleDoc && mainDoc && compiled.includes("export async function main("),
+    "The CLI entry point must document its module and main function.",
+  );
   return `${moduleDoc}\n${compiled.replace("export async function main(", `${mainDoc}\nexport async function main(`)}`;
 }
 const SKILLS_DIRECTORY = "skills";

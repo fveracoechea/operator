@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { cp, mkdir, rm, symlink } from "node:fs/promises";
 import { OperatorRelease } from "./main.ts";
 import { ReleasePublish } from "../release-publish/main.ts";
+import { packageSchema, jsrSchema, releaseSchema, versionSchema } from "./test-schemas.ts";
 import {
   registryDependencies,
   registryManifest,
@@ -79,7 +80,7 @@ beforeAll(async () => {
   ).toBe(0);
   commit = (await run(["git", "rev-parse", "HEAD"], sourceRepository)).stdout.trim();
   expect((await OperatorRelease.build({ sourceRoot, artifactRoot, commit })).status).toBe("built");
-  version = (await Bun.file(`${artifactRoot}/release.json`).json()).version;
+  version = releaseSchema.parse(await Bun.file(`${artifactRoot}/release.json`).json()).version;
   await mkdir(sourceProject, { recursive: true });
   await Bun.write(`${sourceProject}/package.json`, '{"name":"source-consumer","private":true}\n');
   const installed = await run(
@@ -91,7 +92,9 @@ beforeAll(async () => {
 
   const registryRoot = `${root}/registry-artifact`;
   await cp(artifactRoot, registryRoot, { recursive: true });
-  const dependencies = registryDependencies(await Bun.file(`${artifactRoot}/jsr.json`).json());
+  const dependencies = registryDependencies(
+    jsrSchema.parse(await Bun.file(`${artifactRoot}/jsr.json`).json()),
+  );
   await Bun.write(
     `${registryRoot}/package.json`,
     registryManifest({ packageName: "@jsr/fveracoechea__operator", version, dependencies }),
@@ -124,7 +127,7 @@ beforeAll(async () => {
 }, 300_000);
 
 afterAll(async () => {
-  registry?.stop();
+  await registry?.stop();
   await rm(root, { force: true, recursive: true });
 });
 
@@ -136,7 +139,7 @@ describe("real source-package delivery", () => {
       sourceProject,
     );
     expect(result.exitCode).toBe(0);
-    expect(JSON.parse(result.stdout).data.operatorVersion).toBe(version);
+    expect(versionSchema.parse(JSON.parse(result.stdout)).data.operatorVersion).toBe(version);
     expect(
       await Bun.file(`${sourceProject}/node_modules/@fveracoechea/operator/cli.js`).exists(),
     ).toBe(false);
@@ -147,9 +150,9 @@ describe("real source-package delivery", () => {
 
 describe("real registry-artifact delivery", () => {
   test("runs the exported CLI after the registry drops binary and engine declarations", async () => {
-    const manifest = await Bun.file(
-      `${registryProject}/node_modules/@fveracoechea/operator/package.json`,
-    ).json();
+    const manifest = packageSchema.parse(
+      await Bun.file(`${registryProject}/node_modules/@fveracoechea/operator/package.json`).json(),
+    );
     expect(manifest.name).toBe("@jsr/fveracoechea__operator");
     expect(manifest.version).toBe(version);
     expect(manifest.bin).toBeUndefined();
@@ -163,8 +166,9 @@ describe("real registry-artifact delivery", () => {
       registryProject,
     );
     expect(result.exitCode).toBe(0);
-    expect(JSON.parse(result.stdout).data).toMatchObject({ operatorVersion: version, commit });
-    expect(JSON.parse(result.stdout).data).not.toHaveProperty("selection");
+    const output = versionSchema.parse(JSON.parse(result.stdout));
+    expect(output.data).toMatchObject({ operatorVersion: version, commit });
+    expect(output.data).not.toHaveProperty("selection");
     expect(registry.requests).toContain(`/tarball/${version}.tgz`);
   });
 
@@ -222,7 +226,7 @@ test("the built runtime refuses unsupported Bun before any command handler", asy
   const rejected = `${root}/unsupported`;
   await cp(artifactRoot, rejected, { recursive: true });
   await symlink(`${sourceRoot}/node_modules`, `${rejected}/node_modules`);
-  const release = await Bun.file(`${rejected}/release.json`).json();
+  const release = releaseSchema.parse(await Bun.file(`${rejected}/release.json`).json());
   await Bun.write(
     `${rejected}/release.json`,
     JSON.stringify({ ...release, supportedBun: ">=999.0.0" }),

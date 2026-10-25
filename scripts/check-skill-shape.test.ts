@@ -2,7 +2,9 @@ import { afterAll, expect, test } from "bun:test";
 // Bun has no temporary directory API and no recursive remove.
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import path from "node:path";
+
+const { join } = path;
 
 const scriptPath = new URL("./check-skill-shape.ts", import.meta.url).pathname;
 const workspace = await mkdtemp(join(tmpdir(), "check-skill-shape-"));

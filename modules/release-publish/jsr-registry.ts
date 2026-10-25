@@ -8,9 +8,11 @@
 // Bun has no temporary directory or recursive removal API.
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import path from "node:path";
 import { OperatorRelease } from "../operator-release/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
+
+const { join } = path;
 
 export type JsrOutcome<Value> =
   | { status: "succeeded"; value: Value }

@@ -7,9 +7,11 @@ The issue stays open for the coupled delivery PR, separately from this completed
 
 ## Scope
 
-Both disposable implementations live in `scripts/prototypes/state-machines/` on `global-operator-home`, after legacy removal at `313798a`.
+Both disposable implementations were recorded in `scripts/prototypes/state-machines/` on `global-operator-home`, after legacy removal at `313798a`.
 Each implementation covers PR and report assignment completion and a separate review-request lifecycle.
-The [experiment instructions](../../scripts/prototypes/state-machines/README.md) describe the call sites, scope limits, scratch invocation, result contract, and alternatives.
+The [historical experiment instructions](https://github.com/fveracoechea/operator/blob/3421d86/scripts/prototypes/state-machines/README.md) describe the call sites, scope limits, scratch invocation, result contract, and alternatives.
+The person approved removal of both completed prototype directories in #237.
+The commands below record historical evidence at the prototype commits, not commands available in the current checkout.
 The [original GitHub comment](https://github.com/fveracoechea/operator/issues/236#issuecomment-6392512143) contains the pre-selection comparison, recommendation, and both prototypes at `662d7d8`.
 Its pending-choice language describes that earlier point, not the person's later decision.
 The OpenCode presentation task is limited to an HTML explanation of the options.

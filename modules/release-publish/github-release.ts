@@ -1,5 +1,6 @@
 import { GithubApi } from "../github-api/main.ts";
 import { textField } from "../../lib/text-field.ts";
+import { z } from "zod";
 
 const READ_TIMEOUT_MS = 30_000;
 const WRITE_TIMEOUT_MS = 60_000;
@@ -55,10 +56,8 @@ export async function readTag(request: { repository: string; tag: string }): Pro
     return { status: "unknown", detail: outcome.detail };
   }
 
-  const body = outcome.value.body;
-  const object: unknown =
-    body !== null && typeof body === "object" ? Reflect.get(body, "object") : undefined;
-  const sha = textField(object, "sha");
+  const parsed = z.object({ object: z.object({ sha: z.string() }) }).safeParse(outcome.value.body);
+  const sha = parsed.success ? parsed.data.object.sha : null;
   return sha === null
     ? { status: "unknown", detail: "The tag named no commit." }
     : { status: "present", sha };

@@ -1,6 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
 // Bun has no chmod or recursive directory removal API.
 import { chmod, rm } from "node:fs/promises";
+import { z } from "zod";
+import { releaseFakeStateSchema } from "./fake-publish-state.ts";
 
 const root = `${Bun.env.TMPDIR ?? "/tmp"}/operator-github-release-${crypto.randomUUID()}`;
 const modulePath = new URL("./github-release.ts", import.meta.url).pathname;
@@ -45,7 +47,10 @@ console.log(JSON.stringify(results));`;
     stdout: "pipe",
     stderr: "pipe",
   });
-  const [exit, output] = await Promise.all([child.exited, new Response(child.stdout).json()]);
+  const [exit, output] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).json().then((value: unknown) => z.unknown().parse(value)),
+  ]);
   expect(exit).toBe(0);
   expect(output).toMatchObject([
     { status: "merged" },
@@ -57,5 +62,7 @@ console.log(JSON.stringify(results));`;
     { status: "succeeded" },
     { status: "present" },
   ]);
-  expect((await Bun.file(`${root}/state.json`).json()).releaseBodies.v1).toBe("notes");
+  expect(
+    releaseFakeStateSchema.parse(await Bun.file(`${root}/state.json`).json()).releaseBodies?.v1,
+  ).toBe("notes");
 });

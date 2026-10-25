@@ -8,7 +8,7 @@ export type RegistryFake = {
   url: string;
   packageName: string;
   requests: string[];
-  stop: () => void;
+  stop: () => Promise<void>;
 };
 
 function shasum(bytes: Uint8Array<ArrayBuffer>): string {

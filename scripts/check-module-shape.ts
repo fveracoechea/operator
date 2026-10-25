@@ -1,9 +1,11 @@
 // Bun has no path manipulation API.
-import { dirname, relative, resolve, sep } from "node:path";
-import ts from "typescript";
+import path from "node:path";
+import * as ts from "typescript/unstable/ast";
+import { API } from "typescript/unstable/async";
 import packageJson from "../package.json" with { type: "json" };
 
 const root = process.cwd();
+const { dirname, relative, resolve, sep } = path;
 const errors: string[] = [];
 const sourcePaths = [
   ...new Set(
@@ -31,11 +33,11 @@ function isExportedStatement(node: ts.Statement): boolean {
     return true;
   }
 
-  return (
-    ts.canHaveModifiers(node) &&
-    (ts.getModifiers(node)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ??
-      false)
-  );
+  let exported = false;
+  node.forEachChild((child) => {
+    if (child.kind === ts.SyntaxKind.ExportKeyword) exported = true;
+  });
+  return exported;
 }
 
 function moduleName(path: string): string | undefined {
@@ -49,7 +51,7 @@ function isAllowedOutsideModules(path: string): boolean {
     path.startsWith("lib/") ||
     path.startsWith("scripts/") ||
     // Vendored lint rules are tooling, not Operator production modules.
-    path.startsWith("tools/oxlint/anti-slop/") ||
+    path.startsWith("tools/oxlint/") ||
     path.endsWith(".test.ts") ||
     path.endsWith(".config.ts")
   );
@@ -96,7 +98,7 @@ function checkModuleInterface(path: string, sourceFile: ts.SourceFile): void {
   }
 }
 
-function checkImport(importer: string, specifier: ts.Expression): void {
+function checkImport(importer: string, specifier: ts.Node): void {
   if (!ts.isStringLiteral(specifier)) {
     return;
   }
@@ -145,41 +147,49 @@ function checkImports(path: string, sourceFile: ts.SourceFile): void {
       checkImport(path, node.arguments[0]);
     }
 
-    ts.forEachChild(node, visit);
+    node.forEachChild(visit);
   }
 
   visit(sourceFile);
 }
 
 const moduleDirectories = new Set<string>();
-for (const path of sourcePaths) {
-  const normalizedPath = normalized(path);
-  const name = moduleName(path);
-  if (name) {
-    moduleDirectories.add(name);
-  }
+const api = new API({ cwd: root });
+const snapshot = await api.updateSnapshot({
+  openFiles: sourcePaths.map((path) => resolve(root, path)),
+});
+try {
+  for (const path of sourcePaths) {
+    const normalizedPath = normalized(path);
+    const name = moduleName(path);
+    if (name) {
+      moduleDirectories.add(name);
+    }
 
-  if (normalizedPath.startsWith("modules/") && !name) {
-    errors.push(`${path}: production files must be inside a feature module`);
-  }
+    if (normalizedPath.startsWith("modules/") && !name) {
+      errors.push(`${path}: production files must be inside a feature module`);
+    }
 
-  if (!normalizedPath.startsWith("modules/") && !isAllowedOutsideModules(normalizedPath)) {
-    errors.push(`${path}: production TypeScript must live in modules/<feature>/ or lib/`);
-  }
+    if (!normalizedPath.startsWith("modules/") && !isAllowedOutsideModules(normalizedPath)) {
+      errors.push(`${path}: production TypeScript must live in modules/<feature>/ or lib/`);
+    }
 
-  const text = await Bun.file(resolve(root, path)).text();
-  const sourceFile = ts.createSourceFile(
-    path,
-    text,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS,
-  );
-  checkImports(path, sourceFile);
+    const absolutePath = resolve(root, path);
+    const project = await snapshot.getDefaultProjectForFile(absolutePath);
+    const sourceFile = await project?.program.getSourceFile(absolutePath);
+    if (!sourceFile) {
+      errors.push(`${path}: module checker could not read the source`);
+      continue;
+    }
+    checkImports(path, sourceFile);
 
-  if (/^modules\/[^/]+\/main\.ts$/.test(normalizedPath)) {
-    checkModuleInterface(path, sourceFile);
+    if (/^modules\/[^/]+\/main\.ts$/.test(normalizedPath)) {
+      checkModuleInterface(path, sourceFile);
+    }
   }
+} finally {
+  await snapshot.dispose();
+  await api.close();
 }
 
 for (const directory of moduleDirectories) {

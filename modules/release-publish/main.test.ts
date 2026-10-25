@@ -11,7 +11,7 @@ import { z } from "zod";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
 import { OperatorRelease } from "../operator-release/main.ts";
-import type { ReleaseFakeState } from "./fake-publish-state.ts";
+import { releaseFakeStateSchema, type ReleaseFakeState } from "./fake-publish-state.ts";
 import { type JsrFake, type JsrFakeOptions, startJsrFake } from "./fake-jsr.ts";
 import { ReleasePublish } from "./main.ts";
 
@@ -45,7 +45,9 @@ const inheritedPath = process.env.PATH ?? "";
 beforeAll(async () => {
   builtRoot = `${Bun.env.TMPDIR ?? "/tmp"}/operator-publish-built-${crypto.randomUUID()}`;
   await OperatorRelease.build({ sourceRoot, artifactRoot: builtRoot, commit: COMMIT });
-  version = (await Bun.file(`${builtRoot}/release.json`).json()).version;
+  version = z
+    .object({ version: z.string() })
+    .parse(await Bun.file(`${builtRoot}/release.json`).json()).version;
 }, 300_000);
 
 afterAll(async () => {
@@ -55,7 +57,7 @@ afterAll(async () => {
 afterEach(async () => {
   process.env.PATH = inheritedPath;
   for (const fake of fakes.splice(0)) {
-    fake.stop();
+    await fake.stop();
   }
   await Promise.all(roots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
 });
@@ -247,7 +249,7 @@ describe("the publication", () => {
     const result = await ReleasePublish.publish(request(fake, { changelogPath }));
 
     expect(result.status).toBe("published");
-    const state: ReleaseFakeState = await Bun.file(`${ghDirectory}/state.json`).json();
+    const state = releaseFakeStateSchema.parse(await Bun.file(`${ghDirectory}/state.json`).json());
     expect(state.releaseBodies?.[`v${version}`]).toBe(
       `## ${version}\n\n### Minor Changes\n\n- A new release note.`,
     );
@@ -262,7 +264,7 @@ describe("the publication", () => {
 
     expect(result.status).toBe("blocked");
     expect(result.plan.blockers.map((one) => one.reason)).toContain("changelog_missing");
-    const state: ReleaseFakeState = await Bun.file(`${ghDirectory}/state.json`).json();
+    const state = releaseFakeStateSchema.parse(await Bun.file(`${ghDirectory}/state.json`).json());
     expect(state.tags).toEqual({});
     expect(await fake.calls()).toEqual([]);
   });
@@ -278,7 +280,7 @@ describe("the publication", () => {
         state: "published",
         detail: `The tag v${version} and its release were created.`,
         reference: `https://github.test/releases/v${version}`,
-        at: expect.any(String),
+        at: expect.any(String) as string,
       },
       jsr: {
         state: "published",
@@ -294,9 +296,11 @@ describe("the publication", () => {
     expect(call?.cwd).not.toBe(artifactRoot);
     expect(call?.files).toEqual(await OperatorRelease.contents({ artifactRoot }));
     // It resolves the imports of the shipped code, so the dependencies are installed beside it.
-    const manifest = await Bun.file(`${artifactRoot}/package.json`).json();
+    const manifest = z
+      .object({ dependencies: z.record(z.string(), z.string()) })
+      .parse(await Bun.file(`${artifactRoot}/package.json`).json());
     expect(call?.installed).toEqual(Object.keys(manifest.dependencies).toSorted());
-    const state: ReleaseFakeState = await Bun.file(`${ghDirectory}/state.json`).json();
+    const state = releaseFakeStateSchema.parse(await Bun.file(`${ghDirectory}/state.json`).json());
     expect(state.tags[`v${version}`]).toBe(COMMIT);
     expect(state.releases[`v${version}`]).toContain(`v${version}`);
   });
@@ -451,7 +455,11 @@ describe("the release toolchain", () => {
       (publish?.needs ?? []).includes(name),
     );
 
-    expect(callers.map(([, job]) => job.uses).toSorted()).toEqual([
+    expect(
+      callers
+        .map(([, job]) => job.uses)
+        .toSorted((left, right) => (left ?? "").localeCompare(right ?? "")),
+    ).toEqual([
       "./.github/workflows/quality.yml",
       "./.github/workflows/release-smoke.yml",
       undefined,
@@ -494,14 +502,18 @@ describe("a source path that is half delivered", () => {
 
     const first = await ReleasePublish.publish(request(fake));
     expect(first.status).toBe("partial");
-    const afterFirst: ReleaseFakeState = await Bun.file(`${ghDirectory}/state.json`).json();
+    const afterFirst = releaseFakeStateSchema.parse(
+      await Bun.file(`${ghDirectory}/state.json`).json(),
+    );
     expect(afterFirst.tags[`v${version}`]).toBe(COMMIT);
     expect(afterFirst.releases[`v${version}`]).toBeUndefined();
 
     const retry = await ReleasePublish.publish(request(await jsrFake()));
 
     expect(retry.status).toBe("published");
-    const afterRetry: ReleaseFakeState = await Bun.file(`${ghDirectory}/state.json`).json();
+    const afterRetry = releaseFakeStateSchema.parse(
+      await Bun.file(`${ghDirectory}/state.json`).json(),
+    );
     expect(afterRetry.releases[`v${version}`]).toContain(`v${version}`);
     // The tag the first attempt created is never written a second time.
     const calls = await Bun.file(`${ghDirectory}/calls.log`).text();

@@ -13,7 +13,8 @@ Finish old work with the old release before updating to the eventual breaking re
 This code does not inspect, migrate, repair, or delete legacy Operator state.
 Do not use it to resume an old session.
 
-The accepted design in `CONTEXT.md` and `docs/adr/` remains planned.
+The device-level design in `CONTEXT.md` and `docs/adr/` remains planned.
+The base lint policy in ADR-0018 is now enforced.
 Device settings, registration, migrations, launch profiles, personal skill installation, assignments, reviews, and the global Herdr plugin are not implemented here.
 There are no replacement-command placeholders or compatibility aliases.
 
@@ -53,6 +54,9 @@ bun run test:module-boundaries
 
 Quality runs formatting, lint, typechecking, structural checks, skill checks, deliberate module-boundary violations, and the remaining tests.
 The tests use isolated globals.
+Oxlint owns dependency cycles and type-aware code policy, while the module checker owns structural boundaries.
+The deliberate-break tests run the real lint command in disposable checkout copies.
+See `docs/implementation/237-lint-policy.md` for policy coverage, exception boundaries, and verification.
 The installed delivery smoke uses real Bun installs and Git, a local registry fixture, and the built public declarations.
 Publication tests use controlled GitHub and official-client commands.
 They publish no real release.

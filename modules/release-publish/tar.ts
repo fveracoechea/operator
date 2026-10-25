@@ -1,3 +1,6 @@
+// Bun has no invariant assertion API outside its test runner.
+import assert from "node:assert/strict";
+
 const BLOCK = 512;
 const encoder = new TextEncoder();
 
@@ -26,7 +29,7 @@ function splitName(path: string): { name: string; prefix: string } {
     }
   }
 
-  throw new Error(`the path ${path} is too long for a tar entry`);
+  assert.fail(`the path ${path} is too long for a tar entry`);
 }
 
 function header(request: { path: string; size: number; mode: number; mtime: number }): Uint8Array {
@@ -80,8 +83,8 @@ export function packTarball(
         mode: entry.executable === true ? 0o755 : 0o644,
         mtime,
       }),
+      entry.bytes,
     );
-    blocks.push(entry.bytes);
     const padding = (BLOCK - (entry.bytes.length % BLOCK)) % BLOCK;
     if (padding > 0) {
       blocks.push(new Uint8Array(padding));

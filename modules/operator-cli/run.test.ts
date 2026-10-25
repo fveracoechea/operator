@@ -2,7 +2,14 @@ import { afterEach, expect, test } from "bun:test";
 // Bun has no temporary directory or recursive directory removal API.
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import path from "node:path";
+import { z } from "zod";
+
+const { join } = path;
+const versionOutput = z.object({
+  reason: z.string(),
+  data: z.looseObject({ operatorVersion: z.string() }),
+});
 
 const cli = new URL("../../cli.ts", import.meta.url).pathname;
 const roots: string[] = [];
@@ -29,7 +36,7 @@ test("version reports the running release without project release selection", as
   });
   const [code, output, error] = await Promise.all([
     child.exited,
-    new Response(child.stdout).json(),
+    new Response(child.stdout).json().then((value: unknown) => versionOutput.parse(value)),
     new Response(child.stderr).text(),
   ]);
   expect(code).toBe(0);
@@ -112,7 +119,7 @@ test.each(
   });
   const [code, output, error] = await Promise.all([
     child.exited,
-    new Response(child.stdout).json(),
+    new Response(child.stdout).json().then((value: unknown) => z.unknown().parse(value)),
     new Response(child.stderr).text(),
   ]);
   expect(code).toBe(2);

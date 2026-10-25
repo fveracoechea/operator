@@ -2,6 +2,8 @@ import { afterEach, describe, expect, test as bunTest } from "bun:test";
 // Bun has no recursive directory removal or symlink API.
 import { rm, symlink } from "node:fs/promises";
 import { OperatorRelease } from "./main.ts";
+import { z } from "zod";
+import { packageSchema, jsrSchema, releaseSchema, versionSchema } from "./test-schemas.ts";
 
 // Most of these tests build a real artifact, which compiles the whole release. That takes far
 // longer than a default test, and longer again on a CI runner.
@@ -96,11 +98,11 @@ describe("the release artifact", () => {
   test("declares no install-time script, so retrieval needs no lifecycle trust", async () => {
     const { artifactRoot } = await buildArtifact();
 
-    const manifest = await Bun.file(`${artifactRoot}/package.json`).json();
+    const manifest = packageSchema.parse(await Bun.file(`${artifactRoot}/package.json`).json());
 
     expect(manifest.scripts).toBeUndefined();
     expect(manifest.bin).toEqual({ operator: "./cli.js" });
-    expect(manifest.exports["./cli"]).toEqual({ types: "./cli.d.ts", default: "./cli.js" });
+    expect(manifest.exports?.["./cli"]).toEqual({ types: "./cli.d.ts", default: "./cli.js" });
     expect(manifest.private).toBeUndefined();
   });
 
@@ -126,7 +128,7 @@ describe("the release artifact", () => {
       }
     }
 
-    const config = await Bun.file(`${artifactRoot}/jsr.json`).json();
+    const config = jsrSchema.parse(await Bun.file(`${artifactRoot}/jsr.json`).json());
     expect(reached.size).toBeGreaterThan(0);
     expect([...reached].toSorted()).toEqual(Object.keys(config.imports ?? {}).toSorted());
     for (const [name, specifier] of Object.entries(config.imports ?? {})) {
@@ -138,22 +140,28 @@ describe("the release artifact", () => {
   test("carries the source license into both manifests it publishes", async () => {
     // The registry refuses a package that names no license, so the build carries it forward.
     const { artifactRoot } = await buildArtifact();
-    const source = await Bun.file(new URL("../../package.json", import.meta.url)).json();
+    const source = z
+      .object({ license: z.string() })
+      .parse(await Bun.file(new URL("../../package.json", import.meta.url)).json());
 
     expect(source.license).toBeString();
-    expect((await Bun.file(`${artifactRoot}/jsr.json`).json()).license).toBe(source.license);
-    expect((await Bun.file(`${artifactRoot}/package.json`).json()).license).toBe(source.license);
+    expect(jsrSchema.parse(await Bun.file(`${artifactRoot}/jsr.json`).json()).license).toBe(
+      source.license,
+    );
+    expect(packageSchema.parse(await Bun.file(`${artifactRoot}/package.json`).json()).license).toBe(
+      source.license,
+    );
   });
 
   test("records the exact commit and version the artifact was built from", async () => {
     const { artifactRoot, result } = await buildArtifact();
 
-    const release = await Bun.file(`${artifactRoot}/release.json`).json();
-    const manifest = await Bun.file(`${artifactRoot}/package.json`).json();
+    const release = releaseSchema.parse(await Bun.file(`${artifactRoot}/release.json`).json());
+    const manifest = packageSchema.parse(await Bun.file(`${artifactRoot}/package.json`).json());
 
     expect(release.commit).toBe(commit);
     expect(release.version).toBe(manifest.version);
-    expect(release.artifactIdentity).toBe(result.artifactIdentity);
+    expect(result.artifactIdentity).toBe(release.artifactIdentity);
   });
 
   test("identifies the artifact by its content, so changed content is a different release", async () => {
@@ -179,7 +187,7 @@ describe("the release artifact", () => {
 
   test("reads the version and the commit the artifact's release record names", async () => {
     const { artifactRoot } = await buildArtifact();
-    const recorded = await Bun.file(`${artifactRoot}/release.json`).json();
+    const recorded = releaseSchema.parse(await Bun.file(`${artifactRoot}/release.json`).json());
 
     const inspection = await OperatorRelease.inspect({ artifactRoot });
 
@@ -207,7 +215,7 @@ describe("the release artifact", () => {
 
   test("refuses a release record that names its version or commit as something other than text", async () => {
     const { artifactRoot } = await buildArtifact();
-    const recorded = await Bun.file(`${artifactRoot}/release.json`).json();
+    const recorded = releaseSchema.parse(await Bun.file(`${artifactRoot}/release.json`).json());
 
     await Bun.write(`${artifactRoot}/release.json`, JSON.stringify({ ...recorded, version: 1 }));
     expect(await refusal(artifactRoot)).toBe(
@@ -243,8 +251,8 @@ describe("the release artifact", () => {
     const [exitCode, stdout] = await Promise.all([child.exited, new Response(child.stdout).text()]);
 
     expect(exitCode).toBe(0);
-    expect(JSON.parse(stdout).data.operatorVersion).toBe(
-      (await Bun.file(`${artifactRoot}/release.json`).json()).version,
+    expect(versionSchema.parse(JSON.parse(stdout)).data.operatorVersion).toBe(
+      releaseSchema.parse(await Bun.file(`${artifactRoot}/release.json`).json()).version,
     );
   });
 });
@@ -265,7 +273,7 @@ describe("the release tooling", () => {
 
     expect(stderr).toBe("");
     expect(exitCode).toBe(0);
-    expect(JSON.parse(stdout).status).toBe("built");
+    expect(z.object({ status: z.string() }).parse(JSON.parse(stdout)).status).toBe("built");
     expect((await OperatorRelease.inspect({ artifactRoot })).status).toBe("complete");
   });
 

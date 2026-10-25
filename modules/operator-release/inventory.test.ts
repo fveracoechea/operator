@@ -15,6 +15,13 @@ test("missing inventory is empty and paths use stable code-point order", async (
   expect(await scanFiles(root)).toEqual(["Z", "a"]);
 });
 
+test("an unexpected inventory I/O defect is not treated as an empty directory", async () => {
+  const notDirectory = `${root}/file`;
+  await Bun.write(notDirectory, "not a directory", { createPath: true });
+  await expect(scanFiles(notDirectory)).rejects.toMatchObject({ code: "ENOTDIR" });
+  expect(await Bun.file(notDirectory).text()).toBe("not a directory");
+});
+
 test("artifact identity covers file names and bytes but excludes its own release record", async () => {
   await Bun.write(`${root}/file`, "first", { createPath: true });
   const original = await identifyArtifact(root);

@@ -1,4 +1,6 @@
 import { z } from "zod";
+// Bun has no invariant assertion API outside its test runner.
+import assert from "node:assert/strict";
 import { RELEASE_MANIFEST_PATH } from "./inventory.ts";
 
 /** What the running Operator release says about itself, wherever it was retrieved from. */
@@ -81,7 +83,7 @@ export async function readArtifactRelease(
   const parsed = artifactRecord.safeParse(await file.json());
   if (!parsed.success) {
     const fields = [...new Set(parsed.error.issues.map((issue) => issue.path.join(".")))];
-    throw new Error(
+    assert.fail(
       `The release record ${path} names ${fields.join(" and ")} as something other than text.`,
     );
   }

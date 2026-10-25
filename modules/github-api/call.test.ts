@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 // Bun has no chmod or recursive directory removal API.
 import { chmod, rm } from "node:fs/promises";
+import { z } from "zod";
 
 const roots: string[] = [];
 const modulePath = new URL("./call.ts", import.meta.url).pathname;
@@ -44,7 +45,14 @@ test.each([
       stderr: "pipe",
     },
   );
-  const [code, output] = await Promise.all([child.exited, new Response(child.stdout).json()]);
+  const [code, output] = await Promise.all([
+    child.exited,
+    new Response(child.stdout)
+      .json()
+      .then((value: unknown) =>
+        z.looseObject({ status: z.string(), value: z.unknown().optional() }).parse(value),
+      ),
+  ]);
   expect(code).toBe(0);
   expect(output.status).toBe(status);
   expect(await Bun.file(`${root}/call.json`).json()).toEqual({

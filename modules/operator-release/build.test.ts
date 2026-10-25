@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
 import { buildArtifact } from "./build.ts";
+import { releaseSchema } from "./test-schemas.ts";
 
 const root = `${Bun.env.TMPDIR ?? "/tmp"}/operator-build-${crypto.randomUUID()}`;
 const sourceRoot = new URL("../../", import.meta.url).pathname.replace(/\/$/, "");
@@ -23,5 +24,7 @@ test("build follows runtime imports and excludes removed protocols and test fixt
   expect(
     files.some((file) => /crew-state|project-setup|release-install|\.test\.|fake-/.test(file)),
   ).toBe(false);
-  expect((await Bun.file(`${root}/release.json`).json()).builtAt).toBe("2026-10-24T00:00:00.000Z");
+  expect(releaseSchema.parse(await Bun.file(`${root}/release.json`).json()).builtAt).toBe(
+    "2026-10-24T00:00:00.000Z",
+  );
 }, 300_000);

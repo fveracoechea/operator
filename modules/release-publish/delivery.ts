@@ -32,9 +32,7 @@ type Delivered = Exclude<DeliveryPathEvent, "plan">;
 
 type DeliveryPathRefusals = {
   plan: "tag_moved" | "version_published";
-} & {
-  [E in Delivered]: "already-published";
-};
+} & Record<Delivered, "already-published">;
 
 export type DeliveryPathEffect =
   // The path still waits for this release, so the caller sends it or records what it observed.

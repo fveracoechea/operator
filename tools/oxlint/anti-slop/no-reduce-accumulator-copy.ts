@@ -99,8 +99,13 @@ export const noReduceAccumulatorCopyRule = defineRule({
             ),
           );
         if (accumulator === undefined) return;
-        const isAccumulator = (expression: ESTree.Node) =>
-          referencesAccumulator(context.sourceCode, expression, accumulator);
+        function isAccumulator(expression: ESTree.Node | undefined) {
+          return (
+            expression !== undefined &&
+            accumulator !== undefined &&
+            referencesAccumulator(context.sourceCode, expression, accumulator)
+          );
+        }
         let copiesAccumulator = false;
         if (
           method.name === "assign" &&
@@ -115,8 +120,7 @@ export const noReduceAccumulatorCopyRule = defineRule({
           method.name === "from" &&
           isGlobalCopyOwner(context.sourceCode, method.object, "Array")
         ) {
-          const source = node.arguments[0];
-          copiesAccumulator = source !== undefined && isAccumulator(source);
+          copiesAccumulator = isAccumulator(node.arguments[0]);
         } else if (
           ["concat", "slice", "toSpliced", "toSorted", "toReversed", "with"].includes(method.name)
         ) {

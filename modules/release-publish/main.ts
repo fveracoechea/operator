@@ -112,10 +112,8 @@ export const ReleasePublish = {
 
     await writeJournal(request.journalPath, journal);
 
-    const delivered = Object.values(journal.paths).filter((one) => one.state === "published");
-    const complete = delivered.length === plan.paths.length;
     return {
-      status: complete ? ("published" as const) : ("partial" as const),
+      status: publicationStatus(journal, plan),
       plan,
       journal,
       journalPath: request.journalPath,
@@ -132,6 +130,14 @@ export const ReleasePublish = {
     return OperatorRelease.inspect(request);
   },
 };
+
+function publicationStatus(
+  journal: PublicationJournal,
+  plan: ReleasePlan,
+): "published" | "partial" {
+  const delivered = Object.values(journal.paths).filter((one) => one.state === "published");
+  return delivered.length === plan.paths.length ? "published" : "partial";
+}
 
 async function publishSource(plan: ReleasePlan): Promise<DeliveryOutcome> {
   const now = new Date().toISOString();

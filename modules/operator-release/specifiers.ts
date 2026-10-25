@@ -5,7 +5,7 @@ const relativeTypeScriptSpecifier =
   /(\bfrom\s*|\bimport\s*\(\s*|\bimport\s*)(["'])(\.[^"']*)\.ts\2/g;
 
 export function rewriteSpecifiers(source: string): string {
-  return source.replace(
+  return source.replaceAll(
     relativeTypeScriptSpecifier,
     (_match, lead, quote, path) => `${lead}${quote}${path}.js${quote}`,
   );

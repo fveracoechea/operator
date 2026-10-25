@@ -9,23 +9,20 @@
 import { z } from "zod";
 // Bun.write cannot append atomically across the concurrent fake gh processes.
 import { appendFile } from "node:fs/promises";
-import type { ReleaseFakeFault, ReleaseFakeState } from "./fake-publish-state.ts";
+import {
+  releaseFakeFaultSchema,
+  releaseFakeStateSchema,
+  type ReleaseFakeState,
+} from "./fake-publish-state.ts";
 
 const directory = process.env.RELEASE_GH_DIR ?? "";
 const statePath = `${directory}/state.json`;
 const faultsPath = `${directory}/faults.json`;
 
-const stateSchema = z.object({
-  compare: z.record(z.string(), z.string()),
-  tags: z.record(z.string(), z.string()),
-  releases: z.record(z.string(), z.string()),
-  releaseBodies: z.record(z.string(), z.string()).optional(),
-});
-
 async function readState(): Promise<ReleaseFakeState> {
   const file = Bun.file(statePath);
   return (await file.exists())
-    ? stateSchema.parse(await file.json())
+    ? releaseFakeStateSchema.parse(await file.json())
     : { compare: {}, tags: {}, releases: {} };
 }
 
@@ -39,7 +36,7 @@ async function takeFault(name: string): Promise<string | null> {
     return null;
   }
 
-  const faults: Record<string, ReleaseFakeFault | undefined> = await file.json();
+  const faults = z.record(z.string(), releaseFakeFaultSchema).parse(await file.json());
   const fault = faults[name];
   if (fault === undefined || fault.remaining <= 0) {
     return null;

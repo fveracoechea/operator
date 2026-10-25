@@ -12,6 +12,7 @@ export async function scanFiles(directory: string): Promise<string[]> {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       return [];
     }
+    // oxlint-disable-next-line unthrown/no-throw -- Only missing files are modeled here. Preserve unexpected I/O defects.
     throw error;
   }
 }

@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
 import { readVersion } from "./jsr-registry.ts";
+import { z } from "zod";
 
 const root = `${Bun.env.TMPDIR ?? "/tmp"}/operator-jsr-registry-${crypto.randomUUID()}`;
 afterEach(async () => {
@@ -33,9 +34,11 @@ test("version reads distinguish present, absent, refused, and uncertain registry
     expect(await readVersion(input)).toMatchObject({ status: "failed", httpStatus: 403 });
     status = 500;
     expect((await readVersion(input)).status).toBe("uncertain");
-    expect(urls).toEqual(Array(4).fill("/scopes/owner/packages/operator/versions/1.0.0"));
+    expect(urls).toEqual(
+      Array.from({ length: 4 }, () => "/scopes/owner/packages/operator/versions/1.0.0"),
+    );
   } finally {
-    server.stop(true);
+    await server.stop(true);
   }
 });
 
@@ -61,7 +64,10 @@ test("a missing dependency installer prevents publication and removes only its s
       stderr: "pipe",
     },
   );
-  const [code, output] = await Promise.all([child.exited, new Response(child.stdout).json()]);
+  const [code, output] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).json().then((value: unknown) => z.unknown().parse(value)),
+  ]);
   expect(code).toBe(0);
   expect(output).toMatchObject({ status: "failed", code: "dependencies_unavailable" });
   expect(await Bun.file(`${root}/artifact/file`).text()).toBe("unchanged");

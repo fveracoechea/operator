@@ -2,7 +2,8 @@
  * The fake `jsr` command. It records what it was asked to publish and from where, then answers
  * the way the test chose, through the state the fake registry reads its versions from.
  */
-import type { JsrClientCall, JsrFakeState } from "./fake-jsr.ts";
+import { jsrFakeStateSchema, type JsrClientCall } from "./fake-jsr.ts";
+import { z } from "zod";
 
 const directory = Bun.env.FAKE_JSR_DIR;
 if (directory === undefined) {
@@ -11,12 +12,14 @@ if (directory === undefined) {
 }
 
 const statePath = `${directory}/state.json`;
-const state: JsrFakeState = await Bun.file(statePath).json();
+const state = jsrFakeStateSchema.parse(await Bun.file(statePath).json());
 const cwd = process.cwd();
 const all = await Array.fromAsync(
   new Bun.Glob("**/*").scan({ cwd, dot: true, onlyFiles: true, followSymlinks: false }),
 );
-const version: string = (await Bun.file(`${cwd}/jsr.json`).json()).version;
+const version = z
+  .object({ version: z.string() })
+  .parse(await Bun.file(`${cwd}/jsr.json`).json()).version;
 
 const call: JsrClientCall = {
   args: Bun.argv.slice(2),
