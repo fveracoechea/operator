@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { ContentIdentity } from "../content-identity/main.ts";
 import { RELEASE_MANIFEST_PATH } from "./inventory.ts";
 
 /** What the running Operator release says about itself, wherever it was retrieved from. */
@@ -11,47 +10,8 @@ export type ReleaseManifest = {
   artifactIdentity: string | null;
 };
 
-export type LockData = {
-  name: string | null;
-  state: "present" | "missing";
-  identity: string | null;
-  path: string | null;
-};
-
-// Bun writes a text lock by default and a binary lock on request, so both count as lock data.
-const LOCK_NAMES = ["bun.lock", "bun.lockb"];
-
 // The running package sits beside this module, never beside the caller's working directory.
-export const packageRoot = new URL("../../", import.meta.url).pathname.replace(/\/$/, "");
-
-/**
- * The directory whose lock data governs this installation.
- * An installed package is reached through one `node_modules`, so the installation is the
- * directory that holds it. A package that was never installed governs itself. The search never
- * walks further up, because an ancestor lock belongs to another project's dependencies.
- */
-export function installationRoot(root = packageRoot): string {
-  const segments = root.split("/");
-  const nearest = segments.lastIndexOf("node_modules");
-  return nearest === -1 ? root : segments.slice(0, nearest).join("/");
-}
-
-export async function readLockData(root = packageRoot): Promise<LockData> {
-  const directory = installationRoot(root);
-  for (const name of LOCK_NAMES) {
-    const file = Bun.file(`${directory}/${name}`);
-    if (await file.exists()) {
-      return {
-        name,
-        state: "present",
-        identity: ContentIdentity.ofBytes(new Uint8Array(await file.arrayBuffer())),
-        path: `${directory}/${name}`,
-      };
-    }
-  }
-
-  return { name: null, state: "missing", identity: null, path: null };
-}
+const packageRoot = new URL("../../", import.meta.url).pathname.replace(/\/$/, "");
 
 const record = z.record(z.string(), z.unknown());
 

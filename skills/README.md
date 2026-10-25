@@ -1,7 +1,8 @@
 # Skills
 
 The skills Operator owns and hand-edits.
-A release ships these directories whole, and `operator install` copies them into a consumer project.
+A release ships these directories whole.
+Personal skill installation is planned under #234 and is not available in the removal slice.
 
 Every skill here has exactly one home, so no name in this directory is a second copy under `.agents/skills/`.
 This repository reaches them through symlinks in `.agents/skills/` and `.claude/skills/`.
@@ -15,9 +16,6 @@ See [ADR-0002](../docs/adr/0002-an-owned-skill-discloses-rules-through-task-spec
 - **[bun](./bun/SKILL.md)** - Use when writing or reviewing Bun code including runtime, bun test, Bun.serve, bundler, bun install, or scripts.
 - **[deep-modules](./deep-modules/SKILL.md)** - Use when adding or changing a feature in a TypeScript app: a screen and its data, where new or shared code goes, a sub-module, or a module test.
 - **[no-slop](./no-slop/SKILL.md)** - Use when writing or editing prose, documentation, code comments, commit messages, or issue and pull request text.
-- **[operative](./operative/SKILL.md)** - Use when dispatched for production or rework with a fixed Operator brief.
-- **[operator](./operator/SKILL.md)** - Use when preparing a project for Operator, running approved work through a crew, or resuming an Operator session that ended.
-- **[pr-review](./pr-review/SKILL.md)** - Use when reviewing a pull request by number or URL, or posting review comments on one.
 - **[react-best-practices](./react-best-practices/SKILL.md)** - Use when writing, reviewing or changing client side React: useEffect, useState, Suspense, derived state, re-render, a lazy chunk, or data waterfall.
 - **[react-composition](./react-composition/SKILL.md)** - Use when designing, changing or reviewing the API of a React component: boolean props, render props, several parts that share state, or sibling component that must read state.
 - **[tanstack-tools](./tanstack-tools/SKILL.md)** - Use when writing or changing code that uses a TanStack library: router, search params, loader, a query or mutation, form, a chart, or a server function.

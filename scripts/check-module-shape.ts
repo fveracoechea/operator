@@ -46,12 +46,10 @@ function moduleName(path: string): string | undefined {
 function isAllowedOutsideModules(path: string): boolean {
   return (
     path === "cli.ts" ||
+    path.startsWith("lib/") ||
     path.startsWith("scripts/") ||
     // Vendored lint rules are tooling, not Operator production modules.
     path.startsWith("tools/oxlint/anti-slop/") ||
-    // These Herdr plugin scripts run on their own, outside the Operator CLI module.
-    path === "herdr/wake.ts" ||
-    path === "herdr/worktree.ts" ||
     path.endsWith(".test.ts") ||
     path.endsWith(".config.ts")
   );
@@ -108,6 +106,11 @@ function checkImport(importer: string, specifier: ts.Expression): void {
     return;
   }
 
+  if (normalized(importer).startsWith("lib/") && !normalized(target).startsWith("lib/")) {
+    errors.push(`${importer}: lib must not import application or tooling code ${target}`);
+    return;
+  }
+
   const targetModule = moduleName(target);
   if (!targetModule || moduleName(importer) === targetModule) {
     return;
@@ -125,6 +128,14 @@ function checkImports(path: string, sourceFile: ts.SourceFile): void {
       checkImport(path, node.moduleSpecifier);
     }
 
+    if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) {
+      checkImport(path, node.argument.literal);
+    }
+
+    if (ts.isExternalModuleReference(node) && node.expression) {
+      checkImport(path, node.expression);
+    }
+
     if (
       ts.isCallExpression(node) &&
       (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
@@ -140,43 +151,6 @@ function checkImports(path: string, sourceFile: ts.SourceFile): void {
   visit(sourceFile);
 }
 
-/**
- * The integration-branch module is the only writer of a Git ref, so no other
- * production file may name the Git plumbing command that writes one. A test may, to set up a case.
- */
-function checkRefWriter(path: string, text: string): void {
-  if (
-    path.startsWith("modules/integration-branch/") ||
-    path.endsWith(".test.ts") ||
-    !path.startsWith("modules/")
-  ) {
-    return;
-  }
-  if (text.includes('"update-ref"')) {
-    errors.push(`${path}: writes a Git ref; only modules/integration-branch writes one`);
-  }
-}
-
-/**
- * The pull-request-stack module is the only module that pushes or writes a pull request,
- * so no other production file may run `git push` or name the pull request endpoint.
- * A `kind: "push"`, or its schema literal, names a recorded effect, not a call. A test may, to set up a case.
- */
-function checkPublisher(path: string, text: string): void {
-  if (
-    path.startsWith("modules/pull-request-stack/") ||
-    path.endsWith(".test.ts") ||
-    !path.startsWith("modules/")
-  ) {
-    return;
-  }
-  if (/(?<!kind:\s*|literal\()["'`]push["'`]/.test(text) || /(?<![\\\w])\/pulls\b/.test(text)) {
-    errors.push(
-      `${path}: pushes or writes a pull request; only modules/pull-request-stack publishes`,
-    );
-  }
-}
-
 const moduleDirectories = new Set<string>();
 for (const path of sourcePaths) {
   const normalizedPath = normalized(path);
@@ -190,7 +164,7 @@ for (const path of sourcePaths) {
   }
 
   if (!normalizedPath.startsWith("modules/") && !isAllowedOutsideModules(normalizedPath)) {
-    errors.push(`${path}: production TypeScript must live in modules/<feature>/`);
+    errors.push(`${path}: production TypeScript must live in modules/<feature>/ or lib/`);
   }
 
   const text = await Bun.file(resolve(root, path)).text();
@@ -202,8 +176,6 @@ for (const path of sourcePaths) {
     ts.ScriptKind.TS,
   );
   checkImports(path, sourceFile);
-  checkRefWriter(normalizedPath, text);
-  checkPublisher(normalizedPath, text);
 
   if (/^modules\/[^/]+\/main\.ts$/.test(normalizedPath)) {
     checkModuleInterface(path, sourceFile);

@@ -4,7 +4,7 @@ module.exports = {
     {
       name: "no-module-cycles",
       severity: "error",
-      from: { path: "^modules/" },
+      from: { path: "^(modules|lib)/" },
       to: { circular: true },
     },
   ],

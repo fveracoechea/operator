@@ -6,4 +6,4 @@ Write one with `bun run changeset`, and let the release workflow open the versio
 
 Merging the version pull request publishes that version.
 The release workflow publishes it from the merged commit after that commit passes its checks,
-as described in [the release topic of the Operator skill](../skills/operator/RELEASE.md).
+as described in [the retained release instructions](../README.md#release-tooling).

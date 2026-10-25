@@ -1,4 +1,5 @@
 import { OperatorRelease } from "../operator-release/main.ts";
+import { sha256 } from "../../lib/sha256.ts";
 import { readMerged, readRelease, readTag } from "./github-release.ts";
 import { DeliveryPath, type DeliveryPathName } from "./delivery.ts";
 import { type JournalRead, type PathRecord, readJournal } from "./journal.ts";
@@ -294,16 +295,14 @@ export async function computeReleasePlan(request: PlanRequest) {
   return {
     ...body,
     // The identity binds the delivery record to this exact version, commit, and published content.
-    releaseId: new Bun.CryptoHasher("sha256")
-      .update(
-        JSON.stringify({
-          repository,
-          version,
-          commit: request.commit,
-          artifactIdentity: inspection.artifactIdentity,
-        }),
-      )
-      .digest("hex"),
+    releaseId: sha256(
+      JSON.stringify({
+        repository,
+        version,
+        commit: request.commit,
+        artifactIdentity: inspection.artifactIdentity,
+      }),
+    ),
   };
 }
 

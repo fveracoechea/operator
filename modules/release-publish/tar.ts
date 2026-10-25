@@ -61,7 +61,7 @@ export type TarEntry = { path: string; bytes: Uint8Array<ArrayBuffer>; executabl
 /**
  * Writes one gzipped tar of the exact bytes given, with no link and no directory entry.
  * The timestamps are fixed, so the same artifact always packs to the same bytes and a retry
- * sends what the approval was granted against.
+ * sends the same artifact content.
  */
 export function packTarball(
   entries: TarEntry[],

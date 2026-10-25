@@ -15,6 +15,7 @@ type Violation = {
 const COPIED = [
   "cli.ts",
   "modules",
+  "lib",
   "scripts",
   "dependency-cruiser.config.cjs",
   "package.json",
@@ -145,31 +146,30 @@ const violations: Violation[] = [
     expectedDiagnostic: "production TypeScript must live",
   },
   {
-    name: "Git ref write outside the integration branch module",
+    name: "lib importing a module interface",
     files: {
-      [`modules/module-boundary-probe-ref-${probeIdentity}/main.ts`]:
-        'export const RefProbe = { run() { return ["update-ref", "refs/heads/x"]; } };\n',
+      [`lib/module-boundary-probe-${probeIdentity}.ts`]:
+        'export { OperatorCli } from "../modules/operator-cli/main.ts";\n',
     },
-    cleanupPath: `modules/module-boundary-probe-ref-${probeIdentity}`,
-    expectedDiagnostic: "only modules/integration-branch writes one",
+    cleanupPath: `lib/module-boundary-probe-${probeIdentity}.ts`,
+    expectedDiagnostic: "lib must not import application or tooling code",
   },
   {
-    name: "push outside the pull request stack module",
+    name: "lib importing private module code",
     files: {
-      [`modules/module-boundary-probe-push-${probeIdentity}/main.ts`]:
-        'export const PushProbe = { run() { return ["push", "--atomic", "origin"]; } };\n',
+      [`lib/module-boundary-probe-${probeIdentity}.ts`]:
+        'const run = import("../modules/operator-cli/run.ts");\n',
     },
-    cleanupPath: `modules/module-boundary-probe-push-${probeIdentity}`,
-    expectedDiagnostic: "only modules/pull-request-stack publishes",
+    cleanupPath: `lib/module-boundary-probe-${probeIdentity}.ts`,
+    expectedDiagnostic: "lib must not import application or tooling code",
   },
   {
-    name: "pull request write outside the pull request stack module",
+    name: "lib requiring application code",
     files: {
-      [`modules/module-boundary-probe-pulls-${probeIdentity}/main.ts`]:
-        "export const PullProbe = { run(repository: string) { return `repos/${repository}/pulls`; } };\n",
+      [`lib/module-boundary-probe-${probeIdentity}.ts`]: 'require("../cli.ts");\n',
     },
-    cleanupPath: `modules/module-boundary-probe-pulls-${probeIdentity}`,
-    expectedDiagnostic: "only modules/pull-request-stack publishes",
+    cleanupPath: `lib/module-boundary-probe-${probeIdentity}.ts`,
+    expectedDiagnostic: "lib must not import application or tooling code",
   },
   {
     name: "module dependency cycle",
@@ -181,11 +181,57 @@ const violations: Violation[] = [
     cleanupPath: `modules/module-boundary-probe-cycle-${probeIdentity}`,
     expectedDiagnostic: "no-module-cycles",
   },
+  {
+    name: "module importing another module's private code",
+    files: {
+      [`modules/module-boundary-probe-private-${probeIdentity}/main.ts`]:
+        'import "../operator-cli/run.ts";\nexport const PrivateProbe = { run() {} };\n',
+    },
+    cleanupPath: `modules/module-boundary-probe-private-${probeIdentity}`,
+    expectedDiagnostic: "imports private module file",
+  },
+  {
+    name: "lib dependency cycle",
+    files: {
+      [`lib/module-boundary-probe-cycle-${probeIdentity}/a.ts`]: 'import "./b.ts";\n',
+      [`lib/module-boundary-probe-cycle-${probeIdentity}/b.ts`]: 'import "./a.ts";\n',
+    },
+    cleanupPath: `lib/module-boundary-probe-cycle-${probeIdentity}`,
+    expectedDiagnostic: "no-module-cycles",
+  },
+  {
+    name: "lib importing an application type",
+    files: {
+      [`lib/module-boundary-probe-${probeIdentity}.ts`]:
+        'export type App = typeof import("../modules/operator-cli/main.ts");\n',
+    },
+    cleanupPath: `lib/module-boundary-probe-${probeIdentity}.ts`,
+    expectedDiagnostic: "lib must not import application or tooling code",
+  },
+  {
+    name: "lib using an import-equals application reference",
+    files: {
+      [`lib/module-boundary-probe-${probeIdentity}.ts`]:
+        'import App = require("../modules/operator-cli/main.ts");\n',
+    },
+    cleanupPath: `lib/module-boundary-probe-${probeIdentity}.ts`,
+    expectedDiagnostic: "lib must not import application or tooling code",
+  },
 ];
 
 const copyRoot = await makeCopy();
 try {
   await requireCleanGraph(copyRoot, "The clean module graph did not pass");
+  const valid = `lib/module-boundary-probe-valid-${probeIdentity}`;
+  await Bun.write(join(copyRoot, `${valid}/value.ts`), "export function value() { return 1; }\n", {
+    createPath: true,
+  });
+  await Bun.write(
+    join(copyRoot, `${valid}/consumer.ts`),
+    'import { value } from "./value.ts";\nexport function twice() { return value() * 2; }\n',
+  );
+  await requireCleanGraph(copyRoot, "Focused lib imports and named exports did not pass");
+  await rm(join(copyRoot, valid), { recursive: true });
   for (const violation of violations) {
     await proveViolation(copyRoot, violation);
   }

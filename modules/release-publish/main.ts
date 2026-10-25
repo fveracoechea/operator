@@ -1,4 +1,4 @@
-import { ContentIdentity } from "../content-identity/main.ts";
+import { sha256 } from "../../lib/sha256.ts";
 import { OperatorRelease } from "../operator-release/main.ts";
 import { createRelease, createTag } from "./github-release.ts";
 import { DeliveryPath, type DeliveryPathEvent } from "./delivery.ts";
@@ -66,7 +66,7 @@ export const ReleasePublish = {
     const entries = await scanArtifact(request.artifactRoot, request.prefix ?? "");
     const bytes = packTarball(entries);
 
-    return { bytes, entries: entries.length, identity: ContentIdentity.ofBytes(bytes) };
+    return { bytes, entries: entries.length, identity: sha256(bytes) };
   },
 
   /**

@@ -1,7 +1,5 @@
 export const RELEASE_MANIFEST_PATH = "release.json";
 
-export type ArtifactFile = { path: string; bytes: Uint8Array };
-
 /** Lists every file under a directory, treating a missing directory as empty. */
 export async function scanFiles(directory: string): Promise<string[]> {
   try {
@@ -20,7 +18,7 @@ export async function scanFiles(directory: string): Promise<string[]> {
 
 /**
  * Identifies an artifact by the exact bytes it holds under the exact names it publishes them as.
- * Changed content is a different release, so this identity is what an approval is bound to.
+ * Changed content is a different release, including on a delivery retry.
  */
 export async function identifyArtifact(artifactRoot: string): Promise<string> {
   const hasher = new Bun.CryptoHasher("sha256");
@@ -43,12 +41,7 @@ export const REQUIRED_PARTS = [
   "package.json",
   "jsr.json",
   "release.json",
-  "config.schema.json",
-  "gate.schema.json",
   "modules/operator-cli/main.js",
   "modules/operator-cli/main.d.ts",
-  "skills/operator/SKILL.md",
-  "herdr/herdr-plugin.toml",
-  "herdr/wake.ts",
-  "herdr/worktree.ts",
+  "skills/deep-modules/SKILL.md",
 ];

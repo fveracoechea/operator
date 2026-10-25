@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test as bunTest } from "bun:test";
-// Bun has no realpath, recursive directory removal, or symlink API.
-import { realpath, rm, symlink } from "node:fs/promises";
+// Bun has no recursive directory removal or symlink API.
+import { rm, symlink } from "node:fs/promises";
 import { OperatorRelease } from "./main.ts";
 
 // Most of these tests build a real artifact, which compiles the whole release. That takes far
@@ -32,28 +32,8 @@ async function buildArtifact() {
   return { artifactRoot, result };
 }
 
-describe("the running release", () => {
-  test("identifies itself from the checkout it runs in", async () => {
-    const release = await OperatorRelease.identify();
-
-    expect(release.version).toMatch(/^\d+\.\d+\.\d+/);
-    expect(release.artifact).toBe("checkout");
-    expect(release.identity).toMatch(/^[0-9a-f]{64}$/);
-    expect(release.skillsIdentity).toMatch(/^[0-9a-f]{64}$/);
-    expect(release.supportedBun.length).toBeGreaterThan(0);
-  });
-
-  test("reads the lock data that governs its own installation", async () => {
-    const release = await OperatorRelease.identify();
-
-    expect(release.lock.state).toBe("present");
-    expect(release.lock.name).toBe("bun.lock");
-    expect(release.lock.identity).toMatch(/^[0-9a-f]{64}$/);
-  });
-});
-
 describe("the release artifact", () => {
-  test("ships runnable ESM, declarations, documentation, skills, and the generated schema", async () => {
+  test("ships runnable ESM, declarations, documentation, and complete retained skills", async () => {
     const { artifactRoot, result } = await buildArtifact();
 
     expect(result.status).toBe("built");
@@ -61,26 +41,14 @@ describe("the release artifact", () => {
     expect(await Bun.file(`${artifactRoot}/cli.d.ts`).exists()).toBe(true);
     expect(await Bun.file(`${artifactRoot}/modules/operator-cli/main.js`).exists()).toBe(true);
     expect(await Bun.file(`${artifactRoot}/modules/operator-cli/main.d.ts`).exists()).toBe(true);
-    expect(await Bun.file(`${artifactRoot}/skills/operator/SKILL.md`).exists()).toBe(true);
-    expect(await Bun.file(`${artifactRoot}/herdr/herdr-plugin.toml`).exists()).toBe(true);
-    // A fetched release has its dependencies installed beside the CLI.
-    await symlink(`${sourceRoot}/node_modules`, `${artifactRoot}/node_modules`);
-    const discovery = Bun.spawn(
-      ["bun", `${artifactRoot}/cli.js`, "wake", "plugin-path", "--json"],
-      { cwd: artifactRoot, stdout: "pipe", stderr: "pipe" },
+    expect(await Bun.file(`${artifactRoot}/skills/deep-modules/SKILL.md`).exists()).toBe(true);
+    expect(await Bun.file(`${artifactRoot}/skills/deep-modules/module-shape.md`).exists()).toBe(
+      true,
     );
-    const [discoveryOutput, discoveryCode] = await Promise.all([
-      new Response(discovery.stdout).json(),
-      discovery.exited,
-    ]);
-    expect(discoveryCode).toBe(0);
-    // Bun resolves the CLI's own path through symlinks, such as the macOS temporary directory.
-    expect(discoveryOutput.data.path).toBe(`${await realpath(artifactRoot)}/herdr`);
-    expect(await Bun.file(`${artifactRoot}/config.schema.json`).exists()).toBe(true);
-    // The release publishes the gate schema that a project names as its `$schema`.
-    expect(await Bun.file(`${artifactRoot}/gate.schema.json`).json()).toMatchObject({
-      required: ["$schema", "commands"],
-    });
+    expect(await Bun.file(`${artifactRoot}/skills/operator/SKILL.md`).exists()).toBe(false);
+    expect(await Bun.file(`${artifactRoot}/herdr/herdr-plugin.toml`).exists()).toBe(false);
+    expect(await Bun.file(`${artifactRoot}/config.schema.json`).exists()).toBe(false);
+    expect(await Bun.file(`${artifactRoot}/gate.schema.json`).exists()).toBe(false);
     expect(await Bun.file(`${artifactRoot}/jsr.json`).exists()).toBe(true);
     expect(await Bun.file(`${artifactRoot}/README.md`).text()).toBe(
       await Bun.file(`${sourceRoot}/docs/jsr/README.md`).text(),
@@ -103,13 +71,7 @@ describe("the release artifact", () => {
       new Bun.Glob("**/*").scan({ cwd: artifactRoot, dot: true }),
     );
 
-    expect(
-      paths.filter(
-        (path) => path.endsWith(".ts") && !path.endsWith(".d.ts") && !path.startsWith("herdr/"),
-      ),
-    ).toEqual([]);
-    expect(paths).toContain("herdr/wake.ts");
-    expect(paths).toContain("herdr/worktree.ts");
+    expect(paths.filter((path) => path.endsWith(".ts") && !path.endsWith(".d.ts"))).toEqual([]);
     expect(paths.filter((path) => path.includes(".test."))).toEqual([]);
   });
 
@@ -117,9 +79,7 @@ describe("the release artifact", () => {
     const { artifactRoot } = await buildArtifact();
 
     const js = await Bun.file(`${artifactRoot}/cli.js`).text();
-    const declaration = await Bun.file(
-      `${artifactRoot}/modules/project-readiness/main.d.ts`,
-    ).text();
+    const declaration = await Bun.file(`${artifactRoot}/modules/operator-release/main.d.ts`).text();
 
     expect(js).toContain('from "./modules/operator-cli/main.js"');
     expect(js).not.toContain('.ts"');
@@ -201,7 +161,7 @@ describe("the release artifact", () => {
     const second = await buildArtifact();
     expect(second.result.artifactIdentity).toBe(first.result.artifactIdentity);
 
-    await Bun.write(`${second.artifactRoot}/skills/operator/SKILL.md`, "changed\n");
+    await Bun.write(`${second.artifactRoot}/skills/deep-modules/SKILL.md`, "changed\n");
     const changed = await OperatorRelease.inspect({ artifactRoot: second.artifactRoot });
 
     expect(changed.artifactIdentity).not.toBe(first.result.artifactIdentity);
@@ -209,12 +169,12 @@ describe("the release artifact", () => {
 
   test("reports an artifact that is missing a required part", async () => {
     const { artifactRoot } = await buildArtifact();
-    await rm(`${artifactRoot}/config.schema.json`);
+    await rm(`${artifactRoot}/skills/deep-modules/SKILL.md`);
 
     const inspection = await OperatorRelease.inspect({ artifactRoot });
 
     expect(inspection.status).toBe("incomplete");
-    expect(inspection.missing).toContain("config.schema.json");
+    expect(inspection.missing).toContain("skills/deep-modules/SKILL.md");
   });
 
   test("reads the version and the commit the artifact's release record names", async () => {
@@ -286,67 +246,6 @@ describe("the release artifact", () => {
     expect(JSON.parse(stdout).data.operatorVersion).toBe(
       (await Bun.file(`${artifactRoot}/release.json`).json()).version,
     );
-  });
-});
-
-describe("an update run from a built release", () => {
-  /** Runs one built CLI in a scratch project, the way a retrieved release is run. */
-  async function runBuilt(artifactRoot: string, args: string[]) {
-    const project = outputRoot();
-    await Bun.$`mkdir -p ${project}`.quiet();
-    const child = Bun.spawn(
-      [
-        "bun",
-        "--no-install",
-        "-e",
-        `const { main } = await import(${JSON.stringify(`${artifactRoot}/cli.js`)}); await main(Bun.argv.slice(1));`,
-        "--",
-        ...args,
-      ],
-      { cwd: project, stderr: "pipe", stdout: "pipe" },
-    );
-    const [exitCode, stdout] = await Promise.all([child.exited, new Response(child.stdout).text()]);
-    return { exitCode, json: JSON.parse(stdout) };
-  }
-
-  test("refuses to record a commit the running release was not built from", async () => {
-    const { artifactRoot } = await buildArtifact();
-    await symlink(`${sourceRoot}/node_modules`, `${artifactRoot}/node_modules`);
-    // A retrieved installation keeps its own lock data, so the fixture keeps it too.
-    await Bun.write(`${artifactRoot}/bun.lock`, "{}\n");
-
-    const result = await runBuilt(artifactRoot, [
-      "update",
-      "plan",
-      "--claude",
-      "--commit",
-      "a".repeat(40),
-      "--json",
-    ]);
-
-    expect(result.json.reason).toBe("update_blocked");
-    expect(result.json.blockers.map((one: { reason: string }) => one.reason)).toContain(
-      "release_commit_mismatch",
-    );
-  });
-
-  test("records the commit the running release was built from", async () => {
-    const { artifactRoot } = await buildArtifact();
-    await symlink(`${sourceRoot}/node_modules`, `${artifactRoot}/node_modules`);
-    // A retrieved installation keeps its own lock data, so the fixture keeps it too.
-    await Bun.write(`${artifactRoot}/bun.lock`, "{}\n");
-
-    const result = await runBuilt(artifactRoot, [
-      "update",
-      "plan",
-      "--claude",
-      "--commit",
-      commit,
-      "--json",
-    ]);
-
-    expect(result.json.reason).toBe("update_plan_ready");
-    expect(result.json.data.to.commit).toBe(commit);
   });
 });
 

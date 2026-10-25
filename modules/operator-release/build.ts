@@ -2,8 +2,6 @@
 import { mkdir, rm } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 import { z } from "zod";
-import { OperatorConfig } from "../operator-config/main.ts";
-import { ProjectGate } from "../project-gate/main.ts";
 import { identifyArtifact, RELEASE_MANIFEST_PATH, scanFiles } from "./inventory.ts";
 import { rewriteSpecifiers } from "./specifiers.ts";
 
@@ -29,7 +27,6 @@ function documentEntryPoint(source: string, compiled: string): string {
   return `${moduleDoc}\n${compiled.replace("export async function main(", `${mainDoc}\nexport async function main(`)}`;
 }
 const SKILLS_DIRECTORY = "skills";
-const HERDR_DIRECTORY = "herdr";
 
 /** The fields of the source manifest a release carries forward into what it publishes. */
 const sourceManifestSchema = z.object({
@@ -179,8 +176,7 @@ function jsrManifest(source: SourceManifest): string {
 
 /**
  * Writes one release artifact from one checkout.
- * It holds runnable ESM, declarations, owned skills, the Herdr plugin, and the generated
- * configuration and project gate schemas, so retrieval never runs a build of its own.
+ * It holds runnable ESM, declarations, and complete owned skills.
  */
 export async function buildArtifact(request: {
   sourceRoot: string;
@@ -212,9 +208,8 @@ export async function buildArtifact(request: {
     return { status: "declaration-failed" as const, detail: declarations.detail };
   }
 
-  for (const directory of [SKILLS_DIRECTORY, HERDR_DIRECTORY]) {
+  for (const directory of [SKILLS_DIRECTORY]) {
     for (const path of await scanFiles(`${sourceRoot}/${directory}`)) {
-      // A test beside a plugin script checks the source and never ships.
       if (path.endsWith(".test.ts")) continue;
       await Bun.write(
         `${artifactRoot}/${directory}/${path}`,
@@ -224,8 +219,6 @@ export async function buildArtifact(request: {
     }
   }
 
-  await Bun.write(`${artifactRoot}/config.schema.json`, OperatorConfig.jsonSchemaText());
-  await Bun.write(`${artifactRoot}/gate.schema.json`, ProjectGate.jsonSchemaText());
   await Bun.write(`${artifactRoot}/README.md`, Bun.file(`${sourceRoot}/${README_SOURCE}`));
   await Bun.write(`${artifactRoot}/package.json`, packageManifest(source));
   await Bun.write(`${artifactRoot}/jsr.json`, jsrManifest(source));

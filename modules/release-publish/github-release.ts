@@ -1,5 +1,5 @@
 import { GithubApi } from "../github-api/main.ts";
-import { ToolInvocation } from "../tool-invocation/main.ts";
+import { textField } from "../../lib/text-field.ts";
 
 const READ_TIMEOUT_MS = 30_000;
 const WRITE_TIMEOUT_MS = 60_000;
@@ -35,7 +35,7 @@ export async function readMerged(request: {
     return { status: "unknown", detail: outcome.detail };
   }
 
-  const comparison = ToolInvocation.text(outcome.value.body, "status") ?? "unknown";
+  const comparison = textField(outcome.value.body, "status") ?? "unknown";
   // `identical` and `behind` both mean the commit is already an ancestor of the base branch.
   return comparison === "identical" || comparison === "behind"
     ? { status: "merged", comparison }
@@ -55,8 +55,10 @@ export async function readTag(request: { repository: string; tag: string }): Pro
     return { status: "unknown", detail: outcome.detail };
   }
 
-  const object = ToolInvocation.record(outcome.value.body, "object");
-  const sha = ToolInvocation.text(object, "sha");
+  const body = outcome.value.body;
+  const object: unknown =
+    body !== null && typeof body === "object" ? Reflect.get(body, "object") : undefined;
+  const sha = textField(object, "sha");
   return sha === null
     ? { status: "unknown", detail: "The tag named no commit." }
     : { status: "present", sha };
@@ -97,7 +99,7 @@ export async function readRelease(request: {
     return { status: "unknown", detail: outcome.detail };
   }
 
-  return { status: "present", url: ToolInvocation.text(outcome.value.body, "html_url") ?? "" };
+  return { status: "present", url: textField(outcome.value.body, "html_url") ?? "" };
 }
 
 /** Creates the release that carries the source delivery path of one version. */
@@ -122,7 +124,7 @@ export async function createRelease(request: {
   return outcome.status === "succeeded"
     ? {
         status: "succeeded",
-        value: { url: ToolInvocation.text(outcome.value.body, "html_url") ?? "" },
+        value: { url: textField(outcome.value.body, "html_url") ?? "" },
       }
     : outcome;
 }

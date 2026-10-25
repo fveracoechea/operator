@@ -14,23 +14,23 @@ Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/do
 
 ### Production modules
 
-Production code lives in flat `modules/<feature-or-capability>/` directories.
+Features and capabilities live in flat root `modules/<feature-or-capability>/` directories.
 Each module exports one named PascalCase interface object from `main.ts`.
 Import another module only through its `main.ts`; implementation files are private.
 Run `bun run lint:modules` to enforce module shape, boundaries, and dependency cycles.
+Small reusable functions that own no feature or capability live in focused root `lib/` files with beside-tests.
+Import their named exports directly, without a barrel or interface object.
+Lib code imports no application modules or tooling.
+Keep single-use details with their module.
 
 ### Bundled skills
 
-`skills/` holds the Operator-owned skills that ship with a release and that `operator install` copies into a project.
+`skills/` holds the Operator-owned skills that ship with a release.
 `.agents/skills/` holds development skills and links to bundled skills; `.claude/skills/` links to the same homes. Only bundled skills are installed elsewhere.
 
-<!-- operator:instructions -->
-## Operator
+## Breaking workflow replacement
 
-This project is coordinated with Operator.
-Load the `operator` skill before you delegate work, change the crew configuration, or run a setup operation.
-Read only these Operator files directly: your dispatch brief, its fixed artifacts, and each file a CLI result names.
-Read and change all other Operator configuration and state through Operator CLI commands, such as `config show` and `config plan`.
-You may write JSON requests for the `--input` of a command.
-Operator configuration is local to this checkout and is not committed.
-<!-- /operator:instructions -->
+The legacy CLI workflows are removed under #235 before their device-level replacements land.
+Only help and version reporting are available in this slice.
+Read `docs/implementation/235-legacy-removal.md` for the inventory and verification.
+Do not inspect, migrate, repair, or remove real legacy Operator state.

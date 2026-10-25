@@ -1,7 +1,5 @@
 import { z } from "zod";
 
-export const JOURNAL_NAME = "publication.json";
-
 const pathRecord = z.strictObject({
   state: z.enum(["published", "failed", "uncertain"]),
   detail: z.string(),

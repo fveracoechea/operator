@@ -150,7 +150,7 @@ describe("the release plan", () => {
     const fake = await jsrFake();
     const before = await ReleasePublish.plan(request(fake));
 
-    await Bun.write(`${artifactRoot}/skills/operator/SKILL.md`, "changed\n");
+    await Bun.write(`${artifactRoot}/skills/deep-modules/SKILL.md`, "changed\n");
     const after = await ReleasePublish.plan(request(fake));
 
     expect(after.releaseId).not.toBe(before.releaseId);
@@ -336,7 +336,7 @@ describe("the publication", () => {
     const fake = await jsrFake({ client: "refuses" });
     await ReleasePublish.publish(request(fake));
 
-    await Bun.write(`${artifactRoot}/skills/operator/SKILL.md`, "changed\n");
+    await Bun.write(`${artifactRoot}/skills/deep-modules/SKILL.md`, "changed\n");
     const retry = await ReleasePublish.publish(request(await jsrFake()));
 
     expect(retry.status).toBe("blocked");
@@ -393,7 +393,7 @@ describe("the published artifact", () => {
     expect(await Bun.file(`${extracted}/cli.js`).text()).toBe(
       await Bun.file(`${artifactRoot}/cli.js`).text(),
     );
-    expect(await Bun.file(`${extracted}/skills/operator/SKILL.md`).exists()).toBe(true);
+    expect(await Bun.file(`${extracted}/skills/deep-modules/SKILL.md`).exists()).toBe(true);
     expect(await Bun.file(`${extracted}/jsr.json`).exists()).toBe(true);
   });
 
@@ -553,8 +553,8 @@ describe("a path the record already names as delivered", () => {
 
 describe("the tarball order", () => {
   test("follows the byte order the artifact identity uses, not the locale", async () => {
-    await Bun.write(`${artifactRoot}/skills/operator/Z-upper.md`, "upper\n");
-    await Bun.write(`${artifactRoot}/skills/operator/a-lower.md`, "lower\n");
+    await Bun.write(`${artifactRoot}/skills/deep-modules/Z-upper.md`, "upper\n");
+    await Bun.write(`${artifactRoot}/skills/deep-modules/a-lower.md`, "lower\n");
     const packed = await ReleasePublish.pack({ artifactRoot });
 
     const listed = `${artifactRoot}-listing`;
@@ -563,11 +563,11 @@ describe("the tarball order", () => {
     await Bun.write(`${listed}/artifact.tgz`, packed.bytes);
     const names = (await Bun.$`tar -tzf ${listed}/artifact.tgz`.text())
       .split("\n")
-      .filter((name) => name.startsWith("skills/operator/"));
+      .filter((name) => name.startsWith("skills/deep-modules/"));
 
     // `toSorted()` compares code points, so the upper-case name precedes the lower-case one.
-    expect(names.indexOf("skills/operator/Z-upper.md")).toBeLessThan(
-      names.indexOf("skills/operator/a-lower.md"),
+    expect(names.indexOf("skills/deep-modules/Z-upper.md")).toBeLessThan(
+      names.indexOf("skills/deep-modules/a-lower.md"),
     );
   });
 });

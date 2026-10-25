@@ -1,4 +1,5 @@
 import { ToolInvocation } from "../tool-invocation/main.ts";
+import { textField } from "../../lib/text-field.ts";
 
 export type GithubFailure = {
   status: "failed";
@@ -39,7 +40,7 @@ function splitResponse(stdout: string): { httpStatus: number; bodyText: string }
 }
 
 function messageOf(body: unknown, fallback: string): string {
-  const message = ToolInvocation.text(body, "message");
+  const message = textField(body, "message");
   return message === null || message.length === 0 ? fallback : message;
 }
 
