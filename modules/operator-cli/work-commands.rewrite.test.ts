@@ -177,7 +177,7 @@ describe("operator work accept rewrites a corrected landed commit in place", () 
     expect(landing.to).toBe(after[2]);
     expect(after).toHaveLength(3);
     expect(after[0]).toBe(landing.landed);
-    // The rebuilt range was gated in order, one run at the key of each commit (ADR 0021).
+    // The rebuilt range was gated in order, one run at the key of each commit.
     expect(gated).toEqual(await Promise.all(after.map((one) => treeOf(workspace, one))));
     expect(await patchOf(workspace, after[0] ?? "")).toContain("+Every record.");
     // Each later commit landed again with a new identity and an equal patch.

@@ -1,17 +1,17 @@
-# ADR-0023: Each lifecycle is an explicit state machine
+# ADR-0003: Each lifecycle is an explicit state machine
 
 ## Status
 
-Accepted - 2026-10-03.
-Decided in #126.
-Amended 2026-10-24: Preserve declarative and deterministic CLI control while limiting machines to the workflows retained in #231, #228, and #233.
+Accepted - 2026-10-24.
+Decided in #126, #199, #228, #231, and #233.
+Planned, not yet implemented.
 
 ## Context
 
 Operator needed a declarative and deterministic process that guided agents and subagents through applicable next actions.
 Workflow guards had spread across commands, and commands repeated rules about the same records.
 Agents also performed mechanical steps by hand when the CLI lacked the corresponding operation.
-The reduced workflow still needed predictable transitions without retaining machines for removed functions.
+Work sources, PR and report assignments, and review requests needed predictable transitions.
 
 ## Decision
 
@@ -19,15 +19,14 @@ The CLI owns Operator's workflow state machines, evaluates their guards, perform
 The same state, event, and observed facts give the same transition, effects, or refusal.
 Agents perform reasoning and assigned work, not a second implementation of the workflow protocol.
 
-Each retained lifecycle has a closed set of states and events, an ordered transition table, and a pure decision over gathered facts.
+Each lifecycle has a closed set of states and events, an ordered transition table, and a pure decision over gathered facts.
 The decision reads no database, network, Git repository, or clock.
 The operation gathers facts and executes effects outside that decision.
 The module that owns the record owns its transitions, and next actions read those states rather than reconstruct them independently.
 
-The retained machines describe work sources, assignments with PR or report completion, review requests and rounds, and their required cleanup or transport effects.
+The machines describe work sources, assignments with PR or report completion, review requests and rounds, and their required cleanup or transport effects.
 Pure computations need no machine.
 Host activity remains distinct from report submission, report acceptance, and PR merge.
-Removed ownership, question, approval, tracker, gate, integration, and planning-record machinery does not return merely to fit this shape.
 
 ## Consequences
 
@@ -42,4 +41,4 @@ Removed ownership, question, approval, tracker, gate, integration, and planning-
 - One generic engine for every machine was rejected because the machines have different facts and effects and would need callbacks for each workflow.
 - Retaining unused machines was rejected because their maintenance cost remains even when no session needs them.
 
-Related: ADR-0011, one coordination answer reads these states; ADR-0026, state storage and transaction boundaries; ADR-0030, PR assignment lifecycle; ADR-0032, source lifecycle; ADR-0033, report assignment lifecycle; ADR-0035, review-request lifecycle.
+Related: ADR-0001, one coordination answer reads these states; ADR-0006, state storage and transaction boundaries; ADR-0010, PR assignment lifecycle; ADR-0012, source lifecycle; ADR-0013, report assignment lifecycle; ADR-0015, review-request lifecycle.

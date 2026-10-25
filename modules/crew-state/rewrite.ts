@@ -74,7 +74,7 @@ function dependenciesOf(db: CrewReader, assignmentId: string): Set<string> {
 
 /**
  * The trees of one source whose key failed or is flaky under the gate fixed on it. A later
- * commit that lands again at one of them fails the third test of a rewrite (ADR 0021).
+ * commit that lands again at one of them fails the third test of a rewrite.
  */
 export function refusedTrees(db: CrewReader, row: IntegrationBranchRow): string[] {
   const trees = new Set(
@@ -319,7 +319,7 @@ function plannedRewriteOf(request: {
 }
 
 /**
- * Plans one rebuild of the integration branch in the same order (ADR 0020). A correction takes
+ * Plans one rebuild of the integration branch in the same order. A correction takes
  * the place of its landed commit, and a take-out removes every withdrawn commit with nothing in
  * its place. The later landings, the commits each one needs, and the trees the gate refused are
  * read from the crew state, and Git builds the rebuilt range. A refusal moves nothing and
@@ -400,7 +400,7 @@ async function planRebuild(request: {
 }
 
 /**
- * Plans the rewrite that puts one corrected result in the place of its landed commit (ADR 0020).
+ * Plans the rewrite that puts one corrected result in the place of its landed commit.
  * A refusal moves nothing and records nothing.
  */
 export function planRewrite(request: {
@@ -419,7 +419,7 @@ export function planRewrite(request: {
 
 /**
  * Plans the take-out of every withdrawn commit of one source that the branch still holds: the
- * rewrite of ADR 0020 with no replacement. The lowest withdrawn commit is the replaced one, and
+ * rewrite with no replacement. The lowest withdrawn commit is the replaced one, and
  * each other withdrawn commit leaves with it. A refusal moves nothing and records nothing.
  */
 export function planTakeOutRebuild(request: {
@@ -449,8 +449,8 @@ type RangePlace = GatePlace & { parent: string; correction: boolean };
 export type RangeGate = GateStep<RangePlace>;
 
 /**
- * Gates a rebuilt range in order and stops at the first commit whose key has not passed (ADR
- * 0021). A later commit whose key failed was taken out by the plan already, so only the
+ * Gates a rebuilt range in order and stops at the first commit whose key has not passed.
+ * A later commit whose key failed was taken out by the plan already, so only the
  * correction itself can be failed or flaky here.
  */
 export function rangeGateOf(db: CrewReader, rewrite: PlannedRewrite): RangeGate {
@@ -491,7 +491,7 @@ export function rewriteGate(
  * records the correction, after the branch move wrote the next state of each landing it ended.
  * Each later landing that landed again names its new commit, and each one taken out returns its
  * assignment to awaiting review, so its acceptance is taken again as an ordinary landing on the
- * new tip (ADR 0020).
+ * new tip.
  */
 export function applyRewrite(db: CrewWriter, request: { rewrite: RewriteRecord; now: string }) {
   relandAll(db, request.rewrite.relanded);
@@ -510,7 +510,7 @@ export function relandAll(db: CrewWriter, relanded: RewriteRecord["relanded"]): 
 
 /**
  * The accepted assignment of each landing that a rebuild took out returns to awaiting review, so
- * its acceptance is taken again as an ordinary landing on the new tip (ADR 0020). The branch move
+ * its acceptance is taken again as an ordinary landing on the new tip. The branch move
  * already ended each such landing.
  */
 export function returnTakenOut(

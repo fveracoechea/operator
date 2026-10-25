@@ -57,7 +57,7 @@ export type PlannedWithdrawal = {
   // The commit that carries its accepted code result, or null when none landed.
   landing: string | null;
   // The landed commits above that commit, oldest first, which the take-out rebuilds. They are
-  // read from the crew state with no Git read (ADR 0020).
+  // read from the crew state with no Git read.
   rebuilds: string[];
 };
 

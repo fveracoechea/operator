@@ -8,7 +8,7 @@ import { type RoleCopies, storedCopy } from "./fixed-result.ts";
 import { PUBLISHED_TEXT_LINES, PUBLISHED_TEXT_SHAPE, REVIEW_INPUT_DIR } from "./review-brief.ts";
 
 /**
- * What a cut point is (ADR 0015). The branch reviewer read the whole head, so it proposes each
+ * What a cut point is. The branch reviewer read the whole head, so it proposes each
  * cut with its reason, and the person approves the cuts in the publish approval (D1).
  */
 const CUT_LINES = [
@@ -49,7 +49,7 @@ export type EarlierReview = {
 
 /**
  * The brief of one branch review. It reads the integration branch of a source as a whole, from
- * its base to one head, so it finds what no result review could see (ADR 0017).
+ * its base to one head, so it finds what no result review could see.
  */
 export type BranchReviewBrief = {
   reviewId: string;

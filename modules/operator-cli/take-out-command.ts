@@ -36,8 +36,8 @@ const takeOutRefusals = {
 } satisfies Refusals<TakeOutResult>;
 
 /**
- * Takes out every withdrawn commit that the integration branch of one source still holds (ADR
- * 0020). The Operator only runs it: the CLI builds the rebuilt branch from reviewed patches and
+ * Takes out every withdrawn commit that the integration branch of one source still holds.
+ * The Operator only runs it: the CLI builds the rebuilt branch from reviewed patches and
  * moves it once, bound to the plan revision that recorded the withdrawals (D5). The report gives
  * a summary, and the commits travel in the JSON data.
  */

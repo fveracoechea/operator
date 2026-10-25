@@ -81,7 +81,7 @@ export function workspaces() {
         bin: `${root}/bin`,
       };
       // Request files go in their own folder, because a file written next to an Operative
-      // worktree during an attempt is an outside change (ADR 0018).
+      // worktree during an attempt is an outside change.
       await Bun.$`mkdir -p ${workspace.repo} ${workspace.herdr} ${workspace.github} ${workspace.bin} ${root}/inputs`.quiet();
       await Bun.$`cp ${fakeHerdrPath} ${workspace.bin}/herdr`.quiet();
       await Bun.$`chmod +x ${workspace.bin}/herdr`.quiet();
@@ -460,7 +460,7 @@ export async function pausedGit(workspace: Workspace) {
     `${workspace.bin}/git`,
     [
       "#!/bin/sh",
-      // The guard of ADR 0018 and `-C <repo>` come before the subcommand.
+      // The Git safety guard and `-C <repo>` come before the subcommand.
       'if [ -n "$GIT_PAUSE_DIR" ] && [ "$6" = "patch-id" ]; then',
       '  : > "$GIT_PAUSE_DIR/reached"',
       '  while [ ! -f "$GIT_PAUSE_DIR/release" ]; do sleep 0.05; done',

@@ -30,7 +30,7 @@ export type LandingPlan = Omit<
 
 /**
  * One planned move of the branch of one source, with the tree of its last gated commit. The tree
- * keys the candidate gate of a plain landing (ADR 0021). A move that gates nothing, a take-out
+ * keys the candidate gate of a plain landing. A move that gates nothing, a take-out
  * with no later commit, has an empty tree.
  */
 export type PlannedMove = { row: IntegrationBranchRow; plan: LandingPlan; tree: string };
@@ -58,7 +58,7 @@ export function landingIntentInput(request: {
 }
 
 /**
- * Plans the landing of one reviewed commit on the recorded tip of its source (ADR 0020). It
+ * Plans the landing of one reviewed commit on the recorded tip of its source. It
  * writes only Git objects, so a refusal lands nothing and records nothing.
  */
 export async function planLanding(request: {
@@ -96,7 +96,7 @@ export function candidateKey(landing: PlannedMove): GateKey {
 }
 
 /**
- * The gate of acceptance on the planned commit (ADR 0021). A landing that lands nothing gates
+ * The gate of acceptance on the planned commit. A landing that lands nothing gates
  * nothing, because the branch keeps a tip that already passed at its own landing.
  */
 export function candidateGate(
@@ -157,7 +157,7 @@ export function planOfLanding(landing: LandingRow): LandingPlan {
 }
 
 /**
- * Records the intent of one move before the branch moves (ADR 0005). The intent names the tip
+ * Records the intent of one move before the branch moves. The intent names the tip
  * the branch moves from and the commit it moves to, so recovery reads the branch once.
  */
 export function insertLandingIntent(

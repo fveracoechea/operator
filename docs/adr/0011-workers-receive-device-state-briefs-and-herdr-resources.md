@@ -1,16 +1,15 @@
-# ADR-0031: Workers receive device-state briefs and Herdr resources
+# ADR-0011: Workers receive device-state briefs and Herdr resources
 
 ## Status
 
 Accepted - 2026-10-24.
-Decided in #210, amended by #228 and #233.
-Supersedes ADR-0005.
+Decided in #210, #228, and #233.
 Planned, not yet implemented.
 
 ## Context
 
-Dispatch copied control references, release data, host files, and briefs into each worker checkout.
-Those files repeated device facts and tied lookup to markers that the worker could edit.
+Workers needed task instructions without adding coordination files to each project checkout.
+Editable worktree markers would repeat device facts and let workers change their own lookup inputs.
 Hand-chosen worktree paths could also put project work under state that pruning would delete.
 
 ## Decision
@@ -21,7 +20,7 @@ A new start refreshes the assignment's brief from the running template rather th
 The brief does not identify the runtime agent.
 Prior reports and follow-up instructions remain available when a replacement starts.
 
-Operator keeps no coordination marker, release record, copied lock data, owned skill, or host configuration in a worktree.
+Coordination inputs and launch provenance stay in device state rather than worker checkouts.
 Worker PR operations locate their assignment only through the real Git top level of its recorded active worktree.
 They do not accept an assignment selector that could redirect one worker to another's PR.
 
@@ -52,4 +51,4 @@ These project inputs are distinct from the coordination files that remain in dev
 - Reusing colliding names was rejected because an unrecorded resource may contain someone else's work.
 - Mandatory worktrees for read-only reports were rejected because those tasks need a separate process, not necessarily a separate checkout.
 
-Related: ADR-0005, historical staged dispatch protocol; ADR-0025, controlling-checkout identity; ADR-0024, device path ownership; ADR-0033, report resources and replacement; ADR-0034, launch selection; ADR-0035, reviewer drafts and stable plugin hooks.
+Related: ADR-0005, controlling-checkout identity; ADR-0004, device path ownership; ADR-0013, report resources and replacement; ADR-0014, launch selection; ADR-0015, reviewer drafts and stable plugin hooks.

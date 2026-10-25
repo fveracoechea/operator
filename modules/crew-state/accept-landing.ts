@@ -160,7 +160,7 @@ async function settle(
 
 /**
  * Accepts one assignment. A code result lands on the integration branch of its source as the
- * last step (ADR 0020): every other gate of acceptance, then the gate run at the planned commit,
+ * last step: every other gate of acceptance, then the gate run at the planned commit,
  * then the branch move, then the record of acceptance. A refusal before the move lands nothing
  * and records nothing. An intent whose move has no recorded outcome is settled by a repeat.
  */
@@ -223,7 +223,7 @@ export async function acceptWithLanding(request: AcceptCall): Promise<Reported> 
   }
 
   // The take-out rebuilds the branch first, so a landing on a tip that still holds a withdrawn
-  // commit is never gated, and the rebuild is the one the registration plan listed (ADR 0020).
+  // commit is never gated, and the rebuild is the one the registration plan listed.
   if (read.withdrawn.length > 0) {
     return {
       repeated: false,
@@ -237,7 +237,7 @@ export async function acceptWithLanding(request: AcceptCall): Promise<Reported> 
   }
 
   // A correction of a landed commit rebuilds the branch in the same order, and the project gate
-  // runs on each commit of the rebuilt range in order before the branch moves once (ADR 0021).
+  // runs on each commit of the rebuilt range in order before the branch moves once.
   if (read.replaced !== null) {
     const rewritten = await planRewrite({
       projectRoot: request.projectRoot,

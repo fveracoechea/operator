@@ -267,7 +267,7 @@ describe("operator work take-out takes the commits of withdrawn work out of the 
     ]);
     // The withdrawn commit is still on the branch, so its head is not final.
     expect(registered.json.data.branchReview).toBeNull();
-    // The withdrawn item holds its write paths until the take-out moves the branch (ADR 0004).
+    // The withdrawn item holds its write paths until the take-out moves the branch.
     expect(await overlapsOf(workspace, other.assignmentId, ["notes/"])).toEqual([
       notes.assignmentId,
     ]);

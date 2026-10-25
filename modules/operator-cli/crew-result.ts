@@ -88,7 +88,7 @@ export function invalidInputRefusals(reason: Reason) {
   };
 }
 
-// A result that no longer lands as it was reviewed goes to a fresh Operative (ADR 0020).
+// A result that no longer lands as it was reviewed goes to a fresh Operative.
 const INTEGRATION_LINE =
   "Delegate an integration cycle with `operator work rework` and the reason `integration`.";
 

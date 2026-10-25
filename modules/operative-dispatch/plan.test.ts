@@ -222,7 +222,7 @@ test("a producer brief lists each gate command after the submit rules, and permi
 });
 
 // A host that never asks refuses each tool outside the list, so a producer could not make the
-// one commit of its code result (ADR 0006).
+// one commit of its code result.
 const GIT_WRITE_RULES = ["Bash(git status:*)", "Bash(git add:*)", "Bash(git commit:*)"];
 
 test("a producer may stage and commit its result", () => {

@@ -184,7 +184,7 @@ export const CrewState = {
 
     const input = parsed.value;
     const read = await readSource(input);
-    // The fixed text of the parent is stored before a record names its revision (ADR 0017).
+    // The fixed text of the parent is stored before a record names its revision.
     if (read.status === "read") {
       await storeSourceText({ projectRoot: request.projectRoot, parent: read.parent });
     }
@@ -270,7 +270,7 @@ export const CrewState = {
   },
 
   /**
-   * Previews the stack publication of one source (ADR 0022). It changes nothing, reports every
+   * Previews the stack publication of one source. It changes nothing, reports every
    * refusal at once in the fixed order, and writes every title and body in full to a local file
    * named by its plan revision, so its report stays a summary that points to the text.
    */
@@ -308,7 +308,7 @@ export const CrewState = {
   /**
    * Plans the rebase of the integration branch of one source onto a new base, a fetched tip of
    * its target, and changes nothing that others read. It names what leaves the branch, what lands
-   * again, what is taken out, and the plan revision a person approves (ADR 0022).
+   * again, what is taken out, and the plan revision a person approves.
    */
   async planRebase(request: Located & { sourceId: string; newBase: string }) {
     return { repeated: false, result: await planRebase(request) };
@@ -375,7 +375,7 @@ export const CrewState = {
    * Records accepted completion, which is the only result that unblocks a dependent.
    * Production work reaches it only through a reviewed submission, so every review gate is
    * checked here rather than on a second path to acceptance. A code result lands on the
-   * integration branch of its source as the last step (ADR 0020).
+   * integration branch of its source as the last step.
    */
   async accept(
     request: Mutation & {
@@ -530,7 +530,7 @@ export const CrewState = {
 
     const input = parsed.value;
     // An integration cycle plans the landing again, which reads Git, so it is read first and
-    // checked against the recorded tip inside the transaction (ADR 0020).
+    // checked against the recorded tip inside the transaction.
     const integration =
       input.reason === "integration"
         ? await readIntegrationEvidence({
@@ -593,7 +593,7 @@ export const CrewState = {
   },
 
   /**
-   * Starts one gate run on one subject (ADR 0021): the candidate of one code result, the
+   * Starts one gate run on one subject: the candidate of one code result, the
    * integration base of a source at a commit, the first place of a rebase onto a new base that
    * has not passed, or the first commit of the rebuilt range of a take-out whose key has not
    * passed. The run is recorded, then an Operator runner is typed into the pane of the gate
@@ -613,7 +613,7 @@ export const CrewState = {
 
   /**
    * Takes out every withdrawn commit that the integration branch of one source still holds, as
-   * the rewrite of ADR 0020 with no replacement, bound to the plan revision that recorded the
+   * the rewrite with no replacement, bound to the plan revision that recorded the
    * withdrawals (D5). The CLI moves the branch once, from its recorded tip, only from reviewed
    * patches, so it is not an Operator change.
    */

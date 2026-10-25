@@ -73,7 +73,7 @@ export async function observeProject(request: {
       OperatorRelease.identify(),
       readTextOrNull(`${request.projectRoot}/${INSTRUCTIONS_PATH}`),
       readTextOrNull(`${request.projectRoot}/${CLAUDE_IMPORT_PATH}`),
-      // The gate is read from the commit at HEAD, never from the working tree (ADR 0021).
+      // The gate is read from the commit at HEAD, never from the working tree.
       ProjectGate.read({ repository: request.projectRoot, commit: "HEAD" }),
     ]);
 

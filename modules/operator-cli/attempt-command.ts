@@ -108,7 +108,7 @@ function stageStopped(
 
 /**
  * The answers of a dispatch that launched nothing, or that stopped at one launch step. A
- * production dispatch can be stopped by the integration branch of its source (ADR 0020).
+ * production dispatch can be stopped by the integration branch of its source.
  * Operator never resets or adopts a moved branch, so each such refusal names what a person
  * checks. A first code dispatch whose base has not passed the project gate fixes no base.
  */

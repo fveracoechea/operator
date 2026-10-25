@@ -1,17 +1,16 @@
-# ADR-0033: Report assignments complete through SuperAgent acceptance
+# ADR-0013: Report assignments complete through SuperAgent acceptance
 
 ## Status
 
 Accepted - 2026-10-24.
 Decided in #233.
-Supersedes ADR-0006 and ADR-0019.
 Planned, not yet implemented.
 
 ## Context
 
 SuperAgents delegated investigation, research, triage, planning, and prototypes as well as code.
 A PR-only assignment could not represent their completion without inventing a branch or treating host activity as evidence.
-The former planning-record machinery also assigned human authority too broadly or made every planning question wait on the person.
+Planning questions needed a clear distinction between delegated authority and a human answer.
 
 ## Decision
 
@@ -31,7 +30,7 @@ Assignment instructions determine grilling participation and the SuperAgent's de
 A SuperAgent answer remains a SuperAgent decision, including after report acceptance.
 If the person asks to answer, if a question is outside delegated authority, or if authority or participation is unclear, the SuperAgent asks the person.
 This includes high-level product and architecture decisions with unclear authority.
-Reports and instructions carry the distinction without restoring question, approval, or planning-record machines.
+Reports and assignment instructions carry the authority distinction.
 
 Reports and supporting files live in device state.
 Acceptance permits automatic pane closure, but a report worktree stays unless the CLI can establish that it holds no unlanded work.
@@ -57,7 +56,7 @@ Reset preserves completed reports and abandons incomplete ones, and source prune
 - Worker self-acceptance and completion from host activity were rejected because neither supplies independent acceptance of durable evidence.
 - Requiring the person to answer every grilling question was rejected because instructions can delegate authority.
 - Inferring unclear authority was rejected because acceptance must not turn a supervisor decision into a human answer.
-- Restoring planning records and approval machines was rejected because the report and instruction contract covers this exchange.
+- A separate planning-record and approval protocol was rejected because the report and instruction contract covers this exchange.
 - A cross-project dependency engine and indefinite retention were rejected in favor of Herdr coordination and consumer-owned brief content.
 
-Related: ADR-0006 and ADR-0019, historical authority and planning protocols; ADR-0011, reports and interruptions appear in next actions; ADR-0023, completion-type-specific transitions; ADR-0030, PR completion remains separate; ADR-0031, briefs and resource selection; ADR-0032, reset and retention; ADR-0034, profiles and native subagents; ADR-0037, supervision boundary.
+Related: ADR-0001, reports and interruptions appear in next actions; ADR-0003, completion-type-specific transitions; ADR-0010, PR completion is separate; ADR-0011, briefs and resource selection; ADR-0012, reset and retention; ADR-0014, profiles and native subagents; ADR-0017, supervision boundary.

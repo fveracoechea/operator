@@ -215,7 +215,7 @@ type StartRequest = {
 };
 
 /**
- * Starts one gate run on the integration base of one source (ADR 0021). The run is recorded
+ * Starts one gate run on the integration base of one source. The run is recorded
  * before the runner line is typed, and the line holds only the runner command, the run id, and
  * the project root. One run of a source runs at a time, and a run with no outcome is replaced
  * only after its pane shows that the runner stopped.
@@ -241,7 +241,7 @@ export async function startBaseGateRun(
 }
 
 /**
- * The start on a move that gates its places in order (ADR 0021). A move whose places all passed
+ * The start on a move that gates its places in order. A move whose places all passed
  * starts nothing and names the key of its last place, or nothing to gate when it has no place. A
  * running place waits for its one run, and any other place goes to `start`.
  */

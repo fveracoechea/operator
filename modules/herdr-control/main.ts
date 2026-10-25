@@ -274,7 +274,7 @@ export const HerdrControl = {
 
   /**
    * Starts the agent host in a prepared pane. A settings file with an allow list makes Claude Code
-   * never ask (ADR 0006). Herdr types the launch into the pane shell as one line, and macOS cuts
+   * never ask. Herdr types the launch into the pane shell as one line, and macOS cuts
    * that line at 1024 bytes, so the line names the file and never carries the list (#196).
    */
   async startAgent(request: {

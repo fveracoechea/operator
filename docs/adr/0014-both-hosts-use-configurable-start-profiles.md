@@ -1,9 +1,9 @@
-# ADR-0034: Both hosts use configurable start profiles
+# ADR-0014: Both hosts use configurable start profiles
 
 ## Status
 
 Accepted - 2026-10-24.
-Decided in #233, retaining the permission ownership decision of #231.
+Decided in #231 and #233.
 Planned, not yet implemented.
 
 ## Context
@@ -49,4 +49,4 @@ Host permissions remain under the person's host configuration rather than an Ope
 - A separate Operator assignment for every native subagent was rejected because parent-owned delegation does not need independent scheduling.
 - Operator permission lists and approval grants were rejected because host configuration owns that boundary.
 
-Related: ADR-0028, both hosts receive owned skills; ADR-0029, readiness checks the configured host; ADR-0027, launch provenance; ADR-0033, task instructions and report responsibility; ADR-0031, resource selection; ADR-0035, reviewers use the selected host; ADR-0037, profiles do not define worker roles.
+Related: ADR-0008, both hosts receive owned skills; ADR-0009, readiness checks the configured host; ADR-0007, launch provenance; ADR-0013, task instructions and report responsibility; ADR-0011, resource selection; ADR-0015, reviewers use the selected host; ADR-0017, profiles do not define worker roles.

@@ -27,7 +27,7 @@ import { storedFixedInputs } from "./work-input.ts";
 
 /**
  * One source holds three branch reviews that reported, whatever changed the head between them.
- * The fourth waits on a direction request, so publish waits on the user (ADR 0008, ADR 0017).
+ * The fourth waits on a direction request, so publish waits on the user.
  */
 export const BRANCH_REVIEW_LIMIT = 3;
 
@@ -207,7 +207,7 @@ export type BranchCondition =
  * Reads whether the integration branch of one source is final, and the snapshot it then holds.
  * It is final when every code assignment that is not withdrawn is accepted, so an invalidated,
  * paused, or reworked one holds it, and so does a withdrawn commit that the branch still holds.
- * A source whose one code commit carries its only item has no branch review (ADR 0017).
+ * A source whose one code commit carries its only item has no branch review.
  */
 export function branchCondition(db: CrewReader, sourceId: string): BranchCondition {
   const branch = integrationBranchOf(db, sourceId);
@@ -288,7 +288,7 @@ export type RegisteredBranchReview = {
 
 /**
  * The fixed inputs of one branch review: its snapshot, the fixed text of the source, and the spec
- * copy of each item. Together the two texts are the spec of the source (ADR 0017).
+ * copy of each item. Together the two texts are the spec of the source.
  */
 function fixedInputsOf(
   db: CrewReader,

@@ -5,7 +5,7 @@
  */
 export const BODY_LIMIT = 65_536;
 
-/** What permits one behavior change (ADR 0018), with the requirement text when it names one. */
+/** What permits one behavior change, with the requirement text when it names one. */
 export type BehaviorBasis =
   | { kind: "approved-scope" }
   | { kind: "requirement"; position: number; text: string | null }

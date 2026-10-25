@@ -22,9 +22,9 @@ import { storedRequirements, storedTrackerBinding } from "./work-input.ts";
 
 /**
  * The refusals of a publish plan that the crew records decide, in the fixed order of decision 10
- * of the publish: the branch review gate (ADR 0017), the gate records (ADR 0021), an open
+ * of the publish: the branch review gate, the gate records, an open
  * invalidation, withdrawal, or direction request, and nothing to publish. They are members of the
- * durable unions of ADR 0011.
+ * durable refusal unions.
  */
 export type RecordRefusal = {
   reason:
@@ -301,7 +301,7 @@ function stackRefusals(carried: ReturnType<typeof publishBaseOf>): RecordRefusal
 /**
  * The review whose report gates the publish and wrote its text: the branch review reported on
  * the exact snapshot of the head, or the result review of the one commit of a source with no
- * branch review (ADR 0017).
+ * branch review.
  */
 function gatingReviewOf(
   db: CrewReader,
@@ -359,7 +359,7 @@ function answeredFindings(
 }
 
 /**
- * The gate records of ADR 0021: a passing gate run at the integration base and at each commit
+ * The gate records: a passing gate run at the integration base and at each commit
  * this publication carries, and the runs that prove it. With no commit, the gate holds nothing.
  */
 function gateEvidenceOf(
@@ -407,7 +407,7 @@ function gateEvidenceOf(
 }
 
 /**
- * The review gate of ADR 0017: the review that gates the publish and wrote its text, its
+ * The review gate: the review that gates the publish and wrote its text, its
  * refusals, the reviews that read this head, and the findings they rejected or deferred. A branch
  * that is not final has no gating review yet.
  */

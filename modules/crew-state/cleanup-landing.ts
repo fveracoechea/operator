@@ -65,8 +65,8 @@ export function landingProofOf(
 }
 
 /**
- * Proves that the integration branch still holds the accepted result this checkout handed over
- * (ADR 0010). The branch must be at its recorded tip and hold the recorded commit that carries
+ * Proves that the integration branch still holds the accepted result this checkout handed over.
+ * The branch must be at its recorded tip and hold the recorded commit that carries
  * the result. No remote is read, and nothing falls back to a remote, the main branch, or a
  * patch search.
  */

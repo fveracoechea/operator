@@ -33,7 +33,7 @@ import {
 import { assignments, integrationBranches, workSources } from "./schema.ts";
 
 /*
- * The take-out of the commits of withdrawn work (ADR 0020). A person withdraws an item through the
+ * The take-out of the commits of withdrawn work. A person withdraws an item through the
  * tracker, and the registration records the withdrawal behind the approval of its plan revision.
  * The branch still holds the commit of that item, so the take-out rebuilds the branch without it,
  * bound to that plan revision (D5). It is a ref move that the CLI builds only from reviewed
@@ -243,7 +243,7 @@ type PlannedTakeOut = {
 };
 
 /**
- * Plans the take-out of every withdrawn commit of one source (ADR 0020), as the rewrite with no
+ * Plans the take-out of every withdrawn commit of one source, as the rewrite with no
  * replacement. A withdrawn landing that shares its commit with a result that is not withdrawn
  * leaves the record only, because that commit stays. Recorded landings that do not lead from the
  * recorded tip to the base refuse, as a rewrite does. A refusal moves nothing.
@@ -392,7 +392,7 @@ function recordTakeOut(
       commit,
       cause,
     })),
-    // The take-out that makes the branch final registers its branch review (ADR 0017).
+    // The take-out that makes the branch final registers its branch review.
     branchReview: registerBranchReview(db, { sourceId: request.sourceId, now }),
   };
 }
@@ -544,9 +544,9 @@ function recordOnly(request: TakeOutCall, planned: PlannedTakeOut): Promise<Repo
 }
 
 /**
- * Takes out every withdrawn commit of one source that its integration branch still holds (ADR
- * 0020). The take-out is bound to the plan revision that recorded the withdrawals (D5). Each
- * commit of the rebuilt range passes the project gate first (ADR 0021), then the intent is
+ * Takes out every withdrawn commit of one source that its integration branch still holds.
+ * The take-out is bound to the plan revision that recorded the withdrawals (D5). Each
+ * commit of the rebuilt range passes the project gate first, then the intent is
  * recorded, the branch moves once from the recorded tip, and the outcome is recorded. A later
  * accepted result that does not land again returns to awaiting review. A refusal before the move
  * moves nothing and records nothing, and an interrupted move is settled by a repeat.
@@ -666,7 +666,7 @@ export async function takeOutWithdrawn(request: TakeOutCall): Promise<Reported> 
 
 /**
  * Starts one gate run on the first commit of the rebuilt range of the take-out of one source
- * whose key has no passing run (ADR 0021). The plan gives the same commits again, so no ref
+ * whose key has no passing run. The plan gives the same commits again, so no ref
  * names them. A range that already passed starts nothing.
  */
 export async function startTakeOutGateRun(request: {

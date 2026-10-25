@@ -44,7 +44,7 @@ const UNUSABLE_TEXTS: Record<
 };
 
 /**
- * The project gate of ADR 0021: the one ordered list of commands that the project declares in a
+ * The project gate: the one ordered list of commands that the project declares in a
  * committed file. It is read from a commit and never from a working tree, so an edit that is not
  * committed cannot change the gate that scores a result.
  */

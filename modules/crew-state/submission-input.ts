@@ -36,8 +36,8 @@ const decision = z.strictObject({
 });
 
 /**
- * What permits one behavior change (ADR 0018). An Operator decision is never a basis, because
- * ADR 0006 puts visible behavior outside delegated authority, so it has no kind here.
+ * What permits one behavior change. An Operator decision is never a basis, because
+ * visible behavior is outside delegated authority, so it has no kind here.
  */
 const behaviorChangeBasis = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("approved-scope") }),
@@ -51,7 +51,7 @@ const behaviorChange = z.strictObject({
   basis: behaviorChangeBasis,
 });
 
-// A code result is one commit on its dispatch base, so it names no pull request (ADR 0015).
+// A code result is one commit on its dispatch base, so it names no pull request.
 export const codeRevisionsSchema = z.strictObject({
   baseCommit: z.string().min(1),
   resultCommit: z.string().min(1),

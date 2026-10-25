@@ -1,16 +1,16 @@
-# ADR-0011: One next-actions read owns the coordination order
+# ADR-0001: One next-actions read owns the coordination order
 
 ## Status
 
-Accepted.
-Decided in #199.
-Amended 2026-10-24: Limit coordination to the retained workflows and include PR and report completion, as resolved in #231 and #233.
+Accepted - 2026-10-24.
+Decided in #199, #231, and #233.
+Planned, not yet implemented.
 
 ## Context
 
 Operator needed a declarative and deterministic process that guided agents and subagents through their workflows.
 A session-local schedule could disagree with recorded state and made each agent reconstruct the workflow order and its blockers.
-Simpler workflows removed many recorded steps but still needed one answer about what could run next.
+PR ownership and report acceptance needed one answer about what could run next.
 
 ## Decision
 
@@ -36,4 +36,4 @@ The SuperAgent supplies the coordination judgment and obtains the person's decis
 - Independent command reports that agents combine into a schedule were rejected because the combination becomes a second implementation of workflow order.
 - Treating a host completion event as accepted work was rejected because it proves neither a durable report nor a verified merge.
 
-Related: ADR-0023, declarative machines provide the workflow states; ADR-0030, PR owners follow the feedback loop; ADR-0033, report acceptance is distinct from worker activity; ADR-0035, review waits own review operations.
+Related: ADR-0003, declarative machines provide the workflow states; ADR-0010, PR owners follow the feedback loop; ADR-0013, report acceptance is distinct from worker activity; ADR-0015, review waits own review operations.

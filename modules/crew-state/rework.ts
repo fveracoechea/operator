@@ -20,7 +20,7 @@ export const limitKindSchema = z.enum([
   "rework_cycles",
   "diagnostic_reruns",
   "review_attempts",
-  // The branch reviews of one source that reported (ADR 0017).
+  // The branch reviews of one source that reported.
   "branch_reviews",
 ]);
 

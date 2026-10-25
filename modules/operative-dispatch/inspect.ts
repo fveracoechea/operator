@@ -109,7 +109,7 @@ function fields(output: string): string[] {
 /**
  * Reads what one checkout holds since its base, as the one inspection every check of a result
  * or a review report reads. Rename detection is off, because its answer depends on the file
- * content and it hides the old path of a rename, which is a write too (ADR 0018).
+ * content and it hides the old path of a rename, which is a write too.
  */
 export async function inspectCheckout(request: {
   worktreePath: string;

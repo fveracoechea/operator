@@ -1,4 +1,4 @@
-# ADR-0038: Type-aware oxlint owns code policy without duplicate checks
+# ADR-0018: Type-aware oxlint owns code policy without duplicate checks
 
 ## Status
 
@@ -43,4 +43,4 @@ Unselected style restrictions and application-specific rules do not enter the po
 - A separate reviewed-version record and drift check were rejected because they duplicate the dependency pin and lock.
 - Deferring fixes behind a baseline was rejected because a newly selected error policy must apply to the code it checks.
 
-Related: ADR-0024, validated environment and path ownership; ADR-0036, local mutation testing complements enforced checks without becoming a gate.
+Related: ADR-0004, validated environment and path ownership; ADR-0016, local mutation testing complements enforced checks without becoming a gate.

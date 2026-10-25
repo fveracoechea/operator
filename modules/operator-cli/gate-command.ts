@@ -326,7 +326,7 @@ const startAnswers: StartAnswers = {
   }),
 };
 
-/** Starts one gate run on the subject that the flags name (ADR 0021). */
+/** Starts one gate run on the subject that the flags name. */
 export async function runStart(
   parsed: ParsedArguments<"--request" | "--owner-token">,
 ): Promise<Handled> {

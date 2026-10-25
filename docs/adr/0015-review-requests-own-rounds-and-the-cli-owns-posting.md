@@ -1,10 +1,9 @@
-# ADR-0035: Review requests own rounds and the CLI owns posting
+# ADR-0015: Review requests own rounds and the CLI owns posting
 
 ## Status
 
 Accepted - 2026-10-24.
-Decided in #228, extended to both hosts by #233.
-Supersedes ADR-0007 and ADR-0017.
+Decided in #228 and #233.
 Planned, not yet implemented.
 
 ## Context
@@ -82,4 +81,4 @@ The skill routes these transport actions and blocked-worker attention without re
 - Per-project gate command settings and rerunning all checks before posting were rejected because CI already supplies required checks and repeating them adds cost.
 - Author-wide skips were rejected because a one-PR exception must not silently exclude all work by one person.
 
-Related: ADR-0007 and ADR-0017, historical result and branch review protocols; ADR-0011 and ADR-0023, next actions and state guards; ADR-0030, optional assignment-origin review; ADR-0025, repository workspace identity; ADR-0031, reviewer resources; ADR-0027, stable global-command plugin; ADR-0034, both host integrations.
+Related: ADR-0001 and ADR-0003, next actions and state guards; ADR-0010, optional assignment-origin review; ADR-0005, repository workspace identity; ADR-0011, reviewer resources; ADR-0007, stable global-command plugin; ADR-0014, both host integrations.

@@ -82,7 +82,7 @@ function placeOf(where: string): { part: Part; security: boolean } {
 }
 
 /**
- * Every difference between the two snapshots of one attempt (ADR 0018).
+ * Every difference between the two snapshots of one attempt.
  * A part that one of the scans could not read, or a "before" scan that was never recorded,
  * becomes one change that says so, because a scan that did not run never reports a pass.
  */
@@ -269,7 +269,7 @@ function rescanned(
  * Records what the Operator decided about each outside change of one submission.
  * Operator never deletes one: the user does, and `removed` passes only when a new scan finds
  * the entry as it was before the attempt. A change that touches a security permission is kept
- * only under an approval of the user (ADR 0006).
+ * only under an approval of the user.
  */
 export function disposeOutsideChanges(
   db: CrewWriter,

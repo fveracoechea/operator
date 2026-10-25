@@ -52,7 +52,7 @@ export type ReviewBrief = {
   fixedPoint: string | null;
   readCommands: string[];
   // The patch that was reviewed and the interdiff from it to this one, fixed at submission when
-  // this result is the combined revision of an integration cycle (ADR 0017). Null otherwise.
+  // this result is the combined revision of an integration cycle. Null otherwise.
   integration: {
     reviewedPatch: { storedPath: string; contentIdentity: string };
     interdiff: { storedPath: string; contentIdentity: string };
@@ -115,7 +115,7 @@ export const PUBLISHED_TEXT_SHAPE = {
 
 /**
  * What the published text is. The reviewer read the whole subject, so it writes the judgment
- * that no record holds, and the Operator only passes it on (ADR 0022).
+ * that no record holds, and the Operator only passes it on.
  */
 export const PUBLISHED_TEXT_LINES = [
   "Write `published` once, beside `reports`: the text of the pull request that publishes what you",

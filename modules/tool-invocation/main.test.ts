@@ -54,7 +54,7 @@ afterAll(async () => {
 });
 
 describe("ToolInvocation.git", () => {
-  test("runs every call with the file system monitor off and no optional lock (ADR 0018)", async () => {
+  test("runs every call with the file system monitor off and no optional lock", async () => {
     await rm(log, { force: true });
     await ToolInvocation.git({ repoRoot: repo, args: ["rev-parse", "HEAD"] });
     await ToolInvocation.git({ repoRoot: repo, args: ["no-such-command"] });

@@ -41,7 +41,7 @@ type GitRequest = {
 /**
  * The checkout config can name a command that Git runs, and a planted one waits for the person,
  * so every call turns off the file system monitor. It takes no optional lock, so a read never
- * writes the index of the checkout either (ADR 0018).
+ * writes the index of the checkout either.
  */
 const GIT_GUARD = ["--no-optional-locks", "-c", "core.fsmonitor=false"];
 
@@ -108,7 +108,7 @@ export const ToolInvocation = {
   },
 
   /**
-   * Runs one Git command in one repository, always with the guard of ADR 0018.
+   * Runs one Git command in one repository, always with the safety guard.
    * `merge-base --is-ancestor`, `merge-tree`, and `config --get-regexp` answer with exit 1, so a
    * caller names that exit in `answers` and reads the exit code. `bytes` holds the exact bytes
    * of the output, as a committed file must be read.

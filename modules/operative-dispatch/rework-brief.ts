@@ -48,7 +48,7 @@ export type ReworkIntegration = {
   cause: "conflict" | "patch-changed" | "gate-failed" | "gate-flaky";
   paths: string[];
   gateRunId: string | null;
-  // The landed commit a correction replaces, when the cycle answers a rewrite (ADR 0020).
+  // The landed commit a correction replaces, when the cycle answers a rewrite.
   replaces?: string | undefined;
 };
 
@@ -77,7 +77,7 @@ export type ReworkBrief = {
   rounds: ReworkRounds;
 };
 
-/** What the crew state recorded about the earlier rounds of the assignment (ADR 0008). */
+/** What the crew state recorded about the earlier rounds of the assignment. */
 export type ReworkRounds = {
   // What the producer of the corrected submission recorded beside its result.
   concerns: string[];
@@ -87,7 +87,7 @@ export type ReworkRounds = {
   earlier: PriorRound[];
 };
 
-// The Operator writes no instruction of its own into a cycle (ADR 0008), so each reason renders
+// The Operator writes no instruction of its own into a cycle, so each reason renders
 // one fixed sentence that the release owns, and the recorded content below is the work.
 const REASON_SENTENCE: Record<ReworkBrief["reason"], string> = {
   findings: "Answer every accepted correction below in one revision.",
@@ -276,8 +276,8 @@ export function reworkProtocolSection(rework: ReworkBrief): string[] {
     "## Rework protocol",
     "",
     // A correction of a landed commit starts at that commit, and acceptance puts the combined
-    // change in its place on the branch (ADR 0020). An integration cycle starts from the commit
-    // its result lands on: the recorded tip, or the parent of the replaced commit (ADR 0008).
+    // change in its place on the branch. An integration cycle starts from the commit
+    // its result lands on: the recorded tip, or the parent of the replaced commit.
     ...(rework.integration !== undefined
       ? [
           rework.integration.replaces === undefined

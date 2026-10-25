@@ -186,7 +186,7 @@ function partsOfSource(db: CrewReader, sourceId: string): PublishedPart[] {
 
 /**
  * The published ranges a rewrite or a take-out must not change, lowest first: each part that
- * people still read or that merged (ADR 0020). A recalled or a closed part no longer guards its
+ * people still read or that merged. A recalled or a closed part no longer guards its
  * range, so the change runs after the recall (decision 23).
  */
 export function guardedRangesOf(

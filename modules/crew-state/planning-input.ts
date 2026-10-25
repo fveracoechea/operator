@@ -19,7 +19,7 @@ const entryFields = {
   interpretation: answerInterpretationSchema,
 };
 
-/** One decision of a planning record, in the authority shape of an answer of ADR 0006. */
+/** One decision of a planning record, in the authority shape of an answer. */
 export const planningEntrySchema = z.discriminatedUnion("authority", [
   z.strictObject({
     ...entryFields,

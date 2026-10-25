@@ -358,7 +358,7 @@ export function windowAt(offsetSeconds: number, durationSeconds: number) {
   };
 }
 
-/** The pull request text a reviewer writes for what publishes (ADR 0022). */
+/** The pull request text a reviewer writes for what publishes. */
 export const PUBLISHED_TEXT = {
   title: "Build the reviewed result path",
   summary: "Adds the reviewed result and its notes.",
@@ -908,8 +908,8 @@ export async function startSibling(
 
 /**
  * Moves the integration branch of the fixture source and its recorded tip to one new commit that
- * writes `text` at `path`. The normal path never lets two results in flight touch one file
- * (ADR 0004, ADR 0018), so a conflict at a landing arises only outside it, as after a rewrite.
+ * writes `text` at `path`. The normal path never lets two results in flight touch one file,
+ * so a conflict at a landing arises only outside it, as after a rewrite.
  * This stands in for that history, and it returns the new tip.
  */
 export async function moveRecordedTip(

@@ -1,15 +1,15 @@
-# ADR-0032: Reset ends a source and prune removes it after retention
+# ADR-0012: Reset ends a source and prune removes it after retention
 
 ## Status
 
 Accepted - 2026-10-24.
-Decided in #207, replaced in #231 and extended in #233.
+Decided in #207, #231, and #233.
 Planned, not yet implemented.
 
 ## Context
 
 A person needed to stop one direction of work and register the same origin again without colliding with old records.
-The former reset plan depended on machines that the smaller workflow removed.
+Ending a source needed distinct outcomes for completed and incomplete assignments.
 An archive would duplicate PR history but would not add a permanent home for report work.
 
 ## Decision
@@ -42,8 +42,8 @@ Failed cleanup remains visible in next actions.
 
 - Reusing a source identity was rejected because old resources and new work would collide.
 - A reset freeze with filters on every query was rejected because an explicit ended state is harder to omit.
-- The old reset grant and sub-record shutdown protocol were rejected because their machinery is no longer part of the workflow.
+- A separate reset-grant protocol was rejected because the person's instruction authorizes the reset.
 - Source archives and indefinite retention were rejected because GitHub keeps PR history and the person accepted bounded report retention.
 - Deleting worktrees during reset or prune was rejected because ending records does not establish that project work is safe to delete.
 
-Related: ADR-0023, explicit source lifecycle; ADR-0030, PR completion and cleanup; ADR-0033, report retention and cross-project consumption; ADR-0027, migration backups have separate retention.
+Related: ADR-0003, explicit source lifecycle; ADR-0010, PR completion and cleanup; ADR-0013, report retention and cross-project consumption; ADR-0007, migration backups have separate retention.

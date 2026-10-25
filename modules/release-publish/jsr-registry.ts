@@ -3,7 +3,7 @@
  * The plan reads the public registry API over `fetch` to learn whether a version exists. The
  * publication hands a staged copy of the artifact to the official `jsr` client, pinned in the
  * development dependencies, which authenticates with the short-lived credential the runner
- * issues to the job. See ADR 0013.
+ * issues to the job. See ADR 0007.
  */
 // Bun has no temporary directory or recursive removal API.
 import { mkdtemp, rm } from "node:fs/promises";

@@ -11,7 +11,7 @@ import {
 } from "./gate-runs.ts";
 
 /**
- * The gate run machine (ADR 0021). One `gate_runs` row starts `running` and ends `passed`,
+ * The gate run machine. One `gate_runs` row starts `running` and ends `passed`,
  * `failed`, or `stopped`. The verdict of its key is read from the series, as `KeyStatus`.
  */
 export type GateRunState = z.infer<typeof gateRunStateSchema>;

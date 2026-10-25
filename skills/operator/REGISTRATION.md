@@ -238,7 +238,7 @@ When a stored path has no canonical form, because it is absolute, has a backslas
 Tell the person the path and the assignment. Do not edit the crew state.
 
 Name the narrowest paths that hold the work.
-Under ADR 0004, the crew frontier never offers new work whose write paths overlap the paths that unaccepted work of the same source holds, so broad paths make a source run one assignment at a time.
+The crew frontier never offers new work whose write paths overlap the paths that unaccepted work of the same source holds, so broad paths make a source run one assignment at a time.
 [COORDINATION.md](COORDINATION.md) names the blocker that this hold reports.
 For a shared folder, name the exact file, for example the item's own `.changeset/<name>.md`, not `.changeset/`.
 

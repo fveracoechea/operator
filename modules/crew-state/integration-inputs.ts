@@ -19,7 +19,7 @@ export type IntegrationInputsRead =
 
 /**
  * Stores the reviewed patch and the interdiff from it to the new patch, when one submission
- * answers an integration cycle (ADR 0017). The new commit is a new submission with an ordinary
+ * answers an integration cycle. The new commit is a new submission with an ordinary
  * result review, and a conflict resolution can change what unchanged lines mean, so the review
  * reads the whole result, and these show what changed from the patch that was reviewed. Every
  * other submission stores nothing here.

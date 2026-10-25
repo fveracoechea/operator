@@ -66,7 +66,7 @@ beforeAll(async () => {
       `printf '%s\\n' "$*" >> ${gitLog}`,
       `if [ -f ${gitFault} ]; then`,
       `  read -r sub end stderr < ${gitFault}`,
-      // The guard of ADR 0018 and `-C <repo>` come before the subcommand.
+      // The Git safety guard and `-C <repo>` come before the subcommand.
       '  if [ "$6" = "$sub" ]; then',
       "    printf '%s' \"$stderr\" >&2",
       '    [ "$end" = term ] && kill -TERM $$',
@@ -422,7 +422,7 @@ const CLOSE = {
   head: "a".repeat(40),
 } as const;
 
-// Each write reads first, so a repeat after a lost answer writes nothing twice (ADR 0005).
+// Each write reads first, so a repeat after a lost answer writes nothing twice.
 describe("the pull request writes", () => {
   test("a recall whose draft answer is lost reads the draft and writes one comment", async () => {
     await holdPull({}, ["POST graphql"]);

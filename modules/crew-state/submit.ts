@@ -37,7 +37,7 @@ type Reported = { repeated: boolean; result: SubmitResult };
  * Records one fixed result as a durable handoff to review.
  * The Operative runs it from its own worktree, so it carries no ownership token and the
  * attempt it names must still be the current writer. The result is read from Git and checked
- * against its authority limits first (ADR 0018), never taken from what the Operative states.
+ * against its authority limits first, never taken from what the Operative states.
  */
 export async function submitAttemptResult(request: {
   projectRoot: string;
@@ -118,7 +118,7 @@ export async function submitAttemptResult(request: {
     }
 
     // The "after" scan runs only on a result that passed every check, and it never refuses one,
-    // because the scan cannot name the writer of what it finds (ADR 0018).
+    // because the scan cannot name the writer of what it finds.
     outside = outsideChangesOf({
       before: dispatch.outsideScan,
       after: await OperativeDispatch.scanOutside({

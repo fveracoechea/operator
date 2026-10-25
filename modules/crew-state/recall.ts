@@ -303,7 +303,7 @@ export async function applyRecall(request: {
 }
 
 /**
- * The recall `crew next` offers for one source, read from the records only (ADR 0016), and
+ * The recall `crew next` offers for one source, read from the records only, and
  * whether a `stack-recall` approval already binds its plan revision.
  */
 export function recallOffer(

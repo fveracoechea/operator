@@ -23,7 +23,7 @@ const recordedState = z.enum([
 ]);
 
 /**
- * The tracker step machine (ADR 0009, ADR 0023). One `tracker_operations` row moves through
+ * The tracker step machine. One `tracker_operations` row moves through
  * these states, and an assignment with no row for a step holds it `unrecorded`. A plan opens the
  * row as `intended`, and each reading of the tracker settles it to one verdict.
  */
@@ -44,7 +44,7 @@ const ACTIONS: Record<TrackerStepState, TrackerStepAction[]> = {
 };
 
 /**
- * The stages of the record event, in the order ADR 0009 runs them. `open` opens or resumes the
+ * The stages of the record event, in their fixed order. `open` opens or resumes the
  * operation, `observe` and `gate` read the tracker before a write and judge that reading, and
  * `write` sends one write that is then settled from what the tracker shows. The recover and
  * observe events only read and settle, so they decide nothing.

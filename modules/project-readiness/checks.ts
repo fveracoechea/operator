@@ -122,7 +122,7 @@ function gitCheck(observation: Observation): Check {
   }
 
   // A landing merges with `merge-tree --merge-base` and proves its patch with
-  // `patch-id --verbatim`, and Git 2.40.0 is the first release that has both (ADR 0020).
+  // `patch-id --verbatim`, and Git 2.40.0 is the first release that has both.
   const version = observed.version ?? "";
   if (!Bun.semver.satisfies(version, `>=${GIT_FLOOR}`)) {
     return check("git", null, "", {
@@ -371,7 +371,7 @@ function instructionCheck(observation: Observation, target: Target): Check {
 
 /**
  * The project gate is a committed declaration, so it is read at HEAD of this checkout. Setup never
- * writes it, because only the project knows which commands prove a commit (ADR 0021).
+ * writes it, because only the project knows which commands prove a commit.
  */
 function gateCheck(observation: Observation): Check {
   const gate = observation.gate;

@@ -3,7 +3,7 @@ import type { GateKey } from "./gate-runs.ts";
 import type { RewriteRecord } from "./landing-record.ts";
 
 /*
- * The branch move machine (ADR 0020, ADR 0023). Each move of the integration branch of one source
+ * The branch move machine. Each move of the integration branch of one source
  * is recorded as an intent before the ref moves, and its outcome is recorded after the ref moved.
  * A landing row and a rebase row each go from `intended` to an end state, and the other landings
  * that the move rebuilds go to their end state in the same transaction. The branch ref itself has
@@ -41,7 +41,7 @@ export function rebuildsBranch(kind: string): boolean {
 }
 
 /**
- * The refusals of a landing, members of the durable unions of ADR 0011. Each one lands nothing
+ * The refusals of a landing, members of the durable refusal unions. Each one lands nothing
  * and records nothing. Operator never resets the branch and never adopts a tip it did not
  * record, so a person puts a moved branch back.
  */
@@ -106,7 +106,7 @@ export type LandingRefusal =
     }
   | {
       // A landing of a source whose integration branch still holds a withdrawn commit. The
-      // take-out rebuilds the branch first, so no landing is gated twice (ADR 0020).
+      // take-out rebuilds the branch first, so no landing is gated twice.
       status: "take-out-pending";
       assignmentId: string;
       sourceId: string;
@@ -119,7 +119,7 @@ export type LandingRefusal =
       pendingAssignmentId: string;
     }
   | {
-      // A rebase of the source moves the branch, and its outcome is not recorded (ADR 0022).
+      // A rebase of the source moves the branch, and its outcome is not recorded.
       status: "rebase-pending";
       assignmentId: string;
       rebaseId: string;

@@ -81,7 +81,7 @@ function candidatesOf(db: CrewReader): Candidate[] {
 }
 
 /**
- * Plans the landing of every code result that waits for its candidate gate (ADR 0020). A conflict
+ * Plans the landing of every code result that waits for its candidate gate. A conflict
  * or a changed patch has no candidate to gate, so `crew next` offers the integration cycle
  * instead. The plan is deterministic and writes only Git objects that no ref names, so this
  * changes nothing that a person or the crew reads. Every other outcome is left to the gate run

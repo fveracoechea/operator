@@ -55,7 +55,7 @@ async function withFailingGit<Value>(
     `${bin}/git`,
     [
       "#!/bin/sh",
-      // The guard of ADR 0018 and `-C <repo>` come before the subcommand.
+      // The Git safety guard and `-C <repo>` come before the subcommand.
       `if [ "$6" = "${fault.subcommand}" ]; then`,
       `  printf '%s' '${fault.stderr}' >&2`,
       { term: "  kill -TERM $$", exit: "  exit 3", empty: "  exit 0" }[fault.end],
@@ -90,7 +90,7 @@ async function result(
   return made;
 }
 
-/** The patch identity of one commit against its parent, with plain Git (ADR 0020). */
+/** The patch identity of one commit against its parent, with plain Git. */
 async function patchId(root: string, commit: string): Promise<string> {
   const diff =
     await Bun.$`git -C ${root} diff-tree -p --no-renames --unified=3 --binary --full-index --no-color --no-ext-diff --no-textconv ${commit}^ ${commit}`.text();

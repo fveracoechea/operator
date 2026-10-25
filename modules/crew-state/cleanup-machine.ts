@@ -20,7 +20,7 @@ import type { OperationState } from "./dispatch.ts";
 import type { StateFailure } from "./operations.ts";
 
 /**
- * The cleanup machine (ADR 0023). One `cleanups` row for each kind moves through
+ * The cleanup machine. One `cleanups` row for each kind moves through
  * `CLEANUP_STATES`. A close or a remove reads the facts it needs one at a time, in the order of
  * the transition table, so every read and every effect happens exactly where the table puts it.
  */
@@ -143,7 +143,7 @@ const identityRow = row(["identity"], (facts) =>
 );
 
 /**
- * Closes one Operative process after its work is durably handed over (ADR 0010).
+ * Closes one Operative process after its work is durably handed over.
  * The intent is written before the stop, so a run that dies there is recovered from what Herdr
  * shows rather than repeated blindly into a host that already ended.
  */
@@ -244,7 +244,7 @@ const CLOSE_ROWS: readonly Row[] = [
 ];
 
 /**
- * Removes one approved Operative checkout (ADR 0010). Acceptance is not disposal authority, and a
+ * Removes one approved Operative checkout. Acceptance is not disposal authority, and a
  * checkout that holds a commit of withdrawn work or a replaced commit holds unlanded work, so it
  * is refused whatever approval exists, and only the person removes it (D3).
  */

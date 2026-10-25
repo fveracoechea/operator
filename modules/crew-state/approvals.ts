@@ -7,19 +7,19 @@ import { publicationsOf } from "./stack-records.ts";
 import { readStored } from "./stored.ts";
 
 /*
- * The approval machine (ADR 0023). A person grants one approval for one exact action, and only
+ * The approval machine. A person grants one approval for one exact action, and only
  * a person revokes it. The row records `granted` or `revoked`. "Used" is never recorded: a
  * granted approval is used once a stack publication or a rebase records the plan revision it
  * binds. So the coordination order offers only the grants that no record used yet.
  */
 
-/** The approval action that covers one stack publication (ADR 0022, decision 9). */
+/** The approval action that covers one stack publication. */
 export const PUBLISH_ACTION = "publish";
 
-/** The approval action that covers one rebase onto a new base (ADR 0022, decision 25). */
+/** The approval action that covers one rebase onto a new base. */
 export const REBASE_ACTION = "integration-rebase";
 
-/** The approval action that covers one recall (ADR 0022, decision 23). */
+/** The approval action that covers one recall. */
 export const RECALL_ACTION = "stack-recall";
 
 export type ApprovalRow = typeof approvals.$inferSelect;

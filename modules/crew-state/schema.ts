@@ -119,7 +119,7 @@ export const attemptDispatch = sqliteTable("attempt_dispatch", {
   acknowledgedAt: text("acknowledged_at"),
   inspection: text("inspection"),
   inspectionIdentity: text("inspection_identity"),
-  // The "before" scan of ADR 0018, recorded with the agent start intent of a production attempt.
+  // The "before" scan, recorded with the agent start intent of a production attempt.
   outsideScan: text("outside_scan"),
   // The planning record ids the brief carried, so the spec copy of its result holds them. A
   // launch recorded before this column existed holds null.
@@ -181,7 +181,7 @@ export const submissions = sqliteTable("submissions", {
 });
 
 /**
- * One difference that submit found outside an Operative worktree (ADR 0018).
+ * One difference that submit found outside an Operative worktree.
  * Its writer is not known, so it never refuses the result, and acceptance waits until the
  * Operator explains it or a new scan proves it removed.
  */
@@ -211,7 +211,7 @@ export const outsideChanges = sqliteTable(
 
 /**
  * One recorded state of the integration branch of a source, which a branch review reads: the
- * base, one head, and the ordered commits with the accepted submission of each (ADR 0017).
+ * base, one head, and the ordered commits with the accepted submission of each.
  * Its identity covers all of them, so a report on another head or another commit list refuses.
  */
 export const branchSnapshots = sqliteTable("branch_snapshots", {
@@ -248,7 +248,7 @@ export const reviews = sqliteTable("reviews", {
   revision: integer("revision").notNull(),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
-  // The text a reviewer wrote for the pull request that publishes this subject (ADR 0022). A
+  // The text a reviewer wrote for the pull request that publishes this subject. A
   // branch review always writes it, and a result review writes it for the only code result of
   // its source. The Operator only passes it on.
   publishedText: text("published_text"),
@@ -482,7 +482,7 @@ export const planningRecords = sqliteTable("planning_records", {
 });
 
 /**
- * The one gate checkout of a source (ADR 0021). Herdr creates it once, and the runner detaches
+ * The one gate checkout of a source. Herdr creates it once, and the runner detaches
  * its HEAD at each key, so its branch never moves and it holds no work.
  */
 export const gateCheckouts = sqliteTable("gate_checkouts", {
@@ -546,7 +546,7 @@ export const gateRunCommands = sqliteTable(
 );
 
 /**
- * The one integration branch of a source (ADR 0020). The first code dispatch creates it at the
+ * The one integration branch of a source. The first code dispatch creates it at the
  * integration base, after that base passed the project gate, and fixes the gate declaration with
  * it. Every later production dispatch of the source starts from the recorded tip.
  */
@@ -565,7 +565,7 @@ export const integrationBranches = sqliteTable("integration_branches", {
 });
 
 /**
- * One landing of one accepted code result on the integration branch of its source (ADR 0020).
+ * One landing of one accepted code result on the integration branch of its source.
  * The intent names the tip the branch moves from and the commit it moves to before the move, so
  * recovery reads the branch once. `landed` is the commit on the branch that carries the result.
  */
@@ -596,8 +596,8 @@ export const landings = sqliteTable("landings", {
 });
 
 /**
- * One approved rebase of the integration branch of one source onto a new base (ADR 0020, ADR
- * 0022). The intent records the whole plan before the branch moves, so recovery reads the branch
+ * One approved rebase of the integration branch of one source onto a new base.
+ * The intent records the whole plan before the branch moves, so recovery reads the branch
  * once, and the outcome records the new base and tip with what the rebase did to each landing.
  */
 export const integrationRebases = sqliteTable("integration_rebases", {
@@ -622,7 +622,7 @@ export const integrationRebases = sqliteTable("integration_rebases", {
 });
 
 /**
- * One stack publication of one source (ADR 0022), recorded after its `publish` approval and
+ * One stack publication of one source, recorded after its `publish` approval and
  * before its first write. A source can publish more than once, so each one has its number.
  */
 export const stackPublications = sqliteTable(
@@ -650,7 +650,7 @@ export const stackPublications = sqliteTable(
 
 /**
  * One staged write of one stack publication: the push, or the create of one pull request. The
- * intent is recorded before the write, and recovery reads GitHub to settle it (ADR 0005).
+ * intent is recorded before the write, and recovery reads GitHub to settle it.
  */
 export const publishEffects = sqliteTable(
   "publish_effects",
@@ -689,7 +689,7 @@ export const stackPullRequests = sqliteTable(
 
 /**
  * One reading of one published pull request on GitHub, taken when a person reports a merge or a
- * close. The latest reading of each part is what the next actions read (ADR 0022).
+ * close. The latest reading of each part is what the next actions read.
  */
 export const stackObservations = sqliteTable("stack_observations", {
   id: text("id").primaryKey(),

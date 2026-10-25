@@ -1,10 +1,9 @@
-# ADR-0026: One device database holds Operator state
+# ADR-0006: One device database holds Operator state
 
 ## Status
 
 Accepted - 2026-10-24.
-Decided in #204 and #208, narrowed in #231 and renamed in #232.
-Supersedes ADR-0003.
+Decided in #204, #208, #231, and #232.
 Planned, not yet implemented.
 
 ## Context
@@ -32,8 +31,8 @@ Backups are consistent SQLite snapshots verified for integrity and migration his
 Compatibility uses the applied migration history, not an independent integer version.
 The config-write lock and receipt remain outside the database so a settings operation does not hold workflow writes.
 
-The simplified state has no supervisor ownership tokens, request-replay records, device worker limit, reserved reviewer slot, or wake bindings.
-State guards reject a second transition instead of retaining the former coordination machinery.
+State guards reject a second transition.
+SuperAgents choose parallel work without a device-wide agent quota.
 
 ## Consequences
 
@@ -48,6 +47,6 @@ State guards reject a second transition instead of retaining the former coordina
 - Silent table creation on every open was rejected because it can conceal damaged or unsupported state.
 - Raw copies of a live database and its side files were rejected because they do not establish a consistent backup.
 - An integer version beside migration history was rejected because two format authorities can disagree.
-- Retaining ownership and request records was rejected because the retained workflows use transition guards and do not need that protocol.
+- Supervisor ownership and request-replay protocols were rejected because transition guards protect the workflow from duplicate operations.
 
-Related: ADR-0003, historical project database decision; ADR-0024, device settings and state ownership; ADR-0025, registration creates project identity; ADR-0027, automatic compatibility and verified migration backups; ADR-0023, state guards own transitions; ADR-0029, static readiness does not replace integrity protection.
+Related: ADR-0004, device settings and state ownership; ADR-0005, registration creates project identity; ADR-0007, automatic compatibility and verified migration backups; ADR-0003, state guards own transitions; ADR-0009, static readiness does not replace integrity protection.

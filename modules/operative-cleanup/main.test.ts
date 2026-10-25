@@ -26,7 +26,7 @@ async function withFailingGit<Value>(
     `${bin}/git`,
     [
       "#!/bin/sh",
-      // The guard of ADR 0018 and `-C <repo>` come before the subcommand.
+      // The Git safety guard and `-C <repo>` come before the subcommand.
       `if [ "$6" = "${fault.subcommand}" ]; then`,
       `  printf '%s' '${fault.stderr}' >&2`,
       fault.end === "term" ? "  kill -TERM $$" : "  exit 3",

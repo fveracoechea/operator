@@ -7,7 +7,8 @@ Every skill here has exactly one home, so no name in this directory is a second 
 This repository reaches them through symlinks in `.agents/skills/` and `.claude/skills/`.
 Write to the portable frontmatter floor, `name`, `description`, `license`, `compatibility`, and `metadata`, because opencode drops every other field without a word.
 The frontmatter `name` and the directory name are the same string.
-A `SKILL.md` is a router and stays under 150 lines, and every markdown file beside it is reached by a link from it, as [ADR-0014](../docs/adr/0014-an-owned-skill-is-a-router-with-topic-files.md) records.
+A `SKILL.md` is a router and stays under 150 lines, and every markdown file beside it is reached by a link from it.
+See [ADR-0002](../docs/adr/0002-an-owned-skill-discloses-rules-through-task-specific-topics.md) for the task-specific disclosure decision.
 `bun run quality` fails on any of those four rules.
 
 - **[adr](./adr/SKILL.md)** - Use when recording an architectural decision, when an existing ADR in docs/adr looks stale against the code, or when a change contradicts an ADR.

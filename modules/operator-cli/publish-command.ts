@@ -153,7 +153,7 @@ function stopped(result: Extract<Applied, { status: "effect-stopped" }>): Refusa
 const MERGE_LINE = "A person merges it on GitHub with a merge commit. Operator never merges.";
 
 export async function runPlan(parsed: ParsedArguments<"--source">): Promise<Handled> {
-  // A preview changes nothing, and the Operator writes no text into it (ADR 0022, D1).
+  // A preview changes nothing, and the Operator writes no text into it.
   const { sourceId } = parsed.crew;
   const { result } = await CrewState.planPublish({ projectRoot: process.cwd(), sourceId });
   return answer(parsed, "publish_plan", result, { planned: publishPreview, ...planRefusals })

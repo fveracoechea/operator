@@ -68,9 +68,9 @@ export function specPathOf(submissionId: string): string {
 /**
  * Copies the work one result was produced against into the store, as the spec its review reads.
  * The reviewer has no network and the issue can change after registration, so the review reads
- * this fixed copy, bound by the requirements identity that the submission records (ADR 0007).
+ * this fixed copy, bound by the requirements identity that the submission records.
  * It also holds the planning records that the producer brief carried, in the same rendering, so
- * the Spec axis checks the result against the decisions that it followed (ADR 0019).
+ * the Spec axis checks the result against the decisions that it followed.
  */
 export async function storeSpec(request: {
   projectRoot: string;

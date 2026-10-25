@@ -350,7 +350,7 @@ describe("operator review report reads the behavior-changes coverage token", () 
     const producer = await startProducer(workspace);
     const artifact = await commitArtifact(workspace, producer, "# Result\n");
     const submitted = await submit(workspace, producer, submissionBody(producer, artifact));
-    // An earlier release recorded no list, and the migration keeps none (ADR 0018).
+    // An earlier release recorded no list, and the migration keeps none.
     const sqlite = new Database(`${workspace.repo}/.operator/local/crew-state.sqlite`);
     sqlite.query("update submissions set behavior_changes = null").run();
     sqlite.close();

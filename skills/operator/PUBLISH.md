@@ -2,7 +2,7 @@
 
 Read this when `bun run operator crew next` offers `publish_stack`, `retarget_pull_request`, `recall_stack`, `settle_publish`, `rebase_integration`, or `settle_rebase`, or shows `stack_open` or `stack_fault`, when the user reports a merge or a close of a pull request, and when the target branch moved under a source.
 
-The CLI publishes the integration branch of a source as a pull request stack, one pull request by default, behind one approval of the person (ADR 0022).
+The CLI publishes the integration branch of a source as a pull request stack, one pull request by default, behind one approval of the person.
 A person merges each pull request on GitHub.
 You and the crew never merge a pull request and never turn on auto-merge.
 A merge by a teammate of the person counts as the approval of the person.

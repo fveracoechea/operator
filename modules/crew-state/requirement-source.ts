@@ -60,7 +60,7 @@ export type QuoteOutcome =
   | { status: "source-unknown"; sourceId: string }
   | { status: "source-revision-changed"; sourceId: string; revision: string; recorded: string };
 
-/** The CRLF rule of ADR 0019, so a source saved with Windows line ends still matches. */
+/** The CRLF rule, so a source saved with Windows line ends still matches. */
 function normalized(value: string): string {
   return value.replaceAll("\r\n", "\n");
 }

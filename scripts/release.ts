@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Release tooling. It is not part of the user-facing CLI. The release workflow runs `publish`
- * after a version pull request merges and the commit passed its checks. See ADR 0013.
+ * after a version pull request merges and the commit passed its checks. See ADR 0007.
  *
  *   bun scripts/release.ts build   --out <dir> --commit <sha>
  *   bun scripts/release.ts plan    --out <dir> --commit <sha> [--base main]

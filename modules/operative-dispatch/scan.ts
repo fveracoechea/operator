@@ -11,7 +11,7 @@ export type OutsidePlace = "worktree-parent" | "checkout" | "git-hooks" | "git-c
 export type OutsideEntry = { place: OutsidePlace; path: string; state: string };
 
 /**
- * The two snapshots of ADR 0018 around one Operative worktree.
+ * The two snapshots around one Operative worktree.
  * The folder that holds the worktree and the controlling checkout are read apart, so a part
  * that could not be read never hides what the other part found.
  */

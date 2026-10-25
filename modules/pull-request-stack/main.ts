@@ -493,7 +493,7 @@ function shipsOf(
 }
 
 /**
- * Publishes the integration branch of one source as a pull request stack (ADR 0022). It is the
+ * Publishes the integration branch of one source as a pull request stack. It is the
  * only module that pushes or writes a pull request. It never merges, never asks for auto-merge,
  * never pushes with force, and never deletes a branch: a person merges.
  */
@@ -560,7 +560,7 @@ export const PullRequestStack = {
 
   /**
    * Reads the target branch of one repository, fetches its tip by its commit, and answers
-   * whether one commit is on it, for the new base of a rebase (ADR 0022). The target is the
+   * whether one commit is on it, for the new base of a rebase. The target is the
    * default branch, and the remote is the one whose URL names the repository, as for a plan. It
    * moves no ref of the project and writes nothing that others read.
    */
@@ -584,7 +584,7 @@ export const PullRequestStack = {
 
   /**
    * Performs one staged effect. It reads first and writes only when the read shows that the
-   * effect is still needed, so a repeat after a lost answer is safe (ADR 0005).
+   * effect is still needed, so a repeat after a lost answer is safe.
    */
   async write(request: { repoRoot: string; effect: Effect }): Promise<WriteOutcome> {
     const { effect } = request;
@@ -854,7 +854,7 @@ type PullAnswer =
   | { status: "stopped"; outcome: Exclude<WriteOutcome, { status: "done" }> };
 
 /**
- * The one recovery rule of a pull request write (ADR 0005). It reads first, and a read that
+ * The one recovery rule of a pull request write. It reads first, and a read that
  * settles the effect ends it with no write. Otherwise it writes and reads again: the write is
  * done only when that read shows it, and a lost answer stays uncertain, never assumed.
  */

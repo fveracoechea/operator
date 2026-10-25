@@ -144,7 +144,7 @@ async function failGit(
     `${workspace.bin}/git`,
     [
       "#!/bin/sh",
-      // The guard of ADR 0018 and `-C <repo>` come before the subcommand.
+      // The Git safety guard and `-C <repo>` come before the subcommand.
       'case "$6 $7" in',
       `  ${fault.pattern})`,
       `    printf '%s' '${fault.stderr}' >&2`,

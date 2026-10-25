@@ -268,7 +268,7 @@ export type GateUnusable = {
 };
 
 /**
- * The project gate a producer brief states (ADR 0021): the one fixed on the source with its
+ * The project gate a producer brief states: the one fixed on the source with its
  * integration base, or, before the source has one, the one at the base commit of the launch.
  * A reviewer reads no gate here, because its registered commands already permit the gate.
  */

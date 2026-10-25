@@ -31,7 +31,7 @@ const TAKE_OUT_CAUSES = {
 export const takeOutCauseSchema = z.enum(TAKE_OUT_CAUSES);
 
 /**
- * The plan of one rewrite, as its intent records it (ADR 0020). It names the landing that the
+ * The plan of one rewrite, as its intent records it. It names the landing that the
  * correction replaces, each later landing that lands again with its new commit, and each later
  * landing that is taken out, so recovery and the record read the same move. A take-out names no
  * correction: it records the registration plan revision that recorded the withdrawals it is bound
@@ -132,7 +132,7 @@ export function intendedLandingOf(db: CrewReader, sourceId: string): LandingRow 
 /**
  * The landing that an earlier submission of one assignment holds on the branch, or null. A
  * submission of an assignment that already landed is a correction, so it takes the place of
- * that landing through a rewrite (ADR 0020).
+ * that landing through a rewrite.
  */
 export function replacedLandingOf(
   db: CrewReader,

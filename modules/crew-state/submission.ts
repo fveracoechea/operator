@@ -33,7 +33,7 @@ export const REVIEWER_COMMANDS = ["operator attempt acknowledge", "operator revi
  * The read-only `git` commands that `code-review` runs from its fixed point.
  * A result review diffs from the base commit, so the diff is exactly the one submitted commit.
  * Only these are named, because any other `git` command lets a reviewer write, and only the
- * checkout reading after the review would see it (ADR 0007).
+ * checkout reading after the review would see it.
  */
 export function reviewReadCommands(fixedPoint: string | null): string[] {
   return fixedPoint === null
@@ -251,7 +251,7 @@ function registerReview(
       contentIdentity: request.spec.contentIdentity,
     },
     // A combined revision of an integration cycle is reviewed with the patch that was reviewed
-    // and the interdiff from it to the new one (ADR 0017).
+    // and the interdiff from it to the new one.
     ...(request.integration === null
       ? []
       : [

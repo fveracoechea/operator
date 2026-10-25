@@ -4,7 +4,7 @@ import { startRebaseGateRun } from "./rebase.ts";
 import { startTakeOutGateRun } from "./take-out.ts";
 
 /**
- * What one gate run start gates (ADR 0021): the candidate of one code result, the integration
+ * What one gate run start gates: the candidate of one code result, the integration
  * base of a source at a commit, the next place of a rebase of a source onto a new base, or the
  * next commit of the rebuilt range of the take-out of a source.
  */

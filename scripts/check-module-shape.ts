@@ -141,7 +141,7 @@ function checkImports(path: string, sourceFile: ts.SourceFile): void {
 }
 
 /**
- * The integration-branch module is the only writer of a Git ref (ADR 0020), so no other
+ * The integration-branch module is the only writer of a Git ref, so no other
  * production file may name the Git plumbing command that writes one. A test may, to set up a case.
  */
 function checkRefWriter(path: string, text: string): void {
@@ -158,8 +158,8 @@ function checkRefWriter(path: string, text: string): void {
 }
 
 /**
- * The pull-request-stack module is the only module that pushes or writes a pull request
- * (ADR 0022), so no other production file may run `git push` or name the pull request endpoint.
+ * The pull-request-stack module is the only module that pushes or writes a pull request,
+ * so no other production file may run `git push` or name the pull request endpoint.
  * A `kind: "push"`, or its schema literal, names a recorded effect, not a call. A test may, to set up a case.
  */
 function checkPublisher(path: string, text: string): void {

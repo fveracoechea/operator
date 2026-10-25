@@ -7,7 +7,7 @@ export type CheckoutInspection = Awaited<ReturnType<typeof OperativeDispatch.ins
 export type GateRead = Awaited<ReturnType<typeof ProjectGate.read>>;
 
 /**
- * The one-commit rule of ADR 0015, as the brief states it beside the submit command.
+ * The one-commit rule, as the brief states it beside the submit command.
  * The check below owns this line and its refusal name, so the brief and the refusal cannot drift.
  */
 export const ONE_COMMIT_RULE = {
@@ -16,7 +16,7 @@ export const ONE_COMMIT_RULE = {
 } as const;
 
 /**
- * The basis rule of ADR 0018, as the brief states it beside the submit command.
+ * The basis rule, as the brief states it beside the submit command.
  * The check below owns this line and its refusal name, so the brief and the refusal cannot drift.
  */
 export const BEHAVIOR_CHANGE_RULE = {
@@ -42,7 +42,7 @@ export type BasisGap = {
 };
 
 /**
- * The project gate rule of ADR 0021, as the brief states it beside the submit command and the
+ * The project gate rule, as the brief states it beside the submit command and the
  * gate commands. The check below owns this line and its refusal name.
  */
 export const PROJECT_GATE_RULE = {
@@ -233,11 +233,11 @@ function projectGate({ input, gate }: ResultRequest): ResultRefusal[] {
       ];
 }
 
-/** The checks of ADR 0018 in their fixed order. */
+/** The result checks in their fixed order. */
 const RESULT_CHECKS = [commitShape, workingTree, writePathsCheck, behaviorChangeBasis, projectGate];
 
 /**
- * Applies the authority limits of ADR 0018 to one inspection of the Operative checkout.
+ * Applies the authority limits to one inspection of the Operative checkout.
  * Every refusal is reported at once, in a fixed order: the commit shape, the working tree, the
  * write paths, the behavior change basis, and the project gate. A check that could not run says
  * so and never reports a pass. Operator checks only that a basis exists, and the review checks

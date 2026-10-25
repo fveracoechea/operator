@@ -347,7 +347,7 @@ export const OperativeDispatch = {
 
   /**
    * Scans the folder that holds one Operative worktree and the controlling checkout, as one
-   * snapshot of ADR 0018. It only reads, and it never names a writer: two scans of one attempt
+   * snapshot. It only reads, and it never names a writer: two scans of one attempt
    * show what changed outside the worktree, whoever changed it.
    */
   async scanOutside(request: { projectRoot: string; worktreePath: string }) {

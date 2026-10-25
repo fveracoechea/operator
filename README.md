@@ -22,7 +22,7 @@ Agents invoke the operations that the CLI provides, and those operations perform
 Agents do the reasoning, implementation, and review of their assigned work, and the person supplies the decisions and approvals that the workflow requires.
 They do not reconstruct the workflow rules, maintain a separate schedule, or perform a CLI-owned operation by hand.
 
-See [ADR 0023](docs/adr/0023-each-lifecycle-is-an-explicit-state-machine.md) for the state machines and [ADR 0011](docs/adr/0011-one-read-only-command-owns-the-coordination-order.md) for the next actions.
+See [ADR 0003](docs/adr/0003-each-lifecycle-is-an-explicit-state-machine.md) for the state machines and [ADR 0001](docs/adr/0001-one-next-actions-read-owns-the-coordination-order.md) for the next actions.
 
 The accepted device-level design in [CONTEXT.md](CONTEXT.md) and the active ADRs is planned, not yet implemented.
 It uses SuperAgents and WorkerAgents, PR and report assignments, and CLI-owned workflow operations over Herdr.
@@ -217,7 +217,7 @@ Your input holds only what the tracker does not hold: the kind, the acceptance r
 The registration records only that plan revision.
 A new read of a registered source adds new sub-issues with no approval.
 A changed parent, a changed item, or a withdrawal needs your approval of the `registration-change` plan revision.
-See [Crew state and the frontier](#crew-state-and-the-frontier) and [ADR 0016](docs/adr/0016-a-source-is-read-from-the-tracker-and-never-created-by-operator.md).
+See [Crew state and the frontier](#crew-state-and-the-frontier).
 
 ### The integration branch and its recorded tip
 
@@ -228,7 +228,6 @@ Every later production dispatch of the source starts from the recorded tip, with
 The branch moves only by a landing, by a rewrite, or by an approved rebase, and only from the tip that the crew last recorded.
 A branch that holds any other commit stops each production dispatch with `integration_branch_moved`, and only a person puts it back.
 Nothing pushes the integration branch before publish.
-See [ADR 0020](docs/adr/0020-the-cli-lands-each-accepted-commit-and-the-integration-branch-moves-only-from-its-recorded-tip.md).
 
 ### The project gate at submit and before each landing
 
@@ -240,7 +239,7 @@ The CLI runs each gate run in the gate checkout of the source, on the branch `op
 A failed run blocks, and a pass after a failure is flaky, which also blocks.
 A failed candidate becomes an integration cycle for the crew.
 A failed base waits on you: give a fixed base, or approve a fresh series.
-See [The project gate](#the-project-gate) and [ADR 0021](docs/adr/0021-every-commit-of-an-integration-branch-passes-the-project-gate-before-it-lands.md).
+See [The project gate](#the-project-gate).
 
 ### The landing at acceptance
 
@@ -288,7 +287,6 @@ Your `publish` approval binds the exact plan revision, so it covers every title,
 It also names each tracker step after the merge as a target: the resolution and the completion of each ticket, with the resolution text already rendered, and `github:<owner>/<repo>#<n>:map_amendment` when the source has a map issue.
 `publish apply` pushes each part to a new remote branch `operator/<source slug>/<publication>/<k>` in one push with no force option, and opens each pull request from the bottom up.
 A stack of one is the default. A stack of more parts follows the cut points of the branch review, and each higher pull request is based on the one below it.
-See [ADR 0022](docs/adr/0022-the-cli-publishes-the-stack-a-person-merges-it-with-merge-commits-and-its-tickets-complete-after-the-merge.md).
 
 ### The merge, by a person
 
@@ -344,7 +342,6 @@ Each lifecycle that crew state records is one explicit state machine in `modules
 A machine has one closed set of states, one closed set of events, one transition table, and one pure decision.
 A command gathers the facts, the decision gives the next state or the first refusal, and the command writes the next state before it runs an outside effect.
 `crew next` writes nothing. It reads the recorded state of each machine, and it does not derive a state again.
-See [ADR 0023](docs/adr/0023-each-lifecycle-is-an-explicit-state-machine.md).
 
 Each box is one machine with its states.
 A solid arrow is a main event, with the command that sends it. A dotted arrow between two machines is a correction.
@@ -547,7 +544,6 @@ Readiness reads it at HEAD as the `project-gate` check.
 A production dispatch reads it at the base commit and refuses with `project_gate_missing`, `project_gate_invalid`, or `project_gate_unread`.
 The producer brief lists each gate command beside the submit command, and submit refuses a code result whose checks do not show each one as passed.
 A reviewer is permitted to run the gate commands.
-See [ADR 0021](docs/adr/0021-every-commit-of-an-integration-branch-passes-the-project-gate-before-it-lands.md).
 
 ## Release and updates
 
@@ -632,7 +628,6 @@ The JSR path uses the official `jsr` client, pinned in the development dependenc
 It runs on a staged copy of the artifact, and it authenticates with the short-lived credential that GitHub issues to the job.
 No publishing token is stored.
 Deno runs only inside that client as a publishing tool, and Operator never runs on Deno.
-See [ADR 0013](docs/adr/0013-one-release-is-one-matched-version-delivered-twice.md).
 
 ## Project readiness
 
@@ -729,7 +724,6 @@ The most recent attempt that ran a check gives the result for that check.
 If no attempt ran a check, the earlier result stays.
 A changed input makes its own record stale and keeps unrelated records valid.
 A check that failed, and a check the probe attempted and could not run, both hold back the claims they feed.
-See [ADR 0002](docs/adr/0002-readiness-is-derived-and-only-live-evidence-is-recorded.md) and [ADR 0012](docs/adr/0012-a-live-probe-proves-itself-on-its-own-resources.md).
 
 ## Crew state and the frontier
 
@@ -802,9 +796,6 @@ bun run operator work accept --request <id> --owner-token <token> --assignment <
 ```
 
 Each direct dependent receives the planning record in its brief.
-See [ADR 0019](docs/adr/0019-a-planning-decision-is-recorded-at-acceptance-and-reaches-its-direct-dependents.md).
-
-See [ADR 0003](docs/adr/0003-crew-state-is-one-sqlite-file-created-once.md) and [ADR 0004](docs/adr/0004-the-frontier-is-the-only-dispatch-rule.md).
 
 ## Operative dispatch and recovery
 
@@ -873,7 +864,6 @@ The CLI keeps the inspected checkout and branch.
 The launch snapshot fixes the crew host, model, release, lock data, and skills.
 A recovery restores that record.
 So a changed project setting or a session override blocks the attempt with a named drift, and never reaches a launch already in progress.
-See [ADR 0005](docs/adr/0005-dispatch-is-staged-and-an-unproven-effect-blocks.md).
 
 ## Questions, answers, and approvals
 
@@ -949,7 +939,6 @@ It covers an action when those words match and the approval names every target o
 So a broader grant covers a narrower action, and never the other way round.
 A grant records the person's exact words and is the only way to make an approval.
 Silence, a timeout, a general direction to finish, and an Operative report grant nothing.
-See [ADR 0006](docs/adr/0006-a-question-holds-only-its-own-work-and-authority-is-granted.md).
 
 ## Reviewed results and acceptance
 
@@ -989,7 +978,6 @@ It never refuses for one.
 `operator work accept` refuses with `outside_changes_undisposed` until `operator work dispose` records each one as `explained` or `removed`.
 Operator never deletes an outside change. The user deletes it, and a new scan proves `removed`.
 A change in `.git/hooks/` or `.git/config` is kept only under an approval of the user.
-See [ADR 0018](docs/adr/0018-a-result-is-checked-at-submit-against-its-authority-limits.md).
 
 The CLI copies each path artifact into a durable store and verifies it, so the reviewer reads a fixed copy and not a worktree that keeps changing.
 
@@ -1043,11 +1031,10 @@ Acceptance verifies these items:
 - A passing outcome on every recorded check.
 - For a code result, a passing gate run on the planned commit of its landing (`operator gate run --assignment <id>`).
 
-The last step lands a code result on the integration branch of its source, as ADR 0020 records.
+The last step lands a code result on the integration branch of its source.
 
 A check outcome that a review observed for itself outranks the producer's own word, so a contradiction blocks.
 A stopped reviewer, a missing input, an unavailable review capability, a failed check, and a flaky check each block acceptance.
-See [ADR 0007](docs/adr/0007-review-is-crew-work-and-acceptance-reads-only-recorded-evidence.md).
 
 ## Rework, limits, and invalidated results
 
@@ -1104,7 +1091,6 @@ The assignment returns to the frontier as `invalidated`, the invalidation opens 
 The correction of a code result starts at its landed commit, and its acceptance rewrites the integration branch in place, as [A correction of a landed commit](#a-correction-of-a-landed-commit) shows.
 A dependent that never started stays held by the dependency gate.
 Accepting the corrected result releases the dependents that no other defect still holds, and a dependent that was accepted returns to the step that decided it.
-See [ADR 0008](docs/adr/0008-rework-is-a-delegated-cycle-and-a-limit-blocks-acceptance.md).
 
 ## Tracker completion and recovery
 
@@ -1162,7 +1148,6 @@ Operator never replaces a shared issue body, because an amendment is always an a
 `bun run operator tracker show` reports the three steps, what blocks each one, and what may follow it.
 It exits 0 even when the tracker operation is incomplete, because the query itself succeeded.
 Operator never writes a verified step again to repair another step.
-See [ADR 0009](docs/adr/0009-a-tracker-update-is-three-recoverable-steps.md).
 
 ## Cleanup
 
@@ -1197,7 +1182,6 @@ bun run operator cleanup release --request <id> --owner-token <token> --attempt 
 A retention hold keeps one Operative's resources.
 It blocks every cleanup of its attempt until a person releases it, and it outlives the session that placed it.
 `bun run operator cleanup show` reports every hold.
-See [ADR 0010](docs/adr/0010-cleanup-is-two-outcomes-behind-proof-and-approval.md).
 
 ## Coordination and recovery
 
@@ -1254,7 +1238,6 @@ You replace an attempt whose writer is gone, and you do not adopt it.
 An attempt that already ended needs neither.
 
 The Operator-owned skill reads this one command and keeps no queue of its own.
-See [ADR 0011](docs/adr/0011-one-read-only-command-owns-the-coordination-order.md).
 
 ## Development
 
@@ -1289,7 +1272,7 @@ Each module exports one interface object from `main.ts`, and `bun run lint:modul
 
 [Map the first Operator orchestration workflow](https://github.com/fveracoechea/operator/issues/1) holds the approved scope and the decision tickets.
 The approved [CLI and skill distribution contract](https://github.com/fveracoechea/operator/issues/7#issuecomment-5729841818) settles exact release selection, skill installation, updates, and runtime boundaries.
-[ADR 0013](docs/adr/0013-one-release-is-one-matched-version-delivered-twice.md) records how publication works.
+[ADR 0007](docs/adr/0007-one-running-release-serves-the-device-and-migrates-state.md) records the publication decision.
 
 ## References
 

@@ -190,7 +190,7 @@ describe("the publish of a stack of one", () => {
     expect(await remoteRefs(branch.bare)).toContain(`refs/heads/${NAME} ${branch.secondCommit}`);
 
     // The CLI reads GitHub and opens the pull request, and nothing else: it never merges and
-    // never turns on auto-merge (D6), and it deletes no branch anywhere (ADR 0010).
+    // never turns on auto-merge (D6), and it deletes no branch anywhere.
     for (const call of await githubCalls(workspace)) {
       expect(call).toMatch(
         /^(GET repos\/fveracoechea\/operator(\/rules\/branches\/main|\/pulls\?.*)?|POST repos\/fveracoechea\/operator\/pulls)$/,

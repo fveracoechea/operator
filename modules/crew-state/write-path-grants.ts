@@ -28,7 +28,7 @@ function writePathsRevision(registered: string[]): string {
  * Which production assignments hold their write paths now. Work holds them from its first claim
  * until it reaches accepted completion, and again after it leaves accepted completion. A
  * withdrawal ends the hold, unless the integration branch still holds a commit of the work: then
- * the take-out that moves the branch without that commit ends it (ADR 0004).
+ * the take-out that moves the branch without that commit ends it.
  */
 export function writePathHolders(db: CrewReader): (row: AssignmentRow) => boolean {
   const started = new Set(

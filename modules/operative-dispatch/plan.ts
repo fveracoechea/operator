@@ -195,7 +195,7 @@ function briefOperations(brief: Brief): string[] {
 }
 
 /**
- * The host refuses each tool outside this list and never asks the person (ADR 0006).
+ * The host refuses each tool outside this list and never asks the person.
  * It is built from the same brief data and invocation that the brief text names.
  */
 function allowedTools(brief: Brief, invocation: string): string[] {
@@ -303,7 +303,7 @@ function questionSection(brief: Brief, invocation: string): string[] {
 }
 
 /**
- * The project gate commands, beside the submit command that checks them (ADR 0021).
+ * The project gate commands, beside the submit command that checks them.
  * A failure the producer cannot fix inside its limits is a question, never a submitted failure.
  */
 function gateLines(brief: Brief): string[] {

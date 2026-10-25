@@ -1,4 +1,4 @@
-# ADR-0036: Mutation testing runs local tests beside each unit
+# ADR-0016: Mutation testing runs local tests beside each unit
 
 ## Status
 
@@ -54,4 +54,4 @@ The cleanup finishes only with no remaining reported survivors or untested targe
 - Quality-gate or changed-lines CI mutation runs were rejected because the slow command tests cost too much agent time.
 - Score thresholds and an ignore-list setting were rejected in favor of explicit targets and justified local suppressions.
 
-Related: ADR-0014, development skill guidance uses the same disclosure policy without becoming a bundled skill; ADR-0030, CI remains the PR merge gate; ADR-0038, lint enforcement remains separate from local mutation analysis.
+Related: ADR-0002, development skill guidance uses the same disclosure policy without becoming a bundled skill; ADR-0010, CI is the PR merge gate; ADR-0018, lint enforcement is separate from local mutation analysis.

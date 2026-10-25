@@ -163,7 +163,7 @@ export function checkoutBlockers(inspection: CheckoutInspection): CleanupBlocker
 }
 
 /**
- * The gate of ignored files, which only a removal reads (ADR 0010). A default status listing
+ * The gate of ignored files, which only a removal reads. A default status listing
  * hides them, and the removal deletes them. A closure deletes no file, so a gate command such
  * as an install, whose output the project ignores, never holds the process.
  */
@@ -174,7 +174,7 @@ export function ignoredFileBlockers(inspection: CheckoutInspection): CleanupBloc
 }
 
 /**
- * The head rule of a removal (ADR 0010). Git, read in the checkout, must show HEAD on the
+ * The head rule of a removal. Git, read in the checkout, must show HEAD on the
  * recorded attempt branch, at the commit the handoff names: the submitted commit of a result,
  * or the dispatch base of an attempt that submitted no commit, such as a review. A commit after
  * the handoff and a detached HEAD each refuse, and the blocker names both heads. A checkout that

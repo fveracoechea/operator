@@ -17,7 +17,7 @@ import type { SubmissionRow } from "./submission.ts";
 import { isExecutable, isReview } from "./work-input.ts";
 
 /**
- * The assignment machine (ADR 0023, ADR 0007, ADR 0008). One `assignments` row moves through
+ * The assignment machine. One `assignments` row moves through
  * `AssignmentState`. A claim starts registered or invalidated work, a submit hands a result over,
  * a rework cycle sends it back, an acceptance unblocks a dependent, an invalidation finds an
  * accepted result defective, a pause holds the work that read it, a resume releases that work,
@@ -62,7 +62,7 @@ export type FrontierBlocker =
   | { reason: "write_paths_overlap"; holders: WritePathHolder[]; command: string }
   | {
       // The integration branch of the source still holds the commit of withdrawn work, so no
-      // dispatch base may hold a commit that no assignment owns until the take-out (ADR 0004).
+      // dispatch base may hold a commit that no assignment owns until the take-out.
       reason: "take_out_pending";
       commits: Array<{ assignmentId: string; commit: string }>;
     }
@@ -538,7 +538,7 @@ const REVIEW_GATES: Array<AcceptGuard<Produced>> = [
           checks: contradicted,
         };
   },
-  // A recorded fact never passes by silence (ADR 0007), so each outside change is answered.
+  // A recorded fact never passes by silence, so each outside change is answered.
   (produced) => {
     const owed = owedOf(produced);
     return owed?.owes === "outside"

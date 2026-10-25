@@ -46,7 +46,7 @@ export type AcceptResult =
   | { status: "unknown-assignment"; assignmentId: string }
   | AcceptRefusal
   | {
-      // Every other gate passed, so a code result now plans its landing (ADR 0020).
+      // Every other gate passed, so a code result now plans its landing.
       status: "landing-required";
       assignmentId: string;
       sourceId: string;
@@ -54,7 +54,7 @@ export type AcceptResult =
       commit: string;
       reviewedBase: string;
       // The landing this result replaces when it is a correction of a landed commit, which lands
-      // through a rewrite in place (ADR 0020), or null for an ordinary landing.
+      // through a rewrite in place, or null for an ordinary landing.
       replaces: string | null;
     }
   | { status: "landing-intended"; assignmentId: string; landingId: string }
@@ -80,7 +80,7 @@ export type AcceptedLanding = {
 /**
  * What one acceptance does at the landing step, the last gate of a code result. A probe stops
  * there and records nothing, an intent records the planned move before the branch moves, and a
- * record completes the acceptance after the move (ADR 0005, ADR 0020).
+ * record completes the acceptance after the move.
  */
 export type LandingStep =
   | { kind: "probe" }
@@ -340,7 +340,7 @@ function acceptProduction(
     planningRecordId: null,
     landing,
     // The acceptance that makes the integration branch final registers its branch review in the
-    // same change, as a submission registers its result review (ADR 0017).
+    // same change, as a submission registers its result review.
     branchReview: registerBranchReview(db, { sourceId: row.sourceId, now }),
   };
 }

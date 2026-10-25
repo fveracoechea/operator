@@ -345,7 +345,7 @@ function basisQuestionsOf(db: CrewReader, submission: SubmissionRow) {
 }
 
 /**
- * The recorded rounds one rework brief carries, derived at dispatch (ADR 0008).
+ * The recorded rounds one rework brief carries, derived at dispatch.
  * Each record is fixed once it is written, so this gives the same text as a derivation at the
  * moment the cycle was delegated.
  */
@@ -601,7 +601,7 @@ export function recordInspection(
     .run();
 }
 
-/** Records the "before" scan of one production attempt (ADR 0018). Submit compares it again. */
+/** Records the "before" scan of one production attempt. Submit compares it again. */
 export function recordOutsideScan(
   db: CrewWriter,
   request: { attemptId: string; scan: unknown; now: string },

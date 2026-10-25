@@ -88,7 +88,7 @@ export function claimAssignment(
   }
 
   // A fourth branch review waits on the user, and the frontier offers it only once the user
-  // directed it, so this claim spends that direction (ADR 0008, ADR 0017).
+  // directed it, so this claim spends that direction.
   if (isReview(row.kind)) {
     spendDirection(db, { assignmentId: row.id, limitKind: "branch_reviews", now: request.now });
   }

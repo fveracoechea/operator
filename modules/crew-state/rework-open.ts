@@ -532,7 +532,7 @@ export type InvalidationCycleOutcome =
   | Extract<ReworkOutcome, { status: "limit-reached" }>;
 
 /**
- * Opens the cycle that corrects one invalidated result (ADR 0008).
+ * Opens the cycle that corrects one invalidated result.
  * The defect, the accepted submission, and the landed commit are its content, so the fresh
  * Operative never has to find the defect again. It spends the same budget as every other
  * correction, so a spent budget records a direction request and opens nothing.
@@ -559,7 +559,7 @@ export function openInvalidationCycle(
 
   const result = resultOf(request.submission);
   // The correction starts at the commit on the branch that carries the result, and its base is
-  // the parent of that commit there, so acceptance puts it in the place of that commit (ADR 0020).
+  // the parent of that commit there, so acceptance puts it in the place of that commit.
   const landed = landedCommitOf(db, request.submission);
   const invalidation: ReworkInvalidation = {
     invalidationId: request.invalidationId,

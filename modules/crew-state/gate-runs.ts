@@ -18,7 +18,7 @@ export type GateCheckoutRow = typeof gateCheckouts.$inferSelect;
  * What one run gates: the integration base, the candidate of one submission on one recorded
  * tip, which is the planned commit of its landing, one place in the rebuilt range of a
  * correction, which the commit and the parent it lands on name, one place in the rebuilt range
- * of the take-out of a source (ADR 0021), or one commit of a branch rebuilt on a new base.
+ * of the take-out of a source, or one commit of a branch rebuilt on a new base.
  */
 export const gateSubjectSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("base") }),
@@ -41,7 +41,7 @@ export const gateSubjectSchema = z.discriminatedUnion("kind", [
     tip: z.string(),
     parent: z.string(),
   }),
-  // One commit of a branch rebuilt on a new base, and the commit it lands on (ADR 0022). The
+  // One commit of a branch rebuilt on a new base, and the commit it lands on. The
   // new base itself is gated as a base.
   z.strictObject({ kind: z.literal("rebase"), base: z.string(), parent: z.string() }),
 ]);
@@ -282,7 +282,7 @@ export function baseGateOf(db: CrewReader, sourceId: string): BaseGate {
   return { status: "pending", stopped: latest.state === "stopped" ? latest : null };
 }
 
-/** The states of one gate run, as `gate_runs.state` records them (ADR 0021). */
+/** The states of one gate run, as `gate_runs.state` records them. */
 export const gateRunStateSchema = z.enum(["running", "passed", "failed", "stopped"]);
 
 /** One run as a reader states it. The output stays in its artifact, and only its path is named. */

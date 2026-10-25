@@ -73,7 +73,7 @@ type TargetReason = Extract<
 >["reason"];
 
 /**
- * The refusals of a rebase plan, members of the durable unions of ADR 0011. Each one moves
+ * The refusals of a rebase plan, members of the durable refusal unions. Each one moves
  * nothing and records nothing, and a plan reports every one it finds at once.
  */
 export type RebaseRefusal = {
@@ -438,7 +438,7 @@ async function newBaseOf(request: {
 
 /**
  * Plans the rebase of the integration branch of one source onto a new base, and changes nothing
- * that others read: no crew state and no ref, only Git objects (ADR 0022, decision 25). The new
+ * that others read: no crew state and no ref, only Git objects. The new
  * base must be on the fetched target. The plan revision names the source, the branch, the old
  * base and tip, and the new base, so a gate run between the plan and the apply keeps it.
  */
@@ -644,7 +644,7 @@ type Caller = {
  * Records the outcome of one rebase, in one transaction: the next state of the rebase and of each
  * landing it ended, the new base and tip, each landing that landed again, each assignment whose
  * landing was taken out, and the branch review of the new head, which counts against the limit
- * of three (ADR 0017).
+ * of three.
  */
 function recordRebased(
   db: CrewWriter,
@@ -736,7 +736,7 @@ async function settle(request: Caller, rebase: RebaseRow): Promise<RebaseResult>
  * Rebases the integration branch of one source onto a new base, exactly as `planRebase`
  * previewed it, behind one `integration-rebase` approval of its plan revision (decision 25). The
  * new base and each commit that lands again pass the project gate first, in order, so a failing
- * new base is never recorded (ADR 0021). Then the intent is recorded, the branch moves once, and
+ * new base is never recorded. Then the intent is recorded, the branch moves once, and
  * the outcome is recorded. The move is a ref move that the CLI builds only from reviewed patches,
  * on a command that the Operator runs, so it is not an Operator change (D5). It writes no file in
  * any checkout, deletes no branch, and writes nothing to GitHub.
@@ -846,8 +846,8 @@ export type RebaseGateStart =
 
 /**
  * Starts one gate run on the first place of a rebase whose key has not passed: the new base, under
- * the gate declaration fixed on the source, then each commit that lands again, in order (ADR
- * 0021). The plan is made again for each run, so a commit whose new tree failed is taken out by
+ * the gate declaration fixed on the source, then each commit that lands again, in order.
+ * The plan is made again for each run, so a commit whose new tree failed is taken out by
  * the next plan, and only the changed part is gated again.
  */
 export async function startRebaseGateRun(request: {

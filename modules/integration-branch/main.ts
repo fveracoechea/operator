@@ -43,7 +43,7 @@ async function readCommit(
 }
 
 /**
- * The canonical diff of one commit against one parent (ADR 0020). The diff is plumbing, so no
+ * The canonical diff of one commit against one parent. The diff is plumbing, so no
  * user setting changes it: three lines of context, whitespace kept, no rename detection, and
  * full binary content.
  */
@@ -165,7 +165,7 @@ type LandingPlan = {
   landed: string;
   landedParent: string;
   kind: "fast-forward" | "merge" | "held";
-  /** The tree of `to`, which keys its gate run (ADR 0021). */
+  /** The tree of `to`, which keys its gate run. */
   tree: string;
   /** The patch identity of the reviewed commit, which the landed commit carries. */
   patch: string;
@@ -331,10 +331,10 @@ type TakenOut = Array<{
 
 /**
  * Lands each later commit again on a rebuilt tip, in the same order, under the three tests of a
- * rewrite (ADR 0020). A commit is taken out, with every later commit that needs it, when its
+ * rewrite. A commit is taken out, with every later commit that needs it, when its
  * patch changes or conflicts at its new place, when a commit it needs is taken out or gone, or
  * when its new tree is one the caller names as refused, which is a tree that failed the project
- * gate (ADR 0021). A commit to drop is removed with no test. `below` is the commit under the first
+ * gate. A commit to drop is removed with no test. `below` is the commit under the first
  * later commit on the old branch, and `gone` names the commits already removed below it.
  */
 async function relandOn(
@@ -497,7 +497,7 @@ async function readMovable(request: {
 }
 
 /**
- * The integration branch of one source (ADR 0020). This module is the only writer of it: a plain
+ * The integration branch of one source. This module is the only writer of it: a plain
  * local branch that it creates once at the integration base and moves only from its recorded
  * tip. It never resets a branch, never adopts a tip that it did not record, and never pushes.
  */
@@ -601,8 +601,8 @@ export const IntegrationBranch = {
   },
 
   /**
-   * Reads whether the branch still holds one recorded commit, for the removal of a checkout (ADR
-   * 0010). The branch must be at its recorded tip, as for a move, and the commit must be an
+   * Reads whether the branch still holds one recorded commit, for the removal of a checkout.
+   * The branch must be at its recorded tip, as for a move, and the commit must be an
    * ancestor of that tip. It reads no remote and searches no patch, because acceptance proved the
    * patch once. `not-held` answers a recorded tip without the commit, which only a corrupt
    * record gives.
@@ -637,8 +637,8 @@ export const IntegrationBranch = {
   },
 
   /**
-   * The reviewed patch of one commit and the interdiff from it to the patch of a new commit
-   * (ADR 0017). Each patch is the canonical diff of its commit against its one parent, and the
+   * The reviewed patch of one commit and the interdiff from it to the patch of a new commit.
+   * Each patch is the canonical diff of its commit against its one parent, and the
    * interdiff is a plain diff of the two patches, so a reviewer reads what changed between them.
    * Only Git objects are written, never a ref.
    */
@@ -688,7 +688,7 @@ export const IntegrationBranch = {
   },
 
   /**
-   * Plans the landing of one reviewed commit on the recorded tip, and moves no ref (ADR 0020).
+   * Plans the landing of one reviewed commit on the recorded tip, and moves no ref.
    * When the parent of the commit is the tip, the branch moves to the commit itself. When the
    * branch already holds a commit with an equal patch, nothing lands. Otherwise the change is
    * merged onto the tip with the reviewed base as the merge base, with no worktree, and
@@ -789,13 +789,13 @@ export const IntegrationBranch = {
   },
 
   /**
-   * Plans the rewrite of one landed commit in place, and moves no ref (ADR 0020). The correction
+   * Plans the rewrite of one landed commit in place, and moves no ref. The correction
    * takes the place of the replaced commit, on its parent, and each later commit lands again in
    * the same order. A take-out names no correction, so the replaced commit, and each later commit
    * that the caller names to drop, leave the branch with nothing in their place. A later commit is
    * taken out, with every later commit that needs it, when its patch changes or conflicts at its
    * new place, when a commit it needs is taken out or dropped, or when its new tree is one the
-   * caller names as refused, which is a tree that failed the project gate (ADR 0021). Every new
+   * caller names as refused, which is a tree that failed the project gate. Every new
    * commit copies the fields of the commit it rebuilds, so a repeat gives the same commits. Only
    * Git objects are written, never a ref.
    */
@@ -892,7 +892,7 @@ export const IntegrationBranch = {
   },
 
   /**
-   * Plans the rebuild of the whole branch on a new base, and moves no ref (ADR 0020, ADR 0022).
+   * Plans the rebuild of the whole branch on a new base, and moves no ref.
    * The commits whose pull request merged into the target leave the branch, and the new base
    * must hold each of their merge commits. Each other commit lands again on the new base in the
    * same order, under the three tests of a rewrite. The old base must be an ancestor of the new

@@ -153,7 +153,7 @@ async function withFailingRevParse<Value>(
     `${bin}/git`,
     [
       "#!/bin/sh",
-      // The guard of ADR 0018 and `-C <repo>` come before the subcommand.
+      // The Git safety guard and `-C <repo>` come before the subcommand.
       'if [ "$6" = "rev-parse" ]; then',
       "  printf '%s' 'stuck' >&2",
       end === "term" ? "  kill -TERM $$" : "  exit 3",

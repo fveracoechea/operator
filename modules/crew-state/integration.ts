@@ -49,7 +49,7 @@ const fixedCommandsSchema = z.array(
 );
 
 /**
- * The gate declaration fixed on a source with its integration base (ADR 0021). A result can change
+ * The gate declaration fixed on a source with its integration base. A result can change
  * the declaration file, and the change counts only for a later source, so every brief and every
  * submit check of the source reads this one and never the file at the base of an attempt.
  */
@@ -143,7 +143,7 @@ export function recordIntegrationBranch(
 
 /**
  * The refusals of a production dispatch against the integration branch of its source, members
- * of the durable unions of ADR 0011. Operator never resets the branch and never adopts a tip it
+ * of the durable refusal unions. Operator never resets the branch and never adopts a tip it
  * did not record, so a person puts a moved branch back.
  */
 export type IntegrationRefusal =
@@ -177,7 +177,7 @@ export type IntegrationRefusal =
  * The commit a production dispatch on a recorded branch starts from, or null to leave the base to
  * the rules of its cycle. A recorded launch fixed its base already, and a rework cycle that is not
  * an integration cycle starts where its own rule says. An integration cycle starts from the
- * commit its result lands on: the recorded tip, or the parent of the commit it replaces (ADR 0008).
+ * commit its result lands on: the recorded tip, or the parent of the commit it replaces.
  */
 function startOf(
   context: AttemptContext,
@@ -194,7 +194,7 @@ function startOf(
 }
 
 /**
- * Where one production dispatch starts (ADR 0020). A source with a recorded branch first proves
+ * Where one production dispatch starts. A source with a recorded branch first proves
  * that the branch still holds its recorded tip. A new launch of a first attempt then starts from
  * that tip, and a commit that differs refuses. An integration cycle starts there too. Every other
  * rework cycle keeps the start its cycle names, and a review or planning attempt reads no branch. `start` null leaves the base to those rules.
@@ -213,7 +213,7 @@ export async function integrationStart(request: {
   const recorded = await readState(request.projectRoot, (db) => ({
     row: integrationBranchOf(db, assignment.sourceId),
     // An integration cycle of a correction lands in the place of the commit that carries the
-    // result now, so it starts from the parent of that commit (ADR 0008, ADR 0020).
+    // result now, so it starts from the parent of that commit.
     replaced: currentLandingOf(db, assignment.id),
   }));
   if ("status" in recorded) {

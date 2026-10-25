@@ -1,9 +1,9 @@
-# ADR-0037: SuperAgents supervise and WorkerAgents do delegated work
+# ADR-0017: SuperAgents supervise and WorkerAgents do delegated work
 
 ## Status
 
 Accepted - 2026-10-24.
-Decided in #232 and completed by #233.
+Decided in #232 and #233.
 Planned, not yet implemented.
 
 ## Context
@@ -20,12 +20,10 @@ WorkerAgent names an agent that receives delegated work and reports to its super
 Task descriptions are not separate roles or a closed list.
 Herdr agent and agent session keep their runtime-process and conversation meanings.
 
-Remove the former group vocabulary and its derived terms rather than retain aliases.
 Use Operator state for stored workflow records and ready assignments for work that may start.
-The rename applies to current prose and relevant CLI, JSON, database, private-code, plugin, and skill interfaces.
+These names apply consistently to prose and relevant CLI, JSON, database, private-code, plugin, and skill interfaces.
 Product executable and plugin identifiers keep their product meaning.
-The role skills become super-agent and worker-agent without old-name forwarding skills.
-Retained ADRs use the current terms, and superseded records preserve their historical bodies.
+The role skills are super-agent and worker-agent, without aliases or forwarding skills.
 
 The five rules of the person govern supervision.
 A SuperAgent delegates detailed reading, investigation, implementation, review, research, triage, planning, and prototypes.
@@ -51,4 +49,4 @@ The SuperAgent keeps context low, reads short reports, and opens details only fo
 - Detailed work by the SuperAgent was rejected because that consumes the context needed for supervision.
 - Automatic deletion of changed old-name skills was rejected because managed installation does not own user edits.
 
-Related: ADR-0028, safe owned-skill replacement; ADR-0030, guarded PR merge; ADR-0033, report completion and authority; ADR-0034, profiles do not define worker roles; ADR-0014, one skill home and task-specific disclosure.
+Related: ADR-0008, safe owned-skill replacement; ADR-0010, guarded PR merge; ADR-0013, report completion and authority; ADR-0014, profiles do not define worker roles; ADR-0002, one skill home and task-specific disclosure.

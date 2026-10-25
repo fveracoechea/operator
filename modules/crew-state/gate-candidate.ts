@@ -21,7 +21,7 @@ export type CandidateStartResult =
 
 /**
  * Starts one gate run on the candidate of one code result: the planned commit of its landing on
- * the recorded tip (ADR 0021). The landing plan gives the same candidate again, so no ref names
+ * the recorded tip. The landing plan gives the same candidate again, so no ref names
  * it, and its key is its tree with the gate declaration fixed on its source. A plan that lands
  * nothing, or that is refused, starts no run.
  */

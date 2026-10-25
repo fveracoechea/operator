@@ -605,7 +605,7 @@ type PlanContext = {
 /**
  * A production blocker in another source that completed after the integration base of this
  * source was fixed. Its commit reached the target after that base, so the branch of this source
- * can never hold it, whatever the tracker shows now (ADR 0016). The check reads only crew state.
+ * can never hold it, whatever the tracker shows now. The check reads only crew state.
  */
 function completedAfterBase(
   context: PlanContext,
@@ -1430,7 +1430,7 @@ export function registerWork(
   const withdrawn = recordWithdrawals(db, plan, now);
   recordDependencies(db, plan);
   // The withdrawal that makes the integration branch final registers its branch review in the
-  // same change (ADR 0017). A withdrawn commit that the branch still holds waits for its take-out.
+  // same change. A withdrawn commit that the branch still holds waits for its take-out.
   const branchReview =
     plan.withdrawals.length === 0
       ? null

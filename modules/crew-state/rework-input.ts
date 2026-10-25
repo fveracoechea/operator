@@ -19,7 +19,7 @@ const combined = z.strictObject({
   revision: z.string().min(1),
 });
 
-// A cycle carries no free instruction (ADR 0008). Each reason renders one fixed sentence that the
+// A cycle carries no free instruction. Each reason renders one fixed sentence that the
 // release owns, so an input that names an instruction refuses as invalid.
 const stated = {
   conflicts: z.array(conflict),
@@ -28,7 +28,7 @@ const stated = {
 /**
  * The four reasons a cycle opens. A stored reason is read back through this.
  * The Operator delegates the first three. An invalidation opens its own cycle, because the open
- * invalidation is the cycle (ADR 0008), so `work rework` never names it.
+ * invalidation is the cycle, so `work rework` never names it.
  */
 export const reworkReasonSchema = z.enum(["findings", "integration", "diagnostic", "invalidation"]);
 
@@ -53,7 +53,7 @@ export const reworkInputSchema = z.discriminatedUnion("reason", [
     // A revision can need combining before any review reported, so this names one only when
     // the Operator is answering that review as well.
     reviewId: z.string().min(1).optional(),
-    // The revisions it combines are facts the CLI reads from the landing plan (ADR 0020), so the
+    // The revisions it combines are facts the CLI reads from the landing plan, so the
     // input names none, and an input that names one refuses as invalid.
   }),
   z.strictObject({
@@ -93,7 +93,7 @@ export type DefectInput = z.infer<typeof defectInputSchema>;
 /**
  * What an invalidation cycle corrects, fixed when the defect is recorded.
  * A code correction takes the place of the landed commit, so it starts on the parent of that
- * commit (ADR 0020). A non-code result lands nothing, so both commits are null.
+ * commit. A non-code result lands nothing, so both commits are null.
  */
 const invalidation = z.strictObject({
   invalidationId: z.string(),
@@ -106,7 +106,7 @@ export type ReworkInvalidation = z.infer<typeof invalidation>;
 
 /**
  * Why a result no longer lands as it was reviewed, read from the landing plan when an
- * integration cycle is delegated (ADR 0020, ADR 0021): a conflict, a changed patch, or a planned
+ * integration cycle is delegated: a conflict, a changed patch, or a planned
  * commit that failed or was flaky at the project gate.
  */
 export const integrationCauseSchema = z.enum([
@@ -128,7 +128,7 @@ const integration = z.strictObject({
   // The paths of a conflict, and none for every other cause.
   paths: z.array(z.string()),
   gateRunId: z.string().nullable(),
-  // The landed commit that a correction replaces, when the cycle answers a rewrite (ADR 0020).
+  // The landed commit that a correction replaces, when the cycle answers a rewrite.
   // Its tip is then the parent of that commit.
   replaces: z.string().optional(),
 });

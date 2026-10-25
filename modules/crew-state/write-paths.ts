@@ -1,4 +1,4 @@
-// The write-path grammar of ADR 0018. It is the one rule for what "inside" means, so every check
+// The write-path grammar. It is the one rule for what "inside" means, so every check
 // that compares write paths reads them through this matcher.
 
 /**

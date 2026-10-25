@@ -1,17 +1,16 @@
-# ADR-0030: PR assignments own their feedback loop and merge
+# ADR-0010: PR assignments own their feedback loop and merge
 
 ## Status
 
 Accepted - 2026-10-24.
-Decided in #231, amended by #228, #232, and #233.
-Supersedes ADR-0004, ADR-0008, ADR-0009, ADR-0010, ADR-0015, ADR-0016, ADR-0018, ADR-0020, ADR-0021, and ADR-0022.
+Decided in #228, #231, #232, and #233.
 Planned, not yet implemented.
 
 ## Context
 
-Real sessions used Herdr, GitHub reviews, and CI instead of Operator's integration and acceptance protocol.
+Real sessions used Herdr, GitHub reviews, and CI to deliver code.
 They repeatedly rebuilt feedback routing, PR-stack handling, merge checks, and cleanup by hand.
-The integration machinery also kept corrections away from the worker that already understood the code.
+Assigning each correction to a fresh worker would lose the owner's working context.
 
 ## Decision
 
@@ -38,9 +37,7 @@ Failed cleanup remains visible in next actions.
 Unlanded work remains protected, and only the person can authorize its deletion.
 An optional reviewer is off by default and uses a separate review request whose comments do not approve the owner's PR.
 
-There is no integration branch, landing, branch review, stack publication, recall, take-out, rewrite, invalidation, local gate runner, result-review acceptance record, or fresh-writer correction cycle.
-Write-path grants, overlap scheduling, outside-change scans, question machines, and approval grants are also removed.
-This does not exclude planning or other report work and does not limit hosts or profiles to one kind.
+Report assignments have a separate completion contract and support planning and other non-PR work.
 
 ## Consequences
 
@@ -59,4 +56,4 @@ This does not exclude planning or other report work and does not limit hosts or 
 - Retaining tracker recovery, write-path scheduling, and local gates was rejected because the sessions did not need them and existing tracker tools, Git conflicts, and CI already covered the retained work.
 - A blanket ban on agent merges was rejected in favor of a guarded merge by the owner WorkerAgent.
 
-Related: ADR-0004, ADR-0008, ADR-0009, ADR-0010, ADR-0015, ADR-0016, ADR-0018, ADR-0020, ADR-0021, and ADR-0022, historical protocols replaced here; ADR-0011 and ADR-0023, deterministic coordination remains; ADR-0032, reset and prune; ADR-0033, report completion and safe cleanup; ADR-0035, optional review requests; ADR-0036, mutation analysis does not join the gate; ADR-0037, worker ownership and guarded merge.
+Related: ADR-0001 and ADR-0003, deterministic coordination; ADR-0012, reset and prune; ADR-0013, report completion and safe cleanup; ADR-0015, optional review requests; ADR-0016, mutation analysis does not join the gate; ADR-0017, worker ownership and guarded merge.

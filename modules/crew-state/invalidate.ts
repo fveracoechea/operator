@@ -227,8 +227,8 @@ export function invalidateResult(
   pauseDependents(db, { affected, now: request.now });
 
   const submission = latestSubmission(db, row.id);
-  // Planning work is never dispatched (ADR 0004), so it holds no submission and opens no cycle.
-  // It is decided again with a new record (ADR 0019).
+  // Planning work is never dispatched, so it holds no submission and opens no cycle.
+  // It is decided again with a new record.
   const correction =
     submission === null
       ? null

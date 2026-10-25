@@ -4,7 +4,7 @@ import type { PublicationRow, WrittenPull } from "./stack-records.ts";
 import type { RecallPlanned } from "./recall.ts";
 
 /**
- * The stack publication machine (ADR 0022, ADR 0023). No column records it: the state of the
+ * The stack publication machine. No column records it: the state of the
  * last publication of one source is derived from its writes, its readings, and its faults.
  * `none` has no publication, `unwritten` holds a write that is not done, and the other states
  * read the parts of a written publication.
@@ -130,7 +130,7 @@ export type PublicationNext = {
 type Guard<F, R> = (facts: F) => R | null;
 
 type Entry<E extends PublicationEvent> = {
-  /** A publication with a write that is not done is settled first, before any guard (ADR 0022). */
+  /** A publication with a write that is not done is settled first, before any guard. */
   settle: (facts: PublicationFacts[E]) => PublicationNext[E] | null;
   guards: Array<Guard<PublicationFacts[E], PublicationRefusal[E]>>;
   next: (facts: PublicationFacts[E]) => PublicationNext[E];

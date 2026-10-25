@@ -50,7 +50,7 @@ const blocker = z.strictObject({
 export type ReviewBlocker = z.infer<typeof blocker>;
 
 /**
- * The text a reviewer writes for the pull request that publishes what it read (ADR 0022). The
+ * The text a reviewer writes for the pull request that publishes what it read. The
  * reviewer read the whole subject, so it writes the judgment that no record holds. The Operator
  * only passes this text on, and the person approves it word for word.
  */
@@ -62,7 +62,7 @@ export const publishedTextSchema = z.strictObject({
 });
 
 /**
- * One cut point of a pull request stack (ADR 0015): the commit that ends the part below, the
+ * One cut point of a pull request stack: the commit that ends the part below, the
  * reason for the cut, and the text of the part it starts. The branch reviewer read the whole
  * head, so it proposes each cut, and the person approves it in the publish approval (D1).
  */
@@ -165,7 +165,7 @@ const disposition = z.discriminatedUnion("disposition", [
     findingId: z.string().min(1),
     disposition: z.literal("corrected"),
     reason: z.string().min(1),
-    // A correction of a branch finding names the one assignment it invalidates (ADR 0017).
+    // A correction of a branch finding names the one assignment it invalidates.
     target: z.string().min(1).optional(),
   }),
   z.strictObject({

@@ -4,7 +4,7 @@ type QuestionRow = typeof questions.$inferSelect;
 type OperationRow = typeof externalOperations.$inferSelect;
 
 /**
- * The question machine (ADR 0023, ADR 0006). One `questions` row moves through these states.
+ * The question machine. One `questions` row moves through these states.
  * An acknowledged answer resolves it, and the end of its attempt withdraws it.
  */
 export type QuestionState = "open" | "answered" | "delivered" | "resolved" | "withdrawn";

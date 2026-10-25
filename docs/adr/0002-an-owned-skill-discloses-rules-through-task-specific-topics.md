@@ -1,9 +1,9 @@
-# ADR-0014: An owned skill discloses rules through task-specific topics
+# ADR-0002: An owned skill discloses rules through task-specific topics
 
 ## Status
 
-Accepted.
-Amended 2026-10-24: Apply the existing disclosure decision to device-installed skills and the SuperAgent and WorkerAgent vocabulary, as resolved in #209 and #232.
+Accepted - 2026-10-24.
+Decided in #209 and #232.
 
 ## Context
 
@@ -35,4 +35,4 @@ The skill-writing guidance owns authoring conventions, while this decision fixes
 - One file for each rule was rejected because related rules require many reads and installations carry more files.
 - A compiled copy beside the topics was rejected because it duplicates content and drifts after edits.
 
-Related: ADR-0028, device installation owns content checks rather than live discovery; ADR-0036, the development-only testing skill follows the same disclosure policy; ADR-0037, renamed role skills retain one home without forwarding copies.
+Related: ADR-0008, device installation owns content checks rather than live discovery; ADR-0016, the development-only testing skill follows the same disclosure policy; ADR-0017, role skills have one home without forwarding copies.

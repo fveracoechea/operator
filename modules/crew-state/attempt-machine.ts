@@ -28,7 +28,7 @@ import type { ReviewRow } from "./review.ts";
 import { Review } from "./review-machine.ts";
 
 /**
- * The attempt machine (ADR 0023, ADR 0005). One `attempts` row moves through these states.
+ * The attempt machine. One `attempts` row moves through these states.
  * Every event starts from `active`: the read of the attempt refuses an ended one with
  * `attempt-ended` before any guard runs. Each launch stage is one `external_operations` row in
  * the states of `OperationState`, and the acknowledgement is the `acknowledgedAt` of the plan.
@@ -361,7 +361,7 @@ function correctionBaseOf(context: AttemptContext): string | null {
 }
 
 // A branch review reads one recorded head and no other, so a dispatch that names no commit
-// starts there (ADR 0017).
+// starts there.
 function branchHeadOf(context: AttemptContext): string | null {
   const { role } = context;
   return role.kind === "branch-review" ? role.branchReview.snapshot.headCommit : null;
@@ -416,7 +416,7 @@ const START_ROWS: ReadonlyArray<Row<DispatchFacts, DispatchDecision>> = [
     return drift.length > 0 ? { refused: { status: "snapshot-drift", attemptId, drift } } : null;
   },
   // A production dispatch of a source with an integration branch starts from its recorded tip,
-  // and a branch that moved outside this protocol stops it (ADR 0020).
+  // and a branch that moved outside this protocol stops it.
   ({ integration }) => {
     if (integration === undefined) return { need: "integration" };
     return integration.status === "ok" ? null : { refused: integration };

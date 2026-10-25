@@ -5,7 +5,7 @@ import { readGateKey } from "./gate-start.ts";
 import { type GateKey, isFirstCodeDispatch, keyStatus } from "./gate-runs.ts";
 import { readState, type StateFailure } from "./operations.ts";
 
-/** The refusal names of a base that has not passed, members of the durable unions of ADR 0011. */
+/** The refusal names of a base that has not passed, members of the durable refusal unions. */
 export type BaseGateName = "gate_pending" | "gate_running" | "gate_failed" | "gate_flaky";
 
 export type BaseGateRefusal = {
@@ -27,7 +27,7 @@ export type BaseUnread =
 
 /**
  * The first code dispatch of a source fixes its integration base, so it starts only from a commit
- * whose key passed the project gate (ADR 0021). A failing base is not fixed, and the refusal
+ * whose key passed the project gate. A failing base is not fixed, and the refusal
  * names the commit and the failed run. A later dispatch of the source reads no base gate here.
  * A base that passed is returned, so the dispatch creates the integration branch at it.
  */

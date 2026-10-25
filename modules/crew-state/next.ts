@@ -397,7 +397,7 @@ function recallDraft(db: CrewReader, sourceId: string): Draft | null {
 }
 
 /**
- * The publish of each source (ADR 0022). A publication with a write that is not done is settled
+ * The publish of each source. A publication with a write that is not done is settled
  * first, by a repeat of the apply that reads GitHub before it writes. A source whose records
  * pass the publish gate and that holds no publication of its head is offered `publish_stack`,
  * which waits on the approval of a plan revision. This reads no Git and no GitHub.
@@ -527,7 +527,7 @@ function publishDraft(db: CrewReader, sourceId: string, lane: PublishLane): Draf
 }
 
 /**
- * The rebase of each source onto a new base (ADR 0022). A rebase whose move has no recorded
+ * The rebase of each source onto a new base. A rebase whose move has no recorded
  * outcome is settled first, by a repeat of the same command. A granted `integration-rebase`
  * approval that no rebase used yet, whose old base is still the base, is offered as the rebase
  * to run: the command gates the new base and each commit first, and names the next gate run.
@@ -637,7 +637,7 @@ function branchHeadOf(db: CrewReader, assignmentId: string): string | null {
 /**
  * The integration branch that a new launch of one assignment starts from: a production
  * assignment with no open cycle or an open integration cycle, of a source that recorded its
- * branch (ADR 0020, ADR 0008).
+ * branch.
  */
 function tipStartOf(
   db: CrewReader,
@@ -964,8 +964,8 @@ function outsideDraft(
 }
 
 /**
- * The take-out of each source whose integration branch still holds a withdrawn commit (ADR
- * 0020). It comes ahead of every landing of the source, so no landing is gated twice. A
+ * The take-out of each source whose integration branch still holds a withdrawn commit.
+ * It comes ahead of every landing of the source, so no landing is gated twice. A
  * take-out whose move has no recorded outcome is settled by a repeat of the command. Otherwise
  * each commit of the rebuilt range passes the project gate first, one `run_gate` at a time, and
  * the command is then offered with the plan revision that recorded the withdrawals (D5).
@@ -1027,12 +1027,12 @@ function readTakeOutsOf(
 }
 
 /**
- * The landing of one code result whose every other gate of acceptance passed (ADR 0020). An
+ * The landing of one code result whose every other gate of acceptance passed. An
  * intent with no recorded outcome is settled first, by a repeat of the acceptance. Otherwise its
  * planned commit on the recorded tip passes the project gate, and only then is it accepted. The
  * candidate is the one a gate run of this submission on this tip recorded. A result that no
  * longer lands as it was reviewed, by a conflict or a changed patch that its plan read, or by a
- * failed or flaky candidate, goes to an integration cycle (ADR 0021).
+ * failed or flaky candidate, goes to an integration cycle.
  */
 function readLanding(
   db: CrewReader,
@@ -1124,7 +1124,7 @@ function readLanding(
 }
 
 /**
- * The step a correction of a landed commit owes (ADR 0020, ADR 0021). Its rebuilt range passes
+ * The step a correction of a landed commit owes. Its rebuilt range passes
  * the project gate in order, one commit at a time, and acceptance then moves the branch once. A
  * correction that conflicts, changes its patch, or fails the gate at its own place goes to an
  * integration cycle, which starts from the parent of the replaced commit.
@@ -1256,7 +1256,7 @@ function readGatedMove<S extends Step>(db: CrewReader, gated: GatedMove<S>, into
   into.add(draft);
 }
 
-/** The command of an integration cycle. Its input names the reason and no revision (ADR 0020). */
+/** The command of an integration cycle. Its input names the reason and no revision. */
 const INTEGRATION_COMMAND = "operator work rework";
 
 /** The tracker steps one accepted assignment still owes. */
@@ -1271,7 +1271,7 @@ function readTracker(
     return;
   }
   // The steps of a code result wait for the recorded merge of the pull request that carries
-  // its commit, so a ticket never closes before its commit reaches the target (ADR 0022).
+  // its commit, so a ticket never closes before its commit reaches the target.
   const code = mergeGateOf(db, assignmentId);
   if (code.status === "waiting") {
     return;

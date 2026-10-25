@@ -82,7 +82,7 @@ export function disposeFindings(
 }
 
 /**
- * Invalidates each target of a corrected branch finding through the path of ADR 0008, in the
+ * Invalidates each target of a corrected branch finding through the rework path, in the
  * same change as the answer, so a defect in accepted work keeps one path. Two findings that name
  * one target give one invalidation, and a target an earlier answer already invalidated is left.
  */
@@ -101,7 +101,7 @@ function invalidateTargets(
       return [];
     }
     // The defect carries each finding in the reviewer's words, with its target commits and the
-    // disposition that corrected it (ADR 0008).
+    // disposition that corrected it.
     const answered = new Map(findingsOf(db, request.review.id).map((one) => [one.id, one]));
     const findings = findingIds.flatMap((id) => {
       const one = answered.get(id);

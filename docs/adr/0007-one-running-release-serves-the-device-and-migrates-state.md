@@ -1,15 +1,14 @@
-# ADR-0027: One running release serves the device and migrates state
+# ADR-0007: One running release serves the device and migrates state
 
 ## Status
 
 Accepted - 2026-10-24.
-Decided in #199, #205, #206, and #208, extended in #228.
-Supersedes ADR-0013.
+Decided in #199, #205, #206, #208, and #228.
 Planned, not yet implemented.
 
 ## Context
 
-Project-local release selections conflicted with one installation serving every project.
+Every project on a device needed the same CLI and workflow instructions.
 Global package locks also changed when unrelated tools were installed.
 Version-specific Herdr paths stopped working after temporary installations disappeared.
 State compatibility still needed a safe, deterministic update path.
@@ -18,7 +17,6 @@ State compatibility still needed a safe, deterministic update path.
 
 The running installation is the release authority for the device.
 Bun, Nix, or the person updates that installation externally.
-There is no project release selection, device adoption step, or agent-invoked migration command.
 An exact JSR version, a Nix flake, and repository source at a full commit deliver the same release from the same commit and artifact identity.
 The CLI, owned skills, and fixed migrations form one matched release.
 
@@ -41,9 +39,9 @@ Launch records retain release and skill identities without copying Operator lock
 
 Herdr uses the global command rather than a retained release-specific binary path.
 Its plugin manifest lives in stable device state, and its hooks call that command.
-The plugin forwards agent activity and worktree-creation events without a separate wake-binding machine.
+The plugin forwards agent activity and worktree-creation events to the CLI.
 
-Publication remains automatic after the version change merges and that commit passes quality checks and release smoke.
+Publication is automatic after the version change merges and that commit passes quality checks and release smoke.
 Published tags and versions are immutable, and a delivery retry supplies missing delivery only.
 The pinned official JSR client uses short-lived release credentials, with Deno confined to publication tooling rather than the Operator runtime.
 
@@ -64,4 +62,4 @@ The pinned official JSR client uses short-lived release credentials, with Deno c
 - Repeated publication over an existing tag or version was rejected because immutable content cannot be replaced on a retry.
 - A stored publishing token or custom registry client was rejected in favor of short-lived credentials and the registry's maintained client.
 
-Related: ADR-0013, historical release-selection protocol; ADR-0026, migration history and database protection; ADR-0028, installation uses the running release's skills; ADR-0029, startup compatibility is not a live probe; ADR-0032, source prune does not delete migration backups; ADR-0034, launches record resolved settings; ADR-0035, review worktrees use stable global-command hooks.
+Related: ADR-0006, migration history and database protection; ADR-0008, installation uses the running release's skills; ADR-0009, startup compatibility is distinct from readiness; ADR-0012, source prune does not delete migration backups; ADR-0014, launches record resolved settings; ADR-0015, review worktrees use stable global-command hooks.

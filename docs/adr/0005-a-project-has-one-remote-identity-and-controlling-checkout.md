@@ -1,4 +1,4 @@
-# ADR-0025: A project has one remote identity and controlling checkout
+# ADR-0005: A project has one remote identity and controlling checkout
 
 ## Status
 
@@ -44,4 +44,4 @@ A repository rename or transfer does not silently change the recorded identity.
 - Implicit registration was rejected because an ordinary command would then make a hidden state change.
 - Keeping old state after removal was rejected because a later registration could discover a second source of truth.
 
-Related: ADR-0024, registration replaces project setup; ADR-0026, the device database stores project identity; ADR-0031, worktree lookup scopes worker commands; ADR-0035, reviews use the PR repository's workspace.
+Related: ADR-0004, registration requires no project setup edits; ADR-0006, the device database stores project identity; ADR-0011, worktree lookup scopes worker commands; ADR-0015, reviews use the PR repository's workspace.

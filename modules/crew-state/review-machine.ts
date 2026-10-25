@@ -21,7 +21,7 @@ import { requiredCoverage, storedBehaviorChanges, storedResultKind } from "./sub
 import type { SubmissionRow } from "./submission.ts";
 
 /**
- * The review machine (ADR 0023, ADR 0007). One `reviews` row moves through `ReviewState`.
+ * The review machine. One `reviews` row moves through `ReviewState`.
  * A report or a blocker ends a registered review, the Operator answers the findings of a
  * reported one, a replacement reopens an unfinished one, and a withdrawal closes it.
  * The findings and the outside changes keep their own `disposition`.
@@ -230,7 +230,7 @@ const SUBJECT_GUARDS: ReportGuard[] = [
           stated: subject.input.submissionIdentity,
         },
   // The report names the exact snapshot it read, so a review of another head or another commit
-  // list cannot pass as the review of this one (ADR 0017).
+  // list cannot pass as the review of this one.
   ({ row, subject }) =>
     subject.kind !== "branch" || subject.input.snapshotIdentity === subject.snapshot.identity
       ? null
@@ -391,7 +391,7 @@ const DISPOSE_GUARDS: DisposeGuard[] = [
       : { status: "correction-target-required", reviewId: row.id, findingIds: missing };
   },
   // The target must hold one of the commits the finding targets, because a correction
-  // invalidates exactly that accepted result (ADR 0017).
+  // invalidates exactly that accepted result.
   ({ row, held, input, commits }) => {
     if (commits === null) {
       return null;

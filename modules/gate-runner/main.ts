@@ -4,7 +4,7 @@ import { ContentIdentity } from "../content-identity/main.ts";
 import { CrewState } from "../crew-state/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 
-/** Where the output of each gate command is kept, outside the crew state (ADR 0021). */
+/** Where the output of each gate command is kept, outside the crew state. */
 const STORE = ".operator/local/gate-runs";
 
 type Outcome = {
@@ -111,7 +111,7 @@ type RunnerStatus =
   | Exclude<StatusOf<typeof CrewState.recordGateCommand>, "recorded">;
 
 /**
- * The Operator runner of one gate run (ADR 0021). It runs in the pane of the gate checkout, and
+ * The Operator runner of one gate run. It runs in the pane of the gate checkout, and
  * it records each outcome itself, so no outcome is ever read from pane text. Every write runs
  * under the owner that started the run, so a takeover stops it at its next write.
  */

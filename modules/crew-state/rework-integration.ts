@@ -21,8 +21,8 @@ export type IntegrationEvidence = {
 };
 
 /**
- * The refusals of an integration cycle that the landing plan gives, members of the durable unions
- * of ADR 0011. Each one opens nothing and records nothing.
+ * The refusals of an integration cycle that the landing plan gives, members of the durable
+ * refusal unions. Each one opens nothing and records nothing.
  */
 export type IntegrationRefusal =
   | {
@@ -63,7 +63,7 @@ function outputsOf(db: CrewReader, run: GateRunRow): StoredArtifact[] {
 }
 
 /**
- * Plans the landing of the submitted commit of one assignment again (ADR 0020). The plan is
+ * Plans the landing of the submitted commit of one assignment again. The plan is
  * deterministic, so it gives what acceptance gave. A conflict, a changed patch, or a planned commit
  * whose key holds a failed or flaky run is what an integration cycle answers. A commit that would
  * land cleanly, with no such run, needs no cycle.
@@ -198,7 +198,7 @@ function correctionFailureOf(
 }
 
 /**
- * Plans the rewrite of one correction again (ADR 0020). The correction lands on the parent of the
+ * Plans the rewrite of one correction again. The correction lands on the parent of the
  * commit it replaces, so a conflict, a changed patch, or a failed or flaky run at its own place
  * names that parent as its tip, and the integration cycle starts there. A later commit that fails
  * is taken out by the rewrite itself, so it needs no cycle of the correction.

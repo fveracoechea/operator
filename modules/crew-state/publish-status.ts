@@ -86,7 +86,7 @@ function reachedTarget(seen: ObservationRow | null): seen is ObservationRow {
 
 /**
  * Each published pull request of one source, read from the recorded observations only, for a
- * rebase (ADR 0022). A part that reached the target names its published commit and its merge
+ * rebase. A part that reached the target names its published commit and its merge
  * commit. Any other part that no read shows merged or closed is still open, also when it has a
  * stack fault, because a person can still read and merge it.
  */
@@ -214,7 +214,7 @@ export type MergeGate =
 /**
  * Whether the tracker steps of one assignment may run. The steps of a code result run only after
  * the pull request that carries its commit merged into the target, as `operator publish status`
- * recorded it (ADR 0022). Any other result keeps the steps it had.
+ * recorded it. Any other result keeps the steps it had.
  */
 export function mergeGateOf(db: CrewReader, assignmentId: string): MergeGate {
   const assignment = readAssignment(db, assignmentId);
@@ -323,7 +323,7 @@ function partsOf(db: CrewReader, publication: PublicationRow, written: WrittenPu
 
 /**
  * The state of the last publication of one source, read from the recorded observations only.
- * `crew next` reads this, so it never reads GitHub (ADR 0016). The machine derives the state.
+ * `crew next` reads this, so it never reads GitHub. The machine derives the state.
  */
 export function stackStateOf(db: CrewReader, sourceId: string): StackView {
   const last = writtenPublicationOf(db, sourceId);
@@ -361,7 +361,7 @@ export type PublishLane = {
 };
 
 /**
- * The stack publication of one source as `crew next` reads it (ADR 0022): the state of the last
+ * The stack publication of one source as `crew next` reads it: the state of the last
  * publication, and whether a new one is offered. It reads the publish base and the publish
  * records once. It reads no Git and no GitHub.
  */
@@ -518,7 +518,7 @@ export type Finish =
 /**
  * Ends one finished source: its gate checkout is removed by an unforced Herdr removal, with no
  * approval (decision 29). Herdr refuses a checkout that holds a change, so nothing that did not
- * land is torn down, and no branch is deleted (ADR 0010).
+ * land is torn down, and no branch is deleted.
  */
 export async function finishSource(request: {
   projectRoot: string;

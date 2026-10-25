@@ -140,7 +140,7 @@ export async function pullsByHead(
 
 /**
  * Opens one pull request, ready for review. It never asks for auto-merge and never merges:
- * a person merges (ADR 0022, decision D6).
+ * a person merges.
  */
 export async function createPull(
   repository: string,
@@ -248,7 +248,7 @@ export async function readParents(
 
 /**
  * Changes the base of one pull request. It sends the base and nothing else, so it never merges,
- * never asks for auto-merge, and never changes the title or the body (ADR 0022, decision D6).
+ * never asks for auto-merge, and never changes the title or the body.
  */
 export async function retargetPull(
   repository: string,
@@ -316,7 +316,7 @@ export async function commentOn(
 
 /**
  * Closes one pull request with no merge. It sends the state and nothing else, so it never
- * merges and never deletes its branch (ADR 0022, D6, R3).
+ * merges and never deletes its branch.
  */
 export async function closePull(
   repository: string,

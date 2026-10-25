@@ -1,16 +1,15 @@
-# ADR-0029: Readiness checks static prerequisites without live probes
+# ADR-0009: Readiness checks static prerequisites without live probes
 
 ## Status
 
 Accepted - 2026-10-24.
-Decided in #202, #209, and #231, amended by #233.
-Supersedes ADR-0002 and ADR-0012.
+Decided in #202, #209, #231, and #233.
 Planned, not yet implemented.
 
 ## Context
 
-The former readiness protocol launched synthetic agents and retained capability evidence before real work could run.
-Actual sessions did not need that probe or its fixture and recovery machinery.
+Synthetic capability checks needed agent launches, evidence storage, and resource cleanup before real work could run.
+Actual sessions needed a cheaper check of prerequisites.
 Missing commands, authentication, and skill files still caused preventable launch failures.
 
 ## Decision
@@ -20,8 +19,7 @@ It checks GitHub CLI availability and authentication, Herdr availability, and th
 Required owned skills must match the running release, and required upstream skills must exist.
 The check does not claim to prove provider compatibility, host termination, or live skill loading.
 
-There is no live probe, probe fixture, evidence-expiry protocol, or local project gate.
-The database compatibility and integrity protections belong to state storage and command startup, not a restored probe workflow.
+Database compatibility and integrity protections belong to state storage and command startup.
 Failures of real external calls remain explicit errors.
 
 ## Consequences
@@ -36,4 +34,4 @@ Failures of real external calls remain explicit errors.
 - A saved ready flag was rejected because current tools and skill contents can change.
 - Claiming live capability from file presence was rejected because filesystem evidence proves only the stated static facts.
 
-Related: ADR-0002 and ADR-0012, historical evidence and probe protocols; ADR-0028, filesystem skill checks; ADR-0026 and ADR-0027, database protection; ADR-0034, configured host selection.
+Related: ADR-0008, filesystem skill checks; ADR-0006 and ADR-0007, database protection; ADR-0014, configured host selection.
