@@ -1,9 +1,9 @@
 # State-machine experiment, issue 236
 
 Disposable development code, not production workflow support.
-The person will compare both prototypes before choosing.
-No recommendation here is human approval.
-ADR 0003 still requires ordered transitions and module-owned policy.
+The person selected the recommended ordered transition tables after comparing the options in #236.
+The shared decision function is named `decideStateTransition` in `state-machine.ts` so its purpose is clear.
+ADR 0003's ordered transitions and module-owned policy remain unchanged.
 
 ## Question and limits
 
@@ -64,7 +64,7 @@ The controlled process changes scratch evidence only, never GitHub or Herdr reso
 - Each workflow's `model.ts` owns its schemas, effect interpretation, and CLI guidance.
 - Each workflow's `main.ts` is an executable consuming-module call site.
 - `cli.ts` gathers external facts, calls the owning interface, and executes only the effects returned by that invocation.
-- `first-match.ts` is the only shared transition-selection function.
+- `state-machine.ts` contains the only shared state-machine transition decision function.
 - `comparison.test.ts` checks equality independently of each design's beside-tests.
 
 The caller changes only `design` between the two options.
@@ -98,13 +98,14 @@ The controlled process can provide that fact for its known failures.
 This experiment does not establish that any live service can do so.
 No exactly-once guarantee, generic replay ledger, worker ownership protocol, or automatic human approval follows from the effect key.
 
-## Proposed recommendation, not a selection
+## Selected implementation
 
-Prefer the ordered table, with named, ordered decision rows private to each owner.
+Use the ordered table, with named, ordered decision rows private to each owner.
+The person approved this recommendation with "sounds good let's pick your recommendation on state-machine handling (tables)".
 It preserves ADR 0003 without a decision change.
 The merge gate lists refusal priority directly, and the review table makes the head-check-before-post order visible.
 The reducer has fewer lines and TypeScript narrows events naturally inside its switch.
-It remains a viable alternative for the person to consider.
+It is retained as the rejected comparison, not a second production authority.
 
 Both expose the same proposed private decision shape:
 
@@ -125,9 +126,10 @@ A production owner can replace that projection if a concrete caller proves the c
 
 ### Placement
 
-The demonstrated reusable function is `firstMatch`, an ordered first-defined-result loop.
+The demonstrated reusable function is `decideStateTransition`, which selects the first defined decision from ordered state-machine rules.
 Two workflows call it without application types or imports.
-It would fit a focused `lib/first-match.ts` with its beside-test if production callers still need it.
+It would fit a focused `lib/state-machine.ts` with its beside-test if production callers still need it.
+The name replaces the initial generic first-match name at the person's request.
 It does not justify a state-machine module, state registry, mandatory engine, or Redux dependency.
 No production `lib` file is added by this experiment.
 
@@ -136,11 +138,11 @@ Review states, head movement, round triggers, review-event policy, and posting r
 Similar operation-result code remains duplicated in the prototypes because its effect payloads and completion consequences differ.
 Database transactions belong to the planned state capability, not root `lib`.
 
-### Costs and alternatives for the person
+### Accepted costs and rejected alternatives
 
-| Option                                         | Benefit                                                                                                 | Cost or reason not to select it now                                                                                                                       |
+| Option                                         | Benefit                                                                                                 | Cost or rejection reason                                                                                                                                  |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Ordered table, proposed                        | Guard priority is explicit and named. Both workflows reuse a small loop. It preserves the accepted ADR. | Broad input unions need narrowing inside rows. Row order needs tests. Missing rows need an explicit refusal.                                              |
+| Ordered table, selected                        | Guard priority is explicit and named. Both workflows reuse a small loop. It preserves the accepted ADR. | Broad input unions need narrowing inside rows. Row order needs tests. Missing rows need an explicit refusal.                                              |
 | Reducer                                        | Direct event narrowing, exhaustive switches, fewer lines. Same observable behavior in this experiment.  | Guard priority is spread through branches. Selecting it instead of the required ordered table needs explicit ADR resolution.                              |
 | Hybrid switch plus event-specific ordered rows | Could reduce repeated narrowing.                                                                        | Not implemented or tested here. It adds a second organization scheme without a demonstrated caller need.                                                  |
 | Redux or another runtime library               | Could supply subscriptions or tooling if a caller needed them.                                          | Neither CLI workflow needs subscriptions, middleware, or a global store. No such need was demonstrated.                                                   |
@@ -151,7 +153,7 @@ Both working designs pay for explicit pending-effect state, result correlation, 
 Neither removes the need for owner-specific external evidence or safe cleanup checks.
 Neither proves live GitHub, Herdr, host, or Slack behavior.
 
-## Delivery and pending decision
+## Delivery and next decision
 
 The experiment stays under development scripts on the requested delivery branch.
 This follows the person's existing-branch instruction rather than the prototype skill's default throwaway-branch capture.
@@ -159,8 +161,11 @@ A release test builds the actual artifact, checks that it contains no prototype 
 The public CLI still supports only help and version.
 The existing release-smoke tests remain the installed-consumer checks.
 
-The person's later request assigns the HTML explanation, visuals, code snippets, and pros and cons to a new OpenCode agent in a new Herdr tab.
-That presentation is for the person's consideration before selection.
-No durable ADR amendment is made here.
-If the person chooses the ordered table, the existing architectural contract can remain unchanged.
-If the person chooses the reducer or changes the ownership or recovery contract, resolve that decision and any qualifying ADR change before dependent production work.
+The person requested an HTML explanation, visuals, code snippets, and pros and cons from a new OpenCode agent in a new Herdr tab.
+The original comparison and presentation request preceded the person's selection of tables.
+No durable ADR amendment is needed because this selection preserves the existing architectural contract.
+The file and function rename is an implementation name, not a new architectural rule.
+
+The next decision ticket, [#261](https://github.com/fveracoechea/operator/issues/261) under #234, compares neverthrow, Effect, and other justified errors-as-values and Result options.
+It follows this experiment and precedes #237's lint adoption.
+Selecting tables does not select an error library or an Effect runtime.

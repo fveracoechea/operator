@@ -1,7 +1,7 @@
-import { firstMatch, type Rule } from "../first-match.ts";
+import { decideStateTransition, type StateTransitionRule } from "../state-machine.ts";
 import { changed, finish, refuse, type Decision, type Effect, type Input } from "./model.ts";
 
-const operationRules: readonly Rule<Input, Decision>[] = [
+const operationRules: readonly StateTransitionRule<Input, Decision>[] = [
   {
     name: "correlate-result",
     decide({ state, event }) {
@@ -43,7 +43,7 @@ const operationRules: readonly Rule<Input, Decision>[] = [
   },
 ];
 
-const draftRules: readonly Rule<Input, Decision>[] = [
+const draftRules: readonly StateTransitionRule<Input, Decision>[] = [
   {
     name: "reviewing-only",
     decide({ state }) {
@@ -105,7 +105,7 @@ function retry(input: Input): Decision {
   const { state, facts } = input;
   const op = state.operation;
   if (op.status !== "failed") return refuse(state, "reconcile-before-retry");
-  const next = firstMatch(
+  const next = decideStateTransition(
     draftRules,
     {
       state: { ...state, phase: "reviewing", operation: { status: "idle" } },
@@ -128,12 +128,12 @@ function retry(input: Input): Decision {
   ]);
 }
 
-const rules: readonly Rule<Input, Decision>[] = [
+const rules: readonly StateTransitionRule<Input, Decision>[] = [
   {
     name: "pending-post-first",
     decide(input) {
       if (input.state.operation.status === "idle") return;
-      return firstMatch(operationRules, input, refuse(input.state, "operation-pending"));
+      return decideStateTransition(operationRules, input, refuse(input.state, "operation-pending"));
     },
   },
   {
@@ -148,7 +148,7 @@ const rules: readonly Rule<Input, Decision>[] = [
     name: "ordered-draft-rules",
     decide(input) {
       if (input.event.type !== "draft") return;
-      return firstMatch(draftRules, input, refuse(input.state, "invalid-state"));
+      return decideStateTransition(draftRules, input, refuse(input.state, "invalid-state"));
     },
   },
   {
@@ -176,5 +176,5 @@ const rules: readonly Rule<Input, Decision>[] = [
 ];
 
 export function decide(input: Input): Decision {
-  return firstMatch(rules, input, refuse(input.state, "no-operation"));
+  return decideStateTransition(rules, input, refuse(input.state, "no-operation"));
 }

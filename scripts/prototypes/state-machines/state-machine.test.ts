@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
-import { firstMatch } from "./first-match.ts";
+import { decideStateTransition } from "./state-machine.ts";
 
 test("first applicable rule wins and later rules do not run", () => {
   const visited: string[] = [];
   expect(
-    firstMatch(
+    decideStateTransition(
       [
         {
           name: "miss",
@@ -36,9 +36,9 @@ test("first applicable rule wins and later rules do not run", () => {
 });
 
 test("no rule uses the supplied fallback, including an empty table", () => {
-  expect(firstMatch([], {}, "refused")).toBe("refused");
+  expect(decideStateTransition([], {}, "refused")).toBe("refused");
   expect(
-    firstMatch(
+    decideStateTransition(
       [
         {
           name: "miss",

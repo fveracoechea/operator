@@ -1,7 +1,7 @@
-import { firstMatch, type Rule } from "../first-match.ts";
+import { decideStateTransition, type StateTransitionRule } from "../state-machine.ts";
 import { changed, finish, refuse, request, type Decision, type Input } from "./model.ts";
 
-const operationRules: readonly Rule<Input, Decision>[] = [
+const operationRules: readonly StateTransitionRule<Input, Decision>[] = [
   {
     name: "correlate-result",
     decide({ state, event, facts }) {
@@ -46,7 +46,7 @@ const operationRules: readonly Rule<Input, Decision>[] = [
           event: { type: "merge" },
           facts,
         };
-        const gate = firstMatch(mergeRules, input, refuse(state, "invalid-event"));
+        const gate = decideStateTransition(mergeRules, input, refuse(state, "invalid-event"));
         if (gate.status === "refused") return refuse(state, gate.reason);
       }
       if (op.effect === "remove-worktree" && !facts.safeToRemove)
@@ -64,7 +64,7 @@ const operationRules: readonly Rule<Input, Decision>[] = [
   },
 ];
 
-const reportRules: readonly Rule<Input, Decision>[] = [
+const reportRules: readonly StateTransitionRule<Input, Decision>[] = [
   {
     name: "submit-durable-report",
     decide({ state, event }) {
@@ -100,7 +100,7 @@ const reportRules: readonly Rule<Input, Decision>[] = [
   },
 ];
 
-const mergeRules: readonly Rule<Input, Decision>[] = [
+const mergeRules: readonly StateTransitionRule<Input, Decision>[] = [
   {
     name: "open-pr-only",
     decide({ state }) {
@@ -140,12 +140,12 @@ const mergeRules: readonly Rule<Input, Decision>[] = [
   },
 ];
 
-const rules: readonly Rule<Input, Decision>[] = [
+const rules: readonly StateTransitionRule<Input, Decision>[] = [
   {
     name: "pending-operation-first",
     decide(input) {
       if (input.state.operation.status === "idle") return;
-      return firstMatch(operationRules, input, refuse(input.state, "operation-pending"));
+      return decideStateTransition(operationRules, input, refuse(input.state, "operation-pending"));
     },
   },
   {
@@ -170,7 +170,7 @@ const rules: readonly Rule<Input, Decision>[] = [
     name: "ordered-merge-gate",
     decide(input) {
       if (input.event.type !== "merge") return;
-      return firstMatch(mergeRules, input, refuse(input.state, "invalid-event"));
+      return decideStateTransition(mergeRules, input, refuse(input.state, "invalid-event"));
     },
   },
   {
@@ -178,11 +178,11 @@ const rules: readonly Rule<Input, Decision>[] = [
     decide(input) {
       if (!["submit", "accept", "return", "resume"].includes(input.event.type)) return;
       if (input.state.completion !== "report") return refuse(input.state, "wrong-completion");
-      return firstMatch(reportRules, input, refuse(input.state, "invalid-event"));
+      return decideStateTransition(reportRules, input, refuse(input.state, "invalid-event"));
     },
   },
 ];
 
 export function decide(input: Input): Decision {
-  return firstMatch(rules, input, refuse(input.state, "no-operation"));
+  return decideStateTransition(rules, input, refuse(input.state, "no-operation"));
 }

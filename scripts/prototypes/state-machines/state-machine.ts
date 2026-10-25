@@ -1,10 +1,10 @@
-export type Rule<Input, Output> = {
+export type StateTransitionRule<Input, Output> = {
   name: string;
   decide(input: Input): Output | undefined;
 };
 
-export function firstMatch<Input, Output>(
-  rules: readonly Rule<Input, Output>[],
+export function decideStateTransition<Input, Output>(
+  rules: readonly StateTransitionRule<Input, Output>[],
   input: Input,
   fallback: Output,
 ): Output {

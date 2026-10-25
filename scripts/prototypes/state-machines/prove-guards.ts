@@ -115,16 +115,16 @@ for (const design of ["reducer", "table"]) {
 
 breaks.push(
   {
-    file: "first-match.ts",
+    file: "state-machine.ts",
     search: "for (const rule of rules)",
     replacement: "for (const rule of rules.toReversed())",
-    test: "first-match.test.ts",
+    test: "state-machine.test.ts",
   },
   {
-    file: "first-match.ts",
+    file: "state-machine.ts",
     search: "result !== undefined",
     replacement: "Boolean(result)",
-    test: "first-match.test.ts",
+    test: "state-machine.test.ts",
   },
   {
     file: "assignment/model.ts",
