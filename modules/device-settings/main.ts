@@ -9,12 +9,12 @@ type OperatorPaths = ReturnType<typeof OperatorHome.resolve>;
 function operate(action: () => Promise<SettingsOutcome>) {
   return fromPromise(action, (cause, defect) => {
     if (cause instanceof SyntaxError || cause instanceof z.ZodError)
-      return { reason: "invalid_settings" as const, detail: cause.message, exitCode: 2 as const };
+      return { reason: "invalid_settings" as const, detail: cause.message };
     if (isIoFailure(cause)) {
-      return { reason: "settings_io_failed" as const, detail: String(cause), exitCode: 1 as const };
+      return { reason: "settings_io_failed" as const, detail: String(cause) };
     }
     return defect(cause);
-  }).flatMap((outcome) => (outcome.exitCode === 0 ? Ok(outcome) : Err(outcome)));
+  }).flatMap((outcome) => ("detail" in outcome ? Err(outcome) : Ok(outcome)));
 }
 
 /** Device settings never depend on the current checkout. */
@@ -23,7 +23,6 @@ export const DeviceSettings = {
     return operate(async () => ({
       reason: "settings_read",
       data: await readConfig(paths),
-      exitCode: 0,
     }));
   },
   plan(request: ChangeRequest) {

@@ -25,7 +25,6 @@ export type SettingsFailure = {
     | "settings_external"
     | "settings_write_unconfirmed";
   detail: string;
-  exitCode: 2 | 3 | 4 | 5;
 };
 export type SettingsOutcome =
   | {
@@ -36,7 +35,6 @@ export type SettingsOutcome =
         | "settings_unchanged"
         | "settings_recovered";
       data: unknown;
-      exitCode: 0;
     }
   | SettingsFailure;
 export type ChangeRequest = {
@@ -46,20 +44,21 @@ export type ChangeRequest = {
   planId?: string;
 };
 
-function failure(
-  reason: SettingsFailure["reason"],
-  detail: string,
-  exitCode: SettingsFailure["exitCode"],
-): SettingsFailure {
-  return { reason, detail, exitCode };
-}
-function recovery() {
-  return failure(
-    "settings_recovery_required",
+const recoveryRequired: SettingsFailure = {
+  reason: "settings_recovery_required",
+  detail:
     "Run operator config recover before another settings write. Preserve an unreadable or unmatched receipt for inspection.",
-    3,
-  );
-}
+};
+const writeUnconfirmed: SettingsFailure = {
+  reason: "settings_write_unconfirmed",
+  detail:
+    "The settings write could not be verified. Run operator config recover before another edit.",
+};
+const externallyOwned: SettingsFailure = {
+  reason: "settings_external",
+  detail:
+    "Settings are linked or read-only. Edit the external configuration, such as your Nix or Home Manager configuration, then rebuild it. Operator will not replace its file or link.",
+};
 
 function makePlan(
   paths: OperatorPaths,
@@ -68,7 +67,11 @@ function makePlan(
   edits: Edit[],
 ) {
   const changed = editConfig(read.config, edits);
-  if (!changed.success) return failure("invalid_settings_edit", changed.error.message, 2);
+  if (!changed.success)
+    return {
+      reason: "invalid_settings_edit",
+      detail: changed.error.message,
+    } satisfies SettingsFailure;
   const nextText = `${JSON.stringify(changed.data, null, 2)}\n`;
   const generation = receipt?.state === "pending" ? receipt.generation : (receipt?.planId ?? null);
   const editsIdentity = sha256(JSON.stringify(edits));
@@ -98,22 +101,20 @@ function makePlan(
 export async function plan(request: ChangeRequest): Promise<SettingsOutcome> {
   const parsed = parseEdits(request.sets, request.unsets);
   if (parsed.issues !== undefined)
-    return failure("invalid_settings_edit", parsed.issues.join("\n"), 2);
+    return { reason: "invalid_settings_edit", detail: parsed.issues.join("\n") };
   const receipt = await readReceipt(request.paths);
-  if (receipt === "unreadable" || receipt?.state === "pending") return recovery();
+  if (receipt === "unreadable" || receipt?.state === "pending") return recoveryRequired;
   const planned = makePlan(request.paths, await readConfig(request.paths), receipt, parsed.edits);
-  return "exitCode" in planned
-    ? planned
-    : { reason: "settings_planned", data: planned, exitCode: 0 };
+  return planned.reason !== undefined ? planned : { reason: "settings_planned", data: planned };
 }
 
 async function applyLocked(request: ChangeRequest, edits: Edit[]): Promise<SettingsOutcome> {
   const { paths } = request;
   const receipt = await readReceipt(paths);
-  if (receipt === "unreadable") return recovery();
+  if (receipt === "unreadable") return recoveryRequired;
   const read = await readConfig(paths);
   const planned = makePlan(paths, read, receipt, edits);
-  if ("exitCode" in planned) return planned;
+  if (planned.reason !== undefined) return planned;
   const decision = decideSettingsWrite("apply", {
     state: receipt?.state ?? "absent",
     receipt,
@@ -125,18 +126,16 @@ async function applyLocked(request: ChangeRequest, edits: Edit[]): Promise<Setti
   });
   if (decision === "repeat" && receipt !== null) {
     if (receipt.state === "pending") await writeReceipt(paths, { ...receipt, state: "complete" });
-    return { reason: "settings_unchanged", data: { repeated: true }, exitCode: 0 };
+    return { reason: "settings_unchanged", data: { repeated: true } };
   }
-  if (decision === "recovery-required") return recovery();
+  if (decision === "recovery-required") return recoveryRequired;
   if (decision === "stale")
-    return failure(
-      "settings_plan_stale",
-      "The inspected settings or receipt changed. Make a new plan.",
-      4,
-    );
-  if (decision === "unchanged")
-    return { reason: "settings_unchanged", data: { repeated: false }, exitCode: 0 };
-  if (await externallyManaged(paths)) return external();
+    return {
+      reason: "settings_plan_stale",
+      detail: "The inspected settings or receipt changed. Make a new plan.",
+    };
+  if (decision === "unchanged") return { reason: "settings_unchanged", data: { repeated: false } };
+  if (await externallyManaged(paths)) return externallyOwned;
   return writePlanned(paths, planned);
 }
 
@@ -157,57 +156,39 @@ async function writePlanned(
     const written = await writeConfig(paths, planned.nextText, planned.previousIdentity);
     if (written === "stale") {
       await writeReceipt(paths, { ...pending, state: "aborted" });
-      return failure(
-        "settings_plan_stale",
-        "The settings changed before the write. Make a new plan.",
-        4,
-      );
+      return {
+        reason: "settings_plan_stale",
+        detail: "The settings changed before the write. Make a new plan.",
+      };
     }
-    if (written === "unconfirmed") return unconfirmed();
+    if (written === "unconfirmed") return writeUnconfirmed;
     await writeReceipt(paths, { ...pending, state: "complete" });
   } catch (error) {
-    if (isIoFailure(error)) return unconfirmed();
+    if (isIoFailure(error)) return writeUnconfirmed;
     // oxlint-disable-next-line unthrown/no-throw -- Unexpected defects retain the pending receipt and reach the command boundary.
     throw error;
   }
   await writeEditorSchema(paths);
-  return { reason: "settings_applied", data: planned, exitCode: 0 };
-}
-
-function unconfirmed() {
-  return failure(
-    "settings_write_unconfirmed",
-    "The settings write could not be verified. Run operator config recover before another edit.",
-    5,
-  );
-}
-
-function external() {
-  return failure(
-    "settings_external",
-    "Settings are linked or read-only. Edit the external configuration, such as your Nix or Home Manager configuration, then rebuild it. Operator will not replace its file or link.",
-    3,
-  );
+  return { reason: "settings_applied", data: planned };
 }
 
 export async function apply(request: ChangeRequest): Promise<SettingsOutcome> {
   const parsed = parseEdits(request.sets, request.unsets);
   if (parsed.issues !== undefined)
-    return failure("invalid_settings_edit", parsed.issues.join("\n"), 2);
+    return { reason: "invalid_settings_edit", detail: parsed.issues.join("\n") };
   if (request.planId === undefined)
-    return failure(
-      "settings_plan_required",
-      "Run operator config plan with these edits, then pass its ID with --plan.",
-      3,
-    );
-  if (await externallyManaged(request.paths)) return external();
+    return {
+      reason: "settings_plan_required",
+      detail: "Run operator config plan with these edits, then pass its ID with --plan.",
+    };
+  if (await externallyManaged(request.paths)) return externallyOwned;
   return withWriteLock(request.paths, () => applyLocked(request, parsed.edits));
 }
 
 export async function recover(paths: OperatorPaths): Promise<SettingsOutcome> {
   return withWriteLock(paths, async () => {
     const receipt = await readReceipt(paths);
-    if (receipt === "unreadable") return recovery();
+    if (receipt === "unreadable") return recoveryRequired;
     const current = await readConfig(paths);
     const state = decideSettingsWrite("recover", {
       state: receipt?.state ?? "absent",
@@ -218,10 +199,9 @@ export async function recover(paths: OperatorPaths): Promise<SettingsOutcome> {
       return {
         reason: "settings_recovered",
         data: { state: receipt?.state ?? "absent" },
-        exitCode: 0,
       };
-    if ((state !== "complete" && state !== "aborted") || receipt === null) return recovery();
+    if ((state !== "complete" && state !== "aborted") || receipt === null) return recoveryRequired;
     await writeReceipt(paths, { ...receipt, state });
-    return { reason: "settings_recovered", data: { state, planId: receipt.planId }, exitCode: 0 };
+    return { reason: "settings_recovered", data: { state, planId: receipt.planId } };
   });
 }

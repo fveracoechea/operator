@@ -20,7 +20,10 @@ test("returns expected edit failures as Err and does not write", async () => {
     unsets: [],
   });
   expect(result.tag).toBe("Err");
-  if (result.tag === "Err") expect(result.error.reason).toBe("settings_plan_required");
+  if (result.tag === "Err") {
+    expect(result.error.reason).toBe("settings_plan_required");
+    expect(result.error).not.toHaveProperty("exitCode");
+  }
   expect(await Bun.file(paths.config).exists()).toBe(false);
 });
 

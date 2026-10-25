@@ -7,6 +7,17 @@ import { z } from "zod";
 
 type OperatorPaths = ReturnType<typeof OperatorHome.resolve>;
 
+const settingsExitCodes = {
+  invalid_settings: 2,
+  invalid_settings_edit: 2,
+  settings_io_failed: 1,
+  settings_recovery_required: 3,
+  settings_plan_required: 3,
+  settings_plan_stale: 4,
+  settings_external: 3,
+  settings_write_unconfirmed: 5,
+};
+
 const usage =
   "Usage: operator --help | --version [--json]\n       operator config show | recover [--json]\n       operator config plan | apply (--set field=value | --unset field)... [--plan id] [--json]";
 
@@ -93,7 +104,7 @@ async function runSettings(args: string[], paths: OperatorPaths, json: boolean) 
       `config_${settings.command}`,
       result.error.reason,
       result.error.detail,
-      result.error.exitCode,
+      settingsExitCodes[result.error.reason],
       json,
     );
   } else {
