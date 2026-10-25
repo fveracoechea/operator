@@ -4,7 +4,10 @@
 
 A test sits beside the unit it covers and carries its name, such as `main.test.ts` beside `main.ts`.
 Call the interface the way its caller does and assert on its result or effects.
-Keep direct beside-tests for internal logic.
+Private files with logic also need direct beside-tests that import the private file.
+Only same-folder `stem.test.ts` and `stem.<scenario>.test.ts` cover `stem.ts` for mutation testing.
+Interface tests cover `main.ts`, not every private unit in the module.
+Functions in `lib/` follow the same beside-test rule.
 
 For Operator workflows, the public CLI is the primary test boundary.
 Use real Git and SQLite with isolated device roots.

@@ -1,4 +1,5 @@
 node_modules/
+.mutation-*/
 module-boundary-probe-*.ts
 modules/module-boundary-probe-*
 

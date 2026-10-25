@@ -15,6 +15,7 @@ Do not use it to resume an old session.
 
 The device-level design in `CONTEXT.md` and `docs/adr/` remains planned.
 The base lint policy in ADR-0018 is now enforced.
+Local mutation testing from ADR-0016 is also available for repository development.
 Device settings, registration, migrations, launch profiles, personal skill installation, assignments, reviews, and the global Herdr plugin are not implemented here.
 There are no replacement-command placeholders or compatibility aliases.
 
@@ -64,6 +65,21 @@ They publish no real release.
 See `docs/implementation/235-legacy-removal.md` for the inventory, retained ownership, diagram, and verification results.
 `skills/` contains complete owned engineering skills.
 The old role and posting-review skills are removed, and replacements arrive with their workflows.
+
+## Local mutation testing
+
+```sh
+bun run mutate lib/sha256.ts
+bun run mutate lib/sha256.test.ts
+bun run mutate --since HEAD
+```
+
+Pass explicit unit or beside-test paths, or changed lines against an explicit Git ref.
+Only direct same-folder tests count for each unit.
+No target is a usage error.
+Mutation testing is not part of `quality` or CI and adds no `operator` command.
+See [the development mutation topic](.agents/skills/unit-testing/mutation-testing.md) for exits, target rules, and survivor repairs.
+The development-only `unit-testing` skill has a Claude Code link and does not ship in the release.
 
 ## Release tooling
 

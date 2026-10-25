@@ -16,6 +16,7 @@
     "lint": "bunx --bun --no-install oxlint --deny-warnings cli.ts modules lib scripts tools/oxlint",
     "lint:modules": "bun scripts/check-module-shape.ts",
     "lint:skills": "bun scripts/check-skill-shape.ts",
+    "mutate": "bun scripts/mutate.ts",
     "preinstall": "bun scripts/require-bun.ts",
     "release": "bun scripts/release.ts",
     "changeset": "bunx --bun @changesets/cli@3.0.3",
@@ -30,7 +31,9 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
+    "@babel/parser": "8.0.8",
     "@oxlint/plugins": "1.89.0",
+    "@stryker-mutator/core": "10.1.1",
     "@types/bun": "1.4.4",
     "@unthrown/oxlint": "5.12.1",
     "jsr": "0.14.3",
