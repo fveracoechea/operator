@@ -62,12 +62,14 @@ Verified with Bun 1.4.4 on Linux.
 | `bun run test ./scripts/mutate.test.ts` before implementation | Red. The script did not exist.                                                                                                        |
 | Targeted mutation command tests during implementation         | Red, then green for weak assertions, missing direct tests, invalid suppression reasons, scenario mapping, and changed-line selection. |
 | `bun install --frozen-lockfile`                               | Passed with no dependency changes.                                                                                                    |
-| `bun run quality`                                             | Passed all static checks, all 17 deliberate module-boundary violations, and 198 tests.                                                |
+| `bun run quality`                                             | Passed all static checks, all 17 deliberate module-boundary violations, and 201 tests.                                                |
 | `bun run mutate lib/sha256.ts`                                | Exit 0. Three killed mutants, no survivors, untested units, or incomplete results.                                                    |
 
 `bun run mutate lib/sha256.test.ts` also exited 0 with the same three killed mutants.
-`bun run test --rerun-each=3` passed 594 executions with no observed flake.
-`bun run test:timings` passed 198 tests and recorded the new test-file timings.
+`bun run test --rerun-each=3` passed 603 executions with no observed flake after review corrections.
+`bun run test:timings` passed 201 tests and recorded the new test-file timings.
+`bun run test modules/operator-release` passed all 28 installed-delivery and release tests.
+`bun run mutate --since HEAD` exited 0 on the clean committed checkout without selecting unrelated units.
 The skill-shape checker passed against an isolated directory containing only the new development skill.
 Verified the Claude Code link target and the absence of a bundled `skills/unit-testing` directory.
 
@@ -85,6 +87,11 @@ Other checks cover untracked additions, deletions, bad refs, symlink refusal, fa
 The first full run found a lint violation in a test fixture.
 The first repository mutation run also found Stryker's TypeScript 7 configuration incompatibility and its attempted copy of directory skill links.
 The slice fixes these problems and adds a command scenario that covers both compatibility cases without real host or legacy state.
+
+The Standards review found a missing changeset for bundled guidance and a guidance test outside its unit's filename mapping.
+Added the patch changeset and renamed the test to `mutation-policy.guidance.test.ts` so a policy mutation run includes it.
+The Spec review found that uppercase `ALL` bypassed the wildcard-suppression guard.
+Reproduced its false exit 0 through the command, rejected wildcard names without case sensitivity, and added direct and command regressions.
 
 No real legacy state was inspected or changed.
 No release was published and no PR was merged.

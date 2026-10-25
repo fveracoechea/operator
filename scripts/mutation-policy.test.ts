@@ -30,6 +30,11 @@ test("only the approved whole-file no-logic marker and explained local suppressi
       "// Stryker disable next-line StringLiteral, all: equivalent: not a named exemption\n",
     ),
   ).toEqual([1]);
+  for (const name of ["ALL", "All", "StringLiteral, AlL"]) {
+    expect(
+      suppressionErrors(`// Stryker disable next-line ${name}: no rule: blanket skip\n`),
+    ).toEqual([1]);
+  }
 });
 
 test("text in strings is not a suppression, and multiline comments retain line numbers", () => {

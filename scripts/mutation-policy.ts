@@ -28,7 +28,8 @@ export function suppressionErrors(source: string): number[] {
         /^Stryker disable next-line ([A-Za-z]\w*(?:\s*,\s*[A-Za-z]\w*)*): (?:equivalent|no rule):\s*\S/.exec(
           line,
         );
-      if (local?.[1] && !local[1].split(",").some((name) => name.trim() === "all")) continue;
+      if (local?.[1] && !local[1].split(",").some((name) => name.trim().toLowerCase() === "all"))
+        continue;
       errors.push((comment.loc?.start.line ?? 1) + offset);
     }
   }

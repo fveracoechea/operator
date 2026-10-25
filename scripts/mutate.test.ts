@@ -143,12 +143,15 @@ test("scenario paths select their unit and only that unit's beside-tests run", a
   expect(result.stdout).toContain("0 survivors");
 });
 
-test("invalid suppression reasons refuse all targets before tests run", async () => {
+test.each([
+  "Stryker disable next-line ArithmeticOperator: too hard",
+  "Stryker disable next-line ALL: no rule: blanket skip",
+  "Stryker disable next-line StringLiteral, All: equivalent: blanket skip",
+])("invalid suppression %s refuses all targets before tests run", async (suppression) => {
   const cwd = await fixture({
     "lib/good.ts": "export const value = 1;\n",
     "lib/good.test.ts": "throw new Error('must not run');\n",
-    "lib/bad.ts":
-      "// Stryker disable next-line ArithmeticOperator: too hard\nexport const value = 1 + 2;\n",
+    "lib/bad.ts": `// ${suppression}\nexport const value = 1 + 2;\n`,
   });
   const result = await mutate(cwd, ["lib/good.ts", "lib/bad.ts"]);
   expect(result.code).toBe(1);
@@ -270,11 +273,21 @@ test("valid local suppressions are ignored, not reported as killed", async () =>
   expect(result.stdout).toContain("1 killed, 1 ignored");
 });
 
+test("case-insensitive wildcard suppressions cannot hide survivors", async () => {
+  const cwd = await fixture({
+    "lib/count.ts":
+      "// Stryker disable next-line ALL: no rule: blanket skip\nexport function count(n: number) { return n + 1; }\n",
+    "lib/count.test.ts":
+      'import { test, expect } from "bun:test"; import { count } from "./count.ts"; test("weak", () => { expect(typeof count(2)).toBe("number"); });\n',
+  });
+  expect((await mutate(cwd, ["lib/count.ts"])).code).toBe(1);
+});
+
 test("removing the summary's guidance topic makes its real check fail", async () => {
   const topic = ".agents/skills/unit-testing/mutation-testing.md";
   const cwd = await fixture({
-    "scripts/mutation-guidance.test.ts": await Bun.file(
-      path.join(import.meta.dir, "mutation-guidance.test.ts"),
+    "scripts/mutation-policy.guidance.test.ts": await Bun.file(
+      path.join(import.meta.dir, "mutation-policy.guidance.test.ts"),
     ).text(),
     "scripts/mutation-policy.ts": await Bun.file(
       path.join(import.meta.dir, "mutation-policy.ts"),
@@ -283,7 +296,7 @@ test("removing the summary's guidance topic makes its real check fail", async ()
   });
   async function check() {
     const child = Bun.spawn(
-      [process.execPath, "run", "test", "./scripts/mutation-guidance.test.ts"],
+      [process.execPath, "run", "test", "./scripts/mutation-policy.guidance.test.ts"],
       {
         cwd,
         stdout: "pipe",
