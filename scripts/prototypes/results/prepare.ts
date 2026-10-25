@@ -25,6 +25,14 @@ export async function prepare(): Promise<string> {
   );
   await Bun.write(`${root}/results/store.test.ts`, Bun.file(`${root}/results/store.cases.mts`));
   await Bun.write(
+    `${root}/results/unthrown.test.ts`,
+    Bun.file(`${root}/results/unthrown.cases.mts`),
+  );
+  await Bun.write(
+    `${root}/results/drizzle.test.mjs`,
+    Bun.file(`${root}/results/drizzle.cases.mjs`),
+  );
+  await Bun.write(
     `${root}/tsconfig.json`,
     JSON.stringify({
       compilerOptions: {

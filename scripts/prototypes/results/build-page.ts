@@ -4,6 +4,7 @@ const selections: Record<string, { file: string; start?: string; end?: string }>
   "neverthrow-async.mts": { file: "neverthrow-async.mts" },
   "effect-value.mts": { file: "effect-value.mts" },
   "effect-runtime.mts": { file: "effect-runtime.mts" },
+  "unthrown.mts": { file: "unthrown.mts" },
   "assignment.mts": { file: "assignment.mts" },
   "review.mts": { file: "review.mts" },
   command: {

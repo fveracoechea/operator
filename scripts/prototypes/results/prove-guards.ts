@@ -2,6 +2,21 @@ import { prepare } from "./prepare.ts";
 
 const breaks = [
   {
+    file: "unthrown.mts",
+    search: "throw cause;",
+    replacement:
+      'return { ok: false, error: { type: "cancelled", evidence: "unknown" } } as const;',
+    test: "operations.test.ts",
+    filter: "unthrown does not turn a programming defect",
+  },
+  {
+    file: "drizzle.test.mjs",
+    search: "if (!failure.isOk()) throw rollback;",
+    replacement: "if (false) throw rollback;",
+    test: "drizzle.test.mjs",
+    filter: "a SQLite owner can roll back",
+  },
+  {
     file: "store.mts",
     search: "if (!result.ok) throw rollback;",
     replacement: "if (false) throw rollback;",

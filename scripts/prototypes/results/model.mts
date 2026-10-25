@@ -38,6 +38,7 @@ export const designs = [
   "neverthrow-async",
   "effect-value",
   "effect-runtime",
+  "unthrown",
 ] as const;
 export type Design = (typeof designs)[number];
 

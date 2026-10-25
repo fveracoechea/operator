@@ -1,5 +1,6 @@
 import { Result as Neverthrow, err as neverthrowErr, ok as neverthrowOk } from "neverthrow";
 import * as EffectResult from "effect/Result";
+import { Ok, Err, type Result as Unthrown } from "unthrown";
 import type { OperationError, Result } from "./model.mts";
 
 function closed(error: OperationError): "unknown" | "not-applied" {
@@ -36,4 +37,29 @@ const composed = neverthrowOk(42).andThen((value) =>
     : neverthrowErr({ type: "cancelled", evidence: "unknown" } satisfies OperationError),
 );
 const inferred: Neverthrow<number, OperationError> = composed;
-void [plain, neverthrow, effect, inferred];
+function unthrown(result: Unthrown<number, OperationError>): number | OperationError | unknown {
+  if (result.isOk()) return result.value;
+  if (result.isErr()) {
+    // @ts-expect-error Err has no successful value.
+    const invalid: number = result.value;
+    void invalid;
+    return result.error;
+  }
+  // Unlike a two-state Result, not-Ok does not imply Err.
+  // @ts-expect-error The remaining channel is a defect, not an operational error.
+  const invalid: OperationError = result.error;
+  void invalid;
+  return result.cause;
+}
+const unthrownInferred: Unthrown<number, OperationError> = Ok(42).flatMap((value) =>
+  value > 0 ? Ok(value) : Err({ type: "cancelled", evidence: "unknown" } satisfies OperationError),
+);
+// @ts-expect-error Extraction requires an empty modeled error channel.
+unthrownInferred.get();
+unthrownInferred.match({
+  ok: (value) => value,
+  // @ts-expect-error Every operational variant must be covered by errCases.
+  errCases: (matcher) => matcher.with({ type: "tool" }, () => 0),
+  defect: () => 0,
+});
+void [plain, neverthrow, effect, inferred, unthrown, unthrownInferred];

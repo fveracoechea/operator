@@ -3,5 +3,5 @@ import { verify } from "./verify.ts";
 
 test("disposable Result candidates pass identical CLI, operation, transaction, and type checks", async () => {
   const verified = await verify();
-  expect(verified.results).toHaveLength(5);
+  expect(verified.results).toHaveLength(6);
 }, 120000);

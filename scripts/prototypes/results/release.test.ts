@@ -24,6 +24,11 @@ test("the real release excludes the Result experiments, page, and experimental d
       .parse(await Bun.file(`${artifactRoot}/package.json`).json());
     expect(manifest.dependencies).not.toHaveProperty("neverthrow");
     expect(manifest.dependencies).not.toHaveProperty("effect");
+    expect(manifest.dependencies).not.toHaveProperty("drizzle-orm");
+    expect(manifest.dependencies).not.toHaveProperty("pg");
+    expect(Object.keys(manifest.dependencies).some((name) => name.includes("unthrown"))).toBe(
+      false,
+    );
     await symlink(`${sourceRoot}/node_modules`, `${artifactRoot}/node_modules`);
     const help = Bun.spawnSync([process.execPath, `${artifactRoot}/cli.js`, "--help"], {
       stdout: "pipe",
@@ -45,6 +50,7 @@ test("the real release excludes the Result experiments, page, and experimental d
 test("candidate root imports survive the actual release builder, declarations, and ESM execution", async () => {
   const root = await prepare();
   for (const [name, version, imported, body] of [
+    ["unthrown", "5.12.1", '{ Ok } from "unthrown"', 'console.log(Ok("release-smoke").get())'],
     [
       "neverthrow",
       "8.2.0",

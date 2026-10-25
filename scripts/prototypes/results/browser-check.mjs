@@ -10,13 +10,15 @@ try {
     const actual = await page.locator(`#${id}`).textContent();
     if (actual !== expected) throw new Error(`${id}: expected ${expected}, got ${actual}`);
   }
-  for (const design of [
+  const designs = [
     "plain",
     "neverthrow-promise",
     "neverthrow-async",
     "effect-value",
     "effect-runtime",
-  ]) {
+    "unthrown",
+  ];
+  for (const design of designs) {
     await page.selectOption("#option", design);
     if (!(await page.locator(`#${design}`).isVisible()))
       throw new Error(`Missing visible option ${design}`);
@@ -40,25 +42,28 @@ try {
   await text("action-count", "0");
   await page.screenshot({ path: "/tmp/opencode/operator-261-browser/desktop.png", fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
-  if (await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth))
-    throw new Error(
-      `The mobile page overflows horizontally: ${JSON.stringify(
-        await page.locator("body *").evaluateAll((elements) =>
-          elements
-            .filter((element) => element.getBoundingClientRect().right > window.innerWidth)
-            .map((element) => ({
-              tag: element.tagName,
-              id: element.id,
-              className: element.className,
-              width: element.getBoundingClientRect().width,
-            })),
-        ),
-      )}`,
-    );
+  for (const design of designs) {
+    await page.selectOption("#option", design);
+    if (await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth))
+      throw new Error(
+        `The mobile page overflows horizontally: ${JSON.stringify(
+          await page.locator("body *").evaluateAll((elements) =>
+            elements
+              .filter((element) => element.getBoundingClientRect().right > window.innerWidth)
+              .map((element) => ({
+                tag: element.tagName,
+                id: element.id,
+                className: element.className,
+                width: element.getBoundingClientRect().width,
+              })),
+          ),
+        )}`,
+      );
+  }
   await page.screenshot({ path: "/tmp/opencode/operator-261-browser/mobile.png", fullPage: true });
   if (errors.length) throw new Error(errors.join("\n"));
   console.log(
-    "Browser passed. All five choices, uncertain recovery, absent evidence, and mobile overflow checks passed. No page errors.",
+    "Browser passed. All six choices, uncertain recovery, absent evidence, and mobile overflow checks passed. No page errors.",
   );
 } finally {
   await browser.close();

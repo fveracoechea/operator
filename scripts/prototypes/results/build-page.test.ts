@@ -11,6 +11,7 @@ test("the offline comparison page embeds the current executable sources", async 
     "neverthrow-async",
     "effect-value",
     "effect-runtime",
+    "unthrown",
   ]) {
     expect(html).toContain(`id="${name}"`);
   }

@@ -23,9 +23,12 @@ export async function verify() {
       "./results/operations.test.ts",
       "./results/store.test.ts",
       "./results/cases.test.ts",
+      "./results/unthrown.test.ts",
+      "./results/drizzle.test.mjs",
     ],
     ["results/compatibility.mts"],
     ["results/lint-proof.mts"],
+    ["results/unthrown-lint.mts"],
   ]) {
     const child = Bun.spawn([process.execPath, ...args], {
       cwd: root,

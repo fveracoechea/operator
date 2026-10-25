@@ -430,13 +430,13 @@
       </nav>
       <h1>Errors as values.<br />The library is a separate choice.</h1>
       <p class="lede">
-        Five executable options for Operator's PR merge and review posting.<br />Same ordered
-        tables, same external operations, same tests.
+        Six executable options for Operator's PR merge and review posting.<br />Same ordered tables,
+        same external operations, same tests.
       </p>
       <p><span class="status">For your consideration. No option is selected.</span></p>
       <p class="muted">
         Issue <a href="https://github.com/fveracoechea/operator/issues/261">#261</a>. Bun 1.4.3,
-        TypeScript 6.0.3, neverthrow 8.2.0, Effect 4.0.6. Checked on Linux.
+        TypeScript 6.0.3, neverthrow 8.2.0, Effect 4.0.6, unthrown 5.12.1. Checked on Linux.
       </p>
     </header>
     <main>
@@ -444,34 +444,40 @@
         <div class="panel recommendation">
           <h2>My recommendation</h2>
           <p>
-            <strong
-              >Use neverthrow for Result values, with ordinary
-              <code>Promise&lt;Result&lt;T, E&gt;&gt;</code> as the default async contract.</strong
-            >
+            <strong>Favor unthrown's core Result and AsyncResult for these operations.</strong>
           </p>
           <p>
-            Use <code>ResultAsync.fromThrowable</code> locally when an async chain is easier to
-            read. Do not require it at every module boundary. Keep errors, evidence, and retry rules
-            with their owners.
+            It passes the same command cases, captures callback defects separately, and supplies
+            tested Oxlint diagnostics without adopting Effect's scheduler. Keep errors, evidence,
+            and retry rules with their owners. This replaces my earlier neverthrow recommendation,
+            not your right to choose.
           </p>
           <p>
-            These workflows need typed composition, not a new runtime. Neverthrow gives callers a
-            tested vocabulary for narrowing and propagation without an Effect dependency model or
-            fiber scheduler.
+            Ordinary Promise is sufficient for the neverthrow and plain options. Unthrown's eager
+            AsyncResult earns its extra contract by resolving internal failures as Err or Defect,
+            rather than rejecting when a combinator callback throws. The final match still needs an
+            explicit defect policy.
           </p>
           <p>
-            Your preference for neverthrow fits the evidence. It is an ergonomic choice, not a
-            stronger transaction or delivery guarantee.
+            The lint rules help an agent at common mistakes, but do not prove complete handling.
+            Imported producers, dropped chains, and unused bound results still escape the tested
+            must-use check. No library strengthens evidence or retry authority.
           </p>
           <p>
-            <strong>Accepted costs.</strong> One pinned dependency, method-bearing values that need
-            plain JSON projections, and result-consumption enforcement that still needs a separate
-            decision. Version 8.2.0 also declares an optional native Rollup package, although its
-            Result implementation does not use it.
+            <strong>Costs to accept.</strong> A third Result state, eager async work, an exhaustive
+            matcher vocabulary, and incomplete syntactic lint checks. The core has no runtime
+            dependencies. The Drizzle package does not support SQLite. A Zod async throwing
+            transform leaks an unhandled rejection through Standard Schema, even without the bridge.
+            Neither integration is a reason to adopt it unchanged.
           </p>
         </div>
         <div class="panel">
           <h2>When I would choose differently</h2>
+          <p>
+            <strong>Neverthrow with Promise.</strong> Choose it for a simpler two-state Result and
+            native async/await. It remains a strong alternative. Callback defects reject to the
+            outer boundary, and the demonstrated Oxlint must-use coverage is weaker.
+          </p>
           <p>
             <strong>Plain union.</strong> Choose it if avoiding a dependency matters more than
             standard composition methods. It passed the same behavior tests. It is the closest
@@ -488,8 +494,9 @@
             These bounded sequential commands do not establish that need.
           </p>
           <p>
-            <strong>Not recommended.</strong> A compulsory async wrapper, a generic workflow engine,
-            a global error registry, or catch-and-retry around a whole command.
+            <strong>Not recommended.</strong> Blanket adoption of unthrown's integrations or lint
+            preset, a generic workflow engine, a global error registry, or catch-and-retry around a
+            whole command. Core selection does not select #237's lint policy.
           </p>
           <small
             >This is a recommendation only. An approved qualifying ADR must precede dependent
@@ -685,11 +692,12 @@ export const Review = {
           <label for="option">Implementation</label
           ><select id="option">
             <option value="plain">Plain TypeScript union</option>
-            <option value="neverthrow-promise" selected>neverthrow with Promise</option>
+            <option value="neverthrow-promise">neverthrow with Promise</option>
             <option value="neverthrow-async">neverthrow ResultAsync</option>
             <option value="effect-value">Effect Result value</option>
-            <option value="effect-runtime">Effect runtime and Exit</option></select
-          ><span class="muted">All five run the same cases.</span>
+            <option value="effect-runtime">Effect runtime and Exit</option>
+            <option value="unthrown" selected>unthrown with AsyncResult</option></select
+          ><span class="muted">All six run the same cases.</span>
         </div>
         <article class="option" id="plain" data-option>
           <div class="option-heading">
@@ -1052,6 +1060,144 @@ export async function execute(input: ExecuteInput): Promise&lt;PlainResult&lt;Re
             </div>
           </div>
         </article>
+        <article class="option" id="unthrown" data-option>
+          <div class="option-heading">
+            <h3>unthrown Result, AsyncResult, and Defect</h3>
+            <small>Separate defects without a fiber runtime</small>
+          </div>
+          <p>
+            The promise thunk contains synchronous foreign throws and rejections. Qualification maps
+            those foreign failures into the same conservative operational errors as the other
+            options. A bug in our decoder or projection becomes a Defect instead. The edge names
+            each operational error and sends defects to the existing CLI exception handler.
+          </p>
+          <pre><code>import { Err, Ok, fromPromise, type AsyncResult } from "unthrown";
+import {
+  decode,
+  transportError,
+  type ExecuteInput,
+  type OperationError,
+  type Receipt,
+  type Result,
+} from "./model.mts";
+
+export function operation(input: ExecuteInput): AsyncResult&lt;Receipt, OperationError&gt; {
+  return fromPromise(
+    () =&gt; input.invoke(input.signal),
+    (cause) =&gt; transportError(cause, input.signal),
+  )
+    .flatMap((wire) =&gt; {
+      const parsed = decode(wire);
+      return parsed.ok ? Ok(parsed.value) : Err(parsed.error);
+    })
+    .map(input.project);
+}
+
+export async function execute(input: ExecuteInput): Promise&lt;Result&lt;Receipt, OperationError&gt;&gt; {
+  return operation(input).match({
+    ok: (value) =&gt; ({ ok: true, value }) as const,
+    errCases: (matcher) =&gt;
+      matcher
+        .with({ type: "transport" }, (error) =&gt; ({ ok: false, error }) as const)
+        .with({ type: "tool" }, (error) =&gt; ({ ok: false, error }) as const)
+        .with({ type: "invalid-response" }, (error) =&gt; ({ ok: false, error }) as const)
+        .with({ type: "rejected" }, (error) =&gt; ({ ok: false, error }) as const)
+        .with({ type: "timeout" }, (error) =&gt; ({ ok: false, error }) as const)
+        .with({ type: "cancelled" }, (error) =&gt; ({ ok: false, error }) as const),
+    // Preserve the consuming CLI's existing outer exception boundary.
+    defect(cause) {
+      throw cause;
+    },
+  });
+}</code></pre>
+          <div class="pros-cons">
+            <div class="pros">
+              <h4>Pros</h4>
+              <ul>
+                <li>Callback defects stay separate from modeled operational errors.</li>
+                <li>
+                  Exhaustive matching works with the existing plain error union. TaggedError classes
+                  are not required.
+                </li>
+                <li>
+                  Nine Oxlint rules have executable diagnostics and disabled-rule proof in this
+                  experiment.
+                </li>
+                <li>
+                  No core runtime dependencies or scheduler. Bun's normal assertions are sufficient.
+                </li>
+              </ul>
+            </div>
+            <div class="cons">
+              <h4>Cons</h4>
+              <ul>
+                <li>
+                  Not-Ok does not mean Err. A two-state early-return pattern can lose a Defect.
+                </li>
+                <li>
+                  AsyncResult is eager. Constructing siblings can start work before an earlier
+                  operation succeeds.
+                </li>
+                <li>
+                  Must-use lint misses imported producers and dropped chains. Binding a value does
+                  not prove handling.
+                </li>
+                <li>
+                  The optional no-throw rule would need an exception for this CLI's deliberate
+                  defect rethrow.
+                </li>
+                <li>
+                  Drizzle is PostgreSQL only. Zod's async throwing transform has a tested rejection
+                  leak.
+                </li>
+              </ul>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section id="unthrown-integrations">
+        <h2>What unthrown's integrations actually cover</h2>
+        <div class="split">
+          <div class="panel">
+            <h3>Standard Schema and Zod</h3>
+            <p>
+              The tested bridge preserves Zod output inference, transform output, validation issue
+              paths, and sync or async validation. Throwing custom Standard Schema validators become
+              Defect values. Zod's throwing sync transform takes its async fallback, so the sync
+              bridge throws a usage error. The async bridge captures that defect.
+            </p>
+            <p>
+              A throwing async Zod transform is a separate compatibility limit. The child process
+              prints Defect, then exits 1 on an orphan rejection from Zod's initial sync probe.
+              Calling Zod's Standard Schema validate directly has the same failure. The test keeps
+              this limit visible. Do not claim the bridge contains every validator rejection.
+            </p>
+            <p>
+              Bun's built-in expect and explicit isOk, isErr, and isDefect guards are enough for
+              these tests. No Vitest package or new assertion framework is needed.
+            </p>
+          </div>
+          <div class="panel">
+            <h3>Drizzle is PostgreSQL only</h3>
+            <p>
+              Published @unthrown/drizzle 0.3.0 exports a node-postgres entry, not bun-sqlite. It
+              requires Drizzle ^1.0.0-rc.5-0 and pg ^8.16.0. Source shows a replacement Postgres
+              database and Result-aware transactions, not a generic wrapper for any Drizzle driver.
+            </p>
+            <p>
+              Operator's SQLite decision stays fixed. A real in-memory Drizzle bun-sqlite test shows
+              that returned unthrown Err and Defect values both commit. An owner-private rollback
+              token can roll back both channels. The PostgreSQL integration does not solve that
+              SQLite boundary for us.
+            </p>
+            <p>
+              The isolated check pins Drizzle 1.0.0-rc.5-5935859 and pg 8.23.1. It runs the SQLite
+              behavior and loads the Postgres entry, but does not run a Postgres server or claim
+              Drizzle declaration compatibility. These are experiment pins, not production choices.
+            </p>
+          </div>
+        </div>
       </section>
 
       <section id="recovery" class="split">
@@ -1251,6 +1397,7 @@ export function transaction&lt;T, E&gt;(
                 <th>ResultAsync</th>
                 <th>Effect Result</th>
                 <th>Effect runtime</th>
+                <th>unthrown</th>
               </tr>
             </thead>
             <tbody>
@@ -1261,6 +1408,7 @@ export function transaction&lt;T, E&gt;(
                 <td>Chain first, await later.</td>
                 <td>Success/Failure guards and functional combinators.</td>
                 <td>Generator or pipe. Exit/Cause at the edge.</td>
+                <td>isOk, isErr, and isDefect. Exhaustive errCases at the edge.</td>
               </tr>
               <tr>
                 <td>Inference</td>
@@ -1269,6 +1417,9 @@ export function transaction&lt;T, E&gt;(
                 <td>Sync/async error unions compose.</td>
                 <td>flatMap combines error unions.</td>
                 <td>Tracks success, failure, and required services.</td>
+                <td>
+                  flatMap infers error unions. Defect is a third runtime state, not part of E.
+                </td>
               </tr>
               <tr>
                 <td>Async behavior</td>
@@ -1277,6 +1428,7 @@ export function transaction&lt;T, E&gt;(
                 <td>Eager thenable wrapper.</td>
                 <td>Native eager promises.</td>
                 <td>Lazy until run. Fiber runtime executes it.</td>
+                <td>Eager AsyncResult. Internal callbacks become Defect rather than rejection.</td>
               </tr>
               <tr>
                 <td>Cancellation</td>
@@ -1286,6 +1438,7 @@ export function transaction&lt;T, E&gt;(
                 <td>
                   Fiber interruption plus explicit foreign API signal wiring. Still no remote undo.
                 </td>
+                <td>Explicit AbortSignal. No scheduler or remote undo.</td>
               </tr>
               <tr>
                 <td>Defects</td>
@@ -1293,10 +1446,13 @@ export function transaction&lt;T, E&gt;(
                   Escape narrow boundary catches. Callback throws can still reject.
                 </td>
                 <td>Separate Cause channel. Must inspect Exit and interruption behavior.</td>
+                <td>
+                  Combinators capture Defect. The shared adapter rethrows its cause to the CLI.
+                </td>
               </tr>
               <tr>
                 <td>Testability</td>
-                <td colspan="5">
+                <td colspan="6">
                   Same controlled transport boundary and identical CLI cases. No path-based module
                   mocks.
                 </td>
@@ -1304,7 +1460,7 @@ export function transaction&lt;T, E&gt;(
               <tr>
                 <td>Persistence</td>
                 <td>Plain wrapper can serialize directly.</td>
-                <td colspan="4">
+                <td colspan="5">
                   Project plain domain payloads. Do not persist library instances or runtime
                   descriptions.
                 </td>
@@ -1320,6 +1476,10 @@ export function transaction&lt;T, E&gt;(
                   Effect 4.0.6, 53,470,246 unpacked bytes in registry metadata, no runtime
                   dependencies. Value-only imports do not require a running fiber.
                 </td>
+                <td>
+                  5.12.1, 382,065 unpacked bytes. No core runtime dependencies. More channel and
+                  matcher concepts.
+                </td>
               </tr>
               <tr>
                 <td>Minified ESM prototype</td>
@@ -1328,6 +1488,7 @@ export function transaction&lt;T, E&gt;(
                 <td>92,243 bytes</td>
                 <td>98,647 bytes</td>
                 <td>114,558 bytes</td>
+                <td>95,241 bytes</td>
               </tr>
               <tr>
                 <td>Gzip of that bundle</td>
@@ -1336,10 +1497,11 @@ export function transaction&lt;T, E&gt;(
                 <td>26,361 bytes</td>
                 <td>28,949 bytes</td>
                 <td>34,224 bytes</td>
+                <td>26,815 bytes</td>
               </tr>
               <tr>
                 <td>CLI contract</td>
-                <td colspan="5">
+                <td colspan="6">
                   The command formats schemaVersion, operation, outcome, reason, blockers,
                   revisions, and state. No library value leaks into public JSON. The prototype does
                   not revive removed request-replay fields.
@@ -1405,6 +1567,104 @@ result.map(brokenCode);   // Callback defects still exist.</code></pre>
         </div>
       </section>
 
+      <section id="unthrown-lint">
+        <h2>unthrown's Oxlint guidance, with deliberate breaks</h2>
+        <p>
+          The published plugin runs with both Operator's current Oxlint 1.83.0 and the comparison's
+          1.87.0. Its peer range is ^1.69.0. The same files trigger each rule, then pass when that
+          rule is disabled. The full preset accepts an exhaustive valid handler. Version support
+          outside these tested pins remains a package claim, not our proof.
+        </p>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Rule</th>
+                <th>Observed guidance</th>
+                <th>Preset</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>no-ambiguous-error-type</td>
+                <td>
+                  Names Error in Result's E and asks for a concrete error. A type alias to Error
+                  escapes it.
+                </td>
+                <td>Recommended</td>
+              </tr>
+              <tr>
+                <td>no-unhandled-result</td>
+                <td>
+                  Names the dropped producer and asks the caller to bind, return, or eliminate it.
+                  Catches sync, awaited, renamed, and annotated local producers.
+                </td>
+                <td>Recommended</td>
+              </tr>
+              <tr>
+                <td>no-async-result-race</td>
+                <td>
+                  Flags eager sibling construction before the earlier AsyncResult is consumed. Use a
+                  sequencing callback.
+                </td>
+                <td>Recommended</td>
+              </tr>
+              <tr>
+                <td>no-catch-all-pattern</td>
+                <td>Rejects P._ so a new error case needs a named handler.</td>
+                <td>Recommended</td>
+              </tr>
+              <tr>
+                <td>no-unused-matcher</td>
+                <td>Rejects a foreign matcher in an error callback. Use the injected matcher.</td>
+                <td>Recommended</td>
+              </tr>
+              <tr>
+                <td>prefer-async-result</td>
+                <td>
+                  Rejects Promise&lt;Result&gt; annotations for unthrown, not neverthrow. This is a
+                  contract preference, not a proof of stronger remote guarantees.
+                </td>
+                <td>Recommended</td>
+              </tr>
+              <tr>
+                <td>no-get-or-throw</td>
+                <td>
+                  Rejects zero-argument getOrThrow. It is name-based and can affect other libraries.
+                </td>
+                <td>Opt-in</td>
+              </tr>
+              <tr>
+                <td>no-throw</td>
+                <td>
+                  Rejects every throw statement. It is too broad to select automatically for this
+                  CLI.
+                </td>
+                <td>Opt-in</td>
+              </tr>
+              <tr>
+                <td>prefer-pre-lifted</td>
+                <td>
+                  Asks for OkAsync instead of a fresh Ok().toAsync(). This is spelling guidance.
+                </td>
+                <td>Opt-in</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          Six deliberate gaps still pass: an imported producer, a dropped method chain, an unused
+          bound Result, an unannotated local producer, an alias to a broad error type, and a dropped
+          AsyncResult chain under type-aware no-floating-promises. AsyncResult's then has no
+          rejection callback, so that native promise rule does not close the last gap.
+        </p>
+        <p>
+          Diagnostics name the problem and a repair, but do not link to an Operator skill topic. No
+          production preset, custom rule, second linter, #237 change, or #219 parser exemption is
+          selected. The human must decide which checks justify their false positives and gaps.
+        </p>
+      </section>
+
       <section id="evidence">
         <h2>Evidence you can inspect</h2>
         <div class="table-scroll">
@@ -1443,21 +1703,22 @@ result.map(brokenCode);   // Callback defects still exist.</code></pre>
                 <td>Compatibility</td>
                 <td>
                   TypeScript checks include dependency declarations. Declaration emit passes. All
-                  five ESM bundles execute under Bun. Root imports of neverthrow and Effect pass the
-                  actual release builder and scratch release execution.
+                  six ESM bundles execute under Bun. Root imports of neverthrow, Effect, and
+                  unthrown pass the actual release builder and scratch release execution.
                 </td>
               </tr>
               <tr>
                 <td>Release exclusion</td>
                 <td>
                   The actual Operator artifact contains no prototype code, HTML page, neverthrow
-                  dependency, or Effect dependency. Its CLI remains help/version only.
+                  dependency, Effect dependency, or unthrown dependency. Its CLI remains
+                  help/version only.
                 </td>
               </tr>
               <tr>
                 <td>Offline page</td>
                 <td>
-                  Chromium checks all five choices, uncertain recovery, absent evidence, and the
+                  Chromium checks all six choices, uncertain recovery, absent evidence, and the
                   390-pixel mobile layout. No page errors. Screenshots inspected at desktop and
                   mobile widths.
                 </td>
@@ -1500,6 +1761,19 @@ bun run quality</code></pre>
         </details>
         <h3>Primary sources checked</h3>
         <ul>
+          <li>
+            <a
+              href="https://github.com/btravstack/unthrown/tree/0d5de7f2cac799987c2c24734ae4216f227f4bc0/examples"
+              >unthrown examples and pinned source</a
+            >, <a href="https://registry.npmjs.org/unthrown/5.12.1">published core metadata</a>,
+            <a href="https://registry.npmjs.org/@unthrown/oxlint/5.12.1">published lint metadata</a
+            >, <a href="https://registry.npmjs.org/@unthrown/drizzle/0.3.0">Drizzle metadata</a>,
+            and
+            <a href="https://registry.npmjs.org/@unthrown/standard-schema/5.12.1"
+              >Standard Schema metadata</a
+            >. Published pins drive the executable checks. Main's dependency ranges can differ from
+            the published package.
+          </li>
           <li>
             <a href="https://registry.npmjs.org/neverthrow/8.2.0"
               >neverthrow 8.2.0 registry metadata</a
@@ -1552,8 +1826,8 @@ bun run quality</code></pre>
           around them.
         </p>
         <p>
-          With neverthrow or Effect, import the chosen library directly. Do not add a local
-          forwarding wrapper only to rename its methods.
+          With neverthrow, Effect, or unthrown, import the chosen library directly. Do not add a
+          local forwarding wrapper only to rename its methods.
         </p>
         <p>
           Workflow errors, refusal reasons, external evidence, effect-result translation, recovery,
