@@ -23,7 +23,7 @@ afterEach(async () => {
 test("version reports the running release without project release selection", async () => {
   const root = await mkdtemp(join(tmpdir(), "operator-cli-removal-"));
   roots.push(root);
-  await registerTestDevice(root);
+  const databaseBefore = await registerTestDevice(root);
   const legacy = `${root}/.operator/install/selection.json`;
   await Bun.write(legacy, "do not read or replace this legacy state\n", { createPath: true });
   const child = Bun.spawn([process.execPath, cli, "--version", "--json"], {
@@ -51,16 +51,18 @@ test("version reports the running release without project release selection", as
   expect(output.data.operatorVersion).toMatch(/^\d+\.\d+\.\d+/);
   expect(output.data).not.toHaveProperty("selection");
   expect(await Bun.file(legacy).text()).toBe("do not read or replace this legacy state\n");
-  expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([
-    ".operator/install/selection.json",
-    "state/operator/operator.sqlite",
-  ]);
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
+    databaseBefore,
+  );
+  expect(
+    (await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toSorted(),
+  ).toEqual([".operator/install/selection.json", "state/operator/operator.sqlite"]);
 });
 
 test("help names only the available commands", async () => {
   const root = await mkdtemp(join(tmpdir(), "operator-cli-help-"));
   roots.push(root);
-  await registerTestDevice(root);
+  const databaseBefore = await registerTestDevice(root);
   const child = Bun.spawn([process.execPath, cli, "--help"], {
     cwd: root,
     stdout: "pipe",
@@ -82,6 +84,9 @@ test("help names only the available commands", async () => {
   expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([
     "state/operator/operator.sqlite",
   ]);
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
+    databaseBefore,
+  );
 });
 
 test.each(
@@ -151,8 +156,7 @@ test.each(
   expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
     databaseBefore,
   );
-  expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([
-    ".operator/untouched",
-    "state/operator/operator.sqlite",
-  ]);
+  expect(
+    (await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toSorted(),
+  ).toEqual([".operator/untouched", "state/operator/operator.sqlite"]);
 });

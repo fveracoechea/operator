@@ -94,6 +94,8 @@ Direct beside-tests cover history, backup verification, blocker policy, the path
 Existing command tests first register isolated state through the public CLI, then compare database bytes to prove that their own commands do not change it.
 Disposable-copy deliberate breaks prove each new guard.
 Installed source and registry-artifact tests verify automatic migration through their public entry points and shipped SQL.
+Remote CI exposed unsorted file-list assertions in the updated generic CLI fixtures.
+A reversed-traversal preload reproduced the public test failure, and sorted set comparisons passed the same reproduction without removing database-byte or no-effect checks.
 Nix packaging and final installed acceptance remain #257 and #259.
 No real legacy state, host folder, or database is used.
 
