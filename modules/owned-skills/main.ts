@@ -10,6 +10,12 @@ const source = Bun.fileURLToPath(new URL("../../skills/", import.meta.url));
 
 /** Owns personal copies and their device ledger. Check mode follows consumer-owned links. */
 export const OwnedSkills = {
+  async names() {
+    const names = [];
+    for await (const file of new Bun.Glob("*/SKILL.md").scan({ cwd: source }))
+      names.push(file.split("/")[0] ?? "");
+    return names.toSorted();
+  },
   install(input: Omit<Request, "source">) {
     return fromPromise(
       async () => {

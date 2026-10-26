@@ -7,7 +7,7 @@ Personal skills and CLI tools for coordinating coding agents in OpenCode and Cla
 Issue [#234](https://github.com/fveracoechea/operator/issues/234) defines the device-level replacement.
 This branch starts with [#235](https://github.com/fveracoechea/operator/issues/235), which removes the legacy architecture before new workflows land.
 It is not an intermediate release.
-Help, version reporting, device settings, launch selection, project registration, and owned-skill installation are available.
+Help, version reporting, device settings, launch selection, project registration, skill installation, and static readiness are available.
 
 Finish old work with the old release before updating to the eventual breaking release.
 This code does not inspect, migrate, repair, or delete legacy Operator state.
@@ -62,7 +62,36 @@ Old role names are removed only with unchanged device-ledger proof, without forw
 `--check` follows links and compares contents without writing host folders or device state.
 Packages under `/nix/store/` always check consumer-owned wiring rather than copy skills.
 The role skills are `super-agent` and `worker-agent`.
-Workflow commands, static readiness, upstream installation, Nix packaging, and the global JSR launcher remain in their later implementation tickets.
+Workflow commands, Nix packaging, and the global JSR launcher remain in their later implementation tickets.
+
+## Upstream skills and static readiness
+
+```sh
+operator install matt --opencode --json
+operator install matt --claude --json
+operator install matt --opencode --claude --json
+operator ready --json
+```
+
+Use `bun cli.ts` in place of `operator` from a source checkout.
+An explicit Matt install permits the upstream tool's replacement policy.
+It can replace local edits without an Operator preview.
+Operator invokes `bun x --bun skills@1.7.4` with a resolved full Matt repository commit, global scope, explicit hosts, and every upstream skill name except names owned by the running Operator release.
+The upstream tool owns its shared copies, host links, and lock record, including on Nix devices.
+Operator has no upstream plan/apply commands or second upstream-content ledger.
+Failed or interrupted installs can have partial effects, so inspect their destinations before another install.
+An unconfirmed installer answer exits with code 5.
+
+`ready` checks `gh`, GitHub authentication for `github.com`, `herdr`, and the executable for `superAgent.host` in device settings.
+It follows links and compares complete owned contents with the running release.
+Required upstream `code-review` must have a nonempty `SKILL.md` in the expected personal location.
+OpenCode uses the upstream shared `~/.agents/skills/`, while Claude Code uses `~/.claude/skills/`.
+Independent upstream revisions need not match Operator.
+Missing prerequisites return current blockers and exit 3, while a ready result exits 0.
+The command writes no readiness record, changes no project, and launches no host, metadata handshake, or live probe.
+It requires no Slack MCP tools on either host.
+Static readiness is not proof of host loading or provider access.
+See `docs/implementation/243-static-readiness.md` for ownership, the decision diagram, and verification limits.
 
 ## Device settings
 

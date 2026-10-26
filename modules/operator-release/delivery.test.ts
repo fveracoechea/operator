@@ -631,6 +631,58 @@ test("installed source and registry CLIs copy complete skills to both hosts and 
           );
       }
     }
+    const tools = `${root}/${delivery.name}-readiness-tools`;
+    for (const tool of ["gh", "herdr", "opencode", "claude", "git", "bun"]) {
+      const script =
+        tool === "gh"
+          ? `if(JSON.stringify(process.argv.slice(2))!==JSON.stringify(["auth","status","--hostname","github.com"])) process.exit(99);`
+          : tool === "git"
+            ? `const a=process.argv.slice(2); if(a[0]==="clone") { for(const name of ["code-review","bun","super-agent"]) await Bun.write(a.at(-1)+"/skills/"+name+"/SKILL.md","---\\nname: "+name+"\\n---\\n",{createPath:true}); } else console.log("${"a".repeat(40)}");`
+            : tool === "bun"
+              ? `await Bun.write(${JSON.stringify(`${environment.HOME}/.agents/skills/code-review/SKILL.md`)},"independent upstream skill\\n",{createPath:true}); await Bun.write(${JSON.stringify(`${environment.HOME}/.claude/skills/code-review/SKILL.md`)},"independent upstream skill\\n",{createPath:true}); console.log(JSON.stringify([{name:"code-review",status:"installed"}]));`
+              : "process.exit(99);";
+      await Bun.write(`${tools}/${tool}`, `#!${process.execPath}\n${script}`, { createPath: true });
+      await chmod(`${tools}/${tool}`, 0o755);
+    }
+    const controlled = { ...environment, PATH: tools };
+    const upstream = await run(
+      [...command, "install", "matt", "--opencode", "--claude", "--json"],
+      checkout,
+      controlled,
+    );
+    expect(upstream.exitCode, upstream.stderr).toBe(0);
+    expect(JSON.parse(upstream.stdout)).toMatchObject({
+      reason: "upstream_installed",
+      data: { installerVersion: "1.7.4", commit: "a".repeat(40), skills: ["code-review"] },
+    });
+    for (const host of ["opencode", "claude-code"]) {
+      const edit = ["--set", `superAgent.host=${host}`];
+      const plan = await run(
+        [...command, "config", "plan", ...edit, "--json"],
+        checkout,
+        controlled,
+      );
+      expect(plan.exitCode, plan.stderr).toBe(0);
+      const planId = z
+        .object({ data: z.object({ planId: z.string() }) })
+        .parse(JSON.parse(plan.stdout)).data.planId;
+      expect(
+        (
+          await run(
+            [...command, "config", "apply", ...edit, "--plan", planId, "--json"],
+            checkout,
+            controlled,
+          )
+        ).exitCode,
+      ).toBe(0);
+      const ready = await run([...command, "ready", "--json"], checkout, controlled);
+      expect(ready.exitCode, ready.stderr).toBe(0);
+      expect(JSON.parse(ready.stdout)).toMatchObject({
+        reason: "ready",
+        blockers: [],
+        data: { staticOnly: true },
+      });
+    }
     await Bun.write(`${installed}/skills/deep-modules/module-shape.md`, "new release asset\n");
     const updated = await run(
       [...command, "install", "--opencode", "--claude", "--json"],

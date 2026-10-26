@@ -216,9 +216,11 @@ test("simultaneous installs serialize and preserve complete contents", async () 
 });
 
 test.each(
-  [["--claude", "--claude"], ["--unknown"], ["matt", "--claude"], ["--check"]].map((args) => ({
-    args,
-  })),
+  [["--claude", "--claude"], ["--unknown"], ["matt", "plan", "--claude"], ["--check"]].map(
+    (args) => ({
+      args,
+    }),
+  ),
 )("invalid flags %j have no effects", async ({ args }) => {
   expect((await run(args)).code).toBe(2);
   expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([]);

@@ -39,6 +39,11 @@ test("owns separate XDG settings, receipts, and lock paths", () => {
   });
   expect(paths.ownedSkills).toBe(`${root}/state/operator/owned-skills.json`);
   expect(paths.skillsLock).toBe(`${root}/state/operator/owned-skills-lock.sqlite`);
+  expect(paths.upstreamSkills).toEqual({
+    opencode: `${root}/home/.agents/skills`,
+    "claude-code": `${root}/home/.claude/skills`,
+  });
+  expect(OperatorHome.upstreamTemporaryPrefix()).toBe(path.join(tmpdir(), "operator-matt-"));
   expect(OperatorHome.registrationDatabase(paths, "test-nonce")).toBe(
     `${root}/state/operator/.registration-test-nonce.sqlite`,
   );

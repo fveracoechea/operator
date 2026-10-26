@@ -26,6 +26,7 @@ function paths() {
 }
 
 test("returns installed and checked outcomes through one interface", async () => {
+  expect(await OwnedSkills.names()).toContain("super-agent");
   const input = { paths: paths(), hosts: ["opencode" as const], check: false };
   expect(await OwnedSkills.install(input)).toMatchObject({
     tag: "Ok",

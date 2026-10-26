@@ -39,10 +39,13 @@ export const DeviceSettings = {
       );
   },
   show(paths: OperatorPaths) {
-    return operate(async () => ({
-      reason: "settings_read",
-      data: await readConfig(paths),
-    }));
+    return fromPromise(
+      async () => ({
+        reason: "settings_read",
+        data: await readConfig(paths),
+      }),
+      qualify,
+    );
   },
   plan(request: ChangeRequest) {
     return operate(() => plan(request));

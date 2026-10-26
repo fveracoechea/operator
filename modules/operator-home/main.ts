@@ -60,12 +60,19 @@ export const OperatorHome = {
       writeLock: path.join(stateRoot, "config/write.sqlite"),
       configTemporary: path.join(configRoot, "config.json.tmp"),
       skillHosts,
+      upstreamSkills: {
+        opencode: path.join(environment.HOME, ".agents/skills"),
+        "claude-code": skillHosts["claude-code"],
+      },
       ownedSkills: path.join(stateRoot, "owned-skills.json"),
       skillsLock: path.join(stateRoot, "owned-skills-lock.sqlite"),
     };
   },
   registrationDatabase(paths: { stateRoot: string }, nonce: string) {
     return path.join(paths.stateRoot, `.registration-${nonce}.sqlite`);
+  },
+  upstreamTemporaryPrefix() {
+    return path.join(tmpdir(), "operator-matt-");
   },
   projectDirectory(paths: { projects: string }, repository: string) {
     return path.join(paths.projects, repository);
