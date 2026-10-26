@@ -27,6 +27,15 @@ afterAll(async () => {
 
 test.each([
   {
+    name: "writer-scoped content inspection",
+    file: "owned-skills/install.ts",
+    before: "await mkdir(request.paths.stateRoot, { recursive: true });",
+    after:
+      'const early = await inspect(request, await ledger(request.paths.ownedSkills)); if (!("copies" in early)) return early; await mkdir(request.paths.stateRoot, { recursive: true });',
+    testFile: "operator-cli/run.skills.test.ts",
+    pattern: "an install waits for the owned writer",
+  },
+  {
     name: "prototype filename identity",
     file: "owned-skills/content.ts",
     before: "Object.setPrototypeOf(result, null);",
@@ -117,8 +126,8 @@ test.each([
   {
     name: "check-only writes",
     file: "owned-skills/install.ts",
-    before: "if (request.check)\n    return",
-    after: "if (false)\n    return",
+    before: "if (request.check) {",
+    after: "if (false) {",
     testFile: "operator-cli/run.skills.test.ts",
     pattern: "check mode follows complete skill links",
   },

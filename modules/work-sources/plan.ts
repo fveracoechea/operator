@@ -13,7 +13,7 @@ function validBranch(value: string) {
     value.endsWith(".") ||
     value.includes("..") ||
     value.includes("@{") ||
-    value === "@"
+    value === "HEAD"
   )
     return false;
   for (const char of value)

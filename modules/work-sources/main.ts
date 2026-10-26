@@ -110,7 +110,7 @@ export const WorkSources = {
       fromThrowable(
         () => ({
           sources: sources.map((source) => {
-            const state = decideSource(source);
+            const state = source.state;
             if (state !== "open")
               return {
                 id: source.id,

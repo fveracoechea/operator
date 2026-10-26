@@ -61,6 +61,22 @@ test.each([
     pattern: "invalid branch",
   },
   {
+    name: "reserved HEAD branch",
+    file: "work-sources/plan.ts",
+    before: 'value === "HEAD"',
+    after: "false",
+    testFile: "operator-cli/run.sources.test.ts",
+    pattern: "branch inputs match Git",
+  },
+  {
+    name: "source lifecycle consistency",
+    file: "work-sources/snapshot.ts",
+    before: "if (!consistent || !validLifecycle)",
+    after: "if (!consistent)",
+    testFile: "operator-cli/run.sources.test.ts",
+    pattern: "inconsistent",
+  },
+  {
     name: "selected profile existence",
     file: "work-sources/main.ts",
     before: "if (missing)",
@@ -111,7 +127,7 @@ test.each([
   {
     name: "snapshot consistency",
     file: "work-sources/snapshot.ts",
-    before: "if (!consistent)",
+    before: "if (!consistent || !validLifecycle)",
     after: "if (false)",
     testFile: "operator-cli/run.sources.test.ts",
     pattern: "corrupt extra-row",

@@ -77,6 +77,9 @@ The same parent can register again after an earlier source ends, with a new iden
 Neither registration nor reads create missing project state or write checkout files.
 Source selectors cannot read another project's records.
 Malformed stored plans and inconsistent assignment rows refuse without repair.
+Reads also refuse a source whose state or end time disagrees with its assignments.
+They never report an unpersisted transition as completed.
+The later completion operation must record the source state and end time with its assignment transition.
 Existing older migration history still refuses until automatic compatibility lands in #245.
 
 ## Decisions and blockers
@@ -123,6 +126,10 @@ Source and registry-artifact scenarios run the public commands against installed
 Nix packaging and final installed acceptance remain #257 and #259.
 Direct beside-tests cover each private logic file and public interface.
 Disposable-copy deliberate breaks prove the guards.
+The repeated suite exposed a concurrent owned-install preflight race.
+A deterministic public CLI test reproduced it with a held SQLite writer and partial content.
+Copy-mode content inspection now runs under the owned installer lock, and a deliberate break proves that regression guard.
+This correction changes no tracker completion history for #242 or #243.
 
 Use `TMPDIR=/tmp/opencode` and prepend `/tmp/opencode/operator-bun142/bun-linux-x64` to PATH here.
 Required final commands are `bun run quality` and `bun run test --rerun-each=3`, followed by CI at the pushed head.

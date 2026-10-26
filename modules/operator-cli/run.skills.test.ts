@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { Environment } from "../environment/main.ts";
 import { sha256 } from "../../lib/sha256.ts";
+import { Database } from "bun:sqlite";
 
 let root = "";
 const cli = Bun.fileURLToPath(new URL("../../cli.ts", import.meta.url));
@@ -211,9 +212,36 @@ test("simultaneous installs serialize and preserve complete contents", async () 
     run(["--claude", "--opencode"]),
     run(["--claude", "--opencode"]),
   ]);
-  expect(results.map((result) => result.code)).toEqual([0, 0]);
+  expect(
+    results.map((result) => result.code),
+    JSON.stringify(results),
+  ).toEqual([0, 0]);
   expect((await run(["--claude", "--opencode", "--check"])).code).toBe(0);
 });
+
+test("an install waits for the owned writer before judging its partial contents", async () => {
+  expect((await run(["--claude"])).code).toBe(0);
+  const file = `${root}/home/.claude/skills/super-agent/SKILL.md`;
+  const complete = await Bun.file(file).text();
+  const ledger = await Bun.file(`${root}/state/operator/owned-skills.json`).text();
+  using writer = new Database(`${root}/state/operator/owned-skills-lock.sqlite`);
+  writer.exec("BEGIN IMMEDIATE");
+  await Bun.write(file, "A participating writer has not finished its copy.\n");
+  try {
+    const result = await run(["--claude"]);
+    expect(result, JSON.stringify(result)).toMatchObject({
+      code: 1,
+      output: { reason: "skills_io_failed" },
+    });
+    expect(result.stderr).toContain("locked");
+    expect(await Bun.file(file).text()).toBe("A participating writer has not finished its copy.\n");
+    expect(await Bun.file(`${root}/state/operator/owned-skills.json`).text()).toBe(ledger);
+  } finally {
+    await Bun.write(file, complete);
+    writer.exec("ROLLBACK");
+  }
+  expect((await run(["--claude"])).code).toBe(0);
+}, 15000);
 
 test.each(
   [["--claude", "--claude"], ["--unknown"], ["matt", "plan", "--claude"], ["--check"]].map(

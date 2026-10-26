@@ -51,8 +51,9 @@ Consumers own their wiring, and Nix packaging verification remains #257 and #259
 
 ## Failure limits
 
-All selected destinations are checked before content writes.
-The CLI repeats that inspection under the lock.
+The copying installer checks all selected contents and the ledger under the writer lock before content writes.
+It waits for a participating installer instead of judging that installer's partial copy as a conflict.
+Check-only mode inspects without a writer lock and remains a current observation, not a concurrent-install guarantee.
 File replacement uses an exclusive same-directory temporary file and rename after synchronization.
 The ledger is replaced only after verified content changes.
 Installers hold no workflow database transaction and call no external tool or network service.

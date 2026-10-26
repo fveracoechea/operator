@@ -45,7 +45,7 @@ test.each([
   "a*b",
   "a[b",
   "a\\b",
-  "@",
+  "HEAD",
   "a@{b",
 ])("refuses invalid branch %j", (branch) => {
   expect(
@@ -55,7 +55,7 @@ test.each([
     }).success,
   ).toBe(false);
 });
-test.each(["task/24-report", "feature", "report@host", "日本語"])(
+test.each(["task/24-report", "feature", "report@host", "日本語", "@"])(
   "accepts valid branch %s",
   (branch) => {
     expect(

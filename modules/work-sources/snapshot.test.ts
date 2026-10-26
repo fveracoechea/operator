@@ -60,3 +60,29 @@ test("rejects malformed plans, unknown states, mismatched parents and assignment
     }),
   ).toThrow();
 });
+
+test("source state and end-time invariants reject incomplete or unpersisted transitions", () => {
+  const completed = [{ sourceId: "one", key: "read", completion: "report", state: "completed" }];
+  expect(() => decodeSource({ ...input, assignments: completed })).toThrow();
+  expect(() =>
+    decodeSource({ ...input, source: { ...input.source, state: "finished", endedAt: "later" } }),
+  ).toThrow();
+  expect(() => decodeSource({ ...input, source: { ...input.source, endedAt: "later" } })).toThrow();
+  expect(() =>
+    decodeSource({ ...input, source: { ...input.source, state: "reset", endedAt: "later" } }),
+  ).toThrow();
+  expect(
+    decodeSource({
+      ...input,
+      source: { ...input.source, state: "finished", endedAt: "later" },
+      assignments: completed,
+    }).state,
+  ).toBe("finished");
+  expect(
+    decodeSource({
+      ...input,
+      source: { ...input.source, state: "reset", endedAt: "later" },
+      assignments: [{ sourceId: "one", key: "read", completion: "report", state: "abandoned" }],
+    }).state,
+  ).toBe("reset");
+});

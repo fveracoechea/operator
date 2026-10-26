@@ -153,17 +153,16 @@ export async function install(request: Request) {
       reason: "skill_copy_conflict" as const,
       detail: "The device owned-content ledger or lock is externally managed.",
     };
-  const initial = await inspect(
-    request,
-    request.check ? { version: 1, entries: {} } : await ledger(request.paths.ownedSkills),
-  );
-  if (!("copies" in initial)) return initial;
-  if (request.check)
+  if (request.check) {
+    const initial = await inspect(request, { version: 1, entries: {} });
+    if (!("copies" in initial)) return initial;
     return { reason: "skills_checked" as const, data: { hosts: request.hosts, checkOnly: true } };
+  }
   await mkdir(request.paths.stateRoot, { recursive: true });
   using lock = new Database(request.paths.skillsLock);
   lock.exec("PRAGMA busy_timeout = 5000; BEGIN IMMEDIATE");
   try {
+    // A participating installer can expose a partial copy until it releases this lock.
     const recorded = await ledger(request.paths.ownedSkills);
     const inspected = await inspect(request, recorded);
     if (!("copies" in inspected)) return inspected;

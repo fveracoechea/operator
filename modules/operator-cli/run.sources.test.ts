@@ -373,3 +373,97 @@ test.each(["missing-row", "extra-row", "changed-completion", "invalid-state"])(
     expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(before);
   },
 );
+
+test.each(["open-completed", "finished-ready", "open-ended", "finished-no-end", "reset-ready"])(
+  "refuses inconsistent %s source lifecycles without changing records",
+  async (mode) => {
+    const cwd = await repository();
+    await Bun.write(
+      `${root}/plan.json`,
+      JSON.stringify({ ...plan, assignments: [plan.assignments[0]] }),
+    );
+    const registered = await run(cwd, ["source", "register", "--file", `${root}/plan.json`]);
+    expect(registered.code).toBe(0);
+    const id = z.object({ data: z.object({ id: z.string() }) }).parse(registered.output).data.id;
+    {
+      using db = new Database(`${root}/state/operator/operator.sqlite`);
+      if (mode === "open-completed") db.exec("UPDATE assignments SET state = 'completed'");
+      if (mode === "finished-ready")
+        db.exec("UPDATE sources SET state = 'finished', ended_at = 'later'");
+      if (mode === "open-ended") db.exec("UPDATE sources SET ended_at = 'later'");
+      if (mode === "finished-no-end")
+        db.exec(
+          "UPDATE assignments SET state = 'completed'; UPDATE sources SET state = 'finished'",
+        );
+      if (mode === "reset-ready") db.exec("UPDATE sources SET state = 'reset', ended_at = 'later'");
+    }
+    const before = await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer();
+    for (const args of [["next"], ["source", "show", "--source", id]])
+      expect(await run(cwd, args)).toMatchObject({ code: 3, output: { reason: "state_corrupt" } });
+    expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(before);
+  },
+);
+
+test("branch inputs match Git for HEAD and the valid at-sign name", async () => {
+  const cwd = await repository();
+  for (const branch of ["HEAD", "@"]) {
+    await Bun.write(
+      `${root}/plan.json`,
+      JSON.stringify({
+        ...plan,
+        assignments: [{ ...plan.assignments[1], branch, dependencies: [] }],
+      }),
+    );
+    const before = await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer();
+    const git = Bun.spawn(["git", "check-ref-format", "--branch", branch], {
+      cwd,
+      env: Environment.child({ GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" }),
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    expect(await git.exited).toBe(branch === "HEAD" ? 128 : 0);
+    const result = await run(cwd, ["source", "register", "--file", `${root}/plan.json`]);
+    expect(result.code, result.stderr).toBe(branch === "HEAD" ? 2 : 0);
+    if (branch === "HEAD")
+      expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
+        before,
+      );
+  }
+});
+
+test.each(["finished", "reset"])(
+  "a recorded %s source permits a fresh registration of the same parent",
+  async (state) => {
+    const cwd = await repository();
+    await Bun.write(`${root}/plan.json`, JSON.stringify(plan));
+    const first = await run(cwd, ["source", "register", "--file", `${root}/plan.json`]);
+    expect(first.code).toBe(0);
+    const id = z.object({ data: z.object({ id: z.string() }) }).parse(first.output).data.id;
+    {
+      using db = new Database(`${root}/state/operator/operator.sqlite`);
+      db.exec(
+        state === "finished"
+          ? "UPDATE assignments SET state = CASE completion WHEN 'pr' THEN 'merged' ELSE 'completed' END"
+          : "UPDATE assignments SET state = 'abandoned'",
+      );
+      db.query("UPDATE sources SET state = ?, ended_at = '2026-10-26T14:00:00Z'").run(state);
+    }
+    expect(await run(cwd, ["next", "--source", id])).toMatchObject({
+      code: 0,
+      output: {
+        data: {
+          sources: [{ id, state, actions: [{ action: "source_ended", reason: state }], waits: [] }],
+        },
+      },
+    });
+    const later = await run(cwd, ["source", "register", "--file", `${root}/plan.json`]);
+    expect(later.code, later.stderr).toBe(0);
+    expect(z.object({ data: z.object({ id: z.string() }) }).parse(later.output).data.id).not.toBe(
+      id,
+    );
+    expect(await run(cwd, ["source", "show", "--source", id])).toMatchObject({
+      code: 0,
+      output: { data: { id, state } },
+    });
+  },
+);
