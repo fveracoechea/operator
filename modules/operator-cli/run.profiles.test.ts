@@ -5,10 +5,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { Environment } from "../environment/main.ts";
+import { registerTestDevice } from "../../scripts/device-fixture.ts";
 
 let root = "";
+let databaseBefore: ArrayBuffer;
 beforeEach(async () => {
   root = await mkdtemp(path.join(tmpdir(), "operator-profiles-"));
+  databaseBefore = await registerTestDevice(root);
 });
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });
@@ -131,7 +134,9 @@ test("resolves inherited worker and SuperAgent effort from live host metadata wi
     "get",
     `/api/model?location%5Bdirectory%5D=${encodeURIComponent(root)}`,
   ]);
-  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).exists()).toBe(false);
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
+    databaseBefore,
+  );
 });
 
 test("uses Claude Code metadata and passes only the selected model and effort to its launch command", async () => {
@@ -189,7 +194,9 @@ test("reports a Claude Code metadata process failure as an operational refusal",
   const result = await run(["host", "models", "--host", "claude-code"]);
   expect(result.code).toBe(1);
   expect(result.output).toMatchObject({ reason: "host_metadata_failed" });
-  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).exists()).toBe(false);
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
+    databaseBefore,
+  );
 });
 
 test("reports a Claude Code metadata timeout as an operational refusal without writes", async () => {
@@ -204,7 +211,9 @@ test("reports a Claude Code metadata timeout as an operational refusal without w
   expect(result.output).toMatchObject({ reason: "host_metadata_failed" });
   expect(await Bun.file(`${root}/config/operator/config.json`).exists()).toBe(false);
   expect(await Bun.file(`${root}/state/operator/config/apply.json`).exists()).toBe(false);
-  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).exists()).toBe(false);
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
+    databaseBefore,
+  );
 });
 
 test("reports settings I/O failures consistently for inspection and launch resolution", async () => {
@@ -217,7 +226,9 @@ test("reports settings I/O failures consistently for inspection and launch resol
   }
   expect(await Bun.file(marker).text()).toBe("preserve this directory");
   expect(await Bun.file(`${root}/state/operator/config/apply.json`).exists()).toBe(false);
-  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).exists()).toBe(false);
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
+    databaseBefore,
+  );
 });
 
 test("reports invalid settings consistently for inspection and launch resolution", async () => {
@@ -230,7 +241,9 @@ test("reports invalid settings consistently for inspection and launch resolution
   }
   expect(await Bun.file(config).text()).toBe("{invalid");
   expect(await Bun.file(`${root}/state/operator/config/apply.json`).exists()).toBe(false);
-  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).exists()).toBe(false);
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
+    databaseBefore,
+  );
 });
 
 test("refuses unsupported explicit edits without settings, receipts, database, or host launches", async () => {
@@ -247,7 +260,9 @@ test("refuses unsupported explicit edits without settings, receipts, database, o
   expect(result.output).toMatchObject({ reason: "unsupported_model" });
   expect(await Bun.file(`${root}/config/operator/config.json`).exists()).toBe(false);
   expect(await Bun.file(`${root}/state/operator/config/apply.json`).exists()).toBe(false);
-  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).exists()).toBe(false);
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
+    databaseBefore,
+  );
 });
 
 test.each([
@@ -372,6 +387,8 @@ test.each(["missing", "invalid"])(
     expect(result.output).toMatchObject({
       reason: kind === "missing" ? "host_unavailable" : "host_metadata_failed",
     });
-    expect(await Bun.file(`${root}/state/operator/operator.sqlite`).exists()).toBe(false);
+    expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
+      databaseBefore,
+    );
   },
 );

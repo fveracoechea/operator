@@ -34,9 +34,16 @@ function upgrade(paths: Paths) {
 }
 
 /** Missing state is never created here. Only explicit project registration can publish it. */
-export function compatibility(paths: Paths) {
+export function compatibility(paths: Paths, firstRegistration = false) {
   const result = fromThrowable((): Result<void, StateFailure> => {
-    if (!databaseExists(paths.database)) return Ok(undefined);
+    if (!databaseExists(paths.database))
+      return firstRegistration
+        ? Ok(undefined)
+        : Err<StateFailure>({
+            reason: "state_missing",
+            detail:
+              "The device database is missing. Run operator project register explicitly in the controlling checkout before any other command.",
+          });
     using reader = openDatabase(paths.database, true);
     const current = transaction(reader, false, () => readHistory(reader));
     if (current.tag !== "Ok") return current.map(() => undefined);
@@ -44,15 +51,13 @@ export function compatibility(paths: Paths) {
     reader.close();
     const upgraded = upgrade(paths);
     if (upgraded.tag !== "Ok") return upgraded.map(() => undefined);
-    if (upgraded.value) pruneBackups(paths);
+    if (upgraded.value) return pruneBackups(paths);
     return Ok(undefined);
   }, qualifyStateFailure)().flatMap((value) => value);
   if (result.tag === "Err" && result.error.reason === "state_corrupt") {
-    const backups = fromThrowable(
-      () => verifiedBackups(paths),
-      (cause) => String(cause),
-    )();
-    const last = backups.tag === "Ok" ? backups.value[0]?.database : undefined;
+    const backups = verifiedBackups(paths);
+    if (backups.tag !== "Ok") return backups.map(() => undefined);
+    const last = backups.value[0]?.database;
     return Err<StateFailure>({
       ...result.error,
       detail: `${result.error.detail} ${last ? `Last verified backup: ${last}` : "No verified migration backup is available."}`,

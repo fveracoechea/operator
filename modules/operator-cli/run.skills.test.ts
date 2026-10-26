@@ -6,11 +6,14 @@ import path from "node:path";
 import { Environment } from "../environment/main.ts";
 import { sha256 } from "../../lib/sha256.ts";
 import { Database } from "bun:sqlite";
+import { registerTestDevice } from "../../scripts/device-fixture.ts";
 
 let root = "";
+let databaseBefore: ArrayBuffer;
 const cli = Bun.fileURLToPath(new URL("../../cli.ts", import.meta.url));
 beforeEach(async () => {
   root = await mkdtemp(path.join(tmpdir(), "operator-owned-skills-"));
+  databaseBefore = await registerTestDevice(root);
 });
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });
@@ -47,7 +50,9 @@ test("copies complete owned skills personally for both hosts without project wri
     expect(await Bun.file(`${host}/super-agent/SKILL.md`).exists()).toBe(true);
     expect(await Bun.file(`${host}/worker-agent/SKILL.md`).exists()).toBe(true);
   }
-  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).exists()).toBe(false);
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
+    databaseBefore,
+  );
   expect(await Bun.file(`${root}/.agents/skills/bun/SKILL.md`).exists()).toBe(false);
 });
 
@@ -193,7 +198,9 @@ test("check mode follows complete skill links and leaves host folders and state 
 
 test("missing check-only contents create no host or state folders", async () => {
   expect((await run(["--opencode", "--claude", "--check"])).code).toBe(4);
-  expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([]);
+  expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([
+    "state/operator/operator.sqlite",
+  ]);
 });
 
 test("a read-only skill folder is preserved and blocks the other host", async () => {
@@ -251,5 +258,7 @@ test.each(
   ),
 )("invalid flags %j have no effects", async ({ args }) => {
   expect((await run(args)).code).toBe(2);
-  expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([]);
+  expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([
+    "state/operator/operator.sqlite",
+  ]);
 });

@@ -215,7 +215,10 @@ export async function run(args: string[]): Promise<void> {
     return;
   }
 
-  const compatible = DeviceState.checkCompatibility(paths);
+  const compatible = DeviceState.checkCompatibility(
+    paths,
+    projectArgs(args)?.command === "register",
+  );
   if (compatible.tag !== "Ok") {
     if (compatible.tag === "Err")
       failure(

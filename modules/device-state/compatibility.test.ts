@@ -21,7 +21,8 @@ afterAll(async () => {
 });
 
 test("the compatibility owner never creates missing state and preserves corruption with no backup claim", async () => {
-  expect(compatibility(paths).tag).toBe("Ok");
+  expect(compatibility(paths)).toMatchObject({ tag: "Err", error: { reason: "state_missing" } });
+  expect(compatibility(paths, true).tag).toBe("Ok");
   expect(await Bun.file(paths.database).exists()).toBe(false);
   await Bun.write(paths.database, "corrupt", { createPath: true });
   const result = compatibility(paths);

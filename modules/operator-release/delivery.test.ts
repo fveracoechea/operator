@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Environment } from "../environment/main.ts";
 import { Database } from "bun:sqlite";
+import { registerTestDevice } from "../../scripts/device-fixture.ts";
 // Bun has no recursive copy, symlink, or directory removal API.
 import { chmod, cp, mkdir, rm, symlink } from "node:fs/promises";
 import { OperatorRelease } from "./main.ts";
@@ -46,6 +47,7 @@ async function run(command: string[], cwd: string, extra: Record<string, string>
 }
 
 beforeAll(async () => {
+  await registerTestDevice(root);
   await mkdir(sourceRepository, { recursive: true });
   for (const path of [
     "cli.ts",
@@ -269,6 +271,7 @@ test("device settings examples work through installed source and registry comman
       XDG_CONFIG_HOME: `${root}/${invocation.name}-config`,
       XDG_STATE_HOME: `${root}/${invocation.name}-state`,
     };
+    await registerTestDevice(root, isolated.XDG_STATE_HOME);
     const show = await run(
       [...invocation.command, "config", "show", "--json"],
       invocation.cwd,
@@ -349,6 +352,7 @@ for await(const chunk of Bun.stdin.stream().pipeThrough(new TextDecoderStream())
       XDG_STATE_HOME: `${root}/${invocation.name}-profiles-state`,
       PATH: `${tools}:${Environment.read().PATH}`,
     };
+    await registerTestDevice(root, environment.XDG_STATE_HOME);
     const edits = [
       "--set",
       "superAgent.host=opencode",
@@ -439,11 +443,6 @@ test("project registration uses installed migrations and ignores unrelated globa
       ).exitCode,
     ).toBe(0);
     const isolated = { XDG_STATE_HOME: `${root}/${invocation.name}-registration` };
-    const before = await run(
-      [...invocation.command, "--version", "--json"],
-      invocation.cwd,
-      isolated,
-    );
     const registered = await run(
       [...invocation.command, "project", "register", "--json"],
       invocation.cwd,
@@ -455,6 +454,11 @@ test("project registration uses installed migrations and ignores unrelated globa
       reason: "project_registered",
       data: { repository: "example/installed" },
     });
+    const before = await run(
+      [...invocation.command, "--version", "--json"],
+      invocation.cwd,
+      isolated,
+    );
     await Bun.write(
       `${root}/home/.bun/install/global/bun.lock`,
       "unrelated global package install\n",

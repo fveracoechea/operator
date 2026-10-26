@@ -11,9 +11,10 @@ They are not implemented by this slice.
 flowchart TD
     C[Person, agent, or future hook invokes the CLI] --> E[Validate environment and runtime]
     E --> H{Existing device database}
-    H -->|absent| N[Create nothing, retain explicit registration rules]
-    N --> R[Run handler, state operations still refuse missing state]
-    H -->|unsupported path or history, or corruption| F[Refuse before handler]
+    H -->|absent| N{Valid explicit project registration}
+    N -->|yes| R[Run handler]
+    N -->|no| F[Refuse before handler]
+    H -->|unsupported path or history, or corruption| F
     H -->|matching history| R
     H -->|older matching history| L[Acquire SQLite immediate writer transaction]
     L --> Q[Recheck integrity and history under protection]
@@ -31,8 +32,10 @@ flowchart TD
 ```
 
 Startup reads existing state even for commands that do not use workflow records.
-An absent database does not make setup, help, or version create one.
-Project and source operations retain their missing-state refusals, except explicit first registration.
+An absent database refuses every command except valid explicit project registration.
+This includes setup, help, version, and invalid invocations.
+The person explicitly selected this rule after the independent Spec review identified the broader pre-registration setup behavior.
+Run `operator project register --json` from a main checkout with a matching GitHub remote before any other command.
 A directory or link at the database path refuses without opening its target.
 No existing empty database, missing history, foreign history, newer history, or corrupt database is adopted.
 No command repairs or replaces damaged state.
@@ -73,6 +76,7 @@ Unverified or modified backup folders remain untouched.
 On corruption, startup rechecks backup bytes, receipt, full integrity, and recorded history before it names the latest valid copy.
 It does not restore that copy automatically.
 If no copy verifies, it reports that no verified backup is available.
+Expected invalid-copy failures exclude that copy, while unexpected programming defects remain startup defects.
 These receipts are local evidence, not authentication against arbitrary external editors.
 There is no periodic backup service.
 The last backup can be as old as the last schema migration.
@@ -87,6 +91,7 @@ Both rollback-journal and WAL modes are covered.
 Controlled runtime preloads only coordinate those process tests.
 They are not production hooks or migration options.
 Direct beside-tests cover history, backup verification, blocker policy, the path owner, and the public state interface.
+Existing command tests first register isolated state through the public CLI, then compare database bytes to prove that their own commands do not change it.
 Disposable-copy deliberate breaks prove each new guard.
 Installed source and registry-artifact tests verify automatic migration through their public entry points and shipped SQL.
 Nix packaging and final installed acceptance remain #257 and #259.

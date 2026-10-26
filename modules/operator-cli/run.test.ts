@@ -5,6 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
+import { registerTestDevice } from "../../scripts/device-fixture.ts";
 
 const { join } = path;
 const versionOutput = z.object({
@@ -22,6 +23,7 @@ afterEach(async () => {
 test("version reports the running release without project release selection", async () => {
   const root = await mkdtemp(join(tmpdir(), "operator-cli-removal-"));
   roots.push(root);
+  await registerTestDevice(root);
   const legacy = `${root}/.operator/install/selection.json`;
   await Bun.write(legacy, "do not read or replace this legacy state\n", { createPath: true });
   const child = Bun.spawn([process.execPath, cli, "--version", "--json"], {
@@ -51,12 +53,14 @@ test("version reports the running release without project release selection", as
   expect(await Bun.file(legacy).text()).toBe("do not read or replace this legacy state\n");
   expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([
     ".operator/install/selection.json",
+    "state/operator/operator.sqlite",
   ]);
 });
 
 test("help names only the available commands", async () => {
   const root = await mkdtemp(join(tmpdir(), "operator-cli-help-"));
   roots.push(root);
+  await registerTestDevice(root);
   const child = Bun.spawn([process.execPath, cli, "--help"], {
     cwd: root,
     stdout: "pipe",
@@ -75,7 +79,9 @@ test("help names only the available commands", async () => {
   expect(output).toBe(
     "Usage: operator --help | --version [--json]\n       operator config show | recover [--json]\n       operator config plan | apply (--set field=value | --unset field)... [--plan id] [--json]\n       operator host models --host opencode|claude-code [--json]\n       operator config resolve [--role superAgent|workerAgent] [--profile name] [--host host] [--model model] [--effort effort] [--json]\n       operator project register [--repository owner/repository] [--json]\n       operator project show [--json]\n       operator install --opencode | --claude | --opencode --claude [--check] [--json]\n       operator install matt --opencode | --claude | --opencode --claude [--json]\n       operator ready [--json]\n       operator source register --file path [--json]\n       operator source show --source id [--json]\n       operator next [--source id] [--json]\n",
   );
-  expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([]);
+  expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([
+    "state/operator/operator.sqlite",
+  ]);
 });
 
 test.each(
@@ -110,6 +116,7 @@ test.each(
 )("rejects removed or invalid command %j without writes or external effects", async ({ args }) => {
   const root = await mkdtemp(join(tmpdir(), "operator-cli-refusal-"));
   roots.push(root);
+  await registerTestDevice(root);
   const legacy = `${root}/.operator/untouched`;
   await Bun.write(legacy, "unfinished work\n", { createPath: true });
   const child = Bun.spawn([process.execPath, cli, ...args, "--json"], {
@@ -143,5 +150,6 @@ test.each(
   expect(await Bun.file(legacy).text()).toBe("unfinished work\n");
   expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([
     ".operator/untouched",
+    "state/operator/operator.sqlite",
   ]);
 });

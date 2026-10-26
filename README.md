@@ -25,15 +25,18 @@ From a source checkout at an exact commit:
 
 ```sh
 bun install --frozen-lockfile
+bun cli.ts project register --json
 bun cli.ts --help
 bun cli.ts --version
 bun cli.ts --version --json
 ```
 
 The CLI requires Bun 1.4.0 or later.
+Run the first registration from a main checkout with a GitHub remote and no legacy `.operator` folder.
+Until registration creates device state, every other command, including setup, help, and version, refuses with `state_missing`.
 Version output describes the running installation, not a project-selected release.
 A built artifact also reports its commit and artifact identity in JSON.
-Unknown or removed commands exit with code 2 and perform no workflow operation.
+After startup succeeds, unknown or removed commands exit with code 2 and perform no workflow operation.
 An unsupported Bun exits with code 1 before a command runs.
 
 An installed package exports `main(args)` from `@fveracoechea/operator/cli`.

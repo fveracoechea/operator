@@ -6,10 +6,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { Database } from "bun:sqlite";
+import { registerTestDevice } from "../../scripts/device-fixture.ts";
 
 let root = "";
+let databaseBefore: ArrayBuffer;
 beforeEach(async () => {
   root = await mkdtemp(path.join(tmpdir(), "operator-device-settings-"));
+  databaseBefore = await registerTestDevice(root);
 });
 const cli = new URL("../../cli.ts", import.meta.url).pathname;
 afterEach(async () => {
@@ -38,7 +41,7 @@ async function run(args: string[], overrides: Record<string, string | undefined>
   return { code, output: JSON.parse(stdout) as unknown, stderr };
 }
 
-test("inspects default device settings without creating settings, state, or project files", async () => {
+test("inspects default device settings without changing registered state or creating settings", async () => {
   const result = await run(["config", "show"]);
   expect(result.code).toBe(0);
   expect(result.output).toMatchObject({
@@ -50,7 +53,12 @@ test("inspects default device settings without creating settings, state, or proj
     },
   });
   expect(result.stderr).toBe("");
-  expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([]);
+  expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([
+    "state/operator/operator.sqlite",
+  ]);
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
+    databaseBefore,
+  );
 });
 
 test.each(["XDG_CONFIG_HOME", "XDG_STATE_HOME", "HOME", "TMPDIR"])(
@@ -64,9 +72,9 @@ test.each(["XDG_CONFIG_HOME", "XDG_STATE_HOME", "HOME", "TMPDIR"])(
       expect(result.code).toBe(2);
       expect(result.output).toMatchObject({ reason: "invalid_environment" });
       expect(result.stderr).toContain(name);
-      expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual(
-        [],
-      );
+      expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([
+        "state/operator/operator.sqlite",
+      ]);
     }
   },
 );
@@ -140,7 +148,9 @@ test.each(
   ].map((args) => ({ args })),
 )("refuses invalid settings invocation %j with no writes", async ({ args }) => {
   expect((await run(["config", ...args])).code).toBe(2);
-  expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([]);
+  expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([
+    "state/operator/operator.sqlite",
+  ]);
 });
 
 test("serializes simultaneous applies with real SQLite and records a single completed intent", async () => {
@@ -276,7 +286,9 @@ test("settings ignore the Git checkout and do not create project instructions or
       (file) => !file.startsWith(".git/"),
     ),
   ).toEqual([".operator/unfinished"]);
-  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).exists()).toBe(false);
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
+    databaseBefore,
+  );
 });
 
 test("plans and applies an exact device edit once, with a receipt and no checkout changes", async () => {
@@ -306,5 +318,6 @@ test("plans and applies an exact device edit once, with a receipt and no checkou
     "config/operator/config.schema.json",
     "state/operator/config/apply.json",
     "state/operator/config/write.sqlite",
+    "state/operator/operator.sqlite",
   ]);
 });

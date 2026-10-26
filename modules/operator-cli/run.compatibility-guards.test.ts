@@ -29,6 +29,22 @@ afterAll(async () => {
 
 test.each([
   {
+    name: "missing-state refusal",
+    file: "device-state/compatibility.ts",
+    before: "return firstRegistration",
+    after: "return true",
+    pattern: "only explicit registration can pass",
+    testFile: "operator-cli/run.compatibility.test.ts",
+  },
+  {
+    name: "backup defects",
+    file: "device-state/backups.ts",
+    before: 'if (result.tag === "Defect") return result.map(() => []);',
+    after: "",
+    pattern: "unexpected backup discovery defect",
+    testFile: "operator-cli/run.compatibility.test.ts",
+  },
+  {
     name: "shared startup",
     file: "operator-cli/run.ts",
     before: 'if (compatible.tag !== "Ok")',

@@ -10,13 +10,14 @@ import {
   writeFileSync,
 } from "node:fs";
 import { z } from "zod";
-import { fromThrowable, Err, Ok } from "unthrown";
+import { fromThrowable, Err, Ok, type Result } from "unthrown";
 import { OperatorHome } from "../operator-home/main.ts";
 import { historySchema, openDatabase } from "./database.ts";
 import { errorCode, qualifyStateFailure, type StateFailure } from "./failures.ts";
 import type { Database } from "bun:sqlite";
 
 type Paths = ReturnType<typeof OperatorHome.resolve>;
+type VerifiedBackup = { identity: string; database: string; verifiedAt: string };
 const receiptSchema = z.strictObject({
   identity: z.string(),
   verifiedAt: z.iso.datetime(),
@@ -41,7 +42,20 @@ function backupHistory(client: Database) {
   );
 }
 
-export function verifiedBackups(paths: Paths) {
+function qualifyBackupFailure<T>(cause: unknown, defect: (cause: unknown) => T): StateFailure | T {
+  if (
+    cause instanceof z.ZodError ||
+    cause instanceof SyntaxError ||
+    errorCode(cause) === "SQLITE_ERROR"
+  )
+    return {
+      reason: "state_backup_failed",
+      detail: "The backup receipt or SQLite history is invalid.",
+    };
+  return qualifyStateFailure(cause, defect);
+}
+
+function backupNames(paths: Paths) {
   let names: string[];
   try {
     names = readdirSync(paths.backups);
@@ -50,11 +64,15 @@ export function verifiedBackups(paths: Paths) {
     // oxlint-disable-next-line unthrown/no-throw -- The storage boundary preserves unreadable backup evidence.
     throw cause;
   }
-  const verified: { identity: string; database: string; verifiedAt: string }[] = [];
-  for (const identity of names) {
-    const files = OperatorHome.migrationBackup(paths, identity);
-    const result = fromThrowable(
-      () => {
+  return names;
+}
+
+export function verifiedBackups(paths: Paths) {
+  return fromThrowable((): Result<VerifiedBackup[], StateFailure> => {
+    const verified: VerifiedBackup[] = [];
+    for (const identity of backupNames(paths)) {
+      const files = OperatorHome.migrationBackup(paths, identity);
+      const result = fromThrowable(() => {
         const receipt = receiptSchema.parse(JSON.parse(readFileSync(files.receipt, "utf8")));
         if (
           receipt.identity !== identity ||
@@ -65,14 +83,16 @@ export function verifiedBackups(paths: Paths) {
         using db = openDatabase(files.database, true);
         if (JSON.stringify(backupHistory(db)) !== JSON.stringify(receipt.history)) return;
         return { identity, database: files.database, verifiedAt: receipt.verifiedAt };
-      },
-      (cause) => String(cause),
-    )();
-    if (result.tag === "Ok" && result.value) verified.push(result.value);
-  }
-  return verified.toSorted(
-    (a, b) => b.verifiedAt.localeCompare(a.verifiedAt) || b.identity.localeCompare(a.identity),
-  );
+      }, qualifyBackupFailure)();
+      if (result.tag === "Defect") return result.map(() => []);
+      if (result.tag === "Ok" && result.value) verified.push(result.value);
+    }
+    return Ok(
+      verified.toSorted(
+        (a, b) => b.verifiedAt.localeCompare(a.verifiedAt) || b.identity.localeCompare(a.identity),
+      ),
+    );
+  }, qualifyStateFailure)().flatMap((result) => result);
 }
 
 /** SQLite serialization takes the locked connection's snapshot, never live database side files. */
@@ -110,7 +130,11 @@ export function createBackup(
 }
 
 export function pruneBackups(paths: Paths) {
-  for (const backup of verifiedBackups(paths).slice(3)) {
-    rmSync(OperatorHome.migrationBackup(paths, backup.identity).directory, { recursive: true });
-  }
+  return verifiedBackups(paths).flatMap((backups) =>
+    fromThrowable(() => {
+      for (const backup of backups.slice(3)) {
+        rmSync(OperatorHome.migrationBackup(paths, backup.identity).directory, { recursive: true });
+      }
+    }, qualifyStateFailure)(),
+  );
 }

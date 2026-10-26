@@ -16,8 +16,8 @@ type Paths = ReturnType<typeof OperatorHome.resolve>;
 
 /** Only explicit registration may create state. Connections never leave this owner. */
 export const DeviceState = {
-  checkCompatibility(paths: Paths) {
-    return compatibility(paths);
+  checkCompatibility(paths: Paths, firstRegistration = false) {
+    return compatibility(paths, firstRegistration);
   },
   registerSource(
     paths: Paths,

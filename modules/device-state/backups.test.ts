@@ -37,10 +37,10 @@ test("a snapshot must match the locked history before it becomes a verified back
       createBackup(db, paths("mismatch"), [{ hash: "different", created_at: 1 }]),
     ),
   ).toMatchObject({ tag: "Err", error: { reason: "state_backup_failed" } });
-  expect(verifiedBackups(paths("mismatch"))).toEqual([]);
+  expect(verifiedBackups(paths("mismatch"))).toMatchObject({ tag: "Ok", value: [] });
   const copy = transaction(db, true, () => createBackup(db, paths("matching"), history));
   expect(copy.tag).toBe("Ok");
-  expect(verifiedBackups(paths("matching"))).toHaveLength(1);
+  expect(verifiedBackups(paths("matching")).getOrNull()).toHaveLength(1);
 });
 
 test("verification rejects changed receipt history, content hashes, and corrupt copies without deleting evidence", async () => {
@@ -52,21 +52,22 @@ test("verification rejects changed receipt history, content hashes, and corrupt 
   const target = paths("tamper");
   for (let index = 0; index < 4; index++)
     expect(transaction(db, true, () => createBackup(db, target, history)).tag).toBe("Ok");
-  const copies = verifiedBackups(target);
+  const copies = verifiedBackups(target).getOrNull();
   expect(copies).toHaveLength(4);
+  if (!copies) return;
   const first = copies[0];
   expect(first).toBeDefined();
   if (!first) return;
   const receipt = OperatorHome.migrationBackup(target, first.identity).receipt;
   const before = await Bun.file(receipt).text();
   await Bun.write(receipt, before.replace(history[0]?.hash ?? "missing", "foreign"));
-  expect(verifiedBackups(target)).toHaveLength(3);
-  pruneBackups(target);
+  expect(verifiedBackups(target).getOrNull()).toHaveLength(3);
+  expect(pruneBackups(target).tag).toBe("Ok");
   expect(await Bun.file(first.database).exists()).toBe(true);
   await Bun.write(receipt, before);
-  expect(verifiedBackups(target)).toHaveLength(4);
-  pruneBackups(target);
-  expect(verifiedBackups(target)).toHaveLength(3);
+  expect(verifiedBackups(target).getOrNull()).toHaveLength(4);
+  expect(pruneBackups(target).tag).toBe("Ok");
+  expect(verifiedBackups(target).getOrNull()).toHaveLength(3);
   await Bun.write(first.database, "corrupt");
-  expect(verifiedBackups(target)).toHaveLength(2);
+  expect(verifiedBackups(target).getOrNull()).toHaveLength(2);
 });

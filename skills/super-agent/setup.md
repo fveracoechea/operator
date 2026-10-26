@@ -1,5 +1,8 @@
 # Device setup
 
+First run `operator project register --json` from the main checkout with a matching GitHub remote and no legacy `.operator` folder.
+Until it creates the device database, every other command, including help and version, refuses.
+
 Use `operator install --opencode --claude --json` for complete owned skills in both personal host locations.
 Select only one host flag when needed.
 Use `operator install --opencode --claude --check --json` for a content-only check.

@@ -4,11 +4,14 @@ import { chmod, cp, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Environment } from "../environment/main.ts";
+import { registerTestDevice } from "../../scripts/device-fixture.ts";
 
 let root = "";
+let databaseBefore: ArrayBuffer;
 const cli = Bun.fileURLToPath(new URL("../../cli.ts", import.meta.url));
 beforeEach(async () => {
   root = await mkdtemp(path.join(tmpdir(), "operator-readiness-"));
+  databaseBefore = await registerTestDevice(root);
 });
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });
@@ -48,7 +51,9 @@ test("reports missing tools and configured host without creating state or launch
       ],
     },
   });
-  expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([]);
+  expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([
+    "state/operator/operator.sqlite",
+  ]);
 });
 
 async function configure(host: string) {
@@ -101,7 +106,9 @@ test.each(["opencode", "claude-code"])(
       "github.com",
     ]);
     expect(await Bun.file(`${root}/state/operator/owned-skills.json`).exists()).toBe(false);
-    expect(await Bun.file(`${root}/state/operator/operator.sqlite`).exists()).toBe(false);
+    expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
+      databaseBefore,
+    );
     expect(await Bun.file(`${root}/.operator/probe.json`).exists()).toBe(false);
   },
 );
@@ -124,5 +131,7 @@ test("reports failed authentication, a missing host, changed owned assets, and a
     ],
   });
   expect(await Bun.file(`${folder}/deep-modules/module-shape.md`).text()).toBe("personal edit\n");
-  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).exists()).toBe(false);
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
+    databaseBefore,
+  );
 });

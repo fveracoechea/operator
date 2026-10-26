@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { Environment } from "../environment/main.ts";
 import { z } from "zod";
+import { registerTestDevice } from "../../scripts/device-fixture.ts";
 
 let root = "";
 const cli = new URL("../../cli.ts", import.meta.url).pathname;
@@ -167,8 +168,11 @@ test("refuses legacy local state by presence without reading or changing its con
   await Bun.write(`${cwd}/.operator/unfinished`, "old work\n", { createPath: true });
   for (const args of [["register"], ["show"]]) {
     const refused = await run(cwd, args);
-    expect(refused).toMatchObject({ code: 3, output: { reason: "legacy_project_state" } });
-    expect(refused.stderr).toContain("old release");
+    expect(refused).toMatchObject({
+      code: 3,
+      output: { reason: args[0] === "register" ? "legacy_project_state" : "state_missing" },
+    });
+    if (args[0] === "register") expect(refused.stderr).toContain("old release");
   }
   expect(await Bun.file(`${cwd}/.operator/unfinished`).text()).toBe("old work\n");
   expect(await Bun.file(`${root}/state/operator/operator.sqlite`).exists()).toBe(false);
@@ -317,8 +321,11 @@ test.each(
 )(
   "refuses invalid project arguments %j without invoking tools or creating state",
   async ({ args }) => {
+    await registerTestDevice(root);
     const result = await run(root, args, { PATH: `${root}/no-tools` });
     expect(result).toMatchObject({ code: 2, output: { reason: "invalid_arguments" } });
-    expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([]);
+    expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([
+      "state/operator/operator.sqlite",
+    ]);
   },
 );

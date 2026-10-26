@@ -145,8 +145,21 @@ test("startup upgrades matching older history before a state-free handler and ve
   ]);
 });
 
-test("matching history has no migration writes or backup, and missing state is never created by state-free commands", async () => {
-  expect((await run(["--version"])).code).toBe(0);
+test("only explicit registration can pass missing-state startup, while matching history has no migration writes", async () => {
+  for (const args of [
+    ["--version"],
+    ["config", "show"],
+    ["config", "plan", "--set", "superAgent.host=opencode"],
+    ["config", "apply", "--set", "superAgent.host=opencode"],
+    ["install", "--opencode"],
+    ["ready"],
+    ["next"],
+  ])
+    expect(await run(args)).toMatchObject({
+      code: 3,
+      output: { operation: "startup", reason: "state_missing" },
+    });
+  expect(await result(start(["--help"]))).toMatchObject({ code: 3 });
   expect(await Bun.file(`${root}/state/operator/operator.sqlite`).exists()).toBe(false);
   const initialized = Bun.spawn(["git", "init", "-q", root], {
     env: Environment.child(),
@@ -358,6 +371,29 @@ test("retention keeps three verified backups only after success and corruption n
   const fallback = await run(["--version"]);
   expect(fallback.stderr).toContain(copies.at(-2) ?? "missing prior backup");
   expect((await backups()).toSorted()).toEqual(copies.toSorted());
+});
+
+test("an unexpected backup discovery defect stays a startup defect rather than a missing-backup claim", async () => {
+  await oldDatabase();
+  expect((await run(["--version"])).code).toBe(0);
+  await Bun.write(`${root}/state/operator/operator.sqlite`, "corrupt");
+  const preload = `${root}/backup-defect.ts`;
+  await Bun.write(
+    preload,
+    `import { Database } from "bun:sqlite";
+const query = Database.prototype.query;
+Database.prototype.query = function(sql, ...args) {
+  if (sql === "PRAGMA integrity_check") throw new TypeError("deliberate backup discovery defect");
+  return query.call(this, sql, ...args);
+};`,
+  );
+  const refusal = await result(start(["--version", "--json"], cli, preload));
+  expect(refusal).toMatchObject({
+    code: 1,
+    output: { operation: "startup", reason: "startup_defect" },
+  });
+  expect(refusal.stderr).toContain("deliberate backup discovery defect");
+  expect(refusal.stderr).not.toContain("No verified migration backup");
 });
 
 test("simultaneous public starts recheck history and create one backup", async () => {

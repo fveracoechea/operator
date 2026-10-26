@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test as bunTest } from "bun:test";
 import { Environment } from "../environment/main.ts";
+import { registerTestDevice } from "../../scripts/device-fixture.ts";
 // Bun has no recursive directory removal or symlink API.
 import { rm, symlink } from "node:fs/promises";
 import { OperatorRelease } from "./main.ts";
@@ -234,6 +235,8 @@ describe("the release artifact", () => {
 
   test("runs the built command through the same importable entry point", async () => {
     const { artifactRoot } = await buildArtifact();
+    outputs.push(`${artifactRoot}.state`);
+    await registerTestDevice(artifactRoot, `${artifactRoot}.state`);
     // A real installation keeps its dependencies beside the package, so the fixture does too.
     await symlink(`${sourceRoot}/node_modules`, `${artifactRoot}/node_modules`);
 

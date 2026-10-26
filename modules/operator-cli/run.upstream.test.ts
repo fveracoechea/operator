@@ -4,11 +4,13 @@ import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Environment } from "../environment/main.ts";
+import { registerTestDevice } from "../../scripts/device-fixture.ts";
 
 let root = "";
 const cli = Bun.fileURLToPath(new URL("../../cli.ts", import.meta.url));
 beforeEach(async () => {
   root = await mkdtemp(path.join(tmpdir(), "operator-upstream-"));
+  await registerTestDevice(root);
 });
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });
@@ -155,5 +157,7 @@ test.each(
   ].map((args) => ({ args })),
 )("invalid upstream flags $args invoke nothing", async ({ args }) => {
   expect((await run(args)).code).toBe(2);
-  expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([]);
+  expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([
+    "state/operator/operator.sqlite",
+  ]);
 });
