@@ -478,7 +478,7 @@ test("project registration uses installed migrations and ignores unrelated globa
     {
       using database = new Database(`${isolated.XDG_STATE_HOME}/operator/operator.sqlite`);
       database.exec(
-        "DROP TABLE assignments; DROP TABLE sources; DELETE FROM __drizzle_migrations WHERE created_at = (SELECT MAX(created_at) FROM __drizzle_migrations)",
+        "DROP TABLE assignments; DROP TABLE sources; DROP TABLE project_removals; DELETE FROM __drizzle_migrations WHERE created_at > (SELECT MIN(created_at) FROM __drizzle_migrations)",
       );
     }
     const migrated = await run(
@@ -559,6 +559,80 @@ test("project registration uses installed migrations and ignores unrelated globa
     );
     expect(after.stdout).toBe(before.stdout);
     expect(await Bun.file(`${invocation.cwd}/.operator/config.json`).exists()).toBe(false);
+  }
+}, 300_000);
+
+test("installed source and registry CLIs list, move, and remove project history without changing checkouts", async () => {
+  for (const delivery of [
+    { name: "source", command: [`${sourceProject}/node_modules/.bin/operator`] },
+    {
+      name: "registry",
+      command: [process.execPath, `${registryProject}/node_modules/@fveracoechea/operator/cli.js`],
+    },
+  ]) {
+    const old = `${root}/${delivery.name}-management-old`;
+    const alternate = `${root}/${delivery.name}-management-new`;
+    const environment = { XDG_STATE_HOME: `${root}/${delivery.name}-management-state` };
+    for (const cwd of [old, alternate]) {
+      await mkdir(cwd);
+      expect((await run(["git", "init", "-q"], cwd)).exitCode).toBe(0);
+      expect(
+        (
+          await run(
+            ["git", "remote", "add", "identity", "https://github.com/example/manage.git"],
+            cwd,
+          )
+        ).exitCode,
+      ).toBe(0);
+      await Bun.write(`${cwd}/keep.txt`, "unlanded work");
+    }
+    expect(
+      (await run([...delivery.command, "project", "register", "--json"], old, environment))
+        .exitCode,
+    ).toBe(0);
+    const plan = `${root}/${delivery.name}-management-plan.json`;
+    await Bun.write(plan, JSON.stringify({ trackerKey: "empty", assignments: [] }));
+    expect(
+      (
+        await run(
+          [...delivery.command, "source", "register", "--file", plan, "--json"],
+          old,
+          environment,
+        )
+      ).exitCode,
+    ).toBe(0);
+    const listed = await run([...delivery.command, "project", "list", "--json"], root, environment);
+    expect(listed.exitCode, listed.stderr).toBe(0);
+    expect(JSON.parse(listed.stdout)).toMatchObject({
+      data: {
+        projects: [
+          {
+            repository: "example/manage",
+            checkout: old,
+            openSources: 0,
+            controller: { status: "available" },
+          },
+        ],
+      },
+    });
+    const moved = await run(
+      [...delivery.command, "project", "move", "--json"],
+      alternate,
+      environment,
+    );
+    expect(moved.exitCode, moved.stderr).toBe(0);
+    expect(JSON.parse(moved.stdout)).toMatchObject({ data: { checkout: alternate } });
+    const removed = await run(
+      [...delivery.command, "project", "remove", "example/manage", "--person-instructed", "--json"],
+      root,
+      environment,
+    );
+    expect(removed.exitCode, removed.stderr).toBe(0);
+    expect(JSON.parse(removed.stdout)).toMatchObject({ reason: "project_removed" });
+    const empty = await run([...delivery.command, "project", "list", "--json"], root, environment);
+    expect(JSON.parse(empty.stdout)).toMatchObject({ data: { projects: [], pendingRemovals: [] } });
+    for (const cwd of [old, alternate])
+      expect(await Bun.file(`${cwd}/keep.txt`).text()).toBe("unlanded work");
   }
 }, 300_000);
 

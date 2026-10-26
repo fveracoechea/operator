@@ -176,7 +176,7 @@ Operator adds no host permission rules, allow lists, permission modes, or fallba
 Host configuration remains under its external owner's control.
 See `docs/implementation/241-host-profiles.md` for the selection diagram and verification limits.
 
-## Project registration
+## Project registration and management
 
 Run from the main checkout or one of its subdirectories:
 
@@ -184,6 +184,10 @@ Run from the main checkout or one of its subdirectories:
 operator project register --json
 operator project register --repository owner/repository --json
 operator project show --json
+operator project list --json
+operator project move --json
+operator project move --repository owner/repository --json
+operator project remove owner/repository --person-instructed --json
 ```
 
 For a source checkout, use `bun cli.ts` in place of `operator`.
@@ -198,6 +202,16 @@ Explicit registration atomically creates `$XDG_STATE_HOME/operator/operator.sqli
 It uses the same home fallback as settings state and creates the project's directory in device state.
 It changes no checkout files.
 `project show` resolves the current controller without creating missing state.
+`project list` runs anywhere and reports each controller's current status and open-source count.
+It also reports pending project file removals, even after their registrations are gone.
+`project move` runs from the new main clone, requires the same remote identity and no open source, and preserves the registration time.
+Removal requires the person's explicit instruction and no open source.
+`--person-instructed` attests that instruction, it does not grant permission to infer it.
+Removal deletes project records and device-state content, never checkouts, branches, worktrees, tracker content, or migration backups.
+If file cleanup fails, the command exits 1 and keeps a durable pending removal.
+Resolve the reported filesystem problem, then repeat the same person-instructed removal.
+Registration of that identity stays blocked until cleanup completes.
+See `docs/implementation/246-project-management.md` for the decision diagram and failure limits.
 Every command checks device compatibility before its handler, including help and version reporting.
 An older matching Drizzle history applies all pending fixed migrations automatically, with a verified SQLite snapshot and writer protection.
 Migration waits for device-wide idle work and declared held-record blockers.
@@ -206,7 +220,7 @@ Damaged or incompatible state is not repaired or replaced.
 Corruption reports the last currently verified backup, if one is available.
 Only explicit registration creates a missing database.
 See [automatic compatibility](docs/implementation/245-automatic-compatibility.md) for refusals and backup limits.
-Listing, move, and removal remain #246.
+Project management and recoverable file cleanup are recorded in `docs/implementation/246-project-management.md`.
 See `docs/implementation/240-project-registration.md` for the state diagram, refusals, and test rules.
 
 ## Assignment plans and next actions

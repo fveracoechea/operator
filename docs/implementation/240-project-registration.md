@@ -3,7 +3,7 @@
 Issue #240 implements explicit project registration and controlling-checkout lookup from ADR-0005 and the database foundation from ADR-0006.
 It uses the running release's shipped Drizzle migration history.
 Automatic upgrades and verified backups are recorded in `245-automatic-compatibility.md`.
-Project listing, move, and removal remain #246.
+Project listing, move, and removal are recorded in `246-project-management.md`.
 Recorded worker-worktree lookup arrives with the assignment workflow.
 No real legacy Operator state is inspected or changed.
 
@@ -74,7 +74,8 @@ Missing, newer, or conflicting history refuses without repair.
 SQLite integrity failures preserve the file.
 Startup reports the last currently verified migration backup on corruption.
 
-The project-directory creation follows the committed registration.
+The project-directory creation follows the committed registration, with a second immediate transaction that rechecks the controller.
+This prevents a concurrent removal from leaving a newly created unregistered directory.
 If directory creation fails, the command reports an I/O failure and retains the registration.
 Repeating explicit registration can create that directory without changing the original registration time.
 

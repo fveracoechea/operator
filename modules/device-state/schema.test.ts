@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { getTableConfig } from "drizzle-orm/sqlite-core";
 import { migrationsFolder } from "./database.ts";
-import { projects } from "./schema.ts";
+import { projects, projectRemovals } from "./schema.ts";
 
 test("the shipped migration implements the Drizzle project schema", () => {
   using db = new Database(":memory:");
@@ -24,4 +24,18 @@ test("the shipped migration implements the Drizzle project schema", () => {
       .values({ ...row, checkout: "/different" })
       .run(),
   ).toThrow();
+});
+
+test("removal obligations survive deletion of the project and enforce one pending cleanup per identity", () => {
+  using db = new Database(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(drizzle(db), { migrationsFolder });
+  drizzle(db)
+    .insert(projectRemovals)
+    .values({ repository: "owner/removed", removedAt: "now" })
+    .run();
+  expect(drizzle(db).select().from(projectRemovals).all()).toEqual([
+    { repository: "owner/removed", removedAt: "now" },
+  ]);
+  expect(() => db.exec("INSERT INTO project_removals VALUES ('owner/removed', 'later')")).toThrow();
 });

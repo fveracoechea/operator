@@ -53,9 +53,10 @@ The busy timeout remains 5000 ms and returns a definite `state_busy` failure.
 No external tool or network call occurs while that transaction holds the writer reservation.
 
 The current idle guard covers `running`, `pr-open`, and `reported` assignments across all projects.
+It also covers pending project file cleanup from #246 once that table exists.
 Ready or ended assignments alone do not block an upgrade.
 Each fixed migration also declares its held-record query policy.
-The first two migrations have no extra held-record blockers.
+The first three migrations have no extra migration-specific held-record blockers.
 An undeclared migration policy refuses.
 Later owners must extend `migration-policy.ts` when they add launches, waits, review requests, cleanup, or other active records.
 A blocker returns `state_migration_blocked` without running the handler.

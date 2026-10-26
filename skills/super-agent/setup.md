@@ -31,3 +31,12 @@ Resolve the reported blocker, then repeat the original command with current fact
 There is no separate migration command.
 For corruption, preserve the database and the reported verified backup for the person.
 Only explicit project registration creates missing workflow state.
+
+Use `operator project list --json` from any directory to inspect controllers, open-source counts, and pending removals.
+To move a controller, run `operator project move --json` from a main clone with the same remote identity and no open source.
+Several remote identities require `--repository owner/repository`.
+Run `operator project remove owner/repository --person-instructed --json` only on the person's explicit instruction.
+The flag attests that instruction and never replaces it.
+Removal requires no open source and deletes Operator history without touching repository work or migration backups.
+If cleanup remains pending, preserve external content, resolve the reported filesystem problem, and repeat that removal.
+Re-registration stays blocked until cleanup completes.

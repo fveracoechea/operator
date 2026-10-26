@@ -39,3 +39,9 @@ export const assignments = sqliteTable(
   },
   (table) => [primaryKey({ columns: [table.sourceId, table.key] })],
 );
+
+// This obligation must outlive the project and all of its source records.
+export const projectRemovals = sqliteTable("project_removals", {
+  repository: text("repository").primaryKey(),
+  removedAt: text("removed_at").notNull(),
+});

@@ -15,6 +15,11 @@ export function idleForMigration(client: Database, applied: number) {
       detail:
         "Migration is waiting for active assignments across all registered projects to become idle. No handler ran.",
     });
+  if (applied >= 3 && client.query("SELECT 1 FROM project_removals LIMIT 1").get())
+    return Err<StateFailure>({
+      reason: "state_migration_blocked",
+      detail: "Finish pending project file cleanup before an upgrade. No handler ran.",
+    });
   return Ok(undefined);
 }
 
@@ -23,6 +28,7 @@ export function migrationBlockers(client: Database, timestamp: number) {
   const policies: ReadonlyMap<number, readonly string[]> = new Map([
     [1792968033776, []],
     [1793024341510, []],
+    [1793031772449, []],
   ]);
   const queries = policies.get(timestamp);
   if (!queries)

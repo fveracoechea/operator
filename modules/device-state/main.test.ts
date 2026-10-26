@@ -77,6 +77,27 @@ test("only registration creates state and lookup remains project-scoped", async 
     tag: "Ok",
     value: [{ source: { id: "one" }, assignments: [] }],
   });
+  expect(DeviceState.listProjects(paths)).toMatchObject({
+    tag: "Ok",
+    value: {
+      projects: [
+        { repository: "owner/one", openSources: 0 },
+        { repository: "owner/two", openSources: 0 },
+      ],
+    },
+  });
+  expect(DeviceState.moveProject(paths, "owner/one", "/isolated/moved")).toMatchObject({
+    tag: "Ok",
+    value: { data: { checkout: "/isolated/moved" } },
+  });
+  expect(DeviceState.removeProject(paths, "owner/one")).toMatchObject({
+    tag: "Ok",
+    value: { reason: "project_removed" },
+  });
+  expect(DeviceState.listProjects(paths)).toMatchObject({
+    tag: "Ok",
+    value: { projects: [{ repository: "owner/two" }], pendingRemovals: [] },
+  });
   await rm(paths.database);
   expect(DeviceState.lookupProject(paths, "/isolated/one", ["owner/one"])).toMatchObject({
     tag: "Err",

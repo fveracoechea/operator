@@ -15,7 +15,7 @@ import { failure, settingsExitCodes } from "./output.ts";
 type OperatorPaths = ReturnType<typeof OperatorHome.resolve>;
 
 const usage =
-  "Usage: operator --help | --version [--json]\n       operator config show | recover [--json]\n       operator config plan | apply (--set field=value | --unset field)... [--plan id] [--json]\n       operator host models --host opencode|claude-code [--json]\n       operator config resolve [--role superAgent|workerAgent] [--profile name] [--host host] [--model model] [--effort effort] [--json]\n       operator project register [--repository owner/repository] [--json]\n       operator project show [--json]\n       operator install --opencode | --claude | --opencode --claude [--check] [--json]\n       operator install matt --opencode | --claude | --opencode --claude [--json]\n       operator ready [--json]\n       operator source register --file path [--json]\n       operator source show --source id [--json]\n       operator next [--source id] [--json]";
+  "Usage: operator --help | --version [--json]\n       operator config show | recover [--json]\n       operator config plan | apply (--set field=value | --unset field)... [--plan id] [--json]\n       operator host models --host opencode|claude-code [--json]\n       operator config resolve [--role superAgent|workerAgent] [--profile name] [--host host] [--model model] [--effort effort] [--json]\n       operator project register [--repository owner/repository] [--json]\n       operator project show | list [--json]\n       operator project move [--repository owner/repository] [--json]\n       operator project remove owner/repository --person-instructed [--json]\n       operator install --opencode | --claude | --opencode --claude [--check] [--json]\n       operator install matt --opencode | --claude | --opencode --claude [--json]\n       operator ready [--json]\n       operator source register --file path [--json]\n       operator source show --source id [--json]\n       operator next [--source id] [--json]";
 
 const projectExitCodes = {
   repository_choice_invalid: 2,
@@ -37,31 +37,64 @@ const projectExitCodes = {
   controller_identity_mismatch: 4,
   project_not_registered: 3,
   project_io_failed: 1,
+  project_source_open: 3,
+  project_cleanup_pending: 1,
+  person_instruction_required: 3,
 };
 
 function projectArgs(args: string[]) {
   const [group, command, ...flags] = args;
-  if (group !== "project" || (command !== "register" && command !== "show")) return null;
+  if (
+    group !== "project" ||
+    !["register", "show", "list", "move", "remove"].includes(command ?? "")
+  )
+    return null;
+  const identity = command === "remove" ? flags.shift() : undefined;
+  if (command === "remove" && (!identity || identity.startsWith("--"))) return null;
+  const parsed = projectFlags(flags, command ?? "");
+  if (parsed === null) return null;
+  return {
+    command,
+    repository: identity ?? parsed.repository,
+    personInstructed: parsed.personInstructed,
+  };
+}
+
+function projectFlags(flags: string[], command: string) {
   let repository: string | undefined;
-  let json = false;
+  let personInstructed = false;
+  const seen = new Set<string>();
   for (let index = 0; index < flags.length; index++) {
     const flag = flags[index];
-    if (flag === "--json" && !json) json = true;
-    else if (flag === "--repository" && command === "register" && repository === undefined) {
+    if (flag === undefined || seen.has(flag)) return null;
+    seen.add(flag);
+    if (flag === "--json") continue;
+    if (flag === "--person-instructed" && command === "remove") personInstructed = true;
+    else if (flag === "--repository" && ["register", "move"].includes(command)) {
       repository = flags[++index];
       if (repository === undefined || repository.startsWith("--")) return null;
     } else return null;
   }
-  return { command, repository };
+  return { repository, personInstructed };
 }
 
 async function runProject(args: string[], paths: OperatorPaths, json: boolean) {
   const project = projectArgs(args);
   if (project === null) return false;
   const input = { paths, cwd: process.cwd(), repository: project.repository };
-  const result = await (project.command === "register"
-    ? Projects.register(input)
-    : Projects.current(input));
+  const result = await (project.command === "list"
+    ? Projects.list(paths)
+    : project.command === "remove"
+      ? Projects.remove({
+          paths,
+          repository: project.repository ?? "",
+          personInstructed: project.personInstructed,
+        })
+      : project.command === "move"
+        ? Projects.move(input)
+        : project.command === "register"
+          ? Projects.register(input)
+          : Projects.current(input));
   const operation = `project_${project.command}`;
   if (result.tag === "Ok") {
     console.log(

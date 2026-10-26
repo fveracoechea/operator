@@ -54,6 +54,26 @@ test("registers through the interface, preserves repeat identity, and refuses an
     tag: "Err",
     error: { reason: "controller_mismatch" },
   });
+  expect(await Projects.list(paths)).toMatchObject({
+    tag: "Ok",
+    value: {
+      reason: "projects_listed",
+      data: { projects: [{ repository: "owner/repo", controller: { status: "available" } }] },
+    },
+  });
+  expect(await Projects.move({ paths, cwd: `${root}/other` })).toMatchObject({
+    tag: "Ok",
+    value: { data: { checkout: `${root}/other` } },
+  });
+  expect(Projects.remove({ paths, repository: "../unsafe", personInstructed: true })).toMatchObject(
+    { tag: "Err", error: { reason: "repository_choice_invalid" } },
+  );
+  expect(
+    Projects.remove({ paths, repository: "owner/repo", personInstructed: false }),
+  ).toMatchObject({ tag: "Err", error: { reason: "person_instruction_required" } });
+  expect(
+    Projects.remove({ paths, repository: "owner/repo", personInstructed: true }),
+  ).toMatchObject({ tag: "Ok", value: { reason: "project_removed" } });
 });
 
 test("preserves operational failures and separates unexpected defects", async () => {

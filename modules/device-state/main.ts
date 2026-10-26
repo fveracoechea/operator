@@ -4,7 +4,15 @@ import { createDatabase, databaseExists } from "./creation.ts";
 import { openDatabase } from "./database.ts";
 import { compatibility } from "./compatibility.ts";
 import { qualifyStateFailure, type StateFailure } from "./failures.ts";
-import { registerProject, lookupProject, type RegisteredProject } from "./projects.ts";
+import {
+  registerProject,
+  lookupProject,
+  listProjects,
+  moveProject,
+  removeProject,
+  type RegisteredProject,
+} from "./projects.ts";
+import { ensureProjectDirectory, finishProjectRemoval } from "./project-files.ts";
 import {
   registerSource,
   readSources,
@@ -51,7 +59,14 @@ export const DeviceState = {
       if (!databaseExists(paths.database)) return createDatabase(paths, project);
       using client = openDatabase(paths.database, false);
       return registerProject(client, project);
-    }, qualifyStateFailure)().flatMap((result) => result);
+    }, qualifyStateFailure)()
+      .flatMap((result) => result)
+      .flatMap((outcome) =>
+        fromThrowable(() => {
+          using client = openDatabase(paths.database, false);
+          return ensureProjectDirectory(client, paths, outcome.data).map(() => outcome);
+        }, qualifyStateFailure)().flatMap((result) => result),
+      );
   },
   lookupProject(paths: Paths, checkout: string, repositories: string[]) {
     return fromThrowable(() => {
@@ -64,5 +79,34 @@ export const DeviceState = {
       using client = openDatabase(paths.database, true);
       return lookupProject(client, checkout, repositories);
     }, qualifyStateFailure)().flatMap((result) => result);
+  },
+  listProjects(paths: Paths) {
+    return fromThrowable(() => {
+      using client = openDatabase(paths.database, true);
+      return listProjects(client);
+    }, qualifyStateFailure)().flatMap((result) => result);
+  },
+  moveProject(paths: Paths, repository: string, checkout: string) {
+    return fromThrowable(() => {
+      using client = openDatabase(paths.database, false);
+      return moveProject(client, repository, checkout);
+    }, qualifyStateFailure)().flatMap((result) => result);
+  },
+  removeProject(paths: Paths, repository: string) {
+    const removed = fromThrowable(() => {
+      using client = openDatabase(paths.database, false);
+      return removeProject(client, repository);
+    }, qualifyStateFailure)().flatMap((result) => result);
+    if (removed.tag !== "Ok") return removed;
+    const cleaned = fromThrowable(() => {
+      using client = openDatabase(paths.database, false);
+      return finishProjectRemoval(client, paths, repository);
+    }, qualifyStateFailure)().flatMap((result) => result);
+    if (cleaned.tag === "Err")
+      return Err({
+        reason: "project_cleanup_pending" as const,
+        detail: `Project records were removed, but file cleanup is still pending. Repeat project remove ${repository} --person-instructed after resolving the path or I/O failure. ${cleaned.error.detail}`,
+      });
+    return cleaned.map(() => ({ reason: "project_removed" as const, data: { repository } }));
   },
 };
