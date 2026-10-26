@@ -32,6 +32,12 @@ test("owns separate XDG settings, receipts, and lock paths", () => {
   expect(paths.receipt).toBe(`${root}/state/operator/config/apply.json`);
   expect(paths.writeLock).toBe(`${root}/state/operator/config/write.sqlite`);
   expect(paths.database).toBe(`${root}/state/operator/operator.sqlite`);
+  expect(paths.backups).toBe(`${root}/state/operator/backups`);
+  expect(OperatorHome.migrationBackup(paths, "update-id")).toEqual({
+    directory: `${root}/state/operator/backups/update-id`,
+    database: `${root}/state/operator/backups/update-id/operator.sqlite`,
+    receipt: `${root}/state/operator/backups/update-id/verified.json`,
+  });
   expect(paths.projects).toBe(`${root}/state/operator/projects`);
   expect(paths.skillHosts).toEqual({
     opencode: `${root}/config/opencode/skills`,

@@ -3,7 +3,7 @@
 Issue #239 implements the settings and path portion of ADR-0004.
 Project registration and the initial database are recorded in `240-project-registration.md`.
 Host metadata and launch profiles are recorded in `241-host-profiles.md`.
-Automatic migration upgrades remain #245.
+Automatic migration upgrades are recorded in `245-automatic-compatibility.md`.
 The settings lock is the retained dedicated SQLite lock, not the future project database.
 No real legacy state is read or changed.
 

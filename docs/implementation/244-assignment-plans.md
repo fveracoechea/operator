@@ -80,7 +80,7 @@ Malformed stored plans and inconsistent assignment rows refuse without repair.
 Reads also refuse a source whose state or end time disagrees with its assignments.
 They never report an unpersisted transition as completed.
 The later completion operation must record the source state and end time with its assignment transition.
-Existing older migration history still refuses until automatic compatibility lands in #245.
+Automatic compatibility upgrades older matching history before command handlers, as recorded in `245-automatic-compatibility.md`.
 
 ## Decisions and blockers
 

@@ -2,7 +2,7 @@
 
 Issue #240 implements explicit project registration and controlling-checkout lookup from ADR-0005 and the database foundation from ADR-0006.
 It uses the running release's shipped Drizzle migration history.
-Automatic upgrades and verified backups remain #245.
+Automatic upgrades and verified backups are recorded in `245-automatic-compatibility.md`.
 Project listing, move, and removal remain #246.
 Recorded worker-worktree lookup arrives with the assignment workflow.
 No real legacy Operator state is inspected or changed.
@@ -69,10 +69,10 @@ Refusals, defects, and thrown failures roll back before the connection closes.
 `schema.ts` defines the Drizzle project table.
 The shipped SQL and Drizzle journal define compatibility, without a separate integer state version.
 Generate future migrations from that schema during development, never from a live device.
-For this first-history slice, an existing database must exactly match every shipped hash and migration timestamp.
+Storage operations require every shipped hash and migration timestamp after the shared startup compatibility check.
 Missing, newer, or conflicting history refuses without repair.
 SQLite integrity failures preserve the file.
-There is no verified migration backup to report before #245 implements that workflow.
+Startup reports the last currently verified migration backup on corruption.
 
 The project-directory creation follows the committed registration.
 If directory creation fails, the command reports an I/O failure and retains the registration.

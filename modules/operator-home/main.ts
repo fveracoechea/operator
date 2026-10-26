@@ -51,6 +51,7 @@ export const OperatorHome = {
       configRoot,
       stateRoot,
       database: path.join(stateRoot, "operator.sqlite"),
+      backups: path.join(stateRoot, "backups"),
       projects: path.join(stateRoot, "projects"),
       config: path.join(configRoot, "config.json"),
       schema: path.join(configRoot, "config.schema.json"),
@@ -70,6 +71,14 @@ export const OperatorHome = {
   },
   registrationDatabase(paths: { stateRoot: string }, nonce: string) {
     return path.join(paths.stateRoot, `.registration-${nonce}.sqlite`);
+  },
+  migrationBackup(paths: { backups: string }, identity: string) {
+    const directory = path.join(paths.backups, identity);
+    return {
+      directory,
+      database: path.join(directory, "operator.sqlite"),
+      receipt: path.join(directory, "verified.json"),
+    };
   },
   upstreamTemporaryPrefix() {
     return path.join(tmpdir(), "operator-matt-");

@@ -13,7 +13,14 @@ type Paths = ReturnType<typeof OperatorHome.resolve>;
 
 export function databaseExists(file: string) {
   try {
-    return lstatSync(file).isFile();
+    if (!lstatSync(file).isFile()) {
+      // oxlint-disable-next-line unthrown/no-throw -- Unsupported paths must refuse before SQLite can follow or adopt them.
+      throw Object.assign(
+        new Error("The device database must be a regular file, not a link or directory."),
+        { code: "STATE_UNSUPPORTED" },
+      );
+    }
+    return true;
   } catch (cause) {
     if (errorCode(cause) === "ENOENT") return false;
     // oxlint-disable-next-line unthrown/no-throw -- Only absence permits explicit database creation.

@@ -36,9 +36,9 @@ export function transaction<T, E>(client: Database, write: boolean, action: () =
   }, qualifyStateFailure)().flatMap((result) => result);
 }
 
-const historySchema = z.array(z.object({ hash: z.string(), created_at: z.number() }));
+export const historySchema = z.array(z.object({ hash: z.string(), created_at: z.number() }));
 
-export function checkHistory(client: Database) {
+export function readHistory(client: Database) {
   const integrity = client.query("PRAGMA quick_check").values();
   if (integrity.length !== 1 || integrity[0]?.[0] !== "ok")
     return Err<StateFailure>({
@@ -54,23 +54,42 @@ export function checkHistory(client: Database) {
       detail:
         "The device database has no Drizzle migration history. It was not adopted or repaired.",
     });
+  const columns = client.query("PRAGMA table_info('__drizzle_migrations')").values();
+  if (!["id", "hash", "created_at"].every((name) => columns.some((column) => column[1] === name)))
+    return Err<StateFailure>({
+      reason: "state_incompatible",
+      detail: "The Drizzle history table has an unsupported format.",
+    });
   const recorded = historySchema.safeParse(
     client.query("SELECT hash, created_at FROM __drizzle_migrations ORDER BY id").all(),
   );
   const shipped = readMigrationFiles({ migrationsFolder });
   if (
     !recorded.success ||
-    recorded.data.length !== shipped.length ||
-    shipped.some(
+    recorded.data.length === 0 ||
+    recorded.data.length > shipped.length ||
+    recorded.data.some(
       (migration, index) =>
-        recorded.data[index]?.hash !== migration.hash ||
-        recorded.data[index]?.created_at !== migration.folderMillis,
+        shipped[index]?.hash !== migration.hash ||
+        shipped[index]?.folderMillis !== migration.created_at,
     )
   )
     return Err<StateFailure>({
       reason: "state_incompatible",
       detail:
-        "The device database history does not match this running release. Automatic upgrades are not available in this slice. No handler write ran.",
+        "The device database history is newer, conflicting, or unsupported by this running release. No handler ran.",
     });
-  return Ok(drizzle(client));
+  return Ok({ recorded: recorded.data, shipped });
+}
+
+export function checkHistory(client: Database) {
+  return readHistory(client).flatMap(({ recorded, shipped }) =>
+    recorded.length === shipped.length
+      ? Ok(drizzle(client))
+      : Err<StateFailure>({
+          reason: "state_incompatible",
+          detail:
+            "Startup compatibility must apply the pending shipped migrations before this operation.",
+        }),
+  );
 }

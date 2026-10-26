@@ -85,7 +85,7 @@ test.each([
   {
     name: "history hash",
     file: "modules/device-state/database.ts",
-    before: "recorded.data[index]?.hash !== migration.hash",
+    before: "shipped[index]?.hash !== migration.hash",
     after: "false",
     testFile: "modules/operator-cli/run.projects.test.ts",
     pattern: "refuses conflicting device state",

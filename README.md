@@ -16,7 +16,7 @@ Do not use it to resume an old session.
 The device-level design in `CONTEXT.md` and `docs/adr/` remains planned.
 The base lint policy in ADR-0018 is now enforced.
 Local mutation testing from ADR-0016 is also available for repository development.
-Automatic migration upgrades, worker dispatch, report acceptance, PR operations, reviews, and the global Herdr plugin are not implemented here.
+Worker dispatch, report acceptance, PR operations, reviews, and the global Herdr plugin are not implemented here.
 There are no replacement-command placeholders or compatibility aliases.
 
 ## Run the retained CLI
@@ -195,9 +195,15 @@ Explicit registration atomically creates `$XDG_STATE_HOME/operator/operator.sqli
 It uses the same home fallback as settings state and creates the project's directory in device state.
 It changes no checkout files.
 `project show` resolves the current controller without creating missing state.
-Existing database history must match the running installation's shipped Drizzle migrations.
+Every command checks device compatibility before its handler, including help and version reporting.
+An older matching Drizzle history applies all pending fixed migrations automatically, with a verified SQLite snapshot and writer protection.
+Migration waits for device-wide idle work and declared held-record blockers.
+The latest three verified migration backups remain under the device state's `backups/` folder.
 Damaged or incompatible state is not repaired or replaced.
-Automatic upgrades remain #245, and listing, move, and removal remain #246.
+Corruption reports the last currently verified backup, if one is available.
+Only explicit registration creates a missing database.
+See [automatic compatibility](docs/implementation/245-automatic-compatibility.md) for refusals and backup limits.
+Listing, move, and removal remain #246.
 See `docs/implementation/240-project-registration.md` for the state diagram, refusals, and test rules.
 
 ## Assignment plans and next actions

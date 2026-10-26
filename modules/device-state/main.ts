@@ -2,6 +2,7 @@ import { Err, fromThrowable } from "unthrown";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { createDatabase, databaseExists } from "./creation.ts";
 import { openDatabase } from "./database.ts";
+import { compatibility } from "./compatibility.ts";
 import { qualifyStateFailure, type StateFailure } from "./failures.ts";
 import { registerProject, lookupProject, type RegisteredProject } from "./projects.ts";
 import {
@@ -15,6 +16,9 @@ type Paths = ReturnType<typeof OperatorHome.resolve>;
 
 /** Only explicit registration may create state. Connections never leave this owner. */
 export const DeviceState = {
+  checkCompatibility(paths: Paths) {
+    return compatibility(paths);
+  },
   registerSource(
     paths: Paths,
     checkout: string,

@@ -20,3 +20,11 @@ The check follows skill links and requires complete owned contents and upstream 
 It launches no host or probe and writes no readiness record.
 Slack tools are not a core prerequisite on either host.
 A ready result does not prove host loading or provider access.
+
+Every command first checks existing device-state compatibility.
+Older matching history migrates automatically, after a verified backup and device-wide idle guards.
+A migration blocker or failure stops the requested operation.
+Resolve the reported blocker, then repeat the original command with current facts.
+There is no separate migration command.
+For corruption, preserve the database and the reported verified backup for the person.
+Only explicit project registration creates missing workflow state.

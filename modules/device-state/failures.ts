@@ -5,6 +5,8 @@ export type StateFailure = {
     | "state_io_failed"
     | "state_incompatible"
     | "state_corrupt"
+    | "state_backup_failed"
+    | "state_migration_blocked"
     | "controller_mismatch"
     | "controller_identity_mismatch";
   detail: string;
@@ -19,6 +21,7 @@ export function qualifyStateFailure<T>(
   defect: (cause: unknown) => T,
 ): StateFailure | T {
   const code = errorCode(cause);
+  if (code === "STATE_UNSUPPORTED") return { reason: "state_incompatible", detail: String(cause) };
   if (code === "SQLITE_BUSY" || code === "SQLITE_LOCKED")
     return {
       reason: "state_busy",
@@ -33,6 +36,7 @@ export function qualifyStateFailure<T>(
     code &&
     [
       "ENOENT",
+      "EEXIST",
       "EACCES",
       "EPERM",
       "EROFS",

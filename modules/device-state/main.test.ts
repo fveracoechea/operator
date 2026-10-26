@@ -14,6 +14,7 @@ afterAll(async () => {
 
 test("only registration creates state and lookup remains project-scoped", async () => {
   const paths = OperatorHome.resolve(Environment.parse({ HOME: root, NODE_ENV: "test" }));
+  expect(DeviceState.checkCompatibility(paths).tag).toBe("Ok");
   expect(DeviceState.readSources(paths, "owner/one")).toMatchObject({
     tag: "Err",
     error: { reason: "state_missing" },
@@ -51,6 +52,7 @@ test("only registration creates state and lookup remains project-scoped", async 
     tag: "Ok",
     value: { controller: { repository: "owner/one" }, matches: [{ repository: "owner/one" }] },
   });
+  expect(DeviceState.checkCompatibility(paths).tag).toBe("Ok");
   expect(
     DeviceState.registerSource(
       paths,

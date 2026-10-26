@@ -3,6 +3,7 @@ import { Environment } from "../environment/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { DeviceSettings } from "../device-settings/main.ts";
 import { Projects } from "../projects/main.ts";
+import { DeviceState } from "../device-state/main.ts";
 import { fromThrowable } from "unthrown";
 import { z } from "zod";
 import { runProfiles } from "./profiles.ts";
@@ -30,6 +31,8 @@ const projectExitCodes = {
   state_io_failed: 1,
   state_corrupt: 3,
   state_incompatible: 3,
+  state_backup_failed: 1,
+  state_migration_blocked: 3,
   controller_mismatch: 4,
   controller_identity_mismatch: 4,
   project_not_registered: 3,
@@ -209,6 +212,20 @@ export async function run(args: string[]): Promise<void> {
     }
     console.error(`operator: Bun ${supportedBun} is required; running ${Bun.version}.`);
     process.exitCode = 1;
+    return;
+  }
+
+  const compatible = DeviceState.checkCompatibility(paths);
+  if (compatible.tag !== "Ok") {
+    if (compatible.tag === "Err")
+      failure(
+        "startup",
+        compatible.error.reason,
+        compatible.error.detail,
+        projectExitCodes[compatible.error.reason],
+        json,
+      );
+    else failure("startup", "startup_defect", String(compatible.cause), 1, json);
     return;
   }
 

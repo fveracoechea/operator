@@ -2,7 +2,7 @@
 
 /**
  * Run the Operator CLI under Bun from an installed release or a source checkout.
- * Help and version reporting validate the environment without reading project or device state.
+ * Every command checks device compatibility before its handler, including help and version.
  * @module
  */
 

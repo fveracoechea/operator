@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Environment } from "../environment/main.ts";
+import { Database } from "bun:sqlite";
 // Bun has no recursive copy, symlink, or directory removal API.
 import { chmod, cp, mkdir, rm, symlink } from "node:fs/promises";
 import { OperatorRelease } from "./main.ts";
@@ -469,6 +470,32 @@ test("project registration uses installed migrations and ignores unrelated globa
       reason: "project_resolved",
       data: { repository: "example/installed" },
     });
+    // This isolated fixture represents a device last opened by the first-history release.
+    {
+      using database = new Database(`${isolated.XDG_STATE_HOME}/operator/operator.sqlite`);
+      database.exec(
+        "DROP TABLE assignments; DROP TABLE sources; DELETE FROM __drizzle_migrations WHERE created_at = (SELECT MAX(created_at) FROM __drizzle_migrations)",
+      );
+    }
+    const migrated = await run(
+      [...invocation.command, "--version", "--json"],
+      invocation.cwd,
+      isolated,
+    );
+    expect(migrated.exitCode, migrated.stderr).toBe(0);
+    expect(migrated.stdout).toBe(before.stdout);
+    const migrationBackups = await Array.fromAsync(
+      new Bun.Glob("*/operator.sqlite").scan({
+        cwd: `${isolated.XDG_STATE_HOME}/operator/backups`,
+      }),
+    );
+    expect(migrationBackups).toHaveLength(1);
+    using migrationBackup = new Database(
+      `${isolated.XDG_STATE_HOME}/operator/backups/${migrationBackups[0]}`,
+      { readonly: true },
+    );
+    expect(migrationBackup.query("PRAGMA integrity_check").values()).toEqual([["ok"]]);
+    expect(migrationBackup.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(1);
     const plan = `${root}/${invocation.name}-assignments.json`;
     await Bun.write(
       plan,
