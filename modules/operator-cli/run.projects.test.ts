@@ -161,6 +161,41 @@ test("lists controller status from anywhere without adopting missing or mismatch
   });
 });
 
+test("an inaccessible controller stays blocked while pending removals remain visible", async () => {
+  const one = await repository("private/controller");
+  const two = await repository("two", "https://github.com/example/two.git");
+  for (const cwd of [one, two]) expect((await run(cwd)).code).toBe(0);
+  const removed = `${root}/state/operator/projects/example/two`;
+  await rename(removed, `${root}/external-state`);
+  await Bun.write(`${root}/external-state/keep`, "external content");
+  await symlink(`${root}/external-state`, removed);
+  expect((await run(root, ["remove", "example/two", "--person-instructed"])).code).toBe(1);
+  const before = await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer();
+  await chmod(`${root}/private`, 0o000);
+  try {
+    expect(await run(root, ["list"])).toMatchObject({
+      code: 0,
+      output: {
+        reason: "projects_listed",
+        data: {
+          projects: [
+            {
+              repository: "example/one",
+              checkout: one,
+              controller: { status: "blocked", reason: "project_io_failed" },
+            },
+          ],
+          pendingRemovals: [{ repository: "example/two" }],
+        },
+      },
+    });
+    expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(before);
+    expect(await Bun.file(`${root}/external-state/keep`).text()).toBe("external content");
+  } finally {
+    await chmod(`${root}/private`, 0o700);
+  }
+});
+
 test("moves only the same identity to a real main checkout and preserves registration history", async () => {
   const cwd = await repository();
   const alternate = await repository("alternate");

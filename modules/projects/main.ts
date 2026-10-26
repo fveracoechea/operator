@@ -26,6 +26,9 @@ type ProjectOutcome = {
   reason: "project_registered" | "project_unchanged" | "project_resolved";
   data: RegisteredProject;
 };
+type ControllerStatus =
+  | { status: "missing" | "available" | "mismatched" }
+  | { status: "blocked"; reason: CheckoutFailure["reason"] | "project_io_failed"; detail: string };
 
 function qualify<T>(cause: unknown, defect: (cause: unknown) => T) {
   if (
@@ -73,20 +76,12 @@ export const Projects = {
         fromPromise(async () => {
           const listed = [];
           for (const project of projects) {
-            let exists = true;
+            let controller: ControllerStatus;
             try {
               await stat(project.checkout);
-            } catch (cause) {
-              if (cause instanceof Error && "code" in cause && cause.code === "ENOENT")
-                exists = false;
-              // oxlint-disable-next-line unthrown/no-throw -- The public project boundary qualifies filesystem failures.
-              else throw cause;
-            }
-            const observed = exists ? await inspectCheckout(project.checkout) : null;
-            const controller =
-              observed === null
-                ? { status: "missing" }
-                : "reason" in observed
+              const observed = await inspectCheckout(project.checkout);
+              controller =
+                "reason" in observed
                   ? { status: "blocked", reason: observed.reason, detail: observed.detail }
                   : {
                       status:
@@ -95,6 +90,16 @@ export const Projects = {
                           ? "available"
                           : "mismatched",
                     };
+            } catch (cause) {
+              if (cause instanceof Error && "code" in cause && cause.code === "ENOENT")
+                controller = { status: "missing" };
+              else {
+                const error = qualify(cause, () => null);
+                // oxlint-disable-next-line unthrown/no-throw -- Expected controller failures are statuses, but defects must still stop the list.
+                if (error === null) throw cause;
+                controller = { status: "blocked", ...error };
+              }
+            }
             listed.push({ ...project, controller });
           }
           return {

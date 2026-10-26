@@ -21,6 +21,7 @@ List reports the registered identity, real controller path, registration time, n
 `available` means that the main checkout still resolves to the recorded path and has the recorded remote identity.
 `missing`, `mismatched`, and `blocked` report unusable controllers without adopting another clone.
 Blocked status includes the Git or legacy-state refusal.
+Expected filesystem failures also return one blocked controller, without hiding other registrations or pending removals.
 The database fields come from one read snapshot.
 Git status observations follow that snapshot and are not an atomic filesystem observation.
 
@@ -84,6 +85,9 @@ Public CLI scenarios use real Git and SQLite under isolated roots and `Environme
 They cover alternate clones, subdirectories, symlinks, missing or changed controllers, invalid destinations, open-source refusals, person-instruction refusals, permission failures, durable recovery, competing cleaners, and writer reservation.
 No-write assertions compare database bytes and preserve checkout content and Git resources.
 Direct beside-tests cover state records, project files, migration policy, schema, and module interfaces.
+The independent Spec review found that an inaccessible controller hid the complete list.
+A public CLI red reproduction now guards per-controller filesystem failures, unchanged database bytes, and visible pending cleanup.
+The independent Standards review's duplicated open-source predicate now has one private implementation for move and removal.
 Disposable-copy deliberate breaks prove the new guards.
 Installed source and registry-artifact examples exercise the new commands and shipped history.
 Nix packaging and final installed acceptance remain #257 and #259.

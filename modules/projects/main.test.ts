@@ -6,6 +6,7 @@ import path from "node:path";
 import { Environment } from "../environment/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
+import { DeviceState } from "../device-state/main.ts";
 import { Projects } from "./main.ts";
 
 const root = await realpath(await mkdtemp(path.join(tmpdir(), "operator-project-module-")));
@@ -77,6 +78,13 @@ test("registers through the interface, preserves repeat identity, and refuses an
 });
 
 test("preserves operational failures and separates unexpected defects", async () => {
+  expect(
+    DeviceState.registerProject(paths, {
+      repository: "owner/listed",
+      checkout: root,
+      registeredAt: "now",
+    }).tag,
+  ).toBe("Ok");
   const spy = spyOn(ToolInvocation, "run");
   try {
     spy.mockRejectedValue(Object.assign(new Error("denied"), { code: "EACCES" }));
@@ -84,8 +92,22 @@ test("preserves operational failures and separates unexpected defects", async ()
       tag: "Err",
       error: { reason: "project_io_failed" },
     });
+    expect(await Projects.list(paths)).toMatchObject({
+      tag: "Ok",
+      value: {
+        data: {
+          projects: [
+            {
+              repository: "owner/listed",
+              controller: { status: "blocked", reason: "project_io_failed" },
+            },
+          ],
+        },
+      },
+    });
     spy.mockRejectedValue(new TypeError("implementation defect"));
     expect(await Projects.current({ paths, cwd: root })).toMatchObject({ tag: "Defect" });
+    expect(await Projects.list(paths)).toMatchObject({ tag: "Defect" });
   } finally {
     spy.mockRestore();
   }

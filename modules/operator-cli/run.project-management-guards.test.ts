@@ -29,11 +29,20 @@ afterAll(async () => {
 
 test.each([
   {
+    name: "inaccessible controller visibility",
+    file: "projects/main.ts",
+    section: "list(paths:",
+    before: 'controller = { status: "blocked", ...error };',
+    after: "throw cause;",
+    unit: "operator-cli/run.projects.test.ts",
+    pattern: "an inaccessible controller",
+  },
+  {
     name: "missing controller status",
     file: "projects/main.ts",
     section: "list(paths:",
-    before: "exists = false;",
-    after: "exists = true;",
+    before: 'controller = { status: "missing" };',
+    after: 'controller = { status: "blocked", reason: "project_io_failed", detail: "broken" };',
     unit: "operator-cli/run.projects.test.ts",
     pattern: "lists controller status",
   },

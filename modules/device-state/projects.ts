@@ -1,6 +1,7 @@
 import { asc, eq, inArray, or } from "drizzle-orm";
 import { Err, Ok, type Result } from "unthrown";
 import type { Database } from "bun:sqlite";
+import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import { checkHistory, transaction } from "./database.ts";
 import { assignments, projectRemovals, projects, sources } from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
@@ -16,6 +17,15 @@ export type Registration = {
   reason: "project_registered" | "project_unchanged";
   data: RegisteredProject;
 };
+
+function hasOpenSource(db: BunSQLiteDatabase, repository: string) {
+  return db
+    .select()
+    .from(sources)
+    .where(eq(sources.repository, repository))
+    .all()
+    .some((source) => !["finished", "reset"].includes(source.state) || source.endedAt === null);
+}
 
 export function registerProject(client: Database, project: RegisteredProject) {
   return transaction(client, true, () =>
@@ -103,12 +113,7 @@ export function removeProject(client: Database, repository: string) {
           reason: "project_not_registered",
           detail: "This identity is not registered and has no pending removal.",
         });
-      const held = db
-        .select()
-        .from(sources)
-        .where(eq(sources.repository, repository))
-        .all()
-        .some((source) => !["finished", "reset"].includes(source.state) || source.endedAt === null);
+      const held = hasOpenSource(db, repository);
       if (held)
         return Err({
           reason: "project_source_open",
@@ -143,14 +148,7 @@ export function moveProject(client: Database, repository: string, checkout: stri
             reason: "project_not_registered",
             detail: "Register this identity explicitly before moving it.",
           });
-        const held = db
-          .select()
-          .from(sources)
-          .where(eq(sources.repository, repository))
-          .all()
-          .some(
-            (source) => !["finished", "reset"].includes(source.state) || source.endedAt === null,
-          );
+        const held = hasOpenSource(db, repository);
         if (held)
           return Err({
             reason: "project_source_open",
