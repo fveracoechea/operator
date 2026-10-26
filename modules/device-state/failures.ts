@@ -22,7 +22,7 @@ export function qualifyStateFailure<T>(
   if (code === "SQLITE_BUSY" || code === "SQLITE_LOCKED")
     return {
       reason: "state_busy",
-      detail: "The device database stayed busy for 5000 ms. No registration was committed.",
+      detail: "The device database stayed busy for 5000 ms. No command write was committed.",
     };
   if (code === "SQLITE_CORRUPT" || code === "SQLITE_NOTADB")
     return {

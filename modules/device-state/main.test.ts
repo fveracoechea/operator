@@ -14,6 +14,26 @@ afterAll(async () => {
 
 test("only registration creates state and lookup remains project-scoped", async () => {
   const paths = OperatorHome.resolve(Environment.parse({ HOME: root, NODE_ENV: "test" }));
+  expect(DeviceState.readSources(paths, "owner/one")).toMatchObject({
+    tag: "Err",
+    error: { reason: "state_missing" },
+  });
+  expect(
+    DeviceState.registerSource(
+      paths,
+      "/isolated/one",
+      {
+        id: "one",
+        repository: "owner/one",
+        trackerKey: "APP-1",
+        state: "open",
+        registeredAt: "now",
+        endedAt: null,
+        plan: "{}",
+      },
+      [],
+    ),
+  ).toMatchObject({ tag: "Err", error: { reason: "state_missing" } });
   expect(DeviceState.lookupProject(paths, "/isolated/one", [])).toMatchObject({
     tag: "Err",
     error: { reason: "state_missing" },
@@ -30,6 +50,26 @@ test("only registration creates state and lookup remains project-scoped", async 
   expect(DeviceState.lookupProject(paths, "/isolated/one", ["owner/one"])).toMatchObject({
     tag: "Ok",
     value: { controller: { repository: "owner/one" }, matches: [{ repository: "owner/one" }] },
+  });
+  expect(
+    DeviceState.registerSource(
+      paths,
+      "/isolated/one",
+      {
+        id: "one",
+        repository: "owner/one",
+        trackerKey: "APP-1",
+        state: "finished",
+        registeredAt: "now",
+        endedAt: "now",
+        plan: "{}",
+      },
+      [],
+    ).tag,
+  ).toBe("Ok");
+  expect(DeviceState.readSources(paths, "owner/one", "one")).toMatchObject({
+    tag: "Ok",
+    value: [{ source: { id: "one" }, assignments: [] }],
   });
   await rm(paths.database);
   expect(DeviceState.lookupProject(paths, "/isolated/one", ["owner/one"])).toMatchObject({

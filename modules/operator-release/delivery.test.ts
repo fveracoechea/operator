@@ -469,6 +469,58 @@ test("project registration uses installed migrations and ignores unrelated globa
       reason: "project_resolved",
       data: { repository: "example/installed" },
     });
+    const plan = `${root}/${invocation.name}-assignments.json`;
+    await Bun.write(
+      plan,
+      JSON.stringify({
+        trackerKey: "github:example/installed#1",
+        assignments: [
+          {
+            key: "read",
+            trackerKey: "github:example/installed#2",
+            instructions: "Read and report. Ask the person when authority is unclear.",
+            completion: "report",
+            resources: "pane",
+            dependencies: [],
+          },
+        ],
+      }),
+    );
+    const source = await run(
+      [...invocation.command, "source", "register", "--file", plan, "--json"],
+      invocation.cwd,
+      isolated,
+    );
+    expect(source.exitCode, source.stderr).toBe(0);
+    const sourceId = z.object({ data: z.object({ id: z.uuid() }) }).parse(JSON.parse(source.stdout))
+      .data.id;
+    const sourceRead = await run(
+      [...invocation.command, "source", "show", "--source", sourceId, "--json"],
+      invocation.cwd,
+      isolated,
+    );
+    expect(sourceRead.exitCode, sourceRead.stderr).toBe(0);
+    expect(JSON.parse(sourceRead.stdout)).toMatchObject({
+      data: { id: sourceId, plan: { trackerKey: "github:example/installed#1" } },
+    });
+    const next = await run(
+      [...invocation.command, "next", "--source", sourceId, "--json"],
+      invocation.cwd,
+      isolated,
+    );
+    expect(next.exitCode, next.stderr).toBe(0);
+    expect(JSON.parse(next.stdout)).toMatchObject({
+      reason: "next_actions_read",
+      data: {
+        sources: [
+          {
+            id: sourceId,
+            actions: [{ action: "ready_assignment", assignment: "read" }],
+            waits: [],
+          },
+        ],
+      },
+    });
     const after = await run(
       [...invocation.command, "--version", "--json"],
       invocation.cwd,

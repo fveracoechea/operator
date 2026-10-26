@@ -8,12 +8,13 @@ import { z } from "zod";
 import { runProfiles } from "./profiles.ts";
 import { runSkills } from "./skills.ts";
 import { runReadiness } from "./readiness.ts";
+import { runSources } from "./sources.ts";
 import { failure, settingsExitCodes } from "./output.ts";
 
 type OperatorPaths = ReturnType<typeof OperatorHome.resolve>;
 
 const usage =
-  "Usage: operator --help | --version [--json]\n       operator config show | recover [--json]\n       operator config plan | apply (--set field=value | --unset field)... [--plan id] [--json]\n       operator host models --host opencode|claude-code [--json]\n       operator config resolve [--role superAgent|workerAgent] [--profile name] [--host host] [--model model] [--effort effort] [--json]\n       operator project register [--repository owner/repository] [--json]\n       operator project show [--json]\n       operator install --opencode | --claude | --opencode --claude [--check] [--json]\n       operator install matt --opencode | --claude | --opencode --claude [--json]\n       operator ready [--json]";
+  "Usage: operator --help | --version [--json]\n       operator config show | recover [--json]\n       operator config plan | apply (--set field=value | --unset field)... [--plan id] [--json]\n       operator host models --host opencode|claude-code [--json]\n       operator config resolve [--role superAgent|workerAgent] [--profile name] [--host host] [--model model] [--effort effort] [--json]\n       operator project register [--repository owner/repository] [--json]\n       operator project show [--json]\n       operator install --opencode | --claude | --opencode --claude [--check] [--json]\n       operator install matt --opencode | --claude | --opencode --claude [--json]\n       operator ready [--json]\n       operator source register --file path [--json]\n       operator source show --source id [--json]\n       operator next [--source id] [--json]";
 
 const projectExitCodes = {
   repository_choice_invalid: 2,
@@ -233,11 +234,16 @@ export async function run(args: string[]): Promise<void> {
     return;
   }
 
-  if (await runSkills(args, paths, json)) return;
-  if (await runReadiness(args, paths, json)) return;
-  if (await runProfiles(args, paths, json)) return;
-  if (await runSettings(args, paths, json)) return;
-  if (await runProject(args, paths, json)) return;
+  for (const handler of [
+    runSkills,
+    runReadiness,
+    runProfiles,
+    runSettings,
+    runProject,
+    runSources,
+  ]) {
+    if (await handler(args, paths, json)) return;
+  }
 
   if (json) {
     console.log(

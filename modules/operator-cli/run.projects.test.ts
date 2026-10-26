@@ -90,7 +90,7 @@ test("explicit registration creates one migrated device database and repeats wit
   expect(db.query("SELECT repository, checkout FROM projects").all()).toEqual([
     { repository: "example/one", checkout: cwd },
   ]);
-  expect(db.query("SELECT hash, created_at FROM __drizzle_migrations").all()).toHaveLength(1);
+  expect(db.query("SELECT hash, created_at FROM __drizzle_migrations").all()).toHaveLength(2);
   expect(db.query("PRAGMA integrity_check").values()).toEqual([["ok"]]);
   expect(await git(cwd, "status", "--porcelain=v1", "--untracked-files=all")).toBe(before);
   expect(
@@ -218,7 +218,7 @@ test("concurrent first registrations publish one complete database and isolate p
     { repository: "example/two", checkout: two },
   ]);
   expect(db.query("PRAGMA integrity_check").values()).toEqual([["ok"]]);
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(1);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(2);
   expect((await run(one, ["show"])).output).toMatchObject({ data: { repository: "example/one" } });
   expect((await run(two, ["show"])).output).toMatchObject({ data: { repository: "example/two" } });
 });

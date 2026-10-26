@@ -7,7 +7,7 @@ Personal skills and CLI tools for coordinating coding agents in OpenCode and Cla
 Issue [#234](https://github.com/fveracoechea/operator/issues/234) defines the device-level replacement.
 This branch starts with [#235](https://github.com/fveracoechea/operator/issues/235), which removes the legacy architecture before new workflows land.
 It is not an intermediate release.
-Help, version reporting, device settings, launch selection, project registration, skill installation, and static readiness are available.
+Help, version reporting, device settings, launch selection, project registration, skill installation, static readiness, supplied assignment plans, and next actions are available.
 
 Finish old work with the old release before updating to the eventual breaking release.
 This code does not inspect, migrate, repair, or delete legacy Operator state.
@@ -16,7 +16,7 @@ Do not use it to resume an old session.
 The device-level design in `CONTEXT.md` and `docs/adr/` remains planned.
 The base lint policy in ADR-0018 is now enforced.
 Local mutation testing from ADR-0016 is also available for repository development.
-Automatic migration upgrades, assignments, reviews, and the global Herdr plugin are not implemented here.
+Automatic migration upgrades, worker dispatch, report acceptance, PR operations, reviews, and the global Herdr plugin are not implemented here.
 There are no replacement-command placeholders or compatibility aliases.
 
 ## Run the retained CLI
@@ -199,6 +199,32 @@ Existing database history must match the running installation's shipped Drizzle 
 Damaged or incompatible state is not repaired or replaced.
 Automatic upgrades remain #245, and listing, move, and removal remain #246.
 See `docs/implementation/240-project-registration.md` for the state diagram, refusals, and test rules.
+
+## Assignment plans and next actions
+
+From a registered controlling checkout, supply a JSON plan rather than ask the CLI to read a tracker:
+
+```sh
+operator source register --file /absolute/path/assignments.json --json
+operator source show --source <source-id> --json
+operator next --json
+operator next --source <source-id> --json
+```
+
+Use `bun cli.ts` instead of `operator` in a source checkout.
+The plan supplies tracker keys, instructions, PR or report completion, dependencies, optional named profiles, resources, and branch names for worktrees.
+See `docs/implementation/244-assignment-plans.md` for the complete JSON example and decision diagram.
+Invalid or cyclic plans refuse before writes.
+A second open source for the same project and tracker parent refuses.
+Each registration after an ended source gets a new identity.
+An empty plan finishes immediately.
+
+`next` reads one snapshot and returns ready candidates, dependency blockers, active waits, and ended sources without writing a schedule.
+PR dependencies permit start at `pr-open` or `merged`.
+Report dependencies require accepted `completed`, not submitted `reported`.
+The commands launch no host and perform no tracker operations.
+`ready_assignment` is a candidate only, not an implemented dispatch command.
+Dispatch remains #247, report acceptance remains #248, and PR operations remain #249 through #251.
 
 ## Retained code and checks
 
