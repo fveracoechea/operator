@@ -8,27 +8,23 @@ import { selectLaunch, type SelectionRequest } from "./selection.ts";
 
 type OperatorPaths = ReturnType<typeof OperatorHome.resolve>;
 
+function qualify<T>(cause: unknown, defect: (cause: unknown) => T) {
+  if (cause instanceof SyntaxError || cause instanceof z.ZodError)
+    return { reason: "invalid_settings" as const, detail: cause.message };
+  if (isIoFailure(cause)) return { reason: "settings_io_failed" as const, detail: String(cause) };
+  return defect(cause);
+}
+
 function operate(action: () => Promise<SettingsOutcome>) {
-  return fromPromise(action, (cause, defect) => {
-    if (cause instanceof SyntaxError || cause instanceof z.ZodError)
-      return { reason: "invalid_settings" as const, detail: cause.message };
-    if (isIoFailure(cause)) {
-      return { reason: "settings_io_failed" as const, detail: String(cause) };
-    }
-    return defect(cause);
-  }).flatMap((outcome) => ("detail" in outcome ? Err(outcome) : Ok(outcome)));
+  return fromPromise(action, qualify).flatMap((outcome) =>
+    "detail" in outcome ? Err(outcome) : Ok(outcome),
+  );
 }
 
 /** Device settings never depend on the current checkout. */
 export const DeviceSettings = {
   resolve(input: SelectionRequest & { paths: OperatorPaths; cwd: string }) {
-    return fromPromise(
-      () => readConfig(input.paths),
-      (cause, defect) =>
-        cause instanceof SyntaxError || cause instanceof z.ZodError || isIoFailure(cause)
-          ? { reason: "invalid_settings" as const, detail: String(cause) }
-          : defect(cause),
-    )
+    return fromPromise(() => readConfig(input.paths), qualify)
       .flatMap(({ config }) => {
         const selected = selectLaunch(config, input);
         if ("reason" in selected) return Err(selected);

@@ -192,6 +192,47 @@ test("reports a Claude Code metadata process failure as an operational refusal",
   expect(await Bun.file(`${root}/state/operator/operator.sqlite`).exists()).toBe(false);
 });
 
+test("reports a Claude Code metadata timeout as an operational refusal without writes", async () => {
+  await Bun.write(
+    `${root}/bin/claude`,
+    `#!${process.execPath}\nfor await (const chunk of Bun.stdin.stream()) {}\n`,
+    { createPath: true },
+  );
+  await chmod(`${root}/bin/claude`, 0o755);
+  const result = await run(["host", "models", "--host", "claude-code"]);
+  expect(result.code).toBe(1);
+  expect(result.output).toMatchObject({ reason: "host_metadata_failed" });
+  expect(await Bun.file(`${root}/config/operator/config.json`).exists()).toBe(false);
+  expect(await Bun.file(`${root}/state/operator/config/apply.json`).exists()).toBe(false);
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).exists()).toBe(false);
+});
+
+test("reports settings I/O failures consistently for inspection and launch resolution", async () => {
+  const marker = `${root}/config/operator/config.json/preserved.txt`;
+  await Bun.write(marker, "preserve this directory", { createPath: true });
+  for (const command of ["show", "resolve"]) {
+    const result = await run(["config", command]);
+    expect(result.output).toMatchObject({ reason: "settings_io_failed" });
+    expect(result.code).toBe(1);
+  }
+  expect(await Bun.file(marker).text()).toBe("preserve this directory");
+  expect(await Bun.file(`${root}/state/operator/config/apply.json`).exists()).toBe(false);
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).exists()).toBe(false);
+});
+
+test("reports invalid settings consistently for inspection and launch resolution", async () => {
+  const config = `${root}/config/operator/config.json`;
+  await Bun.write(config, "{invalid", { createPath: true });
+  for (const command of ["show", "resolve"]) {
+    const result = await run(["config", command]);
+    expect(result.output).toMatchObject({ reason: "invalid_settings" });
+    expect(result.code).toBe(2);
+  }
+  expect(await Bun.file(config).text()).toBe("{invalid");
+  expect(await Bun.file(`${root}/state/operator/config/apply.json`).exists()).toBe(false);
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).exists()).toBe(false);
+});
+
 test("refuses unsupported explicit edits without settings, receipts, database, or host launches", async () => {
   await openCode();
   const result = await run([

@@ -2,7 +2,7 @@ import { AgentHosts } from "../agent-hosts/main.ts";
 import { DeviceSettings } from "../device-settings/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { z } from "zod";
-import { failure } from "./output.ts";
+import { failure, settingsExitCodes } from "./output.ts";
 
 const flagsSchema = z.strictObject({
   host: z.enum(["opencode", "claude-code"]).optional(),
@@ -85,13 +85,7 @@ export async function runProfiles(
   } else {
     const reason = result.tag === "Err" ? result.error.reason : "host_defect";
     const detail = result.tag === "Err" ? result.error.detail : String(result.cause);
-    failure(
-      operation,
-      reason,
-      detail,
-      ["host_defect", "host_metadata_failed"].includes(reason) ? 1 : 3,
-      json,
-    );
+    failure(operation, reason, detail, settingsExitCodes[reason], json);
   }
   return true;
 }

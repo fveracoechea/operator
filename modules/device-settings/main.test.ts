@@ -32,6 +32,25 @@ test("qualifies invalid input separately from unexpected defects", async () => {
   const invalid = await DeviceSettings.show(paths);
   expect(invalid.tag).toBe("Err");
   if (invalid.tag === "Err") expect(invalid.error.reason).toBe("invalid_settings");
+  expect(await DeviceSettings.resolve({ paths, cwd: root })).toMatchObject({
+    tag: "Err",
+    error: { reason: "invalid_settings" },
+  });
   const defect = await DeviceSettings.show({ ...paths, config: "\0" });
   expect(defect.tag).toBe("Defect");
+  expect(
+    await DeviceSettings.resolve({ paths: { ...paths, config: "\0" }, cwd: root }),
+  ).toMatchObject({ tag: "Defect" });
+});
+
+test("keeps settings read failures in the same operational channel for show and resolve", async () => {
+  const unreadable = { ...paths, config: path.join(root, "unreadable") };
+  const marker = path.join(unreadable.config, "preserved.txt");
+  await Bun.write(marker, "preserved", { createPath: true });
+  for (const result of [
+    await DeviceSettings.show(unreadable),
+    await DeviceSettings.resolve({ paths: unreadable, cwd: root }),
+  ])
+    expect(result).toMatchObject({ tag: "Err", error: { reason: "settings_io_failed" } });
+  expect(await Bun.file(marker).text()).toBe("preserved");
 });

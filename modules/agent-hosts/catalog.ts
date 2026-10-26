@@ -66,7 +66,7 @@ export async function discoverClaude(cwd: string): Promise<Model[] | HostFailure
       reason: "host_unavailable",
       detail: "claude is not on PATH. Install Claude Code before selecting it.",
     };
-  const { query } = await import("@anthropic-ai/claude-agent-sdk");
+  const { query, AbortError } = await import("@anthropic-ai/claude-agent-sdk");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 10000);
   // An open input stream permits metadata initialization, but sends no user message or generation request.
@@ -98,7 +98,7 @@ export async function discoverClaude(cwd: string): Promise<Model[] | HostFailure
   } catch (cause) {
     if (
       cause instanceof Error &&
-      (cause.name === "AbortError" ||
+      (cause instanceof AbortError ||
         /^Claude Code process (?:exited with code \d+|terminated by signal SIG[A-Z0-9]+)/.test(
           cause.message,
         ))

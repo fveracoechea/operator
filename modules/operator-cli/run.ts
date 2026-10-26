@@ -6,26 +6,9 @@ import { Projects } from "../projects/main.ts";
 import { fromThrowable } from "unthrown";
 import { z } from "zod";
 import { runProfiles } from "./profiles.ts";
-import { failure } from "./output.ts";
+import { failure, settingsExitCodes } from "./output.ts";
 
 type OperatorPaths = ReturnType<typeof OperatorHome.resolve>;
-
-const settingsExitCodes = {
-  host_unavailable: 3,
-  host_metadata_failed: 1,
-  unsupported_model: 3,
-  unsupported_effort: 3,
-  profile_missing: 3,
-  selection_incomplete: 3,
-  invalid_settings: 2,
-  invalid_settings_edit: 2,
-  settings_io_failed: 1,
-  settings_recovery_required: 3,
-  settings_plan_required: 3,
-  settings_plan_stale: 4,
-  settings_external: 3,
-  settings_write_unconfirmed: 5,
-};
 
 const usage =
   "Usage: operator --help | --version [--json]\n       operator config show | recover [--json]\n       operator config plan | apply (--set field=value | --unset field)... [--plan id] [--json]\n       operator host models --host opencode|claude-code [--json]\n       operator config resolve [--role superAgent|workerAgent] [--profile name] [--host host] [--model model] [--effort effort] [--json]\n       operator project register [--repository owner/repository] [--json]\n       operator project show [--json]";

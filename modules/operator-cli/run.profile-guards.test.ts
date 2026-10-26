@@ -19,6 +19,30 @@ afterAll(async () => {
 
 test.each([
   {
+    name: "SDK abort classification",
+    file: "agent-hosts/catalog.ts",
+    before: "cause instanceof AbortError ||",
+    after: 'cause.name === "AbortError" ||',
+    testFile: "operator-cli/run.profiles.test.ts",
+    pattern: "reports a Claude Code metadata timeout",
+  },
+  {
+    name: "settings I/O classification",
+    file: "device-settings/main.ts",
+    before: 'reason: "settings_io_failed" as const',
+    after: 'reason: "invalid_settings" as const',
+    testFile: "operator-cli/run.profiles.test.ts",
+    pattern: "reports settings I/O failures consistently",
+  },
+  {
+    name: "settings failure exit codes",
+    file: "operator-cli/profiles.ts",
+    before: "settingsExitCodes[reason]",
+    after: '["host_defect", "host_metadata_failed"].includes(reason) ? 1 : 3',
+    testFile: "operator-cli/run.profiles.test.ts",
+    pattern: "reports invalid settings consistently",
+  },
+  {
     name: "unexpected defects",
     file: "agent-hosts/main.ts",
     before: "return defect(cause);",

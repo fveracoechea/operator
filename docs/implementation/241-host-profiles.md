@@ -80,6 +80,8 @@ A scenario uses real Git and project registration with SQLite and proves that pr
 Installed source and registry-artifact tests exercise both hosts through controlled executables.
 Direct beside-tests cover catalog parsing, selection, validation, edits, schema, and CLI parsing.
 Regression tests preserve unexpected programming defects as unthrown Defect results and permit advertised custom efforts in both defaults and profiles.
+Claude metadata timeouts use the pinned SDK's abort class to remain operational failures.
+Settings inspection and launch resolution share failure qualification and exit codes.
 Deliberate guard breaks run in a disposable checkout copy, not in the implementation checkout.
 
 Live OpenCode metadata confirmed that the bracketed location query selects the requested directory.
