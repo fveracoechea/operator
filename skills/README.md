@@ -2,7 +2,8 @@
 
 The skills Operator owns and hand-edits.
 A release ships these directories whole.
-Personal skill installation is planned under #234 and is not available in the removal slice.
+`operator install --opencode --claude` installs complete personal copies from the running release.
+Nix packages check consumer-owned links instead.
 
 Every skill here has exactly one home, so no name in this directory is a second copy under `.agents/skills/`.
 This repository reaches them through symlinks in `.agents/skills/` and `.claude/skills/`.
@@ -20,3 +21,5 @@ See [ADR-0002](../docs/adr/0002-an-owned-skill-discloses-rules-through-task-spec
 - **[react-best-practices](./react-best-practices/SKILL.md)** - Use when writing, reviewing or changing client side React: useEffect, useState, Suspense, derived state, re-render, a lazy chunk, or data waterfall.
 - **[react-composition](./react-composition/SKILL.md)** - Use when designing, changing or reviewing the API of a React component: boolean props, render props, several parts that share state, or sibling component that must read state.
 - **[tanstack-tools](./tanstack-tools/SKILL.md)** - Use when writing or changing code that uses a TanStack library: router, search params, loader, a query or mutation, form, a chart, or a server function.
+- **[super-agent](./super-agent/SKILL.md)** - Use when supervising delegated WorkerAgents or coordinating a person's Operator work.
+- **[worker-agent](./worker-agent/SKILL.md)** - Use when a SuperAgent delegates work with an absolute brief reference.

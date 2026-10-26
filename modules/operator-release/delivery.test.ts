@@ -559,3 +559,110 @@ test("an installed CLI finds its release and migrations under escaped directory 
   );
   expect(JSON.parse(reported.stdout)).toMatchObject({ data: { operatorVersion: version, commit } });
 }, 300_000);
+
+test("installed source and registry CLIs copy complete skills to both hosts and safely update them", async () => {
+  for (const delivery of [
+    {
+      name: "source",
+      installed: `${sourceProject}/node_modules/@fveracoechea/operator`,
+      entry: "cli.ts",
+    },
+    {
+      name: "registry",
+      installed: `${registryProject}/node_modules/@fveracoechea/operator`,
+      entry: "cli.js",
+    },
+  ]) {
+    const installed = `${root}/${delivery.name} installed skills #release`;
+    await cp(delivery.installed, installed, { recursive: true });
+    await symlink(`${sourceRoot}/node_modules`, `${installed}/node_modules`);
+    const checkout = `${root}/${delivery.name}-skills-checkout`;
+    await mkdir(checkout);
+    const environment = {
+      HOME: `${root}/${delivery.name}-skills-home`,
+      XDG_CONFIG_HOME: `${root}/${delivery.name}-skills-config`,
+      XDG_STATE_HOME: `${root}/${delivery.name}-skills-state`,
+    };
+    expect((await run(["git", "init", "-q"], checkout, environment)).exitCode).toBe(0);
+    expect(
+      (
+        await run(
+          [
+            "git",
+            "remote",
+            "add",
+            "identity",
+            `https://github.com/example/${delivery.name}-skills.git`,
+          ],
+          checkout,
+          environment,
+        )
+      ).exitCode,
+    ).toBe(0);
+    const command = [process.execPath, `${installed}/${delivery.entry}`];
+    expect(
+      (await run([...command, "project", "register", "--json"], checkout, environment)).exitCode,
+    ).toBe(0);
+    const database = await Bun.file(
+      `${environment.XDG_STATE_HOME}/operator/operator.sqlite`,
+    ).bytes();
+    for (const flags of [
+      ["--opencode"],
+      ["--claude"],
+      ["--opencode", "--claude"],
+      ["--opencode", "--claude", "--check"],
+    ]) {
+      const result = await run([...command, "install", ...flags, "--json"], checkout, environment);
+      expect(result.exitCode, result.stderr).toBe(0);
+    }
+    const hosts = [
+      `${environment.HOME}/.claude/skills`,
+      `${environment.XDG_CONFIG_HOME}/opencode/skills`,
+    ];
+    for (const host of hosts) {
+      for await (const file of new Bun.Glob("*/SKILL.md").scan({ cwd: `${installed}/skills` })) {
+        const name = file.split("/")[0];
+        for await (const asset of new Bun.Glob("**/*").scan({
+          cwd: `${installed}/skills/${name}`,
+          dot: true,
+        }))
+          expect(await Bun.file(`${host}/${name}/${asset}`).bytes()).toEqual(
+            await Bun.file(`${installed}/skills/${name}/${asset}`).bytes(),
+          );
+      }
+    }
+    await Bun.write(`${installed}/skills/deep-modules/module-shape.md`, "new release asset\n");
+    const updated = await run(
+      [...command, "install", "--opencode", "--claude", "--json"],
+      checkout,
+      environment,
+    );
+    expect(updated.exitCode, updated.stderr).toBe(0);
+    for (const host of hosts)
+      expect(await Bun.file(`${host}/deep-modules/module-shape.md`).text()).toBe(
+        "new release asset\n",
+      );
+    await Bun.write(`${hosts[0]}/deep-modules/module-shape.md`, "personal edit\n");
+    const conflict = await run(
+      [...command, "install", "--opencode", "--claude", "--json"],
+      checkout,
+      environment,
+    );
+    expect(conflict.exitCode).toBe(4);
+    expect(await Bun.file(`${hosts[0]}/deep-modules/module-shape.md`).text()).toBe(
+      "personal edit\n",
+    );
+    expect(
+      await Bun.file(`${environment.XDG_STATE_HOME}/operator/operator.sqlite`).bytes(),
+    ).toEqual(database);
+    expect(
+      (
+        await run(
+          ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+          checkout,
+          environment,
+        )
+      ).stdout,
+    ).toBe("");
+  }
+}, 300_000);

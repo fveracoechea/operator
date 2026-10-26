@@ -7,7 +7,7 @@ Personal skills and CLI tools for coordinating coding agents in OpenCode and Cla
 Issue [#234](https://github.com/fveracoechea/operator/issues/234) defines the device-level replacement.
 This branch starts with [#235](https://github.com/fveracoechea/operator/issues/235), which removes the legacy architecture before new workflows land.
 It is not an intermediate release.
-Help, version reporting, device settings, launch selection, and project registration commands are available.
+Help, version reporting, device settings, launch selection, project registration, and owned-skill installation are available.
 
 Finish old work with the old release before updating to the eventual breaking release.
 This code does not inspect, migrate, repair, or delete legacy Operator state.
@@ -16,7 +16,7 @@ Do not use it to resume an old session.
 The device-level design in `CONTEXT.md` and `docs/adr/` remains planned.
 The base lint policy in ADR-0018 is now enforced.
 Local mutation testing from ADR-0016 is also available for repository development.
-Automatic migration upgrades, personal skill installation, assignments, reviews, and the global Herdr plugin are not implemented here.
+Automatic migration upgrades, assignments, reviews, and the global Herdr plugin are not implemented here.
 There are no replacement-command placeholders or compatibility aliases.
 
 ## Run the retained CLI
@@ -40,6 +40,29 @@ An installed package exports `main(args)` from `@fveracoechea/operator/cli`.
 Source-package installation provides the `operator` binary without an install-time build.
 JSR rewrites the package manifest and drops its binary declaration.
 The exported CLI remains usable, but the new global JSR launcher and Nix delivery are later implementation slices.
+
+## Personal owned skills
+
+```sh
+operator install --opencode --json
+operator install --claude --json
+operator install --opencode --claude --json
+operator install --opencode --claude --check --json
+```
+
+The exported `main` accepts the same arguments when a global launcher is not available.
+Owned skills come from the running package, with complete supporting assets copied to personal host locations.
+OpenCode uses `$XDG_CONFIG_HOME/opencode/skills/`, or `~/.config/opencode/skills/` when unset.
+Claude Code uses `~/.claude/skills/`.
+The device ledger permits replacement only of unchanged managed content.
+Matching content stays unwritten.
+Modified or unrelated contents refuse with exit 4 rather than overwrite your edits.
+Old role names are removed only with unchanged device-ledger proof, without forwarding skills or legacy-ledger adoption.
+
+`--check` follows links and compares contents without writing host folders or device state.
+Packages under `/nix/store/` always check consumer-owned wiring rather than copy skills.
+The role skills are `super-agent` and `worker-agent`.
+Workflow commands, static readiness, upstream installation, Nix packaging, and the global JSR launcher remain in their later implementation tickets.
 
 ## Device settings
 

@@ -33,11 +33,25 @@ test("owns separate XDG settings, receipts, and lock paths", () => {
   expect(paths.writeLock).toBe(`${root}/state/operator/config/write.sqlite`);
   expect(paths.database).toBe(`${root}/state/operator/operator.sqlite`);
   expect(paths.projects).toBe(`${root}/state/operator/projects`);
+  expect(paths.skillHosts).toEqual({
+    opencode: `${root}/config/opencode/skills`,
+    "claude-code": `${root}/home/.claude/skills`,
+  });
+  expect(paths.ownedSkills).toBe(`${root}/state/operator/owned-skills.json`);
+  expect(paths.skillsLock).toBe(`${root}/state/operator/owned-skills-lock.sqlite`);
   expect(OperatorHome.registrationDatabase(paths, "test-nonce")).toBe(
     `${root}/state/operator/.registration-test-nonce.sqlite`,
   );
   expect(OperatorHome.projectDirectory(paths, "owner/repo")).toBe(
     `${root}/state/operator/projects/owner/repo`,
+  );
+});
+
+test("skill test roots must remain in temporary storage without probing real host contents", () => {
+  const environment = Environment.parse({ HOME: root, NODE_ENV: "test" });
+  expect(() => OperatorHome.guardSkillTests(environment, [root])).not.toThrow();
+  expect(() => OperatorHome.guardSkillTests(environment, ["/non-temporary-skill-test"])).toThrow(
+    "Tests cannot access non-temporary skill roots",
   );
 });
 

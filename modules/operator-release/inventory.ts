@@ -47,4 +47,9 @@ export const REQUIRED_PARTS = [
   "modules/device-state/migrations/0000_register_projects.sql",
   "modules/device-state/migrations/meta/_journal.json",
   "skills/deep-modules/SKILL.md",
+  "skills/super-agent/SKILL.md",
+  "skills/super-agent/delegation.md",
+  "skills/super-agent/setup.md",
+  "skills/worker-agent/SKILL.md",
+  "skills/worker-agent/responsibility.md",
 ];

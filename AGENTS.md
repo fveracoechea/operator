@@ -32,7 +32,8 @@ Keep single-use details with their module.
 ## Breaking workflow replacement
 
 The legacy CLI workflows are removed under #235 before their device-level replacements land.
-Help, version reporting, device settings, launch selection, and project registration commands are available.
+Help, version reporting, device settings, launch selection, project registration, and owned-skill installation are available.
+For owned copies, conflict rules, and check-only links, read `docs/implementation/242-owned-skills.md`.
 For host metadata, profile inheritance, and resolved launch values, read `docs/implementation/241-host-profiles.md`.
 For project registration, lookup, database creation, and isolated Git tests, read `docs/implementation/240-project-registration.md`.
 For settings edits, environment values, and isolated test roots, read `docs/implementation/239-device-settings.md`.

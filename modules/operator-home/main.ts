@@ -1,6 +1,6 @@
 // Bun has no path, account-home, or synchronous real-path API.
 import path from "node:path";
-import { userInfo } from "node:os";
+import { tmpdir, userInfo } from "node:os";
 import { existsSync, realpathSync } from "node:fs";
 import type { Environment } from "../environment/main.ts";
 
@@ -39,6 +39,13 @@ export const OperatorHome = {
       environment.XDG_STATE_HOME ?? path.join(environment.HOME, ".local/state"),
       "operator",
     );
+    const skillHosts = {
+      opencode: path.join(
+        environment.XDG_CONFIG_HOME ?? path.join(environment.HOME, ".config"),
+        "opencode/skills",
+      ),
+      "claude-code": path.join(environment.HOME, ".claude/skills"),
+    };
     if (environment.NODE_ENV === "test") guardTestRoots([configRoot, stateRoot]);
     return {
       configRoot,
@@ -52,6 +59,9 @@ export const OperatorHome = {
       receiptTemporary: path.join(stateRoot, "config/apply.json.tmp"),
       writeLock: path.join(stateRoot, "config/write.sqlite"),
       configTemporary: path.join(configRoot, "config.json.tmp"),
+      skillHosts,
+      ownedSkills: path.join(stateRoot, "owned-skills.json"),
+      skillsLock: path.join(stateRoot, "owned-skills-lock.sqlite"),
     };
   },
   registrationDatabase(paths: { stateRoot: string }, nonce: string) {
@@ -59,5 +69,18 @@ export const OperatorHome = {
   },
   projectDirectory(paths: { projects: string }, repository: string) {
     return path.join(paths.projects, repository);
+  },
+  guardSkillTests(environment: ReturnType<typeof Environment.read>, roots: string[]) {
+    if (environment.NODE_ENV !== "test") return;
+    const temporary = realpathSync(tmpdir());
+    for (const root of roots) {
+      let resolved = root;
+      while (!existsSync(resolved)) resolved = path.dirname(resolved);
+      const real = realpathSync(resolved);
+      if (real !== temporary && !real.startsWith(`${temporary}/`)) {
+        // oxlint-disable-next-line unthrown/no-throw -- Tests may inspect personal skills only inside isolated temporary roots.
+        throw new Error(`Tests cannot access non-temporary skill roots: ${root}`);
+      }
+    }
   },
 };

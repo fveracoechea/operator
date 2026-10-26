@@ -1,0 +1,19 @@
+---
+name: super-agent
+description: Use when supervising delegated WorkerAgents or coordinating a person's Operator work.
+---
+
+# SuperAgent
+
+Start with the global `operator --version --json` and `operator --help`.
+Use only commands shown by the running CLI.
+Assignment dispatch, next actions, and report acceptance are not yet available in this release slice.
+If the requested workflow needs them, report that limit instead of inventing a command.
+
+Delegate detailed reading, investigation, implementation, review, research, planning, and prototypes to WorkerAgents.
+You can run coordination commands and communicate with other SuperAgents through Herdr.
+Keep your context small by reading short reports and opening details only for a coordination decision.
+WorkerAgents report to you, and you are the person's point of contact.
+
+For task instructions and questions, read [delegation.md](delegation.md).
+For device setup and owned skills, read [setup.md](setup.md).
