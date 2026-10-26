@@ -130,6 +130,10 @@ The repeated suite exposed a concurrent owned-install preflight race.
 A deterministic public CLI test reproduced it with a held SQLite writer and partial content.
 Copy-mode content inspection now runs under the owned installer lock, and a deliberate break proves that regression guard.
 This correction changes no tracker completion history for #242 or #243.
+Pushed-head CI also exposed a Unthrown lint-test timeout.
+A controlled slow `bunx` reproduced four real lint calls exceeding one 30-second test budget.
+Each production-file or test-file guard case now has its own test with two calls.
+The same slow-tool reproduction passes without increasing the timeout or removing assertions.
 
 Use `TMPDIR=/tmp/opencode` and prepend `/tmp/opencode/operator-bun142/bun-linux-x64` to PATH here.
 Required final commands are `bun run quality` and `bun run test --rerun-each=3`, followed by CI at the pushed head.
