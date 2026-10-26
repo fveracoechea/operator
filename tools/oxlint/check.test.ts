@@ -21,12 +21,14 @@ test("lint scenarios use the supplied temporary root rather than a harness-only 
 import { lintProject } from ${JSON.stringify(path.join(import.meta.dir, "check.ts"))};
 const check = lintProject();
 test("lint in the supplied root", async () => {
+  // Model a CI lint call that exceeds Bun's default five-second test budget.
+  await Bun.sleep(5100);
   expect((await check("export const value = 1;")).exitCode).toBe(0);
   const directories = await Array.fromAsync(new Bun.Glob("operator-lint-*").scan({ cwd: ${JSON.stringify(temporary)}, onlyFiles: false }));
   expect(directories.length).toBe(1);
 });\n`,
   );
-  const child = Bun.spawn([process.execPath, "test", "--isolate", entry], {
+  const child = Bun.spawn([process.execPath, "test", "--isolate", "--timeout=30000", entry], {
     cwd: directory,
     env: Environment.child({ TMPDIR: temporary }),
     stdout: "pipe",
