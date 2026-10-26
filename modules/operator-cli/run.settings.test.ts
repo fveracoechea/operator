@@ -16,8 +16,14 @@ beforeEach(async () => {
 });
 const cli = new URL("../../cli.ts", import.meta.url).pathname;
 afterEach(async () => {
-  await chmod(`${root}/config/operator`, 0o755).catch(() => undefined);
-  await rm(root, { recursive: true, force: true });
+  try {
+    expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
+      databaseBefore,
+    );
+  } finally {
+    await chmod(`${root}/config/operator`, 0o755).catch(() => undefined);
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 async function run(args: string[], overrides: Record<string, string | undefined> = {}, cwd = root) {

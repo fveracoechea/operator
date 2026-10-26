@@ -16,7 +16,13 @@ beforeEach(async () => {
   databaseBefore = await registerTestDevice(root);
 });
 afterEach(async () => {
-  await rm(root, { recursive: true, force: true });
+  try {
+    expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
+      databaseBefore,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 async function run(args: string[]) {

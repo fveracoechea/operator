@@ -7,13 +7,20 @@ import { Environment } from "../environment/main.ts";
 import { registerTestDevice } from "../../scripts/device-fixture.ts";
 
 let root = "";
+let databaseBefore: ArrayBuffer;
 const cli = Bun.fileURLToPath(new URL("../../cli.ts", import.meta.url));
 beforeEach(async () => {
   root = await mkdtemp(path.join(tmpdir(), "operator-upstream-"));
-  await registerTestDevice(root);
+  databaseBefore = await registerTestDevice(root);
 });
 afterEach(async () => {
-  await rm(root, { recursive: true, force: true });
+  try {
+    expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
+      databaseBefore,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 async function executable(name: string, source: string) {
   await Bun.write(`${root}/tools/${name}`, `#!${process.execPath}\n${source}`, {

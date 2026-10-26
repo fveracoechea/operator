@@ -5,7 +5,9 @@ description: Use when supervising delegated WorkerAgents or coordinating a perso
 
 # SuperAgent
 
-Start with the global `operator --version --json` and `operator --help`.
+On an unregistered device, first run `operator project register --json` from the main checkout with its matching GitHub remote and no legacy `.operator` folder.
+Every other command refuses until that registration creates device state.
+Then use the global `operator --version --json` and `operator --help`.
 Use only commands shown by the running CLI.
 Assignment dispatch and report acceptance are not yet available in this release slice.
 If the requested workflow needs them, report that limit instead of inventing a command.

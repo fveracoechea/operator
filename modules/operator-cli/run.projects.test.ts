@@ -321,11 +321,14 @@ test.each(
 )(
   "refuses invalid project arguments %j without invoking tools or creating state",
   async ({ args }) => {
-    await registerTestDevice(root);
+    const databaseBefore = await registerTestDevice(root);
     const result = await run(root, args, { PATH: `${root}/no-tools` });
     expect(result).toMatchObject({ code: 2, output: { reason: "invalid_arguments" } });
     expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([
       "state/operator/operator.sqlite",
     ]);
+    expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
+      databaseBefore,
+    );
   },
 );

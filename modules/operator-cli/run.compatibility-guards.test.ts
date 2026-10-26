@@ -29,6 +29,14 @@ afterAll(async () => {
 
 test.each([
   {
+    name: "refusal database contents",
+    file: "operator-cli/run.ts",
+    before: "console.error(usage);",
+    after: `using broken = new (await import("bun:sqlite")).Database(paths.database); broken.exec("UPDATE projects SET registered_at = 'prohibited'"); console.error(usage);`,
+    pattern: "rejects removed or invalid command.*unknown",
+    testFile: "operator-cli/run.test.ts",
+  },
+  {
     name: "missing-state refusal",
     file: "device-state/compatibility.ts",
     before: "return firstRegistration",

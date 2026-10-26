@@ -116,7 +116,7 @@ test.each(
 )("rejects removed or invalid command %j without writes or external effects", async ({ args }) => {
   const root = await mkdtemp(join(tmpdir(), "operator-cli-refusal-"));
   roots.push(root);
-  await registerTestDevice(root);
+  const databaseBefore = await registerTestDevice(root);
   const legacy = `${root}/.operator/untouched`;
   await Bun.write(legacy, "unfinished work\n", { createPath: true });
   const child = Bun.spawn([process.execPath, cli, ...args, "--json"], {
@@ -148,6 +148,9 @@ test.each(
     "Usage: operator --help | --version [--json]\n       operator config show | recover [--json]\n       operator config plan | apply (--set field=value | --unset field)... [--plan id] [--json]\n       operator host models --host opencode|claude-code [--json]\n       operator config resolve [--role superAgent|workerAgent] [--profile name] [--host host] [--model model] [--effort effort] [--json]\n       operator project register [--repository owner/repository] [--json]\n       operator project show [--json]\n       operator install --opencode | --claude | --opencode --claude [--check] [--json]\n       operator install matt --opencode | --claude | --opencode --claude [--json]\n       operator ready [--json]\n       operator source register --file path [--json]\n       operator source show --source id [--json]\n       operator next [--source id] [--json]\n",
   );
   expect(await Bun.file(legacy).text()).toBe("unfinished work\n");
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
+    databaseBefore,
+  );
   expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([
     ".operator/untouched",
     "state/operator/operator.sqlite",
