@@ -23,6 +23,14 @@ test("identifies binary assets, hidden files, and empty directories", async () =
   expect(await info(`${root}/absent`)).toBeNull();
 });
 
+test("identifies prototype-named assets as own entries", async () => {
+  await Bun.write(`${root}/__proto__`, "file bytes\n");
+  const found = await contents(root, false);
+  expect(found !== null && Object.hasOwn(found, "__proto__")).toBe(true);
+  expect(Object.keys(found ?? {}).toSorted()).toEqual(["/", "__proto__"]);
+  expect(same(Object.fromEntries([["__proto__", "bytes"]]), {})).toBe(false);
+});
+
 test("copy mode rejects links, while check mode follows them and terminates cycles", async () => {
   await Bun.write(`${root}/asset`, "value");
   await symlink(`${root}/asset`, `${root}/link`);
@@ -46,4 +54,7 @@ test("only an exact ledger identity permits an update or retired-name removal", 
   expect(same(null, next)).toBe(false);
   expect(same(next, null)).toBe(false);
   expect(same(next, { ...next, other: "new" })).toBe(false);
+  const inherited = { other: "value" };
+  Object.setPrototypeOf(inherited, { file: "hash" });
+  expect(same({ file: "hash" }, inherited)).toBe(false);
 });

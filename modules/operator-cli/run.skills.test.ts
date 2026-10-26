@@ -103,6 +103,40 @@ test("an unrelated retired role skill blocks installation without adoption or re
   expect(await Bun.file(`${root}/home/.claude/skills/super-agent/SKILL.md`).exists()).toBe(false);
 });
 
+test("a prototype-named file conflicts in copy and check modes without changing either host", async () => {
+  expect((await run(["--claude"])).code).toBe(0);
+  const extra = `${root}/home/.claude/skills/bun/__proto__`;
+  await Bun.write(extra, "personal extra content\n");
+  const ledger = await Bun.file(`${root}/state/operator/owned-skills.json`).text();
+  for (const flags of [
+    ["--opencode", "--claude"],
+    ["--claude", "--check"],
+  ])
+    expect(await run(flags)).toMatchObject({ code: 4, output: { reason: "skill_copy_conflict" } });
+  expect(await Bun.file(extra).text()).toBe("personal extra content\n");
+  expect(await Bun.file(`${root}/config/opencode/skills/bun/SKILL.md`).exists()).toBe(false);
+  expect(await Bun.file(`${root}/state/operator/owned-skills.json`).text()).toBe(ledger);
+});
+
+test("a prototype-named addition preserves a changed old-name skill intact", async () => {
+  const destination = `${root}/home/.claude/skills/operator`;
+  await Bun.write(`${destination}/SKILL.md`, "previous role\n", { createPath: true });
+  const ledger = JSON.stringify({
+    version: 1,
+    entries: { [destination]: { "/": "directory", "SKILL.md": sha256("previous role\n") } },
+  });
+  await Bun.write(`${root}/state/operator/owned-skills.json`, ledger, { createPath: true });
+  await Bun.write(`${destination}/__proto__`, "personal extra content\n");
+  expect(await run(["--claude"])).toMatchObject({
+    code: 4,
+    output: { reason: "skill_copy_conflict" },
+  });
+  expect(await Bun.file(`${destination}/SKILL.md`).text()).toBe("previous role\n");
+  expect(await Bun.file(`${destination}/__proto__`).text()).toBe("personal extra content\n");
+  expect(await Bun.file(`${root}/state/operator/owned-skills.json`).text()).toBe(ledger);
+  expect(await Bun.file(`${root}/home/.claude/skills/super-agent/SKILL.md`).exists()).toBe(false);
+});
+
 test("removes unchanged old-name managed roles through the public CLI only with device proof", async () => {
   const entries: Record<string, Record<string, string>> = {};
   for (const host of [`${root}/config/opencode/skills`, `${root}/home/.claude/skills`]) {

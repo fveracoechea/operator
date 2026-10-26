@@ -36,6 +36,7 @@ A separate SQLite lock serializes participating installers and has a 5000 ms bus
 It is not the workflow database, and installation never creates a project record.
 
 Identities include hidden files, binary supporting assets, and empty directories.
+Prototype-named files such as `__proto__` remain own entries in identities and the ledger.
 Copies are real directories, not links to a cache.
 Content-matching files stay unwritten.
 Retired `operator` and `operative` directories are removed only when this device ledger proves exact unchanged contents.

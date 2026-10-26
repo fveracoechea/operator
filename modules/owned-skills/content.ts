@@ -20,6 +20,7 @@ export async function contents(directory: string, followLinks: boolean): Promise
   const root = await info(directory);
   if (root === null) return null;
   const result: Contents = {};
+  Object.setPrototypeOf(result, null);
   async function visit(current: string, relative: string, ancestors: Set<string>) {
     const entry = await info(current);
     if (entry === null) return;
@@ -50,7 +51,9 @@ export function same(left: Contents | null, right: Contents | null) {
   return left === null || right === null
     ? left === right
     : Object.keys(left).length === Object.keys(right).length &&
-        Object.entries(left).every(([file, hash]) => right[file] === hash);
+        Object.entries(left).every(
+          ([file, hash]) => Object.hasOwn(right, file) && right[file] === hash,
+        );
 }
 
 export function verdict(

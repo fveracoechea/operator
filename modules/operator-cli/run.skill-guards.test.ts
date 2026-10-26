@@ -27,6 +27,22 @@ afterAll(async () => {
 
 test.each([
   {
+    name: "prototype filename identity",
+    file: "owned-skills/content.ts",
+    before: "Object.setPrototypeOf(result, null);",
+    after: "",
+    testFile: "operator-cli/run.skills.test.ts",
+    pattern: "prototype-named",
+  },
+  {
+    name: "prototype filename ledger",
+    file: "owned-skills/install.ts",
+    before: "entries: z.record(z.string(), contentsSchema)",
+    after: "entries: z.record(z.string(), z.record(z.string(), z.string()))",
+    testFile: "owned-skills/install.test.ts",
+    pattern: "the ledger preserves prototype-named assets",
+  },
+  {
     name: "complete identity",
     file: "owned-skills/content.ts",
     before: "Object.keys(left).length === Object.keys(right).length &&",

@@ -56,6 +56,23 @@ test("updates unchanged managed content and removes obsolete supporting files fo
   }
 });
 
+test("the ledger preserves prototype-named assets for later updates and removal", async () => {
+  await Bun.write(`${request.source}/example/__proto__`, "version one\n");
+  expect((await install(request)).reason).toBe("skills_installed");
+  await Bun.write(`${request.source}/example/__proto__`, "version two\n");
+  expect((await install(request)).reason).toBe("skills_installed");
+  for (const host of request.hosts)
+    expect(await Bun.file(`${request.paths.skillHosts[host]}/example/__proto__`).text()).toBe(
+      "version two\n",
+    );
+  await rm(`${request.source}/example/__proto__`);
+  expect((await install(request)).reason).toBe("skills_installed");
+  for (const host of request.hosts)
+    expect(await Bun.file(`${request.paths.skillHosts[host]}/example/__proto__`).exists()).toBe(
+      false,
+    );
+});
+
 test("adopts exact unrelated contents without rewriting them", async () => {
   const destination = `${request.paths.skillHosts.opencode}/example`;
   await cp(`${request.source}/example`, destination, { recursive: true });

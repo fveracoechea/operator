@@ -9,9 +9,17 @@ import { contents, info, same, verdict, writable, type Contents } from "./conten
 export type Paths = ReturnType<typeof OperatorHome.resolve>;
 export type Host = keyof Paths["skillHosts"];
 export type Request = { paths: Paths; hosts: Host[]; check: boolean; source: string };
+// Zod's record parser drops __proto__, but every own filename belongs in the ledger.
+const contentsSchema = z.custom<Contents>(
+  (value) =>
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.values(value).every((entry) => typeof entry === "string"),
+);
 const ledgerSchema = z.strictObject({
   version: z.literal(1),
-  entries: z.record(z.string(), z.record(z.string(), z.string())),
+  entries: z.record(z.string(), contentsSchema),
 });
 type Ledger = z.infer<typeof ledgerSchema>;
 type Copy = {
@@ -51,7 +59,13 @@ async function inspect(request: Request, recorded: Ledger): Promise<{ copies: Co
       const source = path.join(request.source, name);
       const released = retired.includes(name) ? null : await contents(source, true);
       const current = await contents(destination, request.check);
-      let action = verdict(current, released, recorded.entries[destination] ?? null);
+      let action = verdict(
+        current,
+        released,
+        Object.hasOwn(recorded.entries, destination)
+          ? (recorded.entries[destination] ?? null)
+          : null,
+      );
       if (!request.check && !(await copyWritable(destination, current))) action = "conflict";
       copies.push({ name, host, destination, source, released, current, action });
     }
@@ -90,7 +104,7 @@ async function writeFile(file: string, bytes: Uint8Array, mode = 0o600) {
 
 async function removeFiles(copy: Copy, retained: Contents = {}) {
   if (copy.current === null) return;
-  const files = Object.keys(copy.current).filter((file) => retained[file] === undefined);
+  const files = Object.keys(copy.current).filter((file) => !Object.hasOwn(retained, file));
   for (const file of files.filter((file) => !file.endsWith("/")))
     await unlink(path.join(copy.destination, file));
   for (const directory of files
