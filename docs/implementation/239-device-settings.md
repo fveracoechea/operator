@@ -1,8 +1,9 @@
 # Device settings and environment ownership
 
 Issue #239 implements the settings and path portion of ADR-0004.
-It does not implement project registration, the device database, migrations, model discovery, or launch profiles.
-Those remain in their owning tickets.
+Project registration and the initial database are recorded in `240-project-registration.md`.
+Host metadata and launch profiles are recorded in `241-host-profiles.md`.
+Automatic migration upgrades remain #245.
 The settings lock is the retained dedicated SQLite lock, not the future project database.
 No real legacy state is read or changed.
 

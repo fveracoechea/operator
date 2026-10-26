@@ -5,10 +5,17 @@ import { DeviceSettings } from "../device-settings/main.ts";
 import { Projects } from "../projects/main.ts";
 import { fromThrowable } from "unthrown";
 import { z } from "zod";
+import { runProfiles } from "./profiles.ts";
 
 type OperatorPaths = ReturnType<typeof OperatorHome.resolve>;
 
 const settingsExitCodes = {
+  host_unavailable: 3,
+  host_metadata_failed: 1,
+  unsupported_model: 3,
+  unsupported_effort: 3,
+  profile_missing: 3,
+  selection_incomplete: 3,
   invalid_settings: 2,
   invalid_settings_edit: 2,
   settings_io_failed: 1,
@@ -20,7 +27,7 @@ const settingsExitCodes = {
 };
 
 const usage =
-  "Usage: operator --help | --version [--json]\n       operator config show | recover [--json]\n       operator config plan | apply (--set field=value | --unset field)... [--plan id] [--json]\n       operator project register [--repository owner/repository] [--json]\n       operator project show [--json]";
+  "Usage: operator --help | --version [--json]\n       operator config show | recover [--json]\n       operator config plan | apply (--set field=value | --unset field)... [--plan id] [--json]\n       operator host models --host opencode|claude-code [--json]\n       operator config resolve [--role superAgent|workerAgent] [--profile name] [--host host] [--model model] [--effort effort] [--json]\n       operator project register [--repository owner/repository] [--json]\n       operator project show [--json]";
 
 const projectExitCodes = {
   repository_choice_invalid: 2,
@@ -148,7 +155,7 @@ function failure(operation: string, reason: string, detail: string, code: number
 async function runSettings(args: string[], paths: OperatorPaths, json: boolean) {
   const settings = settingsArgs(args);
   if (settings === null) return false;
-  const request = { ...settings, paths };
+  const request = { ...settings, paths, cwd: process.cwd() };
   const result = await (settings.command === "show"
     ? DeviceSettings.show(paths)
     : settings.command === "recover"
@@ -255,6 +262,7 @@ export async function run(args: string[]): Promise<void> {
     return;
   }
 
+  if (await runProfiles(args, paths, json)) return;
   if (await runSettings(args, paths, json)) return;
   if (await runProject(args, paths, json)) return;
 

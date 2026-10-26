@@ -3,6 +3,8 @@ import { fromPromise, Ok, Err } from "unthrown";
 import { z } from "zod";
 import { apply, plan, recover, type ChangeRequest, type SettingsOutcome } from "./change.ts";
 import { isIoFailure, readConfig } from "./storage.ts";
+import { AgentHosts } from "../agent-hosts/main.ts";
+import { selectLaunch, type SelectionRequest } from "./selection.ts";
 
 type OperatorPaths = ReturnType<typeof OperatorHome.resolve>;
 
@@ -19,6 +21,27 @@ function operate(action: () => Promise<SettingsOutcome>) {
 
 /** Device settings never depend on the current checkout. */
 export const DeviceSettings = {
+  resolve(input: SelectionRequest & { paths: OperatorPaths; cwd: string }) {
+    return fromPromise(
+      () => readConfig(input.paths),
+      (cause, defect) =>
+        cause instanceof SyntaxError || cause instanceof z.ZodError || isIoFailure(cause)
+          ? { reason: "invalid_settings" as const, detail: String(cause) }
+          : defect(cause),
+    )
+      .flatMap(({ config }) => {
+        const selected = selectLaunch(config, input);
+        if ("reason" in selected) return Err(selected);
+        return Ok(selected);
+      })
+      .flatMap((selected) =>
+        AgentHosts.resolve({ ...selected, cwd: input.cwd }).map((resolved) => ({
+          ...resolved,
+          role: selected.role,
+          profile: selected.profile,
+        })),
+      );
+  },
   show(paths: OperatorPaths) {
     return operate(async () => ({
       reason: "settings_read",

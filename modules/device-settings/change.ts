@@ -13,19 +13,26 @@ import {
   type Receipt,
 } from "./storage.ts";
 import { decideSettingsWrite } from "./state-machine.ts";
+import { validateSelections } from "./validation.ts";
+import type { AgentHosts } from "../agent-hosts/main.ts";
+import type { SelectionFailure } from "./selection.ts";
 
 type OperatorPaths = ReturnType<typeof OperatorHome.resolve>;
+type HostFailure = Extract<Awaited<ReturnType<typeof AgentHosts.resolve>>, { tag: "Err" }>["error"];
 
-export type SettingsFailure = {
-  reason:
-    | "invalid_settings_edit"
-    | "settings_recovery_required"
-    | "settings_plan_required"
-    | "settings_plan_stale"
-    | "settings_external"
-    | "settings_write_unconfirmed";
-  detail: string;
-};
+export type SettingsFailure =
+  | HostFailure
+  | SelectionFailure
+  | {
+      reason:
+        | "invalid_settings_edit"
+        | "settings_recovery_required"
+        | "settings_plan_required"
+        | "settings_plan_stale"
+        | "settings_external"
+        | "settings_write_unconfirmed";
+      detail: string;
+    };
 export type SettingsOutcome =
   | {
       reason:
@@ -42,6 +49,7 @@ export type ChangeRequest = {
   sets: string[];
   unsets: string[];
   planId?: string;
+  cwd?: string;
 };
 
 const recoveryRequired: SettingsFailure = {
@@ -105,7 +113,9 @@ export async function plan(request: ChangeRequest): Promise<SettingsOutcome> {
   const receipt = await readReceipt(request.paths);
   if (receipt === "unreadable" || receipt?.state === "pending") return recoveryRequired;
   const planned = makePlan(request.paths, await readConfig(request.paths), receipt, parsed.edits);
-  return planned.reason !== undefined ? planned : { reason: "settings_planned", data: planned };
+  if (planned.reason !== undefined) return planned;
+  const invalid = await validateSelections(planned.after, request.cwd ?? process.cwd());
+  return invalid ?? { reason: "settings_planned", data: planned };
 }
 
 async function applyLocked(request: ChangeRequest, edits: Edit[]): Promise<SettingsOutcome> {
@@ -182,6 +192,10 @@ export async function apply(request: ChangeRequest): Promise<SettingsOutcome> {
       detail: "Run operator config plan with these edits, then pass its ID with --plan.",
     };
   if (await externallyManaged(request.paths)) return externallyOwned;
+  const changed = editConfig((await readConfig(request.paths)).config, parsed.edits);
+  if (!changed.success) return { reason: "invalid_settings_edit", detail: changed.error.message };
+  const invalid = await validateSelections(changed.data, request.cwd ?? process.cwd());
+  if (invalid) return invalid;
   return withWriteLock(request.paths, () => applyLocked(request, parsed.edits));
 }
 

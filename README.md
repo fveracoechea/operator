@@ -7,7 +7,7 @@ Personal skills and CLI tools for coordinating coding agents in OpenCode and Cla
 Issue [#234](https://github.com/fveracoechea/operator/issues/234) defines the device-level replacement.
 This branch starts with [#235](https://github.com/fveracoechea/operator/issues/235), which removes the legacy architecture before new workflows land.
 It is not an intermediate release.
-Help, version reporting, device settings, and project registration commands are available.
+Help, version reporting, device settings, launch selection, and project registration commands are available.
 
 Finish old work with the old release before updating to the eventual breaking release.
 This code does not inspect, migrate, repair, or delete legacy Operator state.
@@ -16,7 +16,7 @@ Do not use it to resume an old session.
 The device-level design in `CONTEXT.md` and `docs/adr/` remains planned.
 The base lint policy in ADR-0018 is now enforced.
 Local mutation testing from ADR-0016 is also available for repository development.
-Automatic migration upgrades, launch profiles, personal skill installation, assignments, reviews, and the global Herdr plugin are not implemented here.
+Automatic migration upgrades, personal skill installation, assignments, reviews, and the global Herdr plugin are not implemented here.
 There are no replacement-command placeholders or compatibility aliases.
 
 ## Run the retained CLI
@@ -59,8 +59,10 @@ bun cli.ts config recover --json
 Use the plan ID returned by `config plan` and repeat the same edits for `config apply`.
 `--set` and `--unset` accept `superAgent.host`, `superAgent.model`, `superAgent.reasoningEffort`, and the corresponding `workerAgent` fields.
 Hosts are `opencode` and `claude-code`.
-Effort values are `low`, `medium`, and `high`.
-These commands validate document structure, not host model availability or launch selection, which remain in #241.
+Effort values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`.
+The selected host and model must advertise the requested effort.
+Planning and apply validate every complete selection against current host metadata.
+Incomplete host-only or effort-only settings can be saved before a model is selected.
 An absent document reads as empty role settings and creates no files.
 The first applied edit creates the document with `$schema` set to `./config.schema.json`.
 An applied edit also writes current editor support unless that destination is linked or read-only.
@@ -73,6 +75,51 @@ An unconfirmed write exits with code 5 and requires recovery, not a blind new ed
 Linked or read-only settings remain readable, but edits refuse with instructions to change their external owner, such as Nix or Home Manager.
 Settings commands do not inspect legacy state or change a project checkout.
 See `docs/implementation/239-device-settings.md` for the state diagram and test rules.
+
+## Hosts and start profiles
+
+Read the selected host's available models and efforts before choosing them:
+
+```sh
+operator host models --host opencode --json
+operator host models --host claude-code --json
+operator config plan --set superAgent.host=opencode --set superAgent.model=<advertised-model> --json
+operator config apply --set superAgent.host=opencode --set superAgent.model=<advertised-model> --plan <plan-id> --json
+operator config resolve --role superAgent --json
+operator config resolve --json
+operator config plan --set profiles.investigation.reasoningEffort=high --json
+operator config apply --set profiles.investigation.reasoningEffort=high --plan <plan-id> --json
+operator config resolve --profile investigation --json
+```
+
+Use `bun cli.ts` instead of `operator` from a source checkout.
+Model identifiers in examples are placeholders, not availability claims.
+An unset host or model refuses resolution rather than selecting a fallback.
+The SuperAgent defaults to high effort.
+WorkerAgents inherit the SuperAgent's host and model, with medium effort.
+Worker defaults override those fields individually, then a named profile overrides them, then explicit `config resolve` flags override them.
+The flags are `--host`, `--model`, and `--effort`.
+
+Profile names use a lowercase letter followed by up to 63 lowercase letters, digits, or hyphens.
+`constructor` and `prototype` are reserved.
+Use `profiles.<name>.host`, `.model`, or `.reasoningEffort` with the same protected settings commands.
+Use `--unset profiles.<name>.<field>` to restore inheritance, or `--unset profiles.<name>` to remove the profile.
+Profiles describe launch choices, not a closed list of worker tasks.
+
+OpenCode V2 supplies a directory-scoped model catalog and variant names.
+Claude Code supplies supported models and effort levels through its metadata initialization handshake.
+That handshake sends no prompt or generation request and does not save a conversation.
+Neither metadata path is a readiness probe or proof that a provider request will succeed.
+Missing or malformed metadata and unsupported choices refuse without substitution.
+Claude aliases with an advertised concrete model resolve to that model, and the result retains the requested name.
+`default` and the multi-model `opusplan` mode are not launch selections.
+
+Resolution returns a value and its host command arguments, not a launched worker.
+Later settings edits change later resolutions but cannot change an earlier returned value or a running worker.
+Dispatch and durable release and skill launch snapshots remain #247.
+Operator adds no host permission rules, allow lists, permission modes, or fallback flags.
+Host configuration remains under its external owner's control.
+See `docs/implementation/241-host-profiles.md` for the selection diagram and verification limits.
 
 ## Project registration
 

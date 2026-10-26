@@ -32,8 +32,29 @@ test.each([
   { sets: ["projects.example.host=opencode"], unsets: [] },
   { sets: ["crew.maxActiveAgents=3"], unsets: [] },
   { sets: [], unsets: ["superAgent.host=value"] },
+  { sets: ["profiles.study.model=chosen"], unsets: ["profiles.study"] },
+  { sets: ["profiles.__proto__.model=chosen"], unsets: [] },
+  { sets: ["profiles.constructor.host=opencode"], unsets: [] },
+  { sets: ["profiles.study.permissions=allow"], unsets: [] },
+  { sets: ["profiles.study=chosen"], unsets: [] },
+  { sets: ["profiles.study.model.extra=chosen"], unsets: [] },
 ])("refuses invalid or conflicting edit arguments %j", ({ sets, unsets }) => {
   expect(parseEdits([...sets], [...unsets]).issues?.length).toBeGreaterThan(0);
+});
+
+test("removes one profile field or a complete named profile without changing other profiles", () => {
+  const original = settingsSchema.parse({
+    profiles: { study: { host: "opencode", model: "chosen" }, other: { reasoningEffort: "high" } },
+  });
+  const unset = parseEdits([], ["profiles.study.model"]);
+  const changed = editConfig(original, unset.edits ?? []);
+  expect(changed.success && changed.data.profiles).toEqual({
+    study: { host: "opencode" },
+    other: { reasoningEffort: "high" },
+  });
+  const removed = editConfig(original, [{ path: "profiles.study", value: null }]);
+  expect(removed.success && removed.data.profiles).toEqual({ other: { reasoningEffort: "high" } });
+  expect(original.profiles?.study?.model).toBe("chosen");
 });
 
 test("validates the complete changed settings", () => {

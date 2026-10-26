@@ -27,9 +27,14 @@ const call: JsrClientCall = {
   version,
   files: all.filter((path) => !path.startsWith("node_modules/")).toSorted(),
   installed: (
-    await Array.fromAsync(new Bun.Glob("node_modules/*/package.json").scan({ cwd, dot: true }))
+    await Promise.all(
+      ["node_modules/*/package.json", "node_modules/@*/*/package.json"].map((pattern) =>
+        Array.fromAsync(new Bun.Glob(pattern).scan({ cwd, dot: true })),
+      ),
+    )
   )
-    .map((path) => path.split("/")[1] ?? "")
+    .flat()
+    .map((path) => path.slice("node_modules/".length, -"/package.json".length))
     .toSorted(),
 };
 const calls = Bun.file(`${directory}/calls.jsonl`);

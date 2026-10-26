@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Environment } from "../environment/main.ts";
 // Bun has no recursive copy, symlink, or directory removal API.
-import { cp, mkdir, rm, symlink } from "node:fs/promises";
+import { chmod, cp, mkdir, rm, symlink } from "node:fs/promises";
 import { OperatorRelease } from "./main.ts";
 import { ReleasePublish } from "../release-publish/main.ts";
 import { packageSchema, jsrSchema, releaseSchema, versionSchema } from "./test-schemas.ts";
@@ -301,6 +301,111 @@ test("device settings examples work through installed source and registry comman
     );
     expect(recovered.exitCode).toBe(0);
     expect(JSON.parse(recovered.stdout)).toMatchObject({ data: { state: "complete" } });
+  }
+}, 300_000);
+
+test("both host profiles resolve through installed source and registry commands", async () => {
+  const tools = `${root}/profile-tools`;
+  await Bun.write(
+    `${tools}/opencode`,
+    `#!${process.execPath}
+console.log(JSON.stringify({location:{directory:process.cwd()},data:[{providerID:"test",id:"reasoner",enabled:true,variants:[{id:"medium"},{id:"high"}]}]}));
+`,
+    { createPath: true },
+  );
+  await Bun.write(
+    `${tools}/claude`,
+    `#!${process.execPath}
+for await(const chunk of Bun.stdin.stream().pipeThrough(new TextDecoderStream())) {
+ for(const line of chunk.trim().split("\\n")) {
+  const message=JSON.parse(line);
+  if(message.type === "control_request") console.log(JSON.stringify({type:"control_response",response:{subtype:"success",request_id:message.request_id,response:{models:[{value:"host-model",supportsEffort:true,supportedEffortLevels:["medium","high"]}],commands:[],agents:[]}}}));
+ }
+}
+`,
+    { createPath: true },
+  );
+  for (const tool of ["opencode", "claude"]) await chmod(`${tools}/${tool}`, 0o755);
+  for (const invocation of [
+    {
+      name: "source",
+      cwd: sourceProject,
+      command: [`${sourceProject}/node_modules/.bin/operator`],
+    },
+    {
+      name: "registry",
+      cwd: registryProject,
+      command: [
+        process.execPath,
+        "-e",
+        'const { main } = await import("@fveracoechea/operator/cli"); await main(Bun.argv.slice(1));',
+        "--",
+      ],
+    },
+  ]) {
+    const environment = {
+      XDG_CONFIG_HOME: `${root}/${invocation.name}-profiles-config`,
+      XDG_STATE_HOME: `${root}/${invocation.name}-profiles-state`,
+      PATH: `${tools}:${Environment.read().PATH}`,
+    };
+    const edits = [
+      "--set",
+      "superAgent.host=opencode",
+      "--set",
+      "superAgent.model=test/reasoner",
+      "--set",
+      "profiles.investigation.reasoningEffort=high",
+    ];
+    const planned = await run(
+      [...invocation.command, "config", "plan", ...edits, "--json"],
+      invocation.cwd,
+      environment,
+    );
+    expect(planned.exitCode, planned.stderr).toBe(0);
+    const planId = z
+      .object({ data: z.object({ planId: z.string() }) })
+      .parse(JSON.parse(planned.stdout)).data.planId;
+    expect(
+      (
+        await run(
+          [...invocation.command, "config", "apply", ...edits, "--plan", planId, "--json"],
+          invocation.cwd,
+          environment,
+        )
+      ).exitCode,
+    ).toBe(0);
+    const selected = await run(
+      [...invocation.command, "config", "resolve", "--profile", "investigation", "--json"],
+      invocation.cwd,
+      environment,
+    );
+    expect(selected.exitCode, selected.stderr).toBe(0);
+    expect(JSON.parse(selected.stdout)).toMatchObject({
+      reason: "launch_resolved",
+      data: {
+        model: "test/reasoner",
+        reasoningEffort: "high",
+        command: { tool: "opencode", args: ["mini", "--model", "test/reasoner#high"] },
+      },
+    });
+    const claude = await run(
+      [
+        ...invocation.command,
+        "config",
+        "resolve",
+        "--host",
+        "claude-code",
+        "--model",
+        "host-model",
+        "--json",
+      ],
+      invocation.cwd,
+      environment,
+    );
+    expect(claude.exitCode, claude.stderr).toBe(0);
+    expect(JSON.parse(claude.stdout)).toMatchObject({
+      data: { command: { tool: "claude", args: ["--model", "host-model", "--effort", "medium"] } },
+    });
   }
 }, 300_000);
 

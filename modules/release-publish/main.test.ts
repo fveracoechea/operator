@@ -306,7 +306,9 @@ describe("the publication", () => {
     const manifest = z
       .object({ dependencies: z.record(z.string(), z.string()) })
       .parse(await Bun.file(`${artifactRoot}/package.json`).json());
-    expect(call?.installed).toEqual(Object.keys(manifest.dependencies).toSorted());
+    // Bun may hoist transitive dependencies beside the required direct packages.
+    for (const dependency of Object.keys(manifest.dependencies))
+      expect(call?.installed).toContain(dependency);
     const state = releaseFakeStateSchema.parse(await Bun.file(`${ghDirectory}/state.json`).json());
     expect(state.tags[`v${version}`]).toBe(COMMIT);
     expect(state.releases[`v${version}`]).toContain(`v${version}`);

@@ -78,14 +78,14 @@ test("preserves linked external settings and explains their edit path", async ()
   await symlink(`${root}/external.json`, `${root}/config/operator/config.json`);
   const shown = await run(["config", "show"]);
   expect(shown.code).toBe(0);
-  const planned = await run(["config", "plan", "--set", "workerAgent.model=example"]);
+  const planned = await run(["config", "plan", "--set", "workerAgent.host=opencode"]);
   expect(planned.code).toBe(0);
   const id = z.object({ data: z.object({ planId: z.string() }) }).parse(planned.output).data.planId;
   const applied = await run([
     "config",
     "apply",
     "--set",
-    "workerAgent.model=example",
+    "workerAgent.host=opencode",
     "--plan",
     id,
   ]);

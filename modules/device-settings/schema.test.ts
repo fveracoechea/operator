@@ -1,6 +1,21 @@
 import { expect, test } from "bun:test";
 import { settingsSchema } from "./schema.ts";
 
+test("accepts extensible profiles but no permission policy or unsafe names", () => {
+  expect(
+    settingsSchema.safeParse({
+      profiles: { study: { host: "claude-code", reasoningEffort: "xhigh" } },
+    }).success,
+  ).toBe(true);
+  for (const profiles of [
+    { study: { permissionMode: "bypass" } },
+    { constructor: {} },
+    JSON.parse('{"__proto__":{}}') as unknown,
+  ]) {
+    expect(settingsSchema.safeParse({ profiles }).success).toBe(false);
+  }
+});
+
 test("defaults only absent settings and supports both host defaults", () => {
   expect(settingsSchema.parse({})).toEqual({
     $schema: "./config.schema.json",

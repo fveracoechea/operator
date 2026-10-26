@@ -20,6 +20,12 @@ Only explicit `Projects.register()` can create the device database.
 Project lookup refuses missing state instead of creating tables.
 Complete external tool observations before starting a write transaction.
 See `docs/implementation/240-project-registration.md` in the Operator source for registration tests and compatibility limits.
+`DeviceSettings` owns profile inheritance and protected edits.
+`AgentHosts` owns current host metadata and launch command arguments.
+Use `DeviceSettings.resolve()` for a new launch, and retain its returned value for that launch.
+Settings edits do not update existing launch values.
+Host metadata checks send no prompts and add no permission policy.
+See `docs/implementation/241-host-profiles.md` in the Operator source before changing host selection or profile inheritance.
 
 In a full-stack app, a module reads a server value inside the method that needs it, never at load time:
 

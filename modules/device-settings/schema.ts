@@ -1,13 +1,28 @@
 import { z } from "zod";
 
-const selection = z.strictObject({
+export const selectionSchema = z.strictObject({
   host: z.enum(["opencode", "claude-code"]).optional(),
   model: z.string().trim().min(1).optional(),
-  reasoningEffort: z.enum(["low", "medium", "high"]).optional(),
+  reasoningEffort: z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"]).optional(),
 });
+export const profileNameSchema = z
+  .string()
+  .regex(/^[a-z][a-z0-9-]{0,63}$/)
+  .refine((name) => name !== "constructor" && name !== "prototype");
 export const settingsSchema = z.strictObject({
   $schema: z.literal("./config.schema.json").default("./config.schema.json"),
-  superAgent: selection.default({}),
-  workerAgent: selection.default({}),
+  superAgent: selectionSchema.default({}),
+  workerAgent: selectionSchema.default({}),
+  profiles: z
+    .preprocess(
+      (input, context) => {
+        // Zod records omit __proto__, so reject it before the record parser can discard it.
+        if (input !== null && typeof input === "object" && Object.hasOwn(input, "__proto__"))
+          context.addIssue({ code: "custom", message: "Unsupported profile name: __proto__." });
+        return input;
+      },
+      z.record(profileNameSchema, selectionSchema),
+    )
+    .optional(),
 });
 export type DeviceConfig = z.infer<typeof settingsSchema>;
