@@ -77,4 +77,4 @@ Use `TMPDIR=/tmp/opencode` and prepend `/tmp/opencode/operator-bun142/bun-linux-
 Final checks are `bun run quality` and `bun run test --rerun-each=3`, then pushed-head CI.
 Exact outcomes are recorded on #242 and PR #222.
 Final changed-line mutation cleanup remains #260.
-Static readiness remains #243, upstream installation remains #244, and dispatch remains #247.
+Static readiness and upstream installation remain #243, and dispatch remains #247.
