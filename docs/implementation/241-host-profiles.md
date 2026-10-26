@@ -32,6 +32,8 @@ An absent host or model refuses rather than guessing a host default.
 Profiles are optional names, not worker roles or a fixed task list.
 Removing one field restores inheritance, while removing the whole profile makes a request for that name refuse.
 The schema rejects permission fields and prototype-related names.
+Effort fields accept non-empty names, including custom OpenCode variants.
+Current host metadata, not a fixed schema enum, decides which names are supported.
 
 Settings plan and apply validate all complete default and profile selections.
 Host-only and effort-only partial settings can be stored before configuration is complete.
@@ -77,6 +79,7 @@ They cover both native command formats, inheritance, named profiles, explicit ov
 A scenario uses real Git and project registration with SQLite and proves that profile edits leave the workflow database unchanged.
 Installed source and registry-artifact tests exercise both hosts through controlled executables.
 Direct beside-tests cover catalog parsing, selection, validation, edits, schema, and CLI parsing.
+Regression tests preserve unexpected programming defects as unthrown Defect results and permit advertised custom efforts in both defaults and profiles.
 Deliberate guard breaks run in a disposable checkout copy, not in the implementation checkout.
 
 Live OpenCode metadata confirmed that the bracketed location query selects the requested directory.

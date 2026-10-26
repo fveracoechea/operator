@@ -1,4 +1,5 @@
 import { Err, Ok, fromPromise, type Result } from "unthrown";
+import { z } from "zod";
 import { discoverClaude, discoverOpenCode, type Host, type HostFailure } from "./catalog.ts";
 
 type LaunchSelection = { host: Host; model: string; reasoningEffort: string };
@@ -8,7 +9,13 @@ type ResolvedLaunch = LaunchSelection & {
 };
 
 function qualify<T>(cause: unknown, defect: (cause: unknown) => T) {
-  if (cause instanceof Error)
+  if (
+    cause instanceof SyntaxError ||
+    cause instanceof z.ZodError ||
+    (cause instanceof Error &&
+      "code" in cause &&
+      ["ENOENT", "EACCES", "EPERM", "EIO", "ENOTDIR"].includes(String(cause.code)))
+  )
     return {
       reason: "host_metadata_failed" as const,
       detail:

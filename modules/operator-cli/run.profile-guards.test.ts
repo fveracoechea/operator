@@ -19,6 +19,22 @@ afterAll(async () => {
 
 test.each([
   {
+    name: "unexpected defects",
+    file: "agent-hosts/main.ts",
+    before: "return defect(cause);",
+    after: 'return {reason:"host_metadata_failed" as const,detail:"swallowed"};',
+    testFile: "agent-hosts/main.test.ts",
+    pattern: "preserves unexpected host-boundary",
+  },
+  {
+    name: "advertised custom efforts",
+    file: "device-settings/schema.ts",
+    before: "reasoningEffort: z.string().trim().min(1).optional()",
+    after: 'reasoningEffort: z.enum(["low","medium","high"]).optional()',
+    testFile: "operator-cli/run.profiles.test.ts",
+    pattern: "stores advertised custom",
+  },
+  {
     name: "explicit model",
     file: "agent-hosts/main.ts",
     before: "candidate.model === input.model || candidate.resolvedModel === input.model",

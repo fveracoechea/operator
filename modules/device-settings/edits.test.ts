@@ -63,8 +63,7 @@ test("validates the complete changed settings", () => {
       .success,
   ).toBe(false);
   expect(
-    editConfig(settingsSchema.parse({}), [
-      { path: "workerAgent.reasoningEffort", value: "extreme" },
-    ]).success,
+    editConfig(settingsSchema.parse({}), [{ path: "workerAgent.reasoningEffort", value: " " }])
+      .success,
   ).toBe(false);
 });

@@ -59,8 +59,8 @@ bun cli.ts config recover --json
 Use the plan ID returned by `config plan` and repeat the same edits for `config apply`.
 `--set` and `--unset` accept `superAgent.host`, `superAgent.model`, `superAgent.reasoningEffort`, and the corresponding `workerAgent` fields.
 Hosts are `opencode` and `claude-code`.
-Effort values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`.
-The selected host and model must advertise the requested effort.
+Effort names come from the selected host and model's current metadata.
+This includes custom OpenCode variant names, rather than only a fixed effort list.
 Planning and apply validate every complete selection against current host metadata.
 Incomplete host-only or effort-only settings can be saved before a model is selected.
 An absent document reads as empty role settings and creates no files.

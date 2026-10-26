@@ -58,14 +58,47 @@ test("edits an extensible named profile through protected config commands", asyn
   });
 });
 
-async function openCode() {
+async function openCode(efforts = ["low", "medium", "high"]) {
   await Bun.write(
     `${root}/bin/opencode`,
-    `#!${process.execPath}\nconst args=process.argv.slice(2);\nawait Bun.write(${JSON.stringify(`${root}/calls.json`)}, JSON.stringify(args));\nconsole.log(JSON.stringify({location:{directory:${JSON.stringify(root)}},data:[{providerID:"test",id:"reasoner",enabled:true,variants:[{id:"low"},{id:"medium"},{id:"high"}]}]}));\n`,
+    `#!${process.execPath}\nconst args=process.argv.slice(2);\nawait Bun.write(${JSON.stringify(`${root}/calls.json`)}, JSON.stringify(args));\nconsole.log(JSON.stringify({location:{directory:${JSON.stringify(root)}},data:[{providerID:"test",id:"reasoner",enabled:true,variants:${JSON.stringify(efforts.map((id) => ({ id })))} }]}));\n`,
     { createPath: true },
   );
   await chmod(`${root}/bin/opencode`, 0o755);
 }
+
+test("stores advertised custom OpenCode effort in device defaults and named profiles", async () => {
+  await openCode(["medium", "high", "deep"]);
+  await Bun.write(
+    `${root}/config/operator/config.json`,
+    JSON.stringify({ superAgent: { host: "opencode", model: "test/reasoner" } }),
+    { createPath: true },
+  );
+  const edits = [
+    "--set",
+    "superAgent.reasoningEffort=deep",
+    "--set",
+    "profiles.investigation.reasoningEffort=deep",
+  ];
+  const planned = await run(["config", "plan", ...edits]);
+  expect(planned.code).toBe(0);
+  const planId = z.object({ data: z.object({ planId: z.string() }) }).parse(planned.output)
+    .data.planId;
+  expect((await run(["config", "apply", ...edits, "--plan", planId])).code).toBe(0);
+  for (const flags of [
+    ["--role", "superAgent"],
+    ["--profile", "investigation"],
+  ]) {
+    const resolved = await run(["config", "resolve", ...flags]);
+    expect(resolved.code).toBe(0);
+    expect(resolved.output).toMatchObject({
+      data: {
+        reasoningEffort: "deep",
+        command: { args: ["mini", "--model", "test/reasoner#deep"] },
+      },
+    });
+  }
+});
 
 test("resolves inherited worker and SuperAgent effort from live host metadata without launching", async () => {
   await openCode();
@@ -146,6 +179,17 @@ for await (const chunk of Bun.stdin.stream().pipeThrough(new TextDecoderStream()
   expect(
     calls.args.some((arg) => /permission|allowed.?tools|disallowed.?tools|fallback/i.test(arg)),
   ).toBe(false);
+});
+
+test("reports a Claude Code metadata process failure as an operational refusal", async () => {
+  await Bun.write(`${root}/bin/claude`, `#!${process.execPath}\nprocess.exit(1);\n`, {
+    createPath: true,
+  });
+  await chmod(`${root}/bin/claude`, 0o755);
+  const result = await run(["host", "models", "--host", "claude-code"]);
+  expect(result.code).toBe(1);
+  expect(result.output).toMatchObject({ reason: "host_metadata_failed" });
+  expect(await Bun.file(`${root}/state/operator/operator.sqlite`).exists()).toBe(false);
 });
 
 test("refuses unsupported explicit edits without settings, receipts, database, or host launches", async () => {

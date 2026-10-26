@@ -95,6 +95,20 @@ export async function discoverClaude(cwd: string): Promise<Model[] | HostFailure
         resolvedModel: model.resolvedModel,
         efforts: model.supportsEffort === true ? (model.supportedEffortLevels ?? []) : [],
       }));
+  } catch (cause) {
+    if (
+      cause instanceof Error &&
+      (cause.name === "AbortError" ||
+        /^Claude Code process (?:exited with code \d+|terminated by signal SIG[A-Z0-9]+)/.test(
+          cause.message,
+        ))
+    )
+      return {
+        reason: "host_metadata_failed",
+        detail: "Claude Code metadata initialization failed. No selection was substituted.",
+      };
+    // oxlint-disable-next-line unthrown/no-throw -- Only known SDK termination failures are modeled. Preserve unexpected defects for the host boundary.
+    throw cause;
   } finally {
     clearTimeout(timer);
     controller.abort();

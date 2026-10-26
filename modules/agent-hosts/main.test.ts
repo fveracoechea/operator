@@ -1,9 +1,37 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { OkAsync, ErrAsync } from "unthrown";
 import { AgentHosts } from "./main.ts";
+import { ToolInvocation } from "../tool-invocation/main.ts";
 
 afterEach(() => {
   mock.restore();
+});
+
+test("preserves unexpected host-boundary defects instead of reclassifying them as metadata refusals", async () => {
+  const cause = new TypeError("unexpected implementation defect");
+  spyOn(ToolInvocation, "run").mockRejectedValue(cause);
+  expect(await AgentHosts.models({ host: "opencode", cwd: "/isolated" })).toMatchObject({
+    tag: "Defect",
+    cause,
+  });
+});
+
+test("classifies malformed metadata and known spawn failures without swallowing other Errors", async () => {
+  const run = spyOn(ToolInvocation, "run");
+  run.mockRejectedValue(Object.assign(new Error("missing executable"), { code: "ENOENT" }));
+  expect(await AgentHosts.models({ host: "opencode", cwd: "/isolated" })).toMatchObject({
+    tag: "Err",
+    error: { reason: "host_metadata_failed" },
+  });
+  run.mockResolvedValue({ status: "completed", exitCode: 0, stdout: "{", stderr: "" });
+  expect(await AgentHosts.models({ host: "opencode", cwd: "/isolated" })).toMatchObject({
+    tag: "Err",
+    error: { reason: "host_metadata_failed" },
+  });
+  run.mockRejectedValue(new Error("unexpected logic failure"));
+  expect(await AgentHosts.models({ host: "opencode", cwd: "/isolated" })).toMatchObject({
+    tag: "Defect",
+  });
 });
 
 test("constructs only model and effort command arguments for both hosts", async () => {

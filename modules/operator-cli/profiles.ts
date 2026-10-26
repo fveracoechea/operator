@@ -2,6 +2,7 @@ import { AgentHosts } from "../agent-hosts/main.ts";
 import { DeviceSettings } from "../device-settings/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { z } from "zod";
+import { failure } from "./output.ts";
 
 const flagsSchema = z.strictObject({
   host: z.enum(["opencode", "claude-code"]).optional(),
@@ -84,17 +85,13 @@ export async function runProfiles(
   } else {
     const reason = result.tag === "Err" ? result.error.reason : "host_defect";
     const detail = result.tag === "Err" ? result.error.detail : String(result.cause);
-    console.log(
-      JSON.stringify({
-        schemaVersion: 1,
-        operation,
-        outcome: "refused",
-        reason,
-        blockers: [{ reason, detail }],
-      }),
+    failure(
+      operation,
+      reason,
+      detail,
+      ["host_defect", "host_metadata_failed"].includes(reason) ? 1 : 3,
+      json,
     );
-    console.error(`operator: ${detail}`);
-    process.exitCode = ["host_defect", "host_metadata_failed"].includes(reason) ? 1 : 3;
   }
   return true;
 }

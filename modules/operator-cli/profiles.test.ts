@@ -53,3 +53,23 @@ test("formats metadata refusals and owns their exit status", async () => {
     reason: "host_metadata_failed",
   });
 });
+
+test("keeps non-JSON metadata refusal output on stderr", async () => {
+  spyOn(AgentHosts, "models").mockReturnValue(
+    ErrAsync({ reason: "host_unavailable", detail: "host missing" } as const),
+  );
+  const log = spyOn(console, "log").mockImplementation(() => {});
+  const error = spyOn(console, "error").mockImplementation(() => {});
+  const paths = OperatorHome.resolve(
+    Environment.parse({
+      HOME: "/isolated",
+      XDG_CONFIG_HOME: "/isolated/config",
+      XDG_STATE_HOME: "/isolated/state",
+    }),
+  );
+  expect(await runProfiles(["host", "models", "--host", "opencode"], paths, false)).toBe(true);
+  expect(log).not.toHaveBeenCalled();
+  expect(error).toHaveBeenCalledWith("operator: host missing");
+  expect(process.exitCode).toBe(3);
+  process.exitCode = 0;
+});

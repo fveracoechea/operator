@@ -3,7 +3,7 @@ import { z } from "zod";
 export const selectionSchema = z.strictObject({
   host: z.enum(["opencode", "claude-code"]).optional(),
   model: z.string().trim().min(1).optional(),
-  reasoningEffort: z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"]).optional(),
+  reasoningEffort: z.string().trim().min(1).optional(),
 });
 export const profileNameSchema = z
   .string()

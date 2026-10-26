@@ -6,6 +6,7 @@ import { Projects } from "../projects/main.ts";
 import { fromThrowable } from "unthrown";
 import { z } from "zod";
 import { runProfiles } from "./profiles.ts";
+import { failure } from "./output.ts";
 
 type OperatorPaths = ReturnType<typeof OperatorHome.resolve>;
 
@@ -135,21 +136,6 @@ function settingsFlags(flags: string[]) {
     else return null;
   }
   return { sets, unsets, planId };
-}
-
-function failure(operation: string, reason: string, detail: string, code: number, json: boolean) {
-  if (json)
-    console.log(
-      JSON.stringify({
-        schemaVersion: 1,
-        operation,
-        outcome: code === 2 ? "invalid" : "refused",
-        reason,
-        blockers: [{ reason, detail }],
-      }),
-    );
-  console.error(`operator: ${detail}`);
-  process.exitCode = code;
 }
 
 async function runSettings(args: string[], paths: OperatorPaths, json: boolean) {
