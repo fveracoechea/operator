@@ -43,6 +43,8 @@ export const OperatorHome = {
     return {
       configRoot,
       stateRoot,
+      database: path.join(stateRoot, "operator.sqlite"),
+      projects: path.join(stateRoot, "projects"),
       config: path.join(configRoot, "config.json"),
       schema: path.join(configRoot, "config.schema.json"),
       configState: path.join(stateRoot, "config"),
@@ -51,5 +53,11 @@ export const OperatorHome = {
       writeLock: path.join(stateRoot, "config/write.sqlite"),
       configTemporary: path.join(configRoot, "config.json.tmp"),
     };
+  },
+  registrationDatabase(paths: { stateRoot: string }, nonce: string) {
+    return path.join(paths.stateRoot, `.registration-${nonce}.sqlite`);
+  },
+  projectDirectory(paths: { projects: string }, repository: string) {
+    return path.join(paths.projects, repository);
   },
 };

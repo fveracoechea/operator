@@ -303,3 +303,110 @@ test("device settings examples work through installed source and registry comman
     expect(JSON.parse(recovered.stdout)).toMatchObject({ data: { state: "complete" } });
   }
 }, 300_000);
+
+test("project registration uses installed migrations and ignores unrelated global lock changes", async () => {
+  const invocations = [
+    {
+      name: "source",
+      cwd: sourceProject,
+      command: [`${sourceProject}/node_modules/.bin/operator`],
+    },
+    {
+      name: "registry",
+      cwd: registryProject,
+      command: [
+        process.execPath,
+        "-e",
+        'const { main } = await import("@fveracoechea/operator/cli"); await main(Bun.argv.slice(1));',
+        "--",
+      ],
+    },
+  ];
+  for (const invocation of invocations) {
+    expect((await run(["git", "init", "-q"], invocation.cwd)).exitCode).toBe(0);
+    expect(
+      (
+        await run(
+          ["git", "remote", "add", "identity", "https://github.com/Example/Installed.git"],
+          invocation.cwd,
+        )
+      ).exitCode,
+    ).toBe(0);
+    const isolated = { XDG_STATE_HOME: `${root}/${invocation.name}-registration` };
+    const before = await run(
+      [...invocation.command, "--version", "--json"],
+      invocation.cwd,
+      isolated,
+    );
+    const registered = await run(
+      [...invocation.command, "project", "register", "--json"],
+      invocation.cwd,
+      isolated,
+    );
+    expect(registered.stderr).toBe("");
+    expect(registered.exitCode).toBe(0);
+    expect(JSON.parse(registered.stdout)).toMatchObject({
+      reason: "project_registered",
+      data: { repository: "example/installed" },
+    });
+    await Bun.write(
+      `${root}/home/.bun/install/global/bun.lock`,
+      "unrelated global package install\n",
+      { createPath: true },
+    );
+    const shown = await run(
+      [...invocation.command, "project", "show", "--json"],
+      invocation.cwd,
+      isolated,
+    );
+    expect(shown.exitCode).toBe(0);
+    expect(JSON.parse(shown.stdout)).toMatchObject({
+      reason: "project_resolved",
+      data: { repository: "example/installed" },
+    });
+    const after = await run(
+      [...invocation.command, "--version", "--json"],
+      invocation.cwd,
+      isolated,
+    );
+    expect(after.stdout).toBe(before.stdout);
+    expect(await Bun.file(`${invocation.cwd}/.operator/config.json`).exists()).toBe(false);
+  }
+}, 300_000);
+
+test("a failed shipped migration cannot publish a partial first database", async () => {
+  const damaged = `${root}/failed-registration-artifact`;
+  await cp(artifactRoot, damaged, { recursive: true });
+  await symlink(`${sourceRoot}/node_modules`, `${damaged}/node_modules`);
+  const migration = `${damaged}/modules/device-state/migrations/0000_register_projects.sql`;
+  await Bun.write(
+    migration,
+    `${await Bun.file(migration).text()}\n--> statement-breakpoint\nSELECT * FROM deliberately_missing_table;\n`,
+  );
+  const checkout = `${root}/failed-registration-checkout`;
+  await mkdir(checkout);
+  expect((await run(["git", "init", "-q"], checkout)).exitCode).toBe(0);
+  expect(
+    (
+      await run(
+        ["git", "remote", "add", "identity", "https://github.com/example/failed.git"],
+        checkout,
+      )
+    ).exitCode,
+  ).toBe(0);
+  const state = `${root}/failed-registration-state`;
+  const result = await run(
+    [process.execPath, `${damaged}/cli.js`, "project", "register", "--json"],
+    checkout,
+    { XDG_STATE_HOME: state },
+  );
+  expect(result.exitCode).toBe(1);
+  expect(JSON.parse(result.stdout)).toMatchObject({ reason: "project_defect" });
+  expect(await Bun.file(`${state}/operator/operator.sqlite`).exists()).toBe(false);
+  expect(
+    await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: `${state}/operator`, dot: true })),
+  ).toEqual([]);
+  expect(
+    (await run(["git", "status", "--porcelain=v1", "--untracked-files=all"], checkout)).stdout,
+  ).toBe("");
+}, 300_000);

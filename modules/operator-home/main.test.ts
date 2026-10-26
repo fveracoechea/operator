@@ -31,6 +31,14 @@ test("owns separate XDG settings, receipts, and lock paths", () => {
   expect(paths.schema).toBe(`${root}/config/operator/config.schema.json`);
   expect(paths.receipt).toBe(`${root}/state/operator/config/apply.json`);
   expect(paths.writeLock).toBe(`${root}/state/operator/config/write.sqlite`);
+  expect(paths.database).toBe(`${root}/state/operator/operator.sqlite`);
+  expect(paths.projects).toBe(`${root}/state/operator/projects`);
+  expect(OperatorHome.registrationDatabase(paths, "test-nonce")).toBe(
+    `${root}/state/operator/.registration-test-nonce.sqlite`,
+  );
+  expect(OperatorHome.projectDirectory(paths, "owner/repo")).toBe(
+    `${root}/state/operator/projects/owner/repo`,
+  );
 });
 
 test("refuses the real default roots, descendants, and aliases without opening state", async () => {

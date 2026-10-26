@@ -7,7 +7,7 @@ Personal skills and CLI tools for coordinating coding agents in OpenCode and Cla
 Issue [#234](https://github.com/fveracoechea/operator/issues/234) defines the device-level replacement.
 This branch starts with [#235](https://github.com/fveracoechea/operator/issues/235), which removes the legacy architecture before new workflows land.
 It is not an intermediate release.
-Help, version reporting, and device settings commands are available.
+Help, version reporting, device settings, and project registration commands are available.
 
 Finish old work with the old release before updating to the eventual breaking release.
 This code does not inspect, migrate, repair, or delete legacy Operator state.
@@ -16,7 +16,7 @@ Do not use it to resume an old session.
 The device-level design in `CONTEXT.md` and `docs/adr/` remains planned.
 The base lint policy in ADR-0018 is now enforced.
 Local mutation testing from ADR-0016 is also available for repository development.
-Registration, migrations, launch profiles, personal skill installation, assignments, reviews, and the global Herdr plugin are not implemented here.
+Automatic migration upgrades, launch profiles, personal skill installation, assignments, reviews, and the global Herdr plugin are not implemented here.
 There are no replacement-command placeholders or compatibility aliases.
 
 ## Run the retained CLI
@@ -73,6 +73,33 @@ An unconfirmed write exits with code 5 and requires recovery, not a blind new ed
 Linked or read-only settings remain readable, but edits refuse with instructions to change their external owner, such as Nix or Home Manager.
 Settings commands do not inspect legacy state or change a project checkout.
 See `docs/implementation/239-device-settings.md` for the state diagram and test rules.
+
+## Project registration
+
+Run from the main checkout or one of its subdirectories:
+
+```sh
+operator project register --json
+operator project register --repository owner/repository --json
+operator project show --json
+```
+
+For a source checkout, use `bun cli.ts` in place of `operator`.
+Registration records one lowercase GitHub identity and real controlling-checkout path.
+Several distinct GitHub remote identities require an explicit matching `--repository` choice.
+Remote names have no special authority.
+Repeating registration from the same controller returns the original record.
+An alternate clone refuses and names the controller.
+Bare repositories, linked controlling worktrees, and legacy `.operator` entries refuse without modification.
+
+Explicit registration atomically creates `$XDG_STATE_HOME/operator/operator.sqlite` when needed.
+It uses the same home fallback as settings state and creates the project's directory in device state.
+It changes no checkout files.
+`project show` resolves the current controller without creating missing state.
+Existing database history must match the running installation's shipped Drizzle migrations.
+Damaged or incompatible state is not repaired or replaced.
+Automatic upgrades remain #245, and listing, move, and removal remain #246.
+See `docs/implementation/240-project-registration.md` for the state diagram, refusals, and test rules.
 
 ## Retained code and checks
 

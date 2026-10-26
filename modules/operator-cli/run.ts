@@ -2,6 +2,7 @@ import { OperatorRelease } from "../operator-release/main.ts";
 import { Environment } from "../environment/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { DeviceSettings } from "../device-settings/main.ts";
+import { Projects } from "../projects/main.ts";
 import { fromThrowable } from "unthrown";
 import { z } from "zod";
 
@@ -19,7 +20,79 @@ const settingsExitCodes = {
 };
 
 const usage =
-  "Usage: operator --help | --version [--json]\n       operator config show | recover [--json]\n       operator config plan | apply (--set field=value | --unset field)... [--plan id] [--json]";
+  "Usage: operator --help | --version [--json]\n       operator config show | recover [--json]\n       operator config plan | apply (--set field=value | --unset field)... [--plan id] [--json]\n       operator project register [--repository owner/repository] [--json]\n       operator project show [--json]";
+
+const projectExitCodes = {
+  repository_choice_invalid: 2,
+  repository_choice_required: 3,
+  github_remote_missing: 3,
+  git_unavailable: 3,
+  git_checkout_invalid: 3,
+  bare_repository: 3,
+  linked_checkout: 3,
+  legacy_project_state: 3,
+  state_missing: 3,
+  state_busy: 1,
+  state_io_failed: 1,
+  state_corrupt: 3,
+  state_incompatible: 3,
+  controller_mismatch: 4,
+  controller_identity_mismatch: 4,
+  project_not_registered: 3,
+  project_io_failed: 1,
+};
+
+function projectArgs(args: string[]) {
+  const [group, command, ...flags] = args;
+  if (group !== "project" || (command !== "register" && command !== "show")) return null;
+  let repository: string | undefined;
+  let json = false;
+  for (let index = 0; index < flags.length; index++) {
+    const flag = flags[index];
+    if (flag === "--json" && !json) json = true;
+    else if (flag === "--repository" && command === "register" && repository === undefined) {
+      repository = flags[++index];
+      if (repository === undefined || repository.startsWith("--")) return null;
+    } else return null;
+  }
+  return { command, repository };
+}
+
+async function runProject(args: string[], paths: OperatorPaths, json: boolean) {
+  const project = projectArgs(args);
+  if (project === null) return false;
+  const input = { paths, cwd: process.cwd(), repository: project.repository };
+  const result = await (project.command === "register"
+    ? Projects.register(input)
+    : Projects.current(input));
+  const operation = `project_${project.command}`;
+  if (result.tag === "Ok") {
+    console.log(
+      JSON.stringify(
+        {
+          schemaVersion: 1,
+          operation,
+          outcome: "completed",
+          reason: result.value.reason,
+          blockers: [],
+          data: result.value.data,
+        },
+        null,
+        json ? undefined : 2,
+      ),
+    );
+    process.exitCode = 0;
+  } else if (result.tag === "Err")
+    failure(
+      operation,
+      result.error.reason,
+      result.error.detail,
+      projectExitCodes[result.error.reason],
+      json,
+    );
+  else failure(operation, "project_defect", String(result.cause), 1, json);
+  return true;
+}
 
 function settingsArgs(args: string[]) {
   const [group, command, ...flags] = args;
@@ -131,6 +204,13 @@ function startupPaths(json: boolean) {
   return startup.value;
 }
 
+function versionArgs(args: string[], json: boolean) {
+  return (
+    (args.length === 1 && args[0] === "--version") ||
+    (args.length === 2 && json && args.includes("--version"))
+  );
+}
+
 export async function run(args: string[]): Promise<void> {
   const json = args.includes("--json");
   const paths = startupPaths(json);
@@ -158,10 +238,7 @@ export async function run(args: string[]): Promise<void> {
     process.exitCode = 0;
     return;
   }
-  if (
-    (args.length === 1 && args[0] === "--version") ||
-    (args.length === 2 && json && args.includes("--version"))
-  ) {
+  if (versionArgs(args, json)) {
     console.log(
       json
         ? JSON.stringify({
@@ -179,6 +256,7 @@ export async function run(args: string[]): Promise<void> {
   }
 
   if (await runSettings(args, paths, json)) return;
+  if (await runProject(args, paths, json)) return;
 
   if (json) {
     console.log(

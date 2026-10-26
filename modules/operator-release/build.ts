@@ -223,6 +223,14 @@ export async function buildArtifact(request: {
     }
   }
 
+  for (const file of await scanFiles(`${sourceRoot}/modules/device-state/migrations`)) {
+    await Bun.write(
+      `${artifactRoot}/modules/device-state/migrations/${file}`,
+      Bun.file(`${sourceRoot}/modules/device-state/migrations/${file}`),
+      { createPath: true },
+    );
+  }
+
   await Bun.write(`${artifactRoot}/README.md`, Bun.file(`${sourceRoot}/${README_SOURCE}`));
   await Bun.write(`${artifactRoot}/package.json`, packageManifest(source));
   await Bun.write(`${artifactRoot}/jsr.json`, jsrManifest(source));

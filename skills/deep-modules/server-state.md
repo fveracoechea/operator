@@ -15,6 +15,11 @@ Tests have no general exemption.
 Supply isolated `HOME`, `XDG_CONFIG_HOME`, and `XDG_STATE_HOME` values to CLI children.
 `OperatorHome.resolve()` owns Operator paths and refuses real default settings or state roots in test mode, including aliases and descendants.
 The preload requires test mode, and tests do not change the parent environment.
+`DeviceState` owns SQLite connections, fixed Drizzle history, and transactions.
+Only explicit `Projects.register()` can create the device database.
+Project lookup refuses missing state instead of creating tables.
+Complete external tool observations before starting a write transaction.
+See `docs/implementation/240-project-registration.md` in the Operator source for registration tests and compatibility limits.
 
 In a full-stack app, a module reads a server value inside the method that needs it, never at load time:
 

@@ -21,6 +21,14 @@ test("build follows runtime imports and excludes removed protocols and test fixt
   expect(result.status).toBe("built");
   const files = await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root }));
   expect(files).toContain("modules/operator-release/manifest.js");
+  expect(
+    await Bun.file(`${root}/modules/device-state/migrations/0000_register_projects.sql`).text(),
+  ).toBe(
+    await Bun.file(
+      `${sourceRoot}/modules/device-state/migrations/0000_register_projects.sql`,
+    ).text(),
+  );
+  expect(files).toContain("modules/device-state/migrations/meta/_journal.json");
   expect(files).not.toContain("modules/release-publish/main.js");
   expect(
     files.some((file) => /crew-state|project-setup|release-install|\.test\.|fake-/.test(file)),

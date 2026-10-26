@@ -44,5 +44,7 @@ export const REQUIRED_PARTS = [
   "release.json",
   "modules/operator-cli/main.js",
   "modules/operator-cli/main.d.ts",
+  "modules/device-state/migrations/0000_register_projects.sql",
+  "modules/device-state/migrations/meta/_journal.json",
   "skills/deep-modules/SKILL.md",
 ];
