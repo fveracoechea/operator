@@ -86,6 +86,7 @@ A controlled Git executable acquires the database write lock at each observation
 Refusals check unchanged database bytes, checkout contents, or absent state as applicable.
 Direct beside-tests cover each private logic file, module interface, path owner, transaction rollback, and snapshot reads.
 Installed source and registry-artifact commands prove that the fixed migrations ship and that unrelated global Bun lock changes do not change release identity.
+An installed copy under a directory with spaces and a hash character verifies decoded filesystem paths for release metadata and migrations.
 Nix delivery remains #257 and installed release acceptance remains #259.
 
 Use `TMPDIR=/tmp/opencode` in this environment.

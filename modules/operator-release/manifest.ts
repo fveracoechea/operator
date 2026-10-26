@@ -13,7 +13,7 @@ export type ReleaseManifest = {
 };
 
 // The running package sits beside this module, never beside the caller's working directory.
-const packageRoot = new URL("../../", import.meta.url).pathname.replace(/\/$/, "");
+const packageRoot = Bun.fileURLToPath(new URL("../../", import.meta.url)).replace(/\/$/, "");
 
 const record = z.record(z.string(), z.unknown());
 

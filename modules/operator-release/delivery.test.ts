@@ -410,3 +410,47 @@ test("a failed shipped migration cannot publish a partial first database", async
     (await run(["git", "status", "--porcelain=v1", "--untracked-files=all"], checkout)).stdout,
   ).toBe("");
 }, 300_000);
+
+test("an installed CLI finds its release and migrations under escaped directory names", async () => {
+  const installed = `${root}/installed copy with spaces #release`;
+  await cp(`${registryProject}/node_modules/@fveracoechea/operator`, installed, {
+    recursive: true,
+  });
+  await symlink(`${registryProject}/node_modules`, `${installed}/node_modules`);
+  const checkout = `${root}/escaped-install-checkout`;
+  await mkdir(checkout);
+  expect((await run(["git", "init", "-q"], checkout)).exitCode).toBe(0);
+  expect(
+    (
+      await run(
+        ["git", "remote", "add", "identity", "https://github.com/example/escaped.git"],
+        checkout,
+      )
+    ).exitCode,
+  ).toBe(0);
+  const isolated = { XDG_STATE_HOME: `${root}/escaped-install-state` };
+  const result = await run(
+    [process.execPath, `${installed}/cli.js`, "project", "register", "--json"],
+    checkout,
+    isolated,
+  );
+  expect(result.stderr).toBe("");
+  expect(result.exitCode).toBe(0);
+  expect(JSON.parse(result.stdout)).toMatchObject({
+    reason: "project_registered",
+    data: { repository: "example/escaped" },
+  });
+  const shown = await run(
+    [process.execPath, `${installed}/cli.js`, "project", "show", "--json"],
+    checkout,
+    isolated,
+  );
+  expect(shown.exitCode).toBe(0);
+  expect(JSON.parse(shown.stdout)).toMatchObject({ reason: "project_resolved" });
+  const reported = await run(
+    [process.execPath, `${installed}/cli.js`, "--version", "--json"],
+    checkout,
+    isolated,
+  );
+  expect(JSON.parse(reported.stdout)).toMatchObject({ data: { operatorVersion: version, commit } });
+}, 300_000);
