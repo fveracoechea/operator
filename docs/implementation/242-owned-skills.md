@@ -11,18 +11,18 @@ The running installation supplies complete skill directories, not the caller's c
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Inspect: person selects hosts
-    Inspect --> Checked: check-only caller finds matching complete contents
-    Inspect --> Conflict: contents differ in check-only mode
-    Inspect --> Conflict: copy differs from release and device ledger
-    Inspect --> Conflict: copy, ledger, or ancestor is linked or read-only
-    Inspect --> Locked: all selected copies pass preflight
-    Locked --> InspectAgain: CLI acquires device SQLite writer lock
-    InspectAgain --> Conflict: current facts no longer permit changes
-    InspectAgain --> Matching: contents already equal the release
-    InspectAgain --> Updated: unchanged managed copy updates
-    InspectAgain --> Installed: absent copy installs
-    InspectAgain --> Removed: unchanged managed old-name role copy is removed
+    [*] --> Mode: person selects hosts
+    Mode --> Check: check-only caller inspects complete contents without locking
+    Check --> Checked: contents match the running release
+    Check --> Conflict: contents differ
+    Mode --> Conflict: copy-mode ledger or lock is externally managed
+    Mode --> Locked: copying CLI acquires device SQLite writer lock
+    Locked --> Inspect: CLI reads the ledger and all selected contents
+    Inspect --> Conflict: contents differ from release and ledger, or paths are externally managed
+    Inspect --> Matching: contents already equal the release
+    Inspect --> Updated: unchanged managed copy updates
+    Inspect --> Installed: absent copy installs
+    Inspect --> Removed: unchanged managed old-name role copy is removed
     Matching --> Recorded: CLI records exact contents without rewriting the copy
     Updated --> Recorded: CLI verifies contents and records the ledger
     Installed --> Recorded: CLI verifies contents and records the ledger
