@@ -13,10 +13,12 @@ beforeAll(async () => {
     "modules",
     "lib",
     "scripts",
+    "tools",
     "skills",
     "cli.ts",
     "package.json",
     "bunfig.toml",
+    "tsconfig.json",
   ])
     await cp(`${source}/${file}`, `${root}/${file}`, { recursive: true });
   await symlink(`${source}/node_modules`, `${root}/node_modules`);
@@ -109,7 +111,7 @@ test.each([
   {
     name: "required executables",
     file: "readiness/main.ts",
-    before: 'for (const tool of ["gh", "herdr"])',
+    before: 'for (const tool of ["gh", "herdr"] as const)',
     after: "for (const tool of [] as string[])",
     testFile: "operator-cli/run.readiness.test.ts",
     pattern: "reports missing tools",
@@ -155,6 +157,14 @@ test.each([
     testFile: "upstream-skills/main.test.ts",
     pattern: "unexpected programming defects",
   },
+  {
+    name: "direct test tool boundary",
+    file: "readiness/main.test.ts",
+    before: 'spyOn(ToolInvocation, "run").mockResolvedValue(',
+    after: "({mockRestore(){}}); void (",
+    testFile: "readiness/main.isolation.test.ts",
+    pattern: "direct readiness tests cannot request ambient",
+  },
 ])(
   "a deliberate break of readiness guard $name makes its behavior test fail",
   async (change) => {
@@ -193,3 +203,29 @@ test.each([
   },
   30000,
 );
+
+test("a deliberate widening of the readiness failure contract fails typechecking", async () => {
+  const file = `${root}/modules/readiness/main.ts`;
+  const original = await Bun.file(file).text();
+  const before = 'reason: "host_unconfigured" | "github_auth_failed" | "upstream_skills_missing";';
+  expect(original).toContain(before);
+  try {
+    await Bun.write(file, original.replace(before, "reason: string;"));
+    const child = Bun.spawn([process.execPath, "run", "typecheck"], {
+      cwd: root,
+      env: Environment.child({ BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" }),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [code, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    expect(code, `${stdout}${stderr}`).toBe(1);
+    expect(`${stdout}${stderr}`).toContain("modules/readiness/main.test.ts");
+    expect(`${stdout}${stderr}`).toContain("TS2554");
+  } finally {
+    await Bun.write(file, original);
+  }
+}, 30000);

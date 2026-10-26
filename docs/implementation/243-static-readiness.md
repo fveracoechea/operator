@@ -83,6 +83,10 @@ Installed source and registry-artifact scenarios use real Git registration and S
 They cover missing executables, authentication refusal, complete and modified owned contents, linked independently revised upstream skills, exact installer arguments, invalid revisions and rosters, partial answers, and removed plan/apply commands.
 Direct beside-tests cover parsing, module results, path ownership, and defect preservation.
 Deliberate breaks prove the new guards in a disposable checkout copy.
+The readiness failure contract is a closed union of local blockers and the relevant collaborator failures.
+A compile-time test rejects widening its reasons to `string`.
+Direct readiness tests replace `ToolInvocation.run` at its public interface and restore it after the tests.
+A subprocess sentinel proves that those tests cannot request ambient GitHub authentication.
 
 An isolated live public `install matt` invocation ran with official Bun 1.4.2 and `skills@1.7.4`.
 It resolved Matt commit `5beb35b040e3de97e54fa9e386d7e42d15c295c2` and confirmed 38 non-owned skills.

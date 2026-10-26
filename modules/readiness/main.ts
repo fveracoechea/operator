@@ -6,7 +6,15 @@ import { ToolInvocation } from "../tool-invocation/main.ts";
 import { UpstreamSkills } from "../upstream-skills/main.ts";
 import { fromPromise, Ok } from "unthrown";
 
-type Blocker = { reason: string; detail: string; tool?: string };
+type Blocker =
+  | { reason: "executable_missing"; tool: "gh" | "herdr" | "opencode" | "claude"; detail: string }
+  | {
+      reason: "host_unconfigured" | "github_auth_failed" | "upstream_skills_missing";
+      detail: string;
+    }
+  | Extract<Awaited<ReturnType<typeof DeviceSettings.show>>, { tag: "Err" }>["error"]
+  | Extract<Awaited<ReturnType<typeof OwnedSkills.install>>, { tag: "Err" }>["error"]
+  | Extract<Awaited<ReturnType<typeof UpstreamSkills.check>>, { tag: "Err" }>["error"];
 
 function checkHost(paths: ReturnType<typeof OperatorHome.resolve>) {
   return fromPromise(
@@ -18,7 +26,10 @@ function checkHost(paths: ReturnType<typeof OperatorHome.resolve>) {
       const host = settings.value.data.config.superAgent.host;
       if (host === undefined)
         return Ok([
-          { reason: "host_unconfigured", detail: "Set superAgent.host in device settings." },
+          {
+            reason: "host_unconfigured" as const,
+            detail: "Set superAgent.host in device settings.",
+          },
         ]);
       const tool = host === "opencode" ? "opencode" : "claude";
       if (Bun.which(tool, { PATH: Environment.read().PATH }) === null)
@@ -50,7 +61,7 @@ export const Readiness = {
     return fromPromise(
       async () => {
         const blockers: Blocker[] = [];
-        for (const tool of ["gh", "herdr"]) {
+        for (const tool of ["gh", "herdr"] as const) {
           if (Bun.which(tool, { PATH: Environment.read().PATH }) === null)
             blockers.push({
               reason: "executable_missing",
@@ -58,7 +69,7 @@ export const Readiness = {
               detail: `Install ${tool} on PATH.`,
             });
         }
-        if (!blockers.some((blocker) => blocker.tool === "gh")) {
+        if (!blockers.some((blocker) => "tool" in blocker && blocker.tool === "gh")) {
           const auth = await ToolInvocation.run({
             tool: "gh",
             args: ["auth", "status", "--hostname", "github.com"],
