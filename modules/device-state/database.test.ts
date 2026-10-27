@@ -27,6 +27,21 @@ test("opens only existing files and explicitly selects full synchronization and 
   expect(client.query("SELECT name FROM sqlite_master").all()).toEqual([]);
 });
 
+test("a reader opens a closed WAL database and refuses writes", async () => {
+  const created = new Database(`${root}/wal`);
+  created.exec("PRAGMA journal_mode = WAL; CREATE TABLE records (value TEXT)");
+  created.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+  created.close();
+  // A closed WAL database can lack its shared-memory file, which a macOS read-only open cannot create.
+  await rm(`${root}/wal-wal`, { force: true });
+  await rm(`${root}/wal-shm`, { force: true });
+  expect(() => openDatabase(`${root}/missing`, true)).toThrow();
+  using reader = openDatabase(`${root}/wal`, true);
+  expect(reader.query("SELECT count(*) FROM records").values()).toEqual([[0]]);
+  expect(() => reader.exec("INSERT INTO records VALUES ('written')")).toThrow("readonly");
+  expect(reader.query("SELECT count(*) FROM records").values()).toEqual([[0]]);
+});
+
 test("commits only Ok and rolls back Err, Defect, and thrown defects", () => {
   using db = new Database(":memory:");
   db.exec("CREATE TABLE records (value TEXT)");

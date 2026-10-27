@@ -7,13 +7,15 @@ import { qualifyStateFailure, type StateFailure } from "./failures.ts";
 
 export const migrationsFolder = Bun.fileURLToPath(new URL("./migrations/", import.meta.url));
 
+/**
+ * A reader opens the existing file read-write and sets `query_only`. The macOS system SQLite
+ * cannot open a WAL database read-only while its shared-memory file is absent.
+ */
 export function openDatabase(file: string, readonly: boolean) {
-  const client = new Database(
-    file,
-    readonly ? { readonly: true, strict: true } : { readwrite: true, create: false, strict: true },
-  );
+  const client = new Database(file, { readwrite: true, create: false, strict: true });
   try {
     client.exec("PRAGMA busy_timeout = 5000; PRAGMA synchronous = FULL; PRAGMA foreign_keys = ON");
+    if (readonly) client.exec("PRAGMA query_only = ON");
     return client;
   } catch (cause) {
     client.close();

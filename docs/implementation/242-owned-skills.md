@@ -38,6 +38,9 @@ It is not the workflow database, and installation never creates a project record
 Identities include hidden files, binary supporting assets, and empty directories.
 Prototype-named files such as `__proto__` remain own entries in identities and the ledger.
 Copies are real directories, not links to a cache.
+Copy mode refuses links and read-only folders from a destination up to its host skill folder, and up to the state folder for the ledger and lock.
+Links above that folder, such as the macOS `/var` link, are system wiring. When that folder is absent, its nearest existing parent must be writable, so a read-only Nix store link still refuses.
+A writable link above the skill folder is accepted. Only a link at or below the skill folder, or a read-only target, refuses.
 Content-matching files stay unwritten.
 Retired `operator` and `operative` directories are removed only when this device ledger proves exact unchanged contents.
 No old project-local state or ledger is inspected or adopted.

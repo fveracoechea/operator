@@ -2,8 +2,9 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Environment } from "../environment/main.ts";
 import { Database } from "bun:sqlite";
 import { registerTestDevice } from "../../scripts/device-fixture.ts";
-// Bun has no recursive copy, symlink, or directory removal API.
+// Bun has no recursive copy, symlink, real-path, or directory removal API.
 import { chmod, cp, mkdir, rm, symlink } from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import { OperatorRelease } from "./main.ts";
 import { ReleasePublish } from "../release-publish/main.ts";
 import { packageSchema, jsrSchema, releaseSchema, versionSchema } from "./test-schemas.ts";
@@ -16,7 +17,8 @@ import {
 } from "./fake-registry.ts";
 
 const sourceRoot = new URL("../../", import.meta.url).pathname.replace(/\/$/, "");
-const root = `${Environment.read().TMPDIR ?? "/tmp"}/operator-delivery-${crypto.randomUUID()}`;
+// Commands report real checkout paths, and a macOS temporary folder is reached through a link.
+const root = `${realpathSync(Environment.read().TMPDIR ?? "/tmp")}/operator-delivery-${crypto.randomUUID()}`;
 const sourceRepository = `${root}/source`;
 const artifactRoot = `${root}/artifact`;
 const registryProject = `${root}/registry-project`;

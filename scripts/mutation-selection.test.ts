@@ -72,3 +72,12 @@ test("symlink targets refuse before reading their content", async () => {
     error: "Target must not use a symbolic link: linked.ts",
   });
 });
+
+test("a link above the repository root is not a target link", async () => {
+  const directory = await mkdtemp(`${root}/real-`);
+  await Bun.write(path.join(directory, "lib/unit.ts"), "export const n = 1;\n");
+  await symlink(directory, `${directory}-linked`);
+  expect(
+    await selectMutationUnits({ paths: ["lib/unit.ts"] }, `${directory}-linked`),
+  ).toMatchObject({ units: [{ name: "lib/unit.ts", source: "export const n = 1;\n" }] });
+});

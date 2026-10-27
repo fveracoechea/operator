@@ -25,6 +25,7 @@ type Ledger = z.infer<typeof ledgerSchema>;
 type Copy = {
   name: string;
   host: Host;
+  root: string;
   destination: string;
   source: string;
   released: Contents | null;
@@ -55,7 +56,8 @@ async function inspect(request: Request, recorded: Ledger): Promise<{ copies: Co
   const copies: Copy[] = [];
   for (const host of request.hosts) {
     for (const name of [...names.toSorted(), ...retired]) {
-      const destination = path.join(request.paths.skillHosts[host], name);
+      const root = request.paths.skillHosts[host];
+      const destination = path.join(root, name);
       const source = path.join(request.source, name);
       const released = retired.includes(name) ? null : await contents(source, true);
       const current = await contents(destination, request.check);
@@ -66,8 +68,8 @@ async function inspect(request: Request, recorded: Ledger): Promise<{ copies: Co
           ? (recorded.entries[destination] ?? null)
           : null,
       );
-      if (!request.check && !(await copyWritable(destination, current))) action = "conflict";
-      copies.push({ name, host, destination, source, released, current, action });
+      if (!request.check && !(await copyWritable(root, destination, current))) action = "conflict";
+      copies.push({ name, host, root, destination, source, released, current, action });
     }
   }
   const conflicts = copies.filter((copy) =>
@@ -83,9 +85,9 @@ async function inspect(request: Request, recorded: Ledger): Promise<{ copies: Co
   return { copies };
 }
 
-async function copyWritable(destination: string, current: Contents | null) {
+async function copyWritable(root: string, destination: string, current: Contents | null) {
   for (const file of ["", ...Object.keys(current ?? {})])
-    if (!(await writable(path.join(destination, file)))) return false;
+    if (!(await writable(root, path.join(destination, file)))) return false;
   return true;
 }
 
@@ -116,7 +118,7 @@ async function removeFiles(copy: Copy, retained: Contents = {}) {
 async function changeCopy(copy: Copy) {
   if (copy.action === "matching") return true;
   if (
-    !(await copyWritable(copy.destination, copy.current)) ||
+    !(await copyWritable(copy.root, copy.destination, copy.current)) ||
     !same(await contents(copy.destination, false), copy.current)
   )
     return false;
@@ -131,7 +133,7 @@ async function changeCopy(copy: Copy) {
     await mkdir(path.join(copy.destination, file), { recursive: true });
   for (const file of Object.keys(released).filter((file) => !file.endsWith("/"))) {
     if (copy.current?.[file] === released[file]) continue;
-    if (!(await writable(path.join(copy.destination, file)))) return false;
+    if (!(await writable(copy.root, path.join(copy.destination, file)))) return false;
     await writeFile(
       path.join(copy.destination, file),
       await Bun.file(path.join(copy.source, file)).bytes(),
@@ -147,7 +149,8 @@ async function changeCopy(copy: Copy) {
 export async function install(request: Request) {
   if (
     !request.check &&
-    (!(await writable(request.paths.ownedSkills)) || !(await writable(request.paths.skillsLock)))
+    (!(await writable(request.paths.stateRoot, request.paths.ownedSkills)) ||
+      !(await writable(request.paths.stateRoot, request.paths.skillsLock)))
   )
     return {
       reason: "skill_copy_conflict" as const,

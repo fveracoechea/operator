@@ -45,6 +45,8 @@ No migration is generated from device contents, and no separate migration comman
 ## Protection and blockers
 
 The normal compatible path uses one consistent read transaction and performs no migration write.
+Readers open the existing file read-write with `PRAGMA query_only`, because the macOS system SQLite cannot open a WAL database read-only while its shared-memory file is absent.
+A reader of a WAL database can leave `-wal` and `-shm` files and can checkpoint on close. This does not change the database content. Operator never selects WAL itself.
 An upgrade reopens for writing and begins an immediate transaction before its second compatibility read.
 That writer reservation remains held through snapshot creation, verification, all pending SQL, history checks, and commit or rollback.
 It blocks SQLite writers from other processes, including writers that do not use Operator.

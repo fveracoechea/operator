@@ -1,5 +1,5 @@
 // Bun has no directory enumeration, lstat, or permission metadata API.
-import { lstat, readdir, realpath } from "node:fs/promises";
+import { lstat, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { sha256 } from "../../lib/sha256.ts";
 
@@ -67,15 +67,28 @@ export function verdict(
   return "conflict";
 }
 
-/** Copy mode refuses links and read-only ancestors even when the linked bytes match. */
-export async function writable(destination: string) {
+/**
+ * Copy mode refuses links and read-only folders from the destination up to its managed root,
+ * even when the linked bytes match. Links above the root belong to the system, such as the
+ * macOS `/var` link, but an absent root must not land in a read-only folder such as a Nix store.
+ */
+export async function writable(root: string, destination: string) {
   for (let current = destination; ; current = path.dirname(current)) {
     const entry = await info(current);
-    if (
-      entry !== null &&
-      (entry.isSymbolicLink() || !/[2367]/.test(entry.mode.toString(8).slice(-3)))
-    )
-      return false;
+    if (entry !== null && (entry.isSymbolicLink() || !writableMode(entry.mode))) return false;
+    if (current === root) {
+      if (entry !== null) return true;
+      break;
+    }
     if (current === path.dirname(current)) return true;
   }
+  for (let current = path.dirname(root); ; current = path.dirname(current)) {
+    const entry = await stat(current).catch(() => null);
+    if (entry !== null) return writableMode(entry.mode);
+    if (current === path.dirname(current)) return false;
+  }
+}
+
+function writableMode(mode: number) {
+  return /[2367]/.test(mode.toString(8).slice(-3));
 }

@@ -52,8 +52,9 @@ async function checkedPath(root: string, selected: string): Promise<string | Pro
     return { error: `Target is outside eligible repository code: ${selected}` };
   if (!(await Bun.file(absolute).exists()))
     return { error: `Target file does not exist: ${selected}` };
-  const resolved = await realpath(absolute);
-  if (resolved !== absolute) return { error: `Target must not use a symbolic link: ${selected}` };
+  // A link above the repository root, such as the macOS /var link, is not part of the target.
+  if ((await realpath(absolute)) !== path.join(await realpath(root), name))
+    return { error: `Target must not use a symbolic link: ${selected}` };
   return name;
 }
 

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-// Bun has no temporary-directory, chmod, or recursive removal API.
-import { chmod, mkdtemp, readlink, rm, symlink } from "node:fs/promises";
+// Bun has no temporary-directory, chmod, realpath, or recursive removal API.
+import { chmod, mkdtemp, readlink, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
@@ -10,7 +10,8 @@ import { registerTestDevice } from "../../scripts/device-fixture.ts";
 let root = "";
 let databaseBefore: ArrayBuffer;
 beforeEach(async () => {
-  root = await mkdtemp(path.join(tmpdir(), "operator-profiles-"));
+  // The CLI asks hosts about its real working folder, not the macOS /var link.
+  root = await realpath(await mkdtemp(path.join(tmpdir(), "operator-profiles-")));
   databaseBefore = await registerTestDevice(root);
 });
 afterEach(async () => {

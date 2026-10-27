@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 // Bun has no temporary-directory, symlink, or recursive removal API.
-import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { contents, info, same, verdict, writable } from "./content.ts";
@@ -38,7 +38,27 @@ test("copy mode rejects links, while check mode follows them and terminates cycl
   expect((await contents(root, true))?.link).toBe((await contents(root, true))?.asset);
   await symlink(root, `${root}/cycle`);
   expect(JSON.stringify(await contents(root, true))).toContain("cycle");
-  expect(await writable(`${root}/link`)).toBe(false);
+  expect(await writable(root, `${root}/link`)).toBe(false);
+});
+
+test("copy mode allows links above the managed root, like the macOS /var link", async () => {
+  await mkdir(`${root}/real/skills/role`, { recursive: true });
+  await symlink(`${root}/real`, `${root}/system`);
+  expect(await writable(`${root}/system/skills`, `${root}/system/skills/role`)).toBe(true);
+  expect(await writable(`${root}/system/absent`, `${root}/system/absent/role`)).toBe(true);
+  await symlink(`${root}/real/skills`, `${root}/linked-skills`);
+  expect(await writable(`${root}/linked-skills`, `${root}/linked-skills/role`)).toBe(false);
+});
+
+test("copy mode refuses an absent root under a read-only linked folder, like a Nix store link", async () => {
+  await mkdir(`${root}/store`);
+  await symlink(`${root}/store`, `${root}/config`);
+  await chmod(`${root}/store`, 0o555);
+  try {
+    expect(await writable(`${root}/config/skills`, `${root}/config/skills/role`)).toBe(false);
+  } finally {
+    await chmod(`${root}/store`, 0o755);
+  }
 });
 
 test("only an exact ledger identity permits an update or retired-name removal", () => {
