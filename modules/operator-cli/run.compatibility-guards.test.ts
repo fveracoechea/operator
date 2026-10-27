@@ -95,8 +95,8 @@ test.each([
   {
     name: "backup hash",
     file: "device-state/backups.ts",
-    before: "!==\n            receipt.hash",
-    after: "===\n            receipt.hash",
+    before: "!==\n                receipt.hash",
+    after: "===\n                receipt.hash",
     pattern: "verification rejects changed",
     testFile: "device-state/backups.test.ts",
   },

@@ -87,7 +87,10 @@ export function launch(
     return ErrAsync<Failure>({ reason: "review_defect", detail: "The start lost its request." });
   const name = slug(target.repository.split("/").at(-1) ?? "");
   const brief = files(input.paths, request).brief;
-  return fromPromise(() => writeHistory(input.paths, snapshot), qualify).flatMap((history) =>
+  return fromPromise(
+    () => writeHistory(input.paths, snapshot),
+    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+  ).flatMap((history) =>
     WorkerDispatch.launchReviewer({
       paths: input.paths,
       checkout: project.checkout,
@@ -153,73 +156,80 @@ export function syncReviewer(
   if (request === null || project === null || sync === null)
     return OkAsync({ kind: "none", mode: null });
   const exact = { ...target, id: request.id };
-  return fromPromise(async () => {
-    const release = DeviceState.holdReviewRequest(paths, request.id);
-    try {
-      let mode: string | null = null;
-      if (sync.kind === "head" && request.worktreePath !== null) {
-        const moved = await WorkerDispatch.moveReviewer({
-          checkout: project.checkout,
-          repository: target.repository,
-          number: target.number,
-          worktree: request.worktreePath,
-          from: sync.from,
-          to: sync.to,
-        });
-        if (moved.tag !== "Ok") {
-          const error = failureOf(moved);
-          const kept = apply(
-            paths,
-            exact,
-            "synced",
-            () => ({ update: { failureReason: error.reason, failureDetail: error.detail } }),
-            { id: request.id },
-          );
-          return kept.tag === "Ok" ? Err(error) : kept.map(() => ({ kind: "none", mode: null }));
+  return fromPromise(
+    async () => {
+      const release = DeviceState.holdReviewRequest(paths, request.id);
+      try {
+        let mode: string | null = null;
+        if (sync.kind === "head" && request.worktreePath !== null) {
+          const moved = await WorkerDispatch.moveReviewer({
+            checkout: project.checkout,
+            repository: target.repository,
+            number: target.number,
+            worktree: request.worktreePath,
+            from: sync.from,
+            to: sync.to,
+          });
+          if (moved.tag !== "Ok") {
+            const error = failureOf(moved);
+            const kept = apply(
+              paths,
+              exact,
+              "synced",
+              () => ({ update: { failureReason: error.reason, failureDetail: error.detail } }),
+              { id: request.id },
+            );
+            return kept.tag === "Ok" ? Err(error) : kept.map(() => ({ kind: "none", mode: null }));
+          }
+          mode = moved.value.mode;
         }
-        mode = moved.value.mode;
-      }
-      const history = await writeHistory(paths, snapshot);
-      const brief = files(paths, request).brief;
-      await Bun.write(
-        brief,
-        briefText(
+        const history = await writeHistory(paths, snapshot);
+        const brief = files(paths, request).brief;
+        await Bun.write(
+          brief,
+          briefText(
+            paths,
+            request,
+            { worktree: request.worktreePath ?? "", branch: request.branch ?? "" },
+            history,
+            snapshot.rounds,
+          ),
+          { createPath: true },
+        );
+        const prompted =
+          (
+            await Herdr.prompt({
+              name: request.name ?? "",
+              text: prompt(request, sync, brief, mode),
+            })
+          ).tag === "Ok";
+        return apply(
           paths,
-          request,
-          { worktree: request.worktreePath ?? "", branch: request.branch ?? "" },
-          history,
-          snapshot.rounds,
-        ),
-        { createPath: true },
-      );
-      const prompted =
-        (await Herdr.prompt({ name: request.name ?? "", text: prompt(request, sync, brief, mode) }))
-          .tag === "Ok";
-      return apply(
-        paths,
-        exact,
-        "synced",
-        () => ({
-          update: {
-            sync: null,
-            failureReason: null,
-            failureDetail: null,
-            launchState: prompted ? request.launchState : "interrupted",
-          },
-        }),
-        { id: request.id },
-      ).map(() => ({ kind: prompted ? sync.kind : "reviewer_interrupted", mode }));
-    } finally {
-      release();
-    }
-  }, qualify).flatMap((result) => result);
+          exact,
+          "synced",
+          () => ({
+            update: {
+              sync: null,
+              failureReason: null,
+              failureDetail: null,
+              launchState: prompted ? request.launchState : "interrupted",
+            },
+          }),
+          { id: request.id },
+        ).map(() => ({ kind: prompted ? sync.kind : "reviewer_interrupted", mode }));
+      } finally {
+        release();
+      }
+    },
+    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+  ).flatMap((result) => result);
 }
 
 type CleanupOutcome = { state: "done" | "kept" | "failed"; detail: string };
 
 /** Closes the reviewer pane only in its Herdr server, and only while it holds this reviewer. */
-async function closePane(request: Row): Promise<CleanupOutcome | string> {
-  if (request.paneId === null) return "No reviewer pane was recorded.";
+async function closePane(request: Row): Promise<CleanupOutcome> {
+  if (request.paneId === null) return { state: "done", detail: "No reviewer pane was recorded." };
   if (Environment.read().HERDR_SOCKET_PATH !== (request.herdrSocket ?? undefined))
     return {
       state: "failed",
@@ -232,29 +242,35 @@ async function closePane(request: Row): Promise<CleanupOutcome | string> {
       detail: agents.tag === "Err" ? agents.error.detail : String(agents.cause),
     };
   if (request.name === null || !agents.value.includes(request.name))
-    return `Pane ${request.paneId} no longer holds ${request.name ?? "the reviewer"}.`;
+    return {
+      state: "done",
+      detail: `Pane ${request.paneId} no longer holds ${request.name ?? "the reviewer"}.`,
+    };
   const closed = await Herdr.closePane(request.paneId);
   if (closed.tag !== "Ok")
     return {
       state: "failed",
       detail: closed.tag === "Err" ? closed.error.detail : String(closed.cause),
     };
-  return `Closed pane ${request.paneId}.`;
+  return { state: "done", detail: `Closed pane ${request.paneId}.` };
 }
 
 async function dispose(request: Row, checkout: string): Promise<CleanupOutcome> {
   const pane = await closePane(request);
-  if (typeof pane !== "string") return pane;
-  if (request.worktreePath === null) return { state: "done", detail: pane };
-  const worktree = await WorkerDispatch.cleanWorktree({
-    checkout,
-    worktree: request.worktreePath,
-    branch: request.branch,
-  }).catch((cause: unknown) => ({ state: "failed" as const, detail: String(cause) }));
-  if (worktree.state === "failed") return worktree;
+  if (pane.state !== "done" || request.worktreePath === null) return pane;
+  let worktree;
+  try {
+    worktree = await WorkerDispatch.cleanWorktree({
+      checkout,
+      worktree: request.worktreePath,
+      branch: request.branch,
+    });
+  } catch (cause) {
+    return { state: "failed", detail: String(cause) };
+  }
   return {
     state: worktree.state === "kept" ? "kept" : "done",
-    detail: `${pane} ${worktree.detail}`,
+    detail: `${pane.detail} ${worktree.detail}`,
   };
 }
 
@@ -272,13 +288,16 @@ export function cleanupReviewer(paths: Paths, target: Target, snapshot: Snapshot
       detail: "The cleanup lost its request.",
     });
   const release = DeviceState.holdReviewRequest(paths, request.id);
-  return fromPromise(async () => {
-    try {
-      return await dispose(request, project.checkout);
-    } finally {
-      release();
-    }
-  }, qualify).flatMap((outcome) =>
+  return fromPromise(
+    async () => {
+      try {
+        return await dispose(request, project.checkout);
+      } finally {
+        release();
+      }
+    },
+    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+  ).flatMap((outcome) =>
     DeviceState.changeReviewRequest(paths, { ...target, id: request.id }, () =>
       Ok({
         update: { cleanupState: outcome.state, cleanupDetail: outcome.detail },

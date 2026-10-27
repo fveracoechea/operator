@@ -41,11 +41,13 @@ const pluginList = z.object({
   }),
 });
 
-function parse(text: string): unknown {
-  return fromThrowable(
+// Herdr owns this JSON input, so the schema runs where the text is read.
+function parse<T>(text: string, schema: z.ZodType<T>): T | undefined {
+  const value = fromThrowable(
     () => JSON.parse(text) as unknown,
     (cause, defect) => (cause instanceof SyntaxError ? "invalid" : defect(cause)),
   )().getOr(undefined);
+  return schema.safeParse(value).data;
 }
 
 const errorAnswer = z.object({ error: z.object({ code: z.string() }) });
@@ -68,9 +70,8 @@ function call(args: string[], timeoutMs: number, absent?: string) {
         detail: `${result.detail} Inspect Herdr before a retry, because the effect can exist.`,
       });
     if (result.exitCode === 0) return Ok(result.stdout);
-    const refused = errorAnswer.safeParse(parse(result.stdout) ?? parse(result.stderr));
-    if (absent !== undefined && refused.success && refused.data.error.code === absent)
-      return Ok(null);
+    const refused = parse(result.stdout, errorAnswer) ?? parse(result.stderr, errorAnswer);
+    if (absent !== undefined && refused?.error.code === absent) return Ok(null);
     return Err({
       reason: "herdr_failed",
       detail: `${command} exited ${result.exitCode}: ${(result.stderr || result.stdout).trim()}`,
@@ -79,9 +80,9 @@ function call(args: string[], timeoutMs: number, absent?: string) {
 }
 
 function answer<T>(args: string[], stdout: string, schema: z.ZodType<T>) {
-  const parsed = schema.safeParse(parse(stdout));
-  return parsed.success
-    ? Ok(parsed.data)
+  const parsed = parse(stdout, schema);
+  return parsed !== undefined
+    ? Ok(parsed)
     : Err<HerdrFailure>({
         reason: "herdr_invalid_response",
         detail: `herdr ${args.slice(0, 2).join(" ")} returned an unexpected response.`,

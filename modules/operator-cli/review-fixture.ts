@@ -101,7 +101,7 @@ export async function reviewDevice(host: "opencode" | "claude-code" = "opencode"
     await chmod(`${root}/tools/${name}`, 0o755);
   }
 
-  async function github(change: object) {
+  async function github(change: Record<string, unknown>) {
     const file = Bun.file(`${root}/github.json`);
     const current: object = (await file.exists()) ? z.looseObject({}).parse(await file.json()) : {};
     await Bun.write(file, JSON.stringify({ ...current, ...change }));
@@ -112,7 +112,7 @@ export async function reviewDevice(host: "opencode" | "claude-code" = "opencode"
   }
 
   /** Changes PR #7 in the controlled GitHub state. */
-  async function pullRequest(change: object) {
+  async function pullRequest(change: Record<string, unknown>) {
     const state = await githubState();
     await github({
       pulls: state.pulls.map((pull) => (pull.number === 7 ? { ...pull, ...change } : pull)),
@@ -153,7 +153,7 @@ export async function reviewDevice(host: "opencode" | "claude-code" = "opencode"
     return z.object({ data: requestSchema }).parse(added.output).data;
   }
 
-  async function draft(file: string, commit: string, change: object = {}) {
+  async function draft(file: string, commit: string, change: Record<string, unknown> = {}) {
     await Bun.write(
       file,
       JSON.stringify({
@@ -218,7 +218,7 @@ export async function reviewDevice(host: "opencode" | "claude-code" = "opencode"
   const head = await push(base, "feature.ts");
 
   /** Changes the controlled Herdr state, for example to delay its answers. */
-  async function herdrState(change: object) {
+  async function herdrState(change: Record<string, unknown>) {
     const file = Bun.file(`${root}/herdr-state.json`);
     const current: object = (await file.exists()) ? z.looseObject({}).parse(await file.json()) : {};
     await Bun.write(file, JSON.stringify({ ...current, ...change }));

@@ -62,18 +62,22 @@ function withDatabase<T, E>(
   readonly: boolean,
   action: (client: ReturnType<typeof openDatabase>) => Result<T, E>,
 ) {
-  return fromThrowable((): Result<T, E | StateFailure> => {
-    if (!databaseExists(paths.database))
-      return Err({
-        reason: "state_missing",
-        detail: "Register the project explicitly before this operation.",
-      });
-    using client = openDatabase(paths.database, readonly);
-    return action(client);
-  }, qualifyStateFailure)().flatMap((result) => result);
+  return fromThrowable(
+    (): Result<T, E | StateFailure> => {
+      if (!databaseExists(paths.database))
+        return Err({
+          reason: "state_missing",
+          detail: "Register the project explicitly before this operation.",
+        });
+      using client = openDatabase(paths.database, readonly);
+      return action(client);
+    },
+    (cause, defect) =>
+      cause instanceof Error ? qualifyStateFailure(cause, defect) : defect(cause),
+  )().flatMap((result) => result);
 }
 
-function hold(renew: () => unknown) {
+function hold(renew: () => void) {
   const timer = setInterval(renew, leaseRenewMs);
   timer.unref();
   return () => clearInterval(timer);
@@ -90,15 +94,19 @@ export const DeviceState = {
     source: StoredSource,
     assignments: StoredAssignment[],
   ) {
-    return fromThrowable(() => {
-      if (!databaseExists(paths.database))
-        return Err<StateFailure>({
-          reason: "state_missing",
-          detail: "Register the project explicitly before registering a source.",
-        });
-      using client = openDatabase(paths.database, false);
-      return registerSource(client, checkout, source, assignments);
-    }, qualifyStateFailure)().flatMap((result) => result);
+    return fromThrowable(
+      () => {
+        if (!databaseExists(paths.database))
+          return Err<StateFailure>({
+            reason: "state_missing",
+            detail: "Register the project explicitly before registering a source.",
+          });
+        using client = openDatabase(paths.database, false);
+        return registerSource(client, checkout, source, assignments);
+      },
+      (cause, defect) =>
+        cause instanceof Error ? qualifyStateFailure(cause, defect) : defect(cause),
+    )().flatMap((result) => result);
   },
   reserveLaunch(
     paths: Paths,
@@ -249,64 +257,96 @@ export const DeviceState = {
     return withDatabase(paths, false, (client) => pruneSource(client, paths, target, decide));
   },
   readSources(paths: Paths, repository: string, sourceId?: string) {
-    return fromThrowable(() => {
-      if (!databaseExists(paths.database))
-        return Err<StateFailure>({
-          reason: "state_missing",
-          detail: "Register the project explicitly before reading sources.",
-        });
-      using client = openDatabase(paths.database, true);
-      return readSources(client, repository, sourceId);
-    }, qualifyStateFailure)().flatMap((result) => result);
+    return fromThrowable(
+      () => {
+        if (!databaseExists(paths.database))
+          return Err<StateFailure>({
+            reason: "state_missing",
+            detail: "Register the project explicitly before reading sources.",
+          });
+        using client = openDatabase(paths.database, true);
+        return readSources(client, repository, sourceId);
+      },
+      (cause, defect) =>
+        cause instanceof Error ? qualifyStateFailure(cause, defect) : defect(cause),
+    )().flatMap((result) => result);
   },
   registerProject(paths: Paths, project: RegisteredProject) {
-    return fromThrowable(() => {
-      if (!databaseExists(paths.database)) return createDatabase(paths, project);
-      using client = openDatabase(paths.database, false);
-      return registerProject(client, project);
-    }, qualifyStateFailure)()
+    return fromThrowable(
+      () => {
+        if (!databaseExists(paths.database)) return createDatabase(paths, project);
+        using client = openDatabase(paths.database, false);
+        return registerProject(client, project);
+      },
+      (cause, defect) =>
+        cause instanceof Error ? qualifyStateFailure(cause, defect) : defect(cause),
+    )()
       .flatMap((result) => result)
       .flatMap((outcome) =>
-        fromThrowable(() => {
-          using client = openDatabase(paths.database, false);
-          return ensureProjectDirectory(client, paths, outcome.data).map(() => outcome);
-        }, qualifyStateFailure)().flatMap((result) => result),
+        fromThrowable(
+          () => {
+            using client = openDatabase(paths.database, false);
+            return ensureProjectDirectory(client, paths, outcome.data).map(() => outcome);
+          },
+          (cause, defect) =>
+            cause instanceof Error ? qualifyStateFailure(cause, defect) : defect(cause),
+        )().flatMap((result) => result),
       );
   },
   lookupProject(paths: Paths, checkout: string, repositories: string[]) {
-    return fromThrowable(() => {
-      if (!databaseExists(paths.database))
-        return Err<StateFailure>({
-          reason: "state_missing",
-          detail:
-            "The device database is missing. Run operator project register explicitly in the controlling checkout.",
-        });
-      using client = openDatabase(paths.database, true);
-      return lookupProject(client, checkout, repositories);
-    }, qualifyStateFailure)().flatMap((result) => result);
+    return fromThrowable(
+      () => {
+        if (!databaseExists(paths.database))
+          return Err<StateFailure>({
+            reason: "state_missing",
+            detail:
+              "The device database is missing. Run operator project register explicitly in the controlling checkout.",
+          });
+        using client = openDatabase(paths.database, true);
+        return lookupProject(client, checkout, repositories);
+      },
+      (cause, defect) =>
+        cause instanceof Error ? qualifyStateFailure(cause, defect) : defect(cause),
+    )().flatMap((result) => result);
   },
   listProjects(paths: Paths) {
-    return fromThrowable(() => {
-      using client = openDatabase(paths.database, true);
-      return listProjects(client);
-    }, qualifyStateFailure)().flatMap((result) => result);
+    return fromThrowable(
+      () => {
+        using client = openDatabase(paths.database, true);
+        return listProjects(client);
+      },
+      (cause, defect) =>
+        cause instanceof Error ? qualifyStateFailure(cause, defect) : defect(cause),
+    )().flatMap((result) => result);
   },
   moveProject(paths: Paths, repository: string, checkout: string) {
-    return fromThrowable(() => {
-      using client = openDatabase(paths.database, false);
-      return moveProject(client, repository, checkout);
-    }, qualifyStateFailure)().flatMap((result) => result);
+    return fromThrowable(
+      () => {
+        using client = openDatabase(paths.database, false);
+        return moveProject(client, repository, checkout);
+      },
+      (cause, defect) =>
+        cause instanceof Error ? qualifyStateFailure(cause, defect) : defect(cause),
+    )().flatMap((result) => result);
   },
   removeProject(paths: Paths, repository: string) {
-    const removed = fromThrowable(() => {
-      using client = openDatabase(paths.database, false);
-      return removeProject(client, repository);
-    }, qualifyStateFailure)().flatMap((result) => result);
+    const removed = fromThrowable(
+      () => {
+        using client = openDatabase(paths.database, false);
+        return removeProject(client, repository);
+      },
+      (cause, defect) =>
+        cause instanceof Error ? qualifyStateFailure(cause, defect) : defect(cause),
+    )().flatMap((result) => result);
     if (removed.tag !== "Ok") return removed;
-    const cleaned = fromThrowable(() => {
-      using client = openDatabase(paths.database, false);
-      return finishProjectRemoval(client, paths, repository);
-    }, qualifyStateFailure)().flatMap((result) => result);
+    const cleaned = fromThrowable(
+      () => {
+        using client = openDatabase(paths.database, false);
+        return finishProjectRemoval(client, paths, repository);
+      },
+      (cause, defect) =>
+        cause instanceof Error ? qualifyStateFailure(cause, defect) : defect(cause),
+    )().flatMap((result) => result);
     if (cleaned.tag === "Err")
       return Err({
         reason: "project_cleanup_pending" as const,

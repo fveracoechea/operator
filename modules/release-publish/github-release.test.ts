@@ -50,7 +50,7 @@ console.log(JSON.stringify(results));`;
   });
   const [exit, output] = await Promise.all([
     child.exited,
-    new Response(child.stdout).json().then((value: unknown) => z.unknown().parse(value)),
+    new Response(child.stdout).json().then((value) => z.unknown().parse(value)),
   ]);
   expect(exit).toBe(0);
   expect(output).toMatchObject([

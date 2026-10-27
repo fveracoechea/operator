@@ -15,30 +15,30 @@ export type ReleaseManifest = {
 // The running package sits beside this module, never beside the caller's working directory.
 const packageRoot = Bun.fileURLToPath(new URL("../../", import.meta.url)).replace(/\/$/, "");
 
-const record = z.record(z.string(), z.unknown());
+// Each field is read alone, so one malformed field never hides the others.
+const text = z.string().min(1).nullable().catch(null);
+const releaseFields = z.object({
+  version: text,
+  commit: text,
+  supportedBun: text,
+  builtAt: text,
+  artifactIdentity: text,
+  engines: z.object({ bun: text }).nullable().catch(null),
+});
+const absent = releaseFields.parse({});
 
-async function readJson(path: string): Promise<Record<string, unknown> | null> {
+async function readJson(path: string): Promise<z.infer<typeof releaseFields> | null> {
   const file = Bun.file(path);
   if (!(await file.exists())) {
     return null;
   }
 
   try {
-    const parsed = record.safeParse(await file.json());
+    const parsed = releaseFields.safeParse(await file.json());
     return parsed.success ? parsed.data : null;
   } catch {
     return null;
   }
-}
-
-function text(value: unknown): string | null {
-  return typeof value === "string" && value.length > 0 ? value : null;
-}
-
-/** The runtime range a package manifest declares, read without trusting its shape. */
-function packagedBunRange(packaged: Record<string, unknown> | null): string | null {
-  const engines = z.object({ bun: z.string() }).safeParse(packaged?.engines);
-  return engines.success ? text(engines.data.bun) : null;
 }
 
 /**
@@ -62,11 +62,11 @@ export async function readReleaseManifest(root = packageRoot): Promise<ReleaseMa
   const recorded = await readJson(`${root}/${RELEASE_MANIFEST_PATH}`);
   const packaged = await readJson(`${root}/package.json`);
   return {
-    version: text(recorded?.version) ?? text(packaged?.version) ?? "0.0.0",
-    commit: recorded === null ? await installedSourceCommit(root) : text(recorded.commit),
-    supportedBun: text(recorded?.supportedBun) ?? packagedBunRange(packaged) ?? "*",
-    builtAt: text(recorded?.builtAt),
-    artifactIdentity: text(recorded?.artifactIdentity),
+    version: (recorded ?? absent).version ?? (packaged ?? absent).version ?? "0.0.0",
+    commit: recorded === null ? await installedSourceCommit(root) : recorded.commit,
+    supportedBun: (recorded ?? absent).supportedBun ?? (packaged ?? absent).engines?.bun ?? "*",
+    builtAt: (recorded ?? absent).builtAt,
+    artifactIdentity: (recorded ?? absent).artifactIdentity,
   };
 }
 

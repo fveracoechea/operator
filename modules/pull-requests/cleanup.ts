@@ -380,13 +380,16 @@ export function cleanup(request: Request) {
           request.sourceId,
           request.assignment,
         );
-        return fromPromise(async () => {
-          try {
-            return await steps(request, facts);
-          } finally {
-            release();
-          }
-        }, qualify)
+        return fromPromise(
+          async () => {
+            try {
+              return await steps(request, facts);
+            } finally {
+              release();
+            }
+          },
+          (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+        )
           .flatMap((result) => result)
           .map((outcomes) => ({ reason: "cleanup_finished", data: { ...data, steps: outcomes } }));
       }),

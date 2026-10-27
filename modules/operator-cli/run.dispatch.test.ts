@@ -172,7 +172,7 @@ async function herdrCalls() {
     .map((line) => z.array(z.string()).parse(JSON.parse(line)).slice(0, 2).join(" "));
 }
 
-async function setHerdr(change: object) {
+async function setHerdr(change: Record<string, unknown>) {
   const file = Bun.file(`${root}/herdr-state.json`);
   const current: object = (await file.exists()) ? z.looseObject({}).parse(await file.json()) : {};
   await Bun.write(file, JSON.stringify({ ...current, ...change }));

@@ -8,6 +8,7 @@ import {
   resolveArrayBinding,
   unwrapArrayExpression,
 } from "../anti-slop/array-method.ts";
+import { withSkillTopic } from "../skill-topic.ts";
 
 function processImport(variable: Variable) {
   return variable.defs.some(
@@ -60,8 +61,10 @@ export const envThroughSchemaRule = defineRule({
     ],
     defaultOptions: [{ allowFiles: [] }],
     messages: {
-      environment:
-        "Read validated values from Environment. Supply child environments, never change the parent. See deep-modules/server-state.md.",
+      environment: withSkillTopic(
+        "Read validated values from Environment. Supply child environments, never change the parent.",
+        "deep-modules/server-state.md",
+      ),
     },
   },
   createOnce(context) {

@@ -174,7 +174,7 @@ async function writePlanned(
     if (written === "unconfirmed") return writeUnconfirmed;
     await writeReceipt(paths, { ...pending, state: "complete" });
   } catch (error) {
-    if (isIoFailure(error)) return writeUnconfirmed;
+    if (error instanceof Error && isIoFailure(error)) return writeUnconfirmed;
     // oxlint-disable-next-line unthrown/no-throw -- Unexpected defects retain the pending receipt and reach the command boundary.
     throw error;
   }

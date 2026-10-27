@@ -24,7 +24,7 @@ let validated: EnvironmentValues | undefined;
 
 /** The only process-environment reader. Unknown variables pass to children, not to application code. */
 export const Environment = {
-  parse(input: unknown) {
+  parse(input: Record<string, string | undefined>) {
     return schema.parse(input);
   },
   read(): EnvironmentValues {

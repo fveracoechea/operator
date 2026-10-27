@@ -1,3 +1,4 @@
+import { isCodedError } from "../../lib/coded-error.ts";
 import { fromPromise, fromThrowable, Ok, Err, type Result } from "unthrown";
 import { z } from "zod";
 import { DeviceState } from "../device-state/main.ts";
@@ -21,13 +22,12 @@ type ResetRefusal =
   | { reason: "state_corrupt"; detail: string };
 type Input = { paths: ReturnType<typeof OperatorHome.resolve>; cwd: string };
 
-function qualify<T>(cause: unknown, defect: (cause: unknown) => T) {
+function qualify<T>(cause: Error, defect: (cause: Error) => T) {
   if (cause instanceof SyntaxError || cause instanceof z.ZodError)
     return { reason: "invalid_source_plan" as const, detail: cause.message };
   if (
-    cause instanceof Error &&
-    "code" in cause &&
-    ["ENOENT", "EACCES", "EPERM", "EISDIR", "EIO", "ENOTDIR"].includes(String(cause.code))
+    isCodedError(cause) &&
+    ["ENOENT", "EACCES", "EPERM", "EISDIR", "EIO", "ENOTDIR"].includes(cause.code)
   )
     return { reason: "source_io_failed" as const, detail: String(cause) };
   return defect(cause);
@@ -158,7 +158,10 @@ function retention(
 /** Plans are supplied by the SuperAgent. No operation reads or updates a tracker. */
 export const WorkSources = {
   register(input: Input & { file: string }) {
-    return fromPromise(async () => planSchema.parse(await Bun.file(input.file).json()), qualify)
+    return fromPromise(
+      async () => planSchema.parse(await Bun.file(input.file).json()),
+      (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+    )
       .flatMap((plan) =>
         DeviceSettings.show(input.paths).flatMap(({ data: settings }) => {
           const missing = plan.assignments.find(

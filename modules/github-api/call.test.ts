@@ -50,7 +50,7 @@ test.each([
     child.exited,
     new Response(child.stdout)
       .json()
-      .then((value: unknown) =>
+      .then((value) =>
         z.looseObject({ status: z.string(), value: z.unknown().optional() }).parse(value),
       ),
   ]);

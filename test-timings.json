@@ -33,7 +33,6 @@
     "scripts/mutation-policy.test.ts": 8,
     "modules/release-publish/journal.test.ts": 7,
     "modules/release-publish/pack.test.ts": 7,
-    "lib/text-field.test.ts": 6,
     "modules/operator-release/inventory.test.ts": 6,
     "scripts/mutation-policy.guidance.test.ts": 4,
     "scripts/ci-pipefail.test.ts": 3,

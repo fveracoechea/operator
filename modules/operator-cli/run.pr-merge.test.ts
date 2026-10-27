@@ -160,12 +160,12 @@ async function readJson(file: string) {
   return (await handle.exists()) ? z.looseObject({}).parse(await handle.json()) : {};
 }
 
-async function github(change: object) {
+async function github(change: Record<string, unknown>) {
   const current = await readJson(`${root}/github.json`);
   await Bun.write(`${root}/github.json`, JSON.stringify({ ...current, ...change }));
 }
 
-async function setHerdr(change: object) {
+async function setHerdr(change: Record<string, unknown>) {
   const current = await readJson(`${root}/herdr-state.json`);
   await Bun.write(`${root}/herdr-state.json`, JSON.stringify({ ...current, ...change }));
 }
@@ -186,7 +186,7 @@ const eligible = {
 };
 
 /** The owner commits its change, opens the PR at that head, and associates it. */
-async function openPullRequest(source: string, change: object = eligible) {
+async function openPullRequest(source: string, change: Record<string, unknown> = eligible) {
   const worker = await dispatch(source);
   await Bun.write(`${worker.worktreePath}/feature.txt`, "feature\n");
   await git(worker.worktreePath, "add", "feature.txt");

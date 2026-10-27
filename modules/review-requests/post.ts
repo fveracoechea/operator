@@ -27,6 +27,7 @@ import { decideReview, headMoveLimit } from "./review-machine.ts";
 import {
   apply,
   files,
+  headLimitSchema,
   openPullRequest,
   parseTarget,
   qualify,
@@ -46,9 +47,17 @@ import { syncReviewer } from "./reviewer.ts";
 
 type Posted = AsyncResult<Outcome, Failure>;
 
-const draftJson = z.string().transform((value, context): unknown => {
+/** What a post reports about the accepted draft. A replayed post reports nothing. */
+type Counts = Partial<{
+  blockers: number;
+  niceToHaves: number;
+  headLimit: z.infer<typeof headLimitSchema> | null;
+}>;
+
+const draftJson = z.string().transform((value, context) => {
   try {
-    return JSON.parse(value);
+    // The draft schema parses this value next, in the same pipe.
+    return JSON.parse(value) as unknown;
   } catch {
     context.addIssue({ code: "custom", message: "The draft is not JSON." });
     return z.NEVER;
@@ -56,10 +65,13 @@ const draftJson = z.string().transform((value, context): unknown => {
 });
 
 function readDraft(file: string) {
-  return fromPromise(async () => {
-    const handle = Bun.file(file);
-    return (await handle.exists()) ? await handle.text() : null;
-  }, qualify).flatMap((text): Result<Draft, Failure> => {
+  return fromPromise(
+    async () => {
+      const handle = Bun.file(file);
+      return (await handle.exists()) ? await handle.text() : null;
+    },
+    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+  ).flatMap((text): Result<Draft, Failure> => {
     if (text === null)
       return Err({
         reason: "review_draft_missing",
@@ -233,9 +245,10 @@ function summarize(operations: Operation[]) {
  * answer stops the run, and the retry reads the threads before it writes again.
  */
 function runOperations(paths: Paths, target: Target, request: Row, operations: Operation[]) {
-  return fromPromise(() => operationsInOrder(paths, target, request, operations), qualify).flatMap(
-    (result) => result,
-  );
+  return fromPromise(
+    () => operationsInOrder(paths, target, request, operations),
+    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+  ).flatMap((result) => result);
 }
 
 async function operationsInOrder(
@@ -297,7 +310,7 @@ function complete(
   round: Round,
   pr: PullRequestFacts,
   operations: Operation[],
-  counts: object,
+  counts: Counts,
 ): Posted {
   const reopened = operations
     .filter((operation) => operation.kind === "unresolve" && operation.state === "done")
@@ -381,14 +394,17 @@ function finish(
 
 /** The lease shows that this post still runs. A killed post becomes a retry in next. */
 function holding(paths: Paths, id: string, work: () => Posted): Posted {
-  return fromPromise(async () => {
-    const release = DeviceState.holdReviewRequest(paths, id);
-    try {
-      return await work();
-    } finally {
-      release();
-    }
-  }, qualify).flatMap((result) => result);
+  return fromPromise(
+    async () => {
+      const release = DeviceState.holdReviewRequest(paths, id);
+      try {
+        return await work();
+      } finally {
+        release();
+      }
+    },
+    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+  ).flatMap((result) => result);
 }
 
 function send(target: Target, round: Round, comments: ReturnType<typeof inlineComments>) {
@@ -454,11 +470,11 @@ function threads(
   round: Round,
   pr: PullRequestFacts,
   operations: Operation[],
-  counts: object,
+  counts: Counts,
 ): Posted {
   return fromPromise(
     async () => await runOperations(paths, target, request, operations),
-    qualify,
+    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
   ).flatMap((result): Posted => {
     if (result.tag === "Ok") return complete(paths, target, round, pr, result.value, counts);
     // The request stays posting, so next offers the retry that reads the threads first.

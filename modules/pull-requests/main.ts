@@ -181,32 +181,35 @@ function runRelay(
     });
   // The lease shows that this relay still runs, also through slow Git steps.
   const release = DeviceState.holdPullRequestRelay(input.paths, owner.sourceId, owner.assignment);
-  return fromPromise(async () => {
-    try {
-      return await relayBranch({
-        worktree,
-        branch: owner.branch,
-        head: observed.head,
-        base: observed.base,
-        defaultBranch: plan.defaultBranch,
-        parentHead: plan.parentHead,
-        rebasedHead: relay.rebasedHead,
-        recordRebase: async (head) => {
-          const recorded = recordRelay(input, owner, (current) => ({
-            ...current,
-            rebasedHead: head,
-          }));
-          return recorded.tag === "Ok" && recorded.value !== null;
-        },
-        retarget: async () => {
-          const changed = await retarget(owner.repository, observed.number, plan.defaultBranch);
-          return changed.tag === "Ok" ? changed.value : "The base change stopped with a defect.";
-        },
-      });
-    } finally {
-      release();
-    }
-  }, qualify).flatMap((result) => {
+  return fromPromise(
+    async () => {
+      try {
+        return await relayBranch({
+          worktree,
+          branch: owner.branch,
+          head: observed.head,
+          base: observed.base,
+          defaultBranch: plan.defaultBranch,
+          parentHead: plan.parentHead,
+          rebasedHead: relay.rebasedHead,
+          recordRebase: async (head) => {
+            const recorded = recordRelay(input, owner, (current) => ({
+              ...current,
+              rebasedHead: head,
+            }));
+            return recorded.tag === "Ok" && recorded.value !== null;
+          },
+          retarget: async () => {
+            const changed = await retarget(owner.repository, observed.number, plan.defaultBranch);
+            return changed.tag === "Ok" ? changed.value : "The base change stopped with a defect.";
+          },
+        });
+      } finally {
+        release();
+      }
+    },
+    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+  ).flatMap((result) => {
     const done: (current: Relay) => Relay =
       "blocker" in result
         ? (current) => ({
@@ -354,7 +357,7 @@ function decideOnce(
             .map(() => ({ reason: "pr_wait_timed_out", data: { ...data, events: [] } }));
         return fromPromise(
           () => Bun.sleep(Math.min(pollMs, deadline - Date.now())),
-          qualify,
+          (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
         ).flatMap(() => poll(input, owner, pr, deadline));
       });
   }
@@ -382,13 +385,16 @@ function wait(input: Request & { timeoutSeconds: number }) {
           owner.sourceId,
           owner.assignment,
         );
-        return fromPromise(async () => {
-          try {
-            return await poll(input, owner, pr, Date.now() + input.timeoutSeconds * 1000);
-          } finally {
-            release();
-          }
-        }, qualify).flatMap((result) => result);
+        return fromPromise(
+          async () => {
+            try {
+              return await poll(input, owner, pr, Date.now() + input.timeoutSeconds * 1000);
+            } finally {
+              release();
+            }
+          },
+          (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+        ).flatMap((result) => result);
       }),
   );
 }

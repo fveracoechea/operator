@@ -8,7 +8,9 @@ export function fakeHerdrScript(root: string) {
 const root = ${JSON.stringify(root)};
 const stateFile = root + "/herdr-state.json";
 const args = process.argv.slice(2);
-await Bun.write(root + "/herdr-calls.jsonl", (await Bun.file(root + "/herdr-calls.jsonl").exists() ? await Bun.file(root + "/herdr-calls.jsonl").text() : "") + JSON.stringify(args) + "\\n");
+// A rewrite would let a concurrent reader see a truncated log, so each call appends one line.
+const { appendFile } = await import("node:fs/promises");
+await appendFile(root + "/herdr-calls.jsonl", JSON.stringify(args) + "\\n");
 const state = await Bun.file(stateFile).exists() ? await Bun.file(stateFile).json() : {};
 state.workspaces ??= []; state.tabs ??= []; state.agents ??= []; state.plugins ??= []; state.counter ??= 0; state.fail ??= {};
 const save = () => Bun.write(stateFile, JSON.stringify(state));

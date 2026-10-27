@@ -1,5 +1,6 @@
 import { defineRule, type ESTree, type SourceCode, type Variable } from "@oxlint/plugins";
 import { resolveArrayBinding } from "./array-method.ts";
+import { withSkillTopic } from "../skill-topic.ts";
 
 function hidesUnknown(
   source: SourceCode,
@@ -27,7 +28,10 @@ export const noUnknownTypeAliasesRule = defineRule({
     type: "problem",
     docs: { description: "Keep unknown visible at parse boundaries." },
     messages: {
-      alias: "This type alias hides unknown. Keep unknown explicit at the parse boundary.",
+      alias: withSkillTopic(
+        "This type alias hides unknown. Keep unknown explicit at the parse boundary.",
+        "lint-fixes/parse-at-the-boundary.md",
+      ),
     },
   },
   createOnce(context) {

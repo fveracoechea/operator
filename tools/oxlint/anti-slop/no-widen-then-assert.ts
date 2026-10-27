@@ -2,6 +2,7 @@ import { defineRule } from "@oxlint/plugins";
 import type { ESTree, Variable } from "@oxlint/plugins";
 
 import { isReassigned } from "./array-method.ts";
+import { withSkillTopic } from "../skill-topic.ts";
 
 type BroadTypeKind = "top" | "object" | "record";
 
@@ -328,8 +329,10 @@ export const noWidenThenAssertRule = defineRule({
         "Disallow local const flows that explicitly widen a known value before asserting the widened binding to a narrower type.",
     },
     messages: {
-      widenThenAssert:
+      widenThenAssert: withSkillTopic(
         'Binding "{{name}}" discards type evidence and later recreates it with an assertion. Keep the precise type from initialization through use; parse boundary input once.',
+        "lint-fixes/type-assertions.md",
+      ),
     },
   },
   createOnce(context) {

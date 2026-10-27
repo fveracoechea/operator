@@ -3,7 +3,7 @@ import { checkDraft, draftSchema } from "./draft.ts";
 import type { PullRequestFacts } from "./github.ts";
 
 const head = "a".repeat(40);
-function thread(change: object = {}) {
+function thread(change: Record<string, unknown> = {}) {
   return {
     id: "T",
     resolved: false,
@@ -30,7 +30,7 @@ function pr(change: Partial<PullRequestFacts> = {}): PullRequestFacts {
     ...change,
   };
 }
-function draft(change: object = {}) {
+function draft(change: Record<string, unknown> = {}) {
   return draftSchema.parse({ reviewedCommit: head, summary: "One line.", ...change });
 }
 
@@ -64,7 +64,7 @@ test("the schema limits findings, short text, locations, and unknown fields", ()
 });
 
 test("each refusal names its cause and posts nothing", () => {
-  const cases: [object, Partial<PullRequestFacts>, string][] = [
+  const cases: [Record<string, unknown>, Partial<PullRequestFacts>, string][] = [
     [{ reviewedCommit: "b".repeat(40) }, {}, "review_head_moved"],
     [{ checks: [{ kind: "guard-break", command: "x", exitCode: 0 }] }, {}, "review_draft_invalid"],
     [{ niceToHaves: [{ detail: "D.", path: "src/b.ts", line: 1 }] }, {}, "review_draft_invalid"],

@@ -28,6 +28,10 @@ export function resolveArrayBinding(sourceCode: SourceCode, node: ESTree.Node): 
   return null;
 }
 
+function isText(value: unknown): value is string {
+  return typeof value === "string";
+}
+
 /** Read static method names, including computed string literals, without evaluating expressions. */
 export function arrayMethodTarget(
   node: ESTree.Node,
@@ -38,7 +42,7 @@ export function arrayMethodTarget(
   if (!node.computed && property.type === "Identifier") {
     return { name: property.name, object: node.object };
   }
-  if (node.computed && property.type === "Literal" && typeof property.value === "string") {
+  if (node.computed && property.type === "Literal" && isText(property.value)) {
     return { name: property.value, object: node.object };
   }
   return null;

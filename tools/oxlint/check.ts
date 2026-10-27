@@ -7,7 +7,13 @@ import { z } from "zod";
 
 const sourceRoot = new URL("../../", import.meta.url).pathname;
 const diagnosticSchema = z.object({
-  diagnostics: z.array(z.object({ code: z.string() })),
+  diagnostics: z.array(
+    z.object({
+      code: z.string(),
+      filename: z.string(),
+      labels: z.array(z.object({ span: z.object({ line: z.number() }) })),
+    }),
+  ),
 });
 
 // Each test file owns a checkout. No deliberate violation enters the working tree.
@@ -67,6 +73,10 @@ export function lintProject() {
     return {
       exitCode,
       codes: parsed.diagnostics.map((diagnostic) => diagnostic.code),
+      // Each finding names the probe line, so one lint run can prove many cases.
+      findings: parsed.diagnostics
+        .filter((diagnostic) => diagnostic.filename === previous)
+        .map((diagnostic) => `${diagnostic.labels[0]?.span.line ?? 0} ${diagnostic.code}`),
       stderr,
       stdout,
     };

@@ -133,7 +133,7 @@ async function stopWorker(paneId: string) {
   ).toBe(0);
 }
 
-async function github(pull: object, branch: string, head: string) {
+async function github(pull: Record<string, unknown>, branch: string, head: string) {
   const file = Bun.file(`${device.root}/github.json`);
   const state = z
     .object({

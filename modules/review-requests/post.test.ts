@@ -72,7 +72,7 @@ function request(change: Partial<Row>): Row {
     ...change,
   };
 }
-function draft(commit: string, change: object = {}) {
+function draft(commit: string, change: Record<string, unknown> = {}) {
   return draftSchema.parse({ reviewedCommit: commit, summary: "S.", ...change });
 }
 

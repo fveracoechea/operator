@@ -133,7 +133,7 @@ export async function workerDevice(options: { github?: boolean } = {}) {
     };
   }
 
-  async function register(plan: object, cwd = main) {
+  async function register(plan: Record<string, unknown>, cwd = main) {
     const file = `${root}/plan-${crypto.randomUUID()}.json`;
     await Bun.write(file, JSON.stringify(plan));
     const registered = await run(["source", "register", "--file", file], { cwd });
@@ -159,7 +159,7 @@ export async function workerDevice(options: { github?: boolean } = {}) {
       .parse(launched.output).data;
   }
 
-  async function writeJson(name: string, value: object) {
+  async function writeJson(name: string, value: Record<string, unknown>) {
     const file = `${root}/drafts/${name}`;
     await Bun.write(file, JSON.stringify(value), { createPath: true });
     return file;
@@ -174,7 +174,7 @@ export async function workerDevice(options: { github?: boolean } = {}) {
       .map((line) => z.array(z.string()).parse(JSON.parse(line)).slice(0, 2).join(" "));
   }
 
-  async function setHerdr(change: object) {
+  async function setHerdr(change: Record<string, unknown>) {
     const file = Bun.file(`${root}/herdr-state.json`);
     const current: object = (await file.exists()) ? z.looseObject({}).parse(await file.json()) : {};
     await Bun.write(file, JSON.stringify({ ...current, ...change }));
@@ -200,7 +200,7 @@ export async function workerDevice(options: { github?: boolean } = {}) {
   }
 
   /** Herdr runs the plugin hook for a pane event, as the real server does. */
-  function event(name: string, data: object) {
+  function event(name: string, data: Record<string, unknown>) {
     return exec(
       [
         "env",

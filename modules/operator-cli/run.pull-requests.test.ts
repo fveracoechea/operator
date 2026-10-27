@@ -151,7 +151,7 @@ async function github(change: { pulls?: Pull[]; queue?: object[]; fail?: string 
   await Bun.write(file, JSON.stringify({ ...current, ...change }));
 }
 
-function pull(change: object = {}): Pull {
+function pull(change: Record<string, unknown> = {}): Pull {
   return {
     number: 7,
     url: "https://github.com/example/one/pull/7",
@@ -675,7 +675,7 @@ test("a killed wait and an idle owner between waits need attention", async () =>
   });
 }, 60000);
 
-async function setHerdr(change: object) {
+async function setHerdr(change: Record<string, unknown>) {
   const file = Bun.file(`${root}/herdr-state.json`);
   const current: object = (await file.exists()) ? z.looseObject({}).parse(await file.json()) : {};
   await Bun.write(file, JSON.stringify({ ...current, ...change }));

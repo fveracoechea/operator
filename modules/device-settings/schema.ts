@@ -17,7 +17,7 @@ export const settingsSchema = z.strictObject({
     .preprocess(
       (input, context) => {
         // Zod records omit __proto__, so reject it before the record parser can discard it.
-        if (input !== null && typeof input === "object" && Object.hasOwn(input, "__proto__"))
+        if (input instanceof Object && Object.hasOwn(input, "__proto__"))
           context.addIssue({ code: "custom", message: "Unsupported profile name: __proto__." });
         return input;
       },

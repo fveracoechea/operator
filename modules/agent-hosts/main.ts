@@ -1,3 +1,4 @@
+import { isCodedError } from "../../lib/coded-error.ts";
 import { Err, Ok, fromPromise, type Result } from "unthrown";
 import { z } from "zod";
 import { discoverClaude, discoverOpenCode, type Host, type HostFailure } from "./catalog.ts";
@@ -8,13 +9,11 @@ type ResolvedLaunch = LaunchSelection & {
   command: { tool: string; args: string[] };
 };
 
-function qualify<T>(cause: unknown, defect: (cause: unknown) => T) {
+function qualify<T>(cause: Error, defect: (cause: Error) => T) {
   if (
     cause instanceof SyntaxError ||
     cause instanceof z.ZodError ||
-    (cause instanceof Error &&
-      "code" in cause &&
-      ["ENOENT", "EACCES", "EPERM", "EIO", "ENOTDIR"].includes(String(cause.code)))
+    (isCodedError(cause) && ["ENOENT", "EACCES", "EPERM", "EIO", "ENOTDIR"].includes(cause.code))
   )
     return {
       reason: "host_metadata_failed" as const,
@@ -29,7 +28,7 @@ export const AgentHosts = {
   models(input: { host: Host; cwd: string }) {
     return fromPromise(
       () => (input.host === "opencode" ? discoverOpenCode(input.cwd) : discoverClaude(input.cwd)),
-      qualify,
+      (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
     ).flatMap((models) => ("reason" in models ? Err(models) : Ok(models)));
   },
   resolve(input: LaunchSelection & { cwd: string }) {

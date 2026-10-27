@@ -1,5 +1,6 @@
 import { defineRule, type ESTree, type SourceCode } from "@oxlint/plugins";
 import { arrayMethodTarget, resolveArrayBinding } from "./array-method.ts";
+import { withSkillTopic } from "../skill-topic.ts";
 
 function isBunMock(source: SourceCode, node: ESTree.Node): boolean {
   const variable = resolveArrayBinding(source, node);
@@ -37,8 +38,10 @@ export const noModuleMockingRule = defineRule({
     type: "problem",
     docs: { description: "Reject Bun module replacement by import path." },
     messages: {
-      moduleMock:
+      moduleMock: withSkillTopic(
         "Replace dependencies at their public interface or external tool boundary, not with mock.module.",
+        "lint-fixes/test-doubles.md",
+      ),
     },
   },
   createOnce(context) {

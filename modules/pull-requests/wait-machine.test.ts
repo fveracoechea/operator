@@ -19,7 +19,7 @@ const open: Observation = {
   feedback: [],
   checks: [],
 };
-function item(id: string, change: object = {}) {
+function item(id: string, change: Record<string, unknown> = {}) {
   return {
     id,
     kind: "comment" as const,

@@ -1,4 +1,5 @@
 // Bun has no lstat, permission check, directory creation, or atomic rename API.
+import { isCodedError } from "../../lib/coded-error.ts";
 import { access, lstat, mkdir, open, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { constants } from "node:fs";
@@ -20,14 +21,9 @@ export const receiptSchema = z.strictObject({
 });
 export type Receipt = z.infer<typeof receiptSchema>;
 
-export function isMissing(error: unknown) {
-  return error instanceof Error && "code" in error && error.code === "ENOENT";
-}
-
-export function isIoFailure(error: unknown) {
+export function isIoFailure(error: Error) {
   return (
-    error instanceof Error &&
-    "code" in error &&
+    isCodedError(error) &&
     [
       "EACCES",
       "EPERM",
@@ -40,7 +36,7 @@ export function isIoFailure(error: unknown) {
       "ENOSPC",
       "SQLITE_BUSY",
       "SQLITE_CANTOPEN",
-    ].includes(String(error.code))
+    ].includes(error.code)
   );
 }
 
@@ -48,7 +44,7 @@ async function fileInfo(file: string) {
   try {
     return await lstat(file);
   } catch (error) {
-    if (isMissing(error)) return null;
+    if (isCodedError(error) && error.code === "ENOENT") return null;
     // oxlint-disable-next-line unthrown/no-throw -- The module boundary qualifies filesystem failures.
     throw error;
   }
@@ -155,12 +151,7 @@ export async function writeEditorSchema(paths: OperatorPaths) {
       return;
     await Bun.write(paths.schema, text, { createPath: true });
   } catch (error) {
-    if (
-      error instanceof Error &&
-      "code" in error &&
-      ["EACCES", "EPERM", "EROFS"].includes(String(error.code))
-    )
-      return;
+    if (isCodedError(error) && ["EACCES", "EPERM", "EROFS"].includes(error.code)) return;
     // oxlint-disable-next-line unthrown/no-throw -- Only a read-only editor destination is optional.
     throw error;
   }

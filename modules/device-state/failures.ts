@@ -1,3 +1,5 @@
+import { isCodedError } from "../../lib/coded-error.ts";
+
 export type StateFailure = {
   reason:
     | "state_missing"
@@ -12,15 +14,11 @@ export type StateFailure = {
   detail: string;
 };
 
-export function errorCode(cause: unknown) {
-  return cause instanceof Error && "code" in cause ? String(cause.code) : undefined;
-}
-
 export function qualifyStateFailure<T>(
-  cause: unknown,
-  defect: (cause: unknown) => T,
+  cause: Error,
+  defect: (cause: Error) => T,
 ): StateFailure | T {
-  const code = errorCode(cause);
+  const code = isCodedError(cause) ? cause.code : undefined;
   if (code === "STATE_UNSUPPORTED") return { reason: "state_incompatible", detail: String(cause) };
   if (code === "SQLITE_BUSY" || code === "SQLITE_LOCKED")
     return {

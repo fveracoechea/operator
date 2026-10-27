@@ -87,7 +87,7 @@ const pullRequestQuery = `query($owner: String!, $name: String!, $number: Int!) 
 }`;
 
 const author = z.object({ login: z.string() }).nullable();
-const answer = z.object({
+export const pullRequestAnswer = z.object({
   data: z.object({
     viewer: z.object({ login: z.string() }),
     repository: z.object({
@@ -188,7 +188,7 @@ const failingConclusions = [
 ];
 
 type Context = NonNullable<
-  z.infer<typeof answer>["data"]["repository"]["pullRequest"]
+  z.infer<typeof pullRequestAnswer>["data"]["repository"]["pullRequest"]
 >["commits"]["nodes"][number]["commit"]["statusCheckRollup"];
 
 function requiredChecks(rollup: Context): RequiredCheck[] {
@@ -225,12 +225,13 @@ export function reviewEvent(state: string) {
   return state === "CHANGES_REQUESTED" ? "REQUEST_CHANGES" : "COMMENT";
 }
 
-/** Maps one GitHub answer to the facts that a post reads, or null for an unknown form. */
-export function pullRequestFacts(body: unknown): PullRequestFacts | null {
-  const parsed = answer.safeParse(body);
-  const pr = parsed.success ? parsed.data.data.repository.pullRequest : null;
-  if (!parsed.success || pr === null) return null;
-  const viewer = parsed.data.data.viewer.login;
+/** Maps one parsed GitHub answer to the facts that a post reads, or null when the PR is gone. */
+export function pullRequestFacts(
+  parsed: z.infer<typeof pullRequestAnswer>,
+): PullRequestFacts | null {
+  const pr = parsed.data.repository.pullRequest;
+  if (pr === null) return null;
+  const viewer = parsed.data.viewer.login;
   const rollup = pr.commits.nodes[0]?.commit.statusCheckRollup ?? null;
   return {
     state: pr.state,
@@ -301,7 +302,8 @@ export function readPullRequest(target: Target) {
     (cause, defect) => defect(cause),
   ).flatMap((outcome): Result<PullRequestFacts, GithubFailure> => {
     if (outcome.status !== "succeeded") return Err(unanswered(outcome));
-    const facts = pullRequestFacts(outcome.value.body);
+    const parsed = pullRequestAnswer.safeParse(outcome.value.body);
+    const facts = parsed.success ? pullRequestFacts(parsed.data) : null;
     return facts === null
       ? Err({
           reason: "github_invalid_response",

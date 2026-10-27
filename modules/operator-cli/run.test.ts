@@ -42,7 +42,7 @@ test("version reports the running release without project release selection", as
   });
   const [code, output, error] = await Promise.all([
     child.exited,
-    new Response(child.stdout).json().then((value: unknown) => versionOutput.parse(value)),
+    new Response(child.stdout).json().then((value) => versionOutput.parse(value)),
     new Response(child.stderr).text(),
   ]);
   expect(code).toBe(0);
@@ -140,7 +140,7 @@ test.each(
   });
   const [code, output, error] = await Promise.all([
     child.exited,
-    new Response(child.stdout).json().then((value: unknown) => z.unknown().parse(value)),
+    new Response(child.stdout).json().then((value) => z.unknown().parse(value)),
     new Response(child.stderr).text(),
   ]);
   expect(code).toBe(2);

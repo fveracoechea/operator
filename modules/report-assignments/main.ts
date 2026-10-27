@@ -1,4 +1,5 @@
 // Bun has no lstat, copy, folder creation, rename, or recursive removal API.
+import { isCodedError } from "../../lib/coded-error.ts";
 import { copyFile, lstat, mkdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { Err, Ok, fromPromise, type Result } from "unthrown";
@@ -25,14 +26,13 @@ type Fields = {
 };
 type Decision = { paths: Paths; target: Target; command: Command };
 
-function qualify<T>(cause: unknown, defect: (cause: unknown) => T) {
+function qualify<T>(cause: Error, defect: (cause: Error) => T) {
   if (cause instanceof SyntaxError || cause instanceof z.ZodError)
     return { reason: "invalid_report_input", detail: `${cause.message} Nothing changed.` };
   if (
-    cause instanceof Error &&
-    "code" in cause &&
+    isCodedError(cause) &&
     ["ENOENT", "EACCES", "EPERM", "EIO", "EROFS", "ENOSPC", "ENOTDIR", "EISDIR", "ELOOP"].includes(
-      String(cause.code),
+      cause.code,
     )
   )
     return { reason: "report_io_failed", detail: String(cause) };
@@ -182,87 +182,93 @@ async function stageReport(input: {
 }
 
 function submit(input: { paths: Paths; file: string }) {
-  return fromPromise(async () => {
-    const target = workerPane();
-    if (target.tag !== "Ok") return stop(target);
-    const decision = { paths: input.paths, target: target.value, command: "submit" as const };
-    const submission = submissionSchema.parse(JSON.parse(await Bun.file(input.file).text()));
-    const before = read(decision);
-    if (before.tag !== "Ok") return stop(before);
-    const { facts, decided } = before.value;
-    const number = "insert" in decided.report ? decided.report.insert : 0;
-    const directory = `${assignmentFiles(input.paths, facts).reports}/${number}`;
-    const staged = pending(input.paths, facts);
-    const stored = await stageReport({
-      staged,
-      directory,
-      number,
-      key: facts.assignment.key,
-      submission,
-    });
-    if (stored.tag !== "Ok") {
-      await rm(staged, { recursive: true, force: true });
-      return stop(stored);
-    }
-    const recorded = record(decision, decided, (current) => ({
-      insert: {
-        sourceId: current.source.id,
-        assignment: current.assignment.key,
+  return fromPromise(
+    async () => {
+      const target = workerPane();
+      if (target.tag !== "Ok") return stop(target);
+      const decision = { paths: input.paths, target: target.value, command: "submit" as const };
+      const submission = submissionSchema.parse(JSON.parse(await Bun.file(input.file).text()));
+      const before = read(decision);
+      if (before.tag !== "Ok") return stop(before);
+      const { facts, decided } = before.value;
+      const number = "insert" in decided.report ? decided.report.insert : 0;
+      const directory = `${assignmentFiles(input.paths, facts).reports}/${number}`;
+      const staged = pending(input.paths, facts);
+      const stored = await stageReport({
+        staged,
+        directory,
         number,
-        launchId: current.launch?.id ?? "",
-        submittedAt: new Date().toISOString(),
-        conclusion: submission.conclusion,
-        evidence: JSON.stringify(submission.evidence),
-        unresolved: JSON.stringify(submission.unresolved),
-        decisions: JSON.stringify(submission.decisions),
-        files: JSON.stringify(stored.value),
-        decision: null,
-        decidedAt: null,
-        followUp: null,
-        cleanupState: null,
-        cleanupDetail: null,
-      },
-    }));
-    if (recorded.tag !== "Ok") {
-      await rm(staged, { recursive: true, force: true });
-      return stop(recorded);
-    }
-    await publish(staged, directory);
-    return Ok({
-      reason: "report_submitted",
-      data: {
-        sourceId: facts.source.id,
-        assignment: facts.assignment.key,
-        state: "reported",
-        report: number,
-        file: `${directory}/report.md`,
-        files: stored.value,
-      },
-    });
-  }, qualify).flatMap((result) => result);
+        key: facts.assignment.key,
+        submission,
+      });
+      if (stored.tag !== "Ok") {
+        await rm(staged, { recursive: true, force: true });
+        return stop(stored);
+      }
+      const recorded = record(decision, decided, (current) => ({
+        insert: {
+          sourceId: current.source.id,
+          assignment: current.assignment.key,
+          number,
+          launchId: current.launch?.id ?? "",
+          submittedAt: new Date().toISOString(),
+          conclusion: submission.conclusion,
+          evidence: JSON.stringify(submission.evidence),
+          unresolved: JSON.stringify(submission.unresolved),
+          decisions: JSON.stringify(submission.decisions),
+          files: JSON.stringify(stored.value),
+          decision: null,
+          decidedAt: null,
+          followUp: null,
+          cleanupState: null,
+          cleanupDetail: null,
+        },
+      }));
+      if (recorded.tag !== "Ok") {
+        await rm(staged, { recursive: true, force: true });
+        return stop(recorded);
+      }
+      await publish(staged, directory);
+      return Ok({
+        reason: "report_submitted",
+        data: {
+          sourceId: facts.source.id,
+          assignment: facts.assignment.key,
+          state: "reported",
+          report: number,
+          file: `${directory}/report.md`,
+          files: stored.value,
+        },
+      });
+    },
+    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+  ).flatMap((result) => result);
 }
 
 function resume(input: { paths: Paths }) {
-  return fromPromise(async () => {
-    const target = workerPane();
-    if (target.tag !== "Ok") return stop(target);
-    const decision = { paths: input.paths, target: target.value, command: "resume" as const };
-    const before = read(decision);
-    if (before.tag !== "Ok") return stop(before);
-    const { facts, decided } = before.value;
-    const recorded = record(decision, decided, () => ({}));
-    if (recorded.tag !== "Ok") return stop(recorded);
-    const number = facts.reports.at(-1)?.number ?? 0;
-    return Ok({
-      reason: "report_resumed",
-      data: {
-        sourceId: facts.source.id,
-        assignment: facts.assignment.key,
-        state: "running",
-        followUp: `${assignmentFiles(input.paths, facts).followUps}/${number}.md`,
-      },
-    });
-  }, qualify).flatMap((result) => result);
+  return fromPromise(
+    async () => {
+      const target = workerPane();
+      if (target.tag !== "Ok") return stop(target);
+      const decision = { paths: input.paths, target: target.value, command: "resume" as const };
+      const before = read(decision);
+      if (before.tag !== "Ok") return stop(before);
+      const { facts, decided } = before.value;
+      const recorded = record(decision, decided, () => ({}));
+      if (recorded.tag !== "Ok") return stop(recorded);
+      const number = facts.reports.at(-1)?.number ?? 0;
+      return Ok({
+        reason: "report_resumed",
+        data: {
+          sourceId: facts.source.id,
+          assignment: facts.assignment.key,
+          state: "running",
+          followUp: `${assignmentFiles(input.paths, facts).followUps}/${number}.md`,
+        },
+      });
+    },
+    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+  ).flatMap((result) => result);
 }
 
 function returnReport(input: {
@@ -272,43 +278,46 @@ function returnReport(input: {
   assignment: string;
   file: string;
 }) {
-  return fromPromise(async () => {
-    const target = await superAgentTarget(input);
-    if (target.tag !== "Ok") return stop(target);
-    const decision = { paths: input.paths, target: target.value, command: "return" as const };
-    const text = z
-      .string()
-      .trim()
-      .min(1)
-      .parse(await Bun.file(input.file).text());
-    const before = read(decision);
-    if (before.tag !== "Ok") return stop(before);
-    const { facts, decided } = before.value;
-    const number = facts.reports.at(-1)?.number ?? 0;
-    const followUp = `${assignmentFiles(input.paths, facts).followUps}/${number}.md`;
-    const staged = `${pending(input.paths, facts)}.md`;
-    await Bun.write(staged, `${text}\n`, { createPath: true });
-    const recorded = record(decision, decided, () => ({
-      update: { decision: "returned", decidedAt: new Date().toISOString(), followUp: text },
-    }));
-    if (recorded.tag !== "Ok") {
-      await rm(staged, { force: true });
-      return stop(recorded);
-    }
-    await publish(staged, followUp);
-    const running = facts.launch?.state === "running";
-    return Ok({
-      reason: "report_returned",
-      data: {
-        sourceId: facts.source.id,
-        assignment: facts.assignment.key,
-        report: number,
-        followUp,
-        // A live worker resumes with the follow-up. A stopped worker needs a replacement.
-        next: running ? "resume_worker" : "replace_worker",
-      },
-    });
-  }, qualify).flatMap((result) => result);
+  return fromPromise(
+    async () => {
+      const target = await superAgentTarget(input);
+      if (target.tag !== "Ok") return stop(target);
+      const decision = { paths: input.paths, target: target.value, command: "return" as const };
+      const text = z
+        .string()
+        .trim()
+        .min(1)
+        .parse(await Bun.file(input.file).text());
+      const before = read(decision);
+      if (before.tag !== "Ok") return stop(before);
+      const { facts, decided } = before.value;
+      const number = facts.reports.at(-1)?.number ?? 0;
+      const followUp = `${assignmentFiles(input.paths, facts).followUps}/${number}.md`;
+      const staged = `${pending(input.paths, facts)}.md`;
+      await Bun.write(staged, `${text}\n`, { createPath: true });
+      const recorded = record(decision, decided, () => ({
+        update: { decision: "returned", decidedAt: new Date().toISOString(), followUp: text },
+      }));
+      if (recorded.tag !== "Ok") {
+        await rm(staged, { force: true });
+        return stop(recorded);
+      }
+      await publish(staged, followUp);
+      const running = facts.launch?.state === "running";
+      return Ok({
+        reason: "report_returned",
+        data: {
+          sourceId: facts.source.id,
+          assignment: facts.assignment.key,
+          report: number,
+          followUp,
+          // A live worker resumes with the follow-up. A stopped worker needs a replacement.
+          next: running ? "resume_worker" : "replace_worker",
+        },
+      });
+    },
+    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+  ).flatMap((result) => result);
 }
 
 /** Acceptance permits closing the worker pane. It never removes unlanded work. */
@@ -340,12 +349,16 @@ async function cleanup(checkout: string, facts: Facts) {
     } else steps.push(`Pane ${launch.paneId} no longer holds ${launch.name}.`);
   }
   if (launch?.worktreePath) {
-    const outcome = await WorkerDispatch.cleanWorktree({
-      checkout,
-      worktree: launch.worktreePath,
-      branch: launch.branch,
-    }).catch((cause: unknown) => ({ state: "failed" as const, detail: String(cause) }));
-    if (outcome.state === "failed") return outcome;
+    let outcome;
+    try {
+      outcome = await WorkerDispatch.cleanWorktree({
+        checkout,
+        worktree: launch.worktreePath,
+        branch: launch.branch,
+      });
+    } catch (cause) {
+      return { state: "failed" as const, detail: String(cause) };
+    }
     steps.push(outcome.detail);
   }
   return { state: "done" as const, detail: steps.join(" ") || "No pane or worktree to clean up." };
@@ -367,52 +380,55 @@ function acceptedReport(input: {
 }
 
 function accept(input: { paths: Paths; cwd: string; sourceId: string; assignment: string }) {
-  return fromPromise(async () => {
-    const target = await superAgentTarget(input);
-    if (target.tag !== "Ok") return stop(target);
-    const decision = { paths: input.paths, target: target.value, command: "accept" as const };
-    const before = read(decision);
-    if (before.tag !== "Ok") return stop(before);
-    const { facts, decided } = before.value;
-    const recorded = record(decision, decided, (_facts, current) => ({
-      update: current.retry
-        ? { cleanupState: "pending" }
-        : { decision: "accepted", decidedAt: new Date().toISOString(), cleanupState: "pending" },
-    }));
-    if (recorded.tag !== "Ok") return stop(recorded);
-    const checkout = target.value.by === "key" ? target.value.checkout : "";
-    const outcome = await cleanup(checkout, facts);
-    const cleaned = DeviceState.changeReport(input.paths, decision.target, (current) =>
-      decide(current, "cleanup").map((done) => ({
-        update: {
-          number: "insert" in done.report ? done.report.insert : done.report.update,
-          cleanupState: outcome.state,
-          cleanupDetail: outcome.detail,
+  return fromPromise(
+    async () => {
+      const target = await superAgentTarget(input);
+      if (target.tag !== "Ok") return stop(target);
+      const decision = { paths: input.paths, target: target.value, command: "accept" as const };
+      const before = read(decision);
+      if (before.tag !== "Ok") return stop(before);
+      const { facts, decided } = before.value;
+      const recorded = record(decision, decided, (_facts, current) => ({
+        update: current.retry
+          ? { cleanupState: "pending" }
+          : { decision: "accepted", decidedAt: new Date().toISOString(), cleanupState: "pending" },
+      }));
+      if (recorded.tag !== "Ok") return stop(recorded);
+      const checkout = target.value.by === "key" ? target.value.checkout : "";
+      const outcome = await cleanup(checkout, facts);
+      const cleaned = DeviceState.changeReport(input.paths, decision.target, (current) =>
+        decide(current, "cleanup").map((done) => ({
+          update: {
+            number: "insert" in done.report ? done.report.insert : done.report.update,
+            cleanupState: outcome.state,
+            cleanupDetail: outcome.detail,
+          },
+        })),
+      );
+      if (cleaned.tag !== "Ok") return stop(cleaned);
+      const report = await acceptedReport(input);
+      if (report.tag !== "Ok") return stop(report);
+      const { number, conclusion, unresolved, reference } = report.value;
+      const files = assignmentFiles(input.paths, facts);
+      return Ok({
+        reason: decided.retry ? "report_cleanup_retried" : "report_accepted",
+        data: {
+          sourceId: facts.source.id,
+          assignment: facts.assignment.key,
+          state: "completed",
+          sourceFinished: decided.sourceFinished === true,
+          report: number,
+          conclusion,
+          unresolved,
+          file: `${files.reports}/${number}/report.md`,
+          // Another project's SuperAgent copies the content it needs with this reference.
+          reference,
+          cleanup: outcome,
         },
-      })),
-    );
-    if (cleaned.tag !== "Ok") return stop(cleaned);
-    const report = await acceptedReport(input);
-    if (report.tag !== "Ok") return stop(report);
-    const { number, conclusion, unresolved, reference } = report.value;
-    const files = assignmentFiles(input.paths, facts);
-    return Ok({
-      reason: decided.retry ? "report_cleanup_retried" : "report_accepted",
-      data: {
-        sourceId: facts.source.id,
-        assignment: facts.assignment.key,
-        state: "completed",
-        sourceFinished: decided.sourceFinished === true,
-        report: number,
-        conclusion,
-        unresolved,
-        file: `${files.reports}/${number}/report.md`,
-        // Another project's SuperAgent copies the content it needs with this reference.
-        reference,
-        cleanup: outcome,
-      },
-    });
-  }, qualify).flatMap((result) => result);
+      });
+    },
+    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+  ).flatMap((result) => result);
 }
 
 /** Report assignments: worker submission and resume, and SuperAgent acceptance or return. */

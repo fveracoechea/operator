@@ -71,20 +71,23 @@ export function observe(input: { paths: Paths }) {
 export function installPlugin(input: { paths: Paths }) {
   const manifest = `${input.paths.herdrPlugin}/herdr-plugin.toml`;
   return Herdr.plugins().flatMap((plugins) =>
-    fromPromise(async () => {
-      const existing = plugins.find((plugin) => plugin.id === pluginId);
-      const linked =
-        existing === undefined ? null : ((await realOrNull(existing.root)) ?? existing.root);
-      const wanted = (await realOrNull(input.paths.herdrPlugin)) ?? input.paths.herdrPlugin;
-      // A conflict is refused before Operator writes its own manifest.
-      if (linked !== null && linked !== wanted) return { conflict: true as const };
-      const released = await Bun.file(pluginManifestFile).text();
-      const current = Bun.file(manifest);
-      const written = !(await current.exists()) || (await current.text()) !== released;
-      if (written) await Bun.write(manifest, released, { createPath: true });
-      const directory = await realpath(input.paths.herdrPlugin);
-      return { conflict: false as const, written, directory, existing: linked };
-    }, qualify).flatMap((found) => {
+    fromPromise(
+      async () => {
+        const existing = plugins.find((plugin) => plugin.id === pluginId);
+        const linked =
+          existing === undefined ? null : ((await realOrNull(existing.root)) ?? existing.root);
+        const wanted = (await realOrNull(input.paths.herdrPlugin)) ?? input.paths.herdrPlugin;
+        // A conflict is refused before Operator writes its own manifest.
+        if (linked !== null && linked !== wanted) return { conflict: true as const };
+        const released = await Bun.file(pluginManifestFile).text();
+        const current = Bun.file(manifest);
+        const written = !(await current.exists()) || (await current.text()) !== released;
+        if (written) await Bun.write(manifest, released, { createPath: true });
+        const directory = await realpath(input.paths.herdrPlugin);
+        return { conflict: false as const, written, directory, existing: linked };
+      },
+      (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+    ).flatMap((found) => {
       if (found.conflict)
         return Err<Failure>({
           reason: "herdr_plugin_conflict",

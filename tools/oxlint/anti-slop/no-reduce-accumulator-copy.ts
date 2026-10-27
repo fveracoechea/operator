@@ -8,6 +8,7 @@ import {
   resolveArrayBinding,
   unwrapArrayExpression,
 } from "./array-method.ts";
+import { withSkillTopic } from "../skill-topic.ts";
 
 type ReducerCallback = ESTree.ArrowFunctionExpression | ESTree.Function;
 
@@ -80,8 +81,10 @@ export const noReduceAccumulatorCopyRule = defineRule({
         "Disallow copying growing reducer accumulators with Object.assign, Array.from, or array copy methods.",
     },
     messages: {
-      accumulatorCopy:
+      accumulatorCopy: withSkillTopic(
         "Do not copy the reducer accumulator on every iteration; growing copies can cause quadratic work. Mutate a fresh, locally owned accumulator and return it, or use an iterator pipeline/flatMap.",
+        "lint-fixes/object-construction.md",
+      ),
     },
   },
   createOnce(context) {

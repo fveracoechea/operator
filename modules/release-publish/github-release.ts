@@ -1,9 +1,10 @@
 import { GithubApi } from "../github-api/main.ts";
-import { textField } from "../../lib/text-field.ts";
 import { z } from "zod";
 
 const READ_TIMEOUT_MS = 30_000;
 const WRITE_TIMEOUT_MS = 60_000;
+const comparisonBody = z.object({ status: z.string() });
+const releaseBody = z.object({ html_url: z.string() });
 
 type Outcome<Value> =
   | Extract<
@@ -36,7 +37,8 @@ export async function readMerged(request: {
     return { status: "unknown", detail: outcome.detail };
   }
 
-  const comparison = textField(outcome.value.body, "status") ?? "unknown";
+  const parsed = comparisonBody.safeParse(outcome.value.body);
+  const comparison = parsed.success ? parsed.data.status : "unknown";
   // `identical` and `behind` both mean the commit is already an ancestor of the base branch.
   return comparison === "identical" || comparison === "behind"
     ? { status: "merged", comparison }
@@ -98,7 +100,7 @@ export async function readRelease(request: {
     return { status: "unknown", detail: outcome.detail };
   }
 
-  return { status: "present", url: textField(outcome.value.body, "html_url") ?? "" };
+  return { status: "present", url: releaseBody.safeParse(outcome.value.body).data?.html_url ?? "" };
 }
 
 /** Creates the release that carries the source delivery path of one version. */
@@ -123,7 +125,7 @@ export async function createRelease(request: {
   return outcome.status === "succeeded"
     ? {
         status: "succeeded",
-        value: { url: textField(outcome.value.body, "html_url") ?? "" },
+        value: { url: releaseBody.safeParse(outcome.value.body).data?.html_url ?? "" },
       }
     : outcome;
 }

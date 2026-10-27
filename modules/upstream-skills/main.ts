@@ -1,4 +1,5 @@
 // Bun has no temporary-directory, recursive removal, or file metadata API.
+import { isCodedError } from "../../lib/coded-error.ts";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { fromPromise, Ok, Err } from "unthrown";
 import { z } from "zod";
@@ -14,15 +15,12 @@ const replacementPolicy =
   "The upstream installer owns replacement and its lock. It can replace local edits without an Operator preview. Inspect a failed or interrupted install before trying again.";
 const required = ["code-review"];
 
-function qualify<T>(cause: unknown, defect: (cause: unknown) => T) {
+function qualify<T>(cause: Error, defect: (cause: Error) => T) {
   if (cause instanceof SyntaxError || cause instanceof z.ZodError)
     return { reason: "upstream_catalog_invalid" as const, detail: String(cause) };
   if (
-    cause instanceof Error &&
-    "code" in cause &&
-    ["ENOENT", "ENOTDIR", "EACCES", "EPERM", "EIO", "ENOSPC", "EROFS", "ELOOP"].includes(
-      String(cause.code),
-    )
+    isCodedError(cause) &&
+    ["ENOENT", "ENOTDIR", "EACCES", "EPERM", "EIO", "ENOSPC", "EROFS", "ELOOP"].includes(cause.code)
   )
     return { reason: "upstream_io_failed" as const, detail: String(cause) };
   return defect(cause);
@@ -124,35 +122,37 @@ export const UpstreamSkills = {
     return replacementPolicy;
   },
   install(hosts: Host[], paths: ReturnType<typeof OperatorHome.resolve>) {
-    return fromPromise(async () => {
-      OperatorHome.guardTemporaryTests(
-        Environment.read(),
-        hosts.map((host) => paths.upstreamSkills[host]),
-      );
-      return install(hosts);
-    }, qualify).flatMap((outcome) => (outcome.detail !== undefined ? Err(outcome) : Ok(outcome)));
+    return fromPromise(
+      async () => {
+        OperatorHome.guardTemporaryTests(
+          Environment.read(),
+          hosts.map((host) => paths.upstreamSkills[host]),
+        );
+        return install(hosts);
+      },
+      (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+    ).flatMap((outcome) => (outcome.detail !== undefined ? Err(outcome) : Ok(outcome)));
   },
   check(paths: ReturnType<typeof OperatorHome.resolve>, host: Host) {
-    return fromPromise(async () => {
-      OperatorHome.guardTemporaryTests(Environment.read(), [paths.upstreamSkills[host]]);
-      const missing = [];
-      for (const name of required) {
-        const file = `${paths.upstreamSkills[host]}/${name}/SKILL.md`;
-        try {
-          if (!(await stat(file)).isFile() || (await Bun.file(file).text()).trim().length === 0)
-            missing.push(file);
-        } catch (cause) {
-          if (
-            cause instanceof Error &&
-            "code" in cause &&
-            ["ENOENT", "ENOTDIR", "ELOOP"].includes(String(cause.code))
-          )
-            missing.push(file);
-          // oxlint-disable-next-line unthrown/no-throw -- The module boundary qualifies filesystem failures.
-          else throw cause;
+    return fromPromise(
+      async () => {
+        OperatorHome.guardTemporaryTests(Environment.read(), [paths.upstreamSkills[host]]);
+        const missing = [];
+        for (const name of required) {
+          const file = `${paths.upstreamSkills[host]}/${name}/SKILL.md`;
+          try {
+            if (!(await stat(file)).isFile() || (await Bun.file(file).text()).trim().length === 0)
+              missing.push(file);
+          } catch (cause) {
+            if (isCodedError(cause) && ["ENOENT", "ENOTDIR", "ELOOP"].includes(cause.code))
+              missing.push(file);
+            // oxlint-disable-next-line unthrown/no-throw -- The module boundary qualifies filesystem failures.
+            else throw cause;
+          }
         }
-      }
-      return missing;
-    }, qualify);
+        return missing;
+      },
+      (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+    );
   },
 };

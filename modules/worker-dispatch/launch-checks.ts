@@ -13,21 +13,24 @@ import { qualify, realOrNull, type Failure, type Paths } from "./observations.ts
 /** Herdr reads hooks when it links a manifest, so a manifest from another release is stale. */
 function pluginReady(paths: Paths) {
   return Herdr.plugins().flatMap((plugins) =>
-    fromPromise(async () => {
-      const installed = plugins.find((plugin) => plugin.id === pluginId);
-      const expected = await realOrNull(paths.herdrPlugin);
-      if (
-        installed === undefined ||
-        expected === null ||
-        (await realOrNull(installed.root)) !== expected
-      )
-        return "herdr_plugin_missing";
-      const linked = Bun.file(`${paths.herdrPlugin}/herdr-plugin.toml`);
-      const released = await Bun.file(pluginManifestFile).text();
-      return (await linked.exists()) && (await linked.text()) === released
-        ? null
-        : "herdr_plugin_outdated";
-    }, qualify).flatMap((reason) =>
+    fromPromise(
+      async () => {
+        const installed = plugins.find((plugin) => plugin.id === pluginId);
+        const expected = await realOrNull(paths.herdrPlugin);
+        if (
+          installed === undefined ||
+          expected === null ||
+          (await realOrNull(installed.root)) !== expected
+        )
+          return "herdr_plugin_missing";
+        const linked = Bun.file(`${paths.herdrPlugin}/herdr-plugin.toml`);
+        const released = await Bun.file(pluginManifestFile).text();
+        return (await linked.exists()) && (await linked.text()) === released
+          ? null
+          : "herdr_plugin_outdated";
+      },
+      (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+    ).flatMap((reason) =>
       reason === null
         ? Ok(undefined)
         : Err<Failure>({
@@ -72,16 +75,24 @@ export function launchSettings(paths: Paths, checkout: string, profile: string |
       DeviceSettings.resolve({ paths, cwd: checkout, role: "workerAgent", profile }),
     )
     .bind("release", () =>
-      fromPromise(async () => {
-        const manifest = await OperatorRelease.manifest();
-        return {
-          version: manifest.version,
-          commit: manifest.commit,
-          artifactIdentity: manifest.artifactIdentity,
-        };
-      }, qualify),
+      fromPromise(
+        async () => {
+          const manifest = await OperatorRelease.manifest();
+          return {
+            version: manifest.version,
+            commit: manifest.commit,
+            artifactIdentity: manifest.artifactIdentity,
+          };
+        },
+        (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+      ),
     )
-    .bind("skills", () => fromPromise(() => OwnedSkills.identities(), qualify));
+    .bind("skills", () =>
+      fromPromise(
+        () => OwnedSkills.identities(),
+        (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+      ),
+    );
 }
 
 export function ensureWorkspace(checkout: string, repository: string, workspaceId: string | null) {
@@ -98,19 +109,24 @@ export function ensureWorkspace(checkout: string, repository: string, workspaceI
  * it is prepared here. Preparation keeps existing files, so a second run is safe.
  */
 export function preparedAgain(paths: Paths, worktree: string) {
-  return fromPromise(async () => {
-    const real = await realOrNull(worktree);
-    if (real === null)
-      return Err<Failure>({
-        reason: "worktree_missing",
-        detail: `The recorded worktree ${worktree} no longer exists.`,
-      });
-    const read = DeviceState.readPreparation(paths, real);
-    if (read.tag !== "Ok") return read.flatMap(() => Ok(""));
-    if (read.value?.state === "prepared") return Ok(read.value.detail);
-    const prepared = await WorktreePreparation.prepare({ paths, worktree: real });
-    if (prepared.tag === "Err")
-      return Err<Failure>({ reason: "worktree_setup_failed", detail: prepared.error.detail });
-    return prepared.map((done) => ("detail" in done.data ? String(done.data.detail) : done.reason));
-  }, qualify).flatMap((result) => result);
+  return fromPromise(
+    async () => {
+      const real = await realOrNull(worktree);
+      if (real === null)
+        return Err<Failure>({
+          reason: "worktree_missing",
+          detail: `The recorded worktree ${worktree} no longer exists.`,
+        });
+      const read = DeviceState.readPreparation(paths, real);
+      if (read.tag !== "Ok") return read.flatMap(() => Ok(""));
+      if (read.value?.state === "prepared") return Ok(read.value.detail);
+      const prepared = await WorktreePreparation.prepare({ paths, worktree: real });
+      if (prepared.tag === "Err")
+        return Err<Failure>({ reason: "worktree_setup_failed", detail: prepared.error.detail });
+      return prepared.map((done) =>
+        "detail" in done.data ? String(done.data.detail) : done.reason,
+      );
+    },
+    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+  ).flatMap((result) => result);
 }

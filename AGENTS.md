@@ -37,7 +37,7 @@ The dotfiles link that file into each agent host, so this repository is its one 
 ## Breaking workflow replacement
 
 The legacy CLI workflows are removed under #235 before their device-level replacements land.
-Help, version reporting, global installation, the Nix package, device settings, launch selection, project registration, skill installation, static readiness, supplied assignment plans, next actions, worker dispatch, the global Herdr plugin, the PR feedback loop with parent-merge relay, report assignments, the guarded merge with cleanup, the core review request and posting path, review rounds, and source reset and prune are available.
+Help, version reporting, global installation, the Nix package, device settings, launch selection, project registration, skill installation, static readiness, supplied assignment plans, next actions, worker dispatch, the global Herdr plugin, the PR feedback loop with parent-merge relay, report assignments, the guarded merge with cleanup, the core review request and posting path, review rounds, source reset and prune, and the boundary lint rules are available.
 For concurrent quality runs, the test watchdog, and open Bun defects, read `docs/implementation/220-concurrent-quality.md`.
 For global JSR and source installation, the launcher, and global command discovery, read `docs/implementation/256-global-installation.md`.
 For the Nix flake, its launcher, its checks, and `nix/bun.nix` refreshes, read `docs/implementation/257-nix-package.md`.
@@ -58,5 +58,6 @@ For host metadata, profile inheritance, and resolved launch values, read `docs/i
 For project registration, lookup, database creation, and isolated Git tests, read `docs/implementation/240-project-registration.md`.
 For settings edits, environment values, and isolated test roots, read `docs/implementation/239-device-settings.md`.
 For delegated runs without routine approval stops and the remaining human stops, read `docs/implementation/61-delegated-authority.md`.
+For the boundary lint rules, the validator exception, and lint skill-topic pointers, read `docs/implementation/219-boundary-lint.md`.
 Read `docs/implementation/235-legacy-removal.md` for the inventory and verification.
 Do not inspect, migrate, repair, or remove real legacy Operator state.

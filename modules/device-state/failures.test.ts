@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { errorCode, qualifyStateFailure } from "./failures.ts";
+import { qualifyStateFailure } from "./failures.ts";
 
 test("qualifies known SQLite and filesystem failures, but keeps defects separate", () => {
   for (const [code, reason] of [
@@ -19,6 +19,6 @@ test("qualifies known SQLite and filesystem failures, but keeps defects separate
   }
   const cause = new TypeError("implementation defect");
   expect(qualifyStateFailure(cause, (value) => ({ defect: value }))).toEqual({ defect: cause });
-  expect(errorCode(null)).toBeUndefined();
-  expect(errorCode({ code: "SQLITE_BUSY" })).toBeUndefined();
+  const numeric = Object.assign(new Error("numeric"), { code: 5 });
+  expect(qualifyStateFailure(numeric, (value) => ({ defect: value }))).toEqual({ defect: numeric });
 });

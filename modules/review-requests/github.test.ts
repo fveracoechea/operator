@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
-import { pullRequestFacts, pullRequestTarget, reviewEvent } from "./github.ts";
+import { pullRequestAnswer, pullRequestFacts, pullRequestTarget, reviewEvent } from "./github.ts";
 
-function answer(change: object = {}) {
-  return {
+function answer(change: Record<string, unknown> = {}) {
+  return pullRequestAnswer.parse({
     data: {
       viewer: { login: "me" },
       repository: {
@@ -20,7 +20,7 @@ function answer(change: object = {}) {
         },
       },
     },
-  };
+  });
 }
 
 test("a PR URL gives a lower-case repository, its number, and a canonical URL", () => {
@@ -220,9 +220,13 @@ test("threads, comments, and renewed requests carry the facts that start rounds"
 });
 
 test("an unknown answer or a missing PR gives no facts", () => {
-  expect(pullRequestFacts({ data: {} })).toBeNull();
+  expect(pullRequestAnswer.safeParse({ data: {} }).success).toBe(false);
   expect(
-    pullRequestFacts({ data: { viewer: { login: "me" }, repository: { pullRequest: null } } }),
+    pullRequestFacts(
+      pullRequestAnswer.parse({
+        data: { viewer: { login: "me" }, repository: { pullRequest: null } },
+      }),
+    ),
   ).toBeNull();
 });
 

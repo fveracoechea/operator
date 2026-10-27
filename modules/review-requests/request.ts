@@ -1,3 +1,4 @@
+import { isCodedError } from "../../lib/coded-error.ts";
 import { Err, Ok, type Result } from "unthrown";
 import { z } from "zod";
 import { DeviceState } from "../device-state/main.ts";
@@ -49,12 +50,11 @@ export const headLimitSchema = z.object({
 });
 export type Outcome = { reason: string; data: object };
 
-export function qualify<T>(cause: unknown, defect: (cause: unknown) => T) {
+export function qualify<T>(cause: Error, defect: (cause: Error) => T) {
   if (
-    cause instanceof Error &&
-    "code" in cause &&
+    isCodedError(cause) &&
     ["ENOENT", "EACCES", "EPERM", "EIO", "EROFS", "ENOSPC", "ENOTDIR", "EISDIR"].includes(
-      String(cause.code),
+      cause.code,
     )
   )
     return { reason: "review_io_failed", detail: String(cause) };

@@ -102,13 +102,16 @@ function chooseResources(input: Request, facts: Facts) {
     .bind("recorded", () => DeviceState.launchNames(input.paths))
     .bind("branches", () => gitBranches(checkout))
     .bind("reuse", () =>
-      fromPromise(async () => {
-        const path = facts.previous?.worktreePath ?? null;
-        const branch = facts.previous?.branch ?? null;
-        return path === null || branch === null || (await realOrNull(path)) === null
-          ? null
-          : { path, branch };
-      }, qualify).flatMap((reuse) =>
+      fromPromise(
+        async () => {
+          const path = facts.previous?.worktreePath ?? null;
+          const branch = facts.previous?.branch ?? null;
+          return path === null || branch === null || (await realOrNull(path)) === null
+            ? null
+            : { path, branch };
+        },
+        (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+      ).flatMap((reuse) =>
         // A PR owner continues only on the PR's worktree. A new branch would lose the PR.
         facts.pullRequest !== null && reuse === null
           ? Err<Failure>({
@@ -187,26 +190,29 @@ function writeBrief(
     sourceId: request.sourceId,
     assignment: settings.planned.key,
   });
-  return fromPromise(async () => {
-    const text = renderBrief({
-      sourceId: request.sourceId,
-      sourceTrackerKey: settings.planned.sourceTrackerKey,
-      assignment: settings.planned.key,
-      trackerKey: settings.planned.trackerKey,
-      completion: settings.planned.completion,
-      profile: settings.launch.profile,
-      instructions: settings.planned.instructions,
-      workingDirectory: placement.workingDirectory,
-      resources: branch === null ? { kind: "pane" } : { kind: "worktree", branch },
-      reports: { directory: files.reports, files: await listFiles(files.reports) },
-      followUps: { directory: files.followUps, files: await listFiles(files.followUps) },
-      pullRequest: settings.pullRequest,
-      dependencyReports: settings.planned.dependencyReports,
-      stack: settings.stack,
-    });
-    await Bun.write(files.brief, text, { createPath: true });
-    return files.brief;
-  }, qualify);
+  return fromPromise(
+    async () => {
+      const text = renderBrief({
+        sourceId: request.sourceId,
+        sourceTrackerKey: settings.planned.sourceTrackerKey,
+        assignment: settings.planned.key,
+        trackerKey: settings.planned.trackerKey,
+        completion: settings.planned.completion,
+        profile: settings.launch.profile,
+        instructions: settings.planned.instructions,
+        workingDirectory: placement.workingDirectory,
+        resources: branch === null ? { kind: "pane" } : { kind: "worktree", branch },
+        reports: { directory: files.reports, files: await listFiles(files.reports) },
+        followUps: { directory: files.followUps, files: await listFiles(files.followUps) },
+        pullRequest: settings.pullRequest,
+        dependencyReports: settings.planned.dependencyReports,
+        stack: settings.stack,
+      });
+      await Bun.write(files.brief, text, { createPath: true });
+      return files.brief;
+    },
+    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+  );
 }
 
 /** Herdr effects run with no database transaction open. Each returned resource is recorded. */
@@ -356,38 +362,41 @@ function launch(request: Request, settings: Settings, resources: Resources) {
   return reserve(request, settings, resources, startedAt)
     .toAsync()
     .flatMap((reserved) =>
-      fromPromise(async () => {
-        const release = guardStart(request.paths, reserved.id);
-        const started = await launchEffects({
-          request,
-          settings,
-          resources,
-          id: reserved.id,
-          startedAt,
-        });
-        release();
-        if (started.tag === "Ok")
-          return Ok({
-            sourceId: request.sourceId,
-            assignment: request.assignment,
-            attempt: reserved.attempt,
-            name: resources.names.name,
-            host: settings.launch.host,
-            model: settings.launch.model,
-            reasoningEffort: settings.launch.reasoningEffort,
-            profile: settings.launch.profile,
-            release: settings.release,
-            skills: settings.skills,
-            ...started.value,
+      fromPromise(
+        async () => {
+          const release = guardStart(request.paths, reserved.id);
+          const started = await launchEffects({
+            request,
+            settings,
+            resources,
+            id: reserved.id,
+            startedAt,
           });
-        return recordFailure(
-          request.paths,
-          reserved.id,
-          started.tag === "Err"
-            ? started.error
-            : { reason: "launch_defect", detail: `Dispatch stopped: ${String(started.cause)}` },
-        );
-      }, qualify).flatMap((result) => result),
+          release();
+          if (started.tag === "Ok")
+            return Ok({
+              sourceId: request.sourceId,
+              assignment: request.assignment,
+              attempt: reserved.attempt,
+              name: resources.names.name,
+              host: settings.launch.host,
+              model: settings.launch.model,
+              reasoningEffort: settings.launch.reasoningEffort,
+              profile: settings.launch.profile,
+              release: settings.release,
+              skills: settings.skills,
+              ...started.value,
+            });
+          return recordFailure(
+            request.paths,
+            reserved.id,
+            started.tag === "Err"
+              ? started.error
+              : { reason: "launch_defect", detail: `Dispatch stopped: ${String(started.cause)}` },
+          );
+        },
+        (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+      ).flatMap((result) => result),
     );
 }
 

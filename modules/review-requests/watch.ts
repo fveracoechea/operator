@@ -224,13 +224,16 @@ function pass(paths: Paths) {
   return DeviceState.readReviewRequests(paths)
     .toAsync()
     .flatMap((listed) =>
-      fromPromise(async () => {
-        const events = await checkReviewers(paths, listed);
-        const now = Date.now();
-        for (const row of listed)
-          events.push(...(await resume(paths, row)), ...(await observe(paths, row, now)));
-        return events;
-      }, qualify),
+      fromPromise(
+        async () => {
+          const events = await checkReviewers(paths, listed);
+          const now = Date.now();
+          for (const row of listed)
+            events.push(...(await resume(paths, row)), ...(await observe(paths, row, now)));
+          return events;
+        },
+        (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+      ),
     )
     .flatMap((events) =>
       DeviceState.readReviewRequests(paths).map((after) => ({ events, listed: after })),
@@ -248,9 +251,10 @@ function poll(paths: Paths, deadline: number, first: boolean): AsyncResult<Outco
       return OkAsync({ reason: "review_actions_ready", data: { events, requests } });
     if (Date.now() >= deadline)
       return OkAsync({ reason: "review_wait_timed_out", data: { events, requests } });
-    return fromPromise(() => Bun.sleep(Math.min(pollMs, deadline - Date.now())), qualify).flatMap(
-      () => poll(paths, deadline, false),
-    );
+    return fromPromise(
+      () => Bun.sleep(Math.min(pollMs, deadline - Date.now())),
+      (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+    ).flatMap(() => poll(paths, deadline, false));
   });
 }
 

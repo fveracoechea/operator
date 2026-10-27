@@ -45,7 +45,7 @@ function unsafePath(name: string): boolean {
   );
 }
 
-async function checkedPath(root: string, selected: string): Promise<string | Problem> {
+async function checkedPath(root: string, selected: string): Promise<{ name: string } | Problem> {
   const absolute = path.resolve(root, selected);
   const name = path.relative(root, absolute);
   if (unsafePath(name) || name.includes("\\"))
@@ -55,7 +55,7 @@ async function checkedPath(root: string, selected: string): Promise<string | Pro
   // A link above the repository root, such as the macOS /var link, is not part of the target.
   if ((await realpath(absolute)) !== path.join(await realpath(root), name))
     return { error: `Target must not use a symbolic link: ${selected}` };
-  return name;
+  return { name };
 }
 
 async function unitForTest(root: string, test: string): Promise<string | undefined> {
@@ -76,23 +76,23 @@ async function besideTests(root: string, unit: string): Promise<string[] | Probl
     const test = path.join(directory, name);
     if ((await unitForTest(root, test)) !== unit) continue;
     const checked = await checkedPath(root, test);
-    if (typeof checked !== "string") return checked;
-    tests.push(`./${checked}`);
+    if ("error" in checked) return checked;
+    tests.push(`./${checked.name}`);
   }
   return tests.toSorted();
 }
 
-function git(root: string, args: string[]): string | Problem {
+function git(root: string, args: string[]): { output: string } | Problem {
   const result = Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
   return result.exitCode === 0
-    ? result.stdout.toString()
+    ? { output: result.stdout.toString() }
     : { error: `Git selection failed: ${result.stderr.toString().trim()}` };
 }
 
 function changedFiles(root: string, ref: string): Map<string, Range[] | undefined> | Problem {
   const verified = git(root, ["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`]);
-  if (typeof verified !== "string") return verified;
-  const commit = verified.trim();
+  if ("error" in verified) return verified;
+  const commit = verified.output.trim();
   const names = git(root, [
     "diff",
     "--name-only",
@@ -103,11 +103,11 @@ function changedFiles(root: string, ref: string): Map<string, Range[] | undefine
     commit,
     "--",
   ]);
-  if (typeof names !== "string") return names;
+  if ("error" in names) return names;
   const untracked = git(root, ["ls-files", "--others", "--exclude-standard", "-z"]);
-  if (typeof untracked !== "string") return untracked;
+  if ("error" in untracked) return untracked;
   const files = new Map<string, Range[] | undefined>();
-  for (const name of names.split("\0").filter(Boolean)) {
+  for (const name of names.output.split("\0").filter(Boolean)) {
     if (unsafePath(name) || excludedUnit(name)) continue;
     const diff = git(root, [
       "diff",
@@ -119,11 +119,11 @@ function changedFiles(root: string, ref: string): Map<string, Range[] | undefine
       "--",
       `:(literal)${name}`,
     ]);
-    if (typeof diff !== "string") return diff;
-    const ranges = changedRanges(diff);
+    if ("error" in diff) return diff;
+    const ranges = changedRanges(diff.output);
     if (ranges.length > 0) files.set(name, ranges);
   }
-  for (const name of untracked.split("\0").filter(Boolean)) {
+  for (const name of untracked.output.split("\0").filter(Boolean)) {
     if (!unsafePath(name) && !excludedUnit(name)) files.set(name, undefined);
   }
   return files;
@@ -133,8 +133,10 @@ async function explicitFiles(root: string, paths: string[]): Promise<Set<string>
   const units = new Set<string>();
   for (const selected of paths) {
     const checked = await checkedPath(root, selected);
-    if (typeof checked !== "string") return checked;
-    const unit = checked.endsWith(".test.ts") ? await unitForTest(root, checked) : checked;
+    if ("error" in checked) return checked;
+    const unit = checked.name.endsWith(".test.ts")
+      ? await unitForTest(root, checked.name)
+      : checked.name;
     if (!unit) return { error: `No unit for ${selected}` };
     units.add(unit);
   }
@@ -159,7 +161,7 @@ export async function selectMutationUnits(
       continue;
     }
     const checked = await checkedPath(root, name);
-    if (typeof checked !== "string") return checked;
+    if ("error" in checked) return checked;
     const prepared = await prepareUnit(root, name, ranges);
     if (prepared === "skipped") {
       skipped++;

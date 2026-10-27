@@ -1,4 +1,5 @@
 // Bun has no lstat, stat, real-path, hard-link, mode, or directory creation API.
+import { isCodedError } from "../../lib/coded-error.ts";
 import { chmod, link, lstat, mkdir, realpath, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { fromPromise, Ok, Err } from "unthrown";
@@ -39,16 +40,12 @@ const globalManifest = z.looseObject({
   dependencies: z.record(z.string(), z.string()).optional(),
 });
 
-function errorCode(cause: unknown): string | null {
-  return cause instanceof Error && "code" in cause ? String(cause.code) : null;
-}
-
-function qualify<T>(cause: unknown, defect: (cause: unknown) => T) {
+function qualify<T>(cause: Error, defect: (cause: Error) => T) {
   if (cause instanceof SyntaxError || cause instanceof z.ZodError)
     return { reason: "launcher_global_manifest_invalid" as const, detail: String(cause) };
   if (
     ["EACCES", "EPERM", "EIO", "ENOSPC", "EROFS", "ENOTDIR", "ELOOP"].includes(
-      errorCode(cause) ?? "",
+      isCodedError(cause) ? cause.code : "",
     )
   )
     return { reason: "launcher_io_failed" as const, detail: String(cause) };
@@ -62,12 +59,14 @@ async function bun(args: string[]) {
 }
 
 async function destination(command: string): Promise<Destination> {
-  const found = await lstat(command).catch((cause: unknown) => {
-    if (errorCode(cause) === "ENOENT") return null;
+  let found;
+  try {
+    found = await lstat(command);
+  } catch (cause) {
+    if (isCodedError(cause) && cause.code === "ENOENT") return { kind: "absent" };
     // oxlint-disable-next-line unthrown/no-throw -- Only a missing launcher is modeled here. Qualification handles other I/O.
     throw cause;
-  });
-  if (found === null) return { kind: "absent" };
+  }
   if (!found.isFile()) return { kind: "other" };
   return { kind: "file", text: await Bun.file(command).text() };
 }
@@ -173,7 +172,7 @@ async function write(binDirectory: string, command: string, text: string) {
     await link(temporary, command);
     return true;
   } catch (cause) {
-    if (errorCode(cause) === "EEXIST") return false;
+    if (isCodedError(cause) && cause.code === "EEXIST") return false;
     // oxlint-disable-next-line unthrown/no-throw -- Only a concurrent launcher is modeled here. Qualification handles other I/O.
     throw cause;
   } finally {
@@ -193,28 +192,34 @@ export const GlobalLauncher = {
   },
   /** Static readiness facts about the global command and the pin of the running installation. */
   check() {
-    return fromPromise(commandBlockers, qualify);
+    return fromPromise(commandBlockers, (cause, defect) =>
+      cause instanceof Error ? qualify(cause, defect) : defect(cause),
+    );
   },
   install() {
-    return fromPromise(async () => {
-      const gathered = await facts();
-      if (gathered === null)
-        return Err({
-          reason: "launcher_bun_failed" as const,
-          detail: "bun pm could not report its global folders. No launcher was written.",
-        });
-      const { binDirectory, decision } = gathered;
-      if (decision.action === "refuse")
-        return Err({ reason: decision.reason, detail: decision.detail });
-      const data = { command: decision.command, runs: decision.runs };
-      if (decision.action === "unchanged") return Ok({ reason: "launcher_current" as const, data });
-      OperatorHome.guardTemporaryTests(Environment.read(), [binDirectory]);
-      if (!(await write(binDirectory, decision.command, decision.text)))
-        return Err({
-          reason: "launcher_conflict" as const,
-          detail: `${decision.command} appeared while the launcher was written. It was not changed.`,
-        });
-      return Ok({ reason: "launcher_installed" as const, data });
-    }, qualify).flatMap<Installed, Failure>((result) => result);
+    return fromPromise(
+      async () => {
+        const gathered = await facts();
+        if (gathered === null)
+          return Err({
+            reason: "launcher_bun_failed" as const,
+            detail: "bun pm could not report its global folders. No launcher was written.",
+          });
+        const { binDirectory, decision } = gathered;
+        if (decision.action === "refuse")
+          return Err({ reason: decision.reason, detail: decision.detail });
+        const data = { command: decision.command, runs: decision.runs };
+        if (decision.action === "unchanged")
+          return Ok({ reason: "launcher_current" as const, data });
+        OperatorHome.guardTemporaryTests(Environment.read(), [binDirectory]);
+        if (!(await write(binDirectory, decision.command, decision.text)))
+          return Err({
+            reason: "launcher_conflict" as const,
+            detail: `${decision.command} appeared while the launcher was written. It was not changed.`,
+          });
+        return Ok({ reason: "launcher_installed" as const, data });
+      },
+      (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+    ).flatMap<Installed, Failure>((result) => result);
   },
 };

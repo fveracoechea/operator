@@ -6,6 +6,7 @@
  * issues to the job. See ADR 0007.
  */
 // Bun has no temporary directory or recursive removal API.
+import { z } from "zod";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -34,19 +35,7 @@ function classify(response: Response, detail: string): JsrOutcome<never> {
     : { status: "failed", code: `http_${response.status}`, detail, httpStatus: response.status };
 }
 
-async function readBody(response: Response): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch {
-    return null;
-  }
-}
-
-function message(body: unknown, fallback: string): string {
-  return body !== null && typeof body === "object" && "message" in body
-    ? String(body.message)
-    : fallback;
-}
+const errorBody = z.object({ message: z.string() });
 
 /** Reads whether one exact version is already published. An answer it cannot read is uncertain. */
 export async function readVersion(
@@ -67,8 +56,9 @@ export async function readVersion(
     return { status: "succeeded", value: { published: true } };
   }
 
-  const body = await readBody(response);
-  return classify(response, message(body, `JSR answered ${response.status}.`));
+  // A body that is not JSON keeps the status as the only detail.
+  const body = errorBody.safeParse(await response.json().catch(() => null));
+  return classify(response, body.success ? body.data.message : `JSR answered ${response.status}.`);
 }
 
 // The client downloads its own runtime on a first run, then waits for the registry to process

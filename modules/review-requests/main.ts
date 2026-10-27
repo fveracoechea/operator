@@ -81,15 +81,18 @@ function start(input: { paths: Paths; url: string; profile?: string }) {
         }))
           .toAsync()
           .flatMap(({ snapshot, transition }) =>
-            fromPromise(async () => {
-              const id = snapshot.request?.id ?? "";
-              const release = DeviceState.holdReviewRequest(input.paths, id);
-              try {
-                return await launch(input, target, snapshot, transition.replace === true);
-              } finally {
-                release();
-              }
-            }, qualify).flatMap((started): AsyncResult<Outcome, Failure> => {
+            fromPromise(
+              async () => {
+                const id = snapshot.request?.id ?? "";
+                const release = DeviceState.holdReviewRequest(input.paths, id);
+                try {
+                  return await launch(input, target, snapshot, transition.replace === true);
+                } finally {
+                  release();
+                }
+              },
+              (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+            ).flatMap((started): AsyncResult<Outcome, Failure> => {
               if (started.tag === "Ok")
                 return apply(input.paths, target, "started")
                   .toAsync()

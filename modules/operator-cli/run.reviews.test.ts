@@ -35,7 +35,7 @@ afterEach(async () => {
 });
 
 type Pull = Record<string, unknown> & { number: number };
-function pull(change: object = {}): Pull {
+function pull(change: Record<string, unknown> = {}): Pull {
   return {
     number: 7,
     url,
@@ -47,7 +47,7 @@ function pull(change: object = {}): Pull {
   };
 }
 
-async function github(change: object) {
+async function github(change: Record<string, unknown>) {
   const file = Bun.file(`${root}/github.json`);
   const current: object = (await file.exists()) ? z.looseObject({}).parse(await file.json()) : {};
   await Bun.write(file, JSON.stringify({ ...current, ...change }));
@@ -91,7 +91,7 @@ async function add() {
   return z.object({ data: requestSchema }).parse(added.output).data;
 }
 
-async function draft(file: string, change: object = {}) {
+async function draft(file: string, change: Record<string, unknown> = {}) {
   await Bun.write(
     file,
     JSON.stringify({
@@ -318,9 +318,9 @@ test("draft refusals post nothing and change nothing", async () => {
   await setup();
   const request = await add();
   const before = await Bun.file(database()).arrayBuffer();
-  const cases: [object | string | null, string][] = [
-    [null, "review_draft_missing"],
-    ["{", "review_draft_invalid"],
+  const cases: [Record<string, unknown> | "missing" | "unreadable", string][] = [
+    ["missing", "review_draft_missing"],
+    ["unreadable", "review_draft_invalid"],
     [{ event: "APPROVE" }, "review_draft_invalid"],
     [{ reviewedCommit: "abc" }, "review_draft_invalid"],
     [
@@ -352,8 +352,8 @@ test("draft refusals post nothing and change nothing", async () => {
     [{ threadReplies: [{ threadId: "PRRT_missing", body: "No kind." }] }, "review_draft_invalid"],
   ];
   for (const [change, reason] of cases) {
-    if (change === null) await rm(request.draft, { force: true });
-    else if (typeof change === "string") await Bun.write(request.draft, change);
+    if (change === "missing") await rm(request.draft, { force: true });
+    else if (change === "unreadable") await Bun.write(request.draft, "{");
     else await draft(request.draft, change);
     const refused = await run(["review", "post", url]);
     expect(refused.output, reason).toMatchObject({ reason });

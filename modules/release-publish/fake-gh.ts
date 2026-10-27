@@ -47,19 +47,19 @@ async function takeFault(name: string): Promise<string | null> {
   return fault.kind;
 }
 
-function answer(status: number, body: unknown): void {
+function answer(status: number, body: Record<string, unknown>): void {
   process.stdout.write(
     [
       `HTTP/2.0 ${status} ${status < 300 ? "OK" : "Error"}`,
       "content-type: application/json; charset=utf-8",
       "",
-      body === null ? "" : JSON.stringify(body),
+      JSON.stringify(body),
     ].join("\r\n"),
   );
 }
 
-async function readInput(args: string[]): Promise<unknown> {
-  return args.includes("--input") ? JSON.parse(await Bun.stdin.text()) : null;
+async function readInput<T>(args: string[], schema: z.ZodType<T>): Promise<T> {
+  return schema.parse(args.includes("--input") ? JSON.parse(await Bun.stdin.text()) : null);
 }
 
 const args = Bun.argv.slice(2);
@@ -103,7 +103,7 @@ if (releaseByTag?.[1] !== undefined) {
 
 if (/^repos\/[^/]+\/[^/]+\/git\/refs$/.test(endpoint)) {
   const fault = await takeFault("create_tag");
-  const { ref, sha } = z.object({ ref: z.string(), sha: z.string() }).parse(await readInput(args));
+  const { ref, sha } = await readInput(args, z.object({ ref: z.string(), sha: z.string() }));
   const tag = ref.replace("refs/tags/", "");
   if (fault === "server_error") {
     answer(500, { message: "the tag may or may not exist" });
@@ -122,7 +122,7 @@ if (/^repos\/[^/]+\/[^/]+\/git\/refs$/.test(endpoint)) {
 
 if (/^repos\/[^/]+\/[^/]+\/releases$/.test(endpoint)) {
   const fault = await takeFault("create_release");
-  const body = z.object({ tag_name: z.string(), body: z.string() }).parse(await readInput(args));
+  const body = await readInput(args, z.object({ tag_name: z.string(), body: z.string() }));
   if (fault === "server_error") {
     answer(500, { message: "the release may or may not exist" });
     process.exit(0);

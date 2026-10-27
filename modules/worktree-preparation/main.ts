@@ -1,4 +1,5 @@
 // Bun has no realpath API.
+import { isCodedError } from "../../lib/coded-error.ts";
 import { realpath } from "node:fs/promises";
 import { DoAsync, Err, Ok, OkAsync, fromPromise } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
@@ -29,15 +30,18 @@ function owner(paths: Paths, worktree: string) {
   return DeviceState.listProjects(paths)
     .toAsync()
     .flatMap((listed) =>
-      fromPromise(async () => {
-        const common = await commonDirectory(worktree);
-        for (const project of common === null ? [] : listed.projects) {
-          if ((await commonDirectory(project.checkout)) !== common) continue;
-          const controller = await realpath(project.checkout);
-          return controller === worktree ? null : { repository: project.repository, controller };
-        }
-        return null;
-      }, qualify),
+      fromPromise(
+        async () => {
+          const common = await commonDirectory(worktree);
+          for (const project of common === null ? [] : listed.projects) {
+            if ((await commonDirectory(project.checkout)) !== common) continue;
+            const controller = await realpath(project.checkout);
+            return controller === worktree ? null : { repository: project.repository, controller };
+          }
+          return null;
+        },
+        (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+      ),
     );
 }
 
@@ -88,12 +92,11 @@ async function prepare(input: { controller: string; worktree: string }) {
   };
 }
 
-function qualify<T>(cause: unknown, defect: (cause: unknown) => T) {
+function qualify<T>(cause: Error, defect: (cause: Error) => T) {
   if (
-    cause instanceof Error &&
-    "code" in cause &&
+    isCodedError(cause) &&
     ["ENOENT", "EACCES", "EPERM", "EIO", "EROFS", "ENOSPC", "ENOTDIR", "EEXIST", "ELOOP"].includes(
-      String(cause.code),
+      cause.code,
     )
   )
     return { reason: "preparation_io_failed" as const, detail: String(cause) };
@@ -109,16 +112,19 @@ function prepareProject(
     .toAsync()
     .flatMap(() =>
       // A failed preparation is still recorded. A killed hook leaves a lease that goes stale.
-      fromPromise(async () => {
-        const release = DeviceState.holdPreparation(paths, worktree);
-        try {
-          return await prepare({ controller: project.controller, worktree });
-        } catch (cause) {
-          return { state: "failed" as const, detail: `Preparation stopped: ${String(cause)}` };
-        } finally {
-          release();
-        }
-      }, qualify),
+      fromPromise(
+        async () => {
+          const release = DeviceState.holdPreparation(paths, worktree);
+          try {
+            return await prepare({ controller: project.controller, worktree });
+          } catch (cause) {
+            return { state: "failed" as const, detail: `Preparation stopped: ${String(cause)}` };
+          } finally {
+            release();
+          }
+        },
+        (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+      ),
     )
     .flatMap((outcome) =>
       DeviceState.finishPreparation(paths, worktree, outcome).flatMap(() =>
@@ -148,25 +154,28 @@ function classify(input: {
   return DeviceState.readPreparation(input.paths, input.worktree)
     .toAsync()
     .flatMap((preparation) =>
-      fromPromise(async () => {
-        // A running preparation can still write, and an unprepared worktree holds no output.
-        if (preparation === null || (preparation.state === "running" && !preparation.abandoned))
-          return { generated: [], unknown: input.ignored };
-        const listed = await git(input.worktree, ["ls-files", "-z"]);
-        if (listed === null) return { generated: [], unknown: input.ignored };
-        const copiedUnchanged = new Set<string>();
-        for (const entry of input.ignored)
-          if (
-            approvedEnvFile(entry) &&
-            (await sameFile(`${input.worktree}/${entry}`, `${input.controller}/${entry}`))
-          )
-            copiedUnchanged.add(entry);
-        return classifyIgnored({
-          ignored: input.ignored,
-          tracked: new Set(listed.split("\0").filter((file) => file !== "")),
-          copiedUnchanged,
-        });
-      }, qualify),
+      fromPromise(
+        async () => {
+          // A running preparation can still write, and an unprepared worktree holds no output.
+          if (preparation === null || (preparation.state === "running" && !preparation.abandoned))
+            return { generated: [], unknown: input.ignored };
+          const listed = await git(input.worktree, ["ls-files", "-z"]);
+          if (listed === null) return { generated: [], unknown: input.ignored };
+          const copiedUnchanged = new Set<string>();
+          for (const entry of input.ignored)
+            if (
+              approvedEnvFile(entry) &&
+              (await sameFile(`${input.worktree}/${entry}`, `${input.controller}/${entry}`))
+            )
+              copiedUnchanged.add(entry);
+          return classifyIgnored({
+            ignored: input.ignored,
+            tracked: new Set(listed.split("\0").filter((file) => file !== "")),
+            copiedUnchanged,
+          });
+        },
+        (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+      ),
     );
 }
 
@@ -174,7 +183,12 @@ function classify(input: {
 export const WorktreePreparation = {
   prepare(input: { paths: Paths; worktree: string }) {
     return DoAsync()
-      .bind("worktree", () => fromPromise(() => realpath(input.worktree), qualify))
+      .bind("worktree", () =>
+        fromPromise(
+          () => realpath(input.worktree),
+          (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+        ),
+      )
       .bind("project", ({ worktree }) => owner(input.paths, worktree))
       .flatMap(({ worktree, project }) =>
         project === null

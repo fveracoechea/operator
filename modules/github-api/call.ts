@@ -1,5 +1,5 @@
 import { ToolInvocation } from "../tool-invocation/main.ts";
-import { textField } from "../../lib/text-field.ts";
+import { z } from "zod";
 
 export type GithubFailure = {
   status: "failed";
@@ -39,10 +39,7 @@ function splitResponse(stdout: string): { httpStatus: number; bodyText: string }
   };
 }
 
-function messageOf(body: unknown, fallback: string): string {
-  const message = textField(body, "message");
-  return message === null || message.length === 0 ? fallback : message;
-}
+const errorBody = z.object({ message: z.string().min(1) });
 
 /**
  * Runs one `gh api` call and classifies its answer by the HTTP status GitHub returned.
@@ -92,11 +89,13 @@ export async function callGithub(request: {
     };
   }
 
+  const parsedError = errorBody.safeParse(body);
+  const message = parsedError.success ? parsedError.data.message : null;
   if (split.httpStatus >= 500) {
     // The server faulted after it received the request, so the effect may still have applied.
     return {
       status: "uncertain",
-      detail: `GitHub answered ${split.httpStatus}: ${messageOf(body, invoked.stderr.trim())}`,
+      detail: `GitHub answered ${split.httpStatus}: ${message ?? invoked.stderr.trim()}`,
     };
   }
 
@@ -104,7 +103,7 @@ export async function callGithub(request: {
     return {
       status: "failed",
       code: `http_${split.httpStatus}`,
-      detail: messageOf(body, invoked.stderr.trim() || `GitHub refused with ${split.httpStatus}.`),
+      detail: message ?? (invoked.stderr.trim() || `GitHub refused with ${split.httpStatus}.`),
       httpStatus: split.httpStatus,
     };
   }

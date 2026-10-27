@@ -9,14 +9,21 @@ import { contents, info, same, verdict, writable, type Contents } from "./conten
 export type Paths = ReturnType<typeof OperatorHome.resolve>;
 export type Host = keyof Paths["skillHosts"];
 export type Request = { paths: Paths; hosts: Host[]; check: boolean; source: string };
+function isText(value: unknown): value is string {
+  return typeof value === "string";
+}
+
 // Zod's record parser drops __proto__, but every own filename belongs in the ledger.
-const contentsSchema = z.custom<Contents>(
-  (value) =>
+function isContents(value: unknown): value is Contents {
+  return (
     value !== null &&
     typeof value === "object" &&
     !Array.isArray(value) &&
-    Object.values(value).every((entry) => typeof entry === "string"),
-);
+    Object.values(value).every(isText)
+  );
+}
+
+const contentsSchema = z.custom<Contents>(isContents);
 const ledgerSchema = z.strictObject({
   version: z.literal(1),
   entries: z.record(z.string(), contentsSchema),

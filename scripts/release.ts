@@ -42,7 +42,7 @@ function fail(message: string): never {
   process.exit(2);
 }
 
-function report(result: unknown): void {
+function report(result: Record<string, unknown>): void {
   console.log(JSON.stringify(result, null, 2));
 }
 

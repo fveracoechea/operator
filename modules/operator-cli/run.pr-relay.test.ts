@@ -71,7 +71,7 @@ async function baseChanges() {
   return (await file.text()).split("\n").filter((line) => line.includes('"PATCH"')).length;
 }
 
-function data(output: object) {
+function data(output: Record<string, unknown>) {
   return z.looseObject({ reason: z.string(), data: z.looseObject({}).optional() }).parse(output);
 }
 

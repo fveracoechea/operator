@@ -4,6 +4,7 @@ import {
   resolveArrayBinding,
   unwrapArrayExpression,
 } from "../anti-slop/array-method.ts";
+import { withSkillTopic } from "../skill-topic.ts";
 
 function isFixture(source: SourceCode, input: ESTree.Node, visited = new Set<Variable>()): boolean {
   const node = unwrapArrayExpression(input);
@@ -59,8 +60,10 @@ export const noFixtureAssertionRule = defineRule({
     type: "problem",
     docs: { description: "Assert on observed behavior, not a local fixture." },
     messages: {
-      fixture:
+      fixture: withSkillTopic(
         "This assertion reads its own fixture. Call the code under test and assert on its result or effects.",
+        "lint-fixes/test-doubles.md",
+      ),
     },
   },
   createOnce(context) {

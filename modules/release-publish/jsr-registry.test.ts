@@ -67,7 +67,7 @@ test("a missing dependency installer prevents publication and removes only its s
   );
   const [code, output] = await Promise.all([
     child.exited,
-    new Response(child.stdout).json().then((value: unknown) => z.unknown().parse(value)),
+    new Response(child.stdout).json().then((value) => z.unknown().parse(value)),
   ]);
   expect(code).toBe(0);
   expect(output).toMatchObject({ status: "failed", code: "dependencies_unavailable" });

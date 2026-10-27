@@ -50,7 +50,7 @@ test("preserves the accumulating-spread guard through the real lint command", as
 
 test("boundary parsing and ordinary array pipelines remain valid", async () => {
   const result = await check(`
-export function read(value: unknown) { return typeof value === "object" ? value : null; }
+export function isText(value: unknown): value is string { return typeof value === "string"; }
 export const names = [1, 2].filter((value) => value > 1).map(String);
 export const item = { name: "a" } as const;
 `);
@@ -127,7 +127,7 @@ test("switch union members cannot disappear into default", async () => {
 });
 
 test("unsafe assertions have only their approved test exception", async () => {
-  const source = "export function read(input: unknown) { return input as string; }";
+  const source = "declare const input: unknown; export const text = input as string;";
   const production = await check(source);
   expect(production.codes).toContain("typescript(no-unsafe-type-assertion)");
   const tests = await check(source, { path: "lib/lint-probe.test.ts" });

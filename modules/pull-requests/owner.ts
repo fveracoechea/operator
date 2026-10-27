@@ -1,4 +1,5 @@
 // Bun has no realpath API.
+import { isCodedError } from "../../lib/coded-error.ts";
 import { realpath } from "node:fs/promises";
 import { Err, Ok, fromPromise } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
@@ -18,11 +19,10 @@ export type OwnerFailure = {
 type Owners = Extract<ReturnType<typeof DeviceState.worktreeOwners>, { tag: "Ok" }>["value"];
 export type Owner = Owners[number] & { branch: string };
 
-export function qualify<T>(cause: unknown, defect: (cause: unknown) => T) {
+export function qualify<T>(cause: Error, defect: (cause: Error) => T) {
   if (
-    cause instanceof Error &&
-    "code" in cause &&
-    ["ENOENT", "EACCES", "EPERM", "EIO", "ENOTDIR", "ELOOP"].includes(String(cause.code))
+    isCodedError(cause) &&
+    ["ENOENT", "EACCES", "EPERM", "EIO", "ENOTDIR", "ELOOP"].includes(cause.code)
   )
     return { reason: "pr_io_failed", detail: String(cause) };
   return defect(cause);
@@ -117,8 +117,9 @@ export function resolveOwner(input: { paths: Paths; cwd: string }) {
   return DeviceState.worktreeOwners(input.paths)
     .toAsync()
     .flatMap((owners) =>
-      fromPromise(() => find(input.paths, input.cwd, owners), qualify).flatMap((found) =>
-        "reason" in found ? Err(found) : Ok(found),
-      ),
+      fromPromise(
+        () => find(input.paths, input.cwd, owners),
+        (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+      ).flatMap((found) => ("reason" in found ? Err(found) : Ok(found))),
     );
 }

@@ -26,16 +26,20 @@ export function openDatabase(file: string, readonly: boolean) {
 
 /** Both modeled refusals and defects roll back before this connection leaves the owner. */
 export function transaction<T, E>(client: Database, write: boolean, action: () => Result<T, E>) {
-  return fromThrowable(() => {
-    client.exec(write ? "BEGIN IMMEDIATE" : "BEGIN");
-    try {
-      const result = action();
-      if (result.tag === "Ok") client.exec("COMMIT");
-      return result;
-    } finally {
-      if (client.inTransaction) client.exec("ROLLBACK");
-    }
-  }, qualifyStateFailure)().flatMap((result) => result);
+  return fromThrowable(
+    () => {
+      client.exec(write ? "BEGIN IMMEDIATE" : "BEGIN");
+      try {
+        const result = action();
+        if (result.tag === "Ok") client.exec("COMMIT");
+        return result;
+      } finally {
+        if (client.inTransaction) client.exec("ROLLBACK");
+      }
+    },
+    (cause, defect) =>
+      cause instanceof Error ? qualifyStateFailure(cause, defect) : defect(cause),
+  )().flatMap((result) => result);
 }
 
 export const historySchema = z.array(z.object({ hash: z.string(), created_at: z.number() }));

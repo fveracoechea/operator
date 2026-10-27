@@ -216,10 +216,12 @@ describe("the release artifact", () => {
   });
 
   async function refusal(artifactRoot: string): Promise<string> {
-    return OperatorRelease.inspect({ artifactRoot }).then(
-      () => "inspected",
-      (error: unknown) => (error instanceof Error ? error.message : String(error)),
-    );
+    try {
+      await OperatorRelease.inspect({ artifactRoot });
+      return "inspected";
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
   }
 
   test("refuses a release record that names its version or commit as something other than text", async () => {

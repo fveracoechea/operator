@@ -9,7 +9,6 @@ import { OperatorHome } from "../operator-home/main.ts";
 import {
   externallyManaged,
   isIoFailure,
-  isMissing,
   readConfig,
   readReceipt,
   withWriteLock,
@@ -115,8 +114,7 @@ test("editor schema follows the current settings schema without rewriting identi
 });
 
 test("qualifies known filesystem failures without treating arbitrary defects as I/O", () => {
-  expect(isMissing(Object.assign(new Error("missing"), { code: "ENOENT" }))).toBe(true);
   expect(isIoFailure(Object.assign(new Error("full"), { code: "ENOSPC" }))).toBe(true);
   expect(isIoFailure(new TypeError("defect"))).toBe(false);
-  expect(isMissing({ code: "ENOENT" })).toBe(false);
+  expect(isIoFailure(Object.assign(new Error("numeric"), { code: 5 }))).toBe(false);
 });

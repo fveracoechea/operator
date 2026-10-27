@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { observation } from "./github.ts";
 
-function answer(change: object = {}) {
+function answer(change: Record<string, unknown> = {}) {
   return {
     viewer: { login: "owner" },
     repository: {
