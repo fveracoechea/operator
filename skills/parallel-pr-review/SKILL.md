@@ -10,8 +10,8 @@ Each pull request gets one Claude agent in its own Herdr worktree, and the agent
 You read their results, verify each verdict on GitHub, and write one bullet per pull request.
 GitHub is the source of truth, and an agent report is a claim.
 
-The agents base every review on the user's opinions in `~/OPINIONS.md`.
-Each agent reads that file before it reviews, and the prompt below says so.
+The agents base every review on the user's opinions in the `my-opinions` skill.
+Each agent loads that skill before it reviews, and the prompt below says so.
 
 ## Inputs
 
@@ -69,8 +69,8 @@ This worktree is at the PR head <headRefOid>. Do not run gh pr checkout. The bas
 PR #<n> is stacked on PR #<m>. Review only its own diff: gh pr diff <n>.
 
 1. Setup: <setup steps>. Do not commit copied files.
-2. Read ~/OPINIONS.md first. Base every finding on those opinions, then on the repo code style, and name the opinion that a finding breaks. Review with pr-review. Run lint, typecheck, and the tests that touch the changed code. Put a check that fails only on files this PR does not change in "noise", not in the review.
-3. Post one review. Use APPROVE when you have no blocker, and COMMENT when you have blockers. Use REQUEST_CHANGES only for a strong breach of ~/OPINIONS.md or of an established best practice, or for a security concern, and name it in the review body.
+2. Load the my-opinions skill first. Base every finding on those opinions, then on the repo code style, and name the opinion that a finding breaks. Review with pr-review. Run lint, typecheck, and the tests that touch the changed code. Put a check that fails only on files this PR does not change in "noise", not in the review.
+3. Post one review. Use APPROVE when you have no blocker, and COMMENT when you have blockers. Use REQUEST_CHANGES only for a strong breach of my-opinions or of an established best practice, or for a security concern, and name it in the review body.
 4. Write pr-review-result.json in this worktree:
    {"number", "event", "url", "blockers": [], "nice_to_haves": [], "left_out": [], "noise": []}
    One sentence per item. left_out is what the pr-review caps cut.
