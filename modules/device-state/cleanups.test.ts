@@ -68,9 +68,9 @@ function sourceState(rows: { completion: string; state: string }[]) {
 }
 
 function associate(db: Database) {
-  expect(associatePullRequest(db, "l1", { number: 7, url: "u", branch: "task/change" }).tag).toBe(
-    "Ok",
-  );
+  expect(
+    associatePullRequest(db, "l1", { number: 7, url: "u", branch: "task/change", relay: null }).tag,
+  ).toBe("Ok");
 }
 
 test("a verified merge records the merge, the merged state, and the first cleanup step at once", () => {

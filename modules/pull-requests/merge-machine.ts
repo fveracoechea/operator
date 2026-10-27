@@ -1,7 +1,8 @@
 import type { Observation } from "./github.ts";
 import { mergeConditions, type MergeConditions } from "./wait-machine.ts";
 
-type Facts = { observed: Observation; localHead: string | null };
+// A stacked PR merges only after its parent merged and its relay finished.
+type Facts = { observed: Observation; localHead: string | null; stackRelayed?: boolean };
 type Refusal = {
   result: "refused";
   reason: "pr_not_open" | "pr_merge_blocked" | "pr_head_mismatch";
@@ -21,6 +22,7 @@ function blocked(conditions: MergeConditions) {
     conditions.checksPassing ? null : "at least one check with every check passing",
     conditions.threadsResolved ? null : "no unresolved review thread",
     conditions.defaultBase ? null : "the default branch as base",
+    conditions.stackRelayed ? null : "a finished parent-merge relay",
   ].filter((text) => text !== null);
   return `The PR needs ${missing.join(", ")}. ${nothing}`;
 }
@@ -28,32 +30,36 @@ function blocked(conditions: MergeConditions) {
 const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decision }[] = [
   {
     when: ({ observed }) => observed.state === "CLOSED",
-    decide: ({ observed }) => ({
+    decide: ({ observed, stackRelayed }) => ({
       result: "refused",
       reason: "pr_not_open",
       detail: `The PR is closed without a merge. Ask the SuperAgent. ${nothing}`,
-      conditions: mergeConditions(observed),
+      conditions: mergeConditions(observed, stackRelayed),
     }),
   },
   // A merge that already happened, for example after a lost answer, is verified, not repeated.
-  { when: ({ observed }) => observed.state === "MERGED", decide: () => ({ result: "verify" }) },
   {
-    when: ({ observed }) => !Object.values(mergeConditions(observed)).every(Boolean),
-    decide: ({ observed }) => ({
+    when: ({ observed }) => observed.state === "MERGED",
+    decide: () => ({ result: "verify" }),
+  },
+  {
+    when: ({ observed, stackRelayed }) =>
+      !Object.values(mergeConditions(observed, stackRelayed)).every(Boolean),
+    decide: ({ observed, stackRelayed }) => ({
       result: "refused",
       reason: "pr_merge_blocked",
-      detail: blocked(mergeConditions(observed)),
-      conditions: mergeConditions(observed),
+      detail: blocked(mergeConditions(observed, stackRelayed)),
+      conditions: mergeConditions(observed, stackRelayed),
     }),
   },
   // The owner merges what its worktree holds, so local commits cannot become unlanded work.
   {
     when: ({ observed, localHead }) => localHead !== observed.head,
-    decide: ({ observed, localHead }) => ({
+    decide: ({ observed, localHead, stackRelayed }) => ({
       result: "refused",
       reason: "pr_head_mismatch",
       detail: `The PR head is ${observed.head}, but the worktree is at ${localHead ?? "no commit"}. Push or reconcile first. ${nothing}`,
-      conditions: mergeConditions(observed),
+      conditions: mergeConditions(observed, stackRelayed),
     }),
   },
   {

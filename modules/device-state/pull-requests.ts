@@ -2,7 +2,9 @@ import { and, desc, eq, isNotNull } from "drizzle-orm";
 import type { Database } from "bun:sqlite";
 import type { drizzle } from "drizzle-orm/bun-sqlite";
 import { Err, Ok, type Result } from "unthrown";
+import { z } from "zod";
 import { checkHistory, transaction } from "./database.ts";
+import { ownerGone } from "./launches.ts";
 import { assignments, cleanups, launches, projects, pullRequests, sources } from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
 
@@ -38,6 +40,7 @@ export function worktreeOwners(client: Database) {
           completion: assignments.completion,
           assignmentState: assignments.state,
           pullRequest: pullRequests.number,
+          relay: pullRequests.relay,
         })
         .from(launches)
         .innerJoin(sources, eq(sources.id, launches.sourceId))
@@ -127,7 +130,7 @@ function current(db: ReturnType<typeof drizzle>, sourceId: string, assignment: s
 export function associatePullRequest(
   client: Database,
   launchId: string,
-  pr: Pick<PullRequestRow, "number" | "url" | "branch">,
+  pr: Pick<PullRequestRow, "number" | "url" | "branch" | "relay">,
 ) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db) =>
@@ -194,15 +197,34 @@ export function associatePullRequest(
   );
 }
 
+// Device state reads only the claim of a relay. Its progress belongs to the PR feedback loop.
+const relayLease = z.object({
+  ownerPid: z.number().int().nullable().default(null),
+  leaseAt: z.string().nullable().default(null),
+});
+
+/** Another live process runs the relay of this PR, so this process must not touch the branch. */
+function relayHeld(row: PullRequestRow) {
+  if (row.relay === null) return false;
+  const { ownerPid, leaseAt } = relayLease.parse(JSON.parse(row.relay));
+  return (
+    ownerPid !== null && ownerPid !== process.pid && !ownerGone({ ownerPid, leaseAt }, Date.now())
+  );
+}
+
 /**
  * A wait records its start, which clears an earlier timeout, and then each reported result.
  * The decision reads the progress inside the write transaction, so simultaneous waits never
- * report the same observation twice.
+ * report the same observation twice. A relay records its claim and its progress the same way.
  */
 export function recordPullRequestWait(
   client: Database,
   launchId: string,
-  decide: (row: PullRequestRow) => Pick<PullRequestRow, "progress" | "waitState"> | null,
+  decide: (
+    row: PullRequestRow & { relayHeld: boolean },
+  ) =>
+    | (Pick<PullRequestRow, "progress" | "waitState"> & Partial<Pick<PullRequestRow, "relay">>)
+    | null,
 ) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db) =>
@@ -220,7 +242,7 @@ export function recordPullRequestWait(
               reason: "pr_branch_mismatch",
               detail: `This launch is on ${launch.branch ?? "no branch"}, but PR #${row.number} is on ${row.branch}. Nothing was changed.`,
             });
-          const change = decide(row);
+          const change = decide({ ...row, relayHeld: relayHeld(row) });
           if (change === null) return Ok(null);
           const now = new Date().toISOString();
           // Only a running wait holds a lease. Its result releases it.
@@ -341,6 +363,20 @@ export function recordPullRequestMerge(
           db.update(sources).set({ state, endedAt: now }).where(eq(sources.id, source.id)).run();
         return Ok({ changed: true });
       });
+    }),
+  );
+}
+
+/** Renew the claim of a relay that this process runs, so no other wait takes over its Git steps. */
+export function renewPullRequestRelay(client: Database, sourceId: string, assignment: string) {
+  return transaction(client, true, () =>
+    checkHistory(client).map(() => {
+      client
+        .query(
+          "UPDATE pull_requests SET relay = json_set(relay, '$.leaseAt', ?) WHERE source_id = ? AND assignment = ? AND json_extract(relay, '$.ownerPid') = ?",
+        )
+        .run(new Date().toISOString(), sourceId, assignment, process.pid);
+      return undefined;
     }),
   );
 }

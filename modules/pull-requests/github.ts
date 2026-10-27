@@ -101,8 +101,9 @@ const pullRequestAnswer = z.object({
 
 const associationQuery = `query($owner: String!, $name: String!, $branch: String!) {
   repository(owner: $owner, name: $name) {
+    defaultBranchRef { name }
     pullRequests(headRefName: $branch, states: [OPEN], first: 10) {
-      nodes { number url headRefName headRepository { nameWithOwner } }
+      nodes { number url baseRefName headRefName headRepository { nameWithOwner } }
     }
   }
 }`;
@@ -110,15 +111,36 @@ const associationQuery = `query($owner: String!, $name: String!, $branch: String
 const associationAnswer = z.object({
   data: z.object({
     repository: z.object({
+      defaultBranchRef: z.object({ name: z.string() }).nullable(),
       pullRequests: z.object({
         nodes: z.array(
           z.object({
             number: z.number().int().positive(),
             url: z.string(),
+            baseRefName: z.string(),
             headRefName: z.string(),
             headRepository: z.object({ nameWithOwner: z.string() }).nullable(),
           }),
         ),
+      }),
+    }),
+  }),
+});
+
+// The relay reads only what it needs of the stack parent, so a stacked wait stays one read heavier.
+const parentQuery = `query RelayParent($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) { state baseRefName headRefOid }
+  }
+}`;
+
+const parentAnswer = z.object({
+  data: z.object({
+    repository: z.object({
+      pullRequest: z.object({
+        state: z.enum(["OPEN", "MERGED", "CLOSED"]),
+        baseRefName: z.string(),
+        headRefOid: z.string(),
       }),
     }),
   }),
@@ -205,7 +227,41 @@ export function openPullRequests(repository: string, branch: string) {
           pr.headRefName === branch &&
           pr.headRepository?.nameWithOwner.toLowerCase() === repository,
       )
-      .map((pr) => ({ number: pr.number, url: pr.url })),
+      .map((pr) => ({
+        number: pr.number,
+        url: pr.url,
+        base: pr.baseRefName,
+        defaultBranch: answer.data.repository.defaultBranchRef?.name ?? null,
+      })),
+  );
+}
+
+export function observeParent(repository: string, number: number) {
+  return query(
+    ["-f", `query=${parentQuery}`, ...repositoryFields(repository), "-F", `number=${number}`],
+    parentAnswer,
+  ).map(({ data }) => ({
+    state: data.repository.pullRequest.state,
+    base: data.repository.pullRequest.baseRefName,
+    head: data.repository.pullRequest.headRefOid,
+  }));
+}
+
+/** Changes the base of the PR. An unanswered change may have landed, so the next wait reads it. */
+export function retarget(repository: string, number: number, base: string) {
+  return fromPromise(
+    () =>
+      GithubApi.call({
+        args: ["-X", "PATCH", `repos/${repository}/pulls/${number}`, "-f", `base=${base}`],
+        timeoutMs: 60000,
+      }),
+    (cause, defect) => defect(cause),
+  ).map((answer) =>
+    answer.status === "succeeded"
+      ? null
+      : answer.status === "failed"
+        ? `${answer.code}: ${answer.detail}`
+        : `GitHub did not answer, so the base change is unknown: ${answer.detail}`,
   );
 }
 

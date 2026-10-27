@@ -4,6 +4,9 @@ The WorkerAgent that owns a PR assignment keeps it through review feedback and C
 Do not dispatch a fresh writer for each correction.
 The owner opens the PR, runs `operator pr associate --json`, and then repeats `operator pr wait --json` in its worktree.
 Association moves the assignment to `pr-open`, which permits dependent assignments to start.
+A dependent PR assignment starts on the open parent PR's branch and targets that branch.
+After the parent merges, the child owner's wait relays the child onto the default branch. `next` shows the PR's `stack` with its parent and relay state.
+A PR assignment with several open parent PRs waits with `dependencies_pending` until all but one merge.
 
 `next` shows each PR with its number, URL, and last wait state.
 
@@ -11,6 +14,7 @@ Association moves the assignment to `pr-open`, which permits dependent assignmen
 - `owner_attention` with `pr_wait_timed_out`: the owner's last wait found nothing new and the owner did not wait again. Ask the owner through Herdr for its status.
 - `owner_attention` with `pr_wait_stopped`: the owner's wait process ended without a result, for example after a shell timeout. Ask the owner through Herdr to wait again.
 - `owner_attention` with `pr_owner_idle`: Herdr reports the owner idle or done and no wait runs. Ask the owner for its status.
+- `owner_attention` with `pr_relay_blocked`: the relay stopped at a conflict, uncommitted or unpushed work, or a failed Git or GitHub step, and kept the branch. The `stack.blocker` names the reason. Ask the owner to resolve it and wait again. A closed parent, or a parent merged outside the default branch, needs the person.
 - `owner_attention` with `pr_not_open`: the PR was merged or closed outside the CLI. A merged PR completes when the owner runs `operator pr merge --json`, which verifies the merge without another merge request. For a closed PR, the assignment stays `pr-open`, and a new PR for it refuses with `pr_already_associated`. Ask the person what to do.
 - `replace_worker`: the owner's pane ended or its launch failed. Inspect the recorded worktree first. A new dispatch keeps the PR, its wait progress, and the worktree, and the brief tells the replacement to read the PR before it waits.
 

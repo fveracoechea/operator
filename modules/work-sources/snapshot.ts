@@ -57,6 +57,21 @@ const pullRequestSchema = z.object({
   mergedHead: z.string().nullable(),
   mergeCommit: z.string().nullable(),
   mergedAt: z.string().nullable(),
+  // The stack parent and relay state. The relay's Git progress belongs to the PR feedback loop.
+  relay: z
+    .string()
+    .nullable()
+    .transform((text) =>
+      text === null
+        ? null
+        : z
+            .object({
+              parent: z.object({ assignment: z.string(), number: z.number(), branch: z.string() }),
+              state: z.enum(["stacked", "blocked", "relayed"]),
+              blocker: z.object({ reason: z.string(), detail: z.string() }).nullable(),
+            })
+            .parse(JSON.parse(text)),
+    ),
 });
 export type PullRequest = z.infer<typeof pullRequestSchema>;
 

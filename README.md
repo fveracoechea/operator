@@ -7,7 +7,7 @@ Personal skills and CLI tools for coordinating coding agents in OpenCode and Cla
 Issue [#234](https://github.com/fveracoechea/operator/issues/234) defines the device-level replacement.
 This branch starts with [#235](https://github.com/fveracoechea/operator/issues/235), which removes the legacy architecture before new workflows land.
 It is not an intermediate release.
-Help, version reporting, global installation, the Nix package, device settings, launch selection, project registration, skill installation, static readiness, supplied assignment plans, next actions, worker dispatch, the global Herdr plugin, the PR feedback loop, report assignments, the guarded PR merge, and cleanup after a merge are available.
+Help, version reporting, global installation, the Nix package, device settings, launch selection, project registration, skill installation, static readiness, supplied assignment plans, next actions, worker dispatch, the global Herdr plugin, the PR feedback loop with parent-merge relay, report assignments, the guarded PR merge, and cleanup after a merge are available.
 
 Finish old work with the old release before updating to the eventual breaking release.
 This code does not inspect, migrate, repair, or delete legacy Operator state.
@@ -16,7 +16,7 @@ Do not use it to resume an old session.
 The device-level design in `CONTEXT.md` and `docs/adr/` remains planned.
 The base lint policy in ADR-0018 is now enforced.
 Local mutation testing from ADR-0016 is also available for repository development.
-Parent-merge relay and reviews are not implemented here.
+Reviews are not implemented here.
 There are no replacement-command placeholders or compatibility aliases.
 
 ## Install Operator for the device
@@ -358,7 +358,8 @@ An empty plan finishes immediately.
 PR dependencies permit start at `pr-open` or `merged`.
 Report dependencies require accepted `completed`, not submitted `reported`.
 The commands launch no host and perform no tracker operations.
-Report submission and acceptance are described below, and parent-merge relay remains #250.
+Report submission, acceptance, and parent-merge relay are described below.
+A PR assignment with several open parent PRs waits until all but one merge, because a PR stacks on one parent branch.
 
 ## Worker dispatch and the Herdr plugin
 
@@ -400,8 +401,14 @@ The real Git top level must be the recorded worktree of the running owner, on th
 Its progress is in device state, so a restarted wait does not repeat a result.
 `next` shows `owner_attention` for a timed-out or stopped wait, an owner that Herdr reports idle between waits, or a PR that is no longer open, and `replace_worker` for an ended owner pane.
 A replacement keeps the PR, its progress, and the PR's recorded worktree, and refuses when that worktree is missing.
-Parent-merge relay is #250.
 See `docs/implementation/249-pr-feedback.md` for the diagrams, refusals, and evidence.
+
+A PR assignment whose dependency has an open PR starts on that PR's pushed branch, and its owner opens its PR against that branch.
+`pr associate` accepts only the default branch or the branch of a dependency's PR as the base, never a source-wide integration branch.
+After the parent PR merges into the default branch, the child's `pr wait` rebases the child branch onto it, pushes with a lease on the PR head, changes the PR base, and reports `parent_relayed`.
+A conflict or a failed Git or GitHub step is a `relay_*` blocker that keeps the branch, and `next` shows `owner_attention` with `pr_relay_blocked`.
+The child is not merge eligible while its base is not the default branch.
+See `docs/implementation/250-pr-relay.md` for the relay diagram, its progress record, and evidence.
 
 ## Report assignments
 

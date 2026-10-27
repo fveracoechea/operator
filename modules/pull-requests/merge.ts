@@ -4,6 +4,7 @@ import { ToolInvocation } from "../tool-invocation/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import { mergePullRequest, observePullRequest, type Observation } from "./github.ts";
 import { decideMerge, verifiedMerge } from "./merge-machine.ts";
+import { relaySchema } from "./relay.ts";
 import { qualify, resolveOwner, type Owner, type Paths } from "./owner.ts";
 
 type Request = { paths: Paths; cwd: string };
@@ -104,7 +105,12 @@ function guarded(
   observed: Observation,
   local: string | null,
 ) {
-  const decision = decideMerge({ observed, localHead: local });
+  const relay = owner.relay === null ? null : relaySchema.parse(JSON.parse(owner.relay));
+  const decision = decideMerge({
+    observed,
+    localHead: local,
+    stackRelayed: relay === null || relay.state === "relayed",
+  });
   if (decision.result === "refused")
     return ErrAsync<Failure>({ reason: decision.reason, detail: decision.detail });
   if (decision.result === "verify") return verify(input, owner, number, null, null);

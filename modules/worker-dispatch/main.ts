@@ -17,6 +17,7 @@ import { installPlugin, observe } from "./hooks.ts";
 import {
   gitBranches,
   listFiles,
+  parentBase,
   projectWorkspace,
   qualify,
   realOrNull,
@@ -71,6 +72,16 @@ function assignmentFacts(input: Request) {
         ({ source }) =>
           source?.pullRequests.find((row) => row.assignment === input.assignment) ?? null,
       )
+      // A PR stacks on the branch of its one open parent PR. Next waits while several are open.
+      .let("stack", ({ source, planned }) => {
+        const open = (source?.assignments ?? []).filter(
+          (row) => planned.dependencies.includes(row.key) && row.state === "pr-open",
+        );
+        const parent = source?.pullRequests.find((pr) => pr.assignment === open[0]?.key);
+        return planned.completion === "pr" && open.length === 1 && parent !== undefined
+          ? { assignment: parent.assignment, number: parent.number, branch: parent.branch }
+          : null;
+      })
       // An open PR lives on the worktree of an earlier start, even after a later start failed.
       .let("previous", ({ source, pullRequest }) =>
         source?.launches.findLast(
@@ -189,6 +200,11 @@ function chooseResources(input: Request, facts: Facts) {
           : Ok(reuse),
       ),
     )
+    .bind("base", ({ reuse }) =>
+      facts.stack === null || reuse !== null || facts.planned.resources !== "worktree"
+        ? OkAsync(undefined)
+        : parentBase(checkout, facts.stack.branch),
+    )
     .bind("names", ({ workspace, agents, tabs, recorded, branches, reuse }) => {
       const names = chooseNames({
         base: launchBase(facts.planned),
@@ -221,8 +237,9 @@ function place(input: {
   name: string;
   branch: string | null;
   reuse: { path: string } | null;
+  base: string | undefined;
 }) {
-  const { workspaceId, checkout, name, branch, reuse } = input;
+  const { workspaceId, checkout, name, branch, reuse, base } = input;
   if (branch === null)
     return Herdr.createTab({ workspaceId, cwd: checkout, label: name }).map((tab): Placement => ({
       workspaceId,
@@ -234,7 +251,7 @@ function place(input: {
     }));
   const worktree =
     reuse === null
-      ? Herdr.createWorktree({ workspaceId, branch, label: name })
+      ? Herdr.createWorktree({ workspaceId, branch, label: name, base })
       : Herdr.openWorktree({ workspaceId, path: reuse.path, label: name }).map((opened) => ({
           ...opened,
           path: reuse.path,
@@ -298,6 +315,7 @@ function writeBrief(
       followUps: { directory: files.followUps, files: await listFiles(files.followUps) },
       pullRequest: settings.pullRequest,
       dependencyReports: settings.planned.dependencyReports,
+      stack: settings.stack,
     });
     await Bun.write(files.brief, text, { createPath: true });
     return files.brief;
@@ -324,7 +342,7 @@ function launchEffects(input: {
     )
     .bind("recordedWorkspace", ({ workspaceId }) => record({ workspaceId }))
     .bind("placement", ({ workspaceId }) =>
-      place({ workspaceId, checkout, name, branch, reuse: resources.reuse }),
+      place({ workspaceId, checkout, name, branch, reuse: resources.reuse, base: resources.base }),
     )
     .bind("recordedPlacement", ({ placement }) =>
       record({

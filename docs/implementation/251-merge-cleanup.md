@@ -2,7 +2,7 @@
 
 Issue #251 implements the owner's guarded merge, merge verification, and the ordered cleanup after a verified merge from ADR-0010, ADR-0011, ADR-0001, and ADR-0003.
 It also covers the still-valid parts of #215: cleanup treats preparation output as disposable and still refuses unrecorded work.
-Parent-merge relay remains #250.
+Parent-merge relay is in `250-pr-relay.md`.
 Report pane closure after acceptance remains #248, and reviewer worktree cleanup remains #254.
 
 ## Commands

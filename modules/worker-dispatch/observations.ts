@@ -73,6 +73,45 @@ export function gitBranches(checkout: string) {
   );
 }
 
+/**
+ * The pushed head of a parent PR's branch. Its owner pushed it with an upstream, so Git names its
+ * remote. Each start fetches into its own private ref and leaves `FETCH_HEAD` alone, so two
+ * simultaneous starts never read each other's parent. The commit starts the child, so the child
+ * tracks no parent branch.
+ */
+export function parentBase(checkout: string, branch: string) {
+  return fromPromise(async () => {
+    async function git(args: string[]) {
+      const result = await ToolInvocation.run({
+        tool: "git",
+        args: ["-C", checkout, ...args],
+        timeoutMs: 60000,
+      });
+      return result.status === "completed" && result.exitCode === 0 ? result.stdout.trim() : null;
+    }
+    const ref = `refs/operator/parents/${crypto.randomUUID()}`;
+    const remote = await git(["config", `branch.${branch}.remote`]);
+    const fetched =
+      remote === null
+        ? null
+        : await git([
+            "fetch",
+            "--quiet",
+            "--no-write-fetch-head",
+            remote,
+            `+refs/heads/${branch}:${ref}`,
+          ]);
+    const head = fetched === null ? null : await git(["rev-parse", "--verify", `${ref}^{commit}`]);
+    await git(["update-ref", "-d", ref]);
+    return head === null
+      ? Err<Failure>({
+          reason: "parent_branch_unavailable",
+          detail: `Git could not fetch the pushed parent branch ${branch}. Its owner must push it with an upstream. Nothing was launched.`,
+        })
+      : Ok(head);
+  }, qualify).flatMap((result) => result);
+}
+
 /** The project workspace is the unlinked Herdr workspace whose checkout is the controller. */
 export function projectWorkspace(checkout: string) {
   return Herdr.workspaces().flatMap((workspaces) =>

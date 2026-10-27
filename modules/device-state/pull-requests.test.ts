@@ -9,6 +9,7 @@ import { observePane, reserveLaunch, updateLaunch } from "./launches.ts";
 import {
   associatePullRequest,
   recordPullRequestWait,
+  renewPullRequestRelay,
   renewPullRequestWait,
   worktreeOwners,
 } from "./pull-requests.ts";
@@ -84,7 +85,12 @@ function interrupt(db: Database, paneId: string) {
   });
 }
 
-const pr = { number: 7, url: "https://github.com/owner/one/pull/7", branch: "task/change" };
+const pr = {
+  number: 7,
+  url: "https://github.com/owner/one/pull/7",
+  branch: "task/change",
+  relay: null,
+};
 
 function assignmentState(db: Database, key: string) {
   return db.query("SELECT state FROM assignments WHERE key = ?").get(key);
@@ -232,4 +238,54 @@ test("a wait from a launch on another branch than the PR changes nothing", () =>
     recordPullRequestWait(db, "l1", (row) => ({ progress: row.progress, waitState: "waiting" })),
   ).toMatchObject({ error: { reason: "pr_branch_mismatch" } });
   expect(db.query("SELECT wait_state FROM pull_requests").get()).toEqual({ wait_state: "idle" });
+});
+
+test("a stacked PR keeps its relay record, and only another live process holds its claim", () => {
+  using db = fixture();
+  start(db, "l1", "change", "p1");
+  const relay = { state: "stacked", ownerPid: null, leaseAt: null };
+  associatePullRequest(db, "l1", { ...pr, relay: JSON.stringify(relay) });
+  const held: boolean[] = [];
+  function claim(ownerPid: number | null, leaseAt = new Date().toISOString()) {
+    db.query("UPDATE pull_requests SET relay = ?").run(
+      JSON.stringify({ ...relay, ownerPid, leaseAt }),
+    );
+    recordPullRequestWait(db, "l1", (row) => {
+      held.push(row.relayHeld);
+      return { progress: row.progress, waitState: row.waitState, relay: '{"state":"relayed"}' };
+    });
+  }
+  const gone = Bun.spawnSync([process.execPath, "--version"]).pid;
+  const other = Bun.spawn([process.execPath, "-e", "await Bun.sleep(5000)"]);
+  try {
+    claim(null);
+    claim(process.pid);
+    claim(gone);
+    claim(other.pid, "2000-01-01T00:00:00.000Z");
+    claim(other.pid);
+  } finally {
+    other.kill();
+  }
+  expect(held).toEqual([false, false, false, false, true]);
+  expect(db.query("SELECT relay FROM pull_requests").get()).toEqual({
+    relay: '{"state":"relayed"}',
+  });
+});
+
+test("a relay renews only its own claim, so a slow relay is not taken over", () => {
+  using db = fixture();
+  start(db, "l1", "change", "p1");
+  const old = "2000-01-01T00:00:00.000Z";
+  function claim(ownerPid: number) {
+    db.query("DELETE FROM pull_requests").run();
+    associatePullRequest(db, "l1", {
+      ...pr,
+      relay: JSON.stringify({ state: "stacked", ownerPid, leaseAt: old }),
+    });
+    expect(renewPullRequestRelay(db, "s1", "change").tag).toBe("Ok");
+    const row = db.query("SELECT relay FROM pull_requests").get() as { relay: string };
+    return (JSON.parse(row.relay) as { leaseAt: string }).leaseAt;
+  }
+  expect(claim(process.pid)).not.toBe(old);
+  expect(claim(process.pid + 1)).toBe(old);
 });

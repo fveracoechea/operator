@@ -56,6 +56,8 @@ test("live launches and running preparations block an upgrade, abandoned ones do
   );
   expect(migrationBlockers(db, 1793066920427).tag).toBe("Ok");
   expect(migrationBlockers(db, 1793115655370).tag).toBe("Ok");
+  // A running relay belongs to a pr-open assignment, which the idle guard already holds.
+  expect(migrationBlockers(db, 1793121866694).tag).toBe("Ok");
   const lease = new Date().toISOString();
   const stoppedPid = Bun.spawnSync([process.execPath, "--version"]).pid;
   for (const state of ["starting", "running", "failed", "interrupted"]) {

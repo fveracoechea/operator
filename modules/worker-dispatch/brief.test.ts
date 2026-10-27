@@ -15,6 +15,7 @@ const input = {
   followUps: { directory: "/state/follow-ups", files: [] },
   pullRequest: null,
   dependencyReports: [],
+  stack: null,
 };
 
 test("the brief carries the task, resources, results, and earlier history", () => {
@@ -59,6 +60,19 @@ test("a PR owner gets the feedback loop, and a replacement gets its open PR", ()
   expect(replacement).toContain("Keep work that is not landed.");
   expect(replacement).not.toContain("operator pr associate");
   expect(renderBrief({ ...input, completion: "report" })).not.toContain("PR feedback loop");
+});
+
+test("a stacked PR targets its parent's branch, and the brief names the relay", () => {
+  const stacked = renderBrief({
+    ...input,
+    stack: { assignment: "parent", number: 6, branch: "task/1-parent" },
+  });
+  expect(stacked).toContain(
+    "Your branch starts on `task/1-parent`, the branch of PR #6 of assignment `parent`. Target that branch as the PR base.",
+  );
+  expect(stacked).toContain("`parent_relayed`");
+  expect(stacked).not.toContain("Target the default branch.");
+  expect(renderBrief(input)).toContain("Target the default branch.");
 });
 
 test("a report brief names the submission, resume, and authority rules", () => {

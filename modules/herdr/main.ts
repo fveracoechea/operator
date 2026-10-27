@@ -149,7 +149,8 @@ export const Herdr = {
       paneId: value.result.root_pane.pane_id,
     }));
   },
-  createWorktree(input: { workspaceId: string; branch: string; label: string }) {
+  /** A `base` commit starts the new branch there, for example on a parent PR's branch. */
+  createWorktree(input: { workspaceId: string; branch: string; label: string; base?: string }) {
     return invoke(
       [
         "worktree",
@@ -158,6 +159,7 @@ export const Herdr = {
         input.workspaceId,
         "--branch",
         input.branch,
+        ...(input.base === undefined ? [] : ["--base", input.base]),
         "--label",
         input.label,
         "--no-focus",

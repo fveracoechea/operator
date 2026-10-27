@@ -94,7 +94,7 @@ test("a failing check is reported once per head, and pending or passing checks a
   ).toMatchObject({ events: [{ kind: "checks_failed", head: "h2" }] });
 });
 
-test("eligibility needs all four merge conditions and is reported once per head", () => {
+test("eligibility needs all five merge conditions and is reported once per head", () => {
   const eligible = {
     ...open,
     approved: true,
@@ -105,6 +105,15 @@ test("eligibility needs all four merge conditions and is reported once per head"
     checksPassing: true,
     threadsResolved: true,
     defaultBase: true,
+    stackRelayed: true,
+  });
+  // A stacked PR whose relay has not finished is not eligible, even on the default branch.
+  expect(mergeConditions(eligible, false)).toMatchObject({
+    defaultBase: true,
+    stackRelayed: false,
+  });
+  expect(decideWait({ progress: empty, observed: eligible, stackRelayed: false })).toEqual({
+    result: "none",
   });
   for (const blocked of [
     { ...eligible, approved: false },

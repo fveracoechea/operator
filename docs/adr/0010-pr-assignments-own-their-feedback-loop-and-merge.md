@@ -4,7 +4,7 @@
 
 Accepted - 2026-10-24.
 Decided in #228, #231, #232, and #233.
-Partly implemented: the feedback loop in #249, the guarded merge and cleanup in #251. Parent-merge relay and the optional reviewer are planned.
+Partly implemented: the feedback loop in #249, stacked starts and parent-merge relay in #250, and the guarded merge and cleanup in #251. The optional reviewer is planned.
 
 ## Context
 
@@ -27,6 +27,8 @@ A wait timeout makes an idle owner visible to the SuperAgent for replacement rat
 
 A dependency with an open or merged PR permits dependent code work to start.
 The child PR stacks on the parent's branch, and the CLI coordinates the relay and rebase after the parent merges.
+A PR stacks on one parent branch, so a PR assignment with several open parent PRs waits until all but one merge. Amended in #250.
+A stacked PR is not merge eligible until its parent merged and its relay finished.
 Report dependencies instead require accepted completion.
 The PR owner invokes the CLI merge operation.
 It refuses unless the PR has approval, passing checks, no unresolved threads, and the default branch as its base.

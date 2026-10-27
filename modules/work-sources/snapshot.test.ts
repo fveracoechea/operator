@@ -119,6 +119,7 @@ test("a PR open assignment needs its recorded PR, and only PR work past running 
     waitAt: "now",
     waitOwnerPid: null,
     waitLeaseAt: null,
+    relay: null,
     waitStopped: false,
     mergedHead: null,
     mergeCommit: null,
@@ -181,6 +182,7 @@ test("a PR open assignment needs its recorded PR, and only PR work past running 
       mergedHead: null,
       mergeCommit: null,
       mergedAt: null,
+      relay: null,
     },
   ]);
   expect(() => decodeSource({ ...open, pullRequests: [] })).toThrow();
@@ -292,6 +294,7 @@ test("a merged PR assignment needs its verified merge and its cleanup, and nothi
     mergedHead: "h1",
     mergeCommit: "m1",
     mergedAt: "now",
+    relay: null,
   };
   const cleanup = {
     sourceId: "one",

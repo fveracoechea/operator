@@ -18,6 +18,8 @@ type Facts = {
   dependencies: AssignmentState[];
   launch?: "starting" | "abandoned" | "running" | "failed" | "interrupted" | "finished";
   pullRequest?: "idle" | "waiting" | "stopped" | "reported" | "timed_out" | "not_open";
+  /** The parent-merge relay of a PR stacked on a dependency's PR. */
+  relay?: "stacked" | "blocked" | "relayed";
   // Herdr activity only raises attention for a PR owner. It never proves a result.
   activity?: string | null;
   /** The latest report's SuperAgent decision and cleanup, when one was submitted. */
@@ -45,6 +47,7 @@ type Decision = {
     | "pr_wait_stopped"
     | "pr_owner_idle"
     | "pr_not_open"
+    | "pr_relay_blocked"
     | "dependencies_pending"
     | "assignment_active"
     | "assignment_ended"
@@ -64,12 +67,15 @@ type Decision = {
     assignment: string;
     completion: "pr" | "report";
     state: AssignmentState["state"];
-    required: "pr-open-or-merged" | "completed";
+    required: "pr-open-or-merged" | "completed" | "merged";
   }[];
 };
 
-export function dependencyBlockers(dependencies: AssignmentState[]): Decision["blockers"] {
-  return dependencies
+export function dependencyBlockers(
+  assignment: AssignmentState,
+  dependencies: AssignmentState[],
+): Decision["blockers"] {
+  const pending: Decision["blockers"] = dependencies
     .filter((dependency) =>
       dependency.completion === "pr"
         ? dependency.state !== "pr-open" && dependency.state !== "merged"
@@ -81,6 +87,18 @@ export function dependencyBlockers(dependencies: AssignmentState[]): Decision["b
       state: dependency.state,
       required: dependency.completion === "pr" ? "pr-open-or-merged" : "completed",
     }));
+  // A PR stacks on one parent branch. With several open parents, all but one must merge first.
+  const open = dependencies.filter((dependency) => dependency.state === "pr-open");
+  const stacks =
+    assignment.completion === "pr" && open.length > 1
+      ? open.map((dependency) => ({
+          assignment: dependency.key,
+          completion: dependency.completion,
+          state: dependency.state,
+          required: "merged" as const,
+        }))
+      : [];
+  return [...pending, ...stacks];
 }
 
 // A PR owner keeps its PR open while it works, so a stopped owner is replaced in either state.
@@ -162,6 +180,11 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
     when: ({ launch }) => launch === "starting",
     decide: () => ({ action: "wait", reason: "launch_starting", blockers: [] }),
   },
+  // A relay that stopped at a conflict or a failed effect is not a completed relay.
+  {
+    when: ({ assignment, relay }) => assignment.state === "pr-open" && relay === "blocked",
+    decide: () => ({ action: "owner_attention", reason: "pr_relay_blocked", blockers: [] }),
+  },
   // A timeout or a PR that is no longer open never proves completion. The SuperAgent decides.
   {
     when: ({ assignment, pullRequest }) =>
@@ -195,11 +218,11 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
     decide: () => ({ action: "wait", reason: "assignment_active", blockers: [] }),
   },
   {
-    when: ({ dependencies }) => dependencyBlockers(dependencies).length > 0,
-    decide: ({ dependencies }) => ({
+    when: ({ assignment, dependencies }) => dependencyBlockers(assignment, dependencies).length > 0,
+    decide: ({ assignment, dependencies }) => ({
       action: "wait",
       reason: "dependencies_pending",
-      blockers: dependencyBlockers(dependencies),
+      blockers: dependencyBlockers(assignment, dependencies),
     }),
   },
   {

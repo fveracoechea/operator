@@ -133,6 +133,8 @@ export const pullRequests = sqliteTable(
     mergedHead: text("merged_head"),
     mergeCommit: text("merge_commit"),
     mergedAt: text("merged_at"),
+    // The stack parent and the parent-merge relay progress of a PR stacked on a parent PR.
+    relay: text("relay"),
   },
   (table) => [
     primaryKey({ columns: [table.sourceId, table.assignment] }),

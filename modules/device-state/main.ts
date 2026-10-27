@@ -39,6 +39,7 @@ import {
   recordPullRequestWait,
   renewPullRequestWait,
   recordPullRequestMerge,
+  renewPullRequestRelay,
 } from "./pull-requests.ts";
 import { claimCleanup, advanceCleanup, renewCleanup, startCleanup } from "./cleanups.ts";
 
@@ -191,6 +192,12 @@ export const DeviceState = {
   holdCleanup(paths: Paths, sourceId: string, assignment: string) {
     return hold(() =>
       withDatabase(paths, false, (client) => renewCleanup(client, sourceId, assignment)),
+    );
+  },
+  /** Renew this process's claim on a PR relay until the returned stop runs. */
+  holdPullRequestRelay(paths: Paths, sourceId: string, assignment: string) {
+    return hold(() =>
+      withDatabase(paths, false, (client) => renewPullRequestRelay(client, sourceId, assignment)),
     );
   },
   readSources(paths: Paths, repository: string, sourceId?: string) {

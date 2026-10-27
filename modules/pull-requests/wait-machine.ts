@@ -14,20 +14,23 @@ export type MergeConditions = {
   checksPassing: boolean;
   threadsResolved: boolean;
   defaultBase: boolean;
+  /** A stacked PR's parent merged and the relay finished, so no parent commit rides along. */
+  stackRelayed: boolean;
 };
 export type WaitEvent =
   | { kind: "feedback"; items: FeedbackItem[] }
   | { kind: "checks_failed"; head: string; checks: Check[] }
   | { kind: "merge_eligible"; head: string }
   | { kind: "pr_merged" | "pr_closed" };
-type Facts = { progress: Progress; observed: Observation };
+// A PR without a stack parent has nothing to relay.
+type Facts = { progress: Progress; observed: Observation; stackRelayed?: boolean };
 type Decision =
   | { result: "not_open"; events: WaitEvent[]; progress: Progress }
   | { result: "reported"; events: WaitEvent[]; progress: Progress }
   | { result: "none" };
 
-/** The four conditions that the later merge gate checks again before it merges. */
-export function mergeConditions(observed: Observation): MergeConditions {
+/** The five conditions that the later merge gate checks again before it merges. */
+export function mergeConditions(observed: Observation, stackRelayed = true): MergeConditions {
   return {
     approved: observed.approved,
     // Just after a push GitHub can report no checks yet, so no checks is not passing checks.
@@ -35,11 +38,12 @@ export function mergeConditions(observed: Observation): MergeConditions {
       observed.checks.length > 0 && observed.checks.every((check) => check.state === "passing"),
     threadsResolved: observed.unresolvedThreads === 0,
     defaultBase: observed.defaultBranch !== null && observed.base === observed.defaultBranch,
+    stackRelayed,
   };
 }
 
-function eligible(observed: Observation) {
-  return Object.values(mergeConditions(observed)).every(Boolean);
+function eligible({ observed, stackRelayed }: Facts) {
+  return Object.values(mergeConditions(observed, stackRelayed)).every(Boolean);
 }
 
 // A review with no body and no verdict only holds inline comments, which are reported themselves.
@@ -58,8 +62,8 @@ function unseenFailures({ progress, observed }: Facts) {
   );
 }
 
-function newlyEligible({ progress, observed }: Facts) {
-  return eligible(observed) && progress.eligibleHead !== observed.head;
+function newlyEligible({ progress, observed, stackRelayed }: Facts) {
+  return eligible({ progress, observed, stackRelayed }) && progress.eligibleHead !== observed.head;
 }
 
 function report(facts: Facts): Decision {
@@ -77,7 +81,7 @@ function report(facts: Facts): Decision {
     progress: {
       seen: [...progress.seen, ...items.map((item) => item.id)],
       failures: [...progress.failures, ...failing.map((check) => `${observed.head}:${check.name}`)],
-      eligibleHead: eligible(observed) ? observed.head : progress.eligibleHead,
+      eligibleHead: eligible(facts) ? observed.head : progress.eligibleHead,
     },
   };
 }

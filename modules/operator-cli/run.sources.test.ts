@@ -45,7 +45,7 @@ function recordMerges(db: Database) {
     INSERT INTO launches (id, source_id, assignment, attempt, state, name, resources, branch, host, model, requested_model, reasoning_effort, release, skills, started_at)
       SELECT 'launch-' || key, source_id, key, 1, 'interrupted', 'pr-' || key, 'worktree', 'task/12', 'opencode', 'm', 'm', 'medium', '{"version":"1"}', '[]', 'now'
       FROM assignments WHERE state = 'merged';
-    INSERT INTO pull_requests SELECT source_id, key, 'example/one', 7, 'https://github.com/example/one/pull/7', 'task/12', 'now', '{}', 'idle', NULL, NULL, NULL, 'h1', 'm1', 'now'
+    INSERT INTO pull_requests SELECT source_id, key, 'example/one', 7, 'https://github.com/example/one/pull/7', 'task/12', 'now', '{}', 'idle', NULL, NULL, NULL, 'h1', 'm1', 'now', NULL
       FROM assignments WHERE state = 'merged';
     INSERT INTO cleanups SELECT source_id, key, 'launch-' || key, NULL, 'done', NULL, NULL, 'now', NULL, NULL
       FROM assignments WHERE state = 'merged';
@@ -343,7 +343,7 @@ test("next uses completion-type-specific dependency facts and leaves all records
       db.exec("DELETE FROM cleanups; DELETE FROM pull_requests; DELETE FROM launches");
       if (pr === "pr-open")
         db.exec(
-          "INSERT INTO pull_requests SELECT source_id, key, 'example/one', 7, 'https://github.com/example/one/pull/7', 'task/12', 'now', '{}', 'idle', NULL, NULL, NULL, NULL, NULL, NULL FROM assignments WHERE key = 'implement'",
+          "INSERT INTO pull_requests SELECT source_id, key, 'example/one', 7, 'https://github.com/example/one/pull/7', 'task/12', 'now', '{}', 'idle', NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM assignments WHERE key = 'implement'",
         );
       if (pr === "merged") recordMerges(db);
     }

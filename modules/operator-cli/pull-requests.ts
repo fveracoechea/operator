@@ -64,6 +64,7 @@ function exitCode(reason: string) {
       "pr_already_associated",
       "pr_owned_elsewhere",
       "controller_mismatch",
+      "pr_base_invalid",
     ].includes(reason)
   )
     return 4;
@@ -78,6 +79,10 @@ function exitCode(reason: string) {
       "pr_merge_refused",
       "pr_merge_unverified",
       "cleanup_failed",
+      "relay_fetch_failed",
+      "relay_push_failed",
+      "relay_retarget_failed",
+      "relay_claim_lost",
     ].includes(reason)
   )
     return 1;

@@ -14,6 +14,8 @@ type BriefInput = {
   followUps: { directory: string; files: string[] };
   pullRequest: { number: number; url: string } | null;
   dependencyReports: ReturnType<typeof WorkSources.dependencyReports>;
+  /** The open parent PR that this PR stacks on, when it has one. */
+  stack: { assignment: string; number: number; branch: string } | null;
 };
 
 function list(files: string[], directory: string) {
@@ -56,10 +58,16 @@ ${reports.join("\n")}`;
 
 function feedbackLoop(input: BriefInput) {
   if (input.completion !== "pr") return "";
+  const base =
+    input.stack === null
+      ? "Target the default branch."
+      : `Your branch starts on \`${input.stack.branch}\`, the branch of PR #${input.stack.number} of assignment \`${input.stack.assignment}\`. Target that branch as the PR base.`;
   const opened =
     input.pullRequest === null
       ? [
           "Open one PR from your branch with your own tools. Use closing keywords for tracker issues.",
+          base,
+          "Push with `git push -u`, so Git records the remote of your branch.",
           "Then run `operator pr associate --json` in your worktree.",
         ]
       : [
@@ -74,6 +82,8 @@ ${opened.join("\n")}
 Run \`operator pr wait --json\` in your worktree, and repeat it after you handle each result.
 Check each claim in feedback, reply, and push fixes to the same PR.
 A \`pr_wait_timed_out\` result is visible to your SuperAgent until you wait again.
+When a stacked PR's parent merges, the wait rebases your branch onto the default branch, pushes it, and changes the PR base.
+It returns \`parent_relayed\`, or a \`relay_*\` blocker that you resolve before you wait again. Keep all work.
 After \`merge_eligible\`, run \`operator pr merge --json\`. It checks GitHub again, merges, and then closes this pane.
 PR commands select your assignment only through this worktree.
 `;

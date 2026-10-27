@@ -55,6 +55,7 @@ function pullRequestSummary(pr: PullRequest) {
     branch: pr.branch,
     wait: pr.waitStopped ? "stopped" : pr.waitState,
     waitAt: pr.waitAt,
+    stack: pr.relay,
   };
 }
 
@@ -257,6 +258,14 @@ function dependencyReports(source: Source, assignment: string) {
   });
 }
 
+function pullRequestFacts(pullRequest: PullRequest | undefined) {
+  if (pullRequest === undefined) return {};
+  return {
+    pullRequest: pullRequest.waitStopped ? ("stopped" as const) : pullRequest.waitState,
+    relay: pullRequest.relay?.state,
+  };
+}
+
 function decide(input: Input, source: Source) {
   return source.plan.assignments.map((assignment) => {
     const current = source.assignments.find((row) => row.key === assignment.key);
@@ -276,7 +285,7 @@ function decide(input: Input, source: Source) {
       dependencies: dependencies.filter((dependency) => dependency !== undefined),
       // A start whose dispatching process stopped can be replaced.
       launch: launch?.abandoned === true ? "abandoned" : launch?.state,
-      pullRequest: pullRequest?.waitStopped === true ? "stopped" : pullRequest?.waitState,
+      ...pullRequestFacts(pullRequest),
       activity: launch?.activity,
       report:
         report === undefined

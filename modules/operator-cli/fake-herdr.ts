@@ -48,7 +48,7 @@ else if (key === "worktree create" || key === "worktree open") {
   const source = state.workspaces.find((row) => row.workspace_id === flag("--workspace"));
   const path = flag("--path") ?? root + "/herdr-home/worktrees/" + flag("--label");
   if (key === "worktree create") {
-    const git = Bun.spawnSync(["git", "-C", source.worktree.checkout_path, "worktree", "add", "-q", "-b", flag("--branch"), path], { stderr: "pipe" });
+    const git = Bun.spawnSync(["git", "-C", source.worktree.checkout_path, "worktree", "add", "-q", "-b", flag("--branch"), path, ...(flag("--base") ? [flag("--base")] : [])], { stderr: "pipe" });
     if (git.exitCode !== 0) { console.error(JSON.stringify({ error: { message: git.stderr.toString() } })); process.exit(1); }
   }
   const created = workspace(path, true);

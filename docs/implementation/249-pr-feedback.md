@@ -1,7 +1,7 @@
 # PR feedback loop
 
 Issue #249 implements PR association, the owner's wait loop, and owner attention from ADR-0010, ADR-0011, ADR-0001, and ADR-0003.
-Parent-merge relay and rebase remain #250.
+Parent-merge relay and rebase are in `250-pr-relay.md`.
 The guarded merge, merge verification, and cleanup are in `docs/implementation/251-merge-cleanup.md`.
 
 ## Commands
@@ -78,11 +78,11 @@ A wait reads GitHub with no transaction open.
 The decision then runs inside an immediate write transaction on the progress that it reads there, so two simultaneous waits never report the same item.
 A restarted wait continues from the recorded progress, not from conversation history.
 
-Each result has the PR, the observed head, the four merge conditions, and its events:
+Each result has the PR, the observed head, the five merge conditions, and its events. The fifth, `stackRelayed`, is in `250-pr-relay.md`:
 
 - `feedback`: new reviews with a body or a verdict, PR comments, and review-thread comments, each with its author, `fromViewer`, path, and thread resolution. An item from the owner's own GitHub account has `fromViewer: true` and never ends a wait alone, so the owner's replies do not cost a round. It is reported once with the next other event. The accepted cost: a comment that the person writes from that same account also waits for the next other event.
 - `checks_failed`: check runs or status contexts that fail on the current head. The same check failing on a new head is reported again.
-- `merge_eligible`: approval, at least one reported check and all checks passing, no unresolved thread, and the default branch as base, reported once per head. Just after a push GitHub can report no checks yet, so no checks is not passing checks. `pr merge` checks these conditions again before it merges.
+- `merge_eligible`: approval, at least one reported check and all checks passing, no unresolved thread, the default branch as base, and for a stacked PR a finished relay, reported once per head. Just after a push GitHub can report no checks yet, so no checks is not passing checks. `pr merge` checks these conditions again before it merges.
 - `pr_merged` or `pr_closed`: the PR is no longer open. This is not a verified completion, so the assignment stays `pr-open` until the owner runs `pr merge`.
 
 Each read takes the newest 100 reviews, 100 comments, 100 threads with their newest 50 comments, and 100 check contexts.

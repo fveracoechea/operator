@@ -1,9 +1,11 @@
 /**
- * A controlled `gh` executable for public CLI tests. It answers `gh auth status`, the two
- * GraphQL reads of the PR feedback loop, the merge request, and remote branch reads and
- * deletions from one JSON file, and logs each call. Each PR read first applies the next queued
- * change, so a test can script what later polls observe. `mergeLost` applies a merge and then
- * answers 502, and `deleteLost` answers 502 without deleting.
+ * A controlled `gh` executable for public CLI tests. It answers `gh auth status`, the GraphQL
+ * reads of the PR feedback loop and the relay, the merge request, the PR base change, and remote
+ * branch reads and deletions from one JSON file, and logs each call. Each full PR read first
+ * applies the next queued change, so a test can script what later polls observe. A `parentQueue`
+ * scripts the parent reads the same way. With a `remote` bare repository, a PR without a scripted
+ * `head` reports its branch head there. `mergeLost` applies a merge and then answers 502, and
+ * `deleteLost` answers 502 without deleting.
  * It is not evidence of the live GitHub integration.
  */
 export function fakeGithubScript(root: string) {
@@ -49,9 +51,26 @@ if (path?.includes("/git/ref")) {
 const query = field("query") ?? "";
 const nodes = (items) => ({ nodes: items });
 const author = (login) => (login === null ? null : { login });
-if (query.includes("pullRequests(")) {
+// With a real bare remote, an open PR's head is its branch there, as GitHub reports a push.
+const headOf = (pr) => pr.head ?? (state.remote ? Bun.spawnSync(["git", "--git-dir", state.remote, "rev-parse", "refs/heads/" + pr.headRefName]).stdout.toString().trim() : "head-1");
+if (args.includes("PATCH")) {
+  if (state.failPatch) { console.log("HTTP/2.0 422 Unprocessable Entity\\r\\n\\r\\n" + JSON.stringify({ message: state.failPatch })); process.exit(1); }
+  const number = Number(args.find((arg) => arg.startsWith("repos/")).split("/").at(-1));
+  const pr = state.pulls.find((row) => row.number === number);
+  pr.baseRefName = field("base");
+  await Bun.write(stateFile, JSON.stringify(state));
+  answer({ number, base: { ref: pr.baseRefName } });
+} else if (query.includes("pullRequests(")) {
   const branch = field("branch");
-  answer({ data: { repository: { pullRequests: nodes(state.pulls.filter((pr) => pr.headRefName === branch && pr.state === "OPEN").map((pr) => ({ number: pr.number, url: pr.url, headRefName: pr.headRefName, headRepository: { nameWithOwner: pr.headRepository } }))) } } });
+  answer({ data: { repository: { defaultBranchRef: { name: state.defaultBranch ?? "main" }, pullRequests: nodes(state.pulls.filter((pr) => pr.headRefName === branch && pr.state === "OPEN").map((pr) => ({ number: pr.number, url: pr.url, baseRefName: pr.baseRefName ?? "main", headRefName: pr.headRefName, headRepository: { nameWithOwner: pr.headRepository } }))) } } });
+} else if (query.includes("RelayParent")) {
+  const number = Number(field("number"));
+  const index = state.pulls.findIndex((pr) => pr.number === number);
+  const change = (state.parentQueue ??= []).shift();
+  if (change) state.pulls[index] = { ...state.pulls[index], ...change };
+  await Bun.write(stateFile, JSON.stringify(state));
+  const pr = state.pulls[index];
+  answer({ data: { repository: { pullRequest: { state: pr.state, baseRefName: pr.baseRefName ?? "main", headRefOid: headOf(pr) } } } });
 } else {
   const number = Number(field("number"));
   const index = state.pulls.findIndex((pr) => pr.number === number);
@@ -60,7 +79,7 @@ if (query.includes("pullRequests(")) {
   await Bun.write(stateFile, JSON.stringify(state));
   const pr = state.pulls[index];
   answer({ data: { viewer: { login: state.viewer ?? "owner" }, repository: { defaultBranchRef: { name: state.defaultBranch ?? "main" }, viewerDefaultMergeMethod: state.mergeMethod ?? "SQUASH", pullRequest: {
-    state: pr.state, baseRefName: pr.baseRefName ?? "main", headRefName: pr.headRefName, headRefOid: pr.head ?? "head-1", reviewDecision: pr.reviewDecision ?? null, mergeCommit: pr.mergeCommit ? { oid: pr.mergeCommit } : null,
+    state: pr.state, baseRefName: pr.baseRefName ?? "main", headRefName: pr.headRefName, headRefOid: headOf(pr), reviewDecision: pr.reviewDecision ?? null, mergeCommit: pr.mergeCommit ? { oid: pr.mergeCommit } : null,
     reviews: nodes((pr.reviews ?? []).map((review) => ({ id: review.id, state: review.state, body: review.body ?? "", url: "https://github.com/r/" + review.id, author: author(review.author ?? "reviewer") }))),
     comments: nodes((pr.comments ?? []).map((comment) => ({ id: comment.id, body: comment.body, url: "https://github.com/c/" + comment.id, author: author(comment.author ?? "reviewer") }))),
     reviewThreads: nodes((pr.threads ?? []).map((thread) => ({ isResolved: thread.resolved ?? false, path: thread.path ?? "file.ts", comments: nodes(thread.comments.map((comment) => ({ id: comment.id, body: comment.body, url: "https://github.com/t/" + comment.id, author: author(comment.author ?? "reviewer") }))) }))),

@@ -19,20 +19,68 @@ test("PR and report states remain closed and completion-specific", () => {
     assignmentStateSchema.safeParse({ key: "one", completion: "report", state: "unknown" }).success,
   ).toBe(false);
 });
+const child: AssignmentState = { key: "child", completion: "pr", state: "ready" };
 test("only open or merged PRs and accepted reports satisfy dependencies", () => {
   for (const state of prStates)
-    expect(dependencyBlockers([{ key: "parent", completion: "pr", state }]).length).toBe(
+    expect(dependencyBlockers(child, [{ key: "parent", completion: "pr", state }]).length).toBe(
       state === "pr-open" || state === "merged" ? 0 : 1,
     );
   for (const state of reportStates)
-    expect(dependencyBlockers([{ key: "parent", completion: "report", state }]).length).toBe(
+    expect(dependencyBlockers(child, [{ key: "parent", completion: "report", state }]).length).toBe(
       state === "completed" ? 0 : 1,
     );
   expect(
-    dependencyBlockers([{ key: "research", completion: "report", state: "reported" }]),
+    dependencyBlockers(child, [{ key: "research", completion: "report", state: "reported" }]),
   ).toEqual([
     { assignment: "research", completion: "report", state: "reported", required: "completed" },
   ]);
+});
+test("a PR stacks on one open parent, so several open parents wait for all but one to merge", () => {
+  function open(key: string): AssignmentState {
+    return { key, completion: "pr", state: "pr-open" };
+  }
+  const merged: AssignmentState = { key: "done", completion: "pr", state: "merged" };
+  expect(dependencyBlockers(child, [open("a"), merged])).toEqual([]);
+  expect(dependencyBlockers(child, [open("a"), open("b")])).toEqual([
+    { assignment: "a", completion: "pr", state: "pr-open", required: "merged" },
+    { assignment: "b", completion: "pr", state: "pr-open", required: "merged" },
+  ]);
+  // A report reads no branch, so it can start on several open parents.
+  const report: AssignmentState = { key: "read", completion: "report", state: "ready" };
+  expect(dependencyBlockers(report, [open("a"), open("b")])).toEqual([]);
+  expect(
+    decideAssignment({ assignment: child, dependencies: [open("a"), open("b")] }),
+  ).toMatchObject({ action: "wait", reason: "dependencies_pending" });
+});
+test("a blocked relay needs owner attention, and a stopped owner is still replaced first", () => {
+  const owner: AssignmentState = { key: "child", completion: "pr", state: "pr-open" };
+  expect(
+    decideAssignment({
+      assignment: owner,
+      dependencies: [],
+      relay: "blocked",
+      launch: "running",
+      pullRequest: "reported",
+    }),
+  ).toMatchObject({ action: "owner_attention", reason: "pr_relay_blocked" });
+  expect(
+    decideAssignment({
+      assignment: owner,
+      dependencies: [],
+      relay: "blocked",
+      launch: "interrupted",
+    }),
+  ).toMatchObject({ action: "replace_worker", reason: "worker_interrupted" });
+  for (const relay of ["stacked", "relayed"] as const)
+    expect(
+      decideAssignment({
+        assignment: owner,
+        dependencies: [],
+        relay,
+        launch: "running",
+        pullRequest: "waiting",
+      }),
+    ).toMatchObject({ action: "wait", reason: "pr_feedback_loop" });
 });
 test("the ordered assignment table exposes only ready work, preserving active and ended states", () => {
   const states: AssignmentState[] = [

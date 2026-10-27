@@ -15,7 +15,7 @@ const eligible: Observation = {
   checks: [{ name: "lint", state: "passing", url: null }],
 };
 
-test("only a fresh observation with all four merge conditions and the local head merges", () => {
+test("only a fresh observation with all five merge conditions and the local head merges", () => {
   expect(decideMerge({ observed: eligible, localHead: "h1" })).toEqual({
     result: "merge",
     head: "h1",
@@ -41,6 +41,19 @@ test("each missing condition refuses with its own explanation", () => {
     expect(decision).toMatchObject({ result: "refused", reason: "pr_merge_blocked" });
     expect("detail" in decision ? decision.detail : "").toContain(text);
   }
+});
+
+test("a stacked PR whose relay has not finished does not merge, even on the default branch", () => {
+  const decision = decideMerge({ observed: eligible, localHead: "h1", stackRelayed: false });
+  expect(decision).toMatchObject({
+    result: "refused",
+    reason: "pr_merge_blocked",
+    conditions: { defaultBase: true, stackRelayed: false },
+  });
+  expect("detail" in decision ? decision.detail : "").toContain("a finished parent-merge relay");
+  expect(decideMerge({ observed: eligible, localHead: "h1", stackRelayed: true })).toMatchObject({
+    result: "merge",
+  });
 });
 
 test("a different local head and a closed PR refuse, and a merged PR is only verified", () => {

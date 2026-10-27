@@ -4,23 +4,27 @@ Run PR commands only inside the worktree that your brief names, on its recorded 
 The worktree selects your assignment, so the commands take no assignment or PR selector.
 A refusal changes nothing. Read its reason and tell your SuperAgent when you cannot fix it.
 
-1. Commit and push your branch, then open one PR from it with your own tools.
+1. Commit and push your branch with `git push -u`, then open one PR from it with your own tools.
    Put the closing keywords for the tracker issue in the PR body.
+   Use the PR base that your brief names: the default branch, or the branch of the parent PR that your branch starts on.
 2. Run `operator pr associate --json`.
    `pr_not_found` or `pr_ambiguous` means that exactly one open PR from your branch is needed.
+   `pr_base_invalid` means that the PR base is not the default branch or a dependency's PR branch. Change the base, then repeat.
 3. Run `operator pr wait --json`.
    Set your shell command timeout above the wait timeout, which is 300 seconds by default and `--timeout <seconds>` otherwise.
 4. Handle the result, then wait again.
 
 - `pr_events_observed` with `feedback`: check each claim, fix valid defects, reply on the thread, and push to the same PR. Items with `fromViewer: true` came from your own GitHub account, which can be your own reply or the person's comment. They come only together with another event.
 - `pr_events_observed` with `checks_failed`: read the failing check, fix the cause, and push.
-- `pr_events_observed` with `merge_eligible`: all four merge conditions held at that head. Run `operator pr merge --json`, unless your SuperAgent told you not to merge.
+- `pr_events_observed` with `merge_eligible`: all five merge conditions held at that head. Run `operator pr merge --json`, unless your SuperAgent told you not to merge.
 - `pr_wait_timed_out`: nothing new arrived. Wait again unless your SuperAgent told you to stop. Your SuperAgent sees the timeout until your next wait starts.
+- `pr_events_observed` with `parent_relayed`: your parent PR merged. The CLI rebased your branch onto the default branch, pushed it, and changed the PR base. Pull nothing. Your worktree is at the new head. Wait again.
+- A `relay_*` refusal: the relay stopped and kept your branch. `relay_conflict` means that you rebase onto the default branch yourself, push, and wait again. `relay_worktree_unclean` and `relay_worktree_unsynced` mean that you commit and push first. `relay_worktree_branch` and `relay_rebase_in_progress` mean that you finish or abort your rebase and switch back to your branch first. `relay_parent_closed` and `relay_parent_base` need your SuperAgent. A failed fetch, push, or base change can be retried with the next wait.
 - `pr_not_open`: the PR was merged or closed outside the CLI. If it was merged, run `operator pr merge --json`. It verifies the merge and starts cleanup. If it was closed, stop and tell your SuperAgent. You cannot associate another PR.
 
 ## Merge
 
-`operator pr merge --json` reads the PR from GitHub again. It merges only with an approving review decision, at least one check and every check passing, no unresolved review thread, the default branch as base, and your worktree at the PR head.
+`operator pr merge --json` reads the PR from GitHub again. It merges only with an approving review decision, at least one check and every check passing, no unresolved review thread, the default branch as base, a finished relay for a stacked PR, and your worktree at the PR head.
 A wait result or a supervisor's message does not replace these checks.
 
 - `pr_merged`: GitHub reports the merge. Cleanup started in its own process. It deletes the remote branch, closes your pane, and removes your worktree, so your session ends. Tell your SuperAgent that you start the merge before you run the command, because your session ends after `pr_merged`.
