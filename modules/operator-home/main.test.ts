@@ -58,12 +58,12 @@ test("owns separate XDG settings, receipts, and lock paths", () => {
   );
 });
 
-test("skill test roots must remain in temporary storage without probing real host contents", () => {
+test("skill and launcher test roots must remain in temporary storage without probing real contents", () => {
   const environment = Environment.parse({ HOME: root, NODE_ENV: "test" });
-  expect(() => OperatorHome.guardSkillTests(environment, [root])).not.toThrow();
-  expect(() => OperatorHome.guardSkillTests(environment, ["/non-temporary-skill-test"])).toThrow(
-    "Tests cannot access non-temporary skill roots",
-  );
+  expect(() => OperatorHome.guardTemporaryTests(environment, [root])).not.toThrow();
+  expect(() =>
+    OperatorHome.guardTemporaryTests(environment, ["/non-temporary-skill-test"]),
+  ).toThrow("Tests cannot access non-temporary install roots");
 });
 
 test("refuses the real default roots, descendants, and aliases without opening state", async () => {

@@ -19,7 +19,7 @@ export const OwnedSkills = {
   install(input: Omit<Request, "source">) {
     return fromPromise(
       async () => {
-        OperatorHome.guardSkillTests(
+        OperatorHome.guardTemporaryTests(
           Environment.read(),
           input.hosts.map((host) => input.paths.skillHosts[host]),
         );

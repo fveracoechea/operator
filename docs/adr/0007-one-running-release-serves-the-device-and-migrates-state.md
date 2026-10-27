@@ -4,7 +4,9 @@
 
 Accepted - 2026-10-24.
 Decided in #199, #205, #206, #208, and #228.
-Planned, not yet implemented.
+Amended 2026-10-26 in #256: source delivery shares the release commit but has no artifact identity.
+Implemented for global JSR and source delivery, automatic migration, and global-command readiness in #245 and #256.
+Nix delivery and the Herdr plugin remain planned.
 
 ## Context
 
@@ -17,7 +19,10 @@ State compatibility still needed a safe, deterministic update path.
 
 The running installation is the release authority for the device.
 Bun, Nix, or the person updates that installation externally.
-An exact JSR version, a Nix flake, and repository source at a full commit deliver the same release from the same commit and artifact identity.
+An exact JSR version, a Nix flake, and repository source at a full commit deliver the same release from the same commit.
+JSR and Nix also share the built artifact and its identity.
+Source delivery runs the source at that commit without an install-time build, so its identity is the commit alone.
+An installation that does not pin an exact version or a full commit is a readiness blocker, because a later package update could move the device release.
 The CLI, owned skills, and fixed migrations form one matched release.
 
 Nix builds the shared release artifact with locked dependencies through bun2nix and the release's pinned Bun.
@@ -25,6 +30,7 @@ It does not compile a different standalone program or retrieve dependencies at r
 The package supports arm64 macOS and x86-64 Linux.
 Consumers wire its read-only skills through their own Nix configuration, without an Operator Home Manager module.
 JSR global delivery supplies a launcher because the registry does not retain the package binary declaration.
+The launcher names the package manager's stable global package location and no release, so an update in place changes what runs without changing the command.
 
 Every command passes through shared compatibility checks before its handler.
 Matching Drizzle migration history proceeds, an older matching history applies shipped migrations in order, and newer, conflicting, or unsupported history refuses.
@@ -38,6 +44,7 @@ Failed migrations keep their backup.
 Launch records retain release and skill identities without copying Operator lock data into project worktrees or fingerprinting the shared global Bun lock.
 
 Herdr uses the global command rather than a retained release-specific binary path.
+Readiness refuses a global command that does not run the running release.
 Its plugin manifest lives in stable device state, and its hooks call that command.
 The plugin forwards agent activity and worktree-creation events to the CLI.
 

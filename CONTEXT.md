@@ -81,7 +81,7 @@ One of the three ways to obtain the same release, JSR installed globally with Bu
 
 **Release artifact**:
 The content-identified CLI, public declarations, owned skills, plugin content, schemas, and fixed migrations that belong to one release.
-All delivery paths preserve that release's commit and artifact identity.
+All delivery paths preserve that release's commit, and JSR and Nix also preserve its artifact identity.
 
 **Release publication**:
 Automatic delivery from a merged version change after its quality checks and release smoke pass.

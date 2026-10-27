@@ -1,5 +1,11 @@
 # Device setup
 
+Operator runs through the global `operator` command on `PATH`, for agents, shells, and Herdr hooks.
+The person installs one exact JSR version or one full source commit with `bun add -g`.
+A JSR install has no command until its package CLI runs `install launcher --json` once, after registration.
+A source install gets its command from Bun.
+Do not install or select a release inside a project.
+
 First run `operator project register --json` from the main checkout with a matching GitHub remote and no legacy `.operator` folder.
 Until it creates the device database, every other command, including help and version, refuses.
 
@@ -17,7 +23,7 @@ Select only the required host flags.
 The pinned upstream installer owns replacement and its lock, and can replace local edits without an Operator preview.
 Inspect failed or interrupted installs before requesting another install.
 
-Use `operator ready --json` to check current static prerequisites for `superAgent.host` in device settings.
+Use `operator ready --json` to check current static prerequisites, including a pinned global command that runs this release, for `superAgent.host` in device settings.
 Resolve every returned blocker before delegated work.
 The check follows skill links and requires complete owned contents and upstream `code-review` presence.
 It launches no host or probe and writes no readiness record.

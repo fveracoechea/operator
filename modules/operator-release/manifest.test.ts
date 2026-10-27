@@ -39,6 +39,25 @@ test("source metadata comes from its package while built metadata survives regis
   });
 });
 
+test("a source installation reports only the full commit Bun recorded for it", async () => {
+  await Bun.write(`${root}/package.json`, '{"version":"1.2.3"}', { createPath: true });
+  for (const [tag, commit] of [
+    [`${"c".repeat(40)}\n`, "c".repeat(40)],
+    ["main\n", null],
+    ["c".repeat(12), null],
+    [`${"C".repeat(40)}`, null],
+    [`${"c".repeat(41)}`, null],
+  ] as const) {
+    await Bun.write(`${root}/.bun-tag`, tag);
+    expect((await readReleaseManifest(root)).commit).toBe(commit);
+  }
+  await Bun.write(`${root}/.bun-tag`, "d".repeat(40));
+  await Bun.write(`${root}/release.json`, JSON.stringify({ commit: "e".repeat(40) }));
+  expect((await readReleaseManifest(root)).commit).toBe("e".repeat(40));
+  await Bun.write(`${root}/release.json`, JSON.stringify({ version: "2.0.0" }));
+  expect((await readReleaseManifest(root)).commit).toBeNull();
+});
+
 test("artifact inspection never guesses its version from a package manifest", async () => {
   await Bun.write(`${root}/package.json`, '{"version":"9.0.0"}', { createPath: true });
   expect(await readArtifactRelease(root)).toEqual({ version: "0.0.0", commit: null });

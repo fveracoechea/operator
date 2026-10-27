@@ -1,4 +1,5 @@
 import { DeviceSettings } from "../device-settings/main.ts";
+import { GlobalLauncher } from "../global-launcher/main.ts";
 import { Environment } from "../environment/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { OwnedSkills } from "../owned-skills/main.ts";
@@ -7,14 +8,20 @@ import { UpstreamSkills } from "../upstream-skills/main.ts";
 import { fromPromise, Ok } from "unthrown";
 
 type Blocker =
-  | { reason: "executable_missing"; tool: "gh" | "herdr" | "opencode" | "claude"; detail: string }
+  | {
+      reason: "executable_missing";
+      tool: "gh" | "herdr" | "opencode" | "claude";
+      detail: string;
+    }
   | {
       reason: "host_unconfigured" | "github_auth_failed" | "upstream_skills_missing";
       detail: string;
     }
   | Extract<Awaited<ReturnType<typeof DeviceSettings.show>>, { tag: "Err" }>["error"]
   | Extract<Awaited<ReturnType<typeof OwnedSkills.install>>, { tag: "Err" }>["error"]
-  | Extract<Awaited<ReturnType<typeof UpstreamSkills.check>>, { tag: "Err" }>["error"];
+  | Extract<Awaited<ReturnType<typeof UpstreamSkills.check>>, { tag: "Err" }>["error"]
+  | Extract<Awaited<ReturnType<typeof GlobalLauncher.check>>, { tag: "Ok" }>["value"][number]
+  | Extract<Awaited<ReturnType<typeof GlobalLauncher.check>>, { tag: "Err" }>["error"];
 
 function checkHost(paths: ReturnType<typeof OperatorHome.resolve>) {
   return fromPromise(
@@ -69,6 +76,11 @@ export const Readiness = {
               detail: `Install ${tool} on PATH.`,
             });
         }
+        // Herdr hooks and agents reach the running release only through the global command.
+        const command = await GlobalLauncher.check();
+        if (command.tag === "Defect") return command.map(() => ({ blockers }));
+        if (command.tag === "Err") blockers.push(command.error);
+        else blockers.push(...command.value);
         if (!blockers.some((blocker) => "tool" in blocker && blocker.tool === "gh")) {
           const auth = await ToolInvocation.run({
             tool: "gh",

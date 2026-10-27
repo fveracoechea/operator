@@ -23,9 +23,10 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile
-      # Both paths install for real: the GitHub source path from a local Git repository at one
-      # exact commit, and the registry path from a local registry that rewrites the package
-      # manifest the way JSR does. Nothing reaches the network, and nothing is published.
+      # Both paths install for real, globally and as project dependencies: the source path from a
+      # local Git repository at one full commit, and the registry path from a local registry that
+      # rewrites the package manifest the way JSR does. Global installs use isolated Bun folders.
+      # Nothing reaches the network, and nothing is published.
       # `shell: bash` sets `pipefail`, so `tee` cannot answer for the test run it copies.
       - name: Clean installation and CLI behaviour on both paths
         shell: bash

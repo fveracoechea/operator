@@ -3,6 +3,7 @@ import { fromPromise, Ok, Err } from "unthrown";
 import { z } from "zod";
 import { apply, plan, recover, type ChangeRequest, type SettingsOutcome } from "./change.ts";
 import { isIoFailure, readConfig } from "./storage.ts";
+import { editorSchemaText } from "./schema.ts";
 import { AgentHosts } from "../agent-hosts/main.ts";
 import { selectLaunch, type SelectionRequest } from "./selection.ts";
 
@@ -55,5 +56,9 @@ export const DeviceSettings = {
   },
   recover(paths: OperatorPaths) {
     return operate(() => recover(paths));
+  },
+  /** The settings editor schema that a release ships and a settings edit writes. */
+  editorSchema() {
+    return editorSchemaText();
   },
 };

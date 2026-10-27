@@ -4,8 +4,14 @@ import path from "node:path";
 // Bun has no invariant assertion API outside its test runner.
 import assert from "node:assert/strict";
 import { z } from "zod";
-import { identifyArtifact, RELEASE_MANIFEST_PATH, scanFiles } from "./inventory.ts";
+import {
+  identifyArtifact,
+  RELEASE_MANIFEST_PATH,
+  scanFiles,
+  SETTINGS_SCHEMA_PATH,
+} from "./inventory.ts";
 import { rewriteSpecifiers } from "./specifiers.ts";
+import { DeviceSettings } from "../device-settings/main.ts";
 
 const ENTRY_POINT = "cli.ts";
 const { dirname, relative, resolve } = path;
@@ -180,7 +186,8 @@ function jsrManifest(source: SourceManifest): string {
 
 /**
  * Writes one release artifact from one checkout.
- * It holds runnable ESM, declarations, and complete owned skills.
+ * It holds runnable ESM, declarations, complete owned skills, the settings schema, and the fixed
+ * database migrations.
  */
 export async function buildArtifact(request: {
   sourceRoot: string;
@@ -231,6 +238,10 @@ export async function buildArtifact(request: {
     );
   }
 
+  // Nix and other read-only settings owners can name the schema the running release accepts.
+  await Bun.write(`${artifactRoot}/${SETTINGS_SCHEMA_PATH}`, DeviceSettings.editorSchema(), {
+    createPath: true,
+  });
   await Bun.write(`${artifactRoot}/README.md`, Bun.file(`${sourceRoot}/${README_SOURCE}`));
   await Bun.write(`${artifactRoot}/package.json`, packageManifest(source));
   await Bun.write(`${artifactRoot}/jsr.json`, jsrManifest(source));

@@ -117,6 +117,14 @@ test.each([
     pattern: "reports missing tools",
   },
   {
+    name: "global operator command",
+    file: "global-launcher/main.ts",
+    before: 'if (found === null)\n    return [{ reason: "executable_missing"',
+    after: 'if (found === "never")\n    return [{ reason: "executable_missing"',
+    testFile: "operator-cli/run.readiness.test.ts",
+    pattern: "reports missing tools",
+  },
+  {
     name: "complete owned contents",
     file: "readiness/main.ts",
     before: 'if (owned.tag === "Err")',

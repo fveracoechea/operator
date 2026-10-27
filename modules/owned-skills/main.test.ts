@@ -50,7 +50,7 @@ test("an unreadable ledger is an operational refusal without host writes", async
 });
 
 test("preserves programming defects rather than classifying them as I/O failures", async () => {
-  const spy = spyOn(OperatorHome, "guardSkillTests").mockImplementation(() => {
+  const spy = spyOn(OperatorHome, "guardTemporaryTests").mockImplementation(() => {
     // oxlint-disable-next-line unthrown/no-throw -- Inject a programming defect at the public module boundary.
     throw new TypeError("defect");
   });

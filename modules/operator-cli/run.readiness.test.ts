@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 // Bun has no temporary-directory or recursive removal API.
-import { chmod, cp, mkdtemp, rm, symlink } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Environment } from "../environment/main.ts";
@@ -47,6 +47,12 @@ test("reports missing tools and configured host without creating state or launch
       blockers: [
         { reason: "executable_missing", tool: "gh" },
         { reason: "executable_missing", tool: "herdr" },
+        {
+          reason: "executable_missing",
+          tool: "operator",
+          detail:
+            "Put the global operator command on PATH. A JSR install needs operator install launcher, and a source install needs Bun's global bin folder on PATH.",
+        },
         { reason: "host_unconfigured" },
       ],
     },
@@ -77,6 +83,9 @@ async function configure(host: string) {
   );
   await Bun.write(`${upstream}/placeholder`, "", { createPath: true });
   await symlink(`${root}/independent-code-review`, `${upstream}/code-review`);
+  // The global command of a source install is Bun's link to the running release's entry point.
+  await mkdir(`${root}/tools`, { recursive: true });
+  await symlink(cli, `${root}/tools/operator`);
   for (const tool of ["gh", "herdr", host === "opencode" ? "opencode" : "claude"]) {
     await Bun.write(
       `${root}/tools/${tool}`,
@@ -134,4 +143,41 @@ test("reports failed authentication, a missing host, changed owned assets, and a
   expect(await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer()).toEqual(
     databaseBefore,
   );
+});
+
+test.each([
+  {
+    name: "a foreign command",
+    write: (path: string) => Bun.write(path, `#!${process.execPath}\nprocess.exit(99);\n`),
+  },
+  {
+    name: "a launcher for another global package",
+    write: (path: string) =>
+      Bun.write(
+        path,
+        `#!/bin/sh\n# Operator launcher written by operator install launcher.\n# It runs the global JSR package in place, so it names no release and survives updates.\nexec bun '${root}/other/node_modules/@fveracoechea/operator/cli.js' "$@"\n`,
+      ),
+  },
+])("$name on PATH is a mismatch that readiness reports without running it", async (change) => {
+  await configure("opencode");
+  await rm(`${root}/tools/operator`);
+  await Bun.write(`${root}/other/node_modules/@fveracoechea/operator/cli.js`, "", {
+    createPath: true,
+  });
+  await change.write(`${root}/tools/operator`);
+  await chmod(`${root}/tools/operator`, 0o755);
+  const before = await Bun.file(`${root}/tools/operator`).text();
+  const result = await run();
+  expect(result.code).toBe(3);
+  expect(result.output).toMatchObject({
+    reason: "not_ready",
+    blockers: [{ reason: "executable_mismatch", tool: "operator" }],
+  });
+  expect(await Bun.file(`${root}/tools/operator`).text()).toBe(before);
+  expect(await Bun.file(`${root}/calls`).json()).toEqual([
+    "auth",
+    "status",
+    "--hostname",
+    "github.com",
+  ]);
 });

@@ -125,7 +125,7 @@ export const UpstreamSkills = {
   },
   install(hosts: Host[], paths: ReturnType<typeof OperatorHome.resolve>) {
     return fromPromise(async () => {
-      OperatorHome.guardSkillTests(
+      OperatorHome.guardTemporaryTests(
         Environment.read(),
         hosts.map((host) => paths.upstreamSkills[host]),
       );
@@ -134,7 +134,7 @@ export const UpstreamSkills = {
   },
   check(paths: ReturnType<typeof OperatorHome.resolve>, host: Host) {
     return fromPromise(async () => {
-      OperatorHome.guardSkillTests(Environment.read(), [paths.upstreamSkills[host]]);
+      OperatorHome.guardTemporaryTests(Environment.read(), [paths.upstreamSkills[host]]);
       const missing = [];
       for (const name of required) {
         const file = `${paths.upstreamSkills[host]}/${name}/SKILL.md`;

@@ -146,7 +146,11 @@ describe("real source-package delivery", () => {
       sourceProject,
     );
     expect(result.exitCode).toBe(0);
-    expect(versionSchema.parse(JSON.parse(result.stdout)).data.operatorVersion).toBe(version);
+    expect(versionSchema.parse(JSON.parse(result.stdout)).data).toMatchObject({
+      operatorVersion: version,
+      commit,
+      artifactIdentity: null,
+    });
     expect(
       await Bun.file(`${sourceProject}/node_modules/@fveracoechea/operator/cli.js`).exists(),
     ).toBe(false);
@@ -300,6 +304,11 @@ test("device settings examples work through installed source and registry comman
     );
     expect(applied.exitCode).toBe(0);
     expect(JSON.parse(applied.stdout)).toMatchObject({ reason: "settings_applied" });
+    expect(await Bun.file(`${isolated.XDG_CONFIG_HOME}/operator/config.schema.json`).text()).toBe(
+      await Bun.file(
+        `${registryProject}/node_modules/@fveracoechea/operator/schemas/config.schema.json`,
+      ).text(),
+    );
     const recovered = await run(
       [...invocation.command, "config", "recover", "--json"],
       invocation.cwd,
@@ -791,6 +800,9 @@ test("installed source and registry CLIs copy complete skills to both hosts and 
       }
     }
     const tools = `${root}/${delivery.name}-readiness-tools`;
+    // The global command runs this installed release, as Bun's link or the launcher would.
+    await mkdir(tools, { recursive: true });
+    await symlink(`${installed}/${delivery.entry}`, `${tools}/operator`);
     for (const tool of ["gh", "herdr", "opencode", "claude", "git", "bun"]) {
       const script =
         tool === "gh"

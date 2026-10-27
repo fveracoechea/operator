@@ -26,3 +26,8 @@ export const settingsSchema = z.strictObject({
     .optional(),
 });
 export type DeviceConfig = z.infer<typeof settingsSchema>;
+
+/** The one rendering of the editor schema, shared by the release artifact and settings edits. */
+export function editorSchemaText(): string {
+  return `${JSON.stringify(z.toJSONSchema(settingsSchema), null, 2)}\n`;
+}

@@ -42,6 +42,18 @@ function packagedBunRange(packaged: Record<string, unknown> | null): string | nu
 }
 
 /**
+ * The full commit Bun records when it installs a Git dependency, so a source installation reports
+ * the exact commit it runs. Any other content names no commit, because source delivery is pinned
+ * to a full commit and a guess would be a false identity.
+ */
+async function installedSourceCommit(root: string): Promise<string | null> {
+  const file = Bun.file(`${root}/.bun-tag`);
+  if (!(await file.exists())) return null;
+  const tag = (await file.text()).trim();
+  return /^[0-9a-f]{40}$/.test(tag) ? tag : null;
+}
+
+/**
  * Reads what one release says about itself.
  * A built artifact carries its own record, because the registry rewrites the package manifest
  * and drops the fields a published copy would otherwise be read from.
@@ -51,7 +63,7 @@ export async function readReleaseManifest(root = packageRoot): Promise<ReleaseMa
   const packaged = await readJson(`${root}/package.json`);
   return {
     version: text(recorded?.version) ?? text(packaged?.version) ?? "0.0.0",
-    commit: text(recorded?.commit),
+    commit: recorded === null ? await installedSourceCommit(root) : text(recorded.commit),
     supportedBun: text(recorded?.supportedBun) ?? packagedBunRange(packaged) ?? "*",
     builtAt: text(recorded?.builtAt),
     artifactIdentity: text(recorded?.artifactIdentity),

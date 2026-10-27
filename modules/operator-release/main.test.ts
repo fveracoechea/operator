@@ -4,6 +4,7 @@ import { registerTestDevice } from "../../scripts/device-fixture.ts";
 // Bun has no recursive directory removal or symlink API.
 import { rm, symlink } from "node:fs/promises";
 import { OperatorRelease } from "./main.ts";
+import { DeviceSettings } from "../device-settings/main.ts";
 import { z } from "zod";
 import { packageSchema, jsrSchema, releaseSchema, versionSchema } from "./test-schemas.ts";
 
@@ -52,6 +53,9 @@ describe("the release artifact", () => {
     expect(await Bun.file(`${artifactRoot}/skills/operator/SKILL.md`).exists()).toBe(false);
     expect(await Bun.file(`${artifactRoot}/herdr/herdr-plugin.toml`).exists()).toBe(false);
     expect(await Bun.file(`${artifactRoot}/config.schema.json`).exists()).toBe(false);
+    expect(await Bun.file(`${artifactRoot}/schemas/config.schema.json`).text()).toBe(
+      DeviceSettings.editorSchema(),
+    );
     expect(await Bun.file(`${artifactRoot}/gate.schema.json`).exists()).toBe(false);
     expect(await Bun.file(`${artifactRoot}/jsr.json`).exists()).toBe(true);
     expect(await Bun.file(`${artifactRoot}/README.md`).text()).toBe(

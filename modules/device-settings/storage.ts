@@ -6,7 +6,7 @@ import { Database } from "bun:sqlite";
 import { z } from "zod";
 import { sha256 } from "../../lib/sha256.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
-import { settingsSchema } from "./schema.ts";
+import { editorSchemaText, settingsSchema } from "./schema.ts";
 
 type OperatorPaths = ReturnType<typeof OperatorHome.resolve>;
 
@@ -149,7 +149,7 @@ export async function writeConfig(paths: OperatorPaths, text: string, previousId
 export async function writeEditorSchema(paths: OperatorPaths) {
   const destination = { ...paths, config: paths.schema };
   if (await externallyManaged(destination)) return;
-  const text = `${JSON.stringify(z.toJSONSchema(settingsSchema), null, 2)}\n`;
+  const text = editorSchemaText();
   try {
     if ((await fileInfo(paths.schema)) !== null && (await Bun.file(paths.schema).text()) === text)
       return;

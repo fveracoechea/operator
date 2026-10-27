@@ -7,7 +7,7 @@ Personal skills and CLI tools for coordinating coding agents in OpenCode and Cla
 Issue [#234](https://github.com/fveracoechea/operator/issues/234) defines the device-level replacement.
 This branch starts with [#235](https://github.com/fveracoechea/operator/issues/235), which removes the legacy architecture before new workflows land.
 It is not an intermediate release.
-Help, version reporting, device settings, launch selection, project registration, skill installation, static readiness, supplied assignment plans, and next actions are available.
+Help, version reporting, global installation, device settings, launch selection, project registration, skill installation, static readiness, supplied assignment plans, and next actions are available.
 
 Finish old work with the old release before updating to the eventual breaking release.
 This code does not inspect, migrate, repair, or delete legacy Operator state.
@@ -19,9 +19,83 @@ Local mutation testing from ADR-0016 is also available for repository developmen
 Worker dispatch, report acceptance, PR operations, reviews, and the global Herdr plugin are not implemented here.
 There are no replacement-command placeholders or compatibility aliases.
 
-## Run the retained CLI
+## Install Operator for the device
 
-From a source checkout at an exact commit:
+One installed release serves every registered project.
+The running installation is the release authority, and projects select no release.
+Bun or the person updates the installation, and the next command migrates compatible device state.
+Bun 1.4.0 or later is required.
+
+### JSR with Bun
+
+Put the JSR scope in the global Bun configuration, `~/.bunfig.toml` or `$XDG_CONFIG_HOME/.bunfig.toml`:
+
+```toml
+[install.scopes]
+"@jsr" = "https://npm.jsr.io"
+```
+
+Install one exact version, then run its CLI once from the main checkout to register the project and write the launcher:
+
+```sh
+bun add -g "@fveracoechea/operator@npm:@jsr/fveracoechea__operator@<exact-version>"
+OPERATOR_PACKAGE="$(bun pm ls -g | head -n 1 | sed 's/ node_modules (.*//')/node_modules/@fveracoechea/operator"
+bun "$OPERATOR_PACKAGE/cli.js" project register --json
+bun "$OPERATOR_PACKAGE/cli.js" install launcher --json
+operator --version --json
+```
+
+JSR rewrites the package manifest and drops its binary declaration, so Bun links no command.
+`install launcher` writes `operator` into the folder that `bun pm bin -g` reports.
+The launcher names Bun's global package folder and no version, registry, cache, or staging folder.
+It refuses with exit 3 unless the running package is Bun's global package at the exact version in Bun's global manifest.
+It refuses with exit 4 and changes nothing when another `operator` command is already there.
+To update, run the same `bun add -g` command with the new exact version.
+The same launcher then runs the new release.
+Do not install a version range, because Bun then records `^<version>` rather than the exact release.
+
+### Repository source at a full commit
+
+```sh
+bun add -g "git+https://github.com/fveracoechea/operator.git#<full-commit>"
+operator project register --json
+operator --version --json
+```
+
+Bun links `operator` to the package's `cli.ts` in its global folder, with no install-time build.
+Name the 40-character commit, so that a later Bun update cannot move the installation.
+Version JSON reports the commit that Bun recorded.
+A source install has no artifact identity, because it runs the source rather than the built artifact.
+Bun blocks the package's preinstall script, and Operator checks the Bun version at startup instead.
+
+### Global command discovery
+
+Put Bun's global bin folder, from `bun pm bin -g`, on `PATH` for your shells and for Herdr.
+Put `bun` itself on the same `PATH`, because the launcher and the source command both run through `bun`.
+Herdr hooks and agents find Operator through `PATH`, never through a release-specific path.
+Both delivery paths keep working after the registry, the source repository, or the Bun cache is gone.
+Installing an unrelated global Bun package changes Bun's global lock but not Operator's release identity.
+`operator ready --json` reports a missing global command, a global command that runs another release, and an installation that names no exact version or full commit.
+The Herdr plugin arrives with #247, and Nix packaging remains #257.
+See `docs/implementation/256-global-installation.md` for the decision diagram and verification limits.
+
+```mermaid
+flowchart TD
+  Person -->|bun add -g exact JSR version| JSR[Global package without a command]
+  Person -->|bun add -g Git URL at a full commit| Source[Global package that Bun links]
+  JSR -->|operator install launcher| Check{Bun's global package at the exact version?}
+  Check -->|no, exit 3| Refused[Nothing written]
+  Check -->|other command exists, exit 4| Conflict[Existing command unchanged]
+  Check -->|yes| Command[operator in Bun's global bin folder]
+  Source --> Command
+  Herdr[Herdr hooks, agents, and shells] -->|PATH| Command
+  Command --> Startup[Startup compatibility checks]
+  Startup --> Handler[Command handler]
+```
+
+## Run the CLI from a checkout
+
+For development from a source checkout:
 
 ```sh
 bun install --frozen-lockfile
@@ -31,18 +105,13 @@ bun cli.ts --version
 bun cli.ts --version --json
 ```
 
-The CLI requires Bun 1.4.0 or later.
 Run the first registration from a main checkout with a GitHub remote and no legacy `.operator` folder.
 Until registration creates device state, every other command, including setup, help, and version, refuses with `state_missing`.
 Version output describes the running installation, not a project-selected release.
 A built artifact also reports its commit and artifact identity in JSON.
 After startup succeeds, unknown or removed commands exit with code 2 and perform no workflow operation.
 An unsupported Bun exits with code 1 before a command runs.
-
-An installed package exports `main(args)` from `@fveracoechea/operator/cli`.
-Source-package installation provides the `operator` binary without an install-time build.
-JSR rewrites the package manifest and drops its binary declaration.
-The exported CLI remains usable, but the new global JSR launcher and Nix delivery are later implementation slices.
+An installed package also exports `main(args)` from `@fveracoechea/operator/cli`.
 
 ## Personal owned skills
 
@@ -53,7 +122,6 @@ operator install --opencode --claude --json
 operator install --opencode --claude --check --json
 ```
 
-The exported `main` accepts the same arguments when a global launcher is not available.
 Owned skills come from the running package, with complete supporting assets copied to personal host locations.
 OpenCode uses `$XDG_CONFIG_HOME/opencode/skills/`, or `~/.config/opencode/skills/` when unset.
 Claude Code uses `~/.claude/skills/`.
@@ -65,7 +133,7 @@ Old role names are removed only with unchanged device-ledger proof, without forw
 `--check` follows links and compares contents without writing host folders or device state.
 Packages under `/nix/store/` always check consumer-owned wiring rather than copy skills.
 The role skills are `super-agent` and `worker-agent`.
-Workflow commands, Nix packaging, and the global JSR launcher remain in their later implementation tickets.
+Workflow commands and Nix packaging remain in their later implementation tickets.
 
 ## Upstream skills and static readiness
 
@@ -85,7 +153,7 @@ Operator has no upstream plan/apply commands or second upstream-content ledger.
 Failed or interrupted installs can have partial effects, so inspect their destinations before another install.
 An unconfirmed installer answer exits with code 5.
 
-`ready` checks `gh`, GitHub authentication for `github.com`, `herdr`, and the executable for `superAgent.host` in device settings.
+`ready` checks `gh`, GitHub authentication for `github.com`, `herdr`, that the global `operator` command runs this release from a pinned installation, and the executable for `superAgent.host` in device settings.
 It follows links and compares complete owned contents with the running release.
 Required upstream `code-review` must have a nonempty `SKILL.md` in the expected personal location.
 OpenCode uses the upstream shared `~/.agents/skills/`, while Claude Code uses `~/.claude/skills/`.
@@ -270,7 +338,7 @@ See `docs/implementation/220-concurrent-quality.md` for the concurrency evidence
 Oxlint owns dependency cycles and type-aware code policy, while the module checker owns structural boundaries.
 The deliberate-break tests run the real lint command in disposable checkout copies.
 See `docs/implementation/237-lint-policy.md` for policy coverage, exception boundaries, and verification.
-The installed delivery smoke uses real Bun installs and Git, a local registry fixture, and the built public declarations.
+The installed delivery smoke uses real Bun global and project installs, Git, a local registry fixture, and the built public declarations.
 Publication tests use controlled GitHub and official-client commands.
 They publish no real release.
 
@@ -303,7 +371,8 @@ Publication refuses conflicting tags or versions, and retries supply only missin
 bun scripts/release.ts build --out dist --commit <full-commit>
 ```
 
-Build writes runnable ESM, declarations, complete retained skills, documentation, and a content-identified release record.
+Build writes runnable ESM, declarations, complete retained skills, the settings editor schema at `schemas/config.schema.json`, the fixed migrations, documentation, and a content-identified release record.
 The old project configuration schemas and Herdr hooks no longer ship.
+The new Herdr plugin content arrives with #247.
 The maintainer-only `plan` and `publish` operations remain in `scripts/release.ts` for the release workflow.
 Do not publish this partial implementation.
