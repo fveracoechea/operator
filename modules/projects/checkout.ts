@@ -62,6 +62,20 @@ export async function inspectCheckout(cwd: string): Promise<Checkout | CheckoutF
   return { checkout, repositories };
 }
 
+/**
+ * The first remote whose configured fetch URL names the repository. Remote names have no
+ * authority, so `origin` can be a fork. The configured URL is read before any rewrite rule.
+ */
+export async function githubRemote(checkout: string, repository: string) {
+  const remotes = await git(checkout, ["config", "--get-regexp", "^remote\\..*\\.url$"]);
+  if ("reason" in remotes) return null;
+  for (const line of remotes.text.split("\n")) {
+    const match = /^remote\.(.+)\.url\s+(\S+)$/.exec(line);
+    if (match?.[1] && match[2] && githubIdentity(match[2]) === repository) return match[1];
+  }
+  return null;
+}
+
 async function git(cwd: string, args: string[]): Promise<{ text: string } | CheckoutFailure> {
   const result = await ToolInvocation.run({ tool: "git", args, cwd, timeoutMs: 10000 });
   if (result.status !== "completed")

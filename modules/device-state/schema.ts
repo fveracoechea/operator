@@ -205,3 +205,67 @@ export const reports = sqliteTable(
     }),
   ],
 );
+
+// A review request is not an assignment. One request per PR is active until it ends.
+export const reviewRequests = sqliteTable(
+  "review_requests",
+  {
+    id: text("id").primaryKey(),
+    repository: text("repository")
+      .notNull()
+      .references(() => projects.repository, { onDelete: "cascade" }),
+    number: integer("number").notNull(),
+    url: text("url").notNull(),
+    // `slack` also covers a manual addition. `assignment` is the optional reviewer of a PR assignment.
+    origin: text("origin").notNull(),
+    sourceId: text("source_id"),
+    assignment: text("assignment"),
+    state: text("state").notNull(),
+    requestedAt: text("requested_at").notNull(),
+    endedAt: text("ended_at"),
+    // The reviewer launch. Its branch is local and Operator never pushes it.
+    launchState: text("launch_state"),
+    launch: text("launch"),
+    name: text("name").unique(),
+    branch: text("branch"),
+    head: text("head"),
+    herdrSocket: text("herdr_socket"),
+    workspaceId: text("workspace_id"),
+    tabId: text("tab_id"),
+    paneId: text("pane_id"),
+    worktreePath: text("worktree_path"),
+    worktreeWorkspaceId: text("worktree_workspace_id"),
+    failureReason: text("failure_reason"),
+    failureDetail: text("failure_detail"),
+    // The process that starts the reviewer or posts the review, and its lease.
+    ownerPid: integer("owner_pid"),
+    leaseAt: text("lease_at"),
+  },
+  (table) => [
+    uniqueIndex("one_active_review")
+      .on(table.repository, table.number)
+      .where(sql`${table.state} NOT IN ('approved', 'closed', 'skipped')`),
+  ],
+);
+
+// Each posted review is one round. The marker in its body finds a post whose answer was lost.
+export const reviewRounds = sqliteTable(
+  "review_rounds",
+  {
+    requestId: text("request_id")
+      .notNull()
+      .references(() => reviewRequests.id, { onDelete: "cascade" }),
+    number: integer("number").notNull(),
+    trigger: text("trigger").notNull(),
+    reviewedCommit: text("reviewed_commit").notNull(),
+    draft: text("draft").notNull(),
+    event: text("event").notNull(),
+    body: text("body").notNull(),
+    marker: text("marker").notNull(),
+    outcome: text("outcome").notNull(),
+    reviewId: text("review_id"),
+    reviewUrl: text("review_url"),
+    postedAt: text("posted_at"),
+  },
+  (table) => [primaryKey({ columns: [table.requestId, table.number] })],
+);

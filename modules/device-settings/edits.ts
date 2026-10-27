@@ -2,8 +2,10 @@ import { profileNameSchema, settingsSchema, type DeviceConfig } from "./schema.t
 
 export type Edit = { path: string; value: string | null };
 
-function validField(key: string, action: string) {
+function validField(key: string, action: string, value: string) {
   if (/^(superAgent|workerAgent)\.(host|model|reasoningEffort)$/.test(key)) return true;
+  // The optional assignment reviewer is the only boolean setting.
+  if (key === "review.assignments") return action === "unset" || ["true", "false"].includes(value);
   const [group, name, field, ...extra] = key.split(".");
   if (group !== "profiles" || !profileNameSchema.safeParse(name).success || extra.length > 0)
     return false;
@@ -22,7 +24,7 @@ export function parseEdits(sets: string[], unsets: string[]) {
       const separator = raw.indexOf("=");
       const key = action === "set" ? raw.slice(0, separator) : raw;
       const value = action === "set" ? raw.slice(separator + 1) : null;
-      if (!validField(key, action)) {
+      if (!validField(key, action, raw.slice(separator + 1))) {
         issues.push(`Unsupported settings field: ${raw}.`);
       } else if (
         seen.has(key) ||
@@ -50,6 +52,11 @@ export function editConfig(config: DeviceConfig, edits: Edit[]) {
 }
 
 function applyEdit(next: DeviceConfig, edit: Edit) {
+  if (edit.path === "review.assignments") {
+    if (edit.value === null) delete next.review?.assignments;
+    else next.review = { ...next.review, assignments: edit.value === "true" };
+    return;
+  }
   const [role, name, profileField] = edit.path.split(".");
   let field = name;
   let fields: Record<string, unknown> = role === "superAgent" ? next.superAgent : next.workerAgent;

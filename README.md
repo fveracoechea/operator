@@ -7,7 +7,7 @@ Personal skills and CLI tools for coordinating coding agents in OpenCode and Cla
 Issue [#234](https://github.com/fveracoechea/operator/issues/234) defines the device-level replacement.
 This branch starts with [#235](https://github.com/fveracoechea/operator/issues/235), which removes the legacy architecture before new workflows land.
 It is not an intermediate release.
-Help, version reporting, global installation, the Nix package, device settings, launch selection, project registration, skill installation, static readiness, supplied assignment plans, next actions, worker dispatch, the global Herdr plugin, the PR feedback loop with parent-merge relay, report assignments, the guarded PR merge, and cleanup after a merge are available.
+Help, version reporting, global installation, the Nix package, device settings, launch selection, project registration, skill installation, static readiness, supplied assignment plans, next actions, worker dispatch, the global Herdr plugin, the PR feedback loop with parent-merge relay, report assignments, the guarded PR merge, cleanup after a merge, and the core review request and posting path are available.
 
 Finish old work with the old release before updating to the eventual breaking release.
 This code does not inspect, migrate, repair, or delete legacy Operator state.
@@ -16,7 +16,7 @@ Do not use it to resume an old session.
 The device-level design in `CONTEXT.md` and `docs/adr/` remains planned.
 The base lint policy in ADR-0018 is now enforced.
 Local mutation testing from ADR-0016 is also available for repository development.
-Reviews are not implemented here.
+Later review rounds and Slack review transport are not implemented here.
 There are no replacement-command placeholders or compatibility aliases.
 
 ## Install Operator for the device
@@ -446,6 +446,26 @@ Lockfile-installed `node_modules` folders and unchanged copies of `.env*.local` 
 Only the person's instruction, `--person-instructed`, deletes unlanded work, and it covers only the step that is blocked when the cleanup starts.
 A moved remote branch is deleted only on the person's instruction, and a foreign checkout is never deleted.
 See `docs/implementation/251-merge-cleanup.md` for the diagrams, refusals, and evidence.
+
+## Review requests
+
+```sh
+operator review add <pr-url> --json
+operator review start <pr-url> [--profile name] --json
+operator review post <pr-url> --json
+operator review next --json
+```
+
+A review request is a separate record for one PR, not an assignment.
+The PR URL selects it from any folder, and the PR repository must be a registered project.
+`start` fetches the PR head into the controlling checkout and creates a reviewer worktree on a local branch in that repository's Herdr workspace.
+Operator never pushes a reviewer branch.
+The reviewer writes a draft with the `pr-review` skill, and `post` is the only write path.
+`post` validates the draft, refuses a stale head, adds failing required CI checks as blockers, refuses a noise claim that cites a changed file, computes the event, and posts once.
+The person's own PRs and assignment reviewers always get a comment.
+`review.assignments` in device settings, off by default, queues a review when a PR owner runs `pr associate`.
+Later rounds, head moves, thread replies, reviewer cleanup, and Slack transport are #254 and #255.
+See `docs/implementation/253-review-requests.md` for the draft, the event rule, and the evidence.
 
 ## Retained code and checks
 

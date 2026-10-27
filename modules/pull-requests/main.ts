@@ -1,4 +1,5 @@
 import { Err, ErrAsync, Ok, OkAsync, fromPromise, type AsyncResult, type Result } from "unthrown";
+import { DeviceSettings } from "../device-settings/main.ts";
 import { DeviceState } from "../device-state/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import {
@@ -70,7 +71,10 @@ function stackOf(
     : Ok(stacked(parent));
 }
 
-/** The owner opens the PR with its own tools and closing keywords. The CLI only records it. */
+/**
+ * The owner opens the PR with its own tools and closing keywords. The CLI only records it.
+ * When device settings enable assignment reviews, the same write queues a review request.
+ */
 function associate(input: Request) {
   return resolveOwner(input).flatMap((owner) =>
     openPullRequests(owner.repository, owner.branch).flatMap((found) => {
@@ -80,22 +84,29 @@ function associate(input: Request) {
           reason: pr === undefined ? "pr_not_found" : "pr_ambiguous",
           detail: `Open exactly one PR from ${owner.branch} in ${owner.repository}, then repeat. Nothing was changed.`,
         });
-      return parents(input, owner).flatMap((candidates) =>
-        stackOf(pr, candidates).flatMap((relay) =>
-          DeviceState.associatePullRequest(input.paths, owner.launchId, {
-            number: pr.number,
-            url: pr.url,
-            branch: owner.branch,
-            relay: relay === null ? null : JSON.stringify(relay),
-          }).map(({ changed, row }) => ({
-            reason: changed ? "pr_associated" : "pr_unchanged",
-            data: {
-              ...summary(owner, pr),
-              state: "pr-open",
-              base: pr.base,
-              stack: stackSummary(row.relay),
-            },
-          })),
+      return DeviceSettings.show(input.paths).flatMap((settings) =>
+        parents(input, owner).flatMap((candidates) =>
+          stackOf(pr, candidates).flatMap((relay) =>
+            DeviceState.associatePullRequest(
+              input.paths,
+              owner.launchId,
+              {
+                number: pr.number,
+                url: pr.url,
+                branch: owner.branch,
+                relay: relay === null ? null : JSON.stringify(relay),
+              },
+              settings.data.config.review?.assignments === true,
+            ).map(({ changed, row }) => ({
+              reason: changed ? "pr_associated" : "pr_unchanged",
+              data: {
+                ...summary(owner, pr),
+                state: "pr-open",
+                base: pr.base,
+                stack: stackSummary(row.relay),
+              },
+            })),
+          ),
         ),
       );
     }),

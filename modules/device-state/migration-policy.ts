@@ -54,6 +54,20 @@ export function idleForMigration(client: Database, applied: number) {
       reason: "state_migration_blocked",
       detail: "Migration is waiting for a running cleanup to finish. No handler ran.",
     });
+  // A reviewer works toward a post, and a start or a post holds its external effects.
+  if (
+    applied >= 9 &&
+    (client.query("SELECT 1 FROM review_requests WHERE state = 'reviewing' LIMIT 1").get() ||
+      heldBy(
+        client,
+        "SELECT owner_pid, lease_at FROM review_requests WHERE state = 'posting' OR launch_state = 'starting'",
+      ))
+  )
+    return Err<StateFailure>({
+      reason: "state_migration_blocked",
+      detail:
+        "Migration is waiting for active reviewers, reviewer starts, and review posts to finish. No handler ran.",
+    });
   return Ok(undefined);
 }
 
@@ -68,6 +82,7 @@ export function migrationBlockers(client: Database, timestamp: number) {
     [1793115655370, []],
     [1793118895818, []],
     [1793121866694, []],
+    [1793126345841, []],
   ]);
   const queries = policies.get(timestamp);
   if (!queries)

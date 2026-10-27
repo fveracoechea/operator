@@ -75,7 +75,7 @@ test.each([
   },
   {
     name: "installed plugin",
-    file: "worker-dispatch/main.ts",
+    file: "worker-dispatch/launch-checks.ts",
     replacements: [["reason === null\n        ? Ok(undefined)", "true\n        ? Ok(undefined)"]],
     testFile: "operator-cli/run.dispatch.test.ts",
     pattern: "refusals before reservation",
@@ -175,7 +175,7 @@ test.each([
   },
   {
     name: "reopened worktree preparation",
-    file: "worker-dispatch/main.ts",
+    file: "worker-dispatch/launch-checks.ts",
     replacements: [
       ['if (read.value?.state === "prepared") return Ok(read.value.detail);', 'return Ok("");'],
     ],
@@ -184,14 +184,14 @@ test.each([
   },
   {
     name: "Herdr session",
-    file: "worker-dispatch/main.ts",
+    file: "worker-dispatch/launch-checks.ts",
     replacements: [["return socket === undefined", "return false"]],
     testFile: "operator-cli/run.dispatch.test.ts",
     pattern: "dispatch outside a Herdr session",
   },
   {
     name: "current plugin manifest",
-    file: "worker-dispatch/main.ts",
+    file: "worker-dispatch/launch-checks.ts",
     replacements: [["(await linked.text()) === released", "true"]],
     testFile: "operator-cli/run.dispatch.test.ts",
     pattern: "dispatch outside a Herdr session",

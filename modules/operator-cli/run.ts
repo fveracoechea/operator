@@ -14,12 +14,13 @@ import { runSources } from "./sources.ts";
 import { herdrEventWithoutState, runDispatch } from "./dispatch.ts";
 import { runPullRequests } from "./pull-requests.ts";
 import { runReports } from "./reports.ts";
+import { runReviews } from "./reviews.ts";
 import { failure, settingsExitCodes } from "./output.ts";
 
 type OperatorPaths = ReturnType<typeof OperatorHome.resolve>;
 
 const usage =
-  "Usage: operator --help | --version [--json]\n       operator config show | recover [--json]\n       operator config plan | apply (--set field=value | --unset field)... [--plan id] [--json]\n       operator host models --host opencode|claude-code [--json]\n       operator config resolve [--role superAgent|workerAgent] [--profile name] [--host host] [--model model] [--effort effort] [--json]\n       operator project register [--repository owner/repository] [--json]\n       operator project show | list [--json]\n       operator project move [--repository owner/repository] [--json]\n       operator project remove owner/repository --person-instructed [--json]\n       operator install --opencode | --claude | --opencode --claude [--check] [--json]\n       operator install matt --opencode | --claude | --opencode --claude [--json]\n       operator install launcher [--json]\n       operator ready [--json]\n       operator source register --file path [--json]\n       operator source show --source id [--json]\n       operator next [--source id] [--json]\n       operator dispatch --source id --assignment key [--json]\n       operator herdr install [--json]\n       operator herdr event [--json]\n       operator pr associate [--json]\n       operator pr wait [--timeout seconds] [--json]\n       operator report submit --file path [--json]\n       operator report resume [--json]\n       operator report accept --source id --assignment key [--json]\n       operator report return --source id --assignment key --file path [--json]\n       operator pr merge [--json]\n       operator cleanup --source id --assignment key [--person-instructed] [--json]";
+  "Usage: operator --help | --version [--json]\n       operator config show | recover [--json]\n       operator config plan | apply (--set field=value | --unset field)... [--plan id] [--json]\n       operator host models --host opencode|claude-code [--json]\n       operator config resolve [--role superAgent|workerAgent] [--profile name] [--host host] [--model model] [--effort effort] [--json]\n       operator project register [--repository owner/repository] [--json]\n       operator project show | list [--json]\n       operator project move [--repository owner/repository] [--json]\n       operator project remove owner/repository --person-instructed [--json]\n       operator install --opencode | --claude | --opencode --claude [--check] [--json]\n       operator install matt --opencode | --claude | --opencode --claude [--json]\n       operator install launcher [--json]\n       operator ready [--json]\n       operator source register --file path [--json]\n       operator source show --source id [--json]\n       operator next [--source id] [--json]\n       operator dispatch --source id --assignment key [--json]\n       operator herdr install [--json]\n       operator herdr event [--json]\n       operator pr associate [--json]\n       operator pr wait [--timeout seconds] [--json]\n       operator report submit --file path [--json]\n       operator report resume [--json]\n       operator report accept --source id --assignment key [--json]\n       operator report return --source id --assignment key --file path [--json]\n       operator pr merge [--json]\n       operator cleanup --source id --assignment key [--person-instructed] [--json]\n       operator review add | post <pr-url> [--json]\n       operator review start <pr-url> [--profile name] [--json]\n       operator review next [--json]";
 
 const projectExitCodes = {
   repository_choice_invalid: 2,
@@ -310,6 +311,7 @@ export async function run(args: string[]): Promise<void> {
     runDispatch,
     runPullRequests,
     runReports,
+    runReviews,
   ]) {
     if (await handler(args, paths, json)) return;
   }

@@ -103,3 +103,31 @@ test("a running cleanup blocks an upgrade, and a stopped or failed one does not"
   );
   expect(idleForMigration(db, 7).tag).toBe("Ok");
 });
+
+test("active reviewers, live reviewer starts, and live review posts block an upgrade", () => {
+  using db = new Database(":memory:");
+  db.exec(
+    "CREATE TABLE assignments (state TEXT); CREATE TABLE project_removals (repository TEXT); CREATE TABLE launches (state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE worktree_preparations (state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE cleanups (state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE review_requests (state TEXT, launch_state TEXT, owner_pid INTEGER, lease_at TEXT)",
+  );
+  expect(migrationBlockers(db, 1793126345841).tag).toBe("Ok");
+  const lease = new Date().toISOString();
+  const stoppedPid = Bun.spawnSync([process.execPath, "--version"]).pid;
+  const cases: [string, string | null, number | null, boolean][] = [
+    ["queued", null, null, false],
+    ["watching", "running", null, false],
+    ["approved", "running", null, false],
+    ["reviewing", "running", null, true],
+    ["queued", "starting", process.pid, true],
+    ["queued", "starting", stoppedPid, false],
+    ["posting", "running", process.pid, true],
+    // A post whose process stopped waits for a retry, which needs no protection from an upgrade.
+    ["posting", "running", stoppedPid, false],
+  ];
+  for (const [state, launch, pid, blocked] of cases) {
+    db.exec("DELETE FROM review_requests");
+    db.query("INSERT INTO review_requests VALUES (?, ?, ?, ?)").run(state, launch, pid, lease);
+    expect(idleForMigration(db, 9).tag, `${state} ${launch} ${pid}`).toBe(blocked ? "Err" : "Ok");
+    // Before the review tables exist, the guard does not read them.
+    expect(idleForMigration(db, 8).tag).toBe("Ok");
+  }
+});

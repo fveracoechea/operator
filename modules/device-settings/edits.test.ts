@@ -67,3 +67,25 @@ test("validates the complete changed settings", () => {
       .success,
   ).toBe(false);
 });
+
+test("the optional assignment reviewer is a boolean that is off until it is set", () => {
+  expect(settingsSchema.parse({}).review).toBeUndefined();
+  for (const value of ["yes", "1", "TRUE", ""])
+    expect(parseEdits([`review.assignments=${value}`], []).issues?.length).toBeGreaterThan(0);
+  expect(parseEdits(["review.other=true"], []).issues?.length).toBeGreaterThan(0);
+  const on = editConfig(
+    settingsSchema.parse({}),
+    parseEdits(["review.assignments=true"], []).edits ?? [],
+  );
+  expect(on.success && on.data.review).toEqual({ assignments: true });
+  const off = editConfig(on.success ? on.data : settingsSchema.parse({}), [
+    { path: "review.assignments", value: "false" },
+  ]);
+  expect(off.success && off.data.review).toEqual({ assignments: false });
+  const unset = editConfig(
+    on.success ? on.data : settingsSchema.parse({}),
+    parseEdits([], ["review.assignments"]).edits ?? [],
+  );
+  expect(unset.success && unset.data.review).toEqual({});
+  expect(settingsSchema.safeParse({ review: { assignments: "true" } }).success).toBe(false);
+});

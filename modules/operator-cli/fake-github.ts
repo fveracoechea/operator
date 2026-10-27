@@ -1,7 +1,7 @@
 /**
  * A controlled `gh` executable for public CLI tests. It answers `gh auth status`, the GraphQL
- * reads of the PR feedback loop and the relay, the merge request, the PR base change, and remote
- * branch reads and deletions from one JSON file, and logs each call. Each full PR read first
+ * reads of the PR feedback loop and the relay, the merge request, the PR base change, remote
+ * branch reads and deletions, and the review read and post from one JSON file, and logs each call. Each full PR read first
  * applies the next queued change, so a test can script what later polls observe. A `parentQueue`
  * scripts the parent reads the same way. With a `remote` bare repository, a PR without a scripted
  * `head` reports its branch head there. `mergeLost` applies a merge and then answers 502, and
@@ -51,6 +51,34 @@ if (path?.includes("/git/ref")) {
 const query = field("query") ?? "";
 const nodes = (items) => ({ nodes: items });
 const author = (login) => (login === null ? null : { login });
+const reviewsPath = args.find((arg) => arg.startsWith("repos/") && arg.endsWith("/reviews"));
+const check = (item) => item.status ? { __typename: "StatusContext", context: item.name, state: item.status, targetUrl: null, isRequired: item.required ?? false } : { __typename: "CheckRun", name: item.name, status: item.conclusion ? "COMPLETED" : "IN_PROGRESS", conclusion: item.conclusion ?? null, detailsUrl: "https://ci/" + item.name, isRequired: item.required ?? false };
+if (reviewsPath) {
+  // The review post reads its payload from standard input, as gh api --input - does.
+  const payload = JSON.parse(await Bun.stdin.text());
+  const pr = state.pulls.find((row) => row.number === Number(reviewsPath.split("/")[4]));
+  state.posted ??= [];
+  if (state.postFail) { await Bun.write(stateFile, JSON.stringify(state)); console.log("HTTP/2.0 422 Unprocessable Entity\\r\\n\\r\\n" + JSON.stringify({ message: state.postFail })); process.exit(1); }
+  const id = "review-" + (state.posted.length + 1);
+  state.posted.push({ id, number: pr.number, ...payload });
+  pr.reviews = [...(pr.reviews ?? []), { id, state: payload.event, body: payload.body, author: state.viewer ?? "owner" }];
+  await Bun.write(stateFile, JSON.stringify(state));
+  if (state.postUncertain) { state.postUncertain = false; await Bun.write(stateFile, JSON.stringify(state)); console.log("HTTP/2.0 502 Bad Gateway\\r\\n\\r\\n" + JSON.stringify({ message: "lost" })); process.exit(1); }
+  if (state.postDelayMs) await Bun.sleep(state.postDelayMs);
+  answer({ node_id: id, html_url: "https://github.com/r/" + id, state: { APPROVE: "APPROVED", REQUEST_CHANGES: "CHANGES_REQUESTED", COMMENT: "COMMENTED" }[payload.event], commit_id: payload.commit_id });
+  process.exit(0);
+}
+if (query.includes("files(first")) {
+  const pr = state.pulls.find((row) => row.number === Number(field("number")));
+  answer({ data: { viewer: { login: state.viewer ?? "owner" }, repository: { pullRequest: pr === undefined ? null : {
+    state: pr.state, headRefOid: pr.head ?? "head-1", author: author(pr.author ?? "author"),
+    files: { totalCount: pr.totalFiles ?? (pr.files ?? []).length, nodes: (pr.files ?? []).map((path) => ({ path })) },
+    reviewThreads: nodes((pr.threads ?? []).map((thread) => ({ id: thread.id, isResolved: thread.resolved ?? false, comments: nodes(thread.comments.slice(0, 1).map((comment) => ({ author: author(comment.author ?? "reviewer") }))) }))),
+    reviews: nodes((pr.reviews ?? []).map((review) => ({ id: review.id, url: "https://github.com/r/" + review.id, body: review.body ?? "", state: { APPROVE: "APPROVED", REQUEST_CHANGES: "CHANGES_REQUESTED", COMMENT: "COMMENTED" }[review.state] ?? review.state ?? "COMMENTED", author: author(review.author ?? "reviewer") }))),
+    commits: nodes([{ commit: { statusCheckRollup: (pr.checks ?? []).length === 0 ? null : { contexts: { totalCount: pr.totalChecks ?? pr.checks.length, ...nodes(pr.checks.map(check)) } } } }]),
+  } } } });
+  process.exit(0);
+}
 // With a real bare remote, an open PR's head is its branch there, as GitHub reports a push.
 const headOf = (pr) => pr.head ?? (state.remote ? Bun.spawnSync(["git", "--git-dir", state.remote, "rev-parse", "refs/heads/" + pr.headRefName]).stdout.toString().trim() : "head-1");
 if (args.includes("PATCH")) {

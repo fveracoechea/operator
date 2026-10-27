@@ -24,6 +24,8 @@ export const settingsSchema = z.strictObject({
       z.record(profileNameSchema, selectionSchema),
     )
     .optional(),
+  // The optional reviewer of each associated PR assignment is off by default.
+  review: z.strictObject({ assignments: z.boolean().optional() }).optional(),
 });
 export type DeviceConfig = z.infer<typeof settingsSchema>;
 

@@ -23,3 +23,4 @@ For supplied assignment plans, dependency blockers, or next actions, read [sourc
 For dispatch, the Herdr plugin, failed launches, or interrupted workers, read [dispatch.md](dispatch.md).
 For PR owners, `owner_attention`, a replaced PR owner, the guarded merge, or cleanup, read [pull-requests.md](pull-requests.md).
 For submitted reports, follow-up, acceptance, or cleanup, read [reports.md](reports.md).
+For review requests, reviewers, or review posts, read [reviews.md](reviews.md).

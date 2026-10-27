@@ -7,6 +7,7 @@ import { checkHistory, transaction } from "./database.ts";
 import { ownerGone } from "./launches.ts";
 import { assignments, cleanups, launches, projects, pullRequests, sources } from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
+import { requestAssignmentReview } from "./review-requests.ts";
 
 export type PullRequestRow = typeof pullRequests.$inferSelect;
 export type PullRequestFailure =
@@ -131,6 +132,7 @@ export function associatePullRequest(
   client: Database,
   launchId: string,
   pr: Pick<PullRequestRow, "number" | "url" | "branch" | "relay">,
+  review = false,
 ) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db) =>
@@ -190,6 +192,14 @@ export function associatePullRequest(
             .set({ state: "pr-open" })
             .where(and(eq(assignments.sourceId, source.id), eq(assignments.key, assignment.key)))
             .run();
+          if (review)
+            requestAssignmentReview(db, {
+              repository: source.repository,
+              number: pr.number,
+              url: pr.url,
+              sourceId: source.id,
+              assignment: assignment.key,
+            });
           return Ok({ row, changed: true });
         },
       ),

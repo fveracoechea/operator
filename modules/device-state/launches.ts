@@ -8,6 +8,7 @@ import {
   launches,
   projects,
   reports,
+  reviewRequests,
   sources,
   worktreePreparations,
 } from "./schema.ts";
@@ -227,13 +228,19 @@ export function renewLaunch(client: Database, id: string) {
 
 export function launchNames(client: Database) {
   return transaction(client, false, () =>
-    checkHistory(client).map((db) =>
-      db
+    checkHistory(client).map((db) => [
+      ...db
         .select({ name: launches.name })
         .from(launches)
         .all()
         .map((row) => row.name),
-    ),
+      // Reviewer launches share the Herdr name space with worker launches.
+      ...db
+        .select({ name: reviewRequests.name })
+        .from(reviewRequests)
+        .all()
+        .flatMap((row) => (row.name === null ? [] : [row.name])),
+    ]),
   );
 }
 

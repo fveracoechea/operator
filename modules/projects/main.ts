@@ -3,7 +3,7 @@ import { stat } from "node:fs/promises";
 import { fromPromise, Ok, Err, type Result } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
-import { inspectCheckout, type CheckoutFailure } from "./checkout.ts";
+import { githubRemote, inspectCheckout, type CheckoutFailure } from "./checkout.ts";
 import { repositoryIdentity, selectRepository } from "./identity.ts";
 
 type Paths = ReturnType<typeof OperatorHome.resolve>;
@@ -122,6 +122,10 @@ export const Projects = {
         });
       },
     );
+  },
+  /** The name of the checkout's remote for this GitHub repository, or null when none matches. */
+  githubRemote(input: { checkout: string; repository: string }) {
+    return fromPromise(() => githubRemote(input.checkout, input.repository), qualify);
   },
   current(input: { paths: Paths; cwd: string }) {
     return fromPromise(() => inspectCheckout(input.cwd), qualify).flatMap(

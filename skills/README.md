@@ -19,6 +19,7 @@ See [ADR-0002](../docs/adr/0002-an-owned-skill-discloses-rules-through-task-spec
 - **[deep-modules](./deep-modules/SKILL.md)** - Use when adding or changing a feature in a TypeScript app: a screen and its data, where new or shared code goes, a sub-module, or a module test.
 - **[my-opinions](./my-opinions/SKILL.md)** - Use when making a design or architecture decision, reviewing code or a PR, choosing a tool, or writing a spec, PR body, or review comment.
 - **[no-slop](./no-slop/SKILL.md)** - Use when writing or editing prose, documentation, code comments, commit messages, or issue and pull request text.
+- **[pr-review](./pr-review/SKILL.md)** - Use when asked to review a pull request by number or URL, or when a review brief names this skill.
 - **[react-best-practices](./react-best-practices/SKILL.md)** - Use when writing, reviewing or changing client side React: useEffect, useState, Suspense, derived state, re-render, a lazy chunk, or data waterfall.
 - **[react-composition](./react-composition/SKILL.md)** - Use when designing, changing or reviewing the API of a React component: boolean props, render props, several parts that share state, or sibling component that must read state.
 - **[tanstack-tools](./tanstack-tools/SKILL.md)** - Use when writing or changing code that uses a TanStack library: router, search params, loader, a query or mutation, form, a chart, or a server function.

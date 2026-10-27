@@ -44,6 +44,14 @@ import {
 import { claimCleanup, advanceCleanup, renewCleanup, startCleanup } from "./cleanups.ts";
 
 import { changeReport, readReport, type ReportTarget } from "./reports.ts";
+import {
+  changeReviewRequest,
+  readReviewRequest,
+  readReviewRequests,
+  renewReviewLease,
+  type ReviewChange,
+  type ReviewSnapshot,
+} from "./review-requests.ts";
 
 type Paths = ReturnType<typeof OperatorHome.resolve>;
 
@@ -140,12 +148,34 @@ export const DeviceState = {
   worktreeOwners(paths: Paths) {
     return withDatabase(paths, true, (client) => worktreeOwners(client));
   },
+  /** With `review`, the association also queues the optional assignment-origin review request. */
   associatePullRequest(
     paths: Paths,
     launchId: string,
     pr: Parameters<typeof associatePullRequest>[2],
+    review = false,
   ) {
-    return withDatabase(paths, false, (client) => associatePullRequest(client, launchId, pr));
+    return withDatabase(paths, false, (client) =>
+      associatePullRequest(client, launchId, pr, review),
+    );
+  },
+  /** Apply one review-request transition that the caller's rule decides from the active request. */
+  changeReviewRequest<E>(
+    paths: Paths,
+    target: { repository: string; number: number },
+    decide: (current: ReviewSnapshot) => Result<ReviewChange, E>,
+  ) {
+    return withDatabase(paths, false, (client) => changeReviewRequest(client, target, decide));
+  },
+  readReviewRequest(paths: Paths, target: { repository: string; number: number }) {
+    return withDatabase(paths, true, (client) => readReviewRequest(client, target));
+  },
+  readReviewRequests(paths: Paths) {
+    return withDatabase(paths, true, (client) => readReviewRequests(client));
+  },
+  /** Renew this process's lease on a reviewer start or a review post until the returned stop runs. */
+  holdReviewRequest(paths: Paths, id: string) {
+    return hold(() => withDatabase(paths, false, (client) => renewReviewLease(client, id)));
   },
   recordPullRequestWait(
     paths: Paths,

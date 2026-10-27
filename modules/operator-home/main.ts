@@ -108,6 +108,20 @@ export const OperatorHome = {
       followUps: path.join(directory, "follow-ups"),
     };
   },
+  /** A review request keeps its brief and draft in device state, never in the reviewer worktree. */
+  reviewFiles(paths: { projects: string }, input: { repository: string; requestId: string }) {
+    const directory = path.join(
+      paths.projects,
+      input.repository,
+      "reviews",
+      encodeURIComponent(input.requestId),
+    );
+    return {
+      directory,
+      brief: path.join(directory, "brief.md"),
+      draft: path.join(directory, "draft.json"),
+    };
+  },
   guardTemporaryTests(environment: ReturnType<typeof Environment.read>, roots: string[]) {
     if (environment.NODE_ENV !== "test") return;
     const temporary = realpathSync(tmpdir());
