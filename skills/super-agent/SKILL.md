@@ -20,7 +20,7 @@ WorkerAgents report to you, and you are the person's point of contact.
 For task instructions and questions, read [delegation.md](delegation.md).
 For device setup and owned skills, read [setup.md](setup.md).
 For supplied assignment plans, dependency blockers, next actions, source reset, or prune, read [sources.md](sources.md).
-For dispatch, the Herdr plugin, failed launches, or interrupted workers, read [dispatch.md](dispatch.md).
+For dispatch, the Herdr plugin, failed launches, interrupted workers, or `worker_attention`, read [dispatch.md](dispatch.md).
 For PR owners, `owner_attention`, a replaced PR owner, the guarded merge, or cleanup, read [pull-requests.md](pull-requests.md).
 For submitted reports, follow-up, acceptance, or cleanup, read [reports.md](reports.md).
 For review requests, reviewers, or review posts, read [reviews.md](reviews.md).

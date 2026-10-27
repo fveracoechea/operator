@@ -53,6 +53,9 @@ flowchart TD
     T -->|dispatch process stops| Y[next shows replace_worker launch_abandoned]
     U --> E[Hook marks interrupted on pane exit or close]
     E --> I[next shows replace_worker worker_interrupted]
+    U --> S[Hook records idle or done before a PR or report]
+    S --> W[next shows worker_attention worker_idle]
+    W -->|SuperAgent closes the pane| E
 ```
 
 The decision source is the same `next` read.
@@ -117,6 +120,13 @@ A pane event that matches no launch opens no write transaction.
 The match requires the same pane and the same `HERDR_SOCKET_PATH`, because another Herdr server can reuse a pane identifier.
 `pane.agent_status_changed` stores the latest `agent_status` as an observation.
 `next` shows it as `observedActivity`.
+A `running` assignment with a `running` launch that Herdr last reported `idle` or `done` shows `worker_attention` with `worker_idle`.
+That worker ended its turn, lost its context, or stopped at a question, and it has no associated PR and no submitted report.
+The SuperAgent asks the worker for its status through Herdr.
+A worker that cannot continue is ended with `herdr pane close`, which marks the launch `interrupted` and permits a replacement.
+Attention changes no record, and dispatch still refuses while the launch is `running`, so a stopped worker is never treated as a running one or replaced while it lives.
+A later `working` observation removes the attention.
+Herdr reports `blocked` while a host waits at a permission prompt, and that stays `assignment_active`.
 No Herdr event submits, accepts, or completes an assignment.
 `next` stays a read, so it does not ask Herdr about panes.
 A pane that ends while the plugin is not linked stays `running` until a later workflow observes it.
@@ -125,7 +135,7 @@ A pane that ends while the plugin is not linked stays `running` until a later wo
 
 Public CLI scenarios in `run.dispatch.test.ts` use real Git and SQLite, isolated roots, and the controlled `fake-herdr.ts` executable.
 The fake keeps topology in one file, creates real Git worktrees, and runs the linked manifest's hook command as Herdr does.
-They cover plugin install and conflict, pane and worktree dispatch, preparation, collisions, refusals with unchanged database bytes and no Herdr effect, failed launch and replacement with changed settings, activity, foreign-server events, and pane exit.
+They cover plugin install and conflict, pane and worktree dispatch, preparation, collisions, refusals with unchanged database bytes and no Herdr effect, failed launch and replacement with changed settings, activity, idle-worker attention, foreign-server events, and pane exit.
 Direct beside-tests cover names, the brief, the manifest, environment files, launch records, decisions, migration policy, assignment paths, and skill identities.
 They also cover a killed dispatch, a stop signal, a pane that ends during the start, a reopened worktree whose preparation failed, a dispatch outside a Herdr session, a stale linked manifest, and an event on a device without state.
 `run.dispatch-guards.test.ts` proves 22 guards with deliberate breaks in a disposable copy, including the shipped manifest.

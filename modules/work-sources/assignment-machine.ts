@@ -20,7 +20,7 @@ type Facts = {
   pullRequest?: "idle" | "waiting" | "stopped" | "reported" | "timed_out" | "not_open";
   /** The parent-merge relay of a PR stacked on a dependency's PR. */
   relay?: "stacked" | "blocked" | "relayed";
-  // Herdr activity only raises attention for a PR owner. It never proves a result.
+  // Herdr activity only raises attention for a live worker. It never proves a result.
   activity?: string | null;
   /** The latest report's SuperAgent decision and cleanup, when one was submitted. */
   report?: {
@@ -34,6 +34,7 @@ type Decision = {
     | "ready_assignment"
     | "replace_worker"
     | "owner_attention"
+    | "worker_attention"
     | "review_report"
     | "resume_worker"
     | "retry_cleanup"
@@ -46,6 +47,7 @@ type Decision = {
     | "pr_wait_timed_out"
     | "pr_wait_stopped"
     | "pr_owner_idle"
+    | "worker_idle"
     | "pr_not_open"
     | "pr_relay_blocked"
     | "dependencies_pending"
@@ -212,6 +214,14 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
   {
     when: ({ assignment }) => assignment.state === "pr-open",
     decide: () => ({ action: "wait", reason: "pr_feedback_loop", blockers: [] }),
+  },
+  // Before a PR or a report exists, an idle or done host has stopped without a result.
+  {
+    when: ({ assignment, launch, activity }) =>
+      assignment.state === "running" &&
+      launch === "running" &&
+      (activity === "idle" || activity === "done"),
+    decide: () => ({ action: "worker_attention", reason: "worker_idle", blockers: [] }),
   },
   {
     when: ({ assignment }) => assignment.state !== "ready",

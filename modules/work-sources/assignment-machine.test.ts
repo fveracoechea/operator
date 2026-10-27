@@ -210,7 +210,7 @@ test("a stopped wait or an idle PR owner needs attention, but a running wait doe
   expect(decideAssignment({ ...facts, pullRequest: "waiting", activity: "idle" })).toMatchObject({
     reason: "pr_feedback_loop",
   });
-  // Activity never raises PR attention before a PR exists.
+  // Before a PR exists, an idle worker gets worker attention, not owner attention.
   expect(
     decideAssignment({
       assignment: { key: "one", completion: "pr", state: "running" },
@@ -218,7 +218,53 @@ test("a stopped wait or an idle PR owner needs attention, but a running wait doe
       launch: "running",
       activity: "idle",
     }),
-  ).toMatchObject({ reason: "assignment_active" });
+  ).toEqual({ action: "worker_attention", reason: "worker_idle", blockers: [] });
+});
+
+test("a running worker that stops with no PR or report needs attention", () => {
+  for (const assignment of [
+    { key: "one", completion: "pr", state: "running" },
+    { key: "one", completion: "report", state: "running" },
+  ] satisfies AssignmentState[]) {
+    const facts = { assignment, dependencies: [], launch: "running" as const };
+    for (const activity of ["idle", "done"])
+      expect(decideAssignment({ ...facts, activity })).toEqual({
+        action: "worker_attention",
+        reason: "worker_idle",
+        blockers: [],
+      });
+    for (const activity of ["working", "blocked", "unknown", null, undefined])
+      expect(decideAssignment({ ...facts, activity })).toMatchObject({
+        reason: "assignment_active",
+      });
+    // A stopped launch needs a replacement, not a question to its worker.
+    expect(decideAssignment({ ...facts, launch: "interrupted", activity: "idle" })).toMatchObject({
+      action: "replace_worker",
+    });
+    expect(decideAssignment({ ...facts, launch: "starting", activity: "idle" })).toMatchObject({
+      reason: "launch_starting",
+    });
+  }
+  // A submitted report waits for the SuperAgent, and returned work for its worker.
+  const reported: AssignmentState = { key: "one", completion: "report", state: "reported" };
+  expect(
+    decideAssignment({
+      assignment: reported,
+      dependencies: [],
+      launch: "running",
+      activity: "done",
+      report: { decision: null, cleanup: null },
+    }),
+  ).toMatchObject({ reason: "report_submitted" });
+  expect(
+    decideAssignment({
+      assignment: reported,
+      dependencies: [],
+      launch: "running",
+      activity: "idle",
+      report: { decision: "returned", cleanup: null },
+    }),
+  ).toMatchObject({ reason: "follow_up_returned" });
 });
 
 test("reports await review, returned work needs its worker, and unfinished cleanup stays visible", () => {

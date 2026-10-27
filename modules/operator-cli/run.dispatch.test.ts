@@ -710,14 +710,16 @@ test("a pane exit interrupts its running launch, and activity never completes it
     "--json",
   ]);
   expect(JSON.parse(status.stdout)).toMatchObject({ reason: "herdr_activity_observed" });
+  // A done worker with no result needs attention, and its launch stays running.
   expect((await run(["next"])).output).toMatchObject({
     data: {
       sources: [
         {
-          waits: expect.arrayContaining([
+          actions: expect.arrayContaining([
             expect.objectContaining({
               assignment: "investigate",
-              reason: "assignment_active",
+              action: "worker_attention",
+              reason: "worker_idle",
               launch: expect.objectContaining({
                 state: "running",
                 observedActivity: expect.objectContaining({ state: "done" }) as unknown,
@@ -727,6 +729,11 @@ test("a pane exit interrupts its running launch, and activity never completes it
         },
       ],
     },
+  });
+  // Attention never revives or replaces a live worker.
+  expect(await run(["dispatch", "--source", source, "--assignment", "investigate"])).toMatchObject({
+    code: 4,
+    output: { reason: "assignment_not_dispatchable" },
   });
   // Another Herdr server can reuse the same pane identifier.
   const foreign = await exec([

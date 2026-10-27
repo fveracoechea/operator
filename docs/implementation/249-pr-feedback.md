@@ -103,7 +103,7 @@ More than that number of new items between two waits is not reported.
 
 A replacement rule comes before the wait facts, so a stopped owner always gets a replacement.
 A new wait clears a timeout, so the SuperAgent sees it only while the owner does not wait again.
-Herdr activity is an input only to `pr_owner_idle`, the attention that ADR-0001 names for idle PR owners.
+Herdr activity is an input only to `pr_owner_idle` and, before a PR exists, to `worker_idle` from `247-dispatch.md`. These are the attention rows that ADR-0001 names for idle workers.
 It never proves a result, and it does not raise attention while a wait runs, because the host can report idle during a long command.
 
 A replacement of a `pr-open` owner keeps the assignment `pr-open`, its PR, and its recorded progress.

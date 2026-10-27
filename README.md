@@ -393,6 +393,7 @@ Names use the completion type, tracker key, and assignment key, with a numbered 
 A failed launch keeps its recorded resources and appears in `next` as `replace_worker`.
 A start whose dispatch process stopped appears as `replace_worker` with `launch_abandoned`.
 Herdr activity is shown as an observation only, never as completion.
+A running worker that Herdr reports `idle` or `done` before it associates a PR or submits a report appears as `worker_attention` with `worker_idle`.
 See `docs/implementation/247-dispatch.md` for the diagram, live evidence, and limits.
 
 ## PR feedback loop

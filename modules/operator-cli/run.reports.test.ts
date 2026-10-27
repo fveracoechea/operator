@@ -95,10 +95,17 @@ test.each([
     expect(launched.output).toMatchObject({ data: { launches: [{ host }] } });
     const file = await device.writeJson("report.json", report);
 
-    // Host activity is never a submission.
+    // Host activity is never a submission. A worker that stops with no report needs attention.
     await device.event("pane.agent_status_changed", {
       pane_id: worker.paneId,
       agent_status: "done",
+    });
+    expect(await device.next("investigate")).toMatchObject([
+      { action: "worker_attention", reason: "worker_idle", launch: { state: "running" } },
+    ]);
+    await device.event("pane.agent_status_changed", {
+      pane_id: worker.paneId,
+      agent_status: "working",
     });
     expect(await device.next("investigate")).toMatchObject([{ reason: "assignment_active" }]);
 
@@ -270,6 +277,11 @@ test("returned work resumes, and a replacement keeps reports, follow-up, and cur
   expect(
     await device.run(["dispatch", "--source", source, "--assignment", "investigate"]),
   ).toMatchObject({ code: 4, output: { reason: "assignment_not_dispatchable" } });
+  // The follow-up message wakes the worker before it resumes.
+  await device.event("pane.agent_status_changed", {
+    pane_id: worker.paneId,
+    agent_status: "working",
+  });
   const resumed = await device.run(["report", "resume"], { pane: worker.paneId });
   expect(resumed.output).toMatchObject({
     reason: "report_resumed",

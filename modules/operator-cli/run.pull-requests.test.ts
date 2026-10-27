@@ -587,6 +587,53 @@ async function activity(paneId: string, status: string) {
   expect(sent.code, sent.stderr).toBe(0);
 }
 
+for (const [host, status] of [
+  ["opencode", "idle"],
+  ["claude-code", "done"],
+] as const)
+  test(`${host}: a worker that stops before its PR needs attention, then a replacement keeps its work`, async () => {
+    const source = await setup(host);
+    const worker = await dispatch(source);
+    await Bun.write(`${worker.worktreePath}/partial.txt`, "partial work\n");
+    await activity(worker.paneId, status);
+    expect(await entry(source)).toMatchObject({
+      action: "worker_attention",
+      reason: "worker_idle",
+      launch: { state: "running", observedActivity: { state: status } },
+    });
+    // The worker is live, so attention starts no second worker.
+    const before = await Bun.file(database()).arrayBuffer();
+    expect(await run(["dispatch", "--source", source, "--assignment", "implement"])).toMatchObject({
+      code: 4,
+      output: { reason: "assignment_not_dispatchable" },
+    });
+    expect(await Bun.file(database()).arrayBuffer()).toEqual(before);
+    await activity(worker.paneId, "working");
+    expect(await entry(source)).toMatchObject({ action: "wait", reason: "assignment_active" });
+
+    // The worker lost its context. The SuperAgent ends its pane and replaces it.
+    await activity(worker.paneId, status);
+    await exec(["herdr", "pane", "exit", worker.paneId, "w1"]);
+    expect(await entry(source)).toMatchObject({
+      action: "replace_worker",
+      reason: "worker_interrupted",
+    });
+    const replacement = await dispatch(source);
+    expect(replacement.worktreePath).toBe(worker.worktreePath);
+    expect(await Bun.file(`${worker.worktreePath}/partial.txt`).text()).toBe("partial work\n");
+    expect(await entry(source)).toMatchObject({ action: "wait", reason: "assignment_active" });
+    const shown = await run(["source", "show", "--source", source]);
+    expect(shown.output).toMatchObject({
+      data: {
+        assignments: [{ key: "implement", state: "running" }, { key: "second" }],
+        launches: [
+          { attempt: 1, state: "interrupted" },
+          { attempt: 2, state: "running" },
+        ],
+      },
+    });
+  }, 60000);
+
 test("a killed wait and an idle owner between waits need attention", async () => {
   const source = await setup("opencode");
   const worker = await dispatch(source);

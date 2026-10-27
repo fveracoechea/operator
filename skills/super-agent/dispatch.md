@@ -30,6 +30,13 @@ A `replace_worker` action with `launch_failed`, `launch_abandoned`, or `worker_i
 The replacement resolves current settings, keeps earlier launch records, and reopens a recorded worktree.
 A reopened worktree whose preparation did not finish is prepared again before the WorkerAgent starts.
 Inspect the recorded pane or worktree before you replace a worker.
+
+`worker_attention` with `worker_idle` means that Herdr reports the live worker `idle` or `done`, and the worker has no PR and no submitted report.
+Ask the worker for its status through Herdr.
+A host can report idle during a long command. Ask before you close the pane.
+If it cannot continue, for example after it lost its context, close its pane with `herdr pane close`.
+`next` then shows `replace_worker` with `worker_interrupted`, and the replacement reopens the recorded worktree with its partial work.
+Dispatch refuses while the worker is live.
 Observed Herdr activity is shown only for orientation.
 It never proves a submitted report or a completed task.
 

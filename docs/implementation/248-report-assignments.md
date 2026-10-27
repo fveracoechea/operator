@@ -86,6 +86,7 @@ A command that writes files first reads the same facts, so a refusal writes no f
 | --- | --- | --- |
 | `review_report` | `report_submitted` | A report awaits the SuperAgent's decision. A pane that ended does not hide it. |
 | `resume_worker` | `follow_up_returned` | The live worker must read the follow-up and run `report resume`. |
+| `worker_attention` | `worker_idle` | Herdr reports the live worker of a running assignment `idle` or `done`, and it submitted no report. |
 | `replace_worker` | `worker_interrupted`, `launch_failed`, `launch_abandoned` | The worker of a running or returned assignment stopped. |
 | `retry_cleanup` | `cleanup_failed`, `cleanup_unfinished` | Cleanup after acceptance did not finish. It stays after the source ends. |
 
