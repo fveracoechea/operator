@@ -10,12 +10,37 @@ type BriefInput = {
   resources: { kind: "pane" } | { kind: "worktree"; branch: string };
   reports: { directory: string; files: string[] };
   followUps: { directory: string; files: string[] };
+  pullRequest: { number: number; url: string } | null;
 };
 
 function list(files: string[], directory: string) {
   return files.length === 0
     ? "- None."
     : files.map((file) => `- \`${directory}/${file}\``).join("\n");
+}
+
+function feedbackLoop(input: BriefInput) {
+  if (input.completion !== "pr") return "";
+  const opened =
+    input.pullRequest === null
+      ? [
+          "Open one PR from your branch with your own tools. Use closing keywords for tracker issues.",
+          "Then run `operator pr associate --json` in your worktree.",
+        ]
+      : [
+          `PR #${input.pullRequest.number} is already open for this assignment: ${input.pullRequest.url}.`,
+          "Read its reviews, comments, unresolved threads, and checks before you wait.",
+          "Inspect the worktree first. Keep work that is not landed.",
+        ];
+  return `
+## PR feedback loop
+
+${opened.join("\n")}
+Run \`operator pr wait --json\` in your worktree, and repeat it after you handle each result.
+Check each claim in feedback, reply, and push fixes to the same PR.
+A \`pr_wait_timed_out\` result is visible to your SuperAgent until you wait again.
+PR commands select your assignment only through this worktree.
+`;
 }
 
 /**
@@ -66,7 +91,7 @@ ${resources.join("\n")}
 - Give a short conclusion, evidence references, unresolved points, and paths to detailed files.
 - Put detailed supporting files in \`${input.reports.directory}\`.
 - Herdr activity does not prove that the work is submitted or complete.
-
+${feedbackLoop(input)}
 ## Earlier reports
 
 ${list(input.reports.files, input.reports.directory)}

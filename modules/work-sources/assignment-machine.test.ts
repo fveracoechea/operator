@@ -88,3 +88,87 @@ test("a failed or interrupted launch offers a replacement, and activity is never
     decideAssignment({ assignment: reported, dependencies: [], launch: "failed" }),
   ).toMatchObject({ action: "wait", reason: "assignment_active" });
 });
+
+test("a PR open owner stays in its feedback loop until a timeout or a closed PR needs attention", () => {
+  const open: AssignmentState = { key: "one", completion: "pr", state: "pr-open" };
+  for (const pullRequest of ["idle", "waiting", "reported"] as const)
+    expect(
+      decideAssignment({ assignment: open, dependencies: [], launch: "running", pullRequest }),
+    ).toEqual({ action: "wait", reason: "pr_feedback_loop", blockers: [] });
+  expect(
+    decideAssignment({
+      assignment: open,
+      dependencies: [],
+      launch: "running",
+      pullRequest: "timed_out",
+    }),
+  ).toEqual({ action: "owner_attention", reason: "pr_wait_timed_out", blockers: [] });
+  expect(
+    decideAssignment({
+      assignment: open,
+      dependencies: [],
+      launch: "running",
+      pullRequest: "not_open",
+    }),
+  ).toEqual({ action: "owner_attention", reason: "pr_not_open", blockers: [] });
+  // A stopped owner is replaced before its last wait result matters.
+  for (const [launch, reason] of [
+    ["interrupted", "worker_interrupted"],
+    ["failed", "launch_failed"],
+    ["abandoned", "launch_abandoned"],
+  ] as const)
+    expect(
+      decideAssignment({ assignment: open, dependencies: [], launch, pullRequest: "timed_out" }),
+    ).toEqual({ action: "replace_worker", reason, blockers: [] });
+  // Wait facts never act on an assignment that is not PR open.
+  const running: AssignmentState = { key: "one", completion: "pr", state: "running" };
+  expect(
+    decideAssignment({
+      assignment: running,
+      dependencies: [],
+      launch: "running",
+      pullRequest: "timed_out",
+    }),
+  ).toMatchObject({ action: "wait", reason: "assignment_active" });
+  expect(
+    decideAssignment({
+      assignment: { key: "one", completion: "pr", state: "merged" },
+      dependencies: [],
+      launch: "interrupted",
+      pullRequest: "timed_out",
+    }),
+  ).toMatchObject({ action: "ended" });
+});
+
+test("a stopped wait or an idle PR owner needs attention, but a running wait does not", () => {
+  const open: AssignmentState = { key: "one", completion: "pr", state: "pr-open" };
+  const facts = { assignment: open, dependencies: [], launch: "running" as const };
+  expect(decideAssignment({ ...facts, pullRequest: "stopped" })).toEqual({
+    action: "owner_attention",
+    reason: "pr_wait_stopped",
+    blockers: [],
+  });
+  for (const pullRequest of ["idle", "reported"] as const)
+    for (const activity of ["idle", "done"])
+      expect(decideAssignment({ ...facts, pullRequest, activity })).toEqual({
+        action: "owner_attention",
+        reason: "pr_owner_idle",
+        blockers: [],
+      });
+  for (const activity of ["working", "blocked", null, undefined])
+    expect(decideAssignment({ ...facts, pullRequest: "reported", activity })).toMatchObject({
+      reason: "pr_feedback_loop",
+    });
+  expect(decideAssignment({ ...facts, pullRequest: "waiting", activity: "idle" })).toMatchObject({
+    reason: "pr_feedback_loop",
+  });
+  // Activity never raises PR attention before a PR exists.
+  expect(
+    decideAssignment({
+      assignment: { key: "one", completion: "pr", state: "running" },
+      dependencies: [],
+      launch: "running",
+      activity: "idle",
+    }),
+  ).toMatchObject({ reason: "assignment_active" });
+});

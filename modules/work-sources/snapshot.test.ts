@@ -25,6 +25,7 @@ const input = {
   },
   assignments: [{ sourceId: "one", key: "read", completion: "report", state: "ready" }],
   launches: [],
+  pullRequests: [],
 };
 test("decodes persisted plans and strips storage-only assignment fields", () => {
   expect(decodeSource(input)).toMatchObject({
@@ -86,4 +87,91 @@ test("source state and end-time invariants reject incomplete or unpersisted tran
       assignments: [{ sourceId: "one", key: "read", completion: "report", state: "abandoned" }],
     }).state,
   ).toBe("reset");
+});
+
+test("a PR open assignment needs its recorded PR, and only PR work past running has one", () => {
+  const plan = JSON.stringify({
+    trackerKey: "APP-1",
+    assignments: [
+      {
+        key: "change",
+        trackerKey: "APP-3",
+        instructions: "Change.",
+        completion: "pr",
+        resources: "worktree",
+        branch: "task/3",
+        dependencies: [],
+      },
+    ],
+  });
+  const pr = {
+    sourceId: "one",
+    assignment: "change",
+    repository: "example/one",
+    number: 7,
+    url: "https://github.com/example/one/pull/7",
+    branch: "task/3",
+    associatedAt: "now",
+    progress: "{}",
+    waitState: "waiting",
+    waitAt: "now",
+    waitOwnerPid: null,
+    waitLeaseAt: null,
+    waitStopped: false,
+  };
+  const launch = {
+    id: "launch",
+    sourceId: "one",
+    assignment: "change",
+    attempt: 1,
+    state: "running",
+    name: "pr-3-change",
+    resources: "worktree",
+    branch: "task/3",
+    host: "opencode",
+    model: "m",
+    requestedModel: "m",
+    reasoningEffort: "medium",
+    profile: null,
+    release: JSON.stringify({ version: "1" }),
+    skills: "[]",
+    herdrSocket: null,
+    workspaceId: null,
+    tabId: null,
+    paneId: null,
+    worktreePath: null,
+    worktreeWorkspaceId: null,
+    startedAt: "now",
+    endedAt: null,
+    failureReason: null,
+    failureDetail: null,
+    activity: null,
+    activityAt: null,
+    ownerPid: null,
+    leaseAt: null,
+    abandoned: false,
+  };
+  const source = { ...input.source, plan };
+  function row(state: string) {
+    return [{ sourceId: "one", key: "change", completion: "pr", state }];
+  }
+  const open = { source, assignments: row("pr-open"), launches: [launch], pullRequests: [pr] };
+  expect(decodeSource(open).pullRequests).toEqual([
+    {
+      assignment: "change",
+      number: 7,
+      url: pr.url,
+      branch: "task/3",
+      associatedAt: "now",
+      waitState: "waiting",
+      waitAt: "now",
+      waitStopped: false,
+    },
+  ]);
+  expect(() => decodeSource({ ...open, pullRequests: [] })).toThrow();
+  expect(() => decodeSource({ ...open, assignments: row("running") })).toThrow();
+  expect(() =>
+    decodeSource({ ...open, pullRequests: [{ ...pr, waitState: "unknown" }] }),
+  ).toThrow();
+  expect(() => decodeSource({ ...open, pullRequests: [{ ...pr, assignment: "other" }] })).toThrow();
 });

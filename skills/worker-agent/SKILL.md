@@ -18,3 +18,4 @@ Give a short conclusion, evidence references, unresolved points, and paths to de
 A submitted report requires the SuperAgent's acceptance before it completes report work.
 
 Read [responsibility.md](responsibility.md) when asking questions or using native subagents.
+Read [pull-requests.md](pull-requests.md) when your brief has a PR completion type.

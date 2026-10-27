@@ -43,6 +43,19 @@ const launchSchema = z.object({
 });
 export type Launch = z.infer<typeof launchSchema>;
 
+// The wait progress belongs to the PR feedback loop. Next actions read only its wait state.
+const pullRequestSchema = z.object({
+  assignment: z.string(),
+  number: z.number().int().positive(),
+  url: z.string(),
+  branch: z.string(),
+  associatedAt: z.string(),
+  waitState: z.enum(["idle", "waiting", "reported", "timed_out", "not_open"]),
+  waitAt: z.string().nullable(),
+  waitStopped: z.boolean(),
+});
+export type PullRequest = z.infer<typeof pullRequestSchema>;
+
 export function decodeSource(input: StoredSource) {
   const source = {
     ...input.source,
@@ -50,6 +63,7 @@ export function decodeSource(input: StoredSource) {
     plan: planSchema.parse(JSON.parse(input.source.plan)),
     assignments: z.array(assignmentStateSchema).parse(input.assignments),
     launches: z.array(launchSchema).parse(input.launches),
+    pullRequests: z.array(pullRequestSchema).parse(input.pullRequests),
   };
   const consistent =
     source.trackerKey === source.plan.trackerKey &&
@@ -70,8 +84,23 @@ export function decodeSource(input: StoredSource) {
   const validLaunches = source.launches.every((launch) =>
     source.assignments.some((row) => row.key === launch.assignment && row.state !== "ready"),
   );
+  // A PR open assignment has its PR, and only a PR assignment that left running has one.
+  const validPullRequests =
+    source.assignments.every(
+      (row) =>
+        row.state !== "pr-open" || source.pullRequests.some((pr) => pr.assignment === row.key),
+    ) &&
+    source.pullRequests.every((pr) =>
+      source.assignments.some(
+        (row) =>
+          row.key === pr.assignment &&
+          row.completion === "pr" &&
+          ["pr-open", "merged", "abandoned"].includes(row.state),
+      ),
+    );
   const validLifecycle =
     validLaunches &&
+    validPullRequests &&
     validState &&
     (source.state === "open" ? source.endedAt === null : source.endedAt !== null);
   if (!consistent || !validLifecycle) {

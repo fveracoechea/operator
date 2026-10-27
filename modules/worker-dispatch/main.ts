@@ -42,25 +42,38 @@ type Placement = {
 };
 
 function assignmentFacts(input: Request) {
-  return DoAsync()
-    .bind("project", () => Projects.current(input).map(({ data }) => data))
-    .bind("source", () => WorkSources.show(input))
-    .bind("next", () => WorkSources.next(input))
-    .bind("planned", ({ source, next }) => {
-      const planned = source?.plan.assignments.find((row) => row.key === input.assignment);
-      const action = next.sources[0]?.actions.find(
-        (row) => "assignment" in row && row.assignment === input.assignment,
-      );
-      return planned === undefined || action === undefined || source === undefined
-        ? Err<Failure>({
-            reason: "assignment_not_dispatchable",
-            detail: `Assignment ${input.assignment} has no dispatch action. Read operator next for its waits. Nothing was launched.`,
-          })
-        : Ok({ ...planned, sourceTrackerKey: source.trackerKey });
-    })
-    .let("previous", ({ source }) =>
-      source?.launches.findLast((row) => row.assignment === input.assignment),
-    );
+  return (
+    DoAsync()
+      .bind("project", () => Projects.current(input).map(({ data }) => data))
+      .bind("source", () => WorkSources.show(input))
+      .bind("next", () => WorkSources.next(input))
+      .bind("planned", ({ source, next }) => {
+        const planned = source?.plan.assignments.find((row) => row.key === input.assignment);
+        const action = next.sources[0]?.actions.find(
+          (row) => "assignment" in row && row.assignment === input.assignment,
+        );
+        return planned === undefined || action === undefined || source === undefined
+          ? Err<Failure>({
+              reason: "assignment_not_dispatchable",
+              detail: `Assignment ${input.assignment} has no dispatch action. Read operator next for its waits. Nothing was launched.`,
+            })
+          : Ok({ ...planned, sourceTrackerKey: source.trackerKey });
+      })
+      .let(
+        "pullRequest",
+        ({ source }) =>
+          source?.pullRequests.find((row) => row.assignment === input.assignment) ?? null,
+      )
+      // An open PR lives on the worktree of an earlier start, even after a later start failed.
+      .let("previous", ({ source, pullRequest }) =>
+        source?.launches.findLast(
+          (row) =>
+            row.assignment === input.assignment &&
+            (pullRequest === null ||
+              (row.worktreePath !== null && row.branch === pullRequest.branch)),
+        ),
+      )
+  );
 }
 
 /** Herdr reads hooks when it links a manifest, so a manifest from another release is stale. */
@@ -159,7 +172,15 @@ function chooseResources(input: Request, facts: Facts) {
         return path === null || branch === null || (await realOrNull(path)) === null
           ? null
           : { path, branch };
-      }, qualify),
+      }, qualify).flatMap((reuse) =>
+        // A PR owner continues only on the PR's worktree. A new branch would lose the PR.
+        facts.pullRequest !== null && reuse === null
+          ? Err<Failure>({
+              reason: "pr_worktree_missing",
+              detail: `The recorded worktree of PR #${facts.pullRequest.number} on ${facts.pullRequest.branch} is missing. Ask the person how to recover it. Nothing was launched.`,
+            })
+          : Ok(reuse),
+      ),
     )
     .bind("names", ({ workspace, agents, tabs, recorded, branches, reuse }) => {
       const names = chooseNames({
@@ -268,6 +289,7 @@ function writeBrief(
       resources: branch === null ? { kind: "pane" } : { kind: "worktree", branch },
       reports: { directory: files.reports, files: await listFiles(files.reports) },
       followUps: { directory: files.followUps, files: await listFiles(files.followUps) },
+      pullRequest: settings.pullRequest,
     });
     await Bun.write(files.brief, text, { createPath: true });
     return files.brief;

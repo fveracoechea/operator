@@ -326,6 +326,12 @@ test("next uses completion-type-specific dependency facts and leaves all records
       using db = new Database(`${root}/state/operator/operator.sqlite`);
       db.query("UPDATE assignments SET state = ? WHERE key = 'investigate'").run(report);
       db.query("UPDATE assignments SET state = ? WHERE key = 'implement'").run(pr);
+      // An assignment past running records its PR, as pr associate does.
+      db.exec("DELETE FROM pull_requests");
+      if (pr !== "running")
+        db.exec(
+          "INSERT INTO pull_requests SELECT source_id, key, 'example/one', 7, 'https://github.com/example/one/pull/7', 'task/12', 'now', '{}', 'idle', NULL, NULL, NULL FROM assignments WHERE key = 'implement'",
+        );
     }
     const before = await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer();
     const next = z

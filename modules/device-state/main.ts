@@ -33,6 +33,12 @@ import {
   leaseRenewMs,
   type LaunchRow,
 } from "./launches.ts";
+import {
+  worktreeOwners,
+  associatePullRequest,
+  recordPullRequestWait,
+  renewPullRequestWait,
+} from "./pull-requests.ts";
 
 type Paths = ReturnType<typeof OperatorHome.resolve>;
 
@@ -114,6 +120,29 @@ export const DeviceState = {
   /** Renew this process's lease on a running preparation until the returned stop runs. */
   holdPreparation(paths: Paths, path: string) {
     return hold(() => withDatabase(paths, false, (client) => renewPreparation(client, path)));
+  },
+  worktreeOwners(paths: Paths) {
+    return withDatabase(paths, true, (client) => worktreeOwners(client));
+  },
+  associatePullRequest(
+    paths: Paths,
+    launchId: string,
+    pr: Parameters<typeof associatePullRequest>[2],
+  ) {
+    return withDatabase(paths, false, (client) => associatePullRequest(client, launchId, pr));
+  },
+  recordPullRequestWait(
+    paths: Paths,
+    launchId: string,
+    decide: Parameters<typeof recordPullRequestWait>[2],
+  ) {
+    return withDatabase(paths, false, (client) => recordPullRequestWait(client, launchId, decide));
+  },
+  /** Renew this process's lease on a running PR wait until the returned stop runs. */
+  holdPullRequestWait(paths: Paths, sourceId: string, assignment: string) {
+    return hold(() =>
+      withDatabase(paths, false, (client) => renewPullRequestWait(client, sourceId, assignment)),
+    );
   },
   readSources(paths: Paths, repository: string, sourceId?: string) {
     return fromThrowable(() => {

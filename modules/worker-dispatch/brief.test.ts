@@ -13,6 +13,7 @@ const input = {
   resources: { kind: "worktree" as const, branch: "task/2" },
   reports: { directory: "/state/reports", files: ["1.md"] },
   followUps: { directory: "/state/follow-ups", files: [] },
+  pullRequest: null,
 };
 
 test("the brief carries the task, resources, results, and earlier history", () => {
@@ -42,4 +43,19 @@ test("read-only work forbids project changes, and the brief names no runtime age
   expect(brief).toContain("read-only work");
   expect(brief).toContain("the device default");
   expect(brief).not.toMatch(/pane id|agent name|claude|opencode/i);
+});
+
+test("a PR owner gets the feedback loop, and a replacement gets its open PR", () => {
+  const first = renderBrief(input);
+  expect(first).toContain("## PR feedback loop");
+  expect(first).toContain("`operator pr associate --json`");
+  expect(first).toContain("`operator pr wait --json`");
+  const replacement = renderBrief({
+    ...input,
+    pullRequest: { number: 7, url: "https://github.com/example/one/pull/7" },
+  });
+  expect(replacement).toContain("PR #7 is already open");
+  expect(replacement).toContain("Keep work that is not landed.");
+  expect(replacement).not.toContain("operator pr associate");
+  expect(renderBrief({ ...input, completion: "report" })).not.toContain("PR feedback loop");
 });

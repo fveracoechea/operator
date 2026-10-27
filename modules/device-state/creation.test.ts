@@ -26,7 +26,7 @@ test("publishes one complete migrated database and never replaces an existing wi
     { repository: "owner/one" },
     { repository: "owner/two" },
   ]);
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(4);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(5);
 });
 
 test("a pre-existing non-database file remains byte-for-byte unchanged", async () => {

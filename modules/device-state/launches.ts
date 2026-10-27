@@ -58,14 +58,17 @@ function endAbandoned(db: ReturnType<typeof drizzle>, id: string, now: number) {
     .run();
 }
 
-/** A ready assignment, or a running one whose latest start ended or was abandoned, may start. */
+/** A ready assignment, or an active one whose latest start ended or was abandoned, may start. */
 function dispatchable(
   assignment: string | undefined,
   latest: string | undefined,
   abandoned: boolean,
 ) {
   if (assignment === "ready") return true;
-  return assignment === "running" && (abandoned || latest === "failed" || latest === "interrupted");
+  return (
+    (assignment === "running" || assignment === "pr-open") &&
+    (abandoned || latest === "failed" || latest === "interrupted")
+  );
 }
 
 /** Reserve the assignment before any external effect, so a second dispatch cannot start it. */
@@ -130,9 +133,16 @@ export function reserveLaunch(
         leaseAt: new Date(now).toISOString(),
       };
       db.insert(launches).values(row).run();
+      // A replaced PR owner keeps its open PR, so only a ready assignment starts running.
       db.update(assignments)
         .set({ state: "running" })
-        .where(and(eq(assignments.sourceId, source.id), eq(assignments.key, launch.assignment)))
+        .where(
+          and(
+            eq(assignments.sourceId, source.id),
+            eq(assignments.key, launch.assignment),
+            eq(assignments.state, "ready"),
+          ),
+        )
         .run();
       return Ok(row);
     }),

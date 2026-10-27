@@ -28,6 +28,7 @@ test("each fixed migration declares its held-record policy and unknown policies 
   expect(migrationBlockers(db, 1792968033776).tag).toBe("Ok");
   expect(migrationBlockers(db, 1793024341510).tag).toBe("Ok");
   expect(migrationBlockers(db, 1793031772449).tag).toBe("Ok");
+  expect(migrationBlockers(db, 1793114012060).tag).toBe("Ok");
   expect(migrationBlockers(db, 9999999999999)).toMatchObject({
     tag: "Err",
     error: { reason: "state_incompatible" },

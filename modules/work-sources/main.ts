@@ -7,7 +7,7 @@ import type { OperatorHome } from "../operator-home/main.ts";
 import { planSchema } from "./plan.ts";
 import { decideAssignment } from "./assignment-machine.ts";
 import { decideSource } from "./source-machine.ts";
-import { decodeSource, type Launch } from "./snapshot.ts";
+import { decodeSource, type Launch, type PullRequest } from "./snapshot.ts";
 
 type Input = { paths: ReturnType<typeof OperatorHome.resolve>; cwd: string };
 
@@ -38,6 +38,16 @@ function launchSummary(launch: Launch) {
         : { reason: launch.failureReason, detail: launch.failureDetail },
     observedActivity:
       launch.activity === null ? null : { state: launch.activity, at: launch.activityAt },
+  };
+}
+
+function pullRequestSummary(pr: PullRequest) {
+  return {
+    number: pr.number,
+    url: pr.url,
+    branch: pr.branch,
+    wait: pr.waitStopped ? "stopped" : pr.waitState,
+    waitAt: pr.waitAt,
   };
 }
 
@@ -152,17 +162,27 @@ export const WorkSources = {
                 (launch) => launch.assignment === assignment.key,
               );
               const launch = launches.at(-1);
+              const pullRequest = source.pullRequests.find(
+                (pr) => pr.assignment === assignment.key,
+              );
               const decision = decideAssignment({
                 assignment: current,
                 dependencies: dependencies.filter((dependency) => dependency !== undefined),
                 // A start whose dispatching process stopped can be replaced.
                 launch: launch?.abandoned === true ? "abandoned" : launch?.state,
+                pullRequest: pullRequest?.waitStopped === true ? "stopped" : pullRequest?.waitState,
+                activity: launch?.activity,
               });
-              const row: typeof decision & { assignment: string; launch?: object } = {
+              const row: typeof decision & {
+                assignment: string;
+                launch?: object;
+                pullRequest?: object;
+              } = {
                 assignment: assignment.key,
                 ...decision,
               };
               if (launch !== undefined) row.launch = launchSummary(launch);
+              if (pullRequest !== undefined) row.pullRequest = pullRequestSummary(pullRequest);
               return row;
             });
             return {
@@ -170,7 +190,9 @@ export const WorkSources = {
               state,
               actions: decisions.filter(
                 (decision) =>
-                  decision.action === "ready_assignment" || decision.action === "replace_worker",
+                  decision.action === "ready_assignment" ||
+                  decision.action === "replace_worker" ||
+                  decision.action === "owner_attention",
               ),
               waits: decisions.filter((decision) => decision.action === "wait"),
             };

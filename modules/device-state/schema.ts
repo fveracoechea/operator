@@ -111,3 +111,30 @@ export const worktreePreparations = sqliteTable("worktree_preparations", {
   ownerPid: integer("owner_pid"),
   leaseAt: text("lease_at"),
 });
+
+// One PR for each PR assignment. Its observation progress lets a restarted wait continue.
+export const pullRequests = sqliteTable(
+  "pull_requests",
+  {
+    sourceId: text("source_id").notNull(),
+    assignment: text("assignment").notNull(),
+    repository: text("repository").notNull(),
+    number: integer("number").notNull(),
+    url: text("url").notNull(),
+    branch: text("branch").notNull(),
+    associatedAt: text("associated_at").notNull(),
+    progress: text("progress").notNull(),
+    waitState: text("wait_state").notNull(),
+    waitAt: text("wait_at"),
+    // The waiting process and its lease. A gone process or a stale lease is a stopped wait.
+    waitOwnerPid: integer("wait_owner_pid"),
+    waitLeaseAt: text("wait_lease_at"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sourceId, table.assignment] }),
+    foreignKey({
+      columns: [table.sourceId, table.assignment],
+      foreignColumns: [assignments.sourceId, assignments.key],
+    }),
+  ],
+);
