@@ -21,8 +21,8 @@
     "release": "bun scripts/release.ts",
     "changeset": "bunx --bun @changesets/cli@3.0.3",
     "test:module-boundaries": "bun scripts/prove-module-boundaries.ts",
-    "test": "bun test --isolate --parallel=4 --timeout=30000 --timings=test-timings.json",
-    "test:timings": "bun test --isolate --parallel=4 --timeout=30000 --timings=test-timings.json --update-timings",
+    "test": "bun scripts/test-watchdog.ts",
+    "test:timings": "bun scripts/test-watchdog.ts --update-timings",
     "typecheck": "bunx --bun --no-install tsc --noEmit -p tsconfig.json",
     "quality": "bun run --parallel quality:static test",
     "quality:static": "bun run --parallel format:check lint typecheck lint:modules lint:skills test:module-boundaries"

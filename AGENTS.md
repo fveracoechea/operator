@@ -33,6 +33,7 @@ Keep single-use details with their module.
 
 The legacy CLI workflows are removed under #235 before their device-level replacements land.
 Help, version reporting, device settings, launch selection, project registration, skill installation, static readiness, supplied assignment plans, and next actions are available.
+For concurrent quality runs, the test watchdog, and open Bun defects, read `docs/implementation/220-concurrent-quality.md`.
 For startup compatibility, migration blockers, and verified backups, read `docs/implementation/245-automatic-compatibility.md`.
 For project listing, controller moves, removal authority, and durable file cleanup, read `docs/implementation/246-project-management.md`.
 For source registration, dependencies, and read-only next actions, read `docs/implementation/244-assignment-plans.md`.

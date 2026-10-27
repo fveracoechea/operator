@@ -263,6 +263,10 @@ bun run test:module-boundaries
 
 Quality runs formatting, lint, typechecking, structural checks, skill checks, deliberate module-boundary violations, and the remaining tests.
 The tests use isolated globals.
+`bun run test` stops with exit code 124 when no test makes progress for 120 seconds.
+It then prints the processes, working directories, sockets, and pipes of its own run, and kills only that run.
+Two quality runs in separate worktrees can run at the same time.
+See `docs/implementation/220-concurrent-quality.md` for the concurrency evidence and the open Bun defects.
 Oxlint owns dependency cycles and type-aware code policy, while the module checker owns structural boundaries.
 The deliberate-break tests run the real lint command in disposable checkout copies.
 See `docs/implementation/237-lint-policy.md` for policy coverage, exception boundaries, and verification.
