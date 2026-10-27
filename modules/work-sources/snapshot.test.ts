@@ -24,6 +24,7 @@ const input = {
     }),
   },
   assignments: [{ sourceId: "one", key: "read", completion: "report", state: "ready" }],
+  launches: [],
 };
 test("decodes persisted plans and strips storage-only assignment fields", () => {
   expect(decodeSource(input)).toMatchObject({

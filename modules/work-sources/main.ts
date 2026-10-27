@@ -7,7 +7,7 @@ import type { OperatorHome } from "../operator-home/main.ts";
 import { planSchema } from "./plan.ts";
 import { decideAssignment } from "./assignment-machine.ts";
 import { decideSource } from "./source-machine.ts";
-import { decodeSource } from "./snapshot.ts";
+import { decodeSource, type Launch } from "./snapshot.ts";
 
 type Input = { paths: ReturnType<typeof OperatorHome.resolve>; cwd: string };
 
@@ -21,6 +21,24 @@ function qualify<T>(cause: unknown, defect: (cause: unknown) => T) {
   )
     return { reason: "source_io_failed" as const, detail: String(cause) };
   return defect(cause);
+}
+
+// Activity is shown as an observation only. It never proves a submitted or completed result.
+function launchSummary(launch: Launch) {
+  return {
+    attempt: launch.attempt,
+    state: launch.state,
+    name: launch.name,
+    paneId: launch.paneId,
+    worktreePath: launch.worktreePath,
+    branch: launch.branch,
+    failure:
+      launch.failureReason === null
+        ? null
+        : { reason: launch.failureReason, detail: launch.failureDetail },
+    observedActivity:
+      launch.activity === null ? null : { state: launch.activity, at: launch.activityAt },
+  };
 }
 
 function read(input: Input & { sourceId?: string }) {
@@ -130,16 +148,30 @@ export const WorkSources = {
                 // oxlint-disable-next-line unthrown/no-throw -- Inconsistent persisted rows are corruption, not permission to schedule work.
                 throw new z.ZodError([]);
               }
+              const launches = source.launches.filter(
+                (launch) => launch.assignment === assignment.key,
+              );
+              const launch = launches.at(-1);
               const decision = decideAssignment({
                 assignment: current,
                 dependencies: dependencies.filter((dependency) => dependency !== undefined),
+                // A start whose dispatching process stopped can be replaced.
+                launch: launch?.abandoned === true ? "abandoned" : launch?.state,
               });
-              return { assignment: assignment.key, ...decision };
+              const row: typeof decision & { assignment: string; launch?: object } = {
+                assignment: assignment.key,
+                ...decision,
+              };
+              if (launch !== undefined) row.launch = launchSummary(launch);
+              return row;
             });
             return {
               id: source.id,
               state,
-              actions: decisions.filter((decision) => decision.action === "ready_assignment"),
+              actions: decisions.filter(
+                (decision) =>
+                  decision.action === "ready_assignment" || decision.action === "replace_worker",
+              ),
               waits: decisions.filter((decision) => decision.action === "wait"),
             };
           }),

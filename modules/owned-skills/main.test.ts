@@ -62,3 +62,10 @@ test("preserves programming defects rather than classifying them as I/O failures
     spy.mockRestore();
   }
 });
+
+test("skill identities name every bundled skill with a stable content identity", async () => {
+  const identities = await OwnedSkills.identities();
+  expect(identities.map((skill) => skill.name)).toEqual(await OwnedSkills.names());
+  expect(identities.every((skill) => /^[0-9a-f]{64}$/.test(skill.identity))).toBe(true);
+  expect(await OwnedSkills.identities()).toEqual(identities);
+});

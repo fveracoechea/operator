@@ -22,6 +22,13 @@
       "when": 1793031772449,
       "tag": "0002_project_removals",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1793066920427,
+      "tag": "0003_worker_launches",
+      "breakpoints": true
     }
   ]
 }

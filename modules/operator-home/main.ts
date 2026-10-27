@@ -67,6 +67,7 @@ export const OperatorHome = {
       },
       ownedSkills: path.join(stateRoot, "owned-skills.json"),
       skillsLock: path.join(stateRoot, "owned-skills-lock.sqlite"),
+      herdrPlugin: path.join(stateRoot, "herdr-plugin"),
     };
   },
   registrationDatabase(paths: { stateRoot: string }, nonce: string) {
@@ -85,6 +86,27 @@ export const OperatorHome = {
   },
   projectDirectory(paths: { projects: string }, repository: string) {
     return path.join(paths.projects, repository);
+  },
+  /** Assignment keys are supplied text, so each one maps to a single safe path segment. */
+  assignmentFiles(
+    paths: { projects: string },
+    input: { repository: string; sourceId: string; assignment: string },
+  ) {
+    const segment = encodeURIComponent(input.assignment).replaceAll(".", "%2E");
+    const directory = path.join(
+      paths.projects,
+      input.repository,
+      "sources",
+      encodeURIComponent(input.sourceId),
+      "assignments",
+      segment,
+    );
+    return {
+      directory,
+      brief: path.join(directory, "brief.md"),
+      reports: path.join(directory, "reports"),
+      followUps: path.join(directory, "follow-ups"),
+    };
   },
   guardTemporaryTests(environment: ReturnType<typeof Environment.read>, roots: string[]) {
     if (environment.NODE_ENV !== "test") return;

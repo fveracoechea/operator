@@ -1,0 +1,23 @@
+# Hooks call the global operator command, so a release update needs no new link or wake binding.
+id = "operator"
+name = "Operator"
+version = "1.0.0"
+min_herdr_version = "0.9.1"
+description = "Forward worker activity and new worktrees to the global operator command"
+platforms = ["linux", "macos"]
+
+[[events]]
+on = "worktree.created"
+command = ["operator", "herdr", "event", "--json"]
+
+[[events]]
+on = "pane.exited"
+command = ["operator", "herdr", "event", "--json"]
+
+[[events]]
+on = "pane.closed"
+command = ["operator", "herdr", "event", "--json"]
+
+[[events]]
+on = "pane.agent_status_changed"
+command = ["operator", "herdr", "event", "--json"]

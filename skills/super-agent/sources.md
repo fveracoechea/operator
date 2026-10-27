@@ -20,7 +20,7 @@ A PR dependency permits work at `pr-open` or `merged`.
 A report dependency waits for accepted `completed`, not submitted `reported`.
 
 Registration launches no worker, and next actions change no state.
-`ready_assignment` reports a candidate only while dispatch is unavailable.
+Start a `ready_assignment` candidate with `operator dispatch`, as [dispatch.md](dispatch.md) describes.
 An empty plan ends immediately.
 A repeated parent requires the prior source to have ended and gets a new source identity.
 Use only workflow operations listed by the running CLI.

@@ -5,6 +5,8 @@ import { checkOnly, install, type Request } from "./install.ts";
 import { realpath } from "node:fs/promises";
 import { OperatorHome } from "../operator-home/main.ts";
 import { Environment } from "../environment/main.ts";
+import { contents } from "./content.ts";
+import { sha256 } from "../../lib/sha256.ts";
 
 const source = Bun.fileURLToPath(new URL("../../skills/", import.meta.url));
 
@@ -15,6 +17,18 @@ export const OwnedSkills = {
     for await (const file of new Bun.Glob("*/SKILL.md").scan({ cwd: source }))
       names.push(file.split("/")[0] ?? "");
     return names.toSorted();
+  },
+  /** Content identities of the running release's skills, for a launch snapshot. */
+  async identities() {
+    const identities = [];
+    for (const name of await OwnedSkills.names()) {
+      const files = (await contents(`${source}${name}`, false)) ?? {};
+      const canonical = JSON.stringify(
+        Object.entries(files).toSorted(([a], [b]) => (a < b ? -1 : 1)),
+      );
+      identities.push({ name, identity: sha256(new TextEncoder().encode(canonical)) });
+    }
+    return identities;
   },
   install(input: Omit<Request, "source">) {
     return fromPromise(

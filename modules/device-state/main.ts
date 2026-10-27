@@ -1,4 +1,4 @@
-import { Err, fromThrowable } from "unthrown";
+import { Err, fromThrowable, type Result } from "unthrown";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { createDatabase, databaseExists } from "./creation.ts";
 import { openDatabase } from "./database.ts";
@@ -20,7 +20,43 @@ import {
   type AssignmentRow as StoredAssignment,
 } from "./sources.ts";
 
+import {
+  reserveLaunch,
+  updateLaunch,
+  launchNames,
+  observePane,
+  beginPreparation,
+  finishPreparation,
+  readPreparation,
+  renewLaunch,
+  renewPreparation,
+  leaseRenewMs,
+  type LaunchRow,
+} from "./launches.ts";
+
 type Paths = ReturnType<typeof OperatorHome.resolve>;
+
+function withDatabase<T, E>(
+  paths: Paths,
+  readonly: boolean,
+  action: (client: ReturnType<typeof openDatabase>) => Result<T, E>,
+) {
+  return fromThrowable((): Result<T, E | StateFailure> => {
+    if (!databaseExists(paths.database))
+      return Err({
+        reason: "state_missing",
+        detail: "Register the project explicitly before this operation.",
+      });
+    using client = openDatabase(paths.database, readonly);
+    return action(client);
+  }, qualifyStateFailure)().flatMap((result) => result);
+}
+
+function hold(renew: () => unknown) {
+  const timer = setInterval(renew, leaseRenewMs);
+  timer.unref();
+  return () => clearInterval(timer);
+}
 
 /** Only explicit registration may create state. Connections never leave this owner. */
 export const DeviceState = {
@@ -42,6 +78,42 @@ export const DeviceState = {
       using client = openDatabase(paths.database, false);
       return registerSource(client, checkout, source, assignments);
     }, qualifyStateFailure)().flatMap((result) => result);
+  },
+  reserveLaunch(
+    paths: Paths,
+    checkout: string,
+    repository: string,
+    launch: Omit<LaunchRow, "attempt" | "ownerPid" | "leaseAt">,
+  ) {
+    return withDatabase(paths, false, (client) =>
+      reserveLaunch(client, checkout, repository, launch),
+    );
+  },
+  updateLaunch(paths: Paths, id: string, change: Parameters<typeof updateLaunch>[2]) {
+    return withDatabase(paths, false, (client) => updateLaunch(client, id, change));
+  },
+  launchNames(paths: Paths) {
+    return withDatabase(paths, true, (client) => launchNames(client));
+  },
+  observePane(paths: Paths, input: Parameters<typeof observePane>[1]) {
+    return withDatabase(paths, false, (client) => observePane(client, input));
+  },
+  beginPreparation(paths: Paths, path: string, repository: string) {
+    return withDatabase(paths, false, (client) => beginPreparation(client, path, repository));
+  },
+  finishPreparation(paths: Paths, path: string, outcome: Parameters<typeof finishPreparation>[2]) {
+    return withDatabase(paths, false, (client) => finishPreparation(client, path, outcome));
+  },
+  readPreparation(paths: Paths, path: string) {
+    return withDatabase(paths, true, (client) => readPreparation(client, path));
+  },
+  /** Renew this process's lease on a starting launch until the returned stop runs. */
+  holdLaunch(paths: Paths, id: string) {
+    return hold(() => withDatabase(paths, false, (client) => renewLaunch(client, id)));
+  },
+  /** Renew this process's lease on a running preparation until the returned stop runs. */
+  holdPreparation(paths: Paths, path: string) {
+    return hold(() => withDatabase(paths, false, (client) => renewPreparation(client, path)));
   },
   readSources(paths: Paths, repository: string, sourceId?: string) {
     return fromThrowable(() => {

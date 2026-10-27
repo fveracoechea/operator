@@ -84,3 +84,20 @@ test("refuses the real default roots, descendants, and aliases without opening s
     ),
   ).toThrow("Tests cannot access");
 });
+
+test("assignment files stay in one encoded directory under the project state", () => {
+  const paths = { projects: "/state/projects" };
+  expect(
+    OperatorHome.assignmentFiles(paths, { repository: "o/r", sourceId: "s", assignment: "read" }),
+  ).toEqual({
+    directory: "/state/projects/o/r/sources/s/assignments/read",
+    brief: "/state/projects/o/r/sources/s/assignments/read/brief.md",
+    reports: "/state/projects/o/r/sources/s/assignments/read/reports",
+    followUps: "/state/projects/o/r/sources/s/assignments/read/follow-ups",
+  });
+  for (const assignment of ["..", ".", "a/../../b", "a/b"])
+    expect(
+      OperatorHome.assignmentFiles(paths, { repository: "o/r", sourceId: "s", assignment })
+        .directory,
+    ).toMatch(/^\/state\/projects\/o\/r\/sources\/s\/assignments\/[^/.]+$/);
+});

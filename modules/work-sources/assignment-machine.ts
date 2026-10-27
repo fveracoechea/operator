@@ -13,10 +13,22 @@ export const assignmentStateSchema = z.discriminatedUnion("completion", [
   }),
 ]);
 export type AssignmentState = z.infer<typeof assignmentStateSchema>;
-type Facts = { assignment: AssignmentState; dependencies: AssignmentState[] };
+type Facts = {
+  assignment: AssignmentState;
+  dependencies: AssignmentState[];
+  launch?: "starting" | "abandoned" | "running" | "failed" | "interrupted";
+};
 type Decision = {
-  action: "ready_assignment" | "wait" | "ended";
-  reason: "assignment_ready" | "dependencies_pending" | "assignment_active" | "assignment_ended";
+  action: "ready_assignment" | "replace_worker" | "wait" | "ended";
+  reason:
+    | "assignment_ready"
+    | "dependencies_pending"
+    | "assignment_active"
+    | "assignment_ended"
+    | "launch_starting"
+    | "launch_failed"
+    | "launch_abandoned"
+    | "worker_interrupted";
   blockers: {
     assignment: string;
     completion: "pr" | "report";
@@ -46,6 +58,22 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
     decide: () => ({ action: "ended", reason: "assignment_ended", blockers: [] }),
   },
   {
+    when: ({ assignment, launch }) => assignment.state === "running" && launch === "failed",
+    decide: () => ({ action: "replace_worker", reason: "launch_failed", blockers: [] }),
+  },
+  {
+    when: ({ assignment, launch }) => assignment.state === "running" && launch === "interrupted",
+    decide: () => ({ action: "replace_worker", reason: "worker_interrupted", blockers: [] }),
+  },
+  {
+    when: ({ assignment, launch }) => assignment.state === "running" && launch === "abandoned",
+    decide: () => ({ action: "replace_worker", reason: "launch_abandoned", blockers: [] }),
+  },
+  {
+    when: ({ launch }) => launch === "starting",
+    decide: () => ({ action: "wait", reason: "launch_starting", blockers: [] }),
+  },
+  {
     when: ({ assignment }) => assignment.state !== "ready",
     decide: () => ({ action: "wait", reason: "assignment_active", blockers: [] }),
   },
@@ -63,7 +91,7 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
   },
 ];
 
-/** This dispatch decision uses only recorded facts, never host activity. */
+/** This dispatch decision uses only recorded facts. Herdr activity is never an input. */
 export function decideAssignment(facts: Facts): Decision {
   for (const rule of rules) if (rule.when(facts)) return rule.decide(facts);
   // oxlint-disable-next-line unthrown/no-throw -- The final rule is unconditional, so this is a programming defect.

@@ -52,6 +52,9 @@ describe("the release artifact", () => {
     );
     expect(await Bun.file(`${artifactRoot}/skills/operator/SKILL.md`).exists()).toBe(false);
     expect(await Bun.file(`${artifactRoot}/herdr/herdr-plugin.toml`).exists()).toBe(false);
+    expect(await Bun.file(`${artifactRoot}/modules/worker-dispatch/herdr-plugin.toml`).text()).toBe(
+      await Bun.file(`${sourceRoot}/modules/worker-dispatch/herdr-plugin.toml`).text(),
+    );
     expect(await Bun.file(`${artifactRoot}/config.schema.json`).exists()).toBe(false);
     expect(await Bun.file(`${artifactRoot}/schemas/config.schema.json`).text()).toBe(
       DeviceSettings.editorSchema(),

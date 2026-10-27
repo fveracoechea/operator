@@ -9,12 +9,47 @@ type StoredSource = Extract<
   { tag: "Ok" }
 >["value"][number];
 
+const launchSchema = z.object({
+  assignment: z.string(),
+  attempt: z.number().int().positive(),
+  state: z.enum(["starting", "running", "failed", "interrupted"]),
+  name: z.string(),
+  resources: z.enum(["pane", "worktree"]),
+  branch: z.string().nullable(),
+  host: z.enum(["opencode", "claude-code"]),
+  model: z.string(),
+  reasoningEffort: z.string(),
+  profile: z.string().nullable(),
+  release: z
+    .string()
+    .transform((text) => z.object({ version: z.string() }).loose().parse(JSON.parse(text))),
+  skills: z
+    .string()
+    .transform((text) =>
+      z.array(z.object({ name: z.string(), identity: z.string() })).parse(JSON.parse(text)),
+    ),
+  workspaceId: z.string().nullable(),
+  tabId: z.string().nullable(),
+  paneId: z.string().nullable(),
+  worktreePath: z.string().nullable(),
+  worktreeWorkspaceId: z.string().nullable(),
+  startedAt: z.string(),
+  endedAt: z.string().nullable(),
+  failureReason: z.string().nullable(),
+  failureDetail: z.string().nullable(),
+  activity: z.string().nullable(),
+  activityAt: z.string().nullable(),
+  abandoned: z.boolean(),
+});
+export type Launch = z.infer<typeof launchSchema>;
+
 export function decodeSource(input: StoredSource) {
   const source = {
     ...input.source,
     state: z.enum(["open", "finished", "reset"]).parse(input.source.state),
     plan: planSchema.parse(JSON.parse(input.source.plan)),
     assignments: z.array(assignmentStateSchema).parse(input.assignments),
+    launches: z.array(launchSchema).parse(input.launches),
   };
   const consistent =
     source.trackerKey === source.plan.trackerKey &&
@@ -31,8 +66,14 @@ export function decodeSource(input: StoredSource) {
           ["merged", "completed", "abandoned"].includes(assignment.state),
         )
       : source.state === expected;
+  // A launch always belongs to an assignment that left the ready state.
+  const validLaunches = source.launches.every((launch) =>
+    source.assignments.some((row) => row.key === launch.assignment && row.state !== "ready"),
+  );
   const validLifecycle =
-    validState && (source.state === "open" ? source.endedAt === null : source.endedAt !== null);
+    validLaunches &&
+    validState &&
+    (source.state === "open" ? source.endedAt === null : source.endedAt !== null);
   if (!consistent || !validLifecycle) {
     // oxlint-disable-next-line unthrown/no-throw -- The read boundary reports malformed persisted data as corruption without repair.
     throw new z.ZodError([

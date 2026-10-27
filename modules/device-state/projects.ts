@@ -3,7 +3,14 @@ import { Err, Ok, type Result } from "unthrown";
 import type { Database } from "bun:sqlite";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import { checkHistory, transaction } from "./database.ts";
-import { assignments, projectRemovals, projects, sources } from "./schema.ts";
+import {
+  assignments,
+  launches,
+  projectRemovals,
+  projects,
+  sources,
+  worktreePreparations,
+} from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
 
 export type RegisteredProject = typeof projects.$inferSelect;
@@ -123,6 +130,8 @@ export function removeProject(client: Database, repository: string) {
         .select({ id: sources.id })
         .from(sources)
         .where(eq(sources.repository, repository));
+      db.delete(launches).where(inArray(launches.sourceId, ids)).run();
+      db.delete(worktreePreparations).where(eq(worktreePreparations.repository, repository)).run();
       db.delete(assignments).where(inArray(assignments.sourceId, ids)).run();
       db.delete(sources).where(eq(sources.repository, repository)).run();
       db.insert(projectRemovals).values({ repository, removedAt: new Date().toISOString() }).run();

@@ -1,6 +1,18 @@
 import type { Database } from "bun:sqlite";
 import { Err, Ok } from "unthrown";
 import type { StateFailure } from "./failures.ts";
+import { ownerGone } from "./launches.ts";
+
+type Owned = { owner_pid: number | null; lease_at: string | null };
+
+/** A start or preparation whose owner stopped is abandoned, so it does not hold an upgrade. */
+function heldBy(client: Database, query: string) {
+  const now = Date.now();
+  return client
+    .query<Owned, []>(query)
+    .all()
+    .some((row) => !ownerGone({ ownerPid: row.owner_pid, leaseAt: row.lease_at }, now));
+}
 
 /** Future workflow owners extend these guards when they add launches, waits, or held records. */
 export function idleForMigration(client: Database, applied: number) {
@@ -20,15 +32,30 @@ export function idleForMigration(client: Database, applied: number) {
       reason: "state_migration_blocked",
       detail: "Finish pending project file cleanup before an upgrade. No handler ran.",
     });
+  if (
+    applied >= 4 &&
+    (client.query("SELECT 1 FROM launches WHERE state = 'running' LIMIT 1").get() ||
+      heldBy(client, "SELECT owner_pid, lease_at FROM launches WHERE state = 'starting'") ||
+      heldBy(
+        client,
+        "SELECT owner_pid, lease_at FROM worktree_preparations WHERE state = 'running'",
+      ))
+  )
+    return Err<StateFailure>({
+      reason: "state_migration_blocked",
+      detail:
+        "Migration is waiting for active worker launches and worktree preparations to finish. No handler ran.",
+    });
   return Ok(undefined);
 }
 
 export function migrationBlockers(client: Database, timestamp: number) {
-  // The first two fixed migrations have no migration-specific held-record blockers.
+  // The fixed migrations have no migration-specific held-record blockers.
   const policies: ReadonlyMap<number, readonly string[]> = new Map([
     [1792968033776, []],
     [1793024341510, []],
     [1793031772449, []],
+    [1793066920427, []],
   ]);
   const queries = policies.get(timestamp);
   if (!queries)

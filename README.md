@@ -7,7 +7,7 @@ Personal skills and CLI tools for coordinating coding agents in OpenCode and Cla
 Issue [#234](https://github.com/fveracoechea/operator/issues/234) defines the device-level replacement.
 This branch starts with [#235](https://github.com/fveracoechea/operator/issues/235), which removes the legacy architecture before new workflows land.
 It is not an intermediate release.
-Help, version reporting, global installation, device settings, launch selection, project registration, skill installation, static readiness, supplied assignment plans, and next actions are available.
+Help, version reporting, global installation, device settings, launch selection, project registration, skill installation, static readiness, supplied assignment plans, next actions, worker dispatch, and the global Herdr plugin are available.
 
 Finish old work with the old release before updating to the eventual breaking release.
 This code does not inspect, migrate, repair, or delete legacy Operator state.
@@ -16,7 +16,7 @@ Do not use it to resume an old session.
 The device-level design in `CONTEXT.md` and `docs/adr/` remains planned.
 The base lint policy in ADR-0018 is now enforced.
 Local mutation testing from ADR-0016 is also available for repository development.
-Worker dispatch, report acceptance, PR operations, reviews, and the global Herdr plugin are not implemented here.
+Report acceptance, PR operations, and reviews are not implemented here.
 There are no replacement-command placeholders or compatibility aliases.
 
 ## Install Operator for the device
@@ -239,7 +239,7 @@ Claude aliases with an advertised concrete model resolve to that model, and the 
 
 Resolution returns a value and its host command arguments, not a launched worker.
 Later settings edits change later resolutions but cannot change an earlier returned value or a running worker.
-Dispatch and durable release and skill launch snapshots remain #247.
+Dispatch records each launch's resolved selection, release, and skill identities.
 Operator adds no host permission rules, allow lists, permission modes, or fallback flags.
 Host configuration remains under its external owner's control.
 See `docs/implementation/241-host-profiles.md` for the selection diagram and verification limits.
@@ -314,8 +314,32 @@ An empty plan finishes immediately.
 PR dependencies permit start at `pr-open` or `merged`.
 Report dependencies require accepted `completed`, not submitted `reported`.
 The commands launch no host and perform no tracker operations.
-`ready_assignment` is a candidate only, not an implemented dispatch command.
-Dispatch remains #247, report acceptance remains #248, and PR operations remain #249 through #251.
+Report acceptance remains #248, and PR operations remain #249 through #251.
+
+## Worker dispatch and the Herdr plugin
+
+```sh
+operator herdr install --json
+operator dispatch --source <source-id> --assignment <key> --json
+```
+
+`herdr install` writes one stable plugin manifest under the device state root and links it in Herdr.
+Its hooks call the global `operator herdr event` command, so they need no release-specific path.
+The hook prepares every new Herdr worktree of a registered project.
+It copies ignored `.env*.local` files from the controlling checkout at any depth outside `node_modules`, keeps existing files, and refuses links.
+Then it runs `bun install --frozen-lockfile` when the worktree has a Bun lockfile.
+
+`dispatch` starts one ready assignment, or replaces a failed, interrupted, or abandoned launch.
+Run it in a Herdr pane, because hooks match launches by the Herdr socket.
+It refuses before any Herdr effect when it runs outside a Herdr session, the assignment is not dispatchable, the device is not ready, or the plugin is missing or from another release.
+Read-only `pane` work gets a tab in the project's Herdr workspace.
+`worktree` work gets an isolated worktree whose path Herdr chooses and Operator records.
+The brief lives in device state, and the worker receives its absolute path.
+Names use the completion type, tracker key, and assignment key, with a numbered suffix on a collision.
+A failed launch keeps its recorded resources and appears in `next` as `replace_worker`.
+A start whose dispatch process stopped appears as `replace_worker` with `launch_abandoned`.
+Herdr activity is shown as an observation only, never as completion.
+See `docs/implementation/247-dispatch.md` for the diagram, live evidence, and limits.
 
 ## Retained code and checks
 
@@ -371,8 +395,7 @@ Publication refuses conflicting tags or versions, and retries supply only missin
 bun scripts/release.ts build --out dist --commit <full-commit>
 ```
 
-Build writes runnable ESM, declarations, complete retained skills, the settings editor schema at `schemas/config.schema.json`, the fixed migrations, documentation, and a content-identified release record.
-The old project configuration schemas and Herdr hooks no longer ship.
-The new Herdr plugin content arrives with #247.
+Build writes runnable ESM, declarations, complete retained skills, the settings editor schema at `schemas/config.schema.json`, the Herdr plugin manifest at `modules/worker-dispatch/herdr-plugin.toml`, the fixed migrations, documentation, and a content-identified release record.
+The old project configuration schemas and release-specific Herdr hooks no longer ship.
 The maintainer-only `plan` and `publish` operations remain in `scripts/release.ts` for the release workflow.
 Do not publish this partial implementation.

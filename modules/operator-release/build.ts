@@ -9,6 +9,7 @@ import {
   RELEASE_MANIFEST_PATH,
   scanFiles,
   SETTINGS_SCHEMA_PATH,
+  HERDR_PLUGIN_PATH,
 } from "./inventory.ts";
 import { rewriteSpecifiers } from "./specifiers.ts";
 import { DeviceSettings } from "../device-settings/main.ts";
@@ -186,8 +187,8 @@ function jsrManifest(source: SourceManifest): string {
 
 /**
  * Writes one release artifact from one checkout.
- * It holds runnable ESM, declarations, complete owned skills, the settings schema, and the fixed
- * database migrations.
+ * It holds runnable ESM, declarations, complete owned skills, the settings schema, the Herdr
+ * plugin manifest, and the fixed database migrations.
  */
 export async function buildArtifact(request: {
   sourceRoot: string;
@@ -242,6 +243,12 @@ export async function buildArtifact(request: {
   await Bun.write(`${artifactRoot}/${SETTINGS_SCHEMA_PATH}`, DeviceSettings.editorSchema(), {
     createPath: true,
   });
+  // Herdr links this manifest from device state, and its hooks call the global command.
+  await Bun.write(
+    `${artifactRoot}/${HERDR_PLUGIN_PATH}`,
+    Bun.file(`${sourceRoot}/${HERDR_PLUGIN_PATH}`),
+    { createPath: true },
+  );
   await Bun.write(`${artifactRoot}/README.md`, Bun.file(`${sourceRoot}/${README_SOURCE}`));
   await Bun.write(`${artifactRoot}/package.json`, packageManifest(source));
   await Bun.write(`${artifactRoot}/jsr.json`, jsrManifest(source));

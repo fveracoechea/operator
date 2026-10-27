@@ -63,3 +63,28 @@ test("the ordered assignment table exposes only ready work, preserving active an
     blockers: [{ assignment: "parent" }],
   });
 });
+
+test("a failed or interrupted launch offers a replacement, and activity is never an input", () => {
+  const running: AssignmentState = { key: "one", completion: "report", state: "running" };
+  expect(decideAssignment({ assignment: running, dependencies: [], launch: "failed" })).toEqual({
+    action: "replace_worker",
+    reason: "launch_failed",
+    blockers: [],
+  });
+  expect(
+    decideAssignment({ assignment: running, dependencies: [], launch: "interrupted" }),
+  ).toMatchObject({ action: "replace_worker", reason: "worker_interrupted" });
+  expect(
+    decideAssignment({ assignment: running, dependencies: [], launch: "starting" }),
+  ).toMatchObject({ action: "wait", reason: "launch_starting" });
+  expect(
+    decideAssignment({ assignment: running, dependencies: [], launch: "abandoned" }),
+  ).toMatchObject({ action: "replace_worker", reason: "launch_abandoned" });
+  expect(
+    decideAssignment({ assignment: running, dependencies: [], launch: "running" }),
+  ).toMatchObject({ action: "wait", reason: "assignment_active" });
+  const reported: AssignmentState = { key: "one", completion: "report", state: "reported" };
+  expect(
+    decideAssignment({ assignment: reported, dependencies: [], launch: "failed" }),
+  ).toMatchObject({ action: "wait", reason: "assignment_active" });
+});

@@ -11,6 +11,9 @@ const schema = z.object({
   TMPDIR: absolute.optional(),
   NODE_ENV: z.string().optional(),
   npm_config_user_agent: z.string().optional(),
+  HERDR_SOCKET_PATH: z.string().min(1).optional(),
+  HERDR_PLUGIN_EVENT: z.string().min(1).optional(),
+  HERDR_PLUGIN_EVENT_JSON: z.string().min(1).optional(),
 });
 type EnvironmentValues = z.infer<typeof schema>;
 let snapshot: Record<string, string | undefined> | undefined;

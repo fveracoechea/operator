@@ -9,7 +9,7 @@ On an unregistered device, first run `operator project register --json` from the
 Every other command refuses until that registration creates device state.
 Then use the global `operator --version --json` and `operator --help`.
 Use only commands shown by the running CLI.
-Assignment dispatch and report acceptance are not yet available in this release slice.
+Report acceptance and PR operations are not yet available in this release slice.
 If the requested workflow needs them, report that limit instead of inventing a command.
 
 Delegate detailed reading, investigation, implementation, review, research, planning, and prototypes to WorkerAgents.
@@ -20,3 +20,4 @@ WorkerAgents report to you, and you are the person's point of contact.
 For task instructions and questions, read [delegation.md](delegation.md).
 For device setup and owned skills, read [setup.md](setup.md).
 For supplied assignment plans, dependency blockers, or next actions, read [sources.md](sources.md).
+For dispatch, the Herdr plugin, failed launches, or interrupted workers, read [dispatch.md](dispatch.md).

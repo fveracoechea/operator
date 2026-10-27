@@ -46,3 +46,33 @@ test("pending project file cleanup blocks an upgrade across the device until rec
   db.exec("DELETE FROM project_removals");
   expect(idleForMigration(db, 3).tag).toBe("Ok");
 });
+
+test("live launches and running preparations block an upgrade, abandoned ones do not", () => {
+  using db = new Database(":memory:");
+  db.exec(
+    "CREATE TABLE assignments (state TEXT); CREATE TABLE project_removals (repository TEXT); CREATE TABLE launches (state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE worktree_preparations (state TEXT, owner_pid INTEGER, lease_at TEXT)",
+  );
+  expect(migrationBlockers(db, 1793066920427).tag).toBe("Ok");
+  const lease = new Date().toISOString();
+  const stoppedPid = Bun.spawnSync([process.execPath, "--version"]).pid;
+  for (const state of ["starting", "running", "failed", "interrupted"]) {
+    db.exec("DELETE FROM launches");
+    db.query("INSERT INTO launches VALUES (?, ?, ?)").run(state, process.pid, lease);
+    expect(idleForMigration(db, 4).tag).toBe(
+      ["starting", "running"].includes(state) ? "Err" : "Ok",
+    );
+  }
+  // A start whose dispatching process stopped is abandoned, so it does not hold the upgrade.
+  db.query("UPDATE launches SET state = 'starting', owner_pid = ?").run(stoppedPid);
+  expect(idleForMigration(db, 4).tag).toBe("Ok");
+  db.exec("DELETE FROM launches");
+  db.query("INSERT INTO worktree_preparations VALUES ('running', ?, ?)").run(process.pid, lease);
+  expect(idleForMigration(db, 4)).toMatchObject({
+    tag: "Err",
+    error: { reason: "state_migration_blocked" },
+  });
+  db.query("UPDATE worktree_preparations SET owner_pid = ?").run(stoppedPid);
+  expect(idleForMigration(db, 4).tag).toBe("Ok");
+  db.query("UPDATE worktree_preparations SET state = 'failed', owner_pid = ?").run(process.pid);
+  expect(idleForMigration(db, 4).tag).toBe("Ok");
+});

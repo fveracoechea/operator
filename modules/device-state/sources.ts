@@ -2,7 +2,8 @@ import { and, asc, eq } from "drizzle-orm";
 import type { Database } from "bun:sqlite";
 import { Err, Ok, type Result } from "unthrown";
 import { checkHistory, transaction } from "./database.ts";
-import { assignments, projects, sources } from "./schema.ts";
+import { ownerGone } from "./launches.ts";
+import { assignments, launches, projects, sources } from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
 
 export type SourceRow = typeof sources.$inferSelect;
@@ -55,7 +56,17 @@ export function registerSource(
 export function readSources(client: Database, repository: string, sourceId?: string) {
   return transaction(client, false, () =>
     checkHistory(client).flatMap(
-      (db): Result<{ source: SourceRow; assignments: AssignmentRow[] }[], SourceFailure> => {
+      (
+        db,
+      ): Result<
+        {
+          source: SourceRow;
+          assignments: AssignmentRow[];
+          launches: (typeof launches.$inferSelect & { abandoned: boolean })[];
+        }[],
+        SourceFailure
+      > => {
+        const now = Date.now();
         const rows = db
           .select()
           .from(sources)
@@ -79,6 +90,16 @@ export function readSources(client: Database, repository: string, sourceId?: str
               .from(assignments)
               .where(eq(assignments.sourceId, source.id))
               .all(),
+            launches: db
+              .select()
+              .from(launches)
+              .where(eq(launches.sourceId, source.id))
+              .orderBy(asc(launches.assignment), asc(launches.attempt))
+              .all()
+              .map((launch) => ({
+                ...launch,
+                abandoned: launch.state === "starting" && ownerGone(launch, now),
+              })),
           })),
         );
       },

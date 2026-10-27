@@ -1,0 +1,203 @@
+import { Err, Ok, fromPromise, fromThrowable, type Result } from "unthrown";
+import { z } from "zod";
+import { ToolInvocation } from "../tool-invocation/main.ts";
+
+type HerdrFailure = {
+  reason: "herdr_unavailable" | "herdr_failed" | "herdr_no_answer" | "herdr_invalid_response";
+  detail: string;
+};
+
+const pane = z.object({ pane_id: z.string(), tab_id: z.string(), workspace_id: z.string() });
+const created = z.object({
+  result: z.object({ root_pane: pane, workspace: z.object({ workspace_id: z.string() }) }),
+});
+const workspaceList = z.object({
+  result: z.object({
+    workspaces: z.array(
+      z.object({
+        workspace_id: z.string(),
+        label: z.string(),
+        worktree: z
+          .object({ checkout_path: z.string(), is_linked_worktree: z.boolean() })
+          .optional(),
+      }),
+    ),
+  }),
+});
+const tabList = z.object({ result: z.object({ tabs: z.array(z.object({ label: z.string() })) }) });
+const agentList = z.object({
+  result: z.object({ agents: z.array(z.object({ name: z.string().nullish() })) }),
+});
+const worktreeCreated = z.object({
+  result: z.object({
+    root_pane: pane,
+    workspace: z.object({ workspace_id: z.string() }),
+    worktree: z.object({ path: z.string(), branch: z.string().optional() }),
+  }),
+});
+const pluginList = z.object({
+  result: z.object({
+    plugins: z.array(z.object({ plugin_id: z.string(), plugin_root: z.string() })),
+  }),
+});
+
+function parse(text: string): unknown {
+  return fromThrowable(
+    () => JSON.parse(text) as unknown,
+    (cause, defect) => (cause instanceof SyntaxError ? "invalid" : defect(cause)),
+  )().getOr(undefined);
+}
+
+/** Every call is a bounded external effect. A missing answer does not prove that nothing changed. */
+function invoke<T>(args: string[], schema: z.ZodType<T>, timeoutMs = 60000) {
+  const command = `herdr ${args.slice(0, 2).join(" ")}`;
+  return fromPromise(
+    () => ToolInvocation.run({ tool: "herdr", args, timeoutMs }),
+    (cause, defect) => defect(cause),
+  ).flatMap((result): Result<T, HerdrFailure> => {
+    if (result.status === "unavailable")
+      return Err({ reason: "herdr_unavailable", detail: result.detail });
+    if (result.status === "no-answer")
+      return Err({
+        reason: "herdr_no_answer",
+        detail: `${result.detail} Inspect Herdr before a retry, because the effect can exist.`,
+      });
+    if (result.exitCode !== 0)
+      return Err({
+        reason: "herdr_failed",
+        detail: `${command} exited ${result.exitCode}: ${(result.stderr || result.stdout).trim()}`,
+      });
+    const parsed = schema.safeParse(parse(result.stdout));
+    return parsed.success
+      ? Ok(parsed.data)
+      : Err({
+          reason: "herdr_invalid_response",
+          detail: `${command} returned an unexpected response.`,
+        });
+  });
+}
+
+function placed(value: z.infer<typeof created>) {
+  return {
+    workspaceId: value.result.workspace.workspace_id,
+    tabId: value.result.root_pane.tab_id,
+    paneId: value.result.root_pane.pane_id,
+  };
+}
+
+/** The Herdr CLI adapter. Herdr chooses worktree paths, and Operator records what it returns. */
+export const Herdr = {
+  workspaces() {
+    return invoke(["workspace", "list"], workspaceList).map((value) =>
+      value.result.workspaces.map((workspace) => ({
+        workspaceId: workspace.workspace_id,
+        label: workspace.label,
+        checkout: workspace.worktree?.checkout_path ?? null,
+        linked: workspace.worktree?.is_linked_worktree ?? false,
+      })),
+    );
+  },
+  createWorkspace(input: { cwd: string; label: string }) {
+    return invoke(
+      ["workspace", "create", "--cwd", input.cwd, "--label", input.label, "--no-focus"],
+      created,
+    ).map(placed);
+  },
+  tabLabels(workspaceId: string) {
+    return invoke(["tab", "list", "--workspace", workspaceId], tabList).map((value) =>
+      value.result.tabs.map((tab) => tab.label),
+    );
+  },
+  createTab(input: { workspaceId: string; cwd: string; label: string }) {
+    return invoke(
+      [
+        "tab",
+        "create",
+        "--workspace",
+        input.workspaceId,
+        "--cwd",
+        input.cwd,
+        "--label",
+        input.label,
+        "--no-focus",
+      ],
+      z.object({ result: z.object({ root_pane: pane }) }),
+    ).map((value) => ({
+      tabId: value.result.root_pane.tab_id,
+      paneId: value.result.root_pane.pane_id,
+    }));
+  },
+  createWorktree(input: { workspaceId: string; branch: string; label: string }) {
+    return invoke(
+      [
+        "worktree",
+        "create",
+        "--workspace",
+        input.workspaceId,
+        "--branch",
+        input.branch,
+        "--label",
+        input.label,
+        "--no-focus",
+      ],
+      worktreeCreated,
+      300000,
+    ).map((value) => ({ ...placed(value), path: value.result.worktree.path }));
+  },
+  openWorktree(input: { workspaceId: string; path: string; label: string }) {
+    return invoke(
+      [
+        "worktree",
+        "open",
+        "--workspace",
+        input.workspaceId,
+        "--path",
+        input.path,
+        "--label",
+        input.label,
+        "--no-focus",
+      ],
+      created,
+    ).map(placed);
+  },
+  agentNames() {
+    return invoke(["agent", "list"], agentList).map((value) =>
+      value.result.agents.flatMap((agent) => (agent.name ? [agent.name] : [])),
+    );
+  },
+  /** Herdr returns only after it detects the agent ready for input, or refuses. */
+  startAgent(input: { name: string; kind: string; paneId: string; args: string[] }) {
+    return invoke(
+      [
+        "agent",
+        "start",
+        input.name,
+        "--kind",
+        input.kind,
+        "--pane",
+        input.paneId,
+        "--timeout",
+        "120000",
+        "--",
+        ...input.args,
+      ],
+      z.unknown(),
+      150000,
+    );
+  },
+  /** Submission is not evidence that the agent started, submitted, or completed work. */
+  prompt(input: { name: string; text: string }) {
+    return invoke(["agent", "prompt", input.name, input.text], z.unknown());
+  },
+  plugins() {
+    return invoke(["plugin", "list", "--json"], pluginList).map((value) =>
+      value.result.plugins.map((plugin) => ({ id: plugin.plugin_id, root: plugin.plugin_root })),
+    );
+  },
+  linkPlugin(directory: string) {
+    return invoke(["plugin", "link", directory], z.unknown());
+  },
+  unlinkPlugin(id: string) {
+    return invoke(["plugin", "unlink", id], z.unknown());
+  },
+};

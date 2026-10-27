@@ -1,5 +1,6 @@
 export const RELEASE_MANIFEST_PATH = "release.json";
 export const SETTINGS_SCHEMA_PATH = "schemas/config.schema.json";
+export const HERDR_PLUGIN_PATH = "modules/worker-dispatch/herdr-plugin.toml";
 
 /** Lists every file under a directory, treating a missing directory as empty. */
 export async function scanFiles(directory: string): Promise<string[]> {
@@ -44,6 +45,7 @@ export const REQUIRED_PARTS = [
   "jsr.json",
   "release.json",
   SETTINGS_SCHEMA_PATH,
+  HERDR_PLUGIN_PATH,
   "modules/operator-cli/main.js",
   "modules/operator-cli/main.d.ts",
   "modules/device-state/migrations/0000_register_projects.sql",
@@ -51,6 +53,7 @@ export const REQUIRED_PARTS = [
   "skills/deep-modules/SKILL.md",
   "skills/super-agent/SKILL.md",
   "skills/super-agent/delegation.md",
+  "skills/super-agent/dispatch.md",
   "skills/super-agent/setup.md",
   "skills/worker-agent/SKILL.md",
   "skills/worker-agent/responsibility.md",

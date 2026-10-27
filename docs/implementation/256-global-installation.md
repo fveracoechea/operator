@@ -86,18 +86,14 @@ Both delivery paths put `operator` in Bun's global bin folder, and neither comma
 The launcher and the source command run `bun` through `PATH`, so `bun` must be on the same `PATH`.
 Readiness does not check `bun`, because the running CLI already runs under Bun.
 That does not prove a hook environment has it, so the README states the rule.
-The real Herdr plugin does not exist yet.
 The tests prove discovery through a child environment whose `PATH` holds only Bun's global bin folder and a `bun` and `git` link, the same way a hook command environment reaches the command.
-They do not prove a real Herdr hook execution.
-#247 owns that live proof.
+`docs/implementation/247-dispatch.md` records the live proof that a real Herdr hook runs the installed global command.
 
 ## Release artifact
 
 The artifact holds runnable ESM, declarations, complete owned skills, `schemas/config.schema.json`, the fixed migrations, documentation, `package.json`, `jsr.json`, and the content-identified `release.json`.
 The settings schema is byte-equal to what a settings edit writes.
-Plugin content is not in the artifact yet, because the plugin arrives with #247.
-The plugin files in the build and required parts, and a real hook proof after staging removal, are open for #247.
-The SuperAgent owns that tracker change, because #247's current criteria do not name them.
+#247 adds the Herdr plugin manifest at `modules/worker-dispatch/herdr-plugin.toml` to the build and the required parts.
 
 ## Tests and evidence limits
 

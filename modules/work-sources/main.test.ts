@@ -79,6 +79,7 @@ test("the module reads one snapshot and reports ended reset sources without disp
           plan: JSON.stringify({ trackerKey: "APP-1", assignments: [] }),
         },
         assignments: [],
+        launches: [],
       },
     ]),
   );

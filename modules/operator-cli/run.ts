@@ -11,12 +11,13 @@ import { runSkills } from "./skills.ts";
 import { runLauncher } from "./launcher.ts";
 import { runReadiness } from "./readiness.ts";
 import { runSources } from "./sources.ts";
+import { herdrEventWithoutState, runDispatch } from "./dispatch.ts";
 import { failure, settingsExitCodes } from "./output.ts";
 
 type OperatorPaths = ReturnType<typeof OperatorHome.resolve>;
 
 const usage =
-  "Usage: operator --help | --version [--json]\n       operator config show | recover [--json]\n       operator config plan | apply (--set field=value | --unset field)... [--plan id] [--json]\n       operator host models --host opencode|claude-code [--json]\n       operator config resolve [--role superAgent|workerAgent] [--profile name] [--host host] [--model model] [--effort effort] [--json]\n       operator project register [--repository owner/repository] [--json]\n       operator project show | list [--json]\n       operator project move [--repository owner/repository] [--json]\n       operator project remove owner/repository --person-instructed [--json]\n       operator install --opencode | --claude | --opencode --claude [--check] [--json]\n       operator install matt --opencode | --claude | --opencode --claude [--json]\n       operator install launcher [--json]\n       operator ready [--json]\n       operator source register --file path [--json]\n       operator source show --source id [--json]\n       operator next [--source id] [--json]";
+  "Usage: operator --help | --version [--json]\n       operator config show | recover [--json]\n       operator config plan | apply (--set field=value | --unset field)... [--plan id] [--json]\n       operator host models --host opencode|claude-code [--json]\n       operator config resolve [--role superAgent|workerAgent] [--profile name] [--host host] [--model model] [--effort effort] [--json]\n       operator project register [--repository owner/repository] [--json]\n       operator project show | list [--json]\n       operator project move [--repository owner/repository] [--json]\n       operator project remove owner/repository --person-instructed [--json]\n       operator install --opencode | --claude | --opencode --claude [--check] [--json]\n       operator install matt --opencode | --claude | --opencode --claude [--json]\n       operator install launcher [--json]\n       operator ready [--json]\n       operator source register --file path [--json]\n       operator source show --source id [--json]\n       operator next [--source id] [--json]\n       operator dispatch --source id --assignment key [--json]\n       operator herdr install [--json]\n       operator herdr event [--json]";
 
 const projectExitCodes = {
   repository_choice_invalid: 2,
@@ -227,6 +228,28 @@ function versionArgs(args: string[], json: boolean) {
   );
 }
 
+/** Startup checks state compatibility before every command that reads device state. */
+async function compatibleState(args: string[], paths: OperatorPaths, json: boolean) {
+  if (await herdrEventWithoutState(args, paths, json)) return false;
+  const compatible = DeviceState.checkCompatibility(
+    paths,
+    projectArgs(args)?.command === "register",
+  );
+  if (compatible.tag !== "Ok") {
+    if (compatible.tag === "Err")
+      failure(
+        "startup",
+        compatible.error.reason,
+        compatible.error.detail,
+        projectExitCodes[compatible.error.reason],
+        json,
+      );
+    else failure("startup", "startup_defect", String(compatible.cause), 1, json);
+    return false;
+  }
+  return true;
+}
+
 export async function run(args: string[]): Promise<void> {
   const json = args.includes("--json");
   const paths = startupPaths(json);
@@ -249,22 +272,7 @@ export async function run(args: string[]): Promise<void> {
     return;
   }
 
-  const compatible = DeviceState.checkCompatibility(
-    paths,
-    projectArgs(args)?.command === "register",
-  );
-  if (compatible.tag !== "Ok") {
-    if (compatible.tag === "Err")
-      failure(
-        "startup",
-        compatible.error.reason,
-        compatible.error.detail,
-        projectExitCodes[compatible.error.reason],
-        json,
-      );
-    else failure("startup", "startup_defect", String(compatible.cause), 1, json);
-    return;
-  }
+  if (!(await compatibleState(args, paths, json))) return;
 
   if (args.length === 1 && args[0] === "--help") {
     console.log(usage);
@@ -296,6 +304,7 @@ export async function run(args: string[]): Promise<void> {
     runSettings,
     runProject,
     runSources,
+    runDispatch,
   ]) {
     if (await handler(args, paths, json)) return;
   }
