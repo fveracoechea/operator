@@ -1,79 +1,131 @@
-import { and, asc, eq, notInArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, notInArray, or } from "drizzle-orm";
 import type { Database } from "bun:sqlite";
 import type { drizzle } from "drizzle-orm/bun-sqlite";
 import type { Result } from "unthrown";
 import { checkHistory, transaction } from "./database.ts";
 import { ownerGone } from "./launches.ts";
-import { projects, reviewRequests, reviewRounds } from "./schema.ts";
+import { projects, reviewRequests, reviewRounds, reviewThreadOperations } from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
 
 export type ReviewRequestRow = typeof reviewRequests.$inferSelect;
 export type ReviewRoundRow = typeof reviewRounds.$inferSelect;
+export type ThreadOperationRow = typeof reviewThreadOperations.$inferSelect;
 export type ReviewSnapshot = {
   project: { repository: string; checkout: string } | null;
   request: ReviewRequestRow | null;
   rounds: ReviewRoundRow[];
-  /** The process that started the reviewer or posts the review still runs. */
+  /** The thread operations of the newest round. */
+  operations: ThreadOperationRow[];
+  /** The process that holds this request's lease still runs. */
   ownerActive: boolean;
+  /** The newest closed or skipped request of the PR whose reviewer cleanup did not finish. */
+  ended: ReviewRequestRow | null;
 };
 /** One decided change. `hold` gives this process the lease, and `release` ends it. */
 export type ReviewChange = {
   insert?: Pick<ReviewRequestRow, "id" | "repository" | "number" | "url" | "origin" | "state">;
   update?: Partial<Omit<ReviewRequestRow, "id">>;
   round?: ReviewRoundRow;
+  operations?: ThreadOperationRow[];
   lease?: "hold" | "release";
 };
+type Target = { repository: string; number: number; id?: string };
+type Db = ReturnType<typeof drizzle>;
 
-const ended = ["approved", "closed", "skipped"];
+const ended = ["closed", "skipped"];
+const unfinishedCleanup = ["pending", "failed", "kept"];
 
-function active(db: ReturnType<typeof drizzle>, repository: string, number: number) {
+/** The open request of one PR, or the request that the target names by its id. */
+function current(db: Db, target: Target) {
+  return (
+    db
+      .select()
+      .from(reviewRequests)
+      .where(
+        target.id === undefined
+          ? and(
+              eq(reviewRequests.repository, target.repository),
+              eq(reviewRequests.number, target.number),
+              notInArray(reviewRequests.state, ended),
+            )
+          : eq(reviewRequests.id, target.id),
+      )
+      .get() ?? null
+  );
+}
+
+function endedWithCleanup(db: Db, target: Target) {
   return (
     db
       .select()
       .from(reviewRequests)
       .where(
         and(
-          eq(reviewRequests.repository, repository),
-          eq(reviewRequests.number, number),
-          notInArray(reviewRequests.state, ended),
+          eq(reviewRequests.repository, target.repository),
+          eq(reviewRequests.number, target.number),
+          inArray(reviewRequests.state, ended),
+          inArray(reviewRequests.cleanupState, unfinishedCleanup),
         ),
       )
+      .orderBy(desc(reviewRequests.endedAt))
       .get() ?? null
   );
 }
 
-function snapshot(db: ReturnType<typeof drizzle>, request: ReviewRequestRow | null) {
+function snapshot(db: Db, request: ReviewRequestRow | null) {
+  const rounds =
+    request === null
+      ? []
+      : db
+          .select()
+          .from(reviewRounds)
+          .where(eq(reviewRounds.requestId, request.id))
+          .orderBy(asc(reviewRounds.number))
+          .all();
+  const last = rounds.at(-1);
   return {
     request,
-    rounds:
-      request === null
+    rounds,
+    operations:
+      request === null || last === undefined
         ? []
         : db
             .select()
-            .from(reviewRounds)
-            .where(eq(reviewRounds.requestId, request.id))
-            .orderBy(asc(reviewRounds.number))
+            .from(reviewThreadOperations)
+            .where(
+              and(
+                eq(reviewThreadOperations.requestId, request.id),
+                eq(reviewThreadOperations.round, last.number),
+              ),
+            )
+            .orderBy(asc(reviewThreadOperations.threadId), asc(reviewThreadOperations.kind))
             .all(),
     ownerActive: request !== null && !ownerGone(request, Date.now()),
   };
 }
 
+function read(db: Db, target: Target): ReviewSnapshot {
+  return {
+    project: project(db, target.repository),
+    ...snapshot(db, current(db, target)),
+    ended: target.id === undefined ? endedWithCleanup(db, target) : null,
+  };
+}
+
 /**
- * Reads the active request of one PR and applies the change that the caller's rule decides
- * from it, in one write transaction. Two commands on the same PR never act on the same state.
+ * Reads the open request of one PR, or the request with the target's id, and applies the change
+ * that the caller's rule decides from it, in one write transaction. Two commands on the same PR
+ * never act on the same state.
  */
 export function changeReviewRequest<E>(
   client: Database,
-  target: { repository: string; number: number },
+  target: Target,
   decide: (current: ReviewSnapshot) => Result<ReviewChange, E>,
 ) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db): Result<ReviewSnapshot, E | StateFailure> => {
-      const current = {
-        project: project(db, target.repository),
-        ...snapshot(db, active(db, target.repository, target.number)),
-      };
-      return decide(current).map((change) => {
+      const before = read(db, target);
+      return decide(before).map((change) => {
         const now = new Date().toISOString();
         const lease =
           change.lease === "hold"
@@ -81,7 +133,7 @@ export function changeReviewRequest<E>(
             : change.lease === "release"
               ? { ownerPid: null, leaseAt: null }
               : {};
-        let id = current.request?.id ?? null;
+        let id = before.request?.id ?? null;
         if (change.insert !== undefined) {
           db.insert(reviewRequests)
             .values({ ...emptyRequest(), ...change.insert, requestedAt: now, ...lease })
@@ -100,17 +152,29 @@ export function changeReviewRequest<E>(
               set: change.round,
             })
             .run();
-        const request =
-          id === null
-            ? null
-            : (db.select().from(reviewRequests).where(eq(reviewRequests.id, id)).get() ?? null);
-        return { project: current.project, ...snapshot(db, request) };
+        for (const operation of change.operations ?? [])
+          db.insert(reviewThreadOperations)
+            .values(operation)
+            .onConflictDoUpdate({
+              target: [
+                reviewThreadOperations.requestId,
+                reviewThreadOperations.round,
+                reviewThreadOperations.threadId,
+                reviewThreadOperations.kind,
+              ],
+              set: operation,
+            })
+            .run();
+        return {
+          ...read(db, id === null ? target : { ...target, id }),
+          ended: before.ended,
+        };
       });
     }),
   );
 }
 
-function project(db: ReturnType<typeof drizzle>, repository: string) {
+function project(db: Db, repository: string) {
   return (
     db
       .select({ repository: projects.repository, checkout: projects.checkout })
@@ -120,20 +184,15 @@ function project(db: ReturnType<typeof drizzle>, repository: string) {
   );
 }
 
-/** The active request of one PR, read without a write lock. */
-export function readReviewRequest(
-  client: Database,
-  target: { repository: string; number: number },
-) {
-  return transaction(client, false, () =>
-    checkHistory(client).map((db): ReviewSnapshot => ({
-      project: project(db, target.repository),
-      ...snapshot(db, active(db, target.repository, target.number)),
-    })),
-  );
+/** The open request of one PR, read without a write lock. */
+export function readReviewRequest(client: Database, target: Target) {
+  return transaction(client, false, () => checkHistory(client).map((db) => read(db, target)));
 }
 
-/** Every active request on the device, with its rounds and the controlling checkout. */
+/**
+ * Every open request on the device, and every ended request whose reviewer cleanup did not
+ * finish, each with its rounds and the controlling checkout.
+ */
 export function readReviewRequests(client: Database) {
   return transaction(client, false, () =>
     checkHistory(client).map((db) =>
@@ -141,23 +200,29 @@ export function readReviewRequests(client: Database) {
         .select()
         .from(reviewRequests)
         .innerJoin(projects, eq(projects.repository, reviewRequests.repository))
-        .where(notInArray(reviewRequests.state, ended))
+        .where(
+          or(
+            notInArray(reviewRequests.state, ended),
+            inArray(reviewRequests.cleanupState, unfinishedCleanup),
+          ),
+        )
         .orderBy(asc(reviewRequests.requestedAt))
         .all()
         .map((row) => ({
           project: { repository: row.projects.repository, checkout: row.projects.checkout },
           ...snapshot(db, row.review_requests),
+          ended: null,
         })),
     ),
   );
 }
 
-/** The optional reviewer of a PR assignment. A PR that already has an active request keeps it. */
+/** The optional reviewer of a PR assignment. A PR that already has an open request keeps it. */
 export function requestAssignmentReview(
-  db: ReturnType<typeof drizzle>,
+  db: Db,
   pr: { repository: string; number: number; url: string; sourceId: string; assignment: string },
 ) {
-  if (active(db, pr.repository, pr.number) !== null) return;
+  if (current(db, pr) !== null) return;
   db.insert(reviewRequests)
     .values({
       ...emptyRequest(),
@@ -198,10 +263,18 @@ function emptyRequest(): Omit<
     failureDetail: null,
     ownerPid: null,
     leaseAt: null,
+    trigger: null,
+    headMoves: 0,
+    activityAt: null,
+    staleAt: null,
+    resolvedThreads: null,
+    sync: null,
+    cleanupState: null,
+    cleanupDetail: null,
   };
 }
 
-/** Renew the lease of a start or post that this process runs. */
+/** Renew the lease of a start, post, reviewer move, or cleanup that this process runs. */
 export function renewReviewLease(client: Database, id: string) {
   return transaction(client, true, () =>
     checkHistory(client).map((db) => {

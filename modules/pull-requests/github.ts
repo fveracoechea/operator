@@ -1,5 +1,6 @@
 import { Err, Ok, fromPromise, type Result } from "unthrown";
 import { z } from "zod";
+import { ReviewRequests } from "../review-requests/main.ts";
 import { GithubApi } from "../github-api/main.ts";
 
 export type GithubReadFailure = {
@@ -151,6 +152,8 @@ export type FeedbackItem = {
   kind: "review" | "comment" | "thread_comment";
   author: string | null;
   fromViewer: boolean;
+  /** A review that an Operator reviewer posted, also with the owner's own account. */
+  operatorReview: boolean;
   body: string;
   url: string;
   reviewState: string | null;
@@ -280,6 +283,7 @@ export function observation(data: z.infer<typeof pullRequestAnswer>["data"]): Ob
       kind,
       author: login,
       fromViewer: login === viewer,
+      operatorReview: kind === "review" && ReviewRequests.isOperatorReview(node.body),
       body: node.body,
       url: node.url,
       ...extra,

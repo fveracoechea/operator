@@ -3,6 +3,16 @@ import { checkDraft, draftSchema } from "./draft.ts";
 import type { PullRequestFacts } from "./github.ts";
 
 const head = "a".repeat(40);
+function thread(change: object = {}) {
+  return {
+    id: "T",
+    resolved: false,
+    resolvedBy: null,
+    startedByViewer: true,
+    comments: [],
+    ...change,
+  };
+}
 function pr(change: Partial<PullRequestFacts> = {}): PullRequestFacts {
   return {
     state: "OPEN",
@@ -15,6 +25,8 @@ function pr(change: Partial<PullRequestFacts> = {}): PullRequestFacts {
     checksComplete: true,
     threads: [],
     reviews: [],
+    comments: [],
+    reviewRequests: [],
     ...change,
   };
 }
@@ -72,24 +84,19 @@ test("each refusal names its cause and posts nothing", () => {
       "review_noise_changed_file",
     ],
     [
-      { threadReplies: [{ threadId: "T", body: "B." }] },
-      { threads: [{ id: "T", resolved: false, startedByViewer: false }] },
+      { threadReplies: [{ threadId: "T", kind: "explain", body: "B." }] },
+      { threads: [thread({ startedByViewer: false })] },
       "review_thread_unknown",
     ],
     [
       {
         threadReplies: [
-          { threadId: "T", body: "B." },
-          { threadId: "T", body: "C." },
+          { threadId: "T", kind: "acknowledge", body: "B." },
+          { threadId: "T", kind: "explain", body: "C." },
         ],
       },
-      { threads: [{ id: "T", resolved: false, startedByViewer: true }] },
+      { threads: [thread()] },
       "review_draft_invalid",
-    ],
-    [
-      { threadReplies: [{ threadId: "T", body: "B." }] },
-      { threads: [{ id: "T", resolved: true, startedByViewer: true }] },
-      "review_thread_replies_unsupported",
     ],
   ];
   for (const [change, facts, reason] of cases) {
@@ -129,4 +136,21 @@ test("a failing required check is a blocker fact unless a valid noise claim cove
       pr({ filesComplete: false }),
     ).tag,
   ).toBe("Ok");
+});
+
+test("thread replies name their outcome, and the round's commit can be older than the live head", () => {
+  const reply = { threadId: "T", kind: "explain", body: "The file still stays open." };
+  expect(
+    checkDraft(draft({ threadReplies: [reply] }), pr({ threads: [thread({ resolved: true })] })),
+  ).toMatchObject({ tag: "Ok" });
+  expect(
+    draftSchema.safeParse({ ...draft(), threadReplies: [{ ...reply, kind: "fixed" }] }).success,
+  ).toBe(false);
+  // At the head-move limit the round reviews the reviewer's head, not the live head.
+  const older = "b".repeat(40);
+  expect(checkDraft(draft({ reviewedCommit: older }), pr(), older)).toMatchObject({ tag: "Ok" });
+  expect(checkDraft(draft(), pr(), older)).toMatchObject({
+    tag: "Err",
+    error: { reason: "review_head_moved" },
+  });
 });

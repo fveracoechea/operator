@@ -85,17 +85,17 @@ test.each([
   },
   {
     name: "unlanded work stays",
-    file: "report-assignments/worktree.ts",
+    file: "worker-dispatch/worktree-cleanup.ts",
     before: "if (reasons.length > 0)",
     after: "if (false)",
     pattern: cleanup,
   },
   {
     name: "recorded branch tip inspection",
-    file: "report-assignments/worktree.ts",
+    file: "worker-dispatch/worktree-cleanup.ts",
     before: "(await branchExists(worktree, branch))",
     after: "false",
-    testFile: "report-assignments/worktree.test.ts",
+    testFile: "worker-dispatch/worktree-cleanup.test.ts",
     pattern: "a branch commit while HEAD is detached elsewhere",
   },
   {

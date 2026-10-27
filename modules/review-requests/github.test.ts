@@ -13,6 +13,8 @@ function answer(change: object = {}) {
           files: { totalCount: 1, nodes: [{ path: "a.ts" }] },
           reviewThreads: { nodes: [] },
           reviews: { nodes: [] },
+          comments: { nodes: [] },
+          timelineItems: { nodes: [] },
           commits: { nodes: [{ commit: { statusCheckRollup: null } }] },
           ...change,
         },
@@ -121,15 +123,54 @@ test("only required checks are facts, with failing, passing, and pending states"
   ]);
 });
 
-test("threads and reviews say whether the posting account wrote them", () => {
+test("threads, comments, and renewed requests carry the facts that start rounds", () => {
   const facts = pullRequestFacts(
     answer({
       author: null,
       files: { totalCount: 3, nodes: [{ path: "a.ts" }] },
       reviewThreads: {
         nodes: [
-          { id: "T1", isResolved: true, comments: { nodes: [{ author: { login: "me" } }] } },
-          { id: "T2", isResolved: false, comments: { nodes: [{ author: null }] } },
+          {
+            id: "T1",
+            isResolved: true,
+            resolvedBy: { login: "author" },
+            starter: { nodes: [{ author: { login: "me" } }] },
+            comments: {
+              nodes: [
+                {
+                  id: "C1",
+                  body: "Fix it.",
+                  createdAt: "2026-10-01T00:00:00Z",
+                  author: { login: "me" },
+                },
+                {
+                  id: "C2",
+                  body: "Done.",
+                  createdAt: "2026-10-02T00:00:00Z",
+                  author: { login: "author" },
+                },
+              ],
+            },
+          },
+          {
+            id: "T2",
+            isResolved: false,
+            resolvedBy: null,
+            starter: { nodes: [{ author: null }] },
+            comments: { nodes: [] },
+          },
+        ],
+      },
+      comments: {
+        nodes: [
+          { id: "P1", body: "@me", createdAt: "2026-10-03T00:00:00Z", author: { login: "author" } },
+        ],
+      },
+      timelineItems: {
+        nodes: [
+          { createdAt: "2026-10-04T00:00:00Z", requestedReviewer: { login: "me" } },
+          { createdAt: "2026-10-05T00:00:00Z", requestedReviewer: {} },
+          {},
         ],
       },
       reviews: {
@@ -156,9 +197,21 @@ test("threads and reviews say whether the posting account wrote them", () => {
     requiredChecks: [],
     checksComplete: true,
     threads: [
-      { id: "T1", resolved: true, startedByViewer: true },
-      { id: "T2", resolved: false, startedByViewer: false },
+      {
+        id: "T1",
+        resolved: true,
+        resolvedBy: "author",
+        startedByViewer: true,
+        comments: [
+          { id: "C1", author: "me", body: "Fix it.", createdAt: "2026-10-01T00:00:00Z" },
+          { id: "C2", author: "author", body: "Done.", createdAt: "2026-10-02T00:00:00Z" },
+        ],
+      },
+      { id: "T2", resolved: false, resolvedBy: null, startedByViewer: false, comments: [] },
     ],
+    comments: [{ id: "P1", author: "author", body: "@me", createdAt: "2026-10-03T00:00:00Z" }],
+    // A team request names no user, so only the user request is a fact.
+    reviewRequests: [{ reviewer: "me", createdAt: "2026-10-04T00:00:00Z" }],
     reviews: [
       { id: "R1", event: "APPROVE", byViewer: true },
       { id: "R2", event: "REQUEST_CHANGES", byViewer: false },

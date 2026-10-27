@@ -24,6 +24,34 @@ function answer(change: object = {}) {
   };
 }
 
+test("a review with the Operator marker is an Operator review, from any account", () => {
+  const observed = observation(
+    answer({
+      reviews: {
+        nodes: [
+          {
+            id: "O",
+            state: "COMMENTED",
+            body: "<!-- operator-review r1 round 1 -->\n**No blockers**",
+            url: "u",
+            author: { login: "owner" },
+          },
+          { id: "M", state: "COMMENTED", body: "Mine.", url: "u", author: { login: "owner" } },
+        ],
+      },
+      comments: {
+        nodes: [{ id: "C", body: "<!-- operator-review r1 round 1 -->", url: "u", author: null }],
+      },
+    }),
+  );
+  expect(observed.feedback).toMatchObject([
+    { id: "O", fromViewer: true, operatorReview: true },
+    { id: "M", fromViewer: true, operatorReview: false },
+    // Only a review carries the marker. A comment with the same text is not a review.
+    { id: "C", operatorReview: false },
+  ]);
+});
+
 test("feedback keeps its kind, author, viewer flag, thread path, and resolution", () => {
   const observed = observation(
     answer({

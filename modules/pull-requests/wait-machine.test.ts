@@ -25,6 +25,7 @@ function item(id: string, change: object = {}) {
     kind: "comment" as const,
     author: "reviewer",
     fromViewer: false,
+    operatorReview: false,
     body: "Check this.",
     url: `https://github.com/${id}`,
     reviewState: null,
@@ -155,6 +156,21 @@ test("the same facts give the same decision and the input progress is not change
   const before = structuredClone(progress);
   expect(decideWait({ progress, observed })).toEqual(decideWait({ progress, observed }));
   expect(progress).toEqual(before);
+});
+
+test("an Operator review from the owner's account ends a wait alone", () => {
+  const review = item("review", {
+    kind: "review",
+    fromViewer: true,
+    operatorReview: true,
+    reviewState: "COMMENTED",
+    body: "No blockers.",
+  });
+  expect(decideWait({ progress: empty, observed: { ...open, feedback: [review] } })).toEqual({
+    result: "reported",
+    events: [{ kind: "feedback", items: [review] }],
+    progress: { seen: ["review"], failures: [], eligibleHead: null },
+  });
 });
 
 test("the owner's own items never end a wait alone and are reported with the next event", () => {

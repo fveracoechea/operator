@@ -1,135 +1,33 @@
 import { afterEach, expect, test } from "bun:test";
-// Bun has no temporary-directory, symlink, permission, or recursive copy and removal API.
-import { chmod, cp, mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
+// Bun has no recursive removal API.
+import { rm } from "node:fs/promises";
 import { z } from "zod";
-import { Environment } from "../environment/main.ts";
-import { fakeGithubScript } from "./fake-github.ts";
-import { fakeHerdrScript } from "./fake-herdr.ts";
+import { reviewDevice, url } from "./review-fixture.ts";
 
+type Device = Awaited<ReturnType<typeof reviewDevice>>;
+let device: Device | null = null;
 let root = "";
 let checkout = "";
 let head = "";
-const cli = Bun.fileURLToPath(new URL("../../cli.ts", import.meta.url));
-const url = "https://github.com/example/one/pull/7";
-const gitEnv = {
-  GIT_CONFIG_GLOBAL: "/dev/null",
-  GIT_CONFIG_NOSYSTEM: "1",
-  GIT_AUTHOR_NAME: "Fixture",
-  GIT_AUTHOR_EMAIL: "fixture@example.com",
-  GIT_COMMITTER_NAME: "Fixture",
-  GIT_COMMITTER_EMAIL: "fixture@example.com",
-};
 
-function environment() {
-  return Environment.child({
-    ...gitEnv,
-    HOME: `${root}/home`,
-    XDG_CONFIG_HOME: `${root}/config`,
-    XDG_STATE_HOME: `${root}/state`,
-    BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
-    HERDR_SOCKET_PATH: `${root}/herdr.sock`,
-    PATH: `${root}/tools:${Environment.read().PATH}`,
-  });
+/** A registered project whose PR head exists only as `refs/pull/7/head` on its bare origin. */
+async function setup(host: "opencode" | "claude-code" = "opencode") {
+  device = await reviewDevice(host);
+  ({ root, checkout, head } = device);
+  await github({ pulls: [pull()] });
 }
 
-async function exec(args: string[], cwd: string) {
-  const child = Bun.spawn(args, { cwd, env: environment(), stdout: "pipe", stderr: "pipe" });
-  const [code, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ]);
-  return { code, stdout, stderr };
+function current() {
+  return device ?? expect.unreachable("setup() runs before a scenario uses the device.");
 }
 
 /** Review commands run from the device root, which is no checkout, unless a test says otherwise. */
 async function run(args: string[], cwd = root) {
-  const result = await exec([process.execPath, cli, ...args, "--json"], cwd);
-  return {
-    code: result.code,
-    output: z.looseObject({}).parse(JSON.parse(result.stdout)),
-    stderr: result.stderr,
-  };
+  return current().run(args, cwd);
 }
 
 async function git(cwd: string, ...args: string[]) {
-  const result = await exec(["git", ...args], cwd);
-  expect(result.code, result.stderr).toBe(0);
-  return result.stdout.trim();
-}
-
-async function tool(name: string, script: string) {
-  await Bun.write(`${root}/tools/${name}`, script, { createPath: true });
-  await chmod(`${root}/tools/${name}`, 0o755);
-}
-
-const claude = `#!${process.execPath}
-for await (const chunk of Bun.stdin.stream().pipeThrough(new TextDecoderStream())) {
- for (const line of chunk.trim().split("\\n")) {
-  const message=JSON.parse(line);
-  if(message.type === "control_request") console.log(JSON.stringify({type:"control_response",response:{subtype:"success",request_id:message.request_id,response:{models:[{value:"precise-model",supportsEffort:true,supportedEffortLevels:["medium","high"]}],commands:[],agents:[]}}}));
- }
-}
-`;
-const opencode = `#!${process.execPath}\nconst dir=decodeURIComponent(process.argv[4].split("=")[1]);\nconsole.log(JSON.stringify({location:{directory:dir},data:[{providerID:"test",id:"reasoner",enabled:true,variants:[{id:"medium"},{id:"high"}]}]}));\n`;
-
-/**
- * A registered project whose origin is a local bare repository. The PR head exists only as
- * `refs/pull/7/head` there, as GitHub keeps it, so a reviewer must fetch it.
- */
-async function setup(host: "opencode" | "claude-code" = "opencode") {
-  root = await realpath(await mkdtemp(path.join(tmpdir(), "operator-review-")));
-  checkout = `${root}/checkout`;
-  const remote = `${root}/remote.git`;
-  await mkdir(checkout);
-  await git(root, "init", "-q", "--bare", remote);
-  await git(checkout, "init", "-q", "-b", "main");
-  await git(checkout, "remote", "add", "origin", "https://github.com/example/one.git");
-  await Bun.write(`${checkout}/README.md`, "fixture\n");
-  await git(checkout, "add", ".");
-  await git(checkout, "commit", "-q", "-m", "fixture");
-  await git(checkout, "push", "-q", remote, "main");
-  await git(checkout, "switch", "-q", "-c", "feature");
-  await Bun.write(`${checkout}/feature.ts`, "export const value = 1;\n");
-  await git(checkout, "add", ".");
-  await git(checkout, "commit", "-q", "-m", "feature");
-  head = await git(checkout, "rev-parse", "HEAD");
-  await git(checkout, "push", "-q", remote, "HEAD:refs/pull/7/head");
-  await git(checkout, "switch", "-q", "main");
-  await git(checkout, "branch", "-q", "-D", "feature");
-  await tool("herdr", fakeHerdrScript(root));
-  await tool("gh", fakeGithubScript(root));
-  await symlink(cli, `${root}/tools/operator`);
-  await tool("opencode", opencode);
-  await tool("claude", claude);
-  await Bun.write(
-    `${root}/config/operator/config.json`,
-    JSON.stringify({
-      superAgent:
-        host === "opencode" ? { host, model: "test/reasoner" } : { host, model: "precise-model" },
-      workerAgent:
-        host === "opencode" ? { host, model: "test/reasoner" } : { host, model: "precise-model" },
-    }),
-    { createPath: true },
-  );
-  await cp(Bun.fileURLToPath(new URL("../../skills", import.meta.url)), `${root}/release`, {
-    recursive: true,
-  });
-  const skills =
-    host === "opencode" ? `${root}/config/opencode/skills` : `${root}/home/.claude/skills`;
-  await mkdir(path.dirname(skills), { recursive: true });
-  await symlink(`${root}/release`, skills);
-  const upstream = host === "opencode" ? `${root}/home/.agents/skills` : skills;
-  await Bun.write(`${root}/upstream/code-review/SKILL.md`, "upstream\n", { createPath: true });
-  await mkdir(upstream, { recursive: true });
-  await symlink(`${root}/upstream/code-review`, `${upstream}/code-review`);
-  expect((await run(["project", "register"], checkout)).code).toBe(0);
-  expect((await run(["herdr", "install"], checkout)).code).toBe(0);
-  // Fetches from the GitHub remote reach the local bare repository after registration.
-  await git(checkout, "config", `url.${remote}.insteadOf`, "https://github.com/example/one.git");
-  await github({ pulls: [pull()] });
+  return current().git(cwd, ...args);
 }
 
 afterEach(async () => {
@@ -278,7 +176,8 @@ for (const host of ["opencode", "claude-code"] as const)
     expect(reviews[0]).toMatchObject({ event: "APPROVE", commit_id: head });
     expect(reviews[0]?.body).toContain("**Approved**");
     expect(reviews[0]?.body).toContain("Reported test: `bun test feature.test.ts` exited 0.");
-    expect(await next()).toEqual([]);
+    // An approved request keeps its reviewer until the PR closes or a renewed request comes.
+    expect(await next()).toMatchObject([{ state: "approved", wait: "review_approved" }]);
 
     // Operator pushes no reviewer branch.
     expect(await git(`${root}/remote.git`, "for-each-ref", "--format=%(refname)")).not.toContain(
@@ -446,7 +345,11 @@ test("draft refusals post nothing and change nothing", async () => {
       { noise: [{ check: "absent", files: ["x.ts"], reason: "None." }] },
       "review_noise_unknown_check",
     ],
-    [{ threadReplies: [{ threadId: "PRRT_missing", body: "Fixed." }] }, "review_thread_unknown"],
+    [
+      { threadReplies: [{ threadId: "PRRT_missing", kind: "explain", body: "Still open." }] },
+      "review_thread_unknown",
+    ],
+    [{ threadReplies: [{ threadId: "PRRT_missing", body: "No kind." }] }, "review_draft_invalid"],
   ];
   for (const [change, reason] of cases) {
     if (change === null) await rm(request.draft, { force: true });
@@ -456,18 +359,6 @@ test("draft refusals post nothing and change nothing", async () => {
     expect(refused.output, reason).toMatchObject({ reason });
     expect(refused.code).toBe(reason === "review_head_moved" ? 4 : 3);
   }
-  // A valid reply to this account's own thread waits for the round flow that posts replies.
-  await github({
-    pulls: [
-      pull({
-        threads: [{ id: "PRRT_own", comments: [{ id: "T1", body: "Old.", author: "owner" }] }],
-      }),
-    ],
-  });
-  await draft(request.draft, { threadReplies: [{ threadId: "PRRT_own", body: "Fixed now." }] });
-  expect(await run(["review", "post", url])).toMatchObject({
-    output: { reason: "review_thread_replies_unsupported" },
-  });
   expect(await Bun.file(database()).arrayBuffer()).toEqual(before);
   expect(await posted()).toEqual([]);
   expect(await next()).toMatchObject([{ state: "queued" }]);
@@ -655,6 +546,21 @@ test("an enabled assignment reviewer is queued at PR association and always comm
   const [review] = await posted();
   expect(review?.body).toContain("**No blockers**");
   expect(review?.body).toContain("No blockers.");
+  // The owner's own account posted it, and the owner's PR wait still reports it.
+  expect(await run(["pr", "wait", "--timeout", "1"], ownerTree)).toMatchObject({
+    code: 0,
+    output: {
+      reason: "pr_events_observed",
+      data: {
+        events: [
+          {
+            kind: "feedback",
+            items: [{ kind: "review", fromViewer: true, operatorReview: true }],
+          },
+        ],
+      },
+    },
+  });
 }, 90000);
 
 test("a retry after a lost answer records the review on GitHub, not an edited draft", async () => {

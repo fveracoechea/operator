@@ -33,6 +33,11 @@ export type ReviewerLaunch = {
   number: number;
   /** The PR head that the reviewer worktree starts at. */
   head: string;
+  /**
+   * A first start refuses a PR that moved since its read. A replacement keeps the head that the
+   * request recorded, so the next wait still reports newer commits as a round.
+   */
+  exactHead: boolean;
   nameBase: string;
   branchBase: string;
   profile: string | undefined;
@@ -70,6 +75,12 @@ function fetchHead(input: ReviewerLaunch) {
           `+refs/pull/${input.number}/head:${ref}`,
         ]);
         const head = fetched === null ? null : await git(input.checkout, ["rev-parse", ref]);
+        if (
+          head !== null &&
+          !input.exactHead &&
+          (await git(input.checkout, ["cat-file", "-e", `${input.head}^{commit}`])) !== null
+        )
+          return Ok(input.head);
         if (head === null)
           return Err<Failure>({
             reason: "review_fetch_failed",
@@ -236,5 +247,68 @@ export function launchReviewer(input: ReviewerLaunch) {
         preparation,
         brief,
       })),
+  );
+}
+
+/**
+ * Moves the reviewer worktree from the head that the reviewer had to the new PR head. A clean
+ * worktree on either head moves. A fast-forward keeps the reviewer's context on the new commits,
+ * and a force push resets the worktree, so the reviewer reviews the PR again from the start.
+ */
+export function moveReviewer(input: {
+  checkout: string;
+  repository: string;
+  number: number;
+  worktree: string;
+  from: string;
+  to: string;
+}) {
+  return Projects.githubRemote({ checkout: input.checkout, repository: input.repository }).flatMap(
+    (remote) =>
+      fromPromise(async () => {
+        if (remote === null)
+          return Err<Failure>({
+            reason: "review_fetch_failed",
+            detail: `The controlling checkout has no remote for ${input.repository}.`,
+          });
+        const ref = `refs/remotes/${remote}/pr/${input.number}`;
+        const fetched = await git(input.checkout, [
+          "fetch",
+          "--no-tags",
+          "--quiet",
+          remote,
+          `+refs/pull/${input.number}/head:${ref}`,
+        ]);
+        // A later move needs the fetched commit. The next wait reports any further move.
+        if (
+          fetched === null ||
+          (await git(input.checkout, ["cat-file", "-e", `${input.to}^{commit}`])) === null
+        )
+          return Err<Failure>({
+            reason: "review_fetch_failed",
+            detail: `Git could not fetch ${input.to} of PR #${input.number} from ${remote}.`,
+          });
+        const path = await realOrNull(input.worktree);
+        const at = path === null ? null : await git(path, ["rev-parse", "HEAD"]);
+        const status = path === null ? null : await git(path, ["status", "--porcelain"]);
+        if (path === null || (at !== input.from && at !== input.to) || status !== "")
+          return Err<Failure>({
+            reason: "review_worktree_changed",
+            detail: `The reviewer worktree ${input.worktree} is missing, changed, or not at ${input.from}. Ask the person what to keep.`,
+          });
+        const ancestor =
+          (await git(path, ["merge-base", "--is-ancestor", input.from, input.to])) !== null;
+        const mode = ancestor ? ("fast-forward" as const) : ("force-push" as const);
+        if (at === input.to) return Ok({ mode });
+        const moved = ancestor
+          ? await git(path, ["merge", "--ff-only", "--quiet", input.to])
+          : await git(path, ["reset", "--quiet", "--hard", input.to]);
+        return moved === null
+          ? Err<Failure>({
+              reason: "review_worktree_changed",
+              detail: `Git could not move ${path} to ${input.to}.`,
+            })
+          : Ok({ mode });
+      }, qualify).flatMap((result) => result),
   );
 }

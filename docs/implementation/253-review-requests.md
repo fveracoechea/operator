@@ -1,7 +1,7 @@
 # Review requests and the review post
 
 Issue #253 implements the core of ADR-0015: review requests separate from assignments, the reviewer launch, the draft-only review skill, and one guarded CLI post path on both hosts without Slack tools.
-Later rounds, head moves, thread replies, the stale flag, reviewer cleanup, and the end states `closed` and `skipped` remain #254.
+Later rounds, head moves, thread replies, the stale flag, reviewer cleanup, and the end states `closed` and `skipped` are in `254-review-rounds.md`.
 Slack ingestion and Slack effects remain #255.
 
 ## Commands
@@ -30,7 +30,7 @@ A repeated `add` of a PR with an active request returns `review_unchanged`.
 | `review_repository_unregistered`, `review_request_missing`, `review_pr_not_open` | 3 | The repository is not registered, no request was added, or the PR is merged or closed. |
 | `review_draft_missing`, `review_draft_invalid` | 3 | The draft file is absent, is not JSON, or breaks the draft rules. |
 | `review_noise_changed_file`, `review_noise_unknown_check`, `review_noise_unverifiable` | 3 | A noise claim cites a changed file, names no failing required check, or the read did not return every changed file. |
-| `review_thread_unknown`, `review_thread_replies_unsupported` | 3 | A reply names a thread that this account did not start, or a valid reply waits for #254. |
+| `review_thread_unknown` | 3 | A reply names a thread that this account did not start. |
 | `review_head_moved` | 4 | The draft reviews another commit than the live PR head. |
 | `review_start_in_progress`, `review_post_in_progress` | 4 | Another live process starts this reviewer or posts this review. |
 | `review_reviewer_started`, `review_already_posted` | 4 | The request already has its reviewer, or its review is posted. |
@@ -53,8 +53,8 @@ stateDiagram-v2
     posting --> reviewing: GitHub refused, reviewer runs
     posting --> queued: GitHub refused, no reviewer
     posting --> posting: no answer, the next post looks for the review first
-    watching --> [*]: rounds are #254
-    approved --> [*]
+    watching --> [*]: rounds, see 254-review-rounds.md
+    approved --> [*]: renewed requests, see 254-review-rounds.md
 ```
 
 The table in `modules/review-requests/review-machine.ts` decides each transition from the recorded request, the registration, and the owner lease.
@@ -154,7 +154,7 @@ The comment reaching the owner's `pr wait` is #254, because the wait treats the 
 | `posting`, the post process is gone | action `post_review` with `review_post_uncertain` |
 | `watching` | wait `review_watching` |
 
-An approved request leaves the list.
+An approved request stays in the list with the wait `review_approved` until its PR closes. `254-review-rounds.md` adds the round rows.
 Each action row gives the command to run, and there is no second post path.
 
 ## Storage and compatibility
@@ -168,7 +168,7 @@ A post whose process stopped does not block, because its retry needs no running 
 ## Verification
 
 Public CLI scenarios in `modules/operator-cli/run.reviews.test.ts` use real Git with a local bare origin that holds only `refs/pull/7/head`, real SQLite, isolated device roots, and the controlled `fake-herdr.ts` and `fake-github.ts`.
-They cover both hosts from add to an approved post, the workspace and base of the reviewer worktree, no reviewer branch on the remote, the event policy with blockers, breaches, and the posting account's own PR, required CI blockers and noise claims, a repository without required CI, twelve draft refusals with unchanged database bytes and no post, two simultaneous posts with one GitHub write, a lost answer found by its marker, a refused post, unregistered and closed PRs, a failed start and its retry, and the assignment reviewer off and on.
+They cover both hosts from add to an approved post, the workspace and base of the reviewer worktree, no reviewer branch on the remote, the event policy with blockers, breaches, and the posting account's own PR, required CI blockers and noise claims, a repository without required CI, thirteen draft refusals with unchanged database bytes and no post, two simultaneous posts with one GitHub write, a lost answer found by its marker, a refused post, unregistered and closed PRs, a failed start and its retry, and the assignment reviewer off and on.
 They also cover a lost answer followed by an edited draft, a lost answer followed by a head move, path spellings in noise claims and findings, pending and incomplete required CI, a GitHub remote named `upstream` beside a fork `origin`, and a retried start after the PR head moved.
 
 Direct beside-tests cover the draft schema and checks, the event table and body, the lifecycle table and next rows, the brief, the GitHub answer mapping, the device-state writes, the migration guard, and the settings edit.

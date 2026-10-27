@@ -4,7 +4,7 @@ import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Environment } from "../environment/main.ts";
-import { cleanWorktree } from "./worktree.ts";
+import { cleanWorktree } from "./worktree-cleanup.ts";
 
 let root = "";
 let checkout = "";

@@ -96,9 +96,10 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
     }),
   },
   {
-    // The owner's own replies are reported with the next real event, never alone.
+    // The owner's own replies are reported with the next real event, never alone. An
+    // assignment reviewer posts with the owner's account, and its review is a real event.
     when: (facts) =>
-      unseenFeedback(facts).some((item) => !item.fromViewer) ||
+      unseenFeedback(facts).some((item) => !item.fromViewer || item.operatorReview) ||
       unseenFailures(facts).length > 0 ||
       newlyEligible(facts),
     decide: report,

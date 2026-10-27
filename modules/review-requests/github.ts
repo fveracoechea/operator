@@ -23,8 +23,26 @@ export type PullRequestFacts = {
   requiredChecks: RequiredCheck[];
   /** False when the PR has more check contexts than one read returns. */
   checksComplete: boolean;
-  threads: { id: string; resolved: boolean; startedByViewer: boolean }[];
+  threads: Thread[];
   reviews: { id: string; url: string; body: string; event: string; byViewer: boolean }[];
+  /** The newest PR conversation comments. */
+  comments: { id: string; author: string | null; body: string; createdAt: string }[];
+  /** Review requests for a user, newest last. A renewed request names the posting account. */
+  reviewRequests: { reviewer: string; createdAt: string }[];
+};
+export type ThreadComment = {
+  id: string;
+  author: string | null;
+  body: string;
+  createdAt: string;
+};
+export type Thread = {
+  id: string;
+  resolved: boolean;
+  resolvedBy: string | null;
+  startedByViewer: boolean;
+  /** The newest comments of the thread. */
+  comments: ThreadComment[];
 };
 
 /** A PR URL names its repository and number. The repository identity is case-insensitive. */
@@ -48,9 +66,17 @@ const pullRequestQuery = `query($owner: String!, $name: String!, $number: Int!) 
       state headRefOid author { login }
       files(first: 100) { totalCount nodes { path } }
       reviewThreads(first: 100) {
-        nodes { id isResolved comments(first: 1) { nodes { author { login } } } }
+        nodes {
+          id isResolved resolvedBy { login }
+          starter: comments(first: 1) { nodes { author { login } } }
+          comments(last: 50) { nodes { id body createdAt author { login } } }
+        }
       }
       reviews(last: 100) { nodes { id url body state author { login } } }
+      comments(last: 100) { nodes { id body createdAt author { login } } }
+      timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: 20) {
+        nodes { ... on ReviewRequestedEvent { createdAt requestedReviewer { ... on User { login } } } }
+      }
       commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { totalCount nodes {
         __typename
         ... on CheckRun { name status conclusion detailsUrl isRequired(pullRequestNumber: $number) }
@@ -79,7 +105,13 @@ const answer = z.object({
               z.object({
                 id: z.string(),
                 isResolved: z.boolean(),
-                comments: z.object({ nodes: z.array(z.object({ author })) }),
+                resolvedBy: author,
+                starter: z.object({ nodes: z.array(z.object({ author })) }),
+                comments: z.object({
+                  nodes: z.array(
+                    z.object({ id: z.string(), body: z.string(), createdAt: z.string(), author }),
+                  ),
+                }),
               }),
             ),
           }),
@@ -91,6 +123,19 @@ const answer = z.object({
                 body: z.string(),
                 state: z.string(),
                 author,
+              }),
+            ),
+          }),
+          comments: z.object({
+            nodes: z.array(
+              z.object({ id: z.string(), body: z.string(), createdAt: z.string(), author }),
+            ),
+          }),
+          timelineItems: z.object({
+            nodes: z.array(
+              z.object({
+                createdAt: z.string().optional(),
+                requestedReviewer: z.object({ login: z.string().optional() }).nullish(),
               }),
             ),
           }),
@@ -199,7 +244,14 @@ export function pullRequestFacts(body: unknown): PullRequestFacts | null {
     threads: pr.reviewThreads.nodes.map((thread) => ({
       id: thread.id,
       resolved: thread.isResolved,
-      startedByViewer: thread.comments.nodes[0]?.author?.login === viewer,
+      resolvedBy: thread.resolvedBy?.login ?? null,
+      startedByViewer: thread.starter.nodes[0]?.author?.login === viewer,
+      comments: thread.comments.nodes.map((comment) => ({
+        id: comment.id,
+        author: comment.author?.login ?? null,
+        body: comment.body,
+        createdAt: comment.createdAt,
+      })),
     })),
     reviews: pr.reviews.nodes.map((review) => ({
       id: review.id,
@@ -208,6 +260,18 @@ export function pullRequestFacts(body: unknown): PullRequestFacts | null {
       event: reviewEvent(review.state),
       byViewer: review.author?.login === viewer,
     })),
+    comments: pr.comments.nodes.map((comment) => ({
+      id: comment.id,
+      author: comment.author?.login ?? null,
+      body: comment.body,
+      createdAt: comment.createdAt,
+    })),
+    // A team request has no user login, so it never names the posting account.
+    reviewRequests: pr.timelineItems.nodes.flatMap((item) =>
+      item.createdAt === undefined || item.requestedReviewer?.login === undefined
+        ? []
+        : [{ reviewer: item.requestedReviewer.login, createdAt: item.createdAt }],
+    ),
   };
 }
 
@@ -304,5 +368,73 @@ export function postReview(
         : { status: "uncertain", detail: "GitHub answered the post in an unknown form." };
     },
     (cause, defect) => defect(cause),
+  );
+}
+
+export type ThreadOutcome = { status: "done" } | { status: "failed" | "uncertain"; detail: string };
+
+const replyMutation = `mutation($thread: ID!, $body: String!) {
+  addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: $thread, body: $body }) {
+    comment { id }
+  }
+}`;
+const unresolveMutation = `mutation($thread: ID!) {
+  unresolveReviewThread(input: { threadId: $thread }) { thread { id isResolved } }
+}`;
+const mutationAnswer = z.object({
+  data: z
+    .object({
+      addPullRequestReviewThreadReply: z
+        .object({ comment: z.object({ id: z.string() }) })
+        .optional(),
+      unresolveReviewThread: z.object({ thread: z.object({ isResolved: z.boolean() }) }).optional(),
+    })
+    .nullish(),
+  errors: z.array(z.object({ message: z.string() })).optional(),
+});
+
+/**
+ * One thread write. GitHub answers a refused GraphQL write with errors, which is definite. A lost
+ * answer is uncertain, so the caller reads the thread before it repeats the write.
+ */
+function threadWrite(args: string[], done: (answer: z.infer<typeof mutationAnswer>) => boolean) {
+  return fromPromise(
+    async (): Promise<ThreadOutcome> => {
+      const outcome = await GithubApi.call({ args: ["graphql", ...args], timeoutMs: 60000 });
+      if (outcome.status === "failed")
+        return { status: "failed", detail: `${outcome.code}: ${outcome.detail}` };
+      if (outcome.status === "uncertain") return { status: "uncertain", detail: outcome.detail };
+      const parsed = mutationAnswer.safeParse(outcome.value.body);
+      if (!parsed.success)
+        return {
+          status: "uncertain",
+          detail: "GitHub answered a thread write in an unknown form.",
+        };
+      if ((parsed.data.errors ?? []).length > 0)
+        return {
+          status: "failed",
+          detail: (parsed.data.errors ?? []).map((error) => error.message).join(" "),
+        };
+      return done(parsed.data)
+        ? { status: "done" }
+        : { status: "uncertain", detail: "GitHub did not confirm the thread write." };
+    },
+    (cause, defect) => defect(cause),
+  );
+}
+
+/** Replies once in a review thread. The body carries the marker that finds a lost reply. */
+export function replyToThread(threadId: string, body: string) {
+  return threadWrite(
+    ["-f", `query=${replyMutation}`, "-f", `thread=${threadId}`, "-f", `body=${body}`],
+    (answer) => answer.data?.addPullRequestReviewThreadReply !== undefined,
+  );
+}
+
+/** Reopens a thread that its author resolved while its defect remains. */
+export function unresolveThread(threadId: string) {
+  return threadWrite(
+    ["-f", `query=${unresolveMutation}`, "-f", `thread=${threadId}`],
+    (answer) => answer.data?.unresolveReviewThread?.thread.isResolved === false,
   );
 }

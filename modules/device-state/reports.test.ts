@@ -151,7 +151,7 @@ test("a refused rule writes nothing, and an accepted change applies in one trans
       workspaceId: "w1",
       observation: { exited: true },
     }),
-  ).toMatchObject({ value: [] });
+  ).toMatchObject({ value: { launches: [] } });
   expect(db.query("SELECT state FROM launches").get()).toEqual({ state: "finished" });
 });
 

@@ -16,7 +16,10 @@ The draft is one JSON object. The CLI refuses unknown fields and a wrong shape b
     }
   ],
   "niceToHaves": [{ "detail": "Name the constant for its use." }],
-  "threadReplies": [],
+  "threadReplies": [
+    { "threadId": "PRRT_kwDO...", "kind": "acknowledge", "body": "Your reason holds. The guard covers it." },
+    { "threadId": "PRRT_kwDP...", "kind": "explain", "body": "The file still stays open on the error path." }
+  ],
   "checks": [
     { "kind": "test", "command": "bun test src/a.test.ts", "exitCode": 0 },
     { "kind": "guard-break", "command": "bun test src/a.test.ts with the guard removed", "exitCode": 1 }
@@ -33,7 +36,19 @@ The draft is one JSON object. The CLI refuses unknown fields and a wrong shape b
 - `breach.source` is `opinions`, `project-skill`, or `architecture`.
 - `checks[].kind` is `test`, `lint`, `typecheck`, `guard-break`, or `other`.
 - The draft names no event. The CLI computes it.
-- `threadReplies` refuse with `review_thread_replies_unsupported` in this release. Leave the list empty.
+- `threadReplies` names only threads that the posting account started, at most once each.
+
+## Thread replies
+
+In a later round, check each of your open review threads on the PR.
+
+- A fixed defect needs no entry, also when the author resolved its thread.
+- Valid pushback gets one `acknowledge` reply.
+- A defect that remains gets one `explain` reply. The CLI reopens the thread when the author resolved it.
+- A defect from an earlier round that the author did not answer stays in `blockers`, so the round cannot approve while it remains.
+
+An `explain` reply keeps a blocker open, so the round cannot approve.
+The CLI posts the review first, then each reply. A reply that lost its answer is found by its marker, so a repeated post does not reply twice.
 
 ## Required CI and noise
 

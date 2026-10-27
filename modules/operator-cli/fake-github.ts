@@ -68,13 +68,32 @@ if (reviewsPath) {
   answer({ node_id: id, html_url: "https://github.com/r/" + id, state: { APPROVE: "APPROVED", REQUEST_CHANGES: "CHANGES_REQUESTED", COMMENT: "COMMENTED" }[payload.event], commit_id: payload.commit_id });
   process.exit(0);
 }
+if (query.includes("addPullRequestReviewThreadReply") || query.includes("unresolveReviewThread")) {
+  // Thread writes: a reply appends a comment, and an unresolve reopens the thread.
+  const thread = state.pulls.flatMap((row) => row.threads ?? []).find((row) => row.id === field("thread"));
+  (state.threadCalls ??= []).push({ kind: query.includes("unresolve") ? "unresolve" : "reply", thread: field("thread"), body: field("body") });
+  if (state.threadFail || !thread) { await Bun.write(stateFile, JSON.stringify(state)); answer({ data: null, errors: [{ message: state.threadFail ?? "Could not resolve to a node." }] }); process.exit(0); }
+  if (query.includes("unresolve")) thread.resolved = false;
+  else thread.comments.push({ id: "reply-" + state.threadCalls.length, author: state.viewer ?? "owner", body: field("body"), createdAt: new Date().toISOString() });
+  await Bun.write(stateFile, JSON.stringify(state));
+  if (state.threadLost) { state.threadLost = false; await Bun.write(stateFile, JSON.stringify(state)); console.log("HTTP/2.0 502 Bad Gateway\\r\\n\\r\\n" + JSON.stringify({ message: "lost" })); process.exit(1); }
+  answer(query.includes("unresolve") ? { data: { unresolveReviewThread: { thread: { id: thread.id, isResolved: false } } } } : { data: { addPullRequestReviewThreadReply: { comment: { id: "reply-" + state.threadCalls.length } } } });
+  process.exit(0);
+}
 if (query.includes("files(first")) {
+  // A delay holds two concurrent waits between their state read and their write.
+  if (state.reviewReadDelayMs) await Bun.sleep(state.reviewReadDelayMs);
+  // Each review read first applies the next queued change, so a test scripts what waits observe.
+  const change = (state.reviewQueue ??= []).shift();
+  if (change) { const index = state.pulls.findIndex((row) => row.number === Number(field("number"))); state.pulls[index] = { ...state.pulls[index], ...change }; await Bun.write(stateFile, JSON.stringify(state)); }
   const pr = state.pulls.find((row) => row.number === Number(field("number")));
   answer({ data: { viewer: { login: state.viewer ?? "owner" }, repository: { pullRequest: pr === undefined ? null : {
     state: pr.state, headRefOid: pr.head ?? "head-1", author: author(pr.author ?? "author"),
     files: { totalCount: pr.totalFiles ?? (pr.files ?? []).length, nodes: (pr.files ?? []).map((path) => ({ path })) },
-    reviewThreads: nodes((pr.threads ?? []).map((thread) => ({ id: thread.id, isResolved: thread.resolved ?? false, comments: nodes(thread.comments.slice(0, 1).map((comment) => ({ author: author(comment.author ?? "reviewer") }))) }))),
+    reviewThreads: nodes((pr.threads ?? []).map((thread) => ({ id: thread.id, isResolved: thread.resolved ?? false, resolvedBy: thread.resolved ? author(thread.resolvedBy ?? "author") : null, starter: nodes(thread.comments.slice(0, 1).map((comment) => ({ author: author(comment.author ?? "reviewer") }))), comments: nodes(thread.comments.map((comment) => ({ id: comment.id, body: comment.body ?? "", createdAt: comment.createdAt ?? "2000-01-01T00:00:00Z", author: author(comment.author ?? "reviewer") }))) }))),
     reviews: nodes((pr.reviews ?? []).map((review) => ({ id: review.id, url: "https://github.com/r/" + review.id, body: review.body ?? "", state: { APPROVE: "APPROVED", REQUEST_CHANGES: "CHANGES_REQUESTED", COMMENT: "COMMENTED" }[review.state] ?? review.state ?? "COMMENTED", author: author(review.author ?? "reviewer") }))),
+    comments: nodes((pr.comments ?? []).map((comment) => ({ id: comment.id, body: comment.body ?? "", createdAt: comment.createdAt ?? "2000-01-01T00:00:00Z", author: author(comment.author ?? "reviewer") }))),
+    timelineItems: nodes((pr.reviewRequests ?? []).map((request) => ({ createdAt: request.createdAt, requestedReviewer: { login: request.reviewer } }))),
     commits: nodes([{ commit: { statusCheckRollup: (pr.checks ?? []).length === 0 ? null : { contexts: { totalCount: pr.totalChecks ?? pr.checks.length, ...nodes(pr.checks.map(check)) } } } }]),
   } } } });
   process.exit(0);

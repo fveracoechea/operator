@@ -164,18 +164,18 @@ export const DeviceState = {
   /** Apply one review-request transition that the caller's rule decides from the active request. */
   changeReviewRequest<E>(
     paths: Paths,
-    target: { repository: string; number: number },
+    target: { repository: string; number: number; id?: string },
     decide: (current: ReviewSnapshot) => Result<ReviewChange, E>,
   ) {
     return withDatabase(paths, false, (client) => changeReviewRequest(client, target, decide));
   },
-  readReviewRequest(paths: Paths, target: { repository: string; number: number }) {
+  readReviewRequest(paths: Paths, target: { repository: string; number: number; id?: string }) {
     return withDatabase(paths, true, (client) => readReviewRequest(client, target));
   },
   readReviewRequests(paths: Paths) {
     return withDatabase(paths, true, (client) => readReviewRequests(client));
   },
-  /** Renew this process's lease on a reviewer start or a review post until the returned stop runs. */
+  /** Renew this process's lease on a reviewer start, post, move, or cleanup until the stop runs. */
   holdReviewRequest(paths: Paths, id: string) {
     return hold(() => withDatabase(paths, false, (client) => renewReviewLease(client, id)));
   },

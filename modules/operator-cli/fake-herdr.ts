@@ -63,6 +63,8 @@ else if (key === "agent prompt") {
   const agent = state.agents.find((row) => row.name === args[2]);
   const tab = state.tabs.find((row) => row.paneId === agent?.paneId);
   // The host can end right after it takes the prompt, before dispatch records the launch.
+  // A delay keeps a prompting process alive, so a test can act while it runs.
+  if (state.promptDelayMs) await Bun.sleep(state.promptDelayMs);
   if (state.exitOnPrompt && tab) { await save(); await hook("pane.exited", { event: "pane_exited", data: { type: "pane_exited", pane_id: tab.paneId, workspace_id: tab.workspaceId } }); }
   out({ type: "agent_prompted" });
 }

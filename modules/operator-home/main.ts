@@ -122,6 +122,8 @@ export const OperatorHome = {
       directory,
       brief: path.join(directory, "brief.md"),
       draft: path.join(directory, "draft.json"),
+      // The posted draft of each round, for the reviewer and its replacement.
+      rounds: path.join(directory, "rounds"),
     };
   },
   guardTemporaryTests(environment: ReturnType<typeof Environment.read>, roots: string[]) {

@@ -7,7 +7,7 @@ Personal skills and CLI tools for coordinating coding agents in OpenCode and Cla
 Issue [#234](https://github.com/fveracoechea/operator/issues/234) defines the device-level replacement.
 This branch starts with [#235](https://github.com/fveracoechea/operator/issues/235), which removes the legacy architecture before new workflows land.
 It is not an intermediate release.
-Help, version reporting, global installation, the Nix package, device settings, launch selection, project registration, skill installation, static readiness, supplied assignment plans, next actions, worker dispatch, the global Herdr plugin, the PR feedback loop with parent-merge relay, report assignments, the guarded PR merge, cleanup after a merge, and the core review request and posting path are available.
+Help, version reporting, global installation, the Nix package, device settings, launch selection, project registration, skill installation, static readiness, supplied assignment plans, next actions, worker dispatch, the global Herdr plugin, the PR feedback loop with parent-merge relay, report assignments, the guarded PR merge, cleanup after a merge, the core review request and posting path, and review rounds are available.
 
 Finish old work with the old release before updating to the eventual breaking release.
 This code does not inspect, migrate, repair, or delete legacy Operator state.
@@ -16,7 +16,7 @@ Do not use it to resume an old session.
 The device-level design in `CONTEXT.md` and `docs/adr/` remains planned.
 The base lint policy in ADR-0018 is now enforced.
 Local mutation testing from ADR-0016 is also available for repository development.
-Later review rounds and Slack review transport are not implemented here.
+Slack review transport is not implemented here.
 There are no replacement-command placeholders or compatibility aliases.
 
 ## Install Operator for the device
@@ -464,6 +464,9 @@ operator review add <pr-url> --json
 operator review start <pr-url> [--profile name] --json
 operator review post <pr-url> --json
 operator review next --json
+operator review wait [--timeout seconds] --json
+operator review skip <pr-url> --json
+operator review cleanup <pr-url> --json
 ```
 
 A review request is a separate record for one PR, not an assignment.
@@ -474,8 +477,12 @@ The reviewer writes a draft with the `pr-review` skill, and `post` is the only w
 `post` validates the draft, refuses a stale head, adds failing required CI checks as blockers, refuses a noise claim that cites a changed file, computes the event, and posts once.
 The person's own PRs and assignment reviewers always get a comment.
 `review.assignments` in device settings, off by default, queues a review when a PR owner runs `pr associate`.
-Later rounds, head moves, thread replies, reviewer cleanup, and Slack transport are #254 and #255.
-See `docs/implementation/253-review-requests.md` for the draft, the event rule, and the evidence.
+`wait` watches every open request and keeps one reviewer and worktree for each request.
+New commits, author replies, author-resolved threads, and renewed requests start rounds.
+A head move gives the same reviewer the new commits, or a full review after a force push, and after three moves the post covers the last reviewed commit and says so.
+Thread replies post once, and a merged, closed, or skipped request removes its reviewer unless Git shows unlanded work.
+Slack transport is #255.
+See `docs/implementation/253-review-requests.md` for the draft, the event rule, and the evidence, and `docs/implementation/254-review-rounds.md` for rounds.
 
 ## Retained code and checks
 

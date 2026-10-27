@@ -1,11 +1,24 @@
 import { expect, test } from "bun:test";
-import { decideReview, reviewAction, type ReviewCommand } from "./review-machine.ts";
+import {
+  decideReview,
+  headMoveLimit,
+  reviewAction,
+  type ReviewCommand,
+  type ReviewFacts,
+} from "./review-machine.ts";
 
+type Request = {
+  state: string;
+  launchState: string | null;
+  head?: string | null;
+  headMoves?: number;
+  sync?: string | null;
+};
 function facts(
   command: ReviewCommand,
-  request: { state: string; launchState: string | null } | null,
-  change: { registered?: boolean; ownerActive?: boolean; event?: string } = {},
-) {
+  request: Request | null,
+  change: Partial<Omit<ReviewFacts, "command" | "request">> = {},
+): ReviewFacts {
   return { command, request, registered: true, ownerActive: false, ...change };
 }
 const queued = { state: "queued", launchState: null };
@@ -87,7 +100,11 @@ test("a post moves to posting once, and repeated or concurrent posts are refused
 test("a post result approves, watches, returns the request, or keeps it posting", () => {
   const posting = { state: "posting", launchState: "running" };
   expect(decideReview(facts("posted", posting, { event: "APPROVE" }))).toMatchObject({
-    value: { state: "approved", ended: true, lease: "release" },
+    value: { state: "approved", lease: "release" },
+  });
+  // An approved request is not ended, because a renewed request reopens it.
+  expect(decideReview(facts("posted", posting, { event: "APPROVE" }))).not.toMatchObject({
+    value: { ended: true },
   });
   for (const event of ["COMMENT", "REQUEST_CHANGES"])
     expect(decideReview(facts("posted", posting, { event }))).toMatchObject({
@@ -143,5 +160,201 @@ test("next actions derive from recorded state and the owner's lease alone", () =
   expect(reviewAction({ state: "watching", launchState: null }, false)).toEqual({
     kind: "wait",
     reason: "review_watching",
+  });
+});
+
+test("a renewed add or an observed trigger starts a round with the reviewer that the request has", () => {
+  const running = { state: "watching", launchState: "running" };
+  expect(decideReview(facts("add", running))).toMatchObject({
+    value: { state: "reviewing", round: "re-request", sync: true, lease: "hold" },
+  });
+  expect(decideReview(facts("add", { ...running, state: "approved" }))).toMatchObject({
+    value: { state: "reviewing", round: "re-request" },
+  });
+  for (const state of ["queued", "reviewing", "posting"])
+    expect(decideReview(facts("add", { state, launchState: "running" }))).toMatchObject({
+      value: { unchanged: true },
+    });
+  for (const trigger of ["commits", "reply", "resolved", "re-request"] as const)
+    expect(decideReview(facts("round", running, { trigger }))).toMatchObject({
+      value: { state: "reviewing", round: trigger, sync: true },
+    });
+  // A stopped reviewer gets no prompt. The replacement gets the round.
+  const stopped = decideReview(
+    facts("round", { state: "watching", launchState: "interrupted" }, { trigger: "reply" }),
+  );
+  expect(stopped).toMatchObject({ value: { state: "reviewing", round: "reply" } });
+  expect(stopped.tag === "Ok" && stopped.value.sync).toBeUndefined();
+  // A request that never had a reviewer queues the round.
+  expect(
+    decideReview(facts("round", { state: "watching", launchState: null }, { trigger: "commits" })),
+  ).toMatchObject({ value: { state: "queued", round: "commits" } });
+  // Only a renewed request reopens an approved request, and a second wait finds nothing to do.
+  expect(
+    decideReview(facts("round", { ...running, state: "approved" }, { trigger: "commits" })),
+  ).toMatchObject({ value: { unchanged: true } });
+  expect(
+    decideReview(facts("round", { ...running, state: "reviewing" }, { trigger: "commits" })),
+  ).toMatchObject({ value: { unchanged: true } });
+});
+
+test("a head move counts once per observed head, stops at the limit, and waits for a running move", () => {
+  const reviewing = { state: "reviewing", launchState: "running", head: "h1", headMoves: 0 };
+  expect(decideReview(facts("head_moved", reviewing, { observedFrom: "h1" }))).toMatchObject({
+    value: { headMoved: true, sync: true, lease: "hold" },
+  });
+  expect(
+    decideReview(
+      facts("head_moved", { ...reviewing, launchState: "interrupted" }, { observedFrom: "h1" }),
+    ),
+  ).toEqual({ tag: "Ok", value: { headMoved: true } } as never);
+  for (const request of [
+    { ...reviewing, head: "h2" },
+    { ...reviewing, headMoves: headMoveLimit },
+    { ...reviewing, sync: "{}" },
+    { ...reviewing, state: "watching" },
+    { ...reviewing, launchState: "starting" },
+  ])
+    expect(decideReview(facts("head_moved", request, { observedFrom: "h1" }))).toMatchObject({
+      value: { unchanged: true },
+    });
+  expect(
+    decideReview(
+      facts("head_moved", { ...reviewing, headMoves: headMoveLimit - 1 }, { observedFrom: "h1" }),
+    ),
+  ).toMatchObject({
+    value: { headMoved: true },
+  });
+  // A post waits for a move in progress, and a stopped move is resumed by one wait.
+  expect(
+    decideReview(facts("post", { ...reviewing, sync: "{}" }, { ownerActive: true })),
+  ).toMatchObject({ error: { reason: "review_reviewer_moving" } });
+  expect(decideReview(facts("sync", { ...reviewing, sync: "{}" }))).toMatchObject({
+    value: { lease: "hold" },
+  });
+  expect(
+    decideReview(facts("sync", { ...reviewing, sync: "{}" }, { ownerActive: true })),
+  ).toMatchObject({ value: { unchanged: true } });
+  expect(decideReview(facts("sync", reviewing))).toMatchObject({ value: { unchanged: true } });
+});
+
+test("a stopped reviewer gets a replacement that keeps the request's state", () => {
+  for (const state of ["reviewing", "watching", "approved"])
+    for (const launchState of ["interrupted", "failed"])
+      expect(decideReview(facts("start", { state, launchState }))).toMatchObject({
+        value: { launchState: "starting", lease: "hold", replace: true },
+      });
+  const replacing = { state: "watching", launchState: "starting" };
+  const started = decideReview(facts("started", replacing));
+  expect(started).toMatchObject({ value: { launchState: "running", lease: "release" } });
+  expect(started.tag === "Ok" && started.value.state).toBeUndefined();
+  expect(
+    decideReview(facts("post_failed", { state: "posting", launchState: "interrupted" })),
+  ).toMatchObject({ value: { state: "reviewing" } });
+});
+
+test("a close or a skip ends the request and starts the cleanup, except under a live effect", () => {
+  for (const state of ["queued", "reviewing", "watching", "approved", "posting"]) {
+    expect(decideReview(facts("close", { state, launchState: "running" }))).toMatchObject({
+      value: { state: "closed", ended: true, cleanup: true, lease: "hold" },
+    });
+    expect(decideReview(facts("skip", { state, launchState: "running" }))).toMatchObject({
+      value: { state: "skipped", ended: true, cleanup: true },
+    });
+  }
+  expect(
+    decideReview(facts("skip", { state: "posting", launchState: null }, { ownerActive: true })),
+  ).toMatchObject({ error: { reason: "review_post_in_progress" } });
+  expect(
+    decideReview(
+      facts("close", { state: "queued", launchState: "starting" }, { ownerActive: true }),
+    ),
+  ).toMatchObject({ error: { reason: "review_start_in_progress" } });
+  expect(decideReview(facts("skip", null))).toMatchObject({
+    error: { reason: "review_request_missing" },
+  });
+  expect(decideReview(facts("skip", queued, { registered: false }))).toMatchObject({
+    error: { reason: "review_repository_unregistered" },
+  });
+});
+
+test("next rows show replacements, moves, approval, and unfinished cleanups", () => {
+  expect(reviewAction({ state: "reviewing", launchState: "interrupted" }, false)).toEqual({
+    kind: "action",
+    action: "replace_reviewer",
+    reason: "reviewer_interrupted",
+  });
+  expect(reviewAction({ state: "reviewing", launchState: "failed" }, false)).toMatchObject({
+    action: "replace_reviewer",
+    reason: "launch_failed",
+  });
+  expect(reviewAction({ state: "reviewing", launchState: "starting" }, false)).toMatchObject({
+    action: "replace_reviewer",
+    reason: "launch_abandoned",
+  });
+  expect(reviewAction({ state: "reviewing", launchState: "starting" }, true)).toEqual({
+    kind: "wait",
+    reason: "reviewer_starting",
+  });
+  const moving = { state: "reviewing", launchState: "running", sync: "{}" };
+  expect(reviewAction(moving, true)).toEqual({ kind: "wait", reason: "reviewer_moving" });
+  expect(reviewAction(moving, false)).toEqual({
+    kind: "action",
+    action: "wait_reviews",
+    reason: "reviewer_move_unfinished",
+  });
+  // A watching request with a stopped reviewer waits for a round before it needs a replacement.
+  expect(reviewAction({ state: "watching", launchState: "interrupted" }, false)).toEqual({
+    kind: "wait",
+    reason: "review_watching",
+  });
+  expect(reviewAction({ state: "approved", launchState: "running" }, false)).toEqual({
+    kind: "wait",
+    reason: "review_approved",
+  });
+  const ended = { state: "closed", launchState: "running" };
+  expect(reviewAction({ ...ended, cleanupState: "failed" }, false)).toEqual({
+    kind: "action",
+    action: "clean_reviewer",
+    reason: "cleanup_failed",
+  });
+  expect(reviewAction({ ...ended, cleanupState: "pending" }, false)).toMatchObject({
+    reason: "cleanup_pending",
+  });
+  expect(reviewAction({ ...ended, cleanupState: "pending" }, true)).toEqual({
+    kind: "wait",
+    reason: "reviewer_cleanup",
+  });
+  expect(reviewAction({ ...ended, state: "skipped", cleanupState: "kept" }, false)).toEqual({
+    kind: "attention",
+    reason: "reviewer_work_kept",
+  });
+});
+
+test("a live reviewer move holds the request, and only its own process finishes it", () => {
+  const moving = { state: "reviewing", launchState: "running", sync: "{}" };
+  for (const command of ["skip", "close"] as const)
+    expect(decideReview(facts(command, moving, { ownerActive: true }))).toMatchObject({
+      error: { reason: "review_reviewer_moving" },
+    });
+  expect(decideReview(facts("skip", moving))).toMatchObject({ value: { state: "skipped" } });
+  expect(decideReview(facts("synced", moving, { ownLease: true }))).toMatchObject({
+    value: { lease: "release" },
+  });
+  expect(decideReview(facts("synced", moving))).toMatchObject({
+    error: { reason: "review_lease_lost" },
+  });
+  expect(
+    decideReview(facts("synced", { ...moving, state: "skipped" }, { ownLease: true })),
+  ).toMatchObject({ error: { reason: "review_lease_lost" } });
+});
+
+test("a round waits while a live start places the worktree", () => {
+  const starting = { state: "watching", launchState: "starting" };
+  expect(
+    decideReview(facts("round", starting, { ownerActive: true, trigger: "commits" })),
+  ).toMatchObject({ value: { unchanged: true } });
+  expect(decideReview(facts("round", starting, { trigger: "commits" }))).toMatchObject({
+    value: { state: "queued", round: "commits" },
   });
 });

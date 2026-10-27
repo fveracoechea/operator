@@ -14,61 +14,73 @@ function heldBy(client: Database, query: string) {
     .some((row) => !ownerGone({ ownerPid: row.owner_pid, leaseAt: row.lease_at }, now));
 }
 
-/** Future workflow owners extend these guards when they add launches, waits, or held records. */
-export function idleForMigration(client: Database, applied: number) {
-  if (
-    applied >= 2 &&
-    client
-      .query("SELECT 1 FROM assignments WHERE state IN ('running', 'pr-open', 'reported') LIMIT 1")
-      .get()
-  )
-    return Err<StateFailure>({
-      reason: "state_migration_blocked",
-      detail:
-        "Migration is waiting for active assignments across all registered projects to become idle. No handler ran.",
-    });
-  if (applied >= 3 && client.query("SELECT 1 FROM project_removals LIMIT 1").get())
-    return Err<StateFailure>({
-      reason: "state_migration_blocked",
-      detail: "Finish pending project file cleanup before an upgrade. No handler ran.",
-    });
-  if (
-    applied >= 4 &&
-    (client.query("SELECT 1 FROM launches WHERE state = 'running' LIMIT 1").get() ||
+function found(client: Database, query: string) {
+  return Boolean(client.query(query).get());
+}
+
+/** Each guard applies once the migration that adds its records has run. */
+const idleGuards: { applied: number; busy: (client: Database) => boolean; detail: string }[] = [
+  {
+    applied: 2,
+    busy: (client) =>
+      found(
+        client,
+        "SELECT 1 FROM assignments WHERE state IN ('running', 'pr-open', 'reported') LIMIT 1",
+      ),
+    detail:
+      "Migration is waiting for active assignments across all registered projects to become idle. No handler ran.",
+  },
+  {
+    applied: 3,
+    busy: (client) => found(client, "SELECT 1 FROM project_removals LIMIT 1"),
+    detail: "Finish pending project file cleanup before an upgrade. No handler ran.",
+  },
+  {
+    applied: 4,
+    busy: (client) =>
+      found(client, "SELECT 1 FROM launches WHERE state = 'running' LIMIT 1") ||
       heldBy(client, "SELECT owner_pid, lease_at FROM launches WHERE state = 'starting'") ||
       heldBy(
         client,
         "SELECT owner_pid, lease_at FROM worktree_preparations WHERE state = 'running'",
-      ))
-  )
-    return Err<StateFailure>({
-      reason: "state_migration_blocked",
-      detail:
-        "Migration is waiting for active worker launches and worktree preparations to finish. No handler ran.",
-    });
-  if (
-    applied >= 7 &&
-    heldBy(client, "SELECT owner_pid, lease_at FROM cleanups WHERE owner_pid IS NOT NULL")
-  )
-    return Err<StateFailure>({
-      reason: "state_migration_blocked",
-      detail: "Migration is waiting for a running cleanup to finish. No handler ran.",
-    });
+      ),
+    detail:
+      "Migration is waiting for active worker launches and worktree preparations to finish. No handler ran.",
+  },
+  {
+    applied: 7,
+    busy: (client) =>
+      heldBy(client, "SELECT owner_pid, lease_at FROM cleanups WHERE owner_pid IS NOT NULL"),
+    detail: "Migration is waiting for a running cleanup to finish. No handler ran.",
+  },
   // A reviewer works toward a post, and a start or a post holds its external effects.
-  if (
-    applied >= 9 &&
-    (client.query("SELECT 1 FROM review_requests WHERE state = 'reviewing' LIMIT 1").get() ||
+  {
+    applied: 9,
+    busy: (client) =>
+      found(client, "SELECT 1 FROM review_requests WHERE state = 'reviewing' LIMIT 1") ||
       heldBy(
         client,
         "SELECT owner_pid, lease_at FROM review_requests WHERE state = 'posting' OR launch_state = 'starting'",
-      ))
-  )
-    return Err<StateFailure>({
-      reason: "state_migration_blocked",
-      detail:
-        "Migration is waiting for active reviewers, reviewer starts, and review posts to finish. No handler ran.",
-    });
-  return Ok(undefined);
+      ),
+    detail:
+      "Migration is waiting for active reviewers, reviewer starts, and review posts to finish. No handler ran.",
+  },
+  // A wait that moves a reviewer, or a reviewer cleanup, holds external effects too.
+  {
+    applied: 10,
+    busy: (client) =>
+      heldBy(client, "SELECT owner_pid, lease_at FROM review_requests WHERE owner_pid IS NOT NULL"),
+    detail:
+      "Migration is waiting for a reviewer move or a reviewer cleanup to finish. No handler ran.",
+  },
+];
+
+/** Future workflow owners extend these guards when they add launches, waits, or held records. */
+export function idleForMigration(client: Database, applied: number) {
+  const guard = idleGuards.find((row) => applied >= row.applied && row.busy(client));
+  return guard === undefined
+    ? Ok(undefined)
+    : Err<StateFailure>({ reason: "state_migration_blocked", detail: guard.detail });
 }
 
 export function migrationBlockers(client: Database, timestamp: number) {
@@ -83,6 +95,7 @@ export function migrationBlockers(client: Database, timestamp: number) {
     [1793118895818, []],
     [1793121866694, []],
     [1793126345841, []],
+    [1793127419030, []],
   ]);
   const queries = policies.get(timestamp);
   if (!queries)

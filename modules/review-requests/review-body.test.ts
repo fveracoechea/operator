@@ -108,3 +108,46 @@ test("a review with no finding says no blockers in its status and its body", () 
     }).body,
   ).toStartWith("m\n**Needs changes** · 1 blocker");
 });
+
+test("an explained thread keeps a blocker open, so the review comments and cannot approve", () => {
+  const explained = accepted({
+    threadReplies: [{ threadId: "T", kind: "explain", body: "The guard is still untested." }],
+  });
+  const other = { ownPullRequest: false, origin: "slack" };
+  expect(decideEvent({ ...other, accepted: explained })).toBe("COMMENT");
+  expect(approvalBlocked({ ...other, accepted: explained }, "APPROVE")).toBe(true);
+  const acknowledged = accepted({
+    threadReplies: [{ threadId: "T", kind: "acknowledge", body: "Your reason holds." }],
+  });
+  expect(decideEvent({ ...other, accepted: acknowledged })).toBe("APPROVE");
+  const { body } = renderReview({
+    marker: "<!-- m -->",
+    event: "COMMENT",
+    accepted: explained,
+    requiredChecks: 0,
+  });
+  expect(body).toContain("**Needs changes** · 1 blocker");
+  expect(body).toContain("1. **1 review thread stays open.**");
+});
+
+test("a post at the head-move limit states the older reviewed commit in its status and body", () => {
+  const { body } = renderReview({
+    marker: "<!-- m -->",
+    event: "APPROVE",
+    accepted: accepted(),
+    requiredChecks: 0,
+    headLimit: { reviewedCommit: "1234567890".repeat(4), head: "f".repeat(40), moves: 3 },
+  });
+  expect(body).toContain("**Approved** · reviewed at 1234567");
+  expect(body).toContain(
+    `The PR head moved 3 times during this review, so this review covers ${"1234567890".repeat(4)}, not the current head ${"f".repeat(40)}.`,
+  );
+  expect(
+    renderReview({
+      marker: "<!-- m -->",
+      event: "APPROVE",
+      accepted: accepted(),
+      requiredChecks: 0,
+    }).body,
+  ).not.toContain("reviewed at");
+});

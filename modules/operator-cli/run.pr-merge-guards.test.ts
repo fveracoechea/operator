@@ -201,7 +201,7 @@ test.each([
   {
     name: "running cleanup blocks migration",
     file: "device-state/migration-policy.ts",
-    replacements: [["applied >= 7 &&", "false &&"]],
+    replacements: [["applied: 7,", "applied: 99,"]],
     testFile: "device-state/migration-policy.test.ts",
     pattern: "a running cleanup blocks an upgrade",
   },

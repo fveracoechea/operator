@@ -206,7 +206,8 @@ export const reports = sqliteTable(
   ],
 );
 
-// A review request is not an assignment. One request per PR is active until it ends.
+// A review request is not an assignment. One request per PR is open until it is closed or skipped.
+// An approved request stays open, because a renewed request reopens it with the same reviewer.
 export const reviewRequests = sqliteTable(
   "review_requests",
   {
@@ -237,14 +238,26 @@ export const reviewRequests = sqliteTable(
     worktreeWorkspaceId: text("worktree_workspace_id"),
     failureReason: text("failure_reason"),
     failureDetail: text("failure_detail"),
-    // The process that starts the reviewer or posts the review, and its lease.
+    // The process that starts the reviewer, posts the review, moves the reviewer, or cleans up.
     ownerPid: integer("owner_pid"),
     leaseAt: text("lease_at"),
+    // The trigger of the round in progress, and the head moves since its reviewer got the round.
+    trigger: text("trigger"),
+    headMoves: integer("head_moves").notNull().default(0),
+    // While watching: the last author activity, the stale mark, and the reviewer's resolved threads.
+    activityAt: text("activity_at"),
+    staleAt: text("stale_at"),
+    resolvedThreads: text("resolved_threads"),
+    // A reviewer move or prompt that a wait or a post decided and has not finished.
+    sync: text("sync"),
+    // Reviewer cleanup after the request is closed or skipped.
+    cleanupState: text("cleanup_state"),
+    cleanupDetail: text("cleanup_detail"),
   },
   (table) => [
-    uniqueIndex("one_active_review")
+    uniqueIndex("one_open_review")
       .on(table.repository, table.number)
-      .where(sql`${table.state} NOT IN ('approved', 'closed', 'skipped')`),
+      .where(sql`${table.state} NOT IN ('closed', 'skipped')`),
   ],
 );
 
@@ -266,6 +279,30 @@ export const reviewRounds = sqliteTable(
     reviewId: text("review_id"),
     reviewUrl: text("review_url"),
     postedAt: text("posted_at"),
+    // The head-move limit facts when the round posts against an older reviewed commit.
+    warning: text("warning"),
   },
   (table) => [primaryKey({ columns: [table.requestId, table.number] })],
+);
+
+// Each thread reply or unresolve of a round. A restart finds a lost reply by its marker.
+export const reviewThreadOperations = sqliteTable(
+  "review_thread_operations",
+  {
+    requestId: text("request_id").notNull(),
+    round: integer("round").notNull(),
+    threadId: text("thread_id").notNull(),
+    kind: text("kind").notNull(),
+    body: text("body"),
+    marker: text("marker"),
+    state: text("state").notNull(),
+    detail: text("detail"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.requestId, table.round, table.threadId, table.kind] }),
+    foreignKey({
+      columns: [table.requestId, table.round],
+      foreignColumns: [reviewRounds.requestId, reviewRounds.number],
+    }).onDelete("cascade"),
+  ],
 );

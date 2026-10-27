@@ -42,7 +42,16 @@ export const draftSchema = z
     summary: text(500).refine((value) => !value.includes("\n"), "Write the summary on one line."),
     blockers: z.array(blocker).max(3).default([]),
     niceToHaves: z.array(niceToHave).max(3).default([]),
-    threadReplies: z.array(z.strictObject({ threadId: text(200), body: text(2000) })).default([]),
+    // `acknowledge` accepts valid pushback. `explain` keeps a defect open, and a resolved thread reopens.
+    threadReplies: z
+      .array(
+        z.strictObject({
+          threadId: text(200),
+          kind: z.enum(["acknowledge", "explain"]),
+          body: text(2000),
+        }),
+      )
+      .default([]),
     checks: z
       .array(
         z.strictObject({
@@ -86,13 +95,13 @@ function refuse(reason: string, detail: string) {
   return Err<Refusal>({ reason, detail: `${detail} Nothing was posted.` });
 }
 
-const rules: ((draft: Draft, pr: PullRequestFacts) => Refusal | null)[] = [
-  (draft, pr) =>
-    draft.reviewedCommit === pr.head
+const rules: ((draft: Draft, pr: PullRequestFacts, commit: string) => Refusal | null)[] = [
+  (draft, pr, commit) =>
+    draft.reviewedCommit === commit
       ? null
       : {
           reason: "review_head_moved",
-          detail: `The draft reviews ${draft.reviewedCommit}, but the PR head is now ${pr.head}. A stale draft is not posted.`,
+          detail: `The draft reviews ${draft.reviewedCommit}, but this round reviews ${commit} and the PR head is ${pr.head}. A stale draft is not posted.`,
         },
   (draft) =>
     draft.checks.some((check) => check.kind === "guard-break" && check.exitCode === 0)
@@ -156,24 +165,21 @@ const rules: ((draft: Draft, pr: PullRequestFacts) => Refusal | null)[] = [
       ? null
       : { reason: "review_draft_invalid", detail: "Reply to each thread at most once." };
   },
-  // Reply posting needs the round progress that rounds add, so a valid reply is not yet posted.
-  (draft) =>
-    draft.threadReplies.length === 0
-      ? null
-      : {
-          reason: "review_thread_replies_unsupported",
-          detail:
-            "Thread replies post with later review rounds, which this release does not have. Remove them.",
-        },
 ];
 
 /**
- * Checks a parsed draft against the live PR. Reported local checks stay claims. Required CI
- * results are observed facts, and a failing one is a blocker unless a valid noise claim covers it.
+ * Checks a parsed draft against the live PR and the commit that this round reviews, which is the
+ * live head unless the head-move limit holds the round at the last reviewed commit. Reported
+ * local checks stay claims. Required CI results are observed facts, and a failing one is a
+ * blocker unless a valid noise claim covers it.
  */
-export function checkDraft(draft: Draft, pr: PullRequestFacts): Result<AcceptedDraft, Refusal> {
+export function checkDraft(
+  draft: Draft,
+  pr: PullRequestFacts,
+  commit = pr.head,
+): Result<AcceptedDraft, Refusal> {
   for (const rule of rules) {
-    const refusal = rule(draft, pr);
+    const refusal = rule(draft, pr, commit);
     if (refusal !== null) return refuse(refusal.reason, refusal.detail);
   }
   const noise = new Set(draft.noise.map((claim) => claim.check));

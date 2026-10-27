@@ -150,7 +150,7 @@ test("a pane exit during the start interrupts the starting launch", () => {
       socket: "/herdr.sock",
       observation: { exited: true },
     }),
-  ).toMatchObject({ value: ["l1"] });
+  ).toMatchObject({ value: { launches: ["l1"] } });
   expect(updateLaunch(db, "l1", { state: "running" })).toMatchObject({
     error: { reason: "launch_not_starting" },
   });
@@ -164,21 +164,21 @@ test("pane observations match only running launches of the same Herdr server", (
   const pane = { paneId: "w1:p2", workspaceId: "w1" };
   expect(
     observePane(db, { ...pane, socket: "/other.sock", observation: { exited: true } }),
-  ).toMatchObject({ value: [] });
+  ).toMatchObject({ value: { launches: [] } });
   expect(
     observePane(db, {
       ...pane,
       socket: "/herdr.sock",
       observation: { exited: false, activity: "done" },
     }),
-  ).toMatchObject({ value: ["l1"] });
+  ).toMatchObject({ value: { launches: ["l1"] } });
   expect(db.query("SELECT state, activity FROM launches").get()).toEqual({
     state: "running",
     activity: "done",
   });
   expect(
     observePane(db, { ...pane, socket: "/herdr.sock", observation: { exited: true } }),
-  ).toMatchObject({ value: ["l1"] });
+  ).toMatchObject({ value: { launches: ["l1"] } });
   expect(db.query("SELECT state, failure_reason FROM launches").get()).toEqual({
     state: "interrupted",
     failure_reason: "pane_ended",

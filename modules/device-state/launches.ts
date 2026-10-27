@@ -263,37 +263,66 @@ export function observePane(
     input.socket === null ? isNull(launches.herdrSocket) : eq(launches.herdrSocket, input.socket),
     inArray(launches.state, ["starting", "running"]),
   );
+  // Only an exit changes a reviewer. Its activity is not recorded.
+  const reviewer = and(
+    eq(reviewRequests.paneId, input.paneId),
+    input.socket === null
+      ? isNull(reviewRequests.herdrSocket)
+      : eq(reviewRequests.herdrSocket, input.socket),
+    eq(reviewRequests.launchState, "running"),
+  );
   return transaction(client, false, () =>
-    checkHistory(client).map((db) =>
-      db.select({ id: launches.id }).from(launches).where(matching).all(),
+    checkHistory(client).map(
+      (db) =>
+        db.select({ id: launches.id }).from(launches).where(matching).all().length > 0 ||
+        (input.observation.exited &&
+          db.select({ id: reviewRequests.id }).from(reviewRequests).where(reviewer).all().length >
+            0),
     ),
-  ).flatMap((found) => (found.length === 0 ? Ok([]) : writeObservation(client, matching, input)));
+  ).flatMap((found) =>
+    found
+      ? writeObservation(client, matching, reviewer, input)
+      : Ok({ launches: [], reviewers: [] }),
+  );
 }
 
 function writeObservation(
   client: Database,
   matching: ReturnType<typeof and>,
+  reviewer: ReturnType<typeof and>,
   input: Parameters<typeof observePane>[1],
 ) {
   return transaction(client, true, () =>
     checkHistory(client).map((db) => {
       const now = new Date().toISOString();
       const matched = db.select({ id: launches.id }).from(launches).where(matching).all();
-      if (matched.length === 0) return [];
-      db.update(launches)
-        .set(
-          input.observation.exited
-            ? {
-                state: "interrupted",
-                endedAt: now,
-                failureReason: "pane_ended",
-                failureDetail: `Herdr reported that pane ${input.paneId} exited or closed before the assignment completed.`,
-              }
-            : { activity: input.observation.activity, activityAt: now },
-        )
-        .where(matching)
-        .run();
-      return matched.map((row) => row.id);
+      if (matched.length > 0)
+        db.update(launches)
+          .set(
+            input.observation.exited
+              ? {
+                  state: "interrupted",
+                  endedAt: now,
+                  failureReason: "pane_ended",
+                  failureDetail: `Herdr reported that pane ${input.paneId} exited or closed before the assignment completed.`,
+                }
+              : { activity: input.observation.activity, activityAt: now },
+          )
+          .where(matching)
+          .run();
+      // A reviewer whose pane ended needs a replacement. Its worktree and rounds stay.
+      const reviewers = input.observation.exited
+        ? db
+            .update(reviewRequests)
+            .set({ launchState: "interrupted" })
+            .where(reviewer)
+            .returning({ id: reviewRequests.id })
+            .all()
+        : [];
+      return {
+        launches: matched.map((row) => row.id),
+        reviewers: reviewers.map((row) => row.id),
+      };
     }),
   );
 }

@@ -52,7 +52,9 @@ test("a change reads the active request and its project inside the write", () =>
       project: { repository: "owner/one", checkout: "/one" },
       request: null,
       rounds: [],
+      operations: [],
       ownerActive: false,
+      ended: null,
     },
   ]);
   expect(readReviewRequest(db, { repository: "owner/two", number: 7 })).toMatchObject({
@@ -78,7 +80,7 @@ test("a refusal writes nothing, and a release clears the lease", () => {
   expect(changeReviewRequest(db, target, () => Ok({})).tag).toBe("Ok");
 });
 
-test("rounds are inserted and then updated in place, and ended requests leave the active set", () => {
+test("rounds are inserted and then updated in place, and ended requests leave the open set", () => {
   using db = fixture();
   changeReviewRequest(db, target, () => Ok({ insert: identity }));
   const round = {
@@ -94,6 +96,7 @@ test("rounds are inserted and then updated in place, and ended requests leave th
     reviewId: null,
     reviewUrl: null,
     postedAt: null,
+    warning: null,
   };
   changeReviewRequest(db, target, () => Ok({ round }));
   changeReviewRequest(db, target, () =>
@@ -101,14 +104,75 @@ test("rounds are inserted and then updated in place, and ended requests leave th
   );
   const rounds = db.query("SELECT outcome, review_id FROM review_rounds").all();
   expect(rounds).toEqual([{ outcome: "posted", review_id: "R" }]);
+  // An approved request stays open, because a renewed request reopens it.
+  expect(readReviewRequests(db)).toMatchObject({ value: [{ request: { id: "r1" } }] });
+  expect(
+    changeReviewRequest(db, target, () => Ok({ insert: { ...identity, id: "r2" } })).tag,
+  ).not.toBe("Ok");
+  changeReviewRequest(db, target, () => Ok({ update: { state: "closed", cleanupState: "done" } }));
   expect(readReviewRequests(db)).toMatchObject({ value: [] });
-  expect(readReviewRequest(db, target)).toMatchObject({ value: { request: null } });
-  // A later request for the same PR is a new active request.
+  expect(readReviewRequest(db, target)).toMatchObject({ value: { request: null, ended: null } });
+  // A later request for the same PR is a new open request.
   changeReviewRequest(db, target, () => Ok({ insert: { ...identity, id: "r2" } }));
   expect(readReviewRequests(db)).toMatchObject({ value: [{ request: { id: "r2" } }] });
 });
 
-test("one PR has at most one active request", () => {
+test("an ended request with an unfinished cleanup stays listed and readable by its PR", () => {
+  using db = fixture();
+  changeReviewRequest(db, target, () => Ok({ insert: identity }));
+  changeReviewRequest(db, target, () =>
+    Ok({
+      update: { state: "skipped", endedAt: "2026-10-27T00:00:00.000Z", cleanupState: "failed" },
+    }),
+  );
+  expect(readReviewRequest(db, target)).toMatchObject({
+    value: { request: null, ended: { id: "r1", cleanupState: "failed" } },
+  });
+  expect(readReviewRequests(db)).toMatchObject({ value: [{ request: { id: "r1" } }] });
+  // The id selects the ended request for its cleanup.
+  expect(
+    changeReviewRequest(db, { ...target, id: "r1" }, () =>
+      Ok({ update: { cleanupState: "done" } }),
+    ),
+  ).toMatchObject({ value: { request: { id: "r1", cleanupState: "done" } } });
+  expect(readReviewRequests(db)).toMatchObject({ value: [] });
+});
+
+test("thread operations of the newest round are recorded and updated in place", () => {
+  using db = fixture();
+  changeReviewRequest(db, target, () => Ok({ insert: identity }));
+  const round = {
+    requestId: "r1",
+    number: 1,
+    trigger: "first",
+    reviewedCommit: "abc",
+    draft: "{}",
+    event: "COMMENT",
+    body: "body",
+    marker: "m",
+    outcome: "pending",
+    reviewId: null,
+    reviewUrl: null,
+    postedAt: null,
+    warning: null,
+  };
+  const operation = {
+    requestId: "r1",
+    round: 1,
+    threadId: "T",
+    kind: "reply",
+    body: "B",
+    marker: "M",
+    state: "pending",
+    detail: null,
+  };
+  changeReviewRequest(db, target, () => Ok({ round, operations: [operation] }));
+  expect(
+    changeReviewRequest(db, target, () => Ok({ operations: [{ ...operation, state: "done" }] })),
+  ).toMatchObject({ value: { operations: [{ threadId: "T", kind: "reply", state: "done" }] } });
+});
+
+test("one PR has at most one open request", () => {
   using db = fixture();
   changeReviewRequest(db, target, () => Ok({ insert: identity }));
   expect(

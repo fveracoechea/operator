@@ -31,7 +31,7 @@ test.each([
   {
     name: "live head",
     file: "review-requests/draft.ts",
-    replacements: [["draft.reviewedCommit === pr.head", "true"]],
+    replacements: [["draft.reviewedCommit === commit", "true"]],
     testFile: "operator-cli/run.reviews.test.ts",
     pattern: "draft refusals post nothing",
   },
@@ -73,7 +73,9 @@ test.each([
   {
     name: "approval with a blocker",
     file: "review-requests/review-body.ts",
-    replacements: [['return event === "APPROVE" && blockerCount(facts) > 0;', "return false;"]],
+    replacements: [
+      ['return event === "APPROVE" && countBlockers(facts.accepted) > 0;', "return false;"],
+    ],
     testFile: "review-requests/review-body.test.ts",
     pattern: "approval with an open blocker is refused",
   },
@@ -109,21 +111,21 @@ test.each([
   },
   {
     name: "lost answer reconciliation",
-    file: "review-requests/main.ts",
+    file: "review-requests/post.ts",
     replacements: [["if (found !== undefined)", "if (false)"]],
     testFile: "operator-cli/run.reviews.test.ts",
     pattern: "a lost answer is found",
   },
   {
     name: "recorded round on retry",
-    file: "review-requests/main.ts",
-    replacements: [["decided.value.retry === true && pending !== undefined", "false"]],
+    file: "review-requests/post.ts",
+    replacements: [["decided.value.retry === true", "false"]],
     testFile: "operator-cli/run.reviews.test.ts",
     pattern: "records the review on GitHub, not an edited draft",
   },
   {
     name: "no stale resend after a lost post",
-    file: "review-requests/main.ts",
+    file: "review-requests/post.ts",
     replacements: [['pr.state !== "OPEN" || pr.head !== round.reviewedCommit', "false"]],
     testFile: "operator-cli/run.reviews.test.ts",
     pattern: "a lost post on a moved head returns to the reviewer",

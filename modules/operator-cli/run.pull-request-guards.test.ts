@@ -169,7 +169,7 @@ test.each([
     file: "pull-requests/wait-machine.ts",
     replacements: [
       [
-        "unseenFeedback(facts).some((item) => !item.fromViewer)",
+        "unseenFeedback(facts).some((item) => !item.fromViewer || item.operatorReview)",
         "unseenFeedback(facts).length > 0",
       ],
     ],

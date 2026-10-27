@@ -9,8 +9,8 @@ import { Herdr } from "../herdr/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
+import { WorkerDispatch } from "../worker-dispatch/main.ts";
 import { renderReport, submissionSchema, type Submission } from "./content.ts";
-import { cleanWorktree } from "./worktree.ts";
 
 type Paths = ReturnType<typeof OperatorHome.resolve>;
 type Failure = { reason: string; detail: string };
@@ -340,7 +340,7 @@ async function cleanup(checkout: string, facts: Facts) {
     } else steps.push(`Pane ${launch.paneId} no longer holds ${launch.name}.`);
   }
   if (launch?.worktreePath) {
-    const outcome = await cleanWorktree({
+    const outcome = await WorkerDispatch.cleanWorktree({
       checkout,
       worktree: launch.worktreePath,
       branch: launch.branch,

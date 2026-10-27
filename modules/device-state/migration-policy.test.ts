@@ -131,3 +131,24 @@ test("active reviewers, live reviewer starts, and live review posts block an upg
     expect(idleForMigration(db, 8).tag).toBe("Ok");
   }
 });
+
+test("a live reviewer move or reviewer cleanup blocks an upgrade once its records exist", () => {
+  using db = new Database(":memory:");
+  db.exec(
+    "CREATE TABLE assignments (state TEXT); CREATE TABLE project_removals (repository TEXT); CREATE TABLE launches (state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE worktree_preparations (state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE cleanups (state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE review_requests (state TEXT, launch_state TEXT, owner_pid INTEGER, lease_at TEXT)",
+  );
+  expect(migrationBlockers(db, 1793127419030).tag).toBe("Ok");
+  const lease = new Date().toISOString();
+  const stoppedPid = Bun.spawnSync([process.execPath, "--version"]).pid;
+  for (const [state, pid, blocked] of [
+    ["watching", process.pid, true],
+    ["closed", process.pid, true],
+    ["watching", stoppedPid, false],
+    ["closed", null, false],
+  ] as const) {
+    db.exec("DELETE FROM review_requests");
+    db.query("INSERT INTO review_requests VALUES (?, 'running', ?, ?)").run(state, pid, lease);
+    expect(idleForMigration(db, 10).tag, `${state} ${pid}`).toBe(blocked ? "Err" : "Ok");
+    expect(idleForMigration(db, 9).tag).toBe("Ok");
+  }
+});

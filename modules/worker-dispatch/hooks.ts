@@ -60,9 +60,9 @@ export function observe(input: { paths: Paths }) {
           : { exited: false, activity: data.agent_status ?? data.status ?? "unknown" },
       })
         .toAsync()
-        .map((launches) => ({
+        .map((observed) => ({
           reason: exited ? "herdr_pane_exited" : "herdr_activity_observed",
-          data: { launches },
+          data: observed,
         }));
     });
 }

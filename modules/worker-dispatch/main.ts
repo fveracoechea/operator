@@ -5,7 +5,8 @@ import { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import { renderBrief } from "./brief.ts";
-import { launchReviewer, type ReviewerLaunch } from "./reviewer.ts";
+import { launchReviewer, moveReviewer, type ReviewerLaunch } from "./reviewer.ts";
+import { cleanWorktree } from "./worktree-cleanup.ts";
 import { ensureWorkspace, launchSettings, preparedAgain } from "./launch-checks.ts";
 import { chooseNames, launchBase } from "./names.ts";
 import { installPlugin, observe } from "./hooks.ts";
@@ -415,5 +416,16 @@ export const WorkerDispatch = {
   /** Starts a review request's reviewer. The review owner records the start and its outcome. */
   launchReviewer(input: ReviewerLaunch) {
     return launchReviewer(input);
+  },
+  /** Moves a reviewer worktree to a new PR head: a fast-forward, or a reset after a force push. */
+  moveReviewer(input: Parameters<typeof moveReviewer>[0]) {
+    return moveReviewer(input);
+  },
+  /**
+   * Removes a worker worktree and its local branch only when Git establishes that they hold no
+   * unlanded work. Otherwise it keeps both and names the work that only the person can delete.
+   */
+  cleanWorktree(input: Parameters<typeof cleanWorktree>[0]) {
+    return cleanWorktree(input);
   },
 };

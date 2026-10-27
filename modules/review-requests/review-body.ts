@@ -1,6 +1,7 @@
 import type { AcceptedDraft } from "./draft.ts";
 
 export type ReviewEvent = "APPROVE" | "COMMENT" | "REQUEST_CHANGES";
+export const markerPrefix = "<!-- operator-review ";
 type EventFacts = {
   accepted: AcceptedDraft;
   /** The PR author is the posting account, which GitHub does not let approve or request changes. */
@@ -8,8 +9,16 @@ type EventFacts = {
   origin: string;
 };
 
-function blockerCount({ accepted }: EventFacts) {
-  return accepted.draft.blockers.length + accepted.failingChecks.length;
+/** A thread reply that explains a remaining defect keeps that defect open as a blocker. */
+function openThreads(draft: AcceptedDraft["draft"]) {
+  return draft.threadReplies.filter((reply) => reply.kind === "explain").length;
+}
+
+/** Draft blockers, failing required checks, and explained threads. */
+export function countBlockers(accepted: AcceptedDraft) {
+  return (
+    accepted.draft.blockers.length + accepted.failingChecks.length + openThreads(accepted.draft)
+  );
 }
 
 const rules: { when: (facts: EventFacts) => boolean; event: ReviewEvent }[] = [
@@ -19,7 +28,7 @@ const rules: { when: (facts: EventFacts) => boolean; event: ReviewEvent }[] = [
     when: (facts) => facts.accepted.draft.blockers.some((blocker) => blocker.breach !== undefined),
     event: "REQUEST_CHANGES",
   },
-  { when: (facts) => blockerCount(facts) > 0, event: "COMMENT" },
+  { when: (facts) => countBlockers(facts.accepted) > 0, event: "COMMENT" },
   { when: () => true, event: "APPROVE" },
 ];
 
@@ -33,7 +42,7 @@ export function decideEvent(facts: EventFacts): ReviewEvent {
 
 /** Approval with an open blocker is refused even when a later rule change would compute it. */
 export function approvalBlocked(facts: EventFacts, event: ReviewEvent) {
-  return event === "APPROVE" && blockerCount(facts) > 0;
+  return event === "APPROVE" && countBlockers(facts.accepted) > 0;
 }
 
 /** Approval waits for every required check, so a check that still runs cannot fail after it. */
@@ -81,15 +90,23 @@ function checkLines(accepted: AcceptedDraft, required: number) {
   ];
 }
 
-/** The posted text. The marker lets a later post find this review after a lost answer. */
+export type HeadLimit = { reviewedCommit: string; head: string; moves: number };
+
+/**
+ * The posted text. The marker lets a later post find this review after a lost answer. At the
+ * head-move limit, the text states that it covers an older commit than the PR head.
+ */
 export function renderReview(input: {
   marker: string;
   event: ReviewEvent;
   accepted: AcceptedDraft;
   requiredChecks: number;
+  headLimit?: HeadLimit | null;
 }) {
   const { draft, failingChecks } = input.accepted;
-  const blockers = draft.blockers.length + failingChecks.length;
+  const explained = openThreads(draft);
+  const blockers = draft.blockers.length + failingChecks.length + explained;
+  const limit = input.headLimit ?? null;
   const breaches = draft.blockers.flatMap((blocker) =>
     blocker.breach === undefined
       ? []
@@ -98,7 +115,10 @@ export function renderReview(input: {
         ],
   );
   const sections = [
-    `${input.marker}\n**${status(input.event, blockers)}**${counts(blockers, draft.niceToHaves.length)}`,
+    `${input.marker}\n**${status(input.event, blockers)}**${counts(blockers, draft.niceToHaves.length)}${limit === null ? "" : ` · reviewed at ${limit.reviewedCommit.slice(0, 7)}`}`,
+    limit === null
+      ? ""
+      : `The PR head moved ${limit.moves} times during this review, so this review covers ${limit.reviewedCommit}, not the current head ${limit.head}.`,
     draft.summary,
     breaches.join("\n"),
     blockers === 0
@@ -113,6 +133,11 @@ export function renderReview(input: {
             (check, index) =>
               `${draft.blockers.length + index + 1}. **CI check ${check.name} fails.**${check.url === null ? "" : ` ${check.url}`}`,
           ),
+          ...(explained === 0
+            ? []
+            : [
+                `${draft.blockers.length + failingChecks.length + 1}. **${explained} review thread${explained === 1 ? " stays" : "s stay"} open.** The thread replies explain the remaining defects.`,
+              ]),
         ].join("\n"),
     draft.niceToHaves.length === 0
       ? ""

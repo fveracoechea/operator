@@ -158,9 +158,9 @@ test.each([
   {
     name: "pending cleanup migration guard",
     file: "device-state/migration-policy.ts",
-    section: "export function idleForMigration",
-    before: "applied >= 3 && client.query",
-    after: "false && client.query",
+    section: "const idleGuards",
+    before: "applied: 3,",
+    after: "applied: 99,",
     unit: "device-state/migration-policy.test.ts",
     pattern: "pending project file cleanup",
   },
