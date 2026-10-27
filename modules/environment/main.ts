@@ -10,6 +10,8 @@ const schema = z.object({
   PATH: z.string().default(""),
   TMPDIR: absolute.optional(),
   NODE_ENV: z.string().optional(),
+  // Only release tooling reads the reproducible-builds time, so the CLI never refuses a bad value.
+  SOURCE_DATE_EPOCH: z.string().optional(),
   npm_config_user_agent: z.string().optional(),
   HERDR_SOCKET_PATH: z.string().min(1).optional(),
   HERDR_PLUGIN_EVENT: z.string().min(1).optional(),

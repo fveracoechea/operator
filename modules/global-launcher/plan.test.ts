@@ -4,6 +4,7 @@ import {
   exactInstall,
   launcherTarget,
   launcherText,
+  nixLauncherText,
   pinnedSpecifier,
   type LauncherFacts,
 } from "./plan.ts";
@@ -114,6 +115,26 @@ test("only the exact launcher text names a target", () => {
     `${text}echo extra\n`,
     text.replace("/cli.js", "/other.js"),
     "#!/bin/sh\nexec bun '/x/node_modules/@fveracoechea/operator/cli.js' \"$@\"\n",
+  ])
+    expect(launcherTarget(changed)).toBeNull();
+});
+
+test("the Nix launcher runs the package's own Bun and keeps it last on PATH", () => {
+  const text = nixLauncherText("/nix/store/it's-operator/lib/operator", "/nix/store/b-bun/bin/bun");
+  expect(text).toBe(`#!/bin/sh
+# Operator launcher written by the Nix package.
+# It runs the release in this package with the package's pinned Bun.
+PATH=\${PATH:+$PATH:}'/nix/store/b-bun/bin' exec '/nix/store/b-bun/bin/bun' '/nix/store/it'\\''s-operator/lib/operator/node_modules/@fveracoechea/operator/cli.js' "$@"
+`);
+  expect(launcherTarget(text)).toBe(
+    "/nix/store/it's-operator/lib/operator/node_modules/@fveracoechea/operator/cli.js",
+  );
+  for (const changed of [
+    text.replace("Nix package", "other package"),
+    text.replace("'/nix/store/b-bun/bin' exec", "'/other/bin' exec"),
+    text.replace(/^PATH=.* exec /m, "exec "),
+    text.replace("/cli.js", "/other.js"),
+    `${text}echo extra\n`,
   ])
     expect(launcherTarget(changed)).toBeNull();
 });

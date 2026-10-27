@@ -6,7 +6,8 @@ Accepted - 2026-10-24.
 Decided in #199, #205, #206, #208, and #228.
 Amended 2026-10-26 in #256: source delivery shares the release commit but has no artifact identity.
 Implemented for global JSR and source delivery, automatic migration, and global-command readiness in #245 and #256.
-Nix delivery and the Herdr plugin remain planned.
+Implemented for Nix delivery in #257.
+The Herdr plugin remains planned.
 
 ## Context
 

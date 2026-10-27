@@ -164,7 +164,7 @@ Live findings and limits:
 - Claude Code asks before it reads the brief, because device state is outside the worker's folder. Operator does not install permission rules. The person can allow the Operator state folder in host configuration.
 - The installed OpenCode 1.18.34 has no `api` or `mini` command, so the #241 OpenCode metadata and launch contract could not run live. OpenCode launches are proven only through the controlled tool.
 - `herdr pane close` emits `pane.closed`, not `pane.exited`. Both hooks are installed.
-- Nix packaging and installed-release acceptance remain #257 and #259.
+- Installed-release acceptance remains #259. No live Herdr check ran the Nix package's command (#257).
 
 ## Gate commands and outcomes
 

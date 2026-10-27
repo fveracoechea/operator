@@ -7,7 +7,7 @@ Personal skills and CLI tools for coordinating coding agents in OpenCode and Cla
 Issue [#234](https://github.com/fveracoechea/operator/issues/234) defines the device-level replacement.
 This branch starts with [#235](https://github.com/fveracoechea/operator/issues/235), which removes the legacy architecture before new workflows land.
 It is not an intermediate release.
-Help, version reporting, global installation, device settings, launch selection, project registration, skill installation, static readiness, supplied assignment plans, next actions, worker dispatch, and the global Herdr plugin are available.
+Help, version reporting, global installation, the Nix package, device settings, launch selection, project registration, skill installation, static readiness, supplied assignment plans, next actions, worker dispatch, and the global Herdr plugin are available.
 
 Finish old work with the old release before updating to the eventual breaking release.
 This code does not inspect, migrate, repair, or delete legacy Operator state.
@@ -23,8 +23,9 @@ There are no replacement-command placeholders or compatibility aliases.
 
 One installed release serves every registered project.
 The running installation is the release authority, and projects select no release.
-Bun or the person updates the installation, and the next command migrates compatible device state.
-Bun 1.4.0 or later is required.
+Bun, Nix, or the person updates the installation, and the next command migrates compatible device state.
+Bun 1.4.0 or later is required on the JSR and source paths.
+The Nix package brings its own pinned Bun.
 
 ### JSR with Bun
 
@@ -68,26 +69,69 @@ Version JSON reports the commit that Bun recorded.
 A source install has no artifact identity, because it runs the source rather than the built artifact.
 Bun blocks the package's preinstall script, and Operator checks the Bun version at startup instead.
 
+### Nix flake
+
+The flake exposes `packages.<system>.default` for `aarch64-darwin` and `x86_64-linux`.
+Pin the release tag, so that the package records the commit that the tag and the JSR release name:
+
+```nix
+inputs.operator.url = "github:fveracoechea/operator/v<version>";
+```
+
+Add the package to a profile and link every owned skill from your own configuration.
+The package lists the names in `skills`.
+For example, with the skills options of Home Manager `release-26.05`:
+
+```nix
+let
+  operator = inputs.operator.packages.${pkgs.stdenv.hostPlatform.system}.default;
+  ownedSkills = lib.genAttrs operator.skills (name: "${operator}/share/skills/operator/${name}");
+in
+{
+  home.packages = [ operator ];
+  programs.claude-code.skills = ownedSkills;
+  programs.opencode.skills = ownedSkills;
+}
+```
+
+Then register the project once from the main checkout:
+
+```sh
+operator project register --json
+operator --version --json
+```
+
+The package holds the same built artifact as the JSR release, with the same commit, release record, and artifact identity.
+It builds the locked dependencies with bun2nix and the Bun that `packageManager` pins, and it fetches nothing at runtime.
+`bin/operator` runs that Bun on the artifact, and puts that Bun last on `PATH` for delegated installs.
+Each owned skill folder is at `share/skills/operator/<name>`.
+Operator has no Home Manager module, and it never changes your Nix wiring.
+`operator install` only checks the linked skills on this path, and `operator install matt` still works.
+To update, change the tag and rebuild your configuration.
+The next command migrates compatible device state.
+
 ### Global command discovery
 
 Put Bun's global bin folder, from `bun pm bin -g`, on `PATH` for your shells and for Herdr.
 Put `bun` itself on the same `PATH`, because the launcher and the source command both run through `bun`.
+A Nix install needs only the profile's bin folder on `PATH`.
 Herdr hooks and agents find Operator through `PATH`, never through a release-specific path.
-Both delivery paths keep working after the registry, the source repository, or the Bun cache is gone.
+All delivery paths keep working after the registry, the source repository, or the Bun cache is gone.
 Installing an unrelated global Bun package changes Bun's global lock but not Operator's release identity.
 `operator ready --json` reports a missing global command, a global command that runs another release, and an installation that names no exact version or full commit.
-The Herdr plugin arrives with #247, and Nix packaging remains #257.
-See `docs/implementation/256-global-installation.md` for the decision diagram and verification limits.
+See `docs/implementation/256-global-installation.md` and `docs/implementation/257-nix-package.md` for the decision diagram and verification limits.
 
 ```mermaid
 flowchart TD
   Person -->|bun add -g exact JSR version| JSR[Global package without a command]
   Person -->|bun add -g Git URL at a full commit| Source[Global package that Bun links]
+  Person -->|Nix flake at a release tag| Nix[Package launcher with its pinned Bun]
   JSR -->|operator install launcher| Check{Bun's global package at the exact version?}
   Check -->|no, exit 3| Refused[Nothing written]
   Check -->|other command exists, exit 4| Conflict[Existing command unchanged]
-  Check -->|yes| Command[operator in Bun's global bin folder]
+  Check -->|yes| Command[operator on PATH]
   Source --> Command
+  Nix -->|profile bin folder| Command
   Herdr[Herdr hooks, agents, and shells] -->|PATH| Command
   Command --> Startup[Startup compatibility checks]
   Startup --> Handler[Command handler]
@@ -133,7 +177,7 @@ Old role names are removed only with unchanged device-ledger proof, without forw
 `--check` follows links and compares contents without writing host folders or device state.
 Packages under `/nix/store/` always check consumer-owned wiring rather than copy skills.
 The role skills are `super-agent` and `worker-agent`.
-Workflow commands and Nix packaging remain in their later implementation tickets.
+Workflow commands remain in their later implementation tickets.
 
 ## Upstream skills and static readiness
 
@@ -392,9 +436,12 @@ It uses pinned actions and the exact official JSR client with short-lived creden
 Publication refuses conflicting tags or versions, and retries supply only missing delivery.
 
 ```sh
-bun scripts/release.ts build --out dist --commit <full-commit>
+SOURCE_DATE_EPOCH="$(git log -1 --format=%ct <full-commit>)" \
+  bun scripts/release.ts build --out dist --commit <full-commit>
 ```
 
+Build refuses without `SOURCE_DATE_EPOCH`, because the release record names the commit time as its build time.
+The JSR artifact and the Nix package of one commit then have the same release record.
 Build writes runnable ESM, declarations, complete retained skills, the settings editor schema at `schemas/config.schema.json`, the Herdr plugin manifest at `modules/worker-dispatch/herdr-plugin.toml`, the fixed migrations, documentation, and a content-identified release record.
 The old project configuration schemas and release-specific Herdr hooks no longer ship.
 The maintainer-only `plan` and `publish` operations remain in `scripts/release.ts` for the release workflow.

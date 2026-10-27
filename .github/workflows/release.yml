@@ -71,8 +71,11 @@ jobs:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile
 
+      # The build time is the commit time, so the Nix package of this commit has the same record.
       - name: Build the release artifact
-        run: bun scripts/release.ts build --out dist --commit "${{ github.sha }}"
+        run: |
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" \
+            bun scripts/release.ts build --out dist --commit "${{ github.sha }}"
 
       # A partial publication is retried from the same commit, so the record of what was already
       # delivered is recovered before anything is sent again.

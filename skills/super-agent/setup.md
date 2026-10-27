@@ -1,9 +1,9 @@
 # Device setup
 
 Operator runs through the global `operator` command on `PATH`, for agents, shells, and Herdr hooks.
-The person installs one exact JSR version or one full source commit with `bun add -g`.
+The person installs one exact JSR version or one full source commit with `bun add -g`, or the Nix flake at a release tag.
 A JSR install has no command until its package CLI runs `install launcher --json` once, after registration.
-A source install gets its command from Bun.
+A source install gets its command from Bun, and a Nix install from its package.
 Do not install or select a release inside a project.
 
 First run `operator project register --json` from the main checkout with a matching GitHub remote and no legacy `.operator` folder.

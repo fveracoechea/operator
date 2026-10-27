@@ -36,6 +36,13 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
+const ENTRY = `/node_modules/${PACKAGE_ALIAS}/cli.js`;
+const QUOTED = String.raw`'((?:[^']|'\\'')*)'`;
+
+function unquote(value: string): string {
+  return value.replaceAll(`'\\''`, "'");
+}
+
 /**
  * The launcher names Bun's stable global package folder and no version, so a Bun update of the
  * global package changes what runs while the launcher and every hook that calls it stay valid.
@@ -44,7 +51,19 @@ export function launcherText(globalRoot: string): string {
   return `#!/bin/sh
 # Operator launcher written by operator install launcher.
 # It runs the global JSR package in place, so it names no release and survives updates.
-exec bun ${shellQuote(`${globalRoot}/node_modules/${PACKAGE_ALIAS}/cli.js`)} "$@"
+exec bun ${shellQuote(`${globalRoot}${ENTRY}`)} "$@"
+`;
+}
+
+/**
+ * The Nix package lays out its release like Bun's global folder and runs it with its own pinned
+ * Bun. That Bun goes last on PATH, so delegated installs work on a device with no other Bun.
+ */
+export function nixLauncherText(installRoot: string, bun: string): string {
+  return `#!/bin/sh
+# Operator launcher written by the Nix package.
+# It runs the release in this package with the package's pinned Bun.
+PATH=\${PATH:+$PATH:}${shellQuote(bun.slice(0, bun.lastIndexOf("/")))} exec ${shellQuote(bun)} ${shellQuote(`${installRoot}${ENTRY}`)} "$@"
 `;
 }
 
@@ -86,12 +105,14 @@ export function decideLauncher(facts: LauncherFacts): LauncherDecision {
 
 /** The package path a launcher runs, read only from the exact text this module writes. */
 export function launcherTarget(text: string): string | null {
-  const quoted = /^exec bun '((?:[^']|'\\'')*)' "\$@"$/m.exec(text)?.[1];
-  if (quoted === undefined) return null;
-  const target = quoted.replaceAll(`'\\''`, "'");
-  const suffix = `/node_modules/${PACKAGE_ALIAS}/cli.js`;
-  if (!target.endsWith(suffix)) return null;
-  return launcherText(target.slice(0, -suffix.length)) === text ? target : null;
+  const found = new RegExp(String.raw`exec (?:bun|${QUOTED}) ${QUOTED} "\$@"\n$`).exec(text);
+  if (found?.[2] === undefined) return null;
+  const target = unquote(found[2]);
+  if (!target.endsWith(ENTRY)) return null;
+  const root = target.slice(0, -ENTRY.length);
+  const expected =
+    found[1] === undefined ? launcherText(root) : nixLauncherText(root, unquote(found[1]));
+  return expected === text ? target : null;
 }
 
 /**

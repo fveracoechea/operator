@@ -3,11 +3,13 @@
  * Release tooling. It is not part of the user-facing CLI. The release workflow runs `publish`
  * after a version pull request merges and the commit passed its checks. See ADR 0007.
  *
- *   bun scripts/release.ts build   --out <dir> --commit <sha>
+ *   SOURCE_DATE_EPOCH=<commit time> bun scripts/release.ts build --out <dir> --commit <sha>
+ *   bun scripts/release.ts launcher --root <dir> --bun <path>
  *   bun scripts/release.ts plan    --out <dir> --commit <sha> [--base main]
  *   bun scripts/release.ts publish --out <dir> --commit <sha> [--base main]
  */
 
+import { GlobalLauncher } from "../modules/global-launcher/main.ts";
 import { OperatorRelease } from "../modules/operator-release/main.ts";
 import { ReleasePublish } from "../modules/release-publish/main.ts";
 import { Environment } from "../modules/environment/main.ts";
@@ -50,12 +52,26 @@ const journalPath = flag(args, "journal") ?? `${artifactRoot}.publication.json`;
 const base = flag(args, "base") ?? "main";
 
 if (command === "build") {
+  // A release names one full commit, the same as a source install. A short, dirty, or unknown
+  // revision cannot pass as a release.
   const commit = flag(args, "commit");
-  if (commit === undefined) {
-    fail("build needs the --commit it is built from");
+  if (commit === undefined || !/^[0-9a-f]{40}$/.test(commit)) {
+    fail("build needs the full 40-character --commit it is built from, from a clean checkout");
   }
 
-  const built = await OperatorRelease.build({ sourceRoot, artifactRoot, commit });
+  // Every delivery path builds the same release.json from the same commit, so the build time is
+  // the commit time and never the clock of the machine that builds it.
+  const epoch = environment.SOURCE_DATE_EPOCH;
+  const builtAt =
+    epoch !== undefined && /^\d+$/.test(epoch) ? new Date(Number(epoch) * 1000) : null;
+  if (builtAt === null || Number.isNaN(builtAt.getTime())) {
+    fail(
+      "build needs SOURCE_DATE_EPOCH, the commit time in seconds, for example $(git log -1 --format=%ct)",
+    );
+  }
+
+  const now = builtAt.toISOString();
+  const built = await OperatorRelease.build({ sourceRoot, artifactRoot, commit, now });
   if (built.status !== "built") {
     console.error(`release: the declarations could not be written:\n${built.detail}`);
     process.exit(1);
@@ -68,6 +84,17 @@ if (command === "build") {
   }
 
   report({ ...built, required: inspection.required });
+} else if (command === "launcher") {
+  // The Nix package writes its command from the same rules that readiness reads it with.
+  const installRoot = flag(args, "root");
+  const bun = flag(args, "bun");
+  if (installRoot?.startsWith("/") !== true || bun?.startsWith("/") !== true) {
+    fail(
+      "launcher needs the absolute --root that holds node_modules and the absolute --bun it runs",
+    );
+  }
+
+  process.stdout.write(GlobalLauncher.nixText({ installRoot, bun }));
 } else if (command === "plan" || command === "publish") {
   const commit = flag(args, "commit");
   if (commit === undefined) {
@@ -87,5 +114,5 @@ if (command === "build") {
   const exitCode = { published: 0, released: 0, partial: 6, blocked: 3 } as const;
   process.exit(exitCode[result.status]);
 } else {
-  fail("the operations are `build`, `plan`, and `publish`");
+  fail("the operations are `build`, `launcher`, `plan`, and `publish`");
 }

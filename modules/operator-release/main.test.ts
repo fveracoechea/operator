@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test as bunTest } from "bun:test";
 import { Environment } from "../environment/main.ts";
 import { registerTestDevice } from "../../scripts/device-fixture.ts";
-// Bun has no recursive directory removal or symlink API.
-import { rm, symlink } from "node:fs/promises";
+// Bun has no recursive directory removal, symlink, or directory metadata API.
+import { rm, stat, symlink } from "node:fs/promises";
 import { OperatorRelease } from "./main.ts";
 import { DeviceSettings } from "../device-settings/main.ts";
 import { z } from "zod";
@@ -277,35 +277,100 @@ describe("the release artifact", () => {
   });
 });
 
-describe("the release tooling", () => {
-  test("builds a complete artifact through the command a maintainer runs", async () => {
-    const artifactRoot = outputRoot();
+async function runTooling(args: string[], env: Record<string, string | undefined> = {}) {
+  const child = Bun.spawn(["bun", "scripts/release.ts", ...args], {
+    cwd: sourceRoot,
+    env: Environment.child({ SOURCE_DATE_EPOCH: undefined, ...env }),
+    stderr: "pipe",
+    stdout: "pipe",
+  });
+  const [exitCode, stderr, stdout] = await Promise.all([
+    child.exited,
+    new Response(child.stderr).text(),
+    new Response(child.stdout).text(),
+  ]);
+  return { exitCode, stderr, stdout };
+}
 
-    const child = Bun.spawn(
-      ["bun", "scripts/release.ts", "build", "--out", artifactRoot, "--commit", commit],
-      { cwd: sourceRoot, stderr: "pipe", stdout: "pipe" },
-    );
-    const [exitCode, stderr, stdout] = await Promise.all([
-      child.exited,
-      new Response(child.stderr).text(),
-      new Response(child.stdout).text(),
-    ]);
+describe("the release tooling", () => {
+  test("builds a complete artifact that records the commit time as its build time", async () => {
+    const artifactRoot = outputRoot();
+    const second = outputRoot();
+    function build(out: string) {
+      return runTooling(["build", "--out", out, "--commit", commit], {
+        SOURCE_DATE_EPOCH: "1761523200",
+      });
+    }
+
+    const { exitCode, stderr, stdout } = await build(artifactRoot);
 
     expect(stderr).toBe("");
     expect(exitCode).toBe(0);
     expect(z.object({ status: z.string() }).parse(JSON.parse(stdout)).status).toBe("built");
     expect((await OperatorRelease.inspect({ artifactRoot })).status).toBe("complete");
+    expect(releaseSchema.parse(await Bun.file(`${artifactRoot}/release.json`).json()).builtAt).toBe(
+      "2025-10-27T00:00:00.000Z",
+    );
+    // A second build of the same commit is byte for byte the same release record.
+    expect((await build(second)).exitCode).toBe(0);
+    expect(await Bun.file(`${second}/release.json`).text()).toBe(
+      await Bun.file(`${artifactRoot}/release.json`).text(),
+    );
   });
 
-  test("refuses to build without the commit it is built from", async () => {
-    const child = Bun.spawn(["bun", "scripts/release.ts", "build", "--out", outputRoot()], {
-      cwd: sourceRoot,
-      stderr: "pipe",
-      stdout: "pipe",
-    });
-    const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+  test("refuses to build without one full clean commit and writes nothing", async () => {
+    for (const named of [
+      [],
+      ["--commit", "unknown"],
+      ["--commit", "b".repeat(7)],
+      ["--commit", `${commit}-dirty`],
+      ["--commit", "B".repeat(40)],
+    ]) {
+      const artifactRoot = outputRoot();
+      const { exitCode, stderr } = await runTooling(["build", "--out", artifactRoot, ...named], {
+        SOURCE_DATE_EPOCH: "1761523200",
+      });
 
-    expect(exitCode).toBe(2);
-    expect(stderr).toContain("--commit");
+      expect(exitCode, named.join(" ")).toBe(2);
+      expect(stderr).toContain("--commit");
+      expect(await stat(artifactRoot).catch(() => null)).toBeNull();
+    }
+  });
+
+  test("refuses to build without a commit time in whole seconds and writes nothing", async () => {
+    for (const epoch of [undefined, "", "2025-10-27", "-1", "9".repeat(20)]) {
+      const artifactRoot = outputRoot();
+      const { exitCode, stderr } = await runTooling(
+        ["build", "--out", artifactRoot, "--commit", commit],
+        { SOURCE_DATE_EPOCH: epoch },
+      );
+
+      expect(exitCode, String(epoch)).toBe(2);
+      expect(stderr).toContain("SOURCE_DATE_EPOCH");
+      expect(await stat(artifactRoot).catch(() => null)).toBeNull();
+    }
+  });
+
+  test("writes the Nix launcher that names its install root and its Bun", async () => {
+    const { exitCode, stdout } = await runTooling([
+      "launcher",
+      "--root",
+      "/nix/store/x-operator/lib/operator",
+      "--bun",
+      "/nix/store/y-bun/bin/bun",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toEndWith(
+      `PATH=\${PATH:+$PATH:}'/nix/store/y-bun/bin' exec '/nix/store/y-bun/bin/bun' '/nix/store/x-operator/lib/operator/node_modules/@fveracoechea/operator/cli.js' "$@"\n`,
+    );
+    expect((await runTooling(["launcher", "--root", "/nix/store/x"])).exitCode).toBe(2);
+    expect(
+      (await runTooling(["launcher", "--root", "/nix/store/x", "--bun", "bun"])).exitCode,
+    ).toBe(2);
+    expect(
+      (await runTooling(["launcher", "--root", "lib/operator", "--bun", "/nix/store/y/bin/bun"]))
+        .exitCode,
+    ).toBe(2);
   });
 });

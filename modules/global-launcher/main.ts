@@ -10,6 +10,7 @@ import { ToolInvocation } from "../tool-invocation/main.ts";
 import {
   decideLauncher,
   launcherTarget,
+  nixLauncherText,
   PACKAGE_ALIAS,
   pinnedSpecifier,
   type Destination,
@@ -31,7 +32,7 @@ type Failure =
   | ReturnType<typeof qualify<never>>;
 
 const missingCommand =
-  "Put the global operator command on PATH. A JSR install needs operator install launcher, and a source install needs Bun's global bin folder on PATH.";
+  "Put the global operator command on PATH. A JSR install needs operator install launcher, a source install needs Bun's global bin folder on PATH, and a Nix install needs the package's bin folder on PATH.";
 
 const runningPackage = Bun.fileURLToPath(new URL("../../", import.meta.url)).replace(/\/$/, "");
 const globalManifest = z.looseObject({
@@ -182,9 +183,14 @@ async function write(binDirectory: string, command: string, text: string) {
 
 /**
  * Owns the global command. It supplies the launcher for a JSR installation, because the registry drops the package's
- * binary declaration and Bun links none. Source installations already get Bun's binary link.
+ * binary declaration and Bun links none. Source installations already get Bun's binary link, and
+ * the Nix package writes its own launcher when it is built.
  */
 export const GlobalLauncher = {
+  /** The command the Nix package installs, so readiness reads it with the same rules as a JSR launcher. */
+  nixText(input: { installRoot: string; bun: string }) {
+    return nixLauncherText(input.installRoot, input.bun);
+  },
   /** Static readiness facts about the global command and the pin of the running installation. */
   check() {
     return fromPromise(commandBlockers, qualify);

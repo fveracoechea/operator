@@ -5,3 +5,7 @@ modules/module-boundary-probe-*
 
 # Legacy state stays ignored until the person finishes it with the old release.
 /.operator/
+
+# Nix build links.
+/result
+/result-*

@@ -62,8 +62,8 @@ test.each([
   {
     name: "version-free launcher",
     file: "global-launcher/plan.ts",
-    before: "PACKAGE_ALIAS}/cli.js`)}",
-    after: "PACKAGE_ALIAS}/1.2.3/cli.js`)}",
+    before: `globalRoot}\${ENTRY}\`)} "$@"`,
+    after: `globalRoot}/1.2.3\${ENTRY}\`)} "$@"`,
     testFile: "global-launcher/plan.test.ts",
     pattern: "an exact global JSR install gets a launcher",
   },
@@ -78,10 +78,19 @@ test.each([
   {
     name: "launcher target text",
     file: "global-launcher/plan.ts",
-    before: "return launcherText(target.slice(0, -suffix.length)) === text ? target : null;",
+    before: "return expected === text ? target : null;",
     after: "return target;",
     testFile: "global-launcher/plan.test.ts",
     pattern: "only the exact launcher text names a target",
+  },
+  {
+    name: "Nix launcher text",
+    file: "global-launcher/plan.ts",
+    before:
+      "found[1] === undefined ? launcherText(root) : nixLauncherText(root, unquote(found[1]))",
+    after: "launcherText(root)",
+    testFile: "global-launcher/plan.test.ts",
+    pattern: "the Nix launcher runs the package's own Bun",
   },
   {
     name: "full source commit pin",

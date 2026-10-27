@@ -4,7 +4,7 @@ Issue #256 delivers one device release through a global Bun JSR install or a glo
 ADR-0007 is the decision source.
 The running installation is the release authority for every registered project.
 There is no project release selection, adoption step, copied Operator lock, or shared global-lock fingerprint.
-Nix packaging is #257, and the Herdr plugin manifest and its hooks are #247.
+Nix packaging is in `257-nix-package.md`, and the Herdr plugin manifest and its hooks are #247.
 
 ## Ownership
 

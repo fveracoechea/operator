@@ -51,7 +51,7 @@ test("reports missing tools and configured host without creating state or launch
           reason: "executable_missing",
           tool: "operator",
           detail:
-            "Put the global operator command on PATH. A JSR install needs operator install launcher, and a source install needs Bun's global bin folder on PATH.",
+            "Put the global operator command on PATH. A JSR install needs operator install launcher, a source install needs Bun's global bin folder on PATH, and a Nix install needs the package's bin folder on PATH.",
         },
         { reason: "host_unconfigured" },
       ],
