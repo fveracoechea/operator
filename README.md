@@ -344,6 +344,8 @@ operator source register --file /absolute/path/assignments.json --json
 operator source show --source <source-id> --json
 operator next --json
 operator next --source <source-id> --json
+operator source reset --source <source-id> --person-instructed --json
+operator source prune --json
 ```
 
 Use `bun cli.ts` instead of `operator` in a source checkout.
@@ -360,6 +362,13 @@ Report dependencies require accepted `completed`, not submitted `reported`.
 The commands launch no host and perform no tracker operations.
 Report submission, acceptance, and parent-merge relay are described below.
 A PR assignment with several open parent PRs waits until all but one merge, because a PR stacks on one parent branch.
+
+`source reset` ends one open source on the person's explicit instruction.
+It refuses while a worker of the source runs, keeps merged PR assignments and completed reports, and abandons every other assignment.
+It removes no worktree, branch, or pane and changes no tracker content.
+`source prune` deletes the records, briefs, reports, and supporting files of each ended source of the project once 14 days have passed since its end.
+It keeps a source with open cleanup or a running worker, creates no archive, and never touches worktrees, branches, or migration backups.
+See `docs/implementation/252-source-reset-prune.md` for the lifecycle, refusals, and recovery.
 
 ## Worker dispatch and the Herdr plugin
 

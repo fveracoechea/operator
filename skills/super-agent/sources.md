@@ -25,3 +25,22 @@ Start a `ready_assignment` candidate with `operator dispatch`, as [dispatch.md](
 An empty plan ends immediately.
 A repeated parent requires the prior source to have ended and gets a new source identity.
 Use only workflow operations listed by the running CLI.
+
+## Reset and prune
+
+Reset a source only when the person tells you to end it. Never reset on your own decision, and never infer the instruction from a plan or from permission for other work.
+Run `operator source reset --source <source-id> --person-instructed --json` from the controlling checkout.
+`--person-instructed` attests the person's instruction. It does not grant authority.
+Reset refuses with `source_worker_running` while a worker of the source runs or starts. The detail names each pane. Close that pane in Herdr, so that the Operator Herdr plugin records its end, then reset again. Run `operator herdr install` first when the plugin is missing or from another release.
+It refuses with `source_ended` for a finished or reset source.
+Reset keeps merged PR assignments and completed reports, and marks every other assignment `abandoned`.
+It removes no worktree, branch, or pane, closes no PR, and changes no tracker content.
+The result lists `retained` work of the abandoned assignments: each worktree that still exists, its branch, and each PR without a verified merge. Tell the person about each one.
+After a reset, register the same parent again with a new plan when the person wants new work. The new source has a new identity and adopts nothing from the old one.
+
+`next` shows `source_ended` with `endedAt` and `prunableAt` for an ended source, and `prune_source` once 14 days have passed.
+Run `operator source prune --json` to delete every eligible ended source of the project, with its briefs, reports, and supporting files.
+There is no archive. Copy report content that another project needs into that project's plan before the producer is pruned.
+A source with an open cleanup or a running worker stays, and its `retry_cleanup` or `person_decision` row stays in `next`.
+The result lists the `retained` worktrees, branches, and unmerged PRs of each pruned source, because prune never removes them. Tell the person, because no Operator record of them remains.
+`source_prune_failed` keeps the source records, so `prune_source` stays in `next`. Prune stops at that source, and later sources wait for the next run. Resolve the reported path or I/O problem, then prune again.

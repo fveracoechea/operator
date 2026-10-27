@@ -2,7 +2,7 @@
 
 Issue #247 implements dispatch and the stable Herdr plugin from ADR-0011 and ADR-0014.
 Report submission and acceptance are in `248-report-assignments.md`.
-PR operations remain #249 through #251, and reset and prune remain #252.
+PR operations remain #249 through #251, and reset and prune are in `252-source-reset-prune.md`.
 
 ## Commands
 

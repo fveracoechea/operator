@@ -2,7 +2,7 @@
 
 Issue #248 implements report submission, return, resume, and acceptance from ADR-0013.
 It uses the launches, briefs, and Herdr plugin from #247.
-The PR feedback loop is #249. PR merge and parent-merge relay remain #250 and #251, and reset and prune remain #252.
+The PR feedback loop is #249. PR merge and parent-merge relay remain #250 and #251, and reset and prune are in `252-source-reset-prune.md`.
 
 ## Commands
 

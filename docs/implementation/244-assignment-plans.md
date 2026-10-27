@@ -4,7 +4,7 @@ Issue #244 implements work-source registration and the first next-actions read f
 The SuperAgent supplies tracker data.
 Operator performs no tracker read or mutation.
 Dispatch is #247, report submission and acceptance are #248, and PR operations remain #249 through #251.
-Reset and prune remain #252.
+Reset and prune are in `252-source-reset-prune.md`.
 
 ## Commands and plan
 

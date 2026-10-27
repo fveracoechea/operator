@@ -87,20 +87,22 @@ export const OperatorHome = {
   projectDirectory(paths: { projects: string }, repository: string) {
     return path.join(paths.projects, repository);
   },
+  /** Every brief, report, and supporting file of one source. Prune deletes this folder. */
+  sourceDirectory(paths: { projects: string }, input: { repository: string; sourceId: string }) {
+    return path.join(
+      paths.projects,
+      input.repository,
+      "sources",
+      encodeURIComponent(input.sourceId),
+    );
+  },
   /** Assignment keys are supplied text, so each one maps to a single safe path segment. */
   assignmentFiles(
     paths: { projects: string },
     input: { repository: string; sourceId: string; assignment: string },
   ) {
     const segment = encodeURIComponent(input.assignment).replaceAll(".", "%2E");
-    const directory = path.join(
-      paths.projects,
-      input.repository,
-      "sources",
-      encodeURIComponent(input.sourceId),
-      "assignments",
-      segment,
-    );
+    const directory = path.join(OperatorHome.sourceDirectory(paths, input), "assignments", segment);
     return {
       directory,
       brief: path.join(directory, "brief.md"),

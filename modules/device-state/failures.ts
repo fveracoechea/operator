@@ -42,6 +42,8 @@ export function qualifyStateFailure<T>(
       "EROFS",
       "EIO",
       "ENOSPC",
+      "ENOTEMPTY",
+      "EBUSY",
       "EISDIR",
       "ENOTDIR",
       "SQLITE_CANTOPEN",

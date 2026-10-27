@@ -16,6 +16,8 @@ import { ensureProjectDirectory, finishProjectRemoval } from "./project-files.ts
 import {
   registerSource,
   readSources,
+  resetSource,
+  pruneSource,
   type SourceRow as StoredSource,
   type AssignmentRow as StoredAssignment,
 } from "./sources.ts";
@@ -229,6 +231,22 @@ export const DeviceState = {
     return hold(() =>
       withDatabase(paths, false, (client) => renewPullRequestRelay(client, sourceId, assignment)),
     );
+  },
+  /** End one open source with the caller's rule, applied to facts read under the writer reservation. */
+  resetSource<E extends { reason: string; detail: string }>(
+    paths: Paths,
+    target: Parameters<typeof resetSource>[1],
+    decide: Parameters<typeof resetSource<E>>[2],
+  ) {
+    return withDatabase(paths, false, (client) => resetSource(client, target, decide));
+  },
+  /** Delete one ended source's files and records when the caller's rule permits it. */
+  pruneSource(
+    paths: Paths,
+    target: Parameters<typeof pruneSource>[2],
+    decide: Parameters<typeof pruneSource>[3],
+  ) {
+    return withDatabase(paths, false, (client) => pruneSource(client, paths, target, decide));
   },
   readSources(paths: Paths, repository: string, sourceId?: string) {
     return fromThrowable(() => {

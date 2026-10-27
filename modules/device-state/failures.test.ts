@@ -8,6 +8,9 @@ test("qualifies known SQLite and filesystem failures, but keeps defects separate
     ["SQLITE_CORRUPT", "state_corrupt"],
     ["SQLITE_NOTADB", "state_corrupt"],
     ["EACCES", "state_io_failed"],
+    // A recursive removal that a permission stops reports a folder that is not empty.
+    ["ENOTEMPTY", "state_io_failed"],
+    ["EBUSY", "state_io_failed"],
     ["SQLITE_CANTOPEN", "state_io_failed"],
   ]) {
     expect(

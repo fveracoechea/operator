@@ -122,7 +122,7 @@ test.each([
   {
     name: "actual file deletion",
     file: "device-state/project-files.ts",
-    section: "export function finishProjectRemoval",
+    section: "export function removeStateDirectory",
     before: "rmSync(directory, { recursive: true, force: true });",
     after: "",
     unit: "operator-cli/run.projects.test.ts",

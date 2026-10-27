@@ -12,7 +12,8 @@ import type { ProjectStateFailure, RegisteredProject } from "./projects.ts";
 
 type Paths = ReturnType<typeof OperatorHome.resolve>;
 
-function checkDirectory(root: string, directory: string) {
+/** The caller names the refusal, so its own record states what stays pending. */
+function checkDirectory<R extends string>(root: string, directory: string, reason: R) {
   return fromThrowable(() => {
     let current = root;
     for (const segment of ["", ...path.relative(root, directory).split(path.sep)]) {
@@ -20,9 +21,9 @@ function checkDirectory(root: string, directory: string) {
       try {
         const info = lstatSync(current);
         if (!info.isDirectory() || info.isSymbolicLink())
-          return Err<ProjectStateFailure>({
-            reason: "project_cleanup_pending",
-            detail: `Project state path is not a real directory: ${current}. Preserve external content and resolve this path before repeating removal.`,
+          return Err({
+            reason,
+            detail: `The state path is not a real directory: ${current}. Preserve external content and resolve this path before repeating the command.`,
           });
       } catch (cause) {
         if (errorCode(cause) === "ENOENT") return Ok(undefined);
@@ -48,13 +49,42 @@ export function ensureProjectDirectory(client: Database, paths: Paths, project: 
           detail: "The registration changed before its state directory could be created.",
         });
       const directory = OperatorHome.projectDirectory(paths, project.repository);
-      return checkDirectory(paths.stateRoot, directory).flatMap(() =>
+      return checkDirectory(paths.stateRoot, directory, "project_cleanup_pending").flatMap(() =>
         fromThrowable(() => {
           mkdirSync(directory, { recursive: true, mode: 0o700 });
           return undefined;
         }, qualifyStateFailure)(),
       );
     }),
+  );
+}
+
+/**
+ * Delete one state directory and synchronize the nearest existing parent. A linked ancestor or a
+ * non-directory refuses, so external content stays. The caller holds the writer reservation.
+ */
+export function removeStateDirectory<R extends string>(root: string, directory: string, reason: R) {
+  return checkDirectory(root, directory, reason).flatMap(() =>
+    fromThrowable(() => {
+      rmSync(directory, { recursive: true, force: true });
+      // A missing parent means no directory entry remains to synchronize.
+      let parent = path.dirname(directory);
+      while (true) {
+        try {
+          const fd = openSync(parent, "r");
+          try {
+            fsyncSync(fd);
+          } finally {
+            closeSync(fd);
+          }
+          return undefined;
+        } catch (cause) {
+          // oxlint-disable-next-line unthrown/no-throw -- The state boundary qualifies filesystem failures, and the caller keeps its record.
+          if (errorCode(cause) !== "ENOENT") throw cause;
+          parent = path.dirname(parent);
+        }
+      }
+    }, qualifyStateFailure)(),
   );
 }
 
@@ -68,31 +98,14 @@ export function finishProjectRemoval(client: Database, paths: Paths, repository:
         .where(eq(projectRemovals.repository, repository))
         .get();
       if (!pending) return Ok(undefined);
-      const directory = OperatorHome.projectDirectory(paths, repository);
-      return checkDirectory(paths.stateRoot, directory).flatMap(() =>
-        fromThrowable(() => {
-          rmSync(directory, { recursive: true, force: true });
-          // A missing parent means no directory entry remains to synchronize.
-          let parent = path.dirname(directory);
-          while (true) {
-            try {
-              const fd = openSync(parent, "r");
-              try {
-                fsyncSync(fd);
-              } finally {
-                closeSync(fd);
-              }
-              break;
-            } catch (cause) {
-              // oxlint-disable-next-line unthrown/no-throw -- The state boundary qualifies filesystem failures and preserves the pending record.
-              if (errorCode(cause) !== "ENOENT") throw cause;
-              parent = path.dirname(parent);
-            }
-          }
-          db.delete(projectRemovals).where(eq(projectRemovals.repository, repository)).run();
-          return undefined;
-        }, qualifyStateFailure)(),
-      );
+      return removeStateDirectory(
+        paths.stateRoot,
+        OperatorHome.projectDirectory(paths, repository),
+        "project_cleanup_pending",
+      ).map(() => {
+        db.delete(projectRemovals).where(eq(projectRemovals.repository, repository)).run();
+        return undefined;
+      });
     }),
   );
 }

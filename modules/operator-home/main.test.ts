@@ -100,4 +100,8 @@ test("assignment files stay in one encoded directory under the project state", (
       OperatorHome.assignmentFiles(paths, { repository: "o/r", sourceId: "s", assignment })
         .directory,
     ).toMatch(/^\/state\/projects\/o\/r\/sources\/s\/assignments\/[^/.]+$/);
+  // Prune deletes exactly the folder that holds every assignment file of the source.
+  expect(OperatorHome.sourceDirectory(paths, { repository: "o/r", sourceId: "s/../x" })).toBe(
+    "/state/projects/o/r/sources/s%2F..%2Fx",
+  );
 });

@@ -6,6 +6,7 @@ import path from "node:path";
 import { z } from "zod";
 import { Environment } from "../environment/main.ts";
 import { fakeHerdrScript } from "./fake-herdr.ts";
+import { fakeGithubScript } from "./fake-github.ts";
 
 const cli = Bun.fileURLToPath(new URL("../../cli.ts", import.meta.url));
 const gitEnv = {
@@ -31,8 +32,9 @@ const fakeOpencode = `#!${process.execPath}\nconst dir=decodeURIComponent(proces
 /**
  * An isolated device with real Git and SQLite, the controlled Herdr, and both controlled hosts.
  * The SuperAgent runs in pane `super:p0`. A WorkerAgent command runs with its launch's pane.
+ * With `github`, the controlled GitHub tool answers PR reads and merges from `github.json`.
  */
-export async function workerDevice() {
+export async function workerDevice(options: { github?: boolean } = {}) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "operator-reports-")));
 
   function environment(pane = "super:p0", socket = `${root}/herdr.sock`) {
@@ -83,7 +85,12 @@ export async function workerDevice() {
   await tool("herdr", fakeHerdrScript(root));
   // Readiness accepts only a global command that links to the running entry point.
   await symlink(cli, `${root}/tools/operator`);
-  await tool("gh", `#!${process.execPath}\nprocess.exit(process.argv[2] === "auth" ? 0 : 99);\n`);
+  await tool(
+    "gh",
+    options.github === true
+      ? fakeGithubScript(root)
+      : `#!${process.execPath}\nprocess.exit(process.argv[2] === "auth" ? 0 : 99);\n`,
+  );
   await tool("opencode", fakeOpencode);
   await tool("claude", fakeClaude);
   await Bun.write(
