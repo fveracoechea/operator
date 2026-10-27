@@ -26,6 +26,7 @@ const input = {
   assignments: [{ sourceId: "one", key: "read", completion: "report", state: "ready" }],
   launches: [],
   pullRequests: [],
+  reports: [],
 };
 test("decodes persisted plans and strips storage-only assignment fields", () => {
   expect(decodeSource(input)).toMatchObject({
@@ -155,7 +156,13 @@ test("a PR open assignment needs its recorded PR, and only PR work past running 
   function row(state: string) {
     return [{ sourceId: "one", key: "change", completion: "pr", state }];
   }
-  const open = { source, assignments: row("pr-open"), launches: [launch], pullRequests: [pr] };
+  const open = {
+    source,
+    assignments: row("pr-open"),
+    launches: [launch],
+    pullRequests: [pr],
+    reports: [],
+  };
   expect(decodeSource(open).pullRequests).toEqual([
     {
       assignment: "change",
@@ -174,4 +181,73 @@ test("a PR open assignment needs its recorded PR, and only PR work past running 
     decodeSource({ ...open, pullRequests: [{ ...pr, waitState: "unknown" }] }),
   ).toThrow();
   expect(() => decodeSource({ ...open, pullRequests: [{ ...pr, assignment: "other" }] })).toThrow();
+});
+
+test("a stored report belongs to a started report assignment and one of its launches", () => {
+  const launch = {
+    id: "l1",
+    sourceId: "one",
+    assignment: "read",
+    attempt: 1,
+    state: "finished",
+    name: "report-app-2-read",
+    resources: "pane",
+    branch: null,
+    host: "opencode",
+    model: "test/model",
+    requestedModel: "test/model",
+    reasoningEffort: "medium",
+    profile: null,
+    release: JSON.stringify({ version: "1.0.0" }),
+    skills: "[]",
+    herdrSocket: "/herdr.sock",
+    workspaceId: "w1",
+    tabId: "w1:t1",
+    paneId: "w1:p1",
+    worktreePath: null,
+    worktreeWorkspaceId: null,
+    startedAt: "now",
+    endedAt: "later",
+    failureReason: null,
+    failureDetail: null,
+    activity: null,
+    activityAt: null,
+    ownerPid: null,
+    leaseAt: null,
+    abandoned: false,
+  };
+  const report = {
+    sourceId: "one",
+    assignment: "read",
+    number: 1,
+    launchId: "l1",
+    submittedAt: "now",
+    conclusion: "Done.",
+    evidence: JSON.stringify(["a.ts:1"]),
+    unresolved: "[]",
+    decisions: JSON.stringify([{ question: "Q?", answer: "A.", by: "person" }]),
+    files: "[]",
+    decision: "accepted",
+    decidedAt: "later",
+    followUp: null,
+    cleanupState: "done",
+    cleanupDetail: "Closed pane w1:p1.",
+  };
+  const valid = {
+    ...input,
+    source: { ...input.source, state: "finished", endedAt: "later" },
+    assignments: [{ sourceId: "one", key: "read", completion: "report", state: "completed" }],
+    launches: [launch],
+    reports: [report],
+  };
+  expect(decodeSource(valid).reports).toMatchObject([
+    { number: 1, evidence: ["a.ts:1"], decisions: [{ by: "person" }], cleanupState: "done" },
+  ]);
+  for (const reports of [
+    [{ ...report, launchId: "other" }],
+    [{ ...report, decision: "approved" }],
+    [{ ...report, decisions: JSON.stringify([{ question: "Q?", answer: "A.", by: "worker" }]) }],
+  ])
+    expect(() => decodeSource({ ...valid, reports })).toThrow();
+  expect(() => decodeSource({ ...input, launches: [], reports: [report] })).toThrow();
 });

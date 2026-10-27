@@ -3,7 +3,14 @@ import type { Database } from "bun:sqlite";
 import type { drizzle } from "drizzle-orm/bun-sqlite";
 import { Err, Ok, type Result } from "unthrown";
 import { checkHistory, transaction } from "./database.ts";
-import { assignments, launches, projects, sources, worktreePreparations } from "./schema.ts";
+import {
+  assignments,
+  launches,
+  projects,
+  reports,
+  sources,
+  worktreePreparations,
+} from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
 
 export type LaunchRow = typeof launches.$inferSelect;
@@ -58,17 +65,34 @@ function endAbandoned(db: ReturnType<typeof drizzle>, id: string, now: number) {
     .run();
 }
 
-/** A ready assignment, or an active one whose latest start ended or was abandoned, may start. */
+/**
+ * A ready assignment may start. A running or PR-open one, or a returned report, may start again
+ * when its latest start ended or was abandoned.
+ */
 function dispatchable(
   assignment: string | undefined,
   latest: string | undefined,
   abandoned: boolean,
+  returned: boolean,
 ) {
   if (assignment === "ready") return true;
   return (
-    (assignment === "running" || assignment === "pr-open") &&
+    (assignment === "running" ||
+      assignment === "pr-open" ||
+      (assignment === "reported" && returned)) &&
     (abandoned || latest === "failed" || latest === "interrupted")
   );
+}
+
+/** A report that the SuperAgent returned with follow-up needs a worker again. */
+function latestReturned(db: ReturnType<typeof drizzle>, sourceId: string, assignment: string) {
+  const report = db
+    .select({ decision: reports.decision })
+    .from(reports)
+    .where(and(eq(reports.sourceId, sourceId), eq(reports.assignment, assignment)))
+    .orderBy(desc(reports.number))
+    .get();
+  return report?.decision === "returned";
 }
 
 /** Reserve the assignment before any external effect, so a second dispatch cannot start it. */
@@ -113,7 +137,11 @@ export function reserveLaunch(
         .get();
       const now = Date.now();
       const abandoned = latest?.state === "starting" && ownerGone(latest, now);
-      if (source.state !== "open" || !dispatchable(assignment?.state, latest?.state, abandoned))
+      const returned = latestReturned(db, source.id, launch.assignment);
+      if (
+        source.state !== "open" ||
+        !dispatchable(assignment?.state, latest?.state, abandoned, returned)
+      )
         return Err({
           reason: "assignment_not_dispatchable",
           detail: `Assignment ${launch.assignment} changed before dispatch. Read next actions again. Nothing was launched.`,
@@ -133,14 +161,14 @@ export function reserveLaunch(
         leaseAt: new Date(now).toISOString(),
       };
       db.insert(launches).values(row).run();
-      // A replaced PR owner keeps its open PR, so only a ready assignment starts running.
+      // A replaced PR owner keeps its open PR. A returned report resumes as running.
       db.update(assignments)
         .set({ state: "running" })
         .where(
           and(
             eq(assignments.sourceId, source.id),
             eq(assignments.key, launch.assignment),
-            eq(assignments.state, "ready"),
+            inArray(assignments.state, ["ready", "reported"]),
           ),
         )
         .run();

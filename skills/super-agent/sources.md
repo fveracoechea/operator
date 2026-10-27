@@ -18,6 +18,7 @@ Read `operator next --json`, or select one project source with `--source <source
 Use its ready candidates and waits rather than keep a second schedule.
 A PR dependency permits work at `pr-open` or `merged`.
 A report dependency waits for accepted `completed`, not submitted `reported`.
+Plans are fixed after registration. A native subagent's work stays in its parent's assignment, and independent work needs an assignment in a new plan.
 
 Registration launches no worker, and next actions change no state.
 Start a `ready_assignment` candidate with `operator dispatch`, as [dispatch.md](dispatch.md) describes.

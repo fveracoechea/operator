@@ -50,7 +50,10 @@ function assignmentFacts(input: Request) {
       .bind("planned", ({ source, next }) => {
         const planned = source?.plan.assignments.find((row) => row.key === input.assignment);
         const action = next.sources[0]?.actions.find(
-          (row) => "assignment" in row && row.assignment === input.assignment,
+          (row) =>
+            "assignment" in row &&
+            row.assignment === input.assignment &&
+            (row.action === "ready_assignment" || row.action === "replace_worker"),
         );
         return planned === undefined || action === undefined || source === undefined
           ? Err<Failure>({

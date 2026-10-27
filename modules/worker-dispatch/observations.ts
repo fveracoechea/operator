@@ -1,5 +1,6 @@
-// Bun has no realpath or directory listing API.
+// Bun has no realpath, directory listing, or path API.
 import { readdir, realpath } from "node:fs/promises";
+import path from "node:path";
 import { Err, Ok, fromPromise } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { Herdr } from "../herdr/main.ts";
@@ -27,9 +28,15 @@ export async function realOrNull(file: string) {
   return realpath(file).catch(() => null);
 }
 
+/** Every file below the folder, so a replacement sees each earlier report and supporting file. */
 export async function listFiles(directory: string) {
-  return readdir(directory)
-    .then((names) => names.toSorted())
+  return readdir(directory, { recursive: true, withFileTypes: true })
+    .then((entries) =>
+      entries
+        .filter((entry) => entry.isFile())
+        .map((entry) => path.relative(directory, path.join(entry.parentPath, entry.name)))
+        .toSorted(),
+    )
     .catch(() => []);
 }
 

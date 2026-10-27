@@ -43,6 +43,26 @@ PR commands select your assignment only through this worktree.
 `;
 }
 
+function prSteps(directory: string) {
+  return [
+    "- Give a short conclusion, evidence references, unresolved points, and paths to detailed files.",
+    `- Put detailed supporting files in \`${directory}\`.`,
+  ].join("\n");
+}
+
+/** Submission is durable in device state, and only the SuperAgent completes a report. */
+function reportSteps(directory: string) {
+  return [
+    "- Write a JSON report outside the project checkout with `conclusion`, `evidence`, `unresolved`, and optional `decisions` and `files`.",
+    "- `evidence` and `unresolved` are lists of short text. `files` lists absolute paths of detailed supporting files.",
+    "- Each decision has `question`, `answer`, and `by`. Use `person` only for an answer that the person gave. Use `super-agent` for a SuperAgent decision.",
+    "- Submit it from this pane with `operator report submit --file <path> --json`, then tell your supervising SuperAgent.",
+    `- Operator stores the report and copies of the supporting files in \`${directory}\`.`,
+    "- Submission does not complete the assignment. The SuperAgent accepts the report or returns follow-up instructions.",
+    "- When you receive follow-up instructions, run `operator report resume --json` in this pane before you continue, then submit a new report.",
+  ].join("\n");
+}
+
 /**
  * The running release's brief template. A new start rewrites the brief from this template.
  * It names no runtime agent, pane, or host, because a replacement reads the same brief.
@@ -70,10 +90,19 @@ Read all of it before you start.
 - Completion type: ${input.completion === "pr" ? "a merged pull request" : "a report that the SuperAgent accepts"}.
 - Start profile: ${input.profile === null ? "the device default" : `\`${input.profile}\``}.
 
-The task instructions below also state your decision authority.
-Ask your supervising SuperAgent when that authority is unclear.
-
 ${input.instructions}
+
+## Grilling authority
+
+The task instructions state who answers questions and what the SuperAgent may decide.
+Send each question to your supervising SuperAgent, not to the person.
+The SuperAgent asks the person when the instructions require human participation, when a question is outside its delegated authority, or when that authority is unclear.
+A SuperAgent answer is a SuperAgent decision, not a human answer, also after it accepts your work.
+
+## Native subagents
+
+Native host subagents work inside this assignment, and you remain responsible for their work and evidence.
+Work that needs its own scheduling, dependencies, or acceptance needs a separate assignment. Ask your supervising SuperAgent for it.
 
 ## Skills
 
@@ -88,8 +117,7 @@ ${resources.join("\n")}
 ## Results and reporting
 
 - Report to your supervising SuperAgent through Herdr, not directly to the person.
-- Give a short conclusion, evidence references, unresolved points, and paths to detailed files.
-- Put detailed supporting files in \`${input.reports.directory}\`.
+${input.completion === "report" ? reportSteps(input.reports.directory) : prSteps(input.reports.directory)}
 - Herdr activity does not prove that the work is submitted or complete.
 ${feedbackLoop(input)}
 ## Earlier reports

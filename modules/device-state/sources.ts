@@ -3,7 +3,7 @@ import type { Database } from "bun:sqlite";
 import { Err, Ok, type Result } from "unthrown";
 import { checkHistory, transaction } from "./database.ts";
 import { ownerGone } from "./launches.ts";
-import { assignments, launches, projects, pullRequests, sources } from "./schema.ts";
+import { assignments, launches, projects, pullRequests, reports, sources } from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
 
 export type SourceRow = typeof sources.$inferSelect;
@@ -64,6 +64,7 @@ export function readSources(client: Database, repository: string, sourceId?: str
           assignments: AssignmentRow[];
           launches: (typeof launches.$inferSelect & { abandoned: boolean })[];
           pullRequests: (typeof pullRequests.$inferSelect & { waitStopped: boolean })[];
+          reports: (typeof reports.$inferSelect)[];
         }[],
         SourceFailure
       > => {
@@ -112,6 +113,12 @@ export function readSources(client: Database, repository: string, sourceId?: str
                   pr.waitState === "waiting" &&
                   ownerGone({ ownerPid: pr.waitOwnerPid, leaseAt: pr.waitLeaseAt }, now),
               })),
+            reports: db
+              .select()
+              .from(reports)
+              .where(eq(reports.sourceId, source.id))
+              .orderBy(asc(reports.assignment), asc(reports.number))
+              .all(),
           })),
         );
       },

@@ -10,9 +10,10 @@ type StoredSource = Extract<
 >["value"][number];
 
 const launchSchema = z.object({
+  id: z.string(),
   assignment: z.string(),
   attempt: z.number().int().positive(),
-  state: z.enum(["starting", "running", "failed", "interrupted"]),
+  state: z.enum(["starting", "running", "failed", "interrupted", "finished"]),
   name: z.string(),
   resources: z.enum(["pane", "worktree"]),
   branch: z.string().nullable(),
@@ -56,6 +57,35 @@ const pullRequestSchema = z.object({
 });
 export type PullRequest = z.infer<typeof pullRequestSchema>;
 
+const textList = z.string().transform((text) => z.array(z.string()).parse(JSON.parse(text)));
+const reportSchema = z.object({
+  assignment: z.string(),
+  number: z.number().int().positive(),
+  launchId: z.string(),
+  submittedAt: z.string(),
+  conclusion: z.string(),
+  evidence: textList,
+  unresolved: textList,
+  decisions: z.string().transform((text) =>
+    z
+      .array(
+        z.object({
+          question: z.string(),
+          answer: z.string(),
+          by: z.enum(["person", "super-agent"]),
+        }),
+      )
+      .parse(JSON.parse(text)),
+  ),
+  files: textList,
+  decision: z.enum(["accepted", "returned"]).nullable(),
+  decidedAt: z.string().nullable(),
+  followUp: z.string().nullable(),
+  cleanupState: z.enum(["pending", "done", "failed"]).nullable(),
+  cleanupDetail: z.string().nullable(),
+});
+export type Report = z.infer<typeof reportSchema>;
+
 export function decodeSource(input: StoredSource) {
   const source = {
     ...input.source,
@@ -64,6 +94,7 @@ export function decodeSource(input: StoredSource) {
     assignments: z.array(assignmentStateSchema).parse(input.assignments),
     launches: z.array(launchSchema).parse(input.launches),
     pullRequests: z.array(pullRequestSchema).parse(input.pullRequests),
+    reports: z.array(reportSchema).parse(input.reports),
   };
   const consistent =
     source.trackerKey === source.plan.trackerKey &&
@@ -98,9 +129,21 @@ export function decodeSource(input: StoredSource) {
           ["pr-open", "merged", "abandoned"].includes(row.state),
       ),
     );
+  // A report belongs to a report assignment that left the ready state, and to one of its launches.
+  const validReports = source.reports.every(
+    (report) =>
+      source.assignments.some(
+        (row) =>
+          row.key === report.assignment && row.completion === "report" && row.state !== "ready",
+      ) &&
+      source.launches.some(
+        (launch) => launch.assignment === report.assignment && launch.id === report.launchId,
+      ),
+  );
   const validLifecycle =
     validLaunches &&
     validPullRequests &&
+    validReports &&
     validState &&
     (source.state === "open" ? source.endedAt === null : source.endedAt !== null);
   if (!consistent || !validLifecycle) {

@@ -4,7 +4,8 @@
 
 Accepted - 2026-10-24.
 Decided in #233.
-Planned, not yet implemented.
+Implemented for submission, return, resume, acceptance, and cleanup in #248.
+Reset and prune remain planned.
 
 ## Context
 

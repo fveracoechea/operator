@@ -54,6 +54,7 @@ export const REQUIRED_PARTS = [
   "skills/super-agent/SKILL.md",
   "skills/super-agent/delegation.md",
   "skills/super-agent/dispatch.md",
+  "skills/super-agent/reports.md",
   "skills/super-agent/setup.md",
   "skills/worker-agent/SKILL.md",
   "skills/worker-agent/responsibility.md",

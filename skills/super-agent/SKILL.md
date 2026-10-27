@@ -9,7 +9,7 @@ On an unregistered device, first run `operator project register --json` from the
 Every other command refuses until that registration creates device state.
 Then use the global `operator --version --json` and `operator --help`.
 Use only commands shown by the running CLI.
-Report acceptance, the guarded PR merge, cleanup, and parent-merge relay are not yet available in this release slice.
+The guarded PR merge, cleanup, and parent-merge relay are not yet available in this release slice.
 If the requested workflow needs them, report that limit instead of inventing a command.
 
 Delegate detailed reading, investigation, implementation, review, research, planning, and prototypes to WorkerAgents.
@@ -22,3 +22,4 @@ For device setup and owned skills, read [setup.md](setup.md).
 For supplied assignment plans, dependency blockers, or next actions, read [sources.md](sources.md).
 For dispatch, the Herdr plugin, failed launches, or interrupted workers, read [dispatch.md](dispatch.md).
 For PR owners, `owner_attention`, or a replaced PR owner, read [pull-requests.md](pull-requests.md).
+For submitted reports, follow-up, acceptance, or cleanup, read [reports.md](reports.md).

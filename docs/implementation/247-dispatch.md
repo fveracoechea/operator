@@ -1,7 +1,7 @@
 # Worker dispatch through Herdr
 
 Issue #247 implements dispatch and the stable Herdr plugin from ADR-0011 and ADR-0014.
-Report submission and acceptance remain #248.
+Report submission and acceptance are in `248-report-assignments.md`.
 PR operations remain #249 through #251, and reset and prune remain #252.
 
 ## Commands
@@ -91,7 +91,7 @@ The assignment key is one encoded path segment.
 Each start rewrites the brief from the running release's template.
 A replacement reuses the recorded worktree only when both its path and its branch are recorded and the path exists.
 When that worktree has no finished `prepared` record, dispatch prepares it again before the brief. Preparation keeps existing files, so a second run is safe.
-It lists the files in the sibling `reports` and `follow-ups` folders, which #248 will populate.
+It lists every file in the sibling `reports` and `follow-ups` folders, which #248 populates.
 It names no agent, pane, or host.
 Nothing is written into the checkout or the worktree, except prepared project inputs.
 

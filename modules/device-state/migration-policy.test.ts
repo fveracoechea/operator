@@ -54,6 +54,7 @@ test("live launches and running preparations block an upgrade, abandoned ones do
     "CREATE TABLE assignments (state TEXT); CREATE TABLE project_removals (repository TEXT); CREATE TABLE launches (state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE worktree_preparations (state TEXT, owner_pid INTEGER, lease_at TEXT)",
   );
   expect(migrationBlockers(db, 1793066920427).tag).toBe("Ok");
+  expect(migrationBlockers(db, 1793115655370).tag).toBe("Ok");
   const lease = new Date().toISOString();
   const stoppedPid = Bun.spawnSync([process.execPath, "--version"]).pid;
   for (const state of ["starting", "running", "failed", "interrupted"]) {

@@ -120,16 +120,14 @@ test.each([
   {
     name: "PR open replacement",
     file: "device-state/launches.ts",
-    replacements: [
-      ['(assignment === "running" || assignment === "pr-open")', 'assignment === "running"'],
-    ],
+    replacements: [['      assignment === "pr-open" ||\n', ""]],
     testFile: "operator-cli/run.pull-requests.test.ts",
     pattern: "an interrupted owner needs replacement",
   },
   {
     name: "replacement keeps PR open",
     file: "device-state/launches.ts",
-    replacements: [['eq(assignments.state, "ready"),', ""]],
+    replacements: [['inArray(assignments.state, ["ready", "reported"]),', ""]],
     testFile: "operator-cli/run.pull-requests.test.ts",
     pattern: "an interrupted owner needs replacement",
   },

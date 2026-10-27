@@ -9,6 +9,7 @@ import {
   projectRemovals,
   projects,
   pullRequests,
+  reports,
   sources,
   worktreePreparations,
 } from "./schema.ts";
@@ -131,6 +132,7 @@ export function removeProject(client: Database, repository: string) {
         .select({ id: sources.id })
         .from(sources)
         .where(eq(sources.repository, repository));
+      db.delete(reports).where(inArray(reports.sourceId, ids)).run();
       db.delete(launches).where(inArray(launches.sourceId, ids)).run();
       db.delete(pullRequests).where(inArray(pullRequests.sourceId, ids)).run();
       db.delete(worktreePreparations).where(eq(worktreePreparations.repository, repository)).run();

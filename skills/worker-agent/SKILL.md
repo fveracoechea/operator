@@ -10,12 +10,20 @@ If no absolute brief is supplied, ask your supervising SuperAgent for it.
 Do not infer a brief from a project-local Operator folder.
 The brief supplies the task, required skills, resources, reporting destination, and grilling authority.
 Use the global `operator --help` to confirm available commands.
-Report submission commands are not yet implemented in this release slice.
-Put detailed files in the reports folder that the brief names, and give your SuperAgent their paths.
 
 Report to your supervising SuperAgent, not directly to the person.
-Give a short conclusion, evidence references, unresolved points, and paths to detailed supporting files.
+For report work, submit from the pane that Operator dispatched for you:
+
+```sh
+operator report submit --file <report.json> --json
+```
+
+The brief names the report fields.
+Write the report file and drafts outside the project checkout.
+Label an answer `person` only when the person gave it. Every other answer is a `super-agent` decision.
+Then tell your SuperAgent through Herdr that the report is submitted.
 A submitted report requires the SuperAgent's acceptance before it completes report work.
+When the SuperAgent returns follow-up instructions, run `operator report resume --json` in the same pane, read them, and submit a new report.
 
 Read [responsibility.md](responsibility.md) when asking questions or using native subagents.
 Read [pull-requests.md](pull-requests.md) when your brief has a PR completion type.

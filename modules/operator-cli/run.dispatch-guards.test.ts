@@ -31,7 +31,9 @@ test.each([
   {
     name: "single reservation",
     file: "device-state/launches.ts",
-    replacements: [["!dispatchable(assignment?.state, latest?.state, abandoned)", "false"]],
+    replacements: [
+      ["!dispatchable(assignment?.state, latest?.state, abandoned, returned)", "false"],
+    ],
     testFile: "device-state/launches.test.ts",
     pattern: "a reservation starts the assignment once",
   },

@@ -7,7 +7,7 @@ Personal skills and CLI tools for coordinating coding agents in OpenCode and Cla
 Issue [#234](https://github.com/fveracoechea/operator/issues/234) defines the device-level replacement.
 This branch starts with [#235](https://github.com/fveracoechea/operator/issues/235), which removes the legacy architecture before new workflows land.
 It is not an intermediate release.
-Help, version reporting, global installation, the Nix package, device settings, launch selection, project registration, skill installation, static readiness, supplied assignment plans, next actions, worker dispatch, the global Herdr plugin, and the PR feedback loop are available.
+Help, version reporting, global installation, the Nix package, device settings, launch selection, project registration, skill installation, static readiness, supplied assignment plans, next actions, worker dispatch, the global Herdr plugin, the PR feedback loop, and report assignments are available.
 
 Finish old work with the old release before updating to the eventual breaking release.
 This code does not inspect, migrate, repair, or delete legacy Operator state.
@@ -16,7 +16,7 @@ Do not use it to resume an old session.
 The device-level design in `CONTEXT.md` and `docs/adr/` remains planned.
 The base lint policy in ADR-0018 is now enforced.
 Local mutation testing from ADR-0016 is also available for repository development.
-Report acceptance, PR merge and cleanup, parent-merge relay, and reviews are not implemented here.
+PR merge and cleanup, parent-merge relay, and reviews are not implemented here.
 There are no replacement-command placeholders or compatibility aliases.
 
 ## Install Operator for the device
@@ -358,7 +358,7 @@ An empty plan finishes immediately.
 PR dependencies permit start at `pr-open` or `merged`.
 Report dependencies require accepted `completed`, not submitted `reported`.
 The commands launch no host and perform no tracker operations.
-Report acceptance remains #248, and the PR merge, cleanup, and parent-merge relay remain #250 and #251.
+Report submission and acceptance are described below, and the PR merge, cleanup, and parent-merge relay remain #250 and #251.
 
 ## Worker dispatch and the Herdr plugin
 
@@ -402,6 +402,24 @@ Its progress is in device state, so a restarted wait does not repeat a result.
 A replacement keeps the PR, its progress, and the PR's recorded worktree, and refuses when that worktree is missing.
 The guarded merge and cleanup are #251, and parent-merge relay is #250.
 See `docs/implementation/249-pr-feedback.md` for the diagrams, refusals, and evidence.
+
+## Report assignments
+
+```sh
+operator report submit --file <report.json> --json
+operator report resume --json
+operator report accept --source <source-id> --assignment <key> --json
+operator report return --source <source-id> --assignment <key> --file <follow-up.md> --json
+```
+
+A WorkerAgent runs `submit` and `resume` in the Herdr pane that Operator dispatched for it, and names no assignment.
+The report holds a short conclusion, evidence references, unresolved points, answers labeled as human answers or SuperAgent decisions, and supporting files that Operator copies into device state.
+Submission moves the assignment to `reported`, and `next` shows `review_report` to the SuperAgent.
+Only acceptance completes the assignment and unblocks its dependents. Herdr activity never does.
+`return` records follow-up instructions. A live worker runs `resume`, and a stopped worker is replaced with every earlier report and follow-up in its brief.
+Acceptance closes the worker pane and removes a report worktree only when Git shows no unlanded work.
+A kept worktree waits for the person, and a failed cleanup stays in `next` as `retry_cleanup`.
+See `docs/implementation/248-report-assignments.md` for the report file, the lifecycle, and cross-project use.
 
 ## Retained code and checks
 

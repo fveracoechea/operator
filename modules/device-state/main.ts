@@ -40,6 +40,8 @@ import {
   renewPullRequestWait,
 } from "./pull-requests.ts";
 
+import { changeReport, readReport, type ReportTarget } from "./reports.ts";
+
 type Paths = ReturnType<typeof OperatorHome.resolve>;
 
 function withDatabase<T, E>(
@@ -97,6 +99,17 @@ export const DeviceState = {
   },
   updateLaunch(paths: Paths, id: string, change: Parameters<typeof updateLaunch>[2]) {
     return withDatabase(paths, false, (client) => updateLaunch(client, id, change));
+  },
+  /** Apply one report transition that the caller's rule decides from facts read in the same transaction. */
+  changeReport<E extends { reason: string; detail: string }>(
+    paths: Paths,
+    target: ReportTarget,
+    decide: Parameters<typeof changeReport<E>>[2],
+  ) {
+    return withDatabase(paths, false, (client) => changeReport(client, target, decide));
+  },
+  readReport(paths: Paths, target: ReportTarget) {
+    return withDatabase(paths, true, (client) => readReport(client, target));
   },
   launchNames(paths: Paths) {
     return withDatabase(paths, true, (client) => launchNames(client));

@@ -3,11 +3,12 @@ import { z } from "zod";
 import { DeviceState } from "../device-state/main.ts";
 import { Projects } from "../projects/main.ts";
 import { DeviceSettings } from "../device-settings/main.ts";
-import type { OperatorHome } from "../operator-home/main.ts";
 import { planSchema } from "./plan.ts";
-import { decideAssignment } from "./assignment-machine.ts";
+import { assignmentStateSchema, decideAssignment } from "./assignment-machine.ts";
 import { decideSource } from "./source-machine.ts";
-import { decodeSource, type Launch, type PullRequest } from "./snapshot.ts";
+import { decodeSource, type Launch, type PullRequest, type Report } from "./snapshot.ts";
+import { OperatorHome } from "../operator-home/main.ts";
+import { decideReport } from "./report-machine.ts";
 
 type Input = { paths: ReturnType<typeof OperatorHome.resolve>; cwd: string };
 
@@ -48,6 +49,26 @@ function pullRequestSummary(pr: PullRequest) {
     branch: pr.branch,
     wait: pr.waitStopped ? "stopped" : pr.waitState,
     waitAt: pr.waitAt,
+  };
+}
+
+// The SuperAgent reads the short conclusion here and opens the report file only when it decides.
+function reportSummary(input: Input, repository: string, sourceId: string, report: Report) {
+  const files = OperatorHome.assignmentFiles(input.paths, {
+    repository,
+    sourceId,
+    assignment: report.assignment,
+  });
+  return {
+    number: report.number,
+    conclusion: report.conclusion,
+    file: `${files.reports}/${report.number}/report.md`,
+    decision: report.decision,
+    followUp: report.decision === "returned" ? `${files.followUps}/${report.number}.md` : null,
+    cleanup:
+      report.cleanupState === null
+        ? null
+        : { state: report.cleanupState, detail: report.cleanupDetail },
   };
 }
 
@@ -136,68 +157,7 @@ export const WorkSources = {
   next(input: Input & { sourceId?: string }) {
     return read(input).flatMap((sources) =>
       fromThrowable(
-        () => ({
-          sources: sources.map((source) => {
-            const state = source.state;
-            if (state !== "open")
-              return {
-                id: source.id,
-                state,
-                actions: [{ action: "source_ended", reason: state }],
-                waits: [],
-              };
-            const decisions = source.plan.assignments.map((assignment) => {
-              const current = source.assignments.find((row) => row.key === assignment.key);
-              const dependencies = assignment.dependencies.map((key) =>
-                source.assignments.find((row) => row.key === key),
-              );
-              if (
-                current === undefined ||
-                dependencies.some((dependency) => dependency === undefined)
-              ) {
-                // oxlint-disable-next-line unthrown/no-throw -- Inconsistent persisted rows are corruption, not permission to schedule work.
-                throw new z.ZodError([]);
-              }
-              const launches = source.launches.filter(
-                (launch) => launch.assignment === assignment.key,
-              );
-              const launch = launches.at(-1);
-              const pullRequest = source.pullRequests.find(
-                (pr) => pr.assignment === assignment.key,
-              );
-              const decision = decideAssignment({
-                assignment: current,
-                dependencies: dependencies.filter((dependency) => dependency !== undefined),
-                // A start whose dispatching process stopped can be replaced.
-                launch: launch?.abandoned === true ? "abandoned" : launch?.state,
-                pullRequest: pullRequest?.waitStopped === true ? "stopped" : pullRequest?.waitState,
-                activity: launch?.activity,
-              });
-              const row: typeof decision & {
-                assignment: string;
-                launch?: object;
-                pullRequest?: object;
-              } = {
-                assignment: assignment.key,
-                ...decision,
-              };
-              if (launch !== undefined) row.launch = launchSummary(launch);
-              if (pullRequest !== undefined) row.pullRequest = pullRequestSummary(pullRequest);
-              return row;
-            });
-            return {
-              id: source.id,
-              state,
-              actions: decisions.filter(
-                (decision) =>
-                  decision.action === "ready_assignment" ||
-                  decision.action === "replace_worker" ||
-                  decision.action === "owner_attention",
-              ),
-              waits: decisions.filter((decision) => decision.action === "wait"),
-            };
-          }),
-        }),
+        () => ({ sources: sources.map((source) => nextActions(input, source)) }),
         (cause, defect) =>
           cause instanceof z.ZodError
             ? {
@@ -208,4 +168,79 @@ export const WorkSources = {
       )(),
     );
   },
+  /** The report lifecycle rule. Device state applies it inside the transaction that read its facts. */
+  decideReport(
+    facts: Omit<Parameters<typeof decideReport>[0], "assignments"> & {
+      assignments: { key: string; completion: string; state: string }[];
+    },
+  ) {
+    return decideReport({
+      ...facts,
+      assignments: z.array(assignmentStateSchema).parse(facts.assignments),
+    });
+  },
 };
+
+type Source = ReturnType<typeof decodeSource>;
+
+function decide(input: Input, source: Source) {
+  return source.plan.assignments.map((assignment) => {
+    const current = source.assignments.find((row) => row.key === assignment.key);
+    const dependencies = assignment.dependencies.map((key) =>
+      source.assignments.find((row) => row.key === key),
+    );
+    if (current === undefined || dependencies.some((dependency) => dependency === undefined)) {
+      // oxlint-disable-next-line unthrown/no-throw -- Inconsistent persisted rows are corruption, not permission to schedule work.
+      throw new z.ZodError([]);
+    }
+    const launch = source.launches.findLast((row) => row.assignment === assignment.key);
+    const pullRequest = source.pullRequests.find((pr) => pr.assignment === assignment.key);
+    const report = source.reports.findLast((row) => row.assignment === assignment.key);
+    const decision = decideAssignment({
+      assignment: current,
+      dependencies: dependencies.filter((dependency) => dependency !== undefined),
+      // A start whose dispatching process stopped can be replaced.
+      launch: launch?.abandoned === true ? "abandoned" : launch?.state,
+      pullRequest: pullRequest?.waitStopped === true ? "stopped" : pullRequest?.waitState,
+      activity: launch?.activity,
+      report:
+        report === undefined
+          ? undefined
+          : { decision: report.decision, cleanup: report.cleanupState },
+    });
+    const row: typeof decision & {
+      assignment: string;
+      launch?: object;
+      pullRequest?: object;
+      report?: object;
+    } = {
+      assignment: assignment.key,
+      ...decision,
+    };
+    if (launch !== undefined) row.launch = launchSummary(launch);
+    if (pullRequest !== undefined) row.pullRequest = pullRequestSummary(pullRequest);
+    if (report !== undefined)
+      row.report = reportSummary(input, source.repository, source.id, report);
+    return row;
+  });
+}
+
+function nextActions(input: Input, source: Source) {
+  const decisions = decide(input, source);
+  const cleanup = decisions.filter((decision) => decision.action === "retry_cleanup");
+  if (source.state !== "open")
+    return {
+      id: source.id,
+      state: source.state,
+      actions: [{ action: "source_ended", reason: source.state }, ...cleanup],
+      waits: [],
+    };
+  return {
+    id: source.id,
+    state: source.state,
+    actions: decisions.filter(
+      (decision) => decision.action !== "wait" && decision.action !== "ended",
+    ),
+    waits: decisions.filter((decision) => decision.action === "wait"),
+  };
+}

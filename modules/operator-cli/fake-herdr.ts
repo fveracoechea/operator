@@ -69,6 +69,15 @@ else if (key === "agent prompt") {
 else if (key === "plugin list") out({ plugins: state.plugins.map((plugin) => ({ plugin_id: plugin.id, plugin_root: plugin.root })) });
 else if (key === "plugin link") { const manifest = Bun.TOML.parse(await Bun.file(args[2] + "/herdr-plugin.toml").text()); state.plugins.push({ id: manifest.id, root: args[2] }); out({ type: "plugin_linked" }); }
 else if (key === "plugin unlink") { state.plugins = state.plugins.filter((plugin) => plugin.id !== args[2]); out({ type: "plugin_unlinked" }); }
+else if (key === "pane close") {
+  const tab = state.tabs.find((row) => row.paneId === args[2]);
+  if (!tab) { console.log(JSON.stringify({ error: { code: "pane_not_found", message: "pane " + args[2] + " not found" } })); process.exit(1); }
+  state.tabs = state.tabs.filter((row) => row.paneId !== args[2]);
+  state.agents = state.agents.filter((row) => row.paneId !== args[2]);
+  await save();
+  await hook("pane.closed", { event: "pane_closed", data: { type: "pane_closed", pane_id: args[2], workspace_id: tab.workspaceId } });
+  out({ type: "pane_closed" });
+}
 else if (key === "pane exit") { await save(); await hook("pane.exited", { event: "pane_exited", data: { type: "pane_exited", pane_id: args[2], workspace_id: args[3] } }); }
 else { console.error("unsupported " + key); process.exit(2); }
 await save();

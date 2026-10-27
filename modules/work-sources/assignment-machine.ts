@@ -16,13 +16,26 @@ export type AssignmentState = z.infer<typeof assignmentStateSchema>;
 type Facts = {
   assignment: AssignmentState;
   dependencies: AssignmentState[];
-  launch?: "starting" | "abandoned" | "running" | "failed" | "interrupted";
+  launch?: "starting" | "abandoned" | "running" | "failed" | "interrupted" | "finished";
   pullRequest?: "idle" | "waiting" | "stopped" | "reported" | "timed_out" | "not_open";
   // Herdr activity only raises attention for a PR owner. It never proves a result.
   activity?: string | null;
+  /** The latest report's SuperAgent decision and cleanup, when one was submitted. */
+  report?: {
+    decision: "accepted" | "returned" | null;
+    cleanup: "pending" | "done" | "failed" | null;
+  };
 };
 type Decision = {
-  action: "ready_assignment" | "replace_worker" | "owner_attention" | "wait" | "ended";
+  action:
+    | "ready_assignment"
+    | "replace_worker"
+    | "owner_attention"
+    | "review_report"
+    | "resume_worker"
+    | "retry_cleanup"
+    | "wait"
+    | "ended";
   reason:
     | "assignment_ready"
     | "pr_feedback_loop"
@@ -36,7 +49,11 @@ type Decision = {
     | "launch_starting"
     | "launch_failed"
     | "launch_abandoned"
-    | "worker_interrupted";
+    | "worker_interrupted"
+    | "report_submitted"
+    | "follow_up_returned"
+    | "cleanup_failed"
+    | "cleanup_unfinished";
   blockers: {
     assignment: string;
     completion: "pr" | "report";
@@ -61,14 +78,36 @@ export function dependencyBlockers(dependencies: AssignmentState[]): Decision["b
 }
 
 // A PR owner keeps its PR open while it works, so a stopped owner is replaced in either state.
-function active({ assignment }: Facts) {
-  return assignment.state === "running" || assignment.state === "pr-open";
+// A report returned with follow-up also needs its worker.
+function active({ assignment, report }: Facts) {
+  return (
+    assignment.state === "running" ||
+    assignment.state === "pr-open" ||
+    (assignment.state === "reported" && report?.decision === "returned")
+  );
 }
 
 const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decision }[] = [
+  // Cleanup that an acceptance did not finish stays visible after the assignment ends.
+  {
+    when: ({ assignment, report }) =>
+      assignment.state === "completed" &&
+      report?.decision === "accepted" &&
+      (report.cleanup === "failed" || report.cleanup === "pending"),
+    decide: ({ report }) => ({
+      action: "retry_cleanup",
+      reason: report?.cleanup === "failed" ? "cleanup_failed" : "cleanup_unfinished",
+      blockers: [],
+    }),
+  },
   {
     when: ({ assignment }) => ["merged", "completed", "abandoned"].includes(assignment.state),
     decide: () => ({ action: "ended", reason: "assignment_ended", blockers: [] }),
+  },
+  // A submitted report waits for the SuperAgent, even when its worker pane has ended.
+  {
+    when: ({ assignment, report }) => assignment.state === "reported" && report?.decision === null,
+    decide: () => ({ action: "review_report", reason: "report_submitted", blockers: [] }),
   },
   {
     when: (facts) => active(facts) && facts.launch === "failed",
@@ -81,6 +120,11 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
   {
     when: (facts) => active(facts) && facts.launch === "abandoned",
     decide: () => ({ action: "replace_worker", reason: "launch_abandoned", blockers: [] }),
+  },
+  {
+    when: ({ assignment, report, launch }) =>
+      assignment.state === "reported" && report?.decision === "returned" && launch === "running",
+    decide: () => ({ action: "resume_worker", reason: "follow_up_returned", blockers: [] }),
   },
   {
     when: ({ launch }) => launch === "starting",

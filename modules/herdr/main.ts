@@ -189,6 +189,22 @@ export const Herdr = {
   prompt(input: { name: string; text: string }) {
     return invoke(["agent", "prompt", input.name, input.text], z.unknown());
   },
+  /** A pane that Herdr no longer knows is already closed. */
+  closePane(paneId: string) {
+    return fromPromise(
+      async () => {
+        const result = await invoke(["pane", "close", paneId], z.unknown());
+        // Herdr 0.9.3 exits 1 with {"error":{"code":"pane_not_found",...}}. The failure detail
+        // carries that output, and the adapter keeps no parsed error code.
+        return result.tag === "Err" &&
+          result.error.reason === "herdr_failed" &&
+          result.error.detail.includes("pane_not_found")
+          ? Ok<"closed" | "absent">("absent")
+          : result.map((): "closed" | "absent" => "closed");
+      },
+      (cause, defect) => defect(cause),
+    ).flatMap((result) => result);
+  },
   plugins() {
     return invoke(["plugin", "list", "--json"], pluginList).map((value) =>
       value.result.plugins.map((plugin) => ({ id: plugin.plugin_id, root: plugin.plugin_root })),

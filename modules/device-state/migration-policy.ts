@@ -57,6 +57,7 @@ export function migrationBlockers(client: Database, timestamp: number) {
     [1793031772449, []],
     [1793066920427, []],
     [1793114012060, []],
+    [1793115655370, []],
   ]);
   const queries = policies.get(timestamp);
   if (!queries)

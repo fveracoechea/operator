@@ -172,3 +172,50 @@ test("a stopped wait or an idle PR owner needs attention, but a running wait doe
     }),
   ).toMatchObject({ reason: "assignment_active" });
 });
+
+test("reports await review, returned work needs its worker, and unfinished cleanup stays visible", () => {
+  const reported: AssignmentState = { key: "one", completion: "report", state: "reported" };
+  const submitted = { decision: null, cleanup: null };
+  const returned = { decision: "returned" as const, cleanup: null };
+  // A submitted report waits for the SuperAgent, also when its worker pane ended.
+  for (const launch of ["running", "interrupted", "failed"] as const)
+    expect(
+      decideAssignment({ assignment: reported, dependencies: [], launch, report: submitted }),
+    ).toMatchObject({ action: "review_report", reason: "report_submitted" });
+  expect(
+    decideAssignment({
+      assignment: reported,
+      dependencies: [],
+      launch: "running",
+      report: returned,
+    }),
+  ).toMatchObject({ action: "resume_worker", reason: "follow_up_returned" });
+  for (const [launch, reason] of [
+    ["interrupted", "worker_interrupted"],
+    ["failed", "launch_failed"],
+    ["abandoned", "launch_abandoned"],
+  ] as const)
+    expect(
+      decideAssignment({ assignment: reported, dependencies: [], launch, report: returned }),
+    ).toMatchObject({ action: "replace_worker", reason });
+  const completed: AssignmentState = { key: "one", completion: "report", state: "completed" };
+  for (const [cleanup, reason] of [
+    ["failed", "cleanup_failed"],
+    ["pending", "cleanup_unfinished"],
+  ] as const)
+    expect(
+      decideAssignment({
+        assignment: completed,
+        dependencies: [],
+        launch: "finished",
+        report: { decision: "accepted", cleanup },
+      }),
+    ).toMatchObject({ action: "retry_cleanup", reason });
+  expect(
+    decideAssignment({
+      assignment: completed,
+      dependencies: [],
+      report: { decision: "accepted", cleanup: "done" },
+    }),
+  ).toMatchObject({ action: "ended" });
+});

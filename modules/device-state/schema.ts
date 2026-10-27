@@ -138,3 +138,35 @@ export const pullRequests = sqliteTable(
     }),
   ],
 );
+
+// Each submission keeps its own row, so a replacement reads every earlier report and follow-up.
+export const reports = sqliteTable(
+  "reports",
+  {
+    sourceId: text("source_id").notNull(),
+    assignment: text("assignment").notNull(),
+    number: integer("number").notNull(),
+    launchId: text("launch_id")
+      .notNull()
+      .references(() => launches.id),
+    submittedAt: text("submitted_at").notNull(),
+    conclusion: text("conclusion").notNull(),
+    evidence: text("evidence").notNull(),
+    unresolved: text("unresolved").notNull(),
+    decisions: text("decisions").notNull(),
+    files: text("files").notNull(),
+    // Only the supervising SuperAgent decides: accepted or returned with follow-up.
+    decision: text("decision"),
+    decidedAt: text("decided_at"),
+    followUp: text("follow_up"),
+    cleanupState: text("cleanup_state"),
+    cleanupDetail: text("cleanup_detail"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sourceId, table.assignment, table.number] }),
+    foreignKey({
+      columns: [table.sourceId, table.assignment],
+      foreignColumns: [assignments.sourceId, assignments.key],
+    }),
+  ],
+);

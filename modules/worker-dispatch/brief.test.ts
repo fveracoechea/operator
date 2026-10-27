@@ -59,3 +59,25 @@ test("a PR owner gets the feedback loop, and a replacement gets its open PR", ()
   expect(replacement).not.toContain("operator pr associate");
   expect(renderBrief({ ...input, completion: "report" })).not.toContain("PR feedback loop");
 });
+
+test("a report brief names the submission, resume, and authority rules", () => {
+  const brief = renderBrief({
+    ...input,
+    completion: "report",
+    reports: { directory: "/state/reports", files: ["1/report.md", "1/files/notes.md"] },
+    followUps: { directory: "/state/follow-ups", files: ["1.md"] },
+  });
+  for (const text of [
+    "`operator report submit --file <path> --json`",
+    "`operator report resume --json`",
+    "Use `person` only for an answer that the person gave.",
+    "Submission does not complete the assignment.",
+    "when a question is outside its delegated authority, or when that authority is unclear",
+    "A SuperAgent answer is a SuperAgent decision, not a human answer",
+    "Native host subagents work inside this assignment",
+    "`/state/reports/1/files/notes.md`",
+    "`/state/follow-ups/1.md`",
+  ])
+    expect(brief).toContain(text);
+  expect(renderBrief(input)).not.toContain("operator report submit");
+});

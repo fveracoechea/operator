@@ -3,7 +3,7 @@
 Issue #244 implements work-source registration and the first next-actions read from ADR-0001, ADR-0003, ADR-0010, and ADR-0013.
 The SuperAgent supplies tracker data.
 Operator performs no tracker read or mutation.
-Dispatch remains #247, report submission and acceptance remain #248, and PR operations remain #249 through #251.
+Dispatch is #247, report submission and acceptance are #248, and PR operations remain #249 through #251.
 Reset and prune remain #252.
 
 ## Commands and plan

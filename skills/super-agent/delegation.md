@@ -8,6 +8,7 @@ Your decision is not a human answer, even after you accept a report.
 Require a short conclusion, evidence references, unresolved points, and paths to supporting files.
 A stopped or idle Herdr agent is not completion evidence.
 Preserve unlanded work until the person authorizes its deletion.
+A report assignment completes only when you accept its report, as [reports.md](reports.md) describes.
 PR assignment completion will require the owner's guarded merge, not a host completion signal.
 That workflow is not yet implemented in this slice.
 
