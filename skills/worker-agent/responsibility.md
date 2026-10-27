@@ -1,6 +1,7 @@
 # Questions and subagents
 
 Follow the brief's grilling authority.
+Do the work within your brief without asking for approval of each command or step. Research, prototype, and decide what the brief and the repository settle, and record those decisions in your report or PR.
 Send questions outside that authority, unclear authority, and requests for human participation to your supervising SuperAgent.
 A SuperAgent decision or accepted report is not a human answer.
 

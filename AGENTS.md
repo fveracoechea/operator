@@ -56,5 +56,6 @@ For owned copies, conflict rules, and check-only links, read `docs/implementatio
 For host metadata, profile inheritance, and resolved launch values, read `docs/implementation/241-host-profiles.md`.
 For project registration, lookup, database creation, and isolated Git tests, read `docs/implementation/240-project-registration.md`.
 For settings edits, environment values, and isolated test roots, read `docs/implementation/239-device-settings.md`.
+For delegated runs without routine approval stops and the remaining human stops, read `docs/implementation/61-delegated-authority.md`.
 Read `docs/implementation/235-legacy-removal.md` for the inventory and verification.
 Do not inspect, migrate, repair, or remove real legacy Operator state.

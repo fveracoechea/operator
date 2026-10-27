@@ -141,6 +141,7 @@ ${dependencyReports(input)}
 ## Grilling authority
 
 The task instructions state who answers questions and what the SuperAgent may decide.
+Do the work within this task without asking for approval of each command or step. Decide what the instructions and the repository settle, and record those decisions in your report or PR.
 Send each question to your supervising SuperAgent, not to the person.
 The SuperAgent asks the person when the instructions require human participation, when a question is outside its delegated authority, or when that authority is unclear.
 A SuperAgent answer is a SuperAgent decision, not a human answer, also after it accepts your work.
