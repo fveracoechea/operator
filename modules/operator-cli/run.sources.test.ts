@@ -39,6 +39,19 @@ async function run(cwd: string, args: string[]) {
   return { code, output: JSON.parse(stdout) as unknown, stderr };
 }
 
+/** A merged PR assignment always has its verified merge and a cleanup, as pr merge records. */
+function recordMerges(db: Database) {
+  db.exec(`
+    INSERT INTO launches (id, source_id, assignment, attempt, state, name, resources, branch, host, model, requested_model, reasoning_effort, release, skills, started_at)
+      SELECT 'launch-' || key, source_id, key, 1, 'interrupted', 'pr-' || key, 'worktree', 'task/12', 'opencode', 'm', 'm', 'medium', '{"version":"1"}', '[]', 'now'
+      FROM assignments WHERE state = 'merged';
+    INSERT INTO pull_requests SELECT source_id, key, 'example/one', 7, 'https://github.com/example/one/pull/7', 'task/12', 'now', '{}', 'idle', NULL, NULL, NULL, 'h1', 'm1', 'now'
+      FROM assignments WHERE state = 'merged';
+    INSERT INTO cleanups SELECT source_id, key, 'launch-' || key, NULL, 'done', NULL, NULL, 'now', NULL, NULL
+      FROM assignments WHERE state = 'merged';
+  `);
+}
+
 async function repository(name = "checkout", remote = "example/one") {
   const cwd = `${root}/${name}`;
   await mkdir(cwd);
@@ -327,11 +340,12 @@ test("next uses completion-type-specific dependency facts and leaves all records
       db.query("UPDATE assignments SET state = ? WHERE key = 'investigate'").run(report);
       db.query("UPDATE assignments SET state = ? WHERE key = 'implement'").run(pr);
       // An assignment past running records its PR, as pr associate does.
-      db.exec("DELETE FROM pull_requests");
-      if (pr !== "running")
+      db.exec("DELETE FROM cleanups; DELETE FROM pull_requests; DELETE FROM launches");
+      if (pr === "pr-open")
         db.exec(
-          "INSERT INTO pull_requests SELECT source_id, key, 'example/one', 7, 'https://github.com/example/one/pull/7', 'task/12', 'now', '{}', 'idle', NULL, NULL, NULL FROM assignments WHERE key = 'implement'",
+          "INSERT INTO pull_requests SELECT source_id, key, 'example/one', 7, 'https://github.com/example/one/pull/7', 'task/12', 'now', '{}', 'idle', NULL, NULL, NULL, NULL, NULL, NULL FROM assignments WHERE key = 'implement'",
         );
+      if (pr === "merged") recordMerges(db);
     }
     const before = await Bun.file(`${root}/state/operator/operator.sqlite`).arrayBuffer();
     const next = z
@@ -453,6 +467,7 @@ test.each(["finished", "reset"])(
           : "UPDATE assignments SET state = 'abandoned'",
       );
       db.query("UPDATE sources SET state = ?, ended_at = '2026-10-26T14:00:00Z'").run(state);
+      recordMerges(db);
     }
     expect(await run(cwd, ["next", "--source", id])).toMatchObject({
       code: 0,

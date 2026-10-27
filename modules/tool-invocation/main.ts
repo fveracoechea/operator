@@ -6,6 +6,22 @@ type Invocation =
   | { status: "no-answer"; detail: string };
 
 export const ToolInvocation = {
+  /**
+   * Starts a process in its own process group that outlives this one, for work that must
+   * continue when the caller's pane closes. Its outcome is recorded by the process itself.
+   */
+  detach(input: { tool: string; args: string[]; cwd: string }) {
+    const child = Bun.spawn([input.tool, ...input.args], {
+      cwd: input.cwd,
+      env: Environment.child(),
+      stdin: "ignore",
+      stdout: "ignore",
+      stderr: "ignore",
+      detached: true,
+    });
+    child.unref();
+    return child.pid;
+  },
   async run(input: {
     tool: string;
     args: string[];

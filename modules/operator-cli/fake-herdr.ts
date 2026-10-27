@@ -69,14 +69,30 @@ else if (key === "agent prompt") {
 else if (key === "plugin list") out({ plugins: state.plugins.map((plugin) => ({ plugin_id: plugin.id, plugin_root: plugin.root })) });
 else if (key === "plugin link") { const manifest = Bun.TOML.parse(await Bun.file(args[2] + "/herdr-plugin.toml").text()); state.plugins.push({ id: manifest.id, root: args[2] }); out({ type: "plugin_linked" }); }
 else if (key === "plugin unlink") { state.plugins = state.plugins.filter((plugin) => plugin.id !== args[2]); out({ type: "plugin_unlinked" }); }
-else if (key === "pane close") {
+else if (key === "pane get" || key === "pane close") {
   const tab = state.tabs.find((row) => row.paneId === args[2]);
   if (!tab) { console.log(JSON.stringify({ error: { code: "pane_not_found", message: "pane " + args[2] + " not found" } })); process.exit(1); }
-  state.tabs = state.tabs.filter((row) => row.paneId !== args[2]);
-  state.agents = state.agents.filter((row) => row.paneId !== args[2]);
-  await save();
-  await hook("pane.closed", { event: "pane_closed", data: { type: "pane_closed", pane_id: args[2], workspace_id: tab.workspaceId } });
-  out({ type: "pane_closed" });
+  if (key === "pane get") out({ pane: { pane_id: tab.paneId, tab_id: tab.tabId, workspace_id: tab.workspaceId } });
+  else {
+    // Herdr closes the workspace with its last pane, as the live check observed.
+    state.tabs = state.tabs.filter((row) => row !== tab);
+    state.agents = state.agents.filter((agent) => agent.paneId !== tab.paneId);
+    if (!state.tabs.some((row) => row.workspaceId === tab.workspaceId)) state.workspaces = state.workspaces.filter((row) => row.workspace_id !== tab.workspaceId);
+    await save();
+    await hook("pane.closed", { event: "pane_closed", data: { type: "pane_closed", pane_id: tab.paneId, workspace_id: tab.workspaceId } });
+    out({ type: "ok" });
+  }
+}
+else if (key === "worktree remove") {
+  const workspace = state.workspaces.find((row) => row.workspace_id === flag("--workspace"));
+  if (!workspace) { console.log(JSON.stringify({ error: { code: "workspace_not_found", message: "workspace not found" } })); process.exit(1); }
+  const path = workspace.worktree.checkout_path;
+  const common = Bun.spawnSync(["git", "-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir"], { stdout: "pipe" }).stdout.toString().trim();
+  const git = Bun.spawnSync(["git", "-C", common.slice(0, -"/.git".length), "worktree", "remove", ...(args.includes("--force") ? ["--force"] : []), path], { stderr: "pipe" });
+  if (git.exitCode !== 0) { console.log(JSON.stringify({ error: { code: "dirty_worktree_requires_force", message: git.stderr.toString() } })); process.exit(1); }
+  state.workspaces = state.workspaces.filter((row) => row !== workspace);
+  state.tabs = state.tabs.filter((row) => row.workspaceId !== workspace.workspace_id);
+  out({ type: "worktree_removed", path, workspace_id: workspace.workspace_id, forced: args.includes("--force") });
 }
 else if (key === "pane exit") { await save(); await hook("pane.exited", { event: "pane_exited", data: { type: "pane_exited", pane_id: args[2], workspace_id: args[3] } }); }
 else { console.error("unsupported " + key); process.exit(2); }

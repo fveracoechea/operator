@@ -3,7 +3,15 @@ import type { Database } from "bun:sqlite";
 import { Err, Ok, type Result } from "unthrown";
 import { checkHistory, transaction } from "./database.ts";
 import { ownerGone } from "./launches.ts";
-import { assignments, launches, projects, pullRequests, reports, sources } from "./schema.ts";
+import {
+  assignments,
+  cleanups,
+  launches,
+  projects,
+  pullRequests,
+  reports,
+  sources,
+} from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
 
 export type SourceRow = typeof sources.$inferSelect;
@@ -65,6 +73,7 @@ export function readSources(client: Database, repository: string, sourceId?: str
           launches: (typeof launches.$inferSelect & { abandoned: boolean })[];
           pullRequests: (typeof pullRequests.$inferSelect & { waitStopped: boolean })[];
           reports: (typeof reports.$inferSelect)[];
+          cleanups: (typeof cleanups.$inferSelect & { running: boolean })[];
         }[],
         SourceFailure
       > => {
@@ -119,6 +128,15 @@ export function readSources(client: Database, repository: string, sourceId?: str
               .where(eq(reports.sourceId, source.id))
               .orderBy(asc(reports.assignment), asc(reports.number))
               .all(),
+            cleanups: db
+              .select()
+              .from(cleanups)
+              .where(eq(cleanups.sourceId, source.id))
+              .all()
+              .map((cleanup) => ({
+                ...cleanup,
+                running: cleanup.ownerPid !== null && !ownerGone(cleanup, now),
+              })),
           })),
         );
       },

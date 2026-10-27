@@ -46,6 +46,14 @@ export function idleForMigration(client: Database, applied: number) {
       detail:
         "Migration is waiting for active worker launches and worktree preparations to finish. No handler ran.",
     });
+  if (
+    applied >= 7 &&
+    heldBy(client, "SELECT owner_pid, lease_at FROM cleanups WHERE owner_pid IS NOT NULL")
+  )
+    return Err<StateFailure>({
+      reason: "state_migration_blocked",
+      detail: "Migration is waiting for a running cleanup to finish. No handler ran.",
+    });
   return Ok(undefined);
 }
 
@@ -58,6 +66,7 @@ export function migrationBlockers(client: Database, timestamp: number) {
     [1793066920427, []],
     [1793114012060, []],
     [1793115655370, []],
+    [1793118895818, []],
   ]);
   const queries = policies.get(timestamp);
   if (!queries)

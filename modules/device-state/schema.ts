@@ -129,6 +129,39 @@ export const pullRequests = sqliteTable(
     // The waiting process and its lease. A gone process or a stale lease is a stopped wait.
     waitOwnerPid: integer("wait_owner_pid"),
     waitLeaseAt: text("wait_lease_at"),
+    // The verified merge. Cleanup compares each resource with this head before it disposes it.
+    mergedHead: text("merged_head"),
+    mergeCommit: text("merge_commit"),
+    mergedAt: text("merged_at"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sourceId, table.assignment] }),
+    foreignKey({
+      columns: [table.sourceId, table.assignment],
+      foreignColumns: [assignments.sourceId, assignments.key],
+    }),
+  ],
+);
+
+// The ordered disposal after a verified merge. A failure stays recorded until a retry finishes it.
+export const cleanups = sqliteTable(
+  "cleanups",
+  {
+    sourceId: text("source_id").notNull(),
+    assignment: text("assignment").notNull(),
+    // The launch whose pane and worktree are disposed.
+    launchId: text("launch_id")
+      .notNull()
+      .references(() => launches.id),
+    // The next step to run. Earlier steps are done, and a finished cleanup has no step.
+    step: text("step"),
+    state: text("state").notNull(),
+    reason: text("reason"),
+    detail: text("detail"),
+    updatedAt: text("updated_at").notNull(),
+    // The cleaning process and its lease. A gone process or a stale lease is a stopped cleanup.
+    ownerPid: integer("owner_pid"),
+    leaseAt: text("lease_at"),
   },
   (table) => [
     primaryKey({ columns: [table.sourceId, table.assignment] }),

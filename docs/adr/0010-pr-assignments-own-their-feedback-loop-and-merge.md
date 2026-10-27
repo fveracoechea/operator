@@ -4,7 +4,7 @@
 
 Accepted - 2026-10-24.
 Decided in #228, #231, #232, and #233.
-Planned, not yet implemented.
+Partly implemented: the feedback loop in #249, the guarded merge and cleanup in #251. Parent-merge relay and the optional reviewer are planned.
 
 ## Context
 

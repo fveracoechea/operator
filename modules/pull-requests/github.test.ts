@@ -6,12 +6,14 @@ function answer(change: object = {}) {
     viewer: { login: "owner" },
     repository: {
       defaultBranchRef: { name: "main" },
+      viewerDefaultMergeMethod: "SQUASH" as const,
       pullRequest: {
         state: "OPEN" as const,
         baseRefName: "main",
         headRefName: "task/1",
         headRefOid: "abc",
         reviewDecision: null,
+        mergeCommit: null,
         reviews: { nodes: [] },
         comments: { nodes: [] },
         reviewThreads: { nodes: [] },

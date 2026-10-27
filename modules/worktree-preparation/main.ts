@@ -4,7 +4,8 @@ import { DoAsync, Err, Ok, OkAsync, fromPromise } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
-import { copyEnvFiles } from "./env-files.ts";
+import { approvedEnvFile, copyEnvFiles } from "./env-files.ts";
+import { classifyIgnored } from "./generated.ts";
 
 type Paths = ReturnType<typeof OperatorHome.resolve>;
 type Failure = { reason: string; detail: string };
@@ -131,6 +132,44 @@ function prepareProject(
     );
 }
 
+async function sameFile(first: string, second: string) {
+  const [a, b] = [Bun.file(first), Bun.file(second)];
+  if (!(await a.exists()) || !(await b.exists())) return false;
+  return Bun.deepEquals(await a.bytes(), await b.bytes());
+}
+
+/** Which ignored entries of a prepared worktree this module wrote. */
+function classify(input: {
+  paths: Paths;
+  worktree: string;
+  controller: string;
+  ignored: string[];
+}) {
+  return DeviceState.readPreparation(input.paths, input.worktree)
+    .toAsync()
+    .flatMap((preparation) =>
+      fromPromise(async () => {
+        // A running preparation can still write, and an unprepared worktree holds no output.
+        if (preparation === null || (preparation.state === "running" && !preparation.abandoned))
+          return { generated: [], unknown: input.ignored };
+        const listed = await git(input.worktree, ["ls-files", "-z"]);
+        if (listed === null) return { generated: [], unknown: input.ignored };
+        const copiedUnchanged = new Set<string>();
+        for (const entry of input.ignored)
+          if (
+            approvedEnvFile(entry) &&
+            (await sameFile(`${input.worktree}/${entry}`, `${input.controller}/${entry}`))
+          )
+            copiedUnchanged.add(entry);
+        return classifyIgnored({
+          ignored: input.ignored,
+          tracked: new Set(listed.split("\0").filter((file) => file !== "")),
+          copiedUnchanged,
+        });
+      }, qualify),
+    );
+}
+
 /** Prepares every new worktree of a registered project, whoever created it. */
 export const WorktreePreparation = {
   prepare(input: { paths: Paths; worktree: string }) {
@@ -142,5 +181,17 @@ export const WorktreePreparation = {
           ? OkAsync({ reason: "worktree_unregistered", data: { worktree } })
           : prepareProject(input.paths, worktree, project),
       );
+  },
+  /**
+   * Sorts a prepared worktree's ignored entries into preparation output and unknown content.
+   * Cleanup may dispose the output. Unknown content can be unlanded work.
+   */
+  classifyIgnored(input: {
+    paths: Paths;
+    worktree: string;
+    controller: string;
+    ignored: string[];
+  }) {
+    return classify(input);
   },
 };

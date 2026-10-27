@@ -5,6 +5,7 @@ import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import { checkHistory, transaction } from "./database.ts";
 import {
   assignments,
+  cleanups,
   launches,
   projectRemovals,
   projects,
@@ -19,7 +20,11 @@ export type RegisteredProject = typeof projects.$inferSelect;
 export type ProjectStateFailure =
   | StateFailure
   | {
-      reason: "project_not_registered" | "project_source_open" | "project_cleanup_pending";
+      reason:
+        | "project_not_registered"
+        | "project_source_open"
+        | "project_cleanup_open"
+        | "project_cleanup_pending";
       detail: string;
     };
 export type Registration = {
@@ -35,6 +40,22 @@ function hasOpenSource(db: BunSQLiteDatabase, repository: string) {
     .all()
     .some((source) => !["finished", "reset"].includes(source.state) || source.endedAt === null);
 }
+
+// A failed cleanup outlives its finished source. Removal or a move would hide or misdirect it.
+function openCleanup(db: BunSQLiteDatabase, repository: string) {
+  const ids = db.select({ id: sources.id }).from(sources).where(eq(sources.repository, repository));
+  return db
+    .select()
+    .from(cleanups)
+    .where(inArray(cleanups.sourceId, ids))
+    .all()
+    .some((cleanup) => cleanup.state !== "done");
+}
+
+const cleanupOpen = {
+  reason: "project_cleanup_open" as const,
+  detail: "Finish every open cleanup with operator cleanup first. Read operator next for it.",
+};
 
 export function registerProject(client: Database, project: RegisteredProject) {
   return transaction(client, true, () =>
@@ -128,11 +149,13 @@ export function removeProject(client: Database, repository: string) {
           reason: "project_source_open",
           detail: "End every open source before removing this project.",
         });
+      if (openCleanup(db, repository)) return Err(cleanupOpen);
       const ids = db
         .select({ id: sources.id })
         .from(sources)
         .where(eq(sources.repository, repository));
       db.delete(reports).where(inArray(reports.sourceId, ids)).run();
+      db.delete(cleanups).where(inArray(cleanups.sourceId, ids)).run();
       db.delete(launches).where(inArray(launches.sourceId, ids)).run();
       db.delete(pullRequests).where(inArray(pullRequests.sourceId, ids)).run();
       db.delete(worktreePreparations).where(eq(worktreePreparations.repository, repository)).run();
@@ -167,6 +190,7 @@ export function moveProject(client: Database, repository: string, checkout: stri
             reason: "project_source_open",
             detail: "End every open source before moving this project.",
           });
+        if (openCleanup(db, repository)) return Err(cleanupOpen);
         db.update(projects).set({ checkout }).where(eq(projects.repository, repository)).run();
         return Ok({ reason: "project_moved", data: { ...project, checkout } });
       },

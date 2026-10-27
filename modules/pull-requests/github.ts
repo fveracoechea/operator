@@ -19,8 +19,10 @@ const pullRequestQuery = `query($owner: String!, $name: String!, $number: Int!) 
   viewer { login }
   repository(owner: $owner, name: $name) {
     defaultBranchRef { name }
+    viewerDefaultMergeMethod
     pullRequest(number: $number) {
       state baseRefName headRefName headRefOid reviewDecision
+      mergeCommit { oid }
       reviews(last: 100) { nodes { id state body url author { login } } }
       comments(last: 100) { nodes { id body url author { login } } }
       reviewThreads(last: 100) {
@@ -40,12 +42,14 @@ const pullRequestAnswer = z.object({
     viewer: z.object({ login: z.string() }),
     repository: z.object({
       defaultBranchRef: z.object({ name: z.string() }).nullable(),
+      viewerDefaultMergeMethod: z.enum(["MERGE", "SQUASH", "REBASE"]),
       pullRequest: z.object({
         state: z.enum(["OPEN", "MERGED", "CLOSED"]),
         baseRefName: z.string(),
         headRefName: z.string(),
         headRefOid: z.string(),
         reviewDecision: z.string().nullable(),
+        mergeCommit: z.object({ oid: z.string() }).nullable(),
         reviews: z.object({
           nodes: z.array(comment.extend({ state: z.string() })),
         }),
@@ -135,6 +139,9 @@ export type Check = { name: string; state: "pending" | "passing" | "failing"; ur
 export type Observation = {
   state: "OPEN" | "MERGED" | "CLOSED";
   head: string;
+  mergeCommit: string | null;
+  // The method that GitHub offers this account first. Repository settings decide which apply.
+  mergeMethod: "merge" | "squash" | "rebase";
   base: string;
   defaultBranch: string | null;
   approved: boolean;
@@ -227,6 +234,13 @@ export function observation(data: z.infer<typeof pullRequestAnswer>["data"]): Ob
   return {
     state: pr.state,
     head: pr.headRefOid,
+    mergeCommit: pr.mergeCommit?.oid ?? null,
+    mergeMethod:
+      data.repository.viewerDefaultMergeMethod === "MERGE"
+        ? "merge"
+        : data.repository.viewerDefaultMergeMethod === "SQUASH"
+          ? "squash"
+          : "rebase",
     base: pr.baseRefName,
     defaultBranch: data.repository.defaultBranchRef?.name ?? null,
     approved: pr.reviewDecision === "APPROVED",
@@ -265,4 +279,84 @@ export function observePullRequest(repository: string, number: number) {
     ["-f", `query=${pullRequestQuery}`, ...repositoryFields(repository), "-F", `number=${number}`],
     pullRequestAnswer,
   ).map(({ data }) => observation(data));
+}
+
+export type GithubEffectFailure = {
+  reason: "github_failed" | "github_uncertain";
+  detail: string;
+};
+
+/**
+ * Asks GitHub to merge exactly the guarded head. GitHub refuses when the head moved. The
+ * answer never proves the outcome, so the caller reads the PR again before it records a merge.
+ */
+export function mergePullRequest(
+  repository: string,
+  merge: { number: number; head: string; method: Observation["mergeMethod"] },
+) {
+  return fromPromise(
+    () =>
+      GithubApi.call({
+        args: [
+          "-X",
+          "PUT",
+          `repos/${repository}/pulls/${merge.number}/merge`,
+          "-f",
+          `sha=${merge.head}`,
+          "-f",
+          `merge_method=${merge.method}`,
+        ],
+        timeoutMs: 60000,
+      }),
+    (cause, defect) => defect(cause),
+  ).flatMap((answer): Result<undefined, GithubEffectFailure> => {
+    if (answer.status === "failed")
+      return Err({ reason: "github_failed", detail: `${answer.code}: ${answer.detail}` });
+    if (answer.status === "uncertain")
+      return Err({ reason: "github_uncertain", detail: answer.detail });
+    return Ok(undefined);
+  });
+}
+
+const refAnswer = z.object({ object: z.object({ sha: z.string() }) });
+
+/** The commit of a remote branch, or null when the branch does not exist. */
+export function remoteBranch(repository: string, branch: string) {
+  return fromPromise(
+    () =>
+      GithubApi.call({ args: [`repos/${repository}/git/ref/heads/${branch}`], timeoutMs: 60000 }),
+    (cause, defect) => defect(cause),
+  ).flatMap((answer): Result<string | null, GithubReadFailure> => {
+    if (answer.status === "failed")
+      return answer.httpStatus === 404
+        ? Ok(null)
+        : Err({ reason: "github_failed", detail: `${answer.code}: ${answer.detail}` });
+    if (answer.status === "uncertain")
+      return Err({ reason: "github_uncertain", detail: answer.detail });
+    const parsed = refAnswer.safeParse(answer.value.body);
+    return parsed.success
+      ? Ok(parsed.data.object.sha)
+      : Err({
+          reason: "github_invalid_response",
+          detail: `GitHub did not describe the branch ${branch} in the expected form.`,
+        });
+  });
+}
+
+/** The caller reads the branch again after any answer, because a lost answer proves nothing. */
+export function deleteRemoteBranch(repository: string, branch: string) {
+  return fromPromise(
+    () =>
+      GithubApi.call({
+        args: ["-X", "DELETE", `repos/${repository}/git/refs/heads/${branch}`],
+        timeoutMs: 60000,
+      }),
+    (cause, defect) => defect(cause),
+  ).map((answer) =>
+    answer.status === "succeeded"
+      ? null
+      : answer.status === "failed"
+        ? `${answer.code}: ${answer.detail}`
+        : answer.detail,
+  );
 }

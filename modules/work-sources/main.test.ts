@@ -82,6 +82,7 @@ test("the module reads one snapshot and reports ended reset sources without disp
         launches: [],
         pullRequests: [],
         reports: [],
+        cleanups: [],
       },
     ]),
   );

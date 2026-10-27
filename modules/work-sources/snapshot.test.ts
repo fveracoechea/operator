@@ -27,6 +27,7 @@ const input = {
   launches: [],
   pullRequests: [],
   reports: [],
+  cleanups: [],
 };
 test("decodes persisted plans and strips storage-only assignment fields", () => {
   expect(decodeSource(input)).toMatchObject({
@@ -119,6 +120,9 @@ test("a PR open assignment needs its recorded PR, and only PR work past running 
     waitOwnerPid: null,
     waitLeaseAt: null,
     waitStopped: false,
+    mergedHead: null,
+    mergeCommit: null,
+    mergedAt: null,
   };
   const launch = {
     id: "launch",
@@ -162,6 +166,7 @@ test("a PR open assignment needs its recorded PR, and only PR work past running 
     launches: [launch],
     pullRequests: [pr],
     reports: [],
+    cleanups: [],
   };
   expect(decodeSource(open).pullRequests).toEqual([
     {
@@ -173,6 +178,9 @@ test("a PR open assignment needs its recorded PR, and only PR work past running 
       waitState: "waiting",
       waitAt: "now",
       waitStopped: false,
+      mergedHead: null,
+      mergeCommit: null,
+      mergedAt: null,
     },
   ]);
   expect(() => decodeSource({ ...open, pullRequests: [] })).toThrow();
@@ -250,4 +258,94 @@ test("a stored report belongs to a started report assignment and one of its laun
   ])
     expect(() => decodeSource({ ...valid, reports })).toThrow();
   expect(() => decodeSource({ ...input, launches: [], reports: [report] })).toThrow();
+});
+
+test("a merged PR assignment needs its verified merge and its cleanup, and nothing else has them", () => {
+  const plan = JSON.stringify({
+    trackerKey: "APP-1",
+    assignments: [
+      {
+        key: "change",
+        trackerKey: "APP-3",
+        instructions: "Change.",
+        completion: "pr",
+        resources: "worktree",
+        branch: "task/3",
+        dependencies: [],
+      },
+    ],
+  });
+  const pr = {
+    sourceId: "one",
+    assignment: "change",
+    repository: "example/one",
+    number: 7,
+    url: "u",
+    branch: "task/3",
+    associatedAt: "now",
+    progress: "{}",
+    waitState: "reported",
+    waitAt: "now",
+    waitOwnerPid: null,
+    waitLeaseAt: null,
+    waitStopped: false,
+    mergedHead: "h1",
+    mergeCommit: "m1",
+    mergedAt: "now",
+  };
+  const cleanup = {
+    sourceId: "one",
+    assignment: "change",
+    launchId: "launch",
+    step: "pane",
+    state: "failed",
+    reason: "cleanup_failed",
+    detail: "pane: refused",
+    updatedAt: "now",
+    ownerPid: null,
+    leaseAt: null,
+    running: false,
+  };
+  const merged = {
+    source: { ...input.source, plan, state: "finished", endedAt: "now" },
+    assignments: [{ sourceId: "one", key: "change", completion: "pr", state: "merged" }],
+    launches: [],
+    pullRequests: [pr],
+    reports: [],
+    cleanups: [cleanup],
+  };
+  expect(decodeSource(merged).cleanups).toEqual([
+    {
+      assignment: "change",
+      step: "pane",
+      state: "failed",
+      reason: "cleanup_failed",
+      detail: "pane: refused",
+      updatedAt: "now",
+      running: false,
+    },
+  ]);
+  expect(() => decodeSource({ ...merged, cleanups: [] })).toThrow();
+  expect(() => decodeSource({ ...merged, pullRequests: [{ ...pr, mergedHead: null }] })).toThrow();
+  expect(() => decodeSource({ ...merged, pullRequests: [{ ...pr, mergeCommit: null }] })).toThrow();
+  expect(() => decodeSource({ ...merged, cleanups: [{ ...cleanup, step: null }] })).toThrow();
+  expect(() =>
+    decodeSource({ ...merged, cleanups: [{ ...cleanup, assignment: "other" }] }),
+  ).toThrow();
+  const open = {
+    ...merged,
+    source: { ...merged.source, state: "open", endedAt: null },
+    assignments: [{ sourceId: "one", key: "change", completion: "pr", state: "pr-open" }],
+  };
+  expect(() => decodeSource(open)).toThrow();
+  expect(() =>
+    decodeSource({ ...open, pullRequests: [{ ...pr, mergedHead: null, mergeCommit: null }] }),
+  ).toThrow();
+  expect(
+    decodeSource({
+      ...open,
+      pullRequests: [{ ...pr, mergedHead: null, mergeCommit: null }],
+      cleanups: [],
+    }).assignments,
+  ).toEqual([{ key: "change", completion: "pr", state: "pr-open" }]);
 });

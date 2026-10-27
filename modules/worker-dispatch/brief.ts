@@ -39,6 +39,7 @@ ${opened.join("\n")}
 Run \`operator pr wait --json\` in your worktree, and repeat it after you handle each result.
 Check each claim in feedback, reply, and push fixes to the same PR.
 A \`pr_wait_timed_out\` result is visible to your SuperAgent until you wait again.
+After \`merge_eligible\`, run \`operator pr merge --json\`. It checks GitHub again, merges, and then closes this pane.
 PR commands select your assignment only through this worktree.
 `;
 }

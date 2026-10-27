@@ -3,7 +3,7 @@ import type { Database } from "bun:sqlite";
 import type { drizzle } from "drizzle-orm/bun-sqlite";
 import { Err, Ok, type Result } from "unthrown";
 import { checkHistory, transaction } from "./database.ts";
-import { assignments, launches, projects, pullRequests, sources } from "./schema.ts";
+import { assignments, cleanups, launches, projects, pullRequests, sources } from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
 
 export type PullRequestRow = typeof pullRequests.$inferSelect;
@@ -37,6 +37,7 @@ export function worktreeOwners(client: Database) {
           assignment: assignments.key,
           completion: assignments.completion,
           assignmentState: assignments.state,
+          pullRequest: pullRequests.number,
         })
         .from(launches)
         .innerJoin(sources, eq(sources.id, launches.sourceId))
@@ -46,6 +47,13 @@ export function worktreeOwners(client: Database) {
           and(
             eq(assignments.sourceId, launches.sourceId),
             eq(assignments.key, launches.assignment),
+          ),
+        )
+        .leftJoin(
+          pullRequests,
+          and(
+            eq(pullRequests.sourceId, launches.sourceId),
+            eq(pullRequests.assignment, launches.assignment),
           ),
         )
         .where(isNotNull(launches.worktreePath))
@@ -170,6 +178,9 @@ export function associatePullRequest(
             waitAt: null,
             waitOwnerPid: null,
             waitLeaseAt: null,
+            mergedHead: null,
+            mergeCommit: null,
+            mergedAt: null,
           };
           db.insert(pullRequests).values(row).run();
           db.update(assignments)
@@ -253,6 +264,83 @@ export function renewPullRequestWait(client: Database, sourceId: string, assignm
         )
         .run();
       return undefined;
+    }),
+  );
+}
+
+type AssignmentStates = Pick<typeof assignments.$inferSelect, "key" | "completion" | "state">[];
+
+/**
+ * A verified merge moves the assignment from PR open to merged and records the first cleanup
+ * step in the same transaction, so a merge can never end without its cleanup obligation.
+ * A repeated record of the same merge changes nothing.
+ */
+export function recordPullRequestMerge(
+  client: Database,
+  launchId: string,
+  merge: { number: number; head: string; mergeCommit: string },
+  sourceState: (rows: AssignmentStates) => string,
+) {
+  return transaction(client, true, () =>
+    checkHistory(client).flatMap((db): Result<{ changed: boolean }, PullRequestFailure> => {
+      const launch = db.select().from(launches).where(eq(launches.id, launchId)).get();
+      const recorded =
+        launch === undefined ? undefined : current(db, launch.sourceId, launch.assignment);
+      if (
+        recorded !== undefined &&
+        recorded.mergedHead !== null &&
+        recorded.number === merge.number
+      )
+        return Ok({ changed: false });
+      return activeOwner(db, launchId).flatMap(({ source, assignment }) => {
+        const row = current(db, source.id, assignment.key);
+        if (row === undefined || assignment.state !== "pr-open" || row.number !== merge.number)
+          return Err<PullRequestFailure>({
+            reason: "pr_not_associated",
+            detail: `PR #${merge.number} is not the open PR of assignment ${assignment.key}. Nothing was changed.`,
+          });
+        const now = new Date().toISOString();
+        const key = and(
+          eq(pullRequests.sourceId, source.id),
+          eq(pullRequests.assignment, assignment.key),
+        );
+        db.update(pullRequests)
+          .set({ mergedHead: merge.head, mergeCommit: merge.mergeCommit, mergedAt: now })
+          .where(key)
+          .run();
+        db.update(assignments)
+          .set({ state: "merged" })
+          .where(and(eq(assignments.sourceId, source.id), eq(assignments.key, assignment.key)))
+          .run();
+        db.insert(cleanups)
+          .values({
+            sourceId: source.id,
+            assignment: assignment.key,
+            launchId,
+            step: "remote_branch",
+            state: "pending",
+            reason: null,
+            detail: null,
+            updatedAt: now,
+            ownerPid: null,
+            leaseAt: null,
+          })
+          .run();
+        const state = sourceState(
+          db
+            .select({
+              key: assignments.key,
+              completion: assignments.completion,
+              state: assignments.state,
+            })
+            .from(assignments)
+            .where(eq(assignments.sourceId, source.id))
+            .all(),
+        );
+        if (state !== source.state)
+          db.update(sources).set({ state, endedAt: now }).where(eq(sources.id, source.id)).run();
+        return Ok({ changed: true });
+      });
     }),
   );
 }

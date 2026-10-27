@@ -6,7 +6,13 @@ import { DeviceSettings } from "../device-settings/main.ts";
 import { planSchema } from "./plan.ts";
 import { assignmentStateSchema, decideAssignment } from "./assignment-machine.ts";
 import { decideSource } from "./source-machine.ts";
-import { decodeSource, type Launch, type PullRequest, type Report } from "./snapshot.ts";
+import {
+  decodeSource,
+  type Cleanup,
+  type Launch,
+  type PullRequest,
+  type Report,
+} from "./snapshot.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { decideReport } from "./report-machine.ts";
 
@@ -70,6 +76,22 @@ function reportSummary(input: Input, repository: string, sourceId: string, repor
         ? null
         : { state: report.cleanupState, detail: report.cleanupDetail },
   };
+}
+
+function cleanupSummary(cleanup: Cleanup) {
+  return {
+    step: cleanup.step,
+    state: cleanup.running ? "running" : cleanup.state,
+    failure: cleanup.reason === null ? null : { reason: cleanup.reason, detail: cleanup.detail },
+    updatedAt: cleanup.updatedAt,
+  };
+}
+
+function cleanupFact(cleanup: Cleanup | undefined) {
+  if (cleanup === undefined) return undefined;
+  if (cleanup.running) return "running";
+  if (cleanup.state !== "blocked") return cleanup.state;
+  return cleanup.reason === "cleanup_resource_mismatch" ? "resource_mismatch" : "unlanded_work";
 }
 
 function read(input: Input & { sourceId?: string }) {
@@ -154,6 +176,13 @@ export const WorkSources = {
   show(input: Input & { sourceId: string }) {
     return read(input).map((sources) => sources[0]);
   },
+  /** The source state that follows from its assignment states, for writes that end work. */
+  stateAfter(assignments: { key: string; completion: string; state: string }[]) {
+    return decideSource({
+      state: "open",
+      assignments: z.array(assignmentStateSchema).parse(assignments),
+    });
+  },
   next(input: Input & { sourceId?: string }) {
     return read(input).flatMap((sources) =>
       fromThrowable(
@@ -196,6 +225,7 @@ function decide(input: Input, source: Source) {
     const launch = source.launches.findLast((row) => row.assignment === assignment.key);
     const pullRequest = source.pullRequests.find((pr) => pr.assignment === assignment.key);
     const report = source.reports.findLast((row) => row.assignment === assignment.key);
+    const cleanup = source.cleanups.find((row) => row.assignment === assignment.key);
     const decision = decideAssignment({
       assignment: current,
       dependencies: dependencies.filter((dependency) => dependency !== undefined),
@@ -207,33 +237,57 @@ function decide(input: Input, source: Source) {
         report === undefined
           ? undefined
           : { decision: report.decision, cleanup: report.cleanupState },
+      cleanup: cleanupFact(cleanup),
     });
-    const row: typeof decision & {
-      assignment: string;
-      launch?: object;
-      pullRequest?: object;
-      report?: object;
-    } = {
-      assignment: assignment.key,
-      ...decision,
-    };
-    if (launch !== undefined) row.launch = launchSummary(launch);
-    if (pullRequest !== undefined) row.pullRequest = pullRequestSummary(pullRequest);
-    if (report !== undefined)
-      row.report = reportSummary(input, source.repository, source.id, report);
-    return row;
+    return described(
+      input,
+      source,
+      { assignment: assignment.key, ...decision },
+      {
+        launch,
+        pullRequest,
+        report,
+        cleanup,
+      },
+    );
   });
+}
+
+/** Adds the recorded facts that the SuperAgent reads beside each decision. */
+function described<T extends object>(
+  input: Input,
+  source: Source,
+  decision: T,
+  records: {
+    launch: Launch | undefined;
+    pullRequest: PullRequest | undefined;
+    report: Report | undefined;
+    cleanup: Cleanup | undefined;
+  },
+) {
+  const row: T & { launch?: object; pullRequest?: object; report?: object; cleanup?: object } = {
+    ...decision,
+  };
+  const { launch, pullRequest, report, cleanup } = records;
+  if (launch !== undefined) row.launch = launchSummary(launch);
+  if (pullRequest !== undefined) row.pullRequest = pullRequestSummary(pullRequest);
+  if (report !== undefined) row.report = reportSummary(input, source.repository, source.id, report);
+  if (cleanup !== undefined) row.cleanup = cleanupSummary(cleanup);
+  return row;
 }
 
 function nextActions(input: Input, source: Source) {
   const decisions = decide(input, source);
-  const cleanup = decisions.filter((decision) => decision.action === "retry_cleanup");
+  // An ended source keeps the cleanup that its completed work still owes.
+  const cleanup = decisions.filter(
+    (decision) => decision.action === "retry_cleanup" || decision.action === "person_decision",
+  );
   if (source.state !== "open")
     return {
       id: source.id,
       state: source.state,
       actions: [{ action: "source_ended", reason: source.state }, ...cleanup],
-      waits: [],
+      waits: decisions.filter((decision) => decision.reason === "cleanup_running"),
     };
   return {
     id: source.id,

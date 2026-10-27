@@ -29,6 +29,7 @@ test("each fixed migration declares its held-record policy and unknown policies 
   expect(migrationBlockers(db, 1793024341510).tag).toBe("Ok");
   expect(migrationBlockers(db, 1793031772449).tag).toBe("Ok");
   expect(migrationBlockers(db, 1793114012060).tag).toBe("Ok");
+  expect(migrationBlockers(db, 1793118895818).tag).toBe("Ok");
   expect(migrationBlockers(db, 9999999999999)).toMatchObject({
     tag: "Err",
     error: { reason: "state_incompatible" },
@@ -77,4 +78,26 @@ test("live launches and running preparations block an upgrade, abandoned ones do
   expect(idleForMigration(db, 4).tag).toBe("Ok");
   db.query("UPDATE worktree_preparations SET state = 'failed', owner_pid = ?").run(process.pid);
   expect(idleForMigration(db, 4).tag).toBe("Ok");
+});
+
+test("a running cleanup blocks an upgrade, and a stopped or failed one does not", () => {
+  using db = new Database(":memory:");
+  db.exec(
+    "CREATE TABLE assignments (state TEXT); CREATE TABLE project_removals (repository TEXT); CREATE TABLE launches (state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE worktree_preparations (state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE cleanups (state TEXT, owner_pid INTEGER, lease_at TEXT)",
+  );
+  db.query("INSERT INTO cleanups VALUES ('failed', NULL, NULL)").run();
+  expect(idleForMigration(db, 7).tag).toBe("Ok");
+  db.query("UPDATE cleanups SET state = 'pending', owner_pid = ?, lease_at = ?").run(
+    process.pid,
+    new Date().toISOString(),
+  );
+  expect(idleForMigration(db, 6).tag).toBe("Ok");
+  expect(idleForMigration(db, 7)).toMatchObject({
+    tag: "Err",
+    error: { reason: "state_migration_blocked" },
+  });
+  db.query("UPDATE cleanups SET owner_pid = ?").run(
+    Bun.spawnSync([process.execPath, "--version"]).pid,
+  );
+  expect(idleForMigration(db, 7).tag).toBe("Ok");
 });

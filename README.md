@@ -7,7 +7,7 @@ Personal skills and CLI tools for coordinating coding agents in OpenCode and Cla
 Issue [#234](https://github.com/fveracoechea/operator/issues/234) defines the device-level replacement.
 This branch starts with [#235](https://github.com/fveracoechea/operator/issues/235), which removes the legacy architecture before new workflows land.
 It is not an intermediate release.
-Help, version reporting, global installation, the Nix package, device settings, launch selection, project registration, skill installation, static readiness, supplied assignment plans, next actions, worker dispatch, the global Herdr plugin, the PR feedback loop, and report assignments are available.
+Help, version reporting, global installation, the Nix package, device settings, launch selection, project registration, skill installation, static readiness, supplied assignment plans, next actions, worker dispatch, the global Herdr plugin, the PR feedback loop, report assignments, the guarded PR merge, and cleanup after a merge are available.
 
 Finish old work with the old release before updating to the eventual breaking release.
 This code does not inspect, migrate, repair, or delete legacy Operator state.
@@ -16,7 +16,7 @@ Do not use it to resume an old session.
 The device-level design in `CONTEXT.md` and `docs/adr/` remains planned.
 The base lint policy in ADR-0018 is now enforced.
 Local mutation testing from ADR-0016 is also available for repository development.
-PR merge and cleanup, parent-merge relay, and reviews are not implemented here.
+Parent-merge relay and reviews are not implemented here.
 There are no replacement-command placeholders or compatibility aliases.
 
 ## Install Operator for the device
@@ -358,7 +358,7 @@ An empty plan finishes immediately.
 PR dependencies permit start at `pr-open` or `merged`.
 Report dependencies require accepted `completed`, not submitted `reported`.
 The commands launch no host and perform no tracker operations.
-Report submission and acceptance are described below, and the PR merge, cleanup, and parent-merge relay remain #250 and #251.
+Report submission and acceptance are described below, and parent-merge relay remains #250.
 
 ## Worker dispatch and the Herdr plugin
 
@@ -400,7 +400,7 @@ The real Git top level must be the recorded worktree of the running owner, on th
 Its progress is in device state, so a restarted wait does not repeat a result.
 `next` shows `owner_attention` for a timed-out or stopped wait, an owner that Herdr reports idle between waits, or a PR that is no longer open, and `replace_worker` for an ended owner pane.
 A replacement keeps the PR, its progress, and the PR's recorded worktree, and refuses when that worktree is missing.
-The guarded merge and cleanup are #251, and parent-merge relay is #250.
+Parent-merge relay is #250.
 See `docs/implementation/249-pr-feedback.md` for the diagrams, refusals, and evidence.
 
 ## Report assignments
@@ -420,6 +420,25 @@ Only acceptance completes the assignment and unblocks its dependents. Herdr acti
 Acceptance closes the worker pane and removes a report worktree only when Git shows no unlanded work.
 A kept worktree waits for the person, and a failed cleanup stays in `next` as `retry_cleanup`.
 See `docs/implementation/248-report-assignments.md` for the report file, the lifecycle, and cross-project use.
+
+## Guarded merge and cleanup
+
+```sh
+operator pr merge --json
+operator cleanup --source <source-id> --assignment <key> [--person-instructed] --json
+```
+
+The owner runs `pr merge` in its recorded worktree.
+It reads the PR from GitHub again and merges the observed head only with an approving review decision, at least one check and every check passing, no unresolved review thread, the default branch as base, and the worktree at that head.
+A refusal sends no merge request and writes nothing.
+The merge is recorded only after GitHub reports the PR merged with a merge commit.
+Then a separate process deletes the remote branch, closes the owner's pane, and removes the worktree, in that order.
+A step that fails stays in `next` as `retry_cleanup`, and the SuperAgent repeats it with `cleanup` from the controlling checkout.
+Commits that are not in the merged head, changed or untracked files, and ignored content that preparation did not write stay, and `next` shows `person_decision`.
+Lockfile-installed `node_modules` folders and unchanged copies of `.env*.local` files are preparation output and do not block.
+Only the person's instruction, `--person-instructed`, deletes unlanded work, and it covers only the step that is blocked when the cleanup starts.
+A moved remote branch is deleted only on the person's instruction, and a foreign checkout is never deleted.
+See `docs/implementation/251-merge-cleanup.md` for the diagrams, refusals, and evidence.
 
 ## Retained code and checks
 

@@ -11,11 +11,24 @@ Association moves the assignment to `pr-open`, which permits dependent assignmen
 - `owner_attention` with `pr_wait_timed_out`: the owner's last wait found nothing new and the owner did not wait again. Ask the owner through Herdr for its status.
 - `owner_attention` with `pr_wait_stopped`: the owner's wait process ended without a result, for example after a shell timeout. Ask the owner through Herdr to wait again.
 - `owner_attention` with `pr_owner_idle`: Herdr reports the owner idle or done and no wait runs. Ask the owner for its status.
-- `owner_attention` with `pr_not_open`: the PR was merged or closed outside the CLI. The assignment stays `pr-open`, and a new PR for it refuses with `pr_already_associated`. This release has no CLI recovery. Ask the person what to do, because this is not a verified completion.
+- `owner_attention` with `pr_not_open`: the PR was merged or closed outside the CLI. A merged PR completes when the owner runs `operator pr merge --json`, which verifies the merge without another merge request. For a closed PR, the assignment stays `pr-open`, and a new PR for it refuses with `pr_already_associated`. Ask the person what to do.
 - `replace_worker`: the owner's pane ended or its launch failed. Inspect the recorded worktree first. A new dispatch keeps the PR, its wait progress, and the worktree, and the brief tells the replacement to read the PR before it waits.
 
 Dispatch refuses a replacement with `pr_worktree_missing` when the PR's worktree is gone. Ask the person how to recover it.
 A stuck owner whose pane is still open cannot be replaced.
 Close its pane with Herdr only after you inspect the worktree, then dispatch the replacement.
 Herdr activity is an observation, not a result.
-A `merge_eligible` report from the owner is not a merge. The guarded merge command is not in this release.
+A `merge_eligible` report from the owner is not a merge. The owner runs `operator pr merge --json`, which checks GitHub again. Never merge for the owner.
+
+## Cleanup after a verified merge
+
+The merge starts cleanup in its own process. It deletes the remote branch, closes the owner's pane, and removes the worktree in that order, and stops at the first failure.
+Cleanup removes only what inspection proves landed: the worktree head must be in the merged head, and the worktree may hold only lockfile-installed `node_modules` folders and unchanged copies of `.env*.local` files from preparation.
+A finished source still shows the cleanup that its merges owe.
+
+- `wait` with `cleanup_running`: a cleanup process runs. Do nothing.
+- `retry_cleanup` with `cleanup_failed` or `cleanup_stopped`: run `operator cleanup --source <id> --assignment <key> --json` from the controlling checkout, in the Herdr session that started the worker. It continues at the recorded step.
+- `person_decision` with `cleanup_unlanded_work`: the detail names a remote branch that moved after the merge, or the commits, changed files, or unknown ignored content of the worktree. Ask the person. Only on the person's instruction, add `--person-instructed` to delete that work. It covers only the blocked step. A later step that finds other work blocks again with its own detail.
+- `person_decision` with `cleanup_resource_mismatch`: the recorded path is no longer the recorded worktree. Operator never removes it, even with `--person-instructed`. Ask the person to move it away, then run the cleanup again.
+
+A project with an open cleanup cannot be moved or removed.

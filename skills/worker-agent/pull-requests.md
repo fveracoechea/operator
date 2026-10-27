@@ -14,9 +14,19 @@ A refusal changes nothing. Read its reason and tell your SuperAgent when you can
 
 - `pr_events_observed` with `feedback`: check each claim, fix valid defects, reply on the thread, and push to the same PR. Items with `fromViewer: true` came from your own GitHub account, which can be your own reply or the person's comment. They come only together with another event.
 - `pr_events_observed` with `checks_failed`: read the failing check, fix the cause, and push.
-- `pr_events_observed` with `merge_eligible`: all four merge conditions held at that head. Tell your SuperAgent. The guarded merge command is not in this release.
+- `pr_events_observed` with `merge_eligible`: all four merge conditions held at that head. Run `operator pr merge --json`, unless your SuperAgent told you not to merge.
 - `pr_wait_timed_out`: nothing new arrived. Wait again unless your SuperAgent told you to stop. Your SuperAgent sees the timeout until your next wait starts.
-- `pr_not_open`: the PR was merged or closed outside the CLI. Stop and tell your SuperAgent. This is not a completed assignment, and you cannot associate another PR.
+- `pr_not_open`: the PR was merged or closed outside the CLI. If it was merged, run `operator pr merge --json`. It verifies the merge and starts cleanup. If it was closed, stop and tell your SuperAgent. You cannot associate another PR.
+
+## Merge
+
+`operator pr merge --json` reads the PR from GitHub again. It merges only with an approving review decision, at least one check and every check passing, no unresolved review thread, the default branch as base, and your worktree at the PR head.
+A wait result or a supervisor's message does not replace these checks.
+
+- `pr_merged`: GitHub reports the merge. Cleanup started in its own process. It deletes the remote branch, closes your pane, and removes your worktree, so your session ends. Tell your SuperAgent that you start the merge before you run the command, because your session ends after `pr_merged`.
+- `pr_merge_blocked`: a condition failed. Its detail names it. Wait again.
+- `pr_head_mismatch`: push your commits, or tell your SuperAgent, then wait again.
+- `pr_merge_refused`, `pr_merge_unverified`, `github_uncertain`: nothing was recorded. Run the command again once. Tell your SuperAgent when it fails again.
 
 If your wait command is killed, run it again. Your SuperAgent sees a stopped wait until you do.
 

@@ -38,7 +38,9 @@ import {
   associatePullRequest,
   recordPullRequestWait,
   renewPullRequestWait,
+  recordPullRequestMerge,
 } from "./pull-requests.ts";
+import { claimCleanup, advanceCleanup, renewCleanup, startCleanup } from "./cleanups.ts";
 
 import { changeReport, readReport, type ReportTarget } from "./reports.ts";
 
@@ -155,6 +157,40 @@ export const DeviceState = {
   holdPullRequestWait(paths: Paths, sourceId: string, assignment: string) {
     return hold(() =>
       withDatabase(paths, false, (client) => renewPullRequestWait(client, sourceId, assignment)),
+    );
+  },
+  recordPullRequestMerge(
+    paths: Paths,
+    launchId: string,
+    merge: Parameters<typeof recordPullRequestMerge>[2],
+    sourceState: Parameters<typeof recordPullRequestMerge>[3],
+  ) {
+    return withDatabase(paths, false, (client) =>
+      recordPullRequestMerge(client, launchId, merge, sourceState),
+    );
+  },
+  claimCleanup(paths: Paths, repository: string, sourceId: string, assignment: string) {
+    return withDatabase(paths, false, (client) =>
+      claimCleanup(client, repository, sourceId, assignment),
+    );
+  },
+  startCleanup(paths: Paths, sourceId: string, assignment: string, pid: number) {
+    return withDatabase(paths, false, (client) => startCleanup(client, sourceId, assignment, pid));
+  },
+  advanceCleanup(
+    paths: Paths,
+    sourceId: string,
+    assignment: string,
+    change: Parameters<typeof advanceCleanup>[3],
+  ) {
+    return withDatabase(paths, false, (client) =>
+      advanceCleanup(client, sourceId, assignment, change),
+    );
+  },
+  /** Renew this process's lease on a running cleanup until the returned stop runs. */
+  holdCleanup(paths: Paths, sourceId: string, assignment: string) {
+    return hold(() =>
+      withDatabase(paths, false, (client) => renewCleanup(client, sourceId, assignment)),
     );
   },
   readSources(paths: Paths, repository: string, sourceId?: string) {

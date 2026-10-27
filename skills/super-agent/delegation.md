@@ -9,8 +9,7 @@ Require a short conclusion, evidence references, unresolved points, and paths to
 A stopped or idle Herdr agent is not completion evidence.
 Preserve unlanded work until the person authorizes its deletion.
 A report assignment completes only when you accept its report, as [reports.md](reports.md) describes.
-PR assignment completion will require the owner's guarded merge, not a host completion signal.
-That workflow is not yet implemented in this slice.
+PR assignment completion requires the owner's guarded merge, not a host completion signal.
 
 A native subagent remains under its parent WorkerAgent's task and responsibility.
 Work that needs independent scheduling, dependency links, or your separate acceptance needs its own assignment.

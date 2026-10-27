@@ -219,3 +219,20 @@ test("reports await review, returned work needs its worker, and unfinished clean
     }),
   ).toMatchObject({ action: "ended" });
 });
+
+test("a merged assignment shows its open cleanup until every resource is disposed", () => {
+  const merged: AssignmentState = { key: "one", completion: "pr", state: "merged" };
+  // The pane closed during cleanup, so the launch reads interrupted. It needs no replacement.
+  const facts = { assignment: merged, dependencies: [], launch: "interrupted" as const };
+  const cases = [
+    ["running", "wait", "cleanup_running"],
+    ["unlanded_work", "person_decision", "cleanup_unlanded_work"],
+    ["resource_mismatch", "person_decision", "cleanup_resource_mismatch"],
+    ["failed", "retry_cleanup", "cleanup_failed"],
+    ["pending", "retry_cleanup", "cleanup_stopped"],
+    ["done", "ended", "assignment_ended"],
+    [undefined, "ended", "assignment_ended"],
+  ] as const;
+  for (const [cleanup, action, reason] of cases)
+    expect(decideAssignment({ ...facts, cleanup })).toEqual({ action, reason, blockers: [] });
+});

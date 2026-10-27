@@ -48,13 +48,18 @@ function parse(text: string): unknown {
   )().getOr(undefined);
 }
 
-/** Every call is a bounded external effect. A missing answer does not prove that nothing changed. */
-function invoke<T>(args: string[], schema: z.ZodType<T>, timeoutMs = 60000) {
+const errorAnswer = z.object({ error: z.object({ code: z.string() }) });
+
+/**
+ * Every call is a bounded external effect. A missing answer does not prove that nothing changed.
+ * A refusal with the `absent` error code answers null, so a caller can observe a gone resource.
+ */
+function call(args: string[], timeoutMs: number, absent?: string) {
   const command = `herdr ${args.slice(0, 2).join(" ")}`;
   return fromPromise(
     () => ToolInvocation.run({ tool: "herdr", args, timeoutMs }),
     (cause, defect) => defect(cause),
-  ).flatMap((result): Result<T, HerdrFailure> => {
+  ).flatMap((result): Result<string | null, HerdrFailure> => {
     if (result.status === "unavailable")
       return Err({ reason: "herdr_unavailable", detail: result.detail });
     if (result.status === "no-answer")
@@ -62,19 +67,36 @@ function invoke<T>(args: string[], schema: z.ZodType<T>, timeoutMs = 60000) {
         reason: "herdr_no_answer",
         detail: `${result.detail} Inspect Herdr before a retry, because the effect can exist.`,
       });
-    if (result.exitCode !== 0)
-      return Err({
-        reason: "herdr_failed",
-        detail: `${command} exited ${result.exitCode}: ${(result.stderr || result.stdout).trim()}`,
-      });
-    const parsed = schema.safeParse(parse(result.stdout));
-    return parsed.success
-      ? Ok(parsed.data)
-      : Err({
-          reason: "herdr_invalid_response",
-          detail: `${command} returned an unexpected response.`,
-        });
+    if (result.exitCode === 0) return Ok(result.stdout);
+    const refused = errorAnswer.safeParse(parse(result.stdout) ?? parse(result.stderr));
+    if (absent !== undefined && refused.success && refused.data.error.code === absent)
+      return Ok(null);
+    return Err({
+      reason: "herdr_failed",
+      detail: `${command} exited ${result.exitCode}: ${(result.stderr || result.stdout).trim()}`,
+    });
   });
+}
+
+function answer<T>(args: string[], stdout: string, schema: z.ZodType<T>) {
+  const parsed = schema.safeParse(parse(stdout));
+  return parsed.success
+    ? Ok(parsed.data)
+    : Err<HerdrFailure>({
+        reason: "herdr_invalid_response",
+        detail: `herdr ${args.slice(0, 2).join(" ")} returned an unexpected response.`,
+      });
+}
+
+function invoke<T>(args: string[], schema: z.ZodType<T>, timeoutMs = 60000) {
+  return call(args, timeoutMs).flatMap((stdout) => answer(args, stdout ?? "", schema));
+}
+
+/** Like invoke, but a refusal with the `absent` error code answers null. */
+function lookup<T>(args: string[], schema: z.ZodType<T>, absent: string) {
+  return call(args, 60000, absent).flatMap((stdout) =>
+    stdout === null ? Ok(null) : answer(args, stdout, schema),
+  );
 }
 
 function placed(value: z.infer<typeof created>) {
@@ -189,21 +211,30 @@ export const Herdr = {
   prompt(input: { name: string; text: string }) {
     return invoke(["agent", "prompt", input.name, input.text], z.unknown());
   },
-  /** A pane that Herdr no longer knows is already closed. */
+  /** The pane's placement, or null when Herdr no longer has a pane with this identifier. */
+  pane(paneId: string) {
+    return lookup(
+      ["pane", "get", paneId],
+      z.object({ result: z.object({ pane }) }),
+      "pane_not_found",
+    ).map((value) =>
+      value === null
+        ? null
+        : { tabId: value.result.pane.tab_id, workspaceId: value.result.pane.workspace_id },
+    );
+  },
+  /** Herdr closes the workspace too when the pane was its last one. A gone pane is absent. */
   closePane(paneId: string) {
-    return fromPromise(
-      async () => {
-        const result = await invoke(["pane", "close", paneId], z.unknown());
-        // Herdr 0.9.3 exits 1 with {"error":{"code":"pane_not_found",...}}. The failure detail
-        // carries that output, and the adapter keeps no parsed error code.
-        return result.tag === "Err" &&
-          result.error.reason === "herdr_failed" &&
-          result.error.detail.includes("pane_not_found")
-          ? Ok<"closed" | "absent">("absent")
-          : result.map((): "closed" | "absent" => "closed");
-      },
-      (cause, defect) => defect(cause),
-    ).flatMap((result) => result);
+    return lookup(["pane", "close", paneId], z.unknown(), "pane_not_found").map(
+      (value): "closed" | "absent" => (value === null ? "absent" : "closed"),
+    );
+  },
+  /** Herdr removes the checkout through Git and closes its workspace. */
+  removeWorktree(input: { workspaceId: string; force: boolean }) {
+    return invoke(
+      ["worktree", "remove", "--workspace", input.workspaceId, ...(input.force ? ["--force"] : [])],
+      z.unknown(),
+    ).map(() => undefined);
   },
   plugins() {
     return invoke(["plugin", "list", "--json"], pluginList).map((value) =>

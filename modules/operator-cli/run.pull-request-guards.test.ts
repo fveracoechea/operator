@@ -69,7 +69,12 @@ test.each([
   {
     name: "no selector flags",
     file: "operator-cli/pull-requests.ts",
-    replacements: [["} else return null;", "}"]],
+    replacements: [
+      [
+        "      timeoutSeconds = Number(value);\n    } else return null;",
+        "      timeoutSeconds = Number(value);\n    }",
+      ],
+    ],
     testFile: "operator-cli/run.pull-requests.test.ts",
     pattern: "PR commands resolve only the recorded worktree",
   },

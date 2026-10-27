@@ -3,6 +3,8 @@ import { DeviceState } from "../device-state/main.ts";
 import { observePullRequest, openPullRequests } from "./github.ts";
 import { resolveOwner, qualify, type Owner, type Paths } from "./owner.ts";
 import { decideWait, mergeConditions, progressSchema } from "./wait-machine.ts";
+import { merge } from "./merge.ts";
+import { cleanup } from "./cleanup.ts";
 
 type Request = { paths: Paths; cwd: string };
 type Failure = { reason: string; detail: string };
@@ -129,8 +131,17 @@ function wait(input: Request & { timeoutSeconds: number }) {
   );
 }
 
-/** PR operations of the owner WorkerAgent. Its worktree is the only assignment selector. */
+/**
+ * PR operations of the owner WorkerAgent, whose worktree is the only assignment selector, and
+ * the cleanup that follows a verified merge, which the SuperAgent can repeat after a failure.
+ */
 export const PullRequests = {
+  merge(input: Request) {
+    return merge(input);
+  },
+  cleanup(input: Parameters<typeof cleanup>[0]) {
+    return cleanup(input);
+  },
   associate(input: Request) {
     return associate(input);
   },

@@ -37,12 +37,13 @@ The dotfiles link that file into each agent host, so this repository is its one 
 ## Breaking workflow replacement
 
 The legacy CLI workflows are removed under #235 before their device-level replacements land.
-Help, version reporting, global installation, the Nix package, device settings, launch selection, project registration, skill installation, static readiness, supplied assignment plans, next actions, worker dispatch, the global Herdr plugin, the PR feedback loop, and report assignments are available.
+Help, version reporting, global installation, the Nix package, device settings, launch selection, project registration, skill installation, static readiness, supplied assignment plans, next actions, worker dispatch, the global Herdr plugin, the PR feedback loop, report assignments, and the guarded merge with cleanup are available.
 For concurrent quality runs, the test watchdog, and open Bun defects, read `docs/implementation/220-concurrent-quality.md`.
 For global JSR and source installation, the launcher, and global command discovery, read `docs/implementation/256-global-installation.md`.
 For the Nix flake, its launcher, its checks, and `nix/bun.nix` refreshes, read `docs/implementation/257-nix-package.md`.
 For PR association, the owner wait loop, and owner attention, read `docs/implementation/249-pr-feedback.md`.
 For report submission, return, acceptance, and cleanup, read `docs/implementation/248-report-assignments.md`.
+For the guarded merge, merge verification, ordered cleanup, and unlanded work, read `docs/implementation/251-merge-cleanup.md`.
 For dispatch, launch snapshots, worktree preparation, and the live Herdr evidence, read `docs/implementation/247-dispatch.md`.
 For startup compatibility, migration blockers, and verified backups, read `docs/implementation/245-automatic-compatibility.md`.
 For project listing, controller moves, removal authority, and durable file cleanup, read `docs/implementation/246-project-management.md`.

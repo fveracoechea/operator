@@ -54,6 +54,9 @@ const pullRequestSchema = z.object({
   waitState: z.enum(["idle", "waiting", "reported", "timed_out", "not_open"]),
   waitAt: z.string().nullable(),
   waitStopped: z.boolean(),
+  mergedHead: z.string().nullable(),
+  mergeCommit: z.string().nullable(),
+  mergedAt: z.string().nullable(),
 });
 export type PullRequest = z.infer<typeof pullRequestSchema>;
 
@@ -85,6 +88,17 @@ const reportSchema = z.object({
   cleanupDetail: z.string().nullable(),
 });
 export type Report = z.infer<typeof reportSchema>;
+// A verified merge records its ordered cleanup. Next actions read where it stopped.
+const cleanupSchema = z.object({
+  assignment: z.string(),
+  step: z.enum(["remote_branch", "pane", "worktree"]).nullable(),
+  state: z.enum(["pending", "failed", "blocked", "done"]),
+  reason: z.string().nullable(),
+  detail: z.string().nullable(),
+  updatedAt: z.string(),
+  running: z.boolean(),
+});
+export type Cleanup = z.infer<typeof cleanupSchema>;
 
 export function decodeSource(input: StoredSource) {
   const source = {
@@ -95,6 +109,7 @@ export function decodeSource(input: StoredSource) {
     launches: z.array(launchSchema).parse(input.launches),
     pullRequests: z.array(pullRequestSchema).parse(input.pullRequests),
     reports: z.array(reportSchema).parse(input.reports),
+    cleanups: z.array(cleanupSchema).parse(input.cleanups),
   };
   const consistent =
     source.trackerKey === source.plan.trackerKey &&
@@ -129,6 +144,23 @@ export function decodeSource(input: StoredSource) {
           ["pr-open", "merged", "abandoned"].includes(row.state),
       ),
     );
+  // Only a verified merge ends a PR assignment as merged, and it always records its cleanup.
+  const validMerges =
+    source.assignments.every((row) => {
+      if (row.completion !== "pr") return true;
+      const pr = source.pullRequests.find((item) => item.assignment === row.key);
+      const merged = pr !== undefined && pr.mergedHead !== null && pr.mergeCommit !== null;
+      const cleanup = source.cleanups.some((item) => item.assignment === row.key);
+      return row.state === "merged" ? merged && cleanup : !merged && !cleanup;
+    }) &&
+    source.cleanups.every(
+      (cleanup) =>
+        (cleanup.step === null) === (cleanup.state === "done") &&
+        source.assignments.some(
+          (row) =>
+            row.key === cleanup.assignment && row.completion === "pr" && row.state === "merged",
+        ),
+    );
   // A report belongs to a report assignment that left the ready state, and to one of its launches.
   const validReports = source.reports.every(
     (report) =>
@@ -144,6 +176,7 @@ export function decodeSource(input: StoredSource) {
     validLaunches &&
     validPullRequests &&
     validReports &&
+    validMerges &&
     validState &&
     (source.state === "open" ? source.endedAt === null : source.endedAt !== null);
   if (!consistent || !validLifecycle) {

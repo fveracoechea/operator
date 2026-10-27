@@ -2,7 +2,7 @@
 
 Issue #249 implements PR association, the owner's wait loop, and owner attention from ADR-0010, ADR-0011, ADR-0001, and ADR-0003.
 Parent-merge relay and rebase remain #250.
-The guarded merge, merge verification, and cleanup remain #251.
+The guarded merge, merge verification, and cleanup are in `docs/implementation/251-merge-cleanup.md`.
 
 ## Commands
 
@@ -42,7 +42,7 @@ stateDiagram-v2
     running --> pr_open: owner opens the PR, then pr associate
     pr_open --> pr_open: owner pr wait returns feedback, failing CI, or eligibility
     pr_open --> pr_open: SuperAgent replaces an interrupted owner
-    pr_open --> merged: guarded merge, #251
+    pr_open --> merged: owner pr merge, verified on GitHub
     running --> abandoned: source reset, #252
     pr_open --> abandoned: source reset, #252
 ```
@@ -82,8 +82,8 @@ Each result has the PR, the observed head, the four merge conditions, and its ev
 
 - `feedback`: new reviews with a body or a verdict, PR comments, and review-thread comments, each with its author, `fromViewer`, path, and thread resolution. An item from the owner's own GitHub account has `fromViewer: true` and never ends a wait alone, so the owner's replies do not cost a round. It is reported once with the next other event. The accepted cost: a comment that the person writes from that same account also waits for the next other event.
 - `checks_failed`: check runs or status contexts that fail on the current head. The same check failing on a new head is reported again.
-- `merge_eligible`: approval, at least one reported check and all checks passing, no unresolved thread, and the default branch as base, reported once per head. Just after a push GitHub can report no checks yet, so no checks is not passing checks. The merge gate in #251 checks these conditions again before it merges.
-- `pr_merged` or `pr_closed`: the PR is no longer open. This is not a verified completion, so the assignment stays `pr-open`.
+- `merge_eligible`: approval, at least one reported check and all checks passing, no unresolved thread, and the default branch as base, reported once per head. Just after a push GitHub can report no checks yet, so no checks is not passing checks. `pr merge` checks these conditions again before it merges.
+- `pr_merged` or `pr_closed`: the PR is no longer open. This is not a verified completion, so the assignment stays `pr-open` until the owner runs `pr merge`.
 
 Each read takes the newest 100 reviews, 100 comments, 100 threads with their newest 50 comments, and 100 check contexts.
 More than that number of new items between two waits is not reported.
@@ -112,7 +112,7 @@ When that worktree is missing, dispatch refuses with `pr_worktree_missing` befor
 The person decides how to recover a missing PR worktree.
 The brief names the open PR and tells the replacement to read the reviews, comments, unresolved threads, and checks before it waits.
 A PR closed outside the CLI keeps its assignment `pr-open` with `pr_not_open` attention, and a new PR for that assignment refuses with `pr_already_associated`.
-This release has no CLI recovery, so the SuperAgent asks the person.
+A PR merged outside the CLI completes when the owner runs `pr merge`. For a closed PR, the SuperAgent asks the person.
 The replaced launch can no longer associate or wait, because only the running latest launch is the owner.
 
 ## Storage and compatibility

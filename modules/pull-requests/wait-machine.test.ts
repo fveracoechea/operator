@@ -10,6 +10,8 @@ const empty: { seen: string[]; failures: string[]; eligibleHead: string | null }
 const open: Observation = {
   state: "OPEN",
   head: "h1",
+  mergeCommit: null,
+  mergeMethod: "squash",
   base: "main",
   defaultBranch: "main",
   approved: false,

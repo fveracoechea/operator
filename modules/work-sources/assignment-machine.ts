@@ -25,6 +25,7 @@ type Facts = {
     decision: "accepted" | "returned" | null;
     cleanup: "pending" | "done" | "failed" | null;
   };
+  cleanup?: "running" | "pending" | "failed" | "done" | "unlanded_work" | "resource_mismatch";
 };
 type Decision = {
   action:
@@ -34,6 +35,7 @@ type Decision = {
     | "review_report"
     | "resume_worker"
     | "retry_cleanup"
+    | "person_decision"
     | "wait"
     | "ended";
   reason:
@@ -46,13 +48,17 @@ type Decision = {
     | "dependencies_pending"
     | "assignment_active"
     | "assignment_ended"
+    | "cleanup_running"
+    | "cleanup_failed"
+    | "cleanup_stopped"
+    | "cleanup_unlanded_work"
+    | "cleanup_resource_mismatch"
     | "launch_starting"
     | "launch_failed"
     | "launch_abandoned"
     | "worker_interrupted"
     | "report_submitted"
     | "follow_up_returned"
-    | "cleanup_failed"
     | "cleanup_unfinished";
   blockers: {
     assignment: string;
@@ -99,6 +105,32 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
       reason: report?.cleanup === "failed" ? "cleanup_failed" : "cleanup_unfinished",
       blockers: [],
     }),
+  },
+  // A merge is complete, but its cleanup stays visible until every resource is disposed.
+  {
+    when: ({ cleanup }) => cleanup === "running",
+    decide: () => ({ action: "wait", reason: "cleanup_running", blockers: [] }),
+  },
+  // Only the person can authorize deleting unlanded work or decide about a foreign resource.
+  {
+    when: ({ cleanup }) => cleanup === "unlanded_work",
+    decide: () => ({ action: "person_decision", reason: "cleanup_unlanded_work", blockers: [] }),
+  },
+  {
+    when: ({ cleanup }) => cleanup === "resource_mismatch",
+    decide: () => ({
+      action: "person_decision",
+      reason: "cleanup_resource_mismatch",
+      blockers: [],
+    }),
+  },
+  {
+    when: ({ cleanup }) => cleanup === "failed",
+    decide: () => ({ action: "retry_cleanup", reason: "cleanup_failed", blockers: [] }),
+  },
+  {
+    when: ({ cleanup }) => cleanup === "pending",
+    decide: () => ({ action: "retry_cleanup", reason: "cleanup_stopped", blockers: [] }),
   },
   {
     when: ({ assignment }) => ["merged", "completed", "abandoned"].includes(assignment.state),
