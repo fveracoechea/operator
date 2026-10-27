@@ -92,6 +92,19 @@ A command that writes files first reads the same facts, so a refusal writes no f
 Each report row in `next` shows its number, conclusion, report file, decision, follow-up file, and cleanup.
 `source show` lists every report with its follow-up text, and every launch with its id.
 
+## Unresolved points
+
+Issue #174 keeps the unresolved points of a report visible after acceptance, with no concern record and no scheduler.
+
+- Each report row in `next`, for example `review_report`, shows `unresolved` and `reference`.
+- The `report accept` result shows `unresolved` and `reference`. An unresolved point never blocks acceptance.
+- `source show` lists each report with `unresolved` and `reference` from the database, so a restart or a worker replacement loses nothing.
+- When a direct dependency has an accepted report, each `next` row of the dependent shows `dependencyReports`: the latest accepted report of each direct dependency, with its number, conclusion, unresolved points, and reference.
+- Dispatch copies the same content into the dependent's brief under `Accepted dependency reports`. The brief does not depend on the producer's report file.
+
+Only direct dependencies carry content. A dependent that passes a gap further puts it in its own report.
+The SuperAgent decides whether a point needs other work, and creates any tracker issue itself.
+
 ## Acceptance and cleanup
 
 Acceptance moves the assignment to `completed`, finishes a source whose assignments are all complete, and marks a running launch `finished`.
@@ -149,6 +162,9 @@ All commands ran in the #248 worktree on macOS with Bun 1.4.4, rebased on `8b837
 | `bun test --timeout=60000 modules/operator-cli/run.reports.test.ts` | 6 pass, 0 fail. |
 | `bun test --timeout=200000 modules/operator-cli/run.report-guards.test.ts` | 11 pass, 0 fail. Each deliberate break makes its behavior test fail. |
 | `bun test modules/work-sources modules/report-assignments modules/device-state modules/worker-dispatch` | Pass. |
+
+Issue #174 added `unresolved points of an accepted report reach review, next, inspection, and the dependent brief` to `run.reports.test.ts`. It failed before the change, because `next` showed no `unresolved` or `reference`.
+Beside-tests in `modules/work-sources/main.test.ts` and `modules/worker-dispatch/brief.test.ts` cover the dependency report selection and the brief section.
 
 The first guard run showed that a break of the supporting-file list alone did not fail any test, because the copies still existed. The guard now removes the copy itself.
 Review of #248 found that a worker could move `HEAD` off the recorded branch, so acceptance deleted that branch with its unlanded commits. A worktree beside-test reproduced it red before the fix, and a guard break proves the fix.

@@ -562,3 +562,63 @@ test("a refused concurrent submission or return leaves the recorded files unchan
     await Array.fromAsync(new Bun.Glob("**/pending/**").scan({ cwd: `${device.root}/state` })),
   ).toEqual([]);
 }, 60000);
+
+test("unresolved points of an accepted report reach review, next, inspection, and the dependent brief", async () => {
+  const source = await device.register(plan());
+  const worker = await device.dispatch(source, "investigate");
+  const file = await device.writeJson("report.json", report);
+  expect(
+    (await device.run(["report", "submit", "--file", file], { pane: worker.paneId })).code,
+  ).toBe(0);
+  const reference = `operator:example/one/sources/${source}/assignments/investigate/reports/1`;
+  const summary = { number: 1, unresolved: report.unresolved, reference };
+
+  // The SuperAgent sees the gaps when it decides.
+  expect(await device.next("investigate")).toMatchObject([
+    { action: "review_report", report: summary },
+  ]);
+  const accepted = await device.run([
+    "report",
+    "accept",
+    "--source",
+    source,
+    "--assignment",
+    "investigate",
+  ]);
+  expect(accepted.output).toMatchObject({
+    reason: "report_accepted",
+    data: { unresolved: report.unresolved, reference },
+  });
+
+  // After acceptance, the dependent's next row carries the gaps, and inspection keeps them.
+  const carried = {
+    assignment: "investigate",
+    report: 1,
+    conclusion: report.conclusion,
+    unresolved: report.unresolved,
+    reference,
+  };
+  expect(await device.next("follow")).toMatchObject([
+    { action: "ready_assignment", dependencyReports: [carried] },
+  ]);
+  expect(await device.run(["source", "show", "--source", source])).toMatchObject({
+    output: { data: { reports: [{ decision: "accepted", ...summary }] } },
+  });
+
+  // The consumer brief holds the content itself.
+  const consumer = await device.dispatch(source, "follow");
+  const brief = await Bun.file(consumer.brief).text();
+  expect(brief).toContain("## Accepted dependency reports");
+  for (const text of [reference, report.conclusion, ...report.unresolved])
+    expect(brief).toContain(text);
+  // A replacement reads the same content from device state, also when the producer files are gone.
+  const { file: producerFile } = z
+    .object({ data: z.object({ file: z.string() }) })
+    .parse(accepted.output).data;
+  await rm(producerFile.replace(/\/1\/report\.md$/, ""), { recursive: true, force: true });
+  expect(await Bun.file(producerFile).exists()).toBe(false);
+  await device.exec(["herdr", "pane", "exit", consumer.paneId, "w1"], device.main);
+  const replacement = await device.dispatch(source, "follow");
+  for (const text of [reference, report.conclusion, ...report.unresolved])
+    expect(await Bun.file(replacement.brief).text()).toContain(text);
+}, 60000);

@@ -60,7 +60,11 @@ function assignmentFacts(input: Request) {
               reason: "assignment_not_dispatchable",
               detail: `Assignment ${input.assignment} has no dispatch action. Read operator next for its waits. Nothing was launched.`,
             })
-          : Ok({ ...planned, sourceTrackerKey: source.trackerKey });
+          : Ok({
+              ...planned,
+              sourceTrackerKey: source.trackerKey,
+              dependencyReports: WorkSources.dependencyReports(source, planned.key),
+            });
       })
       .let(
         "pullRequest",
@@ -293,6 +297,7 @@ function writeBrief(
       reports: { directory: files.reports, files: await listFiles(files.reports) },
       followUps: { directory: files.followUps, files: await listFiles(files.followUps) },
       pullRequest: settings.pullRequest,
+      dependencyReports: settings.planned.dependencyReports,
     });
     await Bun.write(files.brief, text, { createPath: true });
     return files.brief;

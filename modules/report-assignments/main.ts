@@ -351,6 +351,21 @@ async function cleanup(checkout: string, facts: Facts) {
   return { state: "done" as const, detail: steps.join(" ") || "No pane or worktree to clean up." };
 }
 
+/** The decoded record carries the unresolved points and the reference that inspection shows. */
+function acceptedReport(input: {
+  paths: Paths;
+  cwd: string;
+  sourceId: string;
+  assignment: string;
+}) {
+  return WorkSources.show(input).flatMap((source) => {
+    const report = source?.reports.findLast((row) => row.assignment === input.assignment);
+    return report === undefined
+      ? Err<Failure>({ reason: "report_defect", detail: "The accepted report is not recorded." })
+      : Ok(report);
+  });
+}
+
 function accept(input: { paths: Paths; cwd: string; sourceId: string; assignment: string }) {
   return fromPromise(async () => {
     const target = await superAgentTarget(input);
@@ -377,8 +392,9 @@ function accept(input: { paths: Paths; cwd: string; sourceId: string; assignment
       })),
     );
     if (cleaned.tag !== "Ok") return stop(cleaned);
-    const report = facts.reports.at(-1);
-    const number = report?.number ?? 0;
+    const report = await acceptedReport(input);
+    if (report.tag !== "Ok") return stop(report);
+    const { number, conclusion, unresolved, reference } = report.value;
     const files = assignmentFiles(input.paths, facts);
     return Ok({
       reason: decided.retry ? "report_cleanup_retried" : "report_accepted",
@@ -388,10 +404,11 @@ function accept(input: { paths: Paths; cwd: string; sourceId: string; assignment
         state: "completed",
         sourceFinished: decided.sourceFinished === true,
         report: number,
-        conclusion: report?.conclusion ?? "",
+        conclusion,
+        unresolved,
         file: `${files.reports}/${number}/report.md`,
         // Another project's SuperAgent copies the content it needs with this reference.
-        reference: `operator:${facts.source.repository}/sources/${facts.source.id}/assignments/${facts.assignment.key}/reports/${number}`,
+        reference,
         cleanup: outcome,
       },
     });

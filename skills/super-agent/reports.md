@@ -1,8 +1,8 @@
 # Reports, follow-up, and acceptance
 
 A WorkerAgent submits its report from its own pane.
-`operator next --json` then shows `review_report` with the report number, its short conclusion, and the report file.
-Read the conclusion first. Open the report file only when the decision needs it.
+`operator next --json` then shows `review_report` with the report number, its short conclusion, its unresolved points, its `reference`, and the report file.
+Read the conclusion and the unresolved points first. Open the report file only when the decision needs it.
 
 Run decisions from the registered controlling checkout, in your own Herdr pane.
 The refusal of a decision from the worker's pane prevents mistakes. It does not prove who runs the command.
@@ -18,6 +18,10 @@ It runs `operator report resume --json` and submits a new report.
 When the worker stopped, `next` shows `replace_worker`. Dispatch again, and the new brief lists every earlier report and follow-up.
 
 Acceptance completes the assignment and unblocks its dependents.
+The acceptance result repeats the unresolved points. An unresolved point does not block acceptance.
+Each `next` row of a dependent shows `dependencyReports` with the accepted reports of its direct dependencies, and the dependent's brief copies their conclusions, unresolved points, and references.
+Decide whether a point needs other work. Operator does not schedule it. Create a tracker issue or a new plan yourself when it does.
+`operator source show --source <source-id> --json` keeps every report with its unresolved points and `reference` after acceptance.
 It is your decision, not a human answer, and it does not change how the report labels its answers.
 Ask the person when the instructions require human participation, a question exceeds your authority, or the authority is unclear.
 

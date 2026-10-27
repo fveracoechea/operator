@@ -1,3 +1,5 @@
+import type { WorkSources } from "../work-sources/main.ts";
+
 type BriefInput = {
   sourceId: string;
   sourceTrackerKey: string;
@@ -11,12 +13,45 @@ type BriefInput = {
   reports: { directory: string; files: string[] };
   followUps: { directory: string; files: string[] };
   pullRequest: { number: number; url: string } | null;
+  dependencyReports: ReturnType<typeof WorkSources.dependencyReports>;
 };
 
 function list(files: string[], directory: string) {
   return files.length === 0
     ? "- None."
     : files.map((file) => `- \`${directory}/${file}\``).join("\n");
+}
+
+/** Worker text stays inside its block, so it cannot open a brief section. */
+function quote(text: string) {
+  return text
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
+}
+
+/** The content is copied, because a reset or removal can delete the producer's report file. */
+function dependencyReports(input: BriefInput) {
+  if (input.dependencyReports.length === 0) return "";
+  const reports = input.dependencyReports.map(
+    (row) => `### \`${row.assignment}\` report ${row.report}
+
+Reference: \`${row.reference}\`
+
+${quote(row.conclusion)}
+
+Unresolved points:
+
+${row.unresolved.length === 0 ? "- None." : row.unresolved.map((point) => `- ${point.replaceAll("\n", "\n  ")}`).join("\n")}
+`,
+  );
+  return `
+## Accepted dependency reports
+
+The SuperAgent accepted these reports of the assignments that this work depends on.
+Check whether each unresolved point applies to your task. Tell your supervising SuperAgent about each point that does.
+
+${reports.join("\n")}`;
 }
 
 function feedbackLoop(input: BriefInput) {
@@ -92,7 +127,7 @@ Read all of it before you start.
 - Start profile: ${input.profile === null ? "the device default" : `\`${input.profile}\``}.
 
 ${input.instructions}
-
+${dependencyReports(input)}
 ## Grilling authority
 
 The task instructions state who answers questions and what the SuperAgent may decide.

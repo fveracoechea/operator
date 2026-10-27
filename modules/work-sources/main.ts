@@ -58,7 +58,12 @@ function pullRequestSummary(pr: PullRequest) {
   };
 }
 
-// The SuperAgent reads the short conclusion here and opens the report file only when it decides.
+/** The durable name of a report. Another project's SuperAgent copies content with it. */
+function reportReference(repository: string, sourceId: string, report: Report) {
+  return `operator:${repository}/sources/${sourceId}/assignments/${report.assignment}/reports/${report.number}`;
+}
+
+// The SuperAgent reads the short conclusion and gaps here and opens the report file only when it decides.
 function reportSummary(input: Input, repository: string, sourceId: string, report: Report) {
   const files = OperatorHome.assignmentFiles(input.paths, {
     repository,
@@ -68,6 +73,8 @@ function reportSummary(input: Input, repository: string, sourceId: string, repor
   return {
     number: report.number,
     conclusion: report.conclusion,
+    unresolved: report.unresolved,
+    reference: reportReference(repository, sourceId, report),
     file: `${files.reports}/${report.number}/report.md`,
     decision: report.decision,
     followUp: report.decision === "returned" ? `${files.followUps}/${report.number}.md` : null,
@@ -174,7 +181,25 @@ export const WorkSources = {
       );
   },
   show(input: Input & { sourceId: string }) {
-    return read(input).map((sources) => sources[0]);
+    return read(input).map((sources) => {
+      const source = sources[0];
+      return (
+        source && {
+          ...source,
+          reports: source.reports.map((report) => ({
+            ...report,
+            reference: reportReference(source.repository, source.id, report),
+          })),
+        }
+      );
+    });
+  },
+  /**
+   * The accepted reports of an assignment's direct dependencies. A consumer brief copies this
+   * content, so it does not depend on producer files that a reset or removal deletes.
+   */
+  dependencyReports(source: Source, assignment: string) {
+    return dependencyReports(source, assignment);
   },
   /** The source state that follows from its assignment states, for writes that end work. */
   stateAfter(assignments: { key: string; completion: string; state: string }[]) {
@@ -212,6 +237,26 @@ export const WorkSources = {
 
 type Source = ReturnType<typeof decodeSource>;
 
+function dependencyReports(source: Source, assignment: string) {
+  const planned = source.plan.assignments.find((row) => row.key === assignment);
+  return (planned?.dependencies ?? []).flatMap((key) => {
+    const report = source.reports.findLast(
+      (row) => row.assignment === key && row.decision === "accepted",
+    );
+    return report === undefined
+      ? []
+      : [
+          {
+            assignment: key,
+            report: report.number,
+            conclusion: report.conclusion,
+            unresolved: report.unresolved,
+            reference: reportReference(source.repository, source.id, report),
+          },
+        ];
+  });
+}
+
 function decide(input: Input, source: Source) {
   return source.plan.assignments.map((assignment) => {
     const current = source.assignments.find((row) => row.key === assignment.key);
@@ -243,12 +288,7 @@ function decide(input: Input, source: Source) {
       input,
       source,
       { assignment: assignment.key, ...decision },
-      {
-        launch,
-        pullRequest,
-        report,
-        cleanup,
-      },
+      { assignment: assignment.key, launch, pullRequest, report, cleanup },
     );
   });
 }
@@ -259,20 +299,28 @@ function described<T extends object>(
   source: Source,
   decision: T,
   records: {
+    assignment: string;
     launch: Launch | undefined;
     pullRequest: PullRequest | undefined;
     report: Report | undefined;
     cleanup: Cleanup | undefined;
   },
 ) {
-  const row: T & { launch?: object; pullRequest?: object; report?: object; cleanup?: object } = {
-    ...decision,
-  };
+  const row: T & {
+    launch?: object;
+    pullRequest?: object;
+    report?: object;
+    cleanup?: object;
+    dependencyReports?: ReturnType<typeof dependencyReports>;
+  } = { ...decision };
   const { launch, pullRequest, report, cleanup } = records;
   if (launch !== undefined) row.launch = launchSummary(launch);
   if (pullRequest !== undefined) row.pullRequest = pullRequestSummary(pullRequest);
   if (report !== undefined) row.report = reportSummary(input, source.repository, source.id, report);
   if (cleanup !== undefined) row.cleanup = cleanupSummary(cleanup);
+  // Gaps of accepted dependency work stay visible until the dependent itself ends.
+  const carried = dependencyReports(source, records.assignment);
+  if (carried.length > 0) row.dependencyReports = carried;
   return row;
 }
 

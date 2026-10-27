@@ -9,6 +9,7 @@ import { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
 import { DeviceState } from "../device-state/main.ts";
 import { WorkSources } from "./main.ts";
+import { decodeSource } from "./snapshot.ts";
 
 const root = await mkdtemp(path.join(tmpdir(), "operator-source-api-"));
 const paths = OperatorHome.resolve(Environment.parse({ HOME: root, NODE_ENV: "test" }));
@@ -96,4 +97,122 @@ test("the module reads one snapshot and reports ended reset sources without disp
     project.mockRestore();
     storage.mockRestore();
   }
+});
+
+test("a dependent carries the latest accepted report of each direct dependency", () => {
+  function assignment(key: string, dependencies: string[]) {
+    return {
+      key,
+      trackerKey: `APP-${key}`,
+      instructions: "Work.",
+      completion: "report",
+      resources: "pane",
+      dependencies,
+    };
+  }
+  function launch(assignment: string) {
+    return {
+      id: `l-${assignment}`,
+      sourceId: "one",
+      assignment,
+      attempt: 1,
+      state: "running",
+      name: `report-${assignment}`,
+      resources: "pane",
+      branch: null,
+      host: "opencode",
+      model: "test/model",
+      requestedModel: "test/model",
+      reasoningEffort: "medium",
+      profile: null,
+      release: JSON.stringify({ version: "1.0.0" }),
+      skills: "[]",
+      herdrSocket: "/herdr.sock",
+      workspaceId: "w1",
+      tabId: "w1:t1",
+      paneId: "w1:p1",
+      worktreePath: null,
+      worktreeWorkspaceId: null,
+      startedAt: "now",
+      endedAt: null,
+      failureReason: null,
+      failureDetail: null,
+      activity: null,
+      activityAt: null,
+      ownerPid: null,
+      leaseAt: null,
+      abandoned: false,
+    };
+  }
+  function report(assignment: string, number: number, decision: string | null) {
+    return {
+      sourceId: "one",
+      assignment,
+      number,
+      launchId: `l-${assignment}`,
+      submittedAt: "now",
+      conclusion: `${assignment} ${number}.`,
+      evidence: JSON.stringify(["a.ts:1"]),
+      unresolved: JSON.stringify([`Gap ${number}.`]),
+      decisions: "[]",
+      files: "[]",
+      decision,
+      decidedAt: decision === null ? null : "later",
+      followUp: decision === "returned" ? "Again." : null,
+      cleanupState: decision === "accepted" ? "done" : null,
+      cleanupDetail: null,
+    };
+  }
+  function state(key: string, value: string) {
+    return {
+      sourceId: "one",
+      key,
+      completion: "report",
+      state: value,
+    };
+  }
+  const source = decodeSource({
+    source: {
+      id: "one",
+      repository: "example/one",
+      trackerKey: "APP-1",
+      state: "open",
+      registeredAt: "now",
+      endedAt: null,
+      plan: JSON.stringify({
+        trackerKey: "APP-1",
+        assignments: [
+          assignment("read", []),
+          assignment("survey", []),
+          assignment("use", ["read", "survey"]),
+          assignment("later", ["use"]),
+        ],
+      }),
+    },
+    assignments: [
+      state("read", "completed"),
+      state("survey", "reported"),
+      state("use", "ready"),
+      state("later", "ready"),
+    ],
+    launches: [launch("read"), launch("survey")],
+    pullRequests: [],
+    reports: [
+      report("read", 1, "returned"),
+      report("read", 2, "accepted"),
+      report("survey", 1, null),
+    ],
+    cleanups: [],
+  });
+  // An undecided or returned report is not accepted content, and gaps do not skip a level.
+  expect(WorkSources.dependencyReports(source, "use")).toEqual([
+    {
+      assignment: "read",
+      report: 2,
+      conclusion: "read 2.",
+      unresolved: ["Gap 2."],
+      reference: "operator:example/one/sources/one/assignments/read/reports/2",
+    },
+  ]);
+  expect(WorkSources.dependencyReports(source, "later")).toEqual([]);
 });
