@@ -54,6 +54,7 @@ export const REQUIRED_PARTS = [
   "skills/pr-review/DESIGN.md",
   "skills/pr-review/SKILL.md",
   "skills/pr-review/draft.md",
+  "skills/slack-pr-review-workflow/SKILL.md",
   "skills/super-agent/SKILL.md",
   "skills/super-agent/delegation.md",
   "skills/super-agent/dispatch.md",

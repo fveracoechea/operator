@@ -60,6 +60,21 @@ export const DeviceSettings = {
   recover(paths: OperatorPaths) {
     return operate(() => recover(paths));
   },
+  /**
+   * The author policy of the watched Slack channel, or null when no channel is set. A repository
+   * or an author outside the lists gets no review request from Slack.
+   */
+  slackReviewPolicy(paths: OperatorPaths) {
+    return fromPromise(
+      async () => {
+        const review = (await readConfig(paths)).config.review;
+        return review?.channel === undefined
+          ? null
+          : { channel: review.channel, repos: review.repos ?? [], authors: review.authors ?? [] };
+      },
+      (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+    );
+  },
   /** The settings editor schema that a release ships and a settings edit writes. */
   editorSchema() {
     return editorSchemaText();

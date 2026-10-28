@@ -89,3 +89,39 @@ test("the optional assignment reviewer is a boolean that is off until it is set"
   expect(unset.success && unset.data.review).toEqual({});
   expect(settingsSchema.safeParse({ review: { assignments: "true" } }).success).toBe(false);
 });
+
+test("edits the Slack author policy as a channel id, lowercase repositories, and GitHub logins", () => {
+  const edits = parseEdits(
+    ["review.channel=C0REVIEW", "review.repos=Owner/One, owner/two", "review.authors=Alice,bob-2"],
+    [],
+  );
+  const changed = editConfig(
+    settingsSchema.parse({ review: { assignments: true } }),
+    edits.edits ?? [],
+  );
+  expect(changed.success && changed.data.review).toEqual({
+    assignments: true,
+    channel: "C0REVIEW",
+    repos: ["owner/one", "owner/two"],
+    authors: ["Alice", "bob-2"],
+  });
+  const unset = parseEdits([], ["review.channel", "review.repos", "review.authors"]);
+  const removed = editConfig(
+    changed.success ? changed.data : settingsSchema.parse({}),
+    unset.edits ?? [],
+  );
+  expect(removed.success && removed.data.review).toEqual({ assignments: true });
+});
+
+test.each([
+  "review.channel=#reviews",
+  "review.channel=general",
+  "review.repos=owner",
+  "review.repos=owner/one/extra",
+  "review.authors=@alice",
+  "review.authors=Alice Smith",
+])("refuses the Slack policy value %s", (set) => {
+  const edits = parseEdits([set], []);
+  expect(edits.issues).toBeUndefined();
+  expect(editConfig(settingsSchema.parse({}), edits.edits ?? []).success).toBe(false);
+});

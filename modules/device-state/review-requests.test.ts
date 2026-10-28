@@ -97,6 +97,7 @@ test("rounds are inserted and then updated in place, and ended requests leave th
     reviewUrl: null,
     postedAt: null,
     warning: null,
+    blockers: null,
   };
   changeReviewRequest(db, target, () => Ok({ round }));
   changeReviewRequest(db, target, () =>
@@ -155,6 +156,7 @@ test("thread operations of the newest round are recorded and updated in place", 
     reviewUrl: null,
     postedAt: null,
     warning: null,
+    blockers: null,
   };
   const operation = {
     requestId: "r1",

@@ -28,6 +28,8 @@ export type Payload = {
   update?: Partial<Omit<Row, "id">>;
   round?: Round;
   operations?: Operation[];
+  /** Slack effects, recorded only for a request with a Slack thread. */
+  effects?: { key: string; kind: string; content: string }[];
 };
 /** A move or a prompt that a decided transition gives to the running reviewer. */
 const syncSchema = z.discriminatedUnion("kind", [
@@ -188,6 +190,7 @@ export function apply(
         update: { ...added.update, ...transitionUpdate(transition, current, extra) },
         round: added.round,
         operations: added.operations,
+        effects: added.effects,
         lease: transition.lease,
       };
     }),

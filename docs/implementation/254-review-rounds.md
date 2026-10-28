@@ -4,7 +4,7 @@ Issue #254 completes the review-request lifecycle of ADR-0015 on top of the core
 One reviewer and one worktree serve every round of a request.
 New commits, author replies, author-resolved threads, and renewed review requests start rounds.
 Head moves, thread operations, the stale flag, reviewer replacement, and reviewer cleanup are in this slice.
-Slack ingestion and Slack effects remain #255.
+Slack ingestion and Slack effects are in `255-slack-transport.md`.
 
 ## Commands
 
@@ -123,7 +123,7 @@ A move whose process stopped is finished by the next wait.
 While a move or a prompt runs, `skip` and `close` refuse, and only the process that holds the lease records the move as finished.
 After three moves in one round, the reviewer keeps its head.
 The post then reviews that head and states the limit: the status line ends with `· reviewed at <short sha>`, and the body names the reviewed commit, the current head, and the move count.
-The round records these facts as `warning`, and the post result returns them as `headLimit` for the Slack reply of #255.
+The round records these facts as `warning`, and the post result returns them as `headLimit`. The Slack reply of `255-slack-transport.md` shows the same suffix.
 
 ## Threads
 

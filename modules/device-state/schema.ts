@@ -253,6 +253,9 @@ export const reviewRequests = sqliteTable(
     // Reviewer cleanup after the request is closed or skipped.
     cleanupState: text("cleanup_state"),
     cleanupDetail: text("cleanup_detail"),
+    // The Slack message that posted the PR. Its thread gets one reply for each posted round.
+    slackChannel: text("slack_channel"),
+    slackTs: text("slack_ts"),
   },
   (table) => [
     uniqueIndex("one_open_review")
@@ -281,6 +284,8 @@ export const reviewRounds = sqliteTable(
     postedAt: text("posted_at"),
     // The head-move limit facts when the round posts against an older reviewed commit.
     warning: text("warning"),
+    // The short text of each open blocker, for the Slack reply of the round.
+    blockers: text("blockers"),
   },
   (table) => [primaryKey({ columns: [table.requestId, table.number] })],
 );
@@ -305,4 +310,42 @@ export const reviewThreadOperations = sqliteTable(
       foreignColumns: [reviewRounds.requestId, reviewRounds.number],
     }).onDelete("cascade"),
   ],
+);
+
+// The cursor of the watched Slack channel. An agent reads the channel and the CLI ingests the result.
+export const slackWatches = sqliteTable("slack_watches", {
+  channel: text("channel").primaryKey(),
+  // The newest Slack message ts that an ingest saw. The next read starts after it.
+  cursor: text("cursor").notNull(),
+  // The last ingest. The next read is due five minutes after it, or at once while paging.
+  readAt: text("read_at"),
+  // While Slack pages older messages: the upper bound of the next read, and the newest ts seen.
+  latest: text("latest"),
+  pending: text("pending"),
+});
+
+// A reply or a reaction that the CLI generated and an agent transports through Slack MCP tools.
+// An acknowledgement marks it done. A pending effect survives a restart.
+export const slackEffects = sqliteTable(
+  "slack_effects",
+  {
+    id: text("id").primaryKey(),
+    requestId: text("request_id")
+      .notNull()
+      .references(() => reviewRequests.id, { onDelete: "cascade" }),
+    // One effect for each key: `reaction:<name>` once per request, `reply:<round>` once per round.
+    key: text("key").notNull(),
+    kind: text("kind").notNull(),
+    channel: text("channel").notNull(),
+    threadTs: text("thread_ts").notNull(),
+    content: text("content").notNull(),
+    state: text("state").notNull(),
+    createdAt: text("created_at").notNull(),
+    doneAt: text("done_at"),
+    // The Slack ts of a sent reply, when the acknowledgement names one.
+    slackTs: text("slack_ts"),
+    // The last refused acknowledgement. The effect stays pending.
+    failure: text("failure"),
+  },
+  (table) => [uniqueIndex("one_effect_per_key").on(table.requestId, table.key)],
 );

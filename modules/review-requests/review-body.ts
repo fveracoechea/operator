@@ -16,9 +16,19 @@ function openThreads(draft: AcceptedDraft["draft"]) {
 
 /** Draft blockers, failing required checks, and explained threads. */
 export function countBlockers(accepted: AcceptedDraft) {
-  return (
-    accepted.draft.blockers.length + accepted.failingChecks.length + openThreads(accepted.draft)
-  );
+  return blockerShorts(accepted).length;
+}
+
+/** The short text of each open blocker, in the order of the review body. */
+export function blockerShorts(accepted: AcceptedDraft) {
+  const explained = openThreads(accepted.draft);
+  return [
+    ...accepted.draft.blockers.map((blocker) => blocker.short),
+    ...accepted.failingChecks.map((check) => `${check.name} fails`),
+    ...(explained === 0
+      ? []
+      : [`${explained} review thread${explained === 1 ? " stays" : "s stay"} open`]),
+  ];
 }
 
 const rules: { when: (facts: EventFacts) => boolean; event: ReviewEvent }[] = [
@@ -57,13 +67,15 @@ function at(finding: { path?: string; line?: number }) {
   return finding.path === undefined ? "" : ` \`${finding.path}:${finding.line}\``;
 }
 
-function status(event: ReviewEvent, blockers: number) {
+/** The status words of a review, shared by the GitHub body and the Slack reply. */
+export function status(event: ReviewEvent, blockers: number) {
   if (event === "APPROVE") return "Approved";
   if (event === "REQUEST_CHANGES") return "Changes requested";
   return blockers === 0 ? "No blockers" : "Needs changes";
 }
 
-function counts(blockers: number, niceToHaves: number) {
+/** Nonzero counts, blockers first, each part after a ` · ` separator. */
+export function counts(blockers: number, niceToHaves: number) {
   const parts = [
     blockers === 0 ? null : `${blockers} blocker${blockers === 1 ? "" : "s"}`,
     niceToHaves === 0 ? null : `${niceToHaves} nice to have${niceToHaves === 1 ? "" : "s"}`,

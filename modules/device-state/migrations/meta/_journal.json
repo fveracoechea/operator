@@ -71,6 +71,13 @@
       "when": 1793127419030,
       "tag": "0009_review_rounds",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1793140707700,
+      "tag": "0010_slack_effects",
+      "breakpoints": true
     }
   ]
 }

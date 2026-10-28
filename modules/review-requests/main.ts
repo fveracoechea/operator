@@ -13,6 +13,7 @@ import {
 } from "./request.ts";
 import { claimCleanup, cleanupReviewer, launch, syncReviewer } from "./reviewer.ts";
 import { rows, wait } from "./watch.ts";
+import { acknowledge, ingest, slackActions } from "./slack.ts";
 import type { Target } from "./github.ts";
 import { markerPrefix } from "./review-body.ts";
 
@@ -173,10 +174,14 @@ function cleanup(input: { paths: Paths; url: string }) {
 
 /** The applicable review actions and waits across the device, from recorded state alone. */
 function next(paths: Paths) {
-  return DeviceState.readReviewRequests(paths).map((listed) => ({
-    reason: "review_next",
-    data: { requests: rows(paths, listed) },
-  }));
+  return DeviceState.readReviewRequests(paths)
+    .toAsync()
+    .flatMap((listed) =>
+      slackActions(paths, false).map((slack) => ({
+        reason: "review_next",
+        data: { requests: rows(paths, listed), slack },
+      })),
+    );
 }
 
 /** Device review operations. A PR URL selects the request, independent of the current folder. */
@@ -203,8 +208,16 @@ export const ReviewRequests = {
   next(paths: Paths) {
     return next(paths);
   },
+  /** Records the eligible PRs of one raw Slack channel read and moves the channel cursor. */
+  ingest(input: { paths: Paths; text: string }) {
+    return ingest(input);
+  },
+  /** Records the agent's report of one sent Slack effect from the raw send result. */
+  acknowledge(input: { paths: Paths; id: string; text: string }) {
+    return acknowledge(input);
+  },
   /** Watches every open request until a round, a move, an end, or an action needs attention. */
-  wait(input: { paths: Paths; timeoutSeconds: number }) {
+  wait(input: { paths: Paths; timeoutSeconds: number; slack: boolean }) {
     return wait(input);
   },
 };

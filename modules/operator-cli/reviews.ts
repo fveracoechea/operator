@@ -1,35 +1,77 @@
-import type { Result } from "unthrown";
+import { Err, fromPromise, type Result } from "unthrown";
 import { ReviewRequests } from "../review-requests/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { failure } from "./output.ts";
 
-function reviewFlags(command: string, flags: string[]) {
-  let json = false;
-  let profile: string | undefined;
-  let timeout: number | undefined;
-  for (let index = 0; index < flags.length; index++) {
-    const flag = flags[index];
-    if (flag === "--json" && !json) json = true;
-    else if (flag === "--profile" && command === "start" && profile === undefined) {
-      profile = flags[++index];
-      if (profile === undefined || profile.startsWith("--")) return null;
-    } else if (flag === "--timeout" && command === "wait" && timeout === undefined) {
-      const value = flags[++index] ?? "";
-      if (!/^\d{1,5}$/.test(value)) return null;
-      timeout = Number(value);
-    } else return null;
-  }
-  return { profile, timeout };
+const deviceCommands = ["next", "wait", "ingest"];
+// `ingest` and `slack-done` read the raw result of a Slack MCP tool from a file, or `-` for stdin.
+const inputCommands = ["ingest", "slack-done"];
+const valueFlags = new Map([
+  ["--profile", { commands: ["start"], valid: (value: string) => !value.startsWith("--") }],
+  ["--timeout", { commands: ["wait"], valid: (value: string) => /^\d{1,5}$/.test(value) }],
+  ["--input", { commands: inputCommands, valid: (value: string) => value !== "" }],
+]);
+
+// `--slack` makes a wait the Slack transport loop of the slack-pr-review-workflow skill.
+const switchFlags = new Map([
+  ["--json", null],
+  ["--slack", ["wait"]],
+]);
+
+function acceptsSwitch(command: string, flag: string, switches: Set<string>) {
+  const commands = switchFlags.get(flag);
+  return (
+    commands !== undefined &&
+    !switches.has(flag) &&
+    (commands === null || commands.includes(command))
+  );
 }
 
-const deviceCommands = ["next", "wait"];
+function acceptsValue(
+  command: string,
+  flag: string,
+  value: string | undefined,
+  values: Map<string, string>,
+) {
+  const rule = valueFlags.get(flag);
+  return (
+    rule !== undefined &&
+    rule.commands.includes(command) &&
+    !values.has(flag) &&
+    value !== undefined &&
+    rule.valid(value)
+  );
+}
+
+function reviewFlags(command: string, flags: string[]) {
+  const switches = new Set<string>();
+  const values = new Map<string, string>();
+  for (let index = 0; index < flags.length; index++) {
+    const flag = flags[index] ?? "";
+    if (acceptsSwitch(command, flag, switches)) {
+      switches.add(flag);
+      continue;
+    }
+    const value = flags[++index];
+    if (!acceptsValue(command, flag, value, values) || value === undefined) return null;
+    values.set(flag, value);
+  }
+  if (inputCommands.includes(command) && !values.has("--input")) return null;
+  const timeout = values.get("--timeout");
+  return {
+    profile: values.get("--profile"),
+    timeout: timeout === undefined ? undefined : Number(timeout),
+    input: values.get("--input"),
+    slack: switches.has("--slack"),
+  };
+}
 
 /** A PR URL is the only request selector, so every review command runs from any folder. */
 export function reviewArgs(args: string[]) {
   const [group, command = "", ...rest] = args;
   if (
     group !== "review" ||
-    !["add", "start", "post", "skip", "cleanup", ...deviceCommands].includes(command)
+    !["add", "start", "post", "skip", "cleanup", "slack-done", ...deviceCommands].includes(command)
   )
     return null;
   const url = deviceCommands.includes(command) ? "" : (rest.shift() ?? "");
@@ -37,7 +79,14 @@ export function reviewArgs(args: string[]) {
   const flags = reviewFlags(command, rest);
   return flags === null
     ? null
-    : { command, url, profile: flags.profile, timeout: flags.timeout ?? 300 };
+    : {
+        command,
+        url,
+        profile: flags.profile,
+        timeout: flags.timeout ?? 300,
+        input: flags.input ?? "",
+        slack: flags.slack,
+      };
 }
 
 const exitCodes: Record<string, number> = {
@@ -56,6 +105,9 @@ const exitCodes: Record<string, number> = {
   review_request_open: 4,
   review_cleanup_in_progress: 4,
   review_lease_lost: 4,
+  slack_cursor_moved: 4,
+  slack_effect_failed: 1,
+  slack_input_unreadable: 1,
   state_busy: 1,
   state_io_failed: 1,
   review_io_failed: 1,
@@ -67,6 +119,26 @@ const exitCodes: Record<string, number> = {
   github_invalid_response: 1,
 };
 
+/** The raw tool result, from a file or from stdin. An absent or unreadable file is a refusal. */
+async function readInput(input: string) {
+  const file = Bun.file(input);
+  if (input !== "-" && !(await file.exists()))
+    return Err({
+      reason: "slack_input_missing",
+      detail: `The input file ${input} does not exist. Nothing was recorded.`,
+    });
+  return fromPromise(
+    () => (input === "-" ? Bun.stdin.text() : file.text()),
+    (cause, defect) =>
+      cause instanceof Error
+        ? {
+            reason: "slack_input_unreadable",
+            detail: `The input ${input} could not be read: ${cause.message} Nothing was recorded.`,
+          }
+        : defect(cause),
+  );
+}
+
 export async function runReviews(
   args: string[],
   paths: ReturnType<typeof OperatorHome.resolve>,
@@ -74,7 +146,7 @@ export async function runReviews(
 ) {
   const parsed = reviewArgs(args);
   if (parsed === null) return false;
-  const operation = `review_${parsed.command}`;
+  const operation = `review_${parsed.command.replace("-", "_")}`;
   const input = { paths, url: parsed.url };
   const operations: Record<
     string,
@@ -85,8 +157,16 @@ export async function runReviews(
     post: () => ReviewRequests.post(input),
     skip: () => ReviewRequests.skip(input),
     cleanup: () => ReviewRequests.cleanup(input),
-    wait: () => ReviewRequests.wait({ paths, timeoutSeconds: parsed.timeout }),
-    next: () => ReviewRequests.next(paths).toAsync(),
+    wait: () => ReviewRequests.wait({ paths, timeoutSeconds: parsed.timeout, slack: parsed.slack }),
+    next: () => ReviewRequests.next(paths),
+    ingest: async () =>
+      (await readInput(parsed.input))
+        .toAsync()
+        .flatMap((text) => ReviewRequests.ingest({ paths, text })),
+    "slack-done": async () =>
+      (await readInput(parsed.input))
+        .toAsync()
+        .flatMap((text) => ReviewRequests.acknowledge({ paths, id: parsed.url, text })),
   };
   const chosen = operations[parsed.command];
   if (chosen === undefined) return false;

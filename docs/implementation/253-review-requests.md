@@ -2,7 +2,7 @@
 
 Issue #253 implements the core of ADR-0015: review requests separate from assignments, the reviewer launch, the draft-only review skill, and one guarded CLI post path on both hosts without Slack tools.
 Later rounds, head moves, thread replies, the stale flag, reviewer cleanup, and the end states `closed` and `skipped` are in `254-review-rounds.md`.
-Slack ingestion and Slack effects remain #255.
+Slack ingestion and Slack effects are in `255-slack-transport.md`.
 
 ## Commands
 

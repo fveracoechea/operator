@@ -16,7 +16,7 @@ Do not use it to resume an old session.
 The device-level design in `CONTEXT.md` and `docs/adr/` remains planned.
 The base lint policy in ADR-0018 is now enforced.
 Local mutation testing from ADR-0016 is also available for repository development.
-Slack review transport is not implemented here.
+Slack review transport runs through the Claude Code Slack MCP tools. A live check on 2026-10-28 verified its tool contract.
 There are no replacement-command placeholders or compatibility aliases.
 
 ## Install Operator for the device
@@ -481,8 +481,10 @@ The person's own PRs and assignment reviewers always get a comment.
 New commits, author replies, author-resolved threads, and renewed requests start rounds.
 A head move gives the same reviewer the new commits, or a full review after a force push, and after three moves the post covers the last reviewed commit and says so.
 Thread replies post once, and a merged, closed, or skipped request removes its reviewer unless Git shows unlanded work.
-Slack transport is #255.
-See `docs/implementation/253-review-requests.md` for the draft, the event rule, and the evidence, and `docs/implementation/254-review-rounds.md` for rounds.
+With `review.channel`, `review.repos`, and `review.authors` in device settings, `wait --slack` also schedules Slack channel reads and returns the Slack replies and reactions that the CLI generated. A plain `wait` only reports them.
+A Claude Code agent carries them through the Slack MCP tools with the `slack-pr-review-workflow` skill, `ingest` records the eligible PRs of a raw channel read and moves the cursor, and `slack-done` records each sent effect.
+Operator holds no Slack credentials. OpenCode keeps every non-Slack review command.
+See `docs/implementation/253-review-requests.md` for the draft, the event rule, and the evidence, `docs/implementation/254-review-rounds.md` for rounds, and `docs/implementation/255-slack-transport.md` for Slack.
 
 ## Retained code and checks
 

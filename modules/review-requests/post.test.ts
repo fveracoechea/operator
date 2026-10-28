@@ -69,6 +69,8 @@ function request(change: Partial<Row>): Row {
     sync: null,
     cleanupState: null,
     cleanupDetail: null,
+    slackChannel: null,
+    slackTs: null,
     ...change,
   };
 }
@@ -119,6 +121,7 @@ const round: Round = {
   reviewUrl: null,
   postedAt: null,
   warning: null,
+  blockers: null,
 };
 
 test("each reply carries its marker, and only an explanation in a resolved thread reopens it", () => {

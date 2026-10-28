@@ -54,6 +54,7 @@ import {
   type ReviewChange,
   type ReviewSnapshot,
 } from "./review-requests.ts";
+import { acknowledgeSlackEffect, ingestSlack, readSlack, startSlackWatch } from "./slack.ts";
 
 type Paths = ReturnType<typeof OperatorHome.resolve>;
 
@@ -182,6 +183,25 @@ export const DeviceState = {
   },
   readReviewRequests(paths: Paths) {
     return withDatabase(paths, true, (client) => readReviewRequests(client));
+  },
+  /** The cursor of a watched channel, or null before its first watch, and pending effects. */
+  readSlack(paths: Paths, channel: string) {
+    return withDatabase(paths, true, (client) => readSlack(client, channel));
+  },
+  /** Records the start cursor of a channel on its first watch. A recorded cursor stays. */
+  startSlackWatch(paths: Paths, channel: string, start: string) {
+    return withDatabase(paths, false, (client) => startSlackWatch(client, channel, start));
+  },
+  /** Records the eligible PRs of one channel read and moves its cursor in one write. */
+  ingestSlack(paths: Paths, input: Parameters<typeof ingestSlack>[1]) {
+    return withDatabase(paths, false, (client) => ingestSlack(client, input));
+  },
+  acknowledgeSlackEffect(
+    paths: Paths,
+    id: string,
+    decide: Parameters<typeof acknowledgeSlackEffect>[2],
+  ) {
+    return withDatabase(paths, false, (client) => acknowledgeSlackEffect(client, id, decide));
   },
   /** Renew this process's lease on a reviewer start, post, move, or cleanup until the stop runs. */
   holdReviewRequest(paths: Paths, id: string) {

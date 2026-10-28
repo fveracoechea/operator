@@ -14,6 +14,7 @@ operator review cleanup <pr-url> --json
 ```
 
 `add` records a manual request and needs no Slack tools.
+To watch a Slack channel for PRs, load the `slack-pr-review-workflow` skill. It needs Claude Code with the Slack MCP tools.
 `start` creates the reviewer worktree at the PR head in the repository's Herdr workspace and starts the reviewer.
 The reviewer writes a draft and posts it with `operator review post <pr-url> --json`. Do not post for it.
 

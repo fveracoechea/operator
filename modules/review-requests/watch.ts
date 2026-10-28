@@ -18,6 +18,7 @@ import {
 } from "./request.ts";
 import { cleanupReviewer, syncReviewer } from "./reviewer.ts";
 import { decideWatch, type WatchDecision } from "./rounds.ts";
+import { slackActions, type SlackView } from "./slack.ts";
 
 const pollMs = 30000;
 type Listed = Snapshot;
@@ -240,30 +241,56 @@ function pass(paths: Paths) {
     );
 }
 
-function poll(paths: Paths, deadline: number, first: boolean): AsyncResult<Outcome, Failure> {
-  return pass(paths).flatMap(({ events, listed }): AsyncResult<Outcome, Failure> => {
-    const requests = rows(paths, listed);
-    if (events.length > 0)
-      return OkAsync({ reason: "review_events_observed", data: { events, requests } });
-    // Only the first pass returns for an action, so a row that waits for the SuperAgent or the
-    // person does not turn repeated waits into a busy loop. A wait finishes moves by itself.
-    if (first && requests.some((row) => "action" in row && row.action !== "wait_reviews"))
-      return OkAsync({ reason: "review_actions_ready", data: { events, requests } });
-    if (Date.now() >= deadline)
-      return OkAsync({ reason: "review_wait_timed_out", data: { events, requests } });
-    return fromPromise(
-      () => Bun.sleep(Math.min(pollMs, deadline - Date.now())),
-      (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
-    ).flatMap(() => poll(paths, deadline, false));
-  });
+/**
+ * In the Slack loop, a due read or a new effect ends a wait. An effect whose send Slack refused
+ * ends only the first pass, so a refused effect does not turn repeated waits into a busy loop.
+ * Any other wait only reports Slack, so a host without Slack tools never waits on it.
+ */
+function slackDue(slack: SlackView | null, loop: Loop) {
+  return (
+    loop.slack &&
+    slack !== null &&
+    (slack.read !== null || slack.effects.some((effect) => loop.first || effect.failure === null))
+  );
+}
+
+type Loop = { paths: Paths; deadline: number; first: boolean; slack: boolean };
+
+function poll(loop: Loop): AsyncResult<Outcome, Failure> {
+  const { paths, deadline, first } = loop;
+  return pass(paths)
+    .flatMap((passed) => slackActions(paths, loop.slack).map((slack) => ({ ...passed, slack })))
+    .flatMap(({ events, listed, slack }): AsyncResult<Outcome, Failure> => {
+      const requests = rows(paths, listed);
+      if (events.length > 0)
+        return OkAsync({ reason: "review_events_observed", data: { events, requests, slack } });
+      if (slackDue(slack, loop))
+        return OkAsync({ reason: "review_slack_ready", data: { events, requests, slack } });
+      // Only the first pass returns for an action, so a row that waits for the SuperAgent or the
+      // person does not turn repeated waits into a busy loop. A wait finishes moves by itself.
+      if (first && requests.some((row) => "action" in row && row.action !== "wait_reviews"))
+        return OkAsync({ reason: "review_actions_ready", data: { events, requests, slack } });
+      if (Date.now() >= deadline)
+        return OkAsync({ reason: "review_wait_timed_out", data: { events, requests, slack } });
+      return fromPromise(
+        () => Bun.sleep(Math.min(pollMs, deadline - Date.now())),
+        (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+      ).flatMap(() => poll({ ...loop, first: false }));
+    });
 }
 
 /**
  * Observes every open review request until one changes or an action waits for the SuperAgent,
  * or the timeout passes. It moves reviewers to new heads, starts rounds, marks stale requests,
  * and ends closed PRs inside the loop. Each change is a guarded transition, so two waits never
- * apply the same observation twice.
+ * apply the same observation twice. With `slack`, it is the Slack transport loop: it records the
+ * channel's start cursor and also ends for a due read or a pending effect.
  */
-export function wait(input: { paths: Paths; timeoutSeconds: number }) {
-  return poll(input.paths, Date.now() + input.timeoutSeconds * 1000, true);
+export function wait(input: { paths: Paths; timeoutSeconds: number; slack: boolean }) {
+  return poll({
+    paths: input.paths,
+    deadline: Date.now() + input.timeoutSeconds * 1000,
+    first: true,
+    slack: input.slack,
+  });
 }
