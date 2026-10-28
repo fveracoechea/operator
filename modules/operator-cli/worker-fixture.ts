@@ -7,8 +7,9 @@ import { z } from "zod";
 import { Environment } from "../environment/main.ts";
 import { fakeHerdrScript } from "./fake-herdr.ts";
 import { fakeGithubScript } from "./fake-github.ts";
+import { fixtureCommand } from "./fixture-command.ts";
 
-const cli = Bun.fileURLToPath(new URL("../../cli.ts", import.meta.url));
+const command = fixtureCommand();
 const gitEnv = {
   GIT_CONFIG_GLOBAL: "/dev/null",
   GIT_CONFIG_NOSYSTEM: "1",
@@ -84,7 +85,7 @@ export async function workerDevice(options: { github?: boolean } = {}) {
 
   await tool("herdr", fakeHerdrScript(root));
   // Readiness accepts only a global command that links to the running entry point.
-  await symlink(cli, `${root}/tools/operator`);
+  await command.link(`${root}/tools`);
   await tool(
     "gh",
     options.github === true
@@ -122,7 +123,7 @@ export async function workerDevice(options: { github?: boolean } = {}) {
     options: { cwd?: string; pane?: string; socket?: string } = {},
   ) {
     const result = await exec(
-      [process.execPath, cli, ...args, "--json"],
+      [...command.argv, ...args, "--json"],
       options.cwd ?? main,
       environment(options.pane, options.socket),
     );
@@ -206,8 +207,7 @@ export async function workerDevice(options: { github?: boolean } = {}) {
         "env",
         `HERDR_PLUGIN_EVENT=${name}`,
         `HERDR_PLUGIN_EVENT_JSON=${JSON.stringify({ event: name.replace(".", "_"), data })}`,
-        process.execPath,
-        cli,
+        ...command.argv,
         "herdr",
         "event",
         "--json",

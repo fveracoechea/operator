@@ -323,6 +323,29 @@ describe("the publication", () => {
     expect((await fake.calls()).map((call) => call.args)).toEqual([["publish"]]);
   });
 
+  test("checks the artifact with the official client and sends nothing", async () => {
+    const fake = await jsrFake();
+
+    expect(await ReleasePublish.check({ artifactRoot })).toMatchObject({ status: "succeeded" });
+
+    const [call, ...more] = await fake.calls();
+    expect(more).toEqual([]);
+    expect(call?.args).toEqual(["publish", "--dry-run"]);
+    expect(call?.cwd).not.toBe(artifactRoot);
+    expect(call?.files).toEqual(await OperatorRelease.contents({ artifactRoot }));
+    const plan = await ReleasePublish.plan(request(fake));
+    expect(plan.paths.find((path) => path.path === "jsr")?.state).toBe("missing");
+  });
+
+  test("reports a package the official client refuses as a failed check", async () => {
+    await jsrFake({ client: "refuses" });
+
+    expect(await ReleasePublish.check({ artifactRoot })).toMatchObject({
+      status: "failed",
+      code: "client_failed",
+    });
+  });
+
   test("keeps the delivered path and retries only the missing one", async () => {
     const fake = await jsrFake({ client: "refuses" });
     const plan = await ReleasePublish.plan(request(fake));
@@ -428,6 +451,9 @@ const workflowSchema = z.object({
       if: z.string().optional(),
       outputs: z.record(z.string(), z.string()).optional(),
       permissions: z.record(z.string(), z.string()).optional(),
+      steps: z
+        .array(z.looseObject({ name: z.string().optional(), run: z.string().optional() }))
+        .optional(),
     }),
   ),
 });
@@ -487,6 +513,45 @@ describe("the release toolchain", () => {
     expect(release.jobs.publish?.needs).toContain("prepare");
     expect(release.jobs.prepare?.outputs?.hasChangesets).toContain("outputs.has-changesets");
     expect(release.jobs.publish?.if).toBe("needs.prepare.outputs.hasChangesets == 'false'");
+  });
+
+  test("checks the package with the official client on each pull request and before publication", async () => {
+    const smoke = await readWorkflow(".github/workflows/release-smoke.yml");
+    const runs = (smoke.jobs["jsr-client"]?.steps ?? []).map((step) => step.run ?? "");
+
+    expect(Object.keys(smoke.on)).toEqual(["pull_request", "workflow_call"]);
+    expect(runs.some((run) => run.includes("bun run --bun release check --out dist"))).toBe(true);
+    expect((await readWorkflow(".github/workflows/release.yml")).jobs.publish?.needs).toContain(
+      "smoke",
+    );
+  });
+
+  test("runs the workflow tests through the Nix command on both systems", async () => {
+    const smoke = await readWorkflow(".github/workflows/release-smoke.yml");
+    const runs = (smoke.jobs.nix?.steps ?? []).map((step) => step.run ?? "");
+
+    expect(
+      runs.some((run) =>
+        run.includes('OPERATOR_INSTALLED_COMMAND="$PWD/result/bin/operator" bun test'),
+      ),
+    ).toBe(true);
+  });
+
+  test("installs the published version from JSR right after this commit's publication", async () => {
+    const steps = (await readWorkflow(".github/workflows/release.yml")).jobs.publish?.steps ?? [];
+    function position(text: string) {
+      return steps.findIndex((step) => step.run?.includes(text));
+    }
+
+    const published = position("release publish --out dist");
+    const verified = position("scripts/release.ts verify --out dist");
+    expect(published).toBeGreaterThan(-1);
+    expect(verified).toBe(published + 1);
+    // The record of what was delivered is kept even when the live install fails.
+    expect(steps[verified + 1]).toMatchObject({
+      name: "Preserve the record of what was delivered",
+      if: "always()",
+    });
   });
 
   test("gives the publish job every scope the reads and writes it makes need", async () => {

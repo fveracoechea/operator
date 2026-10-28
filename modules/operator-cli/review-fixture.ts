@@ -8,8 +8,9 @@ import { z } from "zod";
 import { Environment } from "../environment/main.ts";
 import { fakeGithubScript } from "./fake-github.ts";
 import { fakeHerdrScript } from "./fake-herdr.ts";
+import { fixtureCommand } from "./fixture-command.ts";
 
-const cli = Bun.fileURLToPath(new URL("../../cli.ts", import.meta.url));
+const command = fixtureCommand();
 const gitEnv = {
   GIT_CONFIG_GLOBAL: "/dev/null",
   GIT_CONFIG_NOSYSTEM: "1",
@@ -82,7 +83,7 @@ export async function reviewDevice(host: "opencode" | "claude-code" = "opencode"
 
   /** Review commands run from the device root, which is no checkout. */
   async function run(args: string[], cwd = root) {
-    const result = await exec([process.execPath, cli, ...args, "--json"], cwd);
+    const result = await exec([...command.argv, ...args, "--json"], cwd);
     return {
       code: result.code,
       output: z.looseObject({}).parse(JSON.parse(result.stdout)),
@@ -188,7 +189,7 @@ export async function reviewDevice(host: "opencode" | "claude-code" = "opencode"
   await git(checkout, "push", "-q", remote, "main");
   await tool("herdr", fakeHerdrScript(root));
   await tool("gh", fakeGithubScript(root));
-  await symlink(cli, `${root}/tools/operator`);
+  await command.link(`${root}/tools`);
   await tool("opencode", opencode);
   await tool("claude", claude);
   const model = host === "opencode" ? "test/reasoner" : "precise-model";

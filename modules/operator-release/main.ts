@@ -1,6 +1,7 @@
 import { buildArtifact } from "./build.ts";
 import { identifyArtifact, REQUIRED_PARTS, scanFiles } from "./inventory.ts";
 import { readArtifactRelease, readReleaseManifest } from "./manifest.ts";
+import { type RegistryInstallRequest, verifyRegistryInstall } from "./registry-install.ts";
 
 export const OperatorRelease = {
   /**
@@ -46,5 +47,13 @@ export const OperatorRelease = {
       version,
       commit,
     };
+  },
+
+  /**
+   * Installs one exact published version from a registry in isolated roots and checks that the
+   * installed CLI reports the recorded commit and artifact identity. It publishes nothing.
+   */
+  async verifyRegistryInstall(request: RegistryInstallRequest) {
+    return verifyRegistryInstall(request);
   },
 };

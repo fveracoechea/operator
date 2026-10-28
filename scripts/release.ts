@@ -7,6 +7,8 @@
  *   bun scripts/release.ts launcher --root <dir> --bun <path>
  *   bun scripts/release.ts plan    --out <dir> --commit <sha> [--base main]
  *   bun scripts/release.ts publish --out <dir> --commit <sha> [--base main]
+ *   bun scripts/release.ts check   --out <dir>
+ *   bun scripts/release.ts verify  --out <dir> [--registry https://npm.jsr.io] [--attempts 20] [--pause 30]
  */
 
 import { GlobalLauncher } from "../modules/global-launcher/main.ts";
@@ -113,6 +115,38 @@ if (command === "build") {
   // commit, and only the missing path is sent again.
   const exitCode = { published: 0, released: 0, partial: 6, blocked: 3 } as const;
   process.exit(exitCode[result.status]);
+} else if (command === "check") {
+  // The official client checks the artifact the way JSR would accept it, with no credential and
+  // no upload, so a package that JSR would refuse stops before any publication starts.
+  const checked = await ReleasePublish.check({ artifactRoot });
+  report(checked);
+  process.exit(checked.status === "succeeded" ? 0 : 1);
+} else if (command === "verify") {
+  // Only after JSR holds the version can a live install prove it, so this runs right after the
+  // publication of this commit. A push that published nothing has nothing to verify.
+  const recorded = await ReleasePublish.delivered({ journalPath });
+  const journal = recorded.state === "read" ? recorded.journal : null;
+  if (journal?.paths.jsr?.state !== "published") {
+    report({ status: "nothing_published", detail: "This commit recorded no JSR publication." });
+    process.exit(recorded.state === "unreadable" ? 1 : 0);
+  }
+
+  // JSR builds the npm tarball after the publication, so a first install can miss it.
+  const attempts = Number(flag(args, "attempts") ?? 20);
+  const pause = Number(flag(args, "pause") ?? 30);
+  if (!Number.isInteger(attempts) || attempts < 1 || !Number.isInteger(pause) || pause < 0) {
+    fail("verify needs a whole --attempts of 1 or more and a whole --pause in seconds");
+  }
+
+  const verified = await OperatorRelease.verifyRegistryInstall({
+    registry: flag(args, "registry") ?? "https://npm.jsr.io",
+    version: journal.version,
+    expected: { artifactIdentity: journal.artifactIdentity, commit: journal.commit },
+    attempts,
+    pauseMs: pause * 1000,
+  });
+  report(verified);
+  process.exit(verified.status === "verified" ? 0 : 1);
 } else {
-  fail("the operations are `build`, `launcher`, `plan`, and `publish`");
+  fail("the operations are `build`, `launcher`, `plan`, `publish`, `check`, and `verify`");
 }

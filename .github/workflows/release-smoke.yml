@@ -40,6 +40,24 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  jsr-client:
+    name: Check the package with the official JSR client
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      # The pinned official client checks the artifact the way JSR would accept it. It needs no
+      # credential and uploads nothing, so a package JSR would refuse stops on its pull request,
+      # before any publication can start.
+      - name: Check the release artifact with the JSR client
+        run: |
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" \
+            bun scripts/release.ts build --out dist --commit "$(git rev-parse HEAD)"
+          bun run --bun release check --out dist
+
   nix:
     name: Nix package on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -69,6 +87,17 @@ jobs:
           SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" \
             bun scripts/release.ts build --out dist --commit "$(git rev-parse HEAD)"
           diff -r dist result/lib/operator/node_modules/@fveracoechea/operator
+      # The workflow tests run again through the Nix package's command: registration, a named
+      # profile, readiness, dispatch, a report, two reviewed PRs with merge and cleanup, and a
+      # manual review, on both hosts. Every fixture command and hook runs `result/bin/operator`.
+      - name: Run the workflows through the Nix command
+        # The test name pattern holds `|`, and `shell: bash` keeps a real pipe safe all the same.
+        shell: bash
+        run: |
+          OPERATOR_INSTALLED_COMMAND="$PWD/result/bin/operator" bun test --isolate --timeout=120000 \
+            modules/operator-cli/run.delegated-run.test.ts modules/operator-cli/run.reviews.test.ts \
+            modules/operator-cli/run.reports.test.ts \
+            -t "finish with no human stop|a manual request reviews the PR repository|report"
       # Consumers pin a github: input, which takes its commit time from the GitHub archive and not
       # from a local checkout. The checked-out commit, a pull request merge commit included, is in
       # this repository, so the archive of the same commit must hold the same artifact.

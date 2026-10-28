@@ -108,7 +108,7 @@ the latest published version was 0.9.0, an older release.
 Its version listing had only `dependencies`, `description`, `dist`, `name`, `repository`, and `version`, with no `bin` or `engines` field.
 This confirms the manifest rewrite that the fake copies, for that published version only.
 It is not evidence that this unpublished candidate installs from the live registry.
-#259 owns real-service verification of the candidate.
+#259 owns real-service verification of the candidate, see `259-installed-delivery.md`.
 No release was published and no installation of the person was changed.
 
 The global tests prove these facts:

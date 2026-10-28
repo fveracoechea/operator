@@ -45,6 +45,12 @@ if (state.client === "refuses") {
   process.exit(1);
 }
 
+if (call.args.includes("--dry-run")) {
+  console.log(`Simulating publish of @fveracoechea/operator@${version}`);
+  console.log("Success Dry run complete");
+  process.exit(0);
+}
+
 await Bun.write(
   statePath,
   `${JSON.stringify({ ...state, published: [...state.published, version] })}\n`,

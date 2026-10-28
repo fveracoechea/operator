@@ -79,9 +79,26 @@ function tail(text: string): string {
 export async function publishWithClient(request: {
   artifactRoot: string;
 }): Promise<JsrOutcome<{ output: string }>> {
+  return runClient(request.artifactRoot, ["publish"]);
+}
+
+/**
+ * Asks the official client to check the artifact the way JSR would accept it, with no upload.
+ * It needs no credential, so it runs before any publication can start.
+ */
+export async function checkWithClient(request: {
+  artifactRoot: string;
+}): Promise<JsrOutcome<{ output: string }>> {
+  return runClient(request.artifactRoot, ["publish", "--dry-run"]);
+}
+
+async function runClient(
+  artifactRoot: string,
+  args: string[],
+): Promise<JsrOutcome<{ output: string }>> {
   const staging = await mkdtemp(join(tmpdir(), "operator-jsr-"));
   try {
-    const root = request.artifactRoot.replace(/\/$/, "");
+    const root = artifactRoot.replace(/\/$/, "");
     for (const path of await OperatorRelease.contents({ artifactRoot: root })) {
       await Bun.write(`${staging}/${path}`, Bun.file(`${root}/${path}`), { createPath: true });
     }
@@ -106,7 +123,7 @@ export async function publishWithClient(request: {
 
     const published = await ToolInvocation.run({
       tool: "jsr",
-      args: ["publish"],
+      args,
       cwd: staging,
       timeoutMs: PUBLISH_TIMEOUT_MS,
     });

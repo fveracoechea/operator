@@ -218,10 +218,16 @@ async function supervise(
             pane: worker.paneId,
           });
           expect(submitted.code, submitted.stderr).toBe(0);
-        } else
+        } else {
           await workPullRequest(key, worker.worktreePath, {
             leaveNotes: options.leaveNotes === key,
           });
+          // Git deletes the empty `.git/worktrees` folder when cleanup removes the last worktree,
+          // and a worktree start in the same repository at that moment fails. The SuperAgent
+          // would replace that worker. This run waits, so it covers the routine path only.
+          // Remove the wait with the fix of #266.
+          await settled(source);
+        }
       } else if (row.action === "review_report") {
         commands.push(["report", "accept", key]);
         const accepted = await cli(["report", "accept", "--source", source, "--assignment", key]);

@@ -9,11 +9,13 @@ This branch starts with [#235](https://github.com/fveracoechea/operator/issues/2
 It is not an intermediate release.
 Help, version reporting, global installation, the Nix package, device settings, launch selection, project registration, skill installation, static readiness, supplied assignment plans, next actions, worker dispatch, the global Herdr plugin, the PR feedback loop with parent-merge relay, report assignments, the guarded PR merge, cleanup after a merge, source reset and prune, the core review request and posting path, review rounds, and Slack review transport are available.
 
-Finish old work with the old release before updating to the eventual breaking release.
-This code does not inspect, migrate, repair, or delete legacy Operator state.
+Finish all old crews and their work with the old release before updating to the breaking 1.0.0 release.
+This code does not inspect, migrate, repair, or delete legacy Operator state, and registration refuses a checkout that still has a `.operator` folder.
 Do not use it to resume an old session.
 
-The workflows of the device-level design in `CONTEXT.md` and `docs/adr/` are implemented on this branch. Installed delivery of the breaking release is not proven yet.
+The workflows of the device-level design in `CONTEXT.md` and `docs/adr/` are implemented on this branch.
+They run through the installed commands of the JSR, source, and Nix paths with both hosts, and the Nix package passes its flake checks on both systems.
+See `docs/implementation/259-installed-delivery.md` for the matrix, the service evidence, and the gaps.
 The base lint policy in ADR-0018 is now enforced.
 Local mutation testing from ADR-0016 is also available for repository development.
 Slack review transport runs through the Claude Code Slack MCP tools. A live check on 2026-10-28 verified its tool contract.
@@ -508,6 +510,7 @@ Oxlint owns dependency cycles and type-aware code policy, while the module check
 The deliberate-break tests run the real lint command in disposable checkout copies.
 See `docs/implementation/237-lint-policy.md` for policy coverage, exception boundaries, and verification.
 The installed delivery smoke uses real Bun global and project installs, Git, a local registry fixture, and the built public declarations.
+It runs the dispatch, report, PR, and review workflow tests again through the installed `operator` of the JSR and source paths.
 Publication tests use controlled GitHub and official-client commands.
 They publish no real release.
 
@@ -546,5 +549,7 @@ Build refuses without `SOURCE_DATE_EPOCH`, because the release record names the 
 The JSR artifact and the Nix package of one commit then have the same release record.
 Build writes runnable ESM, declarations, complete retained skills, the settings editor schema at `schemas/config.schema.json`, the Herdr plugin manifest at `modules/worker-dispatch/herdr-plugin.toml`, the fixed migrations, documentation, and a content-identified release record.
 The old project configuration schemas and release-specific Herdr hooks no longer ship.
-The maintainer-only `plan` and `publish` operations remain in `scripts/release.ts` for the release workflow.
-Do not publish this partial implementation.
+The maintainer-only `plan`, `publish`, `check`, and `verify` operations remain in `scripts/release.ts` for the release workflows.
+`check` runs the pinned JSR client with `publish --dry-run` on each pull request and before each publication. It needs no credential and uploads nothing.
+`verify` runs right after a publication. It installs the published version from JSR in isolated folders and requires the recorded commit and artifact identity.
+The breaking changeset makes the next version 1.0.0. Merging the version pull request that Changesets opens publishes it.

@@ -11,7 +11,15 @@ type Request = { paths: Paths; cwd: string };
 type Failure = { reason: string; detail: string };
 type Outcome = { reason: string; data: object };
 
-const cli = Bun.fileURLToPath(new URL("../../cli.ts", import.meta.url));
+// A built release runs `cli.js`, and a source install runs `cli.ts`.
+const packageRoot = new URL("../../", import.meta.url);
+
+async function entryPoint() {
+  const built = Bun.fileURLToPath(new URL("cli.js", packageRoot));
+  return (await Bun.file(built).exists())
+    ? built
+    : Bun.fileURLToPath(new URL("cli.ts", packageRoot));
+}
 
 async function localHead(worktree: string) {
   const result = await ToolInvocation.run({
@@ -32,7 +40,7 @@ function startCleanup(paths: Paths, owner: Owner) {
       ToolInvocation.detach({
         tool: process.execPath,
         args: [
-          cli,
+          await entryPoint(),
           "cleanup",
           "--source",
           owner.sourceId,

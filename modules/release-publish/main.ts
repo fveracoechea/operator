@@ -3,7 +3,7 @@ import { OperatorRelease } from "../operator-release/main.ts";
 import { createRelease, createTag } from "./github-release.ts";
 import { DeliveryPath, type DeliveryPathEvent } from "./delivery.ts";
 import { type PublicationJournal, readJournal, writeJournal } from "./journal.ts";
-import { publishWithClient, readVersion } from "./jsr-registry.ts";
+import { checkWithClient, publishWithClient, readVersion } from "./jsr-registry.ts";
 import { scanArtifact } from "./pack.ts";
 import {
   computeReleasePlan,
@@ -118,6 +118,14 @@ export const ReleasePublish = {
       journal,
       journalPath: request.journalPath,
     };
+  },
+
+  /**
+   * Has the official client check the artifact the way JSR would accept it, and uploads nothing.
+   * The release smoke runs it on every pull request and before each publication.
+   */
+  async check(request: { artifactRoot: string }) {
+    return checkWithClient(request);
   },
 
   /** Reports what one release has already delivered. Writes nothing. */

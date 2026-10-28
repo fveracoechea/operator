@@ -98,6 +98,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bun run --bun release publish --out dist --commit "${{ github.sha }}"
 
+      # Only a version JSR holds can be installed from it, so the live install runs right after
+      # this commit's publication. It installs the exact version in isolated Bun folders and
+      # requires the recorded commit and artifact identity. A push that published nothing to JSR
+      # has nothing to verify. A failure leaves the published version as it is and stops here.
+      - name: Install the published version from JSR
+        # Twenty bounded attempts, 30 seconds apart. A stalled registry cannot hold the job, which
+        # is in a publication group that is never cancelled.
+        timeout-minutes: 20
+        run: bun scripts/release.ts verify --out dist
+
       - name: Preserve the record of what was delivered
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
