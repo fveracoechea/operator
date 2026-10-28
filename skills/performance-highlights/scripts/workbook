@@ -1,0 +1,6 @@
+#!/bin/sh
+# Runs workbook.py in a private venv that has openpyxl.
+set -e
+VENV="${XDG_CACHE_HOME:-$HOME/.cache}/performance-highlights/venv"
+[ -x "$VENV/bin/python" ] || { python3 -m venv "$VENV" && "$VENV/bin/pip" -q install openpyxl; }
+exec "$VENV/bin/python" "$(dirname "$0")/workbook.py" "$@"
