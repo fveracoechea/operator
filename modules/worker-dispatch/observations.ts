@@ -1,6 +1,7 @@
-// Bun has no realpath, directory listing, or path API.
 import { isCodedError } from "../../lib/coded-error.ts";
-import { readdir, realpath } from "node:fs/promises";
+import { realPathOrNull } from "../../lib/real-path.ts";
+// Bun has no directory listing or path API.
+import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { Err, Ok, fromPromise } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
@@ -22,10 +23,6 @@ export function qualify<T>(cause: Error, defect: (cause: Error) => T) {
   )
     return { reason: "dispatch_io_failed", detail: String(cause) };
   return defect(cause);
-}
-
-export async function realOrNull(file: string) {
-  return realpath(file).catch(() => null);
 }
 
 /** Every file below the folder, so a replacement sees each earlier report and supporting file. */
@@ -127,7 +124,7 @@ export function projectWorkspace(checkout: string) {
             workspaceId === null &&
             !workspace.linked &&
             workspace.checkout !== null &&
-            (await realOrNull(workspace.checkout)) === checkout
+            (await realPathOrNull(workspace.checkout)) === checkout
           )
             workspaceId = workspace.workspaceId;
         return { workspaceId, labels: workspaces.map((workspace) => workspace.label) };
@@ -141,7 +138,7 @@ export function projectWorkspace(checkout: string) {
 export function waitForPreparation(paths: Paths, worktree: string, since: string) {
   return fromPromise(
     async () => {
-      const real = await realOrNull(worktree);
+      const real = await realPathOrNull(worktree);
       if (real === null)
         return Err<Failure>({
           reason: "worktree_missing",

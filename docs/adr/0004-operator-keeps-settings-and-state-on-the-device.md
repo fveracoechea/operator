@@ -4,7 +4,7 @@
 
 Accepted - 2026-10-24.
 Decided in #199 and #202.
-Planned, not yet implemented.
+Implemented for device settings in #239 and device state in #240.
 
 ## Context
 

@@ -4,7 +4,7 @@
 
 Accepted - 2026-10-24.
 Decided in #199, #231, and #233.
-Planned, not yet implemented.
+Implemented in #244, and later slices add their actions and waits to the same read.
 
 ## Context
 

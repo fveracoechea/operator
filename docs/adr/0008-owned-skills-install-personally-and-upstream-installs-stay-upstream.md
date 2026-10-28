@@ -4,7 +4,7 @@
 
 Accepted - 2026-10-24.
 Decided in #209, #232, and #233.
-Planned, not yet implemented.
+Implemented for owned skills in #242 and the delegated upstream install in #243.
 
 ## Context
 

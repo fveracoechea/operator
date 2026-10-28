@@ -4,7 +4,7 @@
 
 Accepted - 2026-10-24.
 Decided in #232 and #233.
-Planned, not yet implemented.
+Implemented in the role skills and CLI interfaces of #244 through #255, and audited in #258.
 
 ## Context
 

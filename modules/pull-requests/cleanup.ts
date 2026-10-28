@@ -1,5 +1,4 @@
-// Bun has no realpath API.
-import { realpath } from "node:fs/promises";
+import { realPathOrNull } from "../../lib/real-path.ts";
 import { Err, Ok, OkAsync, fromPromise, type Result } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { Environment } from "../environment/main.ts";
@@ -44,10 +43,6 @@ async function git(cwd: string, args: string[]) {
 async function gitText(cwd: string, args: string[]) {
   const result = await git(cwd, args);
   return result?.exitCode === 0 ? result.stdout.trim() : null;
-}
-
-async function realOrNull(file: string) {
-  return realpath(file).catch(() => null);
 }
 
 /** An awaited operation result, with a defect kept as a failure of this step. */
@@ -149,10 +144,10 @@ async function recordedCheckout(real: string, checkout: string) {
   const controller = await gitText(checkout, commonArgs);
   return (
     top !== null &&
-    (await realOrNull(top)) === real &&
+    (await realPathOrNull(top)) === real &&
     common !== null &&
     controller !== null &&
-    (await realOrNull(common)) === (await realOrNull(controller))
+    (await realPathOrNull(common)) === (await realPathOrNull(controller))
   );
 }
 
@@ -168,7 +163,7 @@ async function inspect(
     expectedBranch: pullRequest.branch,
     personInstructed,
   };
-  const real = launch.worktreePath === null ? null : await realOrNull(launch.worktreePath);
+  const real = launch.worktreePath === null ? null : await realPathOrNull(launch.worktreePath);
   const sameRepository = real !== null && (await recordedCheckout(real, checkout));
   const empty = { changed: [], unknownIgnored: [], landed: true };
   if (real === null || !sameRepository)
@@ -245,7 +240,7 @@ async function removeWorktree(checkout: string, real: string, force: boolean) {
     if (
       workspace.linked &&
       workspace.checkout !== null &&
-      (await realOrNull(workspace.checkout)) === real
+      (await realPathOrNull(workspace.checkout)) === real
     )
       workspaceId = workspace.workspaceId;
   if (workspaceId !== null) return value(await Herdr.removeWorktree({ workspaceId, force }));

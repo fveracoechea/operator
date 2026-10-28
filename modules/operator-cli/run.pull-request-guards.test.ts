@@ -45,7 +45,9 @@ test.each([
   {
     name: "shared Git repository",
     file: "pull-requests/owner.ts",
-    replacements: [["(await realOrNull(common)) === (await realOrNull(controller)) &&", ""]],
+    replacements: [
+      ["(await realPathOrNull(common)) === (await realPathOrNull(controller)) &&", ""],
+    ],
     testFile: "operator-cli/run.pull-requests.test.ts",
     pattern: "PR commands resolve only the recorded worktree",
   },

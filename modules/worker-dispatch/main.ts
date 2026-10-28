@@ -1,3 +1,4 @@
+import { realPathOrNull } from "../../lib/real-path.ts";
 import { DoAsync, Err, Ok, OkAsync, fromPromise } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { Herdr } from "../herdr/main.ts";
@@ -16,7 +17,6 @@ import {
   parentBase,
   projectWorkspace,
   qualify,
-  realOrNull,
   waitForPreparation,
   type Failure,
   type Paths,
@@ -106,7 +106,7 @@ function chooseResources(input: Request, facts: Facts) {
         async () => {
           const path = facts.previous?.worktreePath ?? null;
           const branch = facts.previous?.branch ?? null;
-          return path === null || branch === null || (await realOrNull(path)) === null
+          return path === null || branch === null || (await realPathOrNull(path)) === null
             ? null
             : { path, branch };
         },

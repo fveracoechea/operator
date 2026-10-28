@@ -4,7 +4,7 @@
 
 Accepted - 2026-10-24.
 Decided in #203.
-Planned, not yet implemented.
+Implemented in #240, with controller moves and removal in #246.
 
 ## Context
 

@@ -1,3 +1,4 @@
+import { realPathOrNull } from "../../lib/real-path.ts";
 import { DoAsync, Err, Ok, fromPromise, type Result } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { Herdr } from "../herdr/main.ts";
@@ -9,7 +10,6 @@ import {
   gitBranches,
   projectWorkspace,
   qualify,
-  realOrNull,
   waitForPreparation,
   type Failure,
   type Paths,
@@ -138,7 +138,7 @@ function reusable(input: ReviewerLaunch) {
   return fromPromise(
     async () => {
       const path = input.reuse?.path ?? null;
-      if (path === null || (await realOrNull(path)) === null) return Ok(null);
+      if (path === null || (await realPathOrNull(path)) === null) return Ok(null);
       if ((await git(path, ["rev-parse", "HEAD"])) === input.head) return Ok(path);
       const status = await git(path, ["status", "--porcelain"]);
       if (status !== "")
@@ -298,7 +298,7 @@ export function moveReviewer(input: {
               reason: "review_fetch_failed",
               detail: `Git could not fetch ${input.to} of PR #${input.number} from ${remote}.`,
             });
-          const path = await realOrNull(input.worktree);
+          const path = await realPathOrNull(input.worktree);
           const at = path === null ? null : await git(path, ["rev-parse", "HEAD"]);
           const status = path === null ? null : await git(path, ["status", "--porcelain"]);
           if (path === null || (at !== input.from && at !== input.to) || status !== "")

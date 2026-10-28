@@ -1,5 +1,6 @@
-// Bun has no realpath API.
 import { isCodedError } from "../../lib/coded-error.ts";
+import { realPathOrNull } from "../../lib/real-path.ts";
+// Bun has no realpath API.
 import { realpath } from "node:fs/promises";
 import { Err, Ok, fromPromise } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
@@ -33,10 +34,6 @@ async function git(cwd: string, args: string[]) {
   return result.status === "completed" && result.exitCode === 0 ? result.stdout.trim() : null;
 }
 
-async function realOrNull(file: string) {
-  return realpath(file).catch(() => null);
-}
-
 const nothing = "Nothing was read from GitHub or changed.";
 
 /** The caller's real Git top level must be a recorded worktree. A running owner wins a reused path. */
@@ -50,7 +47,7 @@ async function recorded(cwd: string, owners: Owners): Promise<Owners[number] | O
   const real = await realpath(top);
   const matches: Owners = [];
   for (const row of owners)
-    if (row.worktreePath !== null && (await realOrNull(row.worktreePath)) === real)
+    if (row.worktreePath !== null && (await realPathOrNull(row.worktreePath)) === real)
       matches.push(row);
   return (
     matches.find((row) => row.launchState === "running") ??
@@ -84,7 +81,7 @@ async function sameRepository(paths: Paths, owner: Owner) {
   return (
     common !== null &&
     controller !== null &&
-    (await realOrNull(common)) === (await realOrNull(controller)) &&
+    (await realPathOrNull(common)) === (await realPathOrNull(controller)) &&
     project.tag === "Ok" &&
     project.value.data.repository === owner.repository
   );

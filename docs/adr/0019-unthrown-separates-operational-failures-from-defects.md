@@ -4,7 +4,7 @@
 
 Accepted - 2026-10-25.
 Decided in #261 by the person's explicit selection.
-Planned production adoption, not yet implemented.
+Production code adopts unthrown, and the ADR-0018 lint policy from #237 enforces its rules.
 
 ## Context
 

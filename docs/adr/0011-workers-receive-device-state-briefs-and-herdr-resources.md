@@ -4,7 +4,7 @@
 
 Accepted - 2026-10-24.
 Decided in #210, #228, and #233.
-Planned, not yet implemented.
+Implemented in #247.
 
 ## Context
 

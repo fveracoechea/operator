@@ -61,4 +61,5 @@ For settings edits, environment values, and isolated test roots, read `docs/impl
 For delegated runs without routine approval stops and the remaining human stops, read `docs/implementation/61-delegated-authority.md`.
 For the boundary lint rules, the validator exception, and lint skill-topic pointers, read `docs/implementation/219-boundary-lint.md`.
 Read `docs/implementation/235-legacy-removal.md` for the inventory and verification.
+For the final replacement audit and the command example guard, read `docs/implementation/258-replacement-audit.md`.
 Do not inspect, migrate, repair, or remove real legacy Operator state.

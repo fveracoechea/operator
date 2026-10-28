@@ -16,7 +16,7 @@ import {
   type Row,
   type Snapshot,
 } from "./request.ts";
-import { cleanupReviewer, syncReviewer } from "./reviewer.ts";
+import { cleanupReviewer, failureOf, syncReviewer } from "./reviewer.ts";
 import { decideWatch, type WatchDecision } from "./rounds.ts";
 import { slackActions, type SlackView } from "./slack.ts";
 
@@ -88,10 +88,6 @@ async function checkReviewers(paths: Paths, listed: Listed[]) {
     if (changed.tag === "Ok") events.push({ url: request.url, kind: "reviewer_interrupted" });
   }
   return events;
-}
-
-function failureOf(result: { tag: string; error?: Failure; cause?: unknown }): Failure {
-  return result.error ?? { reason: "review_defect", detail: String(result.cause) };
 }
 
 /** The flag is set once, so a second wait reports nothing. A round start clears it. */

@@ -1,9 +1,4 @@
-function slug(text: string) {
-  return text
-    .toLowerCase()
-    .replaceAll(/[^a-z0-9]+/g, "-")
-    .replaceAll(/^-+|-+$/g, "");
-}
+import { slug } from "../../lib/slug.ts";
 
 /** Herdr agent names allow 32 characters, so the base leaves room for a collision suffix. */
 export function launchBase(input: { completion: string; trackerKey: string; key: string }) {

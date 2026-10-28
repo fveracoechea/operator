@@ -4,7 +4,7 @@
 
 Accepted - 2026-10-24.
 Decided in #228, #231, #232, and #233.
-Partly implemented: the feedback loop in #249, stacked starts and parent-merge relay in #250, and the guarded merge and cleanup in #251. The optional reviewer is planned.
+Implemented: the feedback loop in #249, stacked starts and parent-merge relay in #250, the guarded merge and cleanup in #251, and the optional reviewer through `review.assignments` in #253.
 
 ## Context
 

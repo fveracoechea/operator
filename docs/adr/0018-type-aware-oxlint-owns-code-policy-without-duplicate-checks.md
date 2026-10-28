@@ -7,7 +7,7 @@ Decided in #200 and #201, with environment ownership resolved in #202.
 Amended 2026-10-25: #261 adds every unthrown Oxlint rule, and #237 adds async correctness, unsafe-data checks, and a classic complexity ceiling of 14.
 Amended 2026-10-27: #219 adds the four boundary rules, a narrow validator exception that the person approved, and skill-topic pointers on custom messages.
 The base lint policy is implemented in #237.
-Environment ownership remains planned for its device-settings slice.
+Environment ownership is implemented in #239.
 
 ## Context
 

@@ -1,3 +1,4 @@
+import { realPathOrNull } from "../../lib/real-path.ts";
 // Bun has no realpath API.
 import { realpath } from "node:fs/promises";
 import { Err, Ok, OkAsync, fromPromise, fromThrowable, type AsyncResult } from "unthrown";
@@ -7,7 +8,7 @@ import { Environment } from "../environment/main.ts";
 import { Herdr } from "../herdr/main.ts";
 import { WorktreePreparation } from "../worktree-preparation/main.ts";
 import { pluginId, pluginManifestFile } from "./plugin.ts";
-import { qualify, realOrNull, type Failure, type Paths } from "./observations.ts";
+import { qualify, type Failure, type Paths } from "./observations.ts";
 
 const eventSchema = z.object({
   event: z.string(),
@@ -75,8 +76,8 @@ export function installPlugin(input: { paths: Paths }) {
       async () => {
         const existing = plugins.find((plugin) => plugin.id === pluginId);
         const linked =
-          existing === undefined ? null : ((await realOrNull(existing.root)) ?? existing.root);
-        const wanted = (await realOrNull(input.paths.herdrPlugin)) ?? input.paths.herdrPlugin;
+          existing === undefined ? null : ((await realPathOrNull(existing.root)) ?? existing.root);
+        const wanted = (await realPathOrNull(input.paths.herdrPlugin)) ?? input.paths.herdrPlugin;
         // A conflict is refused before Operator writes its own manifest.
         if (linked !== null && linked !== wanted) return { conflict: true as const };
         const released = await Bun.file(pluginManifestFile).text();

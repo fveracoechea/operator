@@ -4,7 +4,7 @@
 
 Accepted - 2026-10-24.
 Decided in #202, #209, #231, and #233.
-Planned, not yet implemented.
+Implemented in #243, with global-command readiness in #256.
 
 ## Context
 

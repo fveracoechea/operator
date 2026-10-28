@@ -4,7 +4,7 @@
 
 Accepted - 2026-10-24.
 Decided in #228 and #233.
-Planned, not yet implemented.
+Implemented in #253, with review rounds in #254 and Slack transport in #255.
 
 ## Context
 

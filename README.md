@@ -7,13 +7,13 @@ Personal skills and CLI tools for coordinating coding agents in OpenCode and Cla
 Issue [#234](https://github.com/fveracoechea/operator/issues/234) defines the device-level replacement.
 This branch starts with [#235](https://github.com/fveracoechea/operator/issues/235), which removes the legacy architecture before new workflows land.
 It is not an intermediate release.
-Help, version reporting, global installation, the Nix package, device settings, launch selection, project registration, skill installation, static readiness, supplied assignment plans, next actions, worker dispatch, the global Herdr plugin, the PR feedback loop with parent-merge relay, report assignments, the guarded PR merge, cleanup after a merge, the core review request and posting path, and review rounds are available.
+Help, version reporting, global installation, the Nix package, device settings, launch selection, project registration, skill installation, static readiness, supplied assignment plans, next actions, worker dispatch, the global Herdr plugin, the PR feedback loop with parent-merge relay, report assignments, the guarded PR merge, cleanup after a merge, source reset and prune, the core review request and posting path, review rounds, and Slack review transport are available.
 
 Finish old work with the old release before updating to the eventual breaking release.
 This code does not inspect, migrate, repair, or delete legacy Operator state.
 Do not use it to resume an old session.
 
-The device-level design in `CONTEXT.md` and `docs/adr/` remains planned.
+The workflows of the device-level design in `CONTEXT.md` and `docs/adr/` are implemented on this branch. Installed delivery of the breaking release is not proven yet.
 The base lint policy in ADR-0018 is now enforced.
 Local mutation testing from ADR-0016 is also available for repository development.
 Slack review transport runs through the Claude Code Slack MCP tools. A live check on 2026-10-28 verified its tool contract.
@@ -150,7 +150,7 @@ bun cli.ts --version --json
 ```
 
 Run the first registration from a main checkout with a GitHub remote and no legacy `.operator` folder.
-Until registration creates device state, every other command, including setup, help, and version, refuses with `state_missing`.
+Until registration creates device state, every other command, including help and version, refuses with `state_missing`.
 Version output describes the running installation, not a project-selected release.
 A built artifact also reports its commit and artifact identity in JSON.
 After startup succeeds, unknown or removed commands exit with code 2 and perform no workflow operation.
@@ -511,9 +511,10 @@ The installed delivery smoke uses real Bun global and project installs, Git, a l
 Publication tests use controlled GitHub and official-client commands.
 They publish no real release.
 
-See `docs/implementation/235-legacy-removal.md` for the inventory, retained ownership, diagram, and verification results.
-`skills/` contains complete owned engineering skills.
-The old role and posting-review skills are removed, and replacements arrive with their workflows.
+A beside-test reads `operator --help` and refuses a command example in the docs, the skills, or a next action that names no implemented command.
+See `docs/implementation/235-legacy-removal.md` for the removal inventory and `docs/implementation/258-replacement-audit.md` for the final audit.
+`skills/` contains the owned `super-agent`, `worker-agent`, and draft-only `pr-review` skills, and complete owned engineering skills.
+There are no Crew or Operative skills, forwarding skills, or aliases.
 
 ## Local mutation testing
 

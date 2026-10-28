@@ -4,7 +4,7 @@
 
 Accepted - 2026-10-24.
 Decided in #126, #199, #228, #231, and #233.
-Planned, not yet implemented.
+Implemented as explicit state machines for settings changes, sources, assignments, reports, PR waits, merges, cleanup, review requests, and delivery paths, after the #236 prototypes.
 
 ## Context
 

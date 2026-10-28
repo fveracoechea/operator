@@ -1,3 +1,4 @@
+import { slug } from "../../lib/slug.ts";
 // Bun has no path API.
 import path from "node:path";
 import { Err, ErrAsync, Ok, OkAsync, fromPromise, type AsyncResult } from "unthrown";
@@ -20,13 +21,6 @@ import {
   type Snapshot,
   type Sync,
 } from "./request.ts";
-
-function slug(text: string) {
-  return text
-    .toLowerCase()
-    .replaceAll(/[^a-z0-9]+/g, "-")
-    .replaceAll(/^-+|-+$/g, "");
-}
 
 /** Writes each posted round's draft beside the brief, so a replacement reads the history. */
 async function writeHistory(paths: Paths, snapshot: Pick<Snapshot, "request" | "rounds">) {
@@ -135,7 +129,8 @@ function prompt(request: Row, sync: Sync, brief: string, mode: string | null) {
 
 type Synced = { kind: string; mode: string | null };
 
-function failureOf(result: { tag: string; error?: Failure; cause?: unknown }): Failure {
+/** The failure of a refused result, or a review defect for an unexpected cause. */
+export function failureOf(result: { tag: string; error?: Failure; cause?: unknown }): Failure {
   return result.error ?? { reason: "review_defect", detail: String(result.cause) };
 }
 

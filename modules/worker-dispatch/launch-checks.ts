@@ -1,3 +1,4 @@
+import { realPathOrNull } from "../../lib/real-path.ts";
 import { DoAsync, Err, Ok, OkAsync, fromPromise } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { WorktreePreparation } from "../worktree-preparation/main.ts";
@@ -8,7 +9,7 @@ import { OperatorRelease } from "../operator-release/main.ts";
 import { OwnedSkills } from "../owned-skills/main.ts";
 import { Readiness } from "../readiness/main.ts";
 import { pluginId, pluginManifestFile } from "./plugin.ts";
-import { qualify, realOrNull, type Failure, type Paths } from "./observations.ts";
+import { qualify, type Failure, type Paths } from "./observations.ts";
 
 /** Herdr reads hooks when it links a manifest, so a manifest from another release is stale. */
 function pluginReady(paths: Paths) {
@@ -16,11 +17,11 @@ function pluginReady(paths: Paths) {
     fromPromise(
       async () => {
         const installed = plugins.find((plugin) => plugin.id === pluginId);
-        const expected = await realOrNull(paths.herdrPlugin);
+        const expected = await realPathOrNull(paths.herdrPlugin);
         if (
           installed === undefined ||
           expected === null ||
-          (await realOrNull(installed.root)) !== expected
+          (await realPathOrNull(installed.root)) !== expected
         )
           return "herdr_plugin_missing";
         const linked = Bun.file(`${paths.herdrPlugin}/herdr-plugin.toml`);
@@ -111,7 +112,7 @@ export function ensureWorkspace(checkout: string, repository: string, workspaceI
 export function preparedAgain(paths: Paths, worktree: string) {
   return fromPromise(
     async () => {
-      const real = await realOrNull(worktree);
+      const real = await realPathOrNull(worktree);
       if (real === null)
         return Err<Failure>({
           reason: "worktree_missing",
