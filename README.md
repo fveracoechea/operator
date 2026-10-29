@@ -2,15 +2,16 @@
 
 Personal skills and CLI tools for coordinating coding agents in OpenCode and Claude Code through [Herdr](https://herdr.dev/).
 
+Operator 1.0.0 is a device-level tool.
+One installed release serves every registered project on the device, and settings and state live on the device, not in a checkout.
+A SuperAgent coordinates WorkerAgents, and the CLI owns the workflow state machines and returns the next actions.
+`CONTEXT.md` defines the terms, and `docs/adr/` records the decisions.
+
 ## Upgrading from 0.x
 
-Finish all old crews and their work with the old release before updating to the breaking 1.0.0 release.
-This code does not inspect, migrate, repair, or delete legacy Operator state, and registration refuses a checkout that still has a `.operator` folder.
-Do not use it to resume an old session.
-There are no compatibility aliases for the removed commands.
-
-The installed commands of the JSR, source, and Nix paths run with both hosts.
-Slack review transport runs through the Claude Code Slack MCP tools.
+Finish all old crews and their work with the old release before you update.
+The 1.0.0 release does not inspect, migrate, repair, or delete legacy `.operator` state, and registration refuses a checkout that still has that folder.
+There are no compatibility aliases for the removed commands or skills.
 
 ## Install Operator for the device
 
@@ -113,294 +114,81 @@ All delivery paths keep working after the registry, the source repository, or th
 Installing an unrelated global Bun package changes Bun's global lock but not Operator's release identity.
 `operator ready --json` reports a missing global command, a global command that runs another release, and an installation that names no exact version or full commit.
 
-```mermaid
-flowchart TD
-  Person -->|bun add -g exact JSR version| JSR[Global package without a command]
-  Person -->|bun add -g Git URL at a full commit| Source[Global package that Bun links]
-  Person -->|Nix flake at a release tag| Nix[Package launcher with its pinned Bun]
-  JSR -->|operator install launcher| Check{Bun's global package at the exact version?}
-  Check -->|no, exit 3| Refused[Nothing written]
-  Check -->|other command exists, exit 4| Conflict[Existing command unchanged]
-  Check -->|yes| Command[operator on PATH]
-  Source --> Command
-  Nix -->|profile bin folder| Command
-  Herdr[Herdr hooks, agents, and shells] -->|PATH| Command
-  Command --> Startup[Startup compatibility checks]
-  Startup --> Handler[Command handler]
-```
+## First run
 
-## Run the CLI from a checkout
-
-For development from a source checkout:
+Run the first registration from the main checkout of a project with a GitHub remote:
 
 ```sh
-bun install --frozen-lockfile
-bun cli.ts project register --json
-bun cli.ts --help
-bun cli.ts --version
-bun cli.ts --version --json
+operator project register --json
+operator --help
+operator --version --json
 ```
 
-Run the first registration from a main checkout with a GitHub remote and no legacy `.operator` folder.
 Until registration creates device state, every other command, including help and version, refuses with `state_missing`.
-Version output describes the running installation, not a project-selected release.
-A built artifact also reports its commit and artifact identity in JSON.
-After startup succeeds, unknown or removed commands exit with code 2 and perform no workflow operation.
-An unsupported Bun exits with code 1 before a command runs.
-An installed package also exports `main(args)` from `@fveracoechea/operator/cli`.
+Every command checks device-state compatibility first.
+An older matching history migrates automatically after a verified backup.
+Use `bun cli.ts` in place of `operator` from a source checkout.
 
-## Personal owned skills
+## Commands
+
+`operator --help` lists every command.
+Every command takes `--json`.
+
+### Device and projects
 
 ```sh
-operator install --opencode --json
-operator install --claude --json
+operator config show --json
+operator config plan --set superAgent.host=opencode --json
+operator config apply --set superAgent.host=opencode --plan <plan-id> --json
+operator config recover --json
+operator config resolve --role workerAgent --json
+operator host models --host claude-code --json
+operator project show --json
+operator project list --json
+operator project move --json
+operator project remove owner/repository --person-instructed --json
+```
+
+Settings are in `$XDG_CONFIG_HOME/operator/config.json`, and state is in `$XDG_STATE_HOME/operator/`.
+Hosts are `opencode` and `claude-code`.
+WorkerAgents inherit the SuperAgent's host and model, and named profiles under `profiles.<name>` override them.
+Project removal needs the person's instruction.
+It deletes Operator records only, never checkouts, branches, or worktrees.
+
+### Skills and readiness
+
+```sh
 operator install --opencode --claude --json
 operator install --opencode --claude --check --json
-```
-
-Owned skills come from the running package, with complete supporting assets copied to personal host locations.
-OpenCode uses `$XDG_CONFIG_HOME/opencode/skills/`, or `~/.config/opencode/skills/` when unset.
-Claude Code uses `~/.claude/skills/`.
-The device ledger permits replacement only of unchanged managed content.
-Matching content stays unwritten.
-Modified or unrelated contents refuse with exit 4 rather than overwrite your edits.
-Old role names are removed only with unchanged device-ledger proof, without forwarding skills or legacy-ledger adoption.
-
-`--check` follows links and compares contents without writing host folders or device state.
-Packages under `/nix/store/` always check consumer-owned wiring rather than copy skills.
-The role skills are `super-agent` and `worker-agent`.
-Workflow commands remain in their later implementation tickets.
-
-## Upstream skills and static readiness
-
-```sh
-operator install matt --opencode --json
-operator install matt --claude --json
 operator install matt --opencode --claude --json
 operator ready --json
 ```
 
-Use `bun cli.ts` in place of `operator` from a source checkout.
-An explicit Matt install permits the upstream tool's replacement policy.
-It can replace local edits without an Operator preview.
-Operator invokes `bun x --bun skills@1.7.4` with a resolved full Matt repository commit, global scope, explicit hosts, and every upstream skill name except names owned by the running Operator release.
-The upstream tool owns its shared copies, host links, and lock record, including on Nix devices.
-Operator has no upstream plan/apply commands or second upstream-content ledger.
-Failed or interrupted installs can have partial effects, so inspect their destinations before another install.
-An unconfirmed installer answer exits with code 5.
+`install` copies the owned skills of the running release into the personal host folders, and it refuses to overwrite edited content.
+A Nix install only checks the skills that your configuration links.
+`install matt` runs the pinned upstream skills installer.
+`ready` checks `gh`, its GitHub login, `herdr`, the global `operator` command, the host executable, and the owned skills.
+It launches nothing.
 
-`ready` checks `gh`, GitHub authentication for `github.com`, `herdr`, that the global `operator` command runs this release from a pinned installation, and the executable for `superAgent.host` in device settings.
-It follows links and compares complete owned contents with the running release.
-Required upstream `code-review` must have a nonempty `SKILL.md` in the expected personal location.
-OpenCode uses the upstream shared `~/.agents/skills/`, while Claude Code uses `~/.claude/skills/`.
-Independent upstream revisions need not match Operator.
-Missing prerequisites return current blockers and exit 3, while a ready result exits 0.
-The command writes no readiness record, changes no project, and launches no host, metadata handshake, or live probe.
-It requires no Slack MCP tools on either host.
-Static readiness is not proof of host loading or provider access.
-
-## Device settings
-
-Linux and macOS use the same XDG layout.
-Settings are in `$XDG_CONFIG_HOME/operator/config.json`, or `~/.config/operator/config.json` when the variable is unset.
-Settings receipts and their SQLite write lock are in `$XDG_STATE_HOME/operator/config/`, or `~/.local/state/operator/config/`.
-An explicitly empty or relative root is an error before any command runs.
-There is no `OPERATOR_HOME`, cache root, or runtime root.
-
-```sh
-bun cli.ts config show --json
-bun cli.ts config plan --set superAgent.host=opencode --json
-bun cli.ts config apply --set superAgent.host=opencode --plan <plan-id> --json
-bun cli.ts config recover --json
-```
-
-Use the plan ID returned by `config plan` and repeat the same edits for `config apply`.
-`--set` and `--unset` accept `superAgent.host`, `superAgent.model`, `superAgent.reasoningEffort`, and the corresponding `workerAgent` fields.
-Hosts are `opencode` and `claude-code`.
-Effort names come from the selected host and model's current metadata.
-This includes custom OpenCode variant names, rather than only a fixed effort list.
-Planning and apply validate every complete selection against current host metadata.
-Incomplete host-only or effort-only settings can be saved before a model is selected.
-An absent document reads as empty role settings and creates no files.
-The first applied edit creates the document with `$schema` set to `./config.schema.json`.
-An applied edit also writes current editor support unless that destination is linked or read-only.
-Inspection and planning write nothing.
-
-Apply refuses a stale plan and protects repeated or interrupted writes with a durable receipt and a process-safe SQLite lock.
-Recovery reconciles the receipt from the recorded before and after file identities, without editing settings.
-An unmatched or unreadable receipt remains blocked for inspection.
-An unconfirmed write exits with code 5 and requires recovery, not a blind new edit.
-Linked or read-only settings remain readable, but edits refuse with instructions to change their external owner, such as Nix or Home Manager.
-Settings commands do not inspect legacy state or change a project checkout.
-
-## Hosts and start profiles
-
-Read the selected host's available models and efforts before choosing them:
-
-```sh
-operator host models --host opencode --json
-operator host models --host claude-code --json
-operator config plan --set superAgent.host=opencode --set superAgent.model=<advertised-model> --json
-operator config apply --set superAgent.host=opencode --set superAgent.model=<advertised-model> --plan <plan-id> --json
-operator config resolve --role superAgent --json
-operator config resolve --json
-operator config plan --set profiles.investigation.reasoningEffort=high --json
-operator config apply --set profiles.investigation.reasoningEffort=high --plan <plan-id> --json
-operator config resolve --profile investigation --json
-```
-
-Use `bun cli.ts` instead of `operator` from a source checkout.
-Model identifiers in examples are placeholders, not availability claims.
-An unset host or model refuses resolution rather than selecting a fallback.
-The SuperAgent defaults to high effort.
-WorkerAgents inherit the SuperAgent's host and model, with medium effort.
-Worker defaults override those fields individually, then a named profile overrides them, then explicit `config resolve` flags override them.
-The flags are `--host`, `--model`, and `--effort`.
-
-Profile names use a lowercase letter followed by up to 63 lowercase letters, digits, or hyphens.
-`constructor` and `prototype` are reserved.
-Use `profiles.<name>.host`, `.model`, or `.reasoningEffort` with the same protected settings commands.
-Use `--unset profiles.<name>.<field>` to restore inheritance, or `--unset profiles.<name>` to remove the profile.
-Profiles describe launch choices, not a closed list of worker tasks.
-
-OpenCode V2 supplies a directory-scoped model catalog and variant names.
-Claude Code supplies supported models and effort levels through its metadata initialization handshake.
-That handshake sends no prompt or generation request and does not save a conversation.
-Neither metadata path is a readiness probe or proof that a provider request will succeed.
-Missing or malformed metadata and unsupported choices refuse without substitution.
-Claude aliases with an advertised concrete model resolve to that model, and the result retains the requested name.
-`default` and the multi-model `opusplan` mode are not launch selections.
-
-Resolution returns a value and its host command arguments, not a launched worker.
-Later settings edits change later resolutions but cannot change an earlier returned value or a running worker.
-Dispatch records each launch's resolved selection, release, and skill identities.
-Operator adds no host permission rules, allow lists, permission modes, or fallback flags.
-Host configuration remains under its external owner's control.
-
-## Project registration and management
-
-Run from the main checkout or one of its subdirectories:
-
-```sh
-operator project register --json
-operator project register --repository owner/repository --json
-operator project show --json
-operator project list --json
-operator project move --json
-operator project move --repository owner/repository --json
-operator project remove owner/repository --person-instructed --json
-```
-
-For a source checkout, use `bun cli.ts` in place of `operator`.
-Registration records one lowercase GitHub identity and real controlling-checkout path.
-Several distinct GitHub remote identities require an explicit matching `--repository` choice.
-Remote names have no special authority.
-Repeating registration from the same controller returns the original record.
-An alternate clone refuses and names the controller.
-Bare repositories, linked controlling worktrees, and legacy `.operator` entries refuse without modification.
-
-Explicit registration atomically creates `$XDG_STATE_HOME/operator/operator.sqlite` when needed.
-It uses the same home fallback as settings state and creates the project's directory in device state.
-It changes no checkout files.
-`project show` resolves the current controller without creating missing state.
-`project list` runs anywhere and reports each controller's current status and open-source count.
-It also reports pending project file removals, even after their registrations are gone.
-`project move` runs from the new main clone, requires the same remote identity and no open source, and preserves the registration time.
-Removal requires the person's explicit instruction and no open source.
-`--person-instructed` attests that instruction, it does not grant permission to infer it.
-Removal deletes project records and device-state content, never checkouts, branches, worktrees, tracker content, or migration backups.
-If file cleanup fails, the command exits 1 and keeps a durable pending removal.
-Resolve the reported filesystem problem, then repeat the same person-instructed removal.
-Registration of that identity stays blocked until cleanup completes.
-Every command checks device compatibility before its handler, including help and version reporting.
-An older matching Drizzle history applies all pending fixed migrations automatically, with a verified SQLite snapshot and writer protection.
-Migration waits for device-wide idle work and declared held-record blockers.
-The latest three verified migration backups remain under the device state's `backups/` folder.
-Damaged or incompatible state is not repaired or replaced.
-Corruption reports the last currently verified backup, if one is available.
-Only explicit registration creates a missing database.
-
-## Assignment plans and next actions
-
-From a registered controlling checkout, supply a JSON plan rather than ask the CLI to read a tracker:
+### Assignments and dispatch
 
 ```sh
 operator source register --file /absolute/path/assignments.json --json
 operator source show --source <source-id> --json
 operator next --json
-operator next --source <source-id> --json
+operator herdr install --json
+operator dispatch --source <source-id> --assignment <key> --json
 operator source reset --source <source-id> --person-instructed --json
 operator source prune --json
 ```
 
-Use `bun cli.ts` instead of `operator` in a source checkout.
-The plan supplies tracker keys, instructions, PR or report completion, dependencies, optional named profiles, resources, and branch names for worktrees.
-Invalid or cyclic plans refuse before writes.
-A second open source for the same project and tracker parent refuses.
-Each registration after an ended source gets a new identity.
-An empty plan finishes immediately.
+The SuperAgent reads the tracker and supplies a JSON plan, because the CLI reads no tracker.
+`next` returns ready candidates, dependency blockers, waits, and attention rows, and it writes nothing.
+`herdr install` links one stable Herdr plugin, whose hooks prepare each new worktree and record worker activity.
+`dispatch` starts a ready assignment in a Herdr pane or worktree, with an absolute brief in device state.
+`source reset` ends a source on the person's instruction, and `source prune` deletes ended sources after 14 days.
 
-`next` reads one snapshot and returns ready candidates, dependency blockers, active waits, and ended sources without writing a schedule.
-PR dependencies permit start at `pr-open` or `merged`.
-Report dependencies require accepted `completed`, not submitted `reported`.
-The commands launch no host and perform no tracker operations.
-Report submission, acceptance, and parent-merge relay are described below.
-A PR assignment with several open parent PRs waits until all but one merge, because a PR stacks on one parent branch.
-
-`source reset` ends one open source on the person's explicit instruction.
-It refuses while a worker of the source runs, keeps merged PR assignments and completed reports, and abandons every other assignment.
-It removes no worktree, branch, or pane and changes no tracker content.
-`source prune` deletes the records, briefs, reports, and supporting files of each ended source of the project once 14 days have passed since its end.
-It keeps a source with open cleanup or a running worker, creates no archive, and never touches worktrees, branches, or migration backups.
-
-## Worker dispatch and the Herdr plugin
-
-```sh
-operator herdr install --json
-operator dispatch --source <source-id> --assignment <key> --json
-```
-
-`herdr install` writes one stable plugin manifest under the device state root and links it in Herdr.
-Its hooks call the global `operator herdr event` command, so they need no release-specific path.
-The hook prepares every new Herdr worktree of a registered project.
-It copies ignored `.env*.local` files from the controlling checkout at any depth outside `node_modules`, keeps existing files, and refuses links.
-Then it runs `bun install --frozen-lockfile` when the worktree has a Bun lockfile.
-
-`dispatch` starts one ready assignment, or replaces a failed, interrupted, or abandoned launch.
-Run it in a Herdr pane, because hooks match launches by the Herdr socket.
-It refuses before any Herdr effect when it runs outside a Herdr session, the assignment is not dispatchable, the device is not ready, or the plugin is missing or from another release.
-Read-only `pane` work gets a tab in the project's Herdr workspace.
-`worktree` work gets an isolated worktree whose path Herdr chooses and Operator records.
-The brief lives in device state, and the worker receives its absolute path.
-Names use the completion type, tracker key, and assignment key, with a numbered suffix on a collision.
-A failed launch keeps its recorded resources and appears in `next` as `replace_worker`.
-A start whose dispatch process stopped appears as `replace_worker` with `launch_abandoned`.
-Herdr activity is shown as an observation only, never as completion.
-A running worker that Herdr reports `idle` or `done` before it associates a PR or submits a report appears as `worker_attention` with `worker_idle`.
-
-## PR feedback loop
-
-```sh
-operator pr associate --json
-operator pr wait --timeout 300 --json
-```
-
-The owner WorkerAgent opens its PR with its own tools and closing keywords, then runs these commands in its recorded worktree.
-No flag selects an assignment or a PR.
-The real Git top level must be the recorded worktree of the running owner, on the recorded branch, in the registered repository.
-`pr associate` records the one open PR from that branch and moves the assignment to `pr-open`.
-`pr wait` polls GitHub until it sees new feedback, a failing check on the current head, a newly eligible head, or a merged or closed PR, and reports each item once.
-Its progress is in device state, so a restarted wait does not repeat a result.
-`next` shows `owner_attention` for a timed-out or stopped wait, an owner that Herdr reports idle between waits, or a PR that is no longer open, and `replace_worker` for an ended owner pane.
-A replacement keeps the PR, its progress, and the PR's recorded worktree, and refuses when that worktree is missing.
-
-A PR assignment whose dependency has an open PR starts on that PR's pushed branch, and its owner opens its PR against that branch.
-`pr associate` accepts only the default branch or the branch of a dependency's PR as the base, never a source-wide integration branch.
-After the parent PR merges into the default branch, the child's `pr wait` rebases the child branch onto it, pushes with a lease on the PR head, changes the PR base, and reports `parent_relayed`.
-A conflict or a failed Git or GitHub step is a `relay_*` blocker that keeps the branch, and `next` shows `owner_attention` with `pr_relay_blocked`.
-The child is not merge eligible while its base is not the default branch.
-
-## Report assignments
+### Reports
 
 ```sh
 operator report submit --file <report.json> --json
@@ -409,116 +197,63 @@ operator report accept --source <source-id> --assignment <key> --json
 operator report return --source <source-id> --assignment <key> --file <follow-up.md> --json
 ```
 
-A WorkerAgent runs `submit` and `resume` in the Herdr pane that Operator dispatched for it, and names no assignment.
-The report holds a short conclusion, evidence references, unresolved points, answers labeled as human answers or SuperAgent decisions, and supporting files that Operator copies into device state.
-Submission moves the assignment to `reported`, and `next` shows `review_report` to the SuperAgent.
-Only acceptance completes the assignment and unblocks its dependents. Herdr activity never does.
-`return` records follow-up instructions. A live worker runs `resume`, and a stopped worker is replaced with every earlier report and follow-up in its brief.
-Acceptance closes the worker pane and removes a report worktree only when Git shows no unlanded work.
-A kept worktree waits for the person, and a failed cleanup stays in `next` as `retry_cleanup`.
+A WorkerAgent submits and resumes from its own pane.
+Only the SuperAgent's acceptance completes a report assignment and unblocks its dependents.
 
-## Guarded merge and cleanup
+### Pull requests
 
 ```sh
+operator pr associate --json
+operator pr wait --timeout 300 --json
 operator pr merge --json
-operator cleanup --source <source-id> --assignment <key> [--person-instructed] --json
+operator cleanup --source <source-id> --assignment <key> --json
 ```
 
-The owner runs `pr merge` in its recorded worktree.
-It reads the PR from GitHub again and merges the observed head only with an approving review decision, at least one check and every check passing, no unresolved review thread, the default branch as base, and the worktree at that head.
-A refusal sends no merge request and writes nothing.
-The merge is recorded only after GitHub reports the PR merged with a merge commit.
-Then a separate process deletes the remote branch, closes the owner's pane, and removes the worktree, in that order.
-A step that fails stays in `next` as `retry_cleanup`, and the SuperAgent repeats it with `cleanup` from the controlling checkout.
-Commits that are not in the merged head, changed or untracked files, and ignored content that preparation did not write stay, and `next` shows `person_decision`.
-Lockfile-installed `node_modules` folders and unchanged copies of `.env*.local` files are preparation output and do not block.
-Only the person's instruction, `--person-instructed`, deletes unlanded work, and it covers only the step that is blocked when the cleanup starts.
-A moved remote branch is deleted only on the person's instruction, and a foreign checkout is never deleted.
+The owner WorkerAgent runs the `pr` commands in its recorded worktree.
+`pr wait` reports new feedback, failing checks, an eligible head, and a merged parent PR, which it relays onto the default branch.
+`pr merge` merges only with an approving review, passing checks, no unresolved thread, the default branch as base, and the worktree at the PR head.
+After the merge, a separate process deletes the remote branch, closes the pane, and removes the worktree.
+Work that did not land stays until the person instructs `cleanup --person-instructed`.
 
-## Review requests
+### Reviews
 
 ```sh
 operator review add <pr-url> --json
-operator review start <pr-url> [--profile name] --json
-operator review post <pr-url> --json
+operator review start <pr-url> --json
+operator review wait --json
 operator review next --json
-operator review wait [--timeout seconds] --json
+operator review post <pr-url> --json
 operator review skip <pr-url> --json
 operator review cleanup <pr-url> --json
 ```
 
-A review request is a separate record for one PR, not an assignment.
-The PR URL selects it from any folder, and the PR repository must be a registered project.
-`start` fetches the PR head into the controlling checkout and creates a reviewer worktree on a local branch in that repository's Herdr workspace.
-Operator never pushes a reviewer branch.
-The reviewer writes a draft with the `pr-review` skill, and `post` is the only write path.
-`post` validates the draft, refuses a stale head, adds failing required CI checks as blockers, refuses a noise claim that cites a changed file, computes the event, and posts once.
-The person's own PRs and assignment reviewers always get a comment.
-`review.assignments` in device settings, off by default, queues a review when a PR owner runs `pr associate`.
-`wait` watches every open request and keeps one reviewer and worktree for each request.
-New commits, author replies, author-resolved threads, and renewed requests start rounds.
-A head move gives the same reviewer the new commits, or a full review after a force push, and after three moves the post covers the last reviewed commit and says so.
-Thread replies post once, and a merged, closed, or skipped request removes its reviewer unless Git shows unlanded work.
-With `review.channel`, `review.repos`, and `review.authors` in device settings, `wait --slack` also schedules Slack channel reads and returns the Slack replies and reactions that the CLI generated. A plain `wait` only reports them.
-A Claude Code agent carries them through the Slack MCP tools with the `slack-pr-review-workflow` skill, `ingest` records the eligible PRs of a raw channel read and moves the cursor, and `slack-done` records each sent effect.
-Operator holds no Slack credentials. OpenCode keeps every non-Slack review command.
+A review request is a separate record for one PR of a registered project.
+The reviewer writes a draft with the `pr-review` skill, and `review post` is the only path that posts.
+`review wait` starts rounds when the PR changes, and keeps one reviewer for each request.
+With `review.channel`, `review.repos`, and `review.authors` in settings, `review wait --slack` drives the `slack-pr-review-workflow` skill in Claude Code through `review ingest` and `review slack-done`.
 
-## Retained code and checks
-
-`bun run lint:modules` enforces the module shape and boundaries that `AGENTS.md` names.
+## Development
 
 ```sh
+bun install --frozen-lockfile
 bun run quality
-bun run test:module-boundaries
-```
-
-Quality runs formatting, lint, typechecking, structural checks, skill checks, deliberate module-boundary violations, and the remaining tests.
-The tests use isolated globals.
-`bun run test` stops with exit code 124 when no test makes progress for 120 seconds.
-It then prints the processes, working directories, sockets, and pipes of its own run, and kills only that run.
-Two quality runs in separate worktrees can run at the same time.
-Oxlint owns dependency cycles and type-aware code policy, while the module checker owns structural boundaries.
-The deliberate-break tests run the real lint command in disposable checkout copies.
-The installed delivery smoke uses real Bun global and project installs, Git, a local registry fixture, and the built public declarations.
-It runs the dispatch, report, PR, and review workflow tests again through the installed `operator` of the JSR and source paths.
-Publication tests use controlled GitHub and official-client commands.
-They publish no real release.
-
-A beside-test reads `operator --help` and refuses a command example in the docs, the skills, or a next action that names no implemented command.
-`skills/` contains the owned `super-agent`, `worker-agent`, and draft-only `pr-review` skills, and complete owned engineering skills.
-There are no Crew or Operative skills, forwarding skills, or aliases.
-
-## Local mutation testing
-
-```sh
-bun run mutate lib/sha256.ts
-bun run mutate lib/sha256.test.ts
 bun run mutate --since HEAD
 ```
 
-Pass explicit unit or beside-test paths, or changed lines against an explicit Git ref.
-Only direct same-folder tests count for each unit.
-No target is a usage error.
-Mutation testing is not part of `quality` or CI and adds no `operator` command.
-See [the development mutation topic](.agents/skills/unit-testing/mutation-testing.md) for exits, target rules, and survivor repairs.
-The development-only `unit-testing` skill has a Claude Code link and does not ship in the release.
+`quality` runs formatting, lint, typechecking, the module and skill shape checks, deliberate boundary breaks, and the tests.
+`bun run test` stops with exit code 124 when no test makes progress for 120 seconds.
+Mutation testing is local only, and the `unit-testing` development skill explains it.
+`AGENTS.md` holds the rules for agents that work in this repository.
 
-## Release tooling
+## Release
 
-The existing Changesets workflow remains automatic after a merged version change passes quality and release smoke.
-It uses pinned actions and the exact official JSR client with short-lived credentials.
-Publication refuses conflicting tags or versions, and retries supply only missing delivery.
+Changesets opens a version pull request.
+Its merge publishes the version to JSR and creates the GitHub tag and release, after quality and the release smoke pass on that commit.
+A publication never moves a tag or replaces a version, and a retry sends only the missing part.
 
 ```sh
 SOURCE_DATE_EPOCH="$(git log -1 --format=%ct <full-commit>)" \
   bun scripts/release.ts build --out dist --commit <full-commit>
 ```
 
-Build refuses without `SOURCE_DATE_EPOCH`, because the release record names the commit time as its build time.
-The JSR artifact and the Nix package of one commit then have the same release record.
-Build writes runnable ESM, declarations, complete retained skills, the settings editor schema at `schemas/config.schema.json`, the Herdr plugin manifest at `modules/worker-dispatch/herdr-plugin.toml`, the fixed migrations, documentation, and a content-identified release record.
-The old project configuration schemas and release-specific Herdr hooks no longer ship.
-The maintainer-only `plan`, `publish`, `check`, and `verify` operations remain in `scripts/release.ts` for the release workflows.
-`check` runs the pinned JSR client with `publish --dry-run` on each pull request and before each publication. It needs no credential and uploads nothing.
-`verify` runs right after a publication. It installs the published version from JSR in isolated folders and requires the recorded commit and artifact identity.
-The breaking changeset makes the next version 1.0.0. Merging the version pull request that Changesets opens publishes it.
+`scripts/release.ts` also has the maintainer-only `plan`, `publish`, `check`, and `verify` operations for the release workflows.
