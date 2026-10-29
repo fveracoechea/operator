@@ -6,10 +6,7 @@ description: 'Use when adding or changing a feature in a TypeScript app: a scree
 # Deep modules
 
 Sort code by feature and capability, never by technical layer or by page.
-Each feature and capability has one folder under the module root, such as `modules/` or `src/modules/`, that holds every file it needs.
-Small reusable functions that own no feature or capability go in focused `lib/` files with direct named exports and beside-tests.
-Lib code imports no application module.
-Keep single-use details with their owner.
+Each feature and each capability is one folder under `src/modules/<name>/` that holds every file it needs, whatever layer or environment the file belongs to.
 
 - A **feature** is a domain concept the product names, such as invoices, payments or customers. Its module owns the calls to the backend, the reads, the transforms, the cache rules and the UI.
 - A **capability** is what features use and users never see, such as auth, the HTTP client for a backend, or a cache.
@@ -24,7 +21,7 @@ The `codebase-design` skill holds the words for this: depth, seam, leverage, loc
 Do this before you write code, on every task.
 
 1. Name the domain noun the change is about. Take it from the ticket, the glossary (`CONTEXT.md`), the wire schemas or the words on the screen. A page or a backend service is not a feature.
-2. Search the project's source roots for the noun in file names, types, functions and strings, and list each place it appears.
+2. Search `src/` for the noun in file names, types, functions and strings, and list each place it appears.
 3. The step is done when you can name the module that owns the change, or when you have a proposal for a new module with its interface object.
 
 When the noun is spread across routes and layers with no module, the feature is missing its module.

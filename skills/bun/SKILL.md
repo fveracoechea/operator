@@ -3,14 +3,14 @@ name: bun
 description: Use when writing or reviewing Bun code including runtime, bun test and its mocks, Bun.serve, bundler, bun install, or scripts.
 ---
 
-# Bun
+# Bun's APIs move fast, pretraining may be stale
 
-Bun's APIs move fast, so pretraining may be stale.
-Fetch `https://bun.com/llms.txt`, then read only the pages for the APIs the task needs.
+1. Fetch `https://bun.com/llms.txt`
+2. Only read pages for APIs needed on the current tasks
 
 ## Bun-native first
 
-Treat Node APIs in Bun as a legacy compatibility layer. Reach for the Bun equivalent:
+Consider Nodejs APIs that run in Bun as a LEGACY compatibility layer. Reach for the Bun equivalent:
 
 - HTTP, WebSockets, routing: `Bun.serve`
 - Files, streams, stdio: `Bun.file`, `Bun.write`, `Bun.stdin`
@@ -38,16 +38,14 @@ Name no path root in the `test` script, since bun finds every test file on its o
 
 ### Import the module dynamically after `mock.module`
 
-Use this only where the repository's lint permits module replacement. Operator does not, so use a scoped spy, a function fake, or a controlled external tool there.
-
 `mock.module` runs in file order, after the static imports around it have evaluated.
 The real module has already loaded and run its load-time code by then, and the mock only swaps the live bindings.
 When the suite must never load the original, import the code under test dynamically, after the mock.
 
 ```ts
-mock.module("./billing-client", () => ({ charge: mock(async () => "ok") }));
+mock.module('./billing-client', () => ({charge: mock(async () => 'ok')}))
 
-const { checkout } = await import("./checkout");
+const {checkout} = await import('./checkout')
 ```
 
 ### Restate each default after `jest.resetAllMocks`
@@ -57,9 +55,9 @@ A `beforeEach` that resets must set each default again.
 
 ```ts
 beforeEach(() => {
-  jest.resetAllMocks();
-  charge.mockImplementation(async () => "ok");
-});
+  jest.resetAllMocks()
+  charge.mockImplementation(async () => 'ok')
+})
 ```
 
 ### Assert an `Intl` formatter's fields, never its joining text
@@ -69,8 +67,8 @@ A test that asserts the whole string passes in one engine and fails in the other
 Assert the locale and the parts.
 
 ```ts
-const parts = new Intl.DateTimeFormat("en-US", OPTIONS).formatToParts(at);
-expect(parts.find((part) => part.type === "hour")?.value).toBe("9");
+const parts = new Intl.DateTimeFormat('en-US', OPTIONS).formatToParts(at)
+expect(parts.find(part => part.type === 'hour')?.value).toBe('9')
 ```
 
 ### Wait for a removal with a helper, never with `expect` on a node
@@ -80,7 +78,7 @@ When a check fails, Bun describes the received value for the message, and a node
 Wait for an element to leave with `waitForElementToBeRemoved`, or with a removal helper that polls a query and asserts on a boolean.
 
 ```ts
-await waitForElementToBeRemoved(() => screen.queryByText("Saving"));
+await waitForElementToBeRemoved(() => screen.queryByText('Saving'))
 ```
 
 `waitForElementToBeRemoved` rejects an element that is already gone, so a helper serves the case where it may be.

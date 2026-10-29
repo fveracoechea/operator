@@ -59,7 +59,7 @@ export const envThroughSchemaRule = defineRule({
     messages: {
       environment: withSkillTopic(
         "Read validated values from Environment. Supply child environments, never change the parent.",
-        "deep-modules/server-state.md",
+        "lint-fixes/environment.md",
       ),
     },
   },

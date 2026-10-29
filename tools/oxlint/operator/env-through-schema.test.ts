@@ -13,9 +13,9 @@ test("a binding cycle is not an environment host", async () => {
 
 test("the diagnostic points to guidance that explains the environment owner", async () => {
   const result = await check("export const value = process.env.PATH;");
-  expect(result.stdout).toContain("deep-modules/server-state.md");
+  expect(result.stdout).toContain("lint-fixes/environment.md");
   const topic = await Bun.file(
-    new URL("../../../skills/deep-modules/server-state.md", import.meta.url),
+    new URL("../../../.agents/skills/lint-fixes/environment.md", import.meta.url),
   ).text();
   for (const term of [
     "operator/env-through-schema",
@@ -146,6 +146,6 @@ test("finds an env import from the process module by any name", async () => {
 test("the finding names the environment owner and its guide", async () => {
   const result = await check("export const value = process.env.PATH;");
   expect(result.stdout).toContain(
-    "Read validated values from Environment. Supply child environments, never change the parent. See deep-modules/server-state.md.",
+    "Read validated values from Environment. Supply child environments, never change the parent. See lint-fixes/environment.md.",
   );
 });

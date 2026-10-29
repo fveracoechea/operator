@@ -1,16 +1,5 @@
 # Shape a deep module
 
-## Separate modules from a focused library
-
-Operator uses root `modules/` for features and capabilities and root `lib/` for small reusable code with no domain ownership.
-A lib file exports its named functions directly.
-It has beside-tests, no required interface object, and no barrel.
-Lib code imports only other lib files or external packages, never application modules or tooling.
-Workflow decisions, persistence, and external-tool orchestration stay in their owning modules.
-Keep a single-use implementation detail with its owner, and put a small feature in a module rather than lib.
-`bun run lint:modules` enforces this direction and module-private imports in this repository.
-`bun run test:module-boundaries` proves the guards through deliberate violations in a temporary copy.
-
 ## Give the module a few named entry files, and keep every other file private
 
 The rest of the app imports a module only through its entry files.
@@ -91,7 +80,7 @@ The internal compound, its provider and its parts, follows the `react-compositio
 
 - A feature module uses infrastructure modules, such as `Http`, `Cache` and `Auth`.
 - An infrastructure module never imports a feature module.
-- A module imports focused library files from the project's `lib/` root and the app's shared components where applicable.
+- A module imports the shared library (`src/lib`) and the app's shared components (`src/components`).
 - A module never imports a route or a handler. Routes and handlers are the callers.
 
 `import/no-cycle` catches a cycle between files, not a cycle between two modules whose files form no loop.

@@ -5,12 +5,6 @@
 Declare environment variables in validated files, `.server.ts` for server-only values and `.client.ts` for values the bundler may inline, and read `process.env` or `import.meta.env` nowhere else.
 Validate them at startup, so a bad value fails the boot.
 
-### Operator environment ownership
-
-In Operator, `operator/env-through-schema` rejects raw environment reads and writes outside `modules/environment/main.ts`.
-Read validated values with `Environment.read()`, build subprocess environments with `Environment.child(overrides)`, and never change the parent environment.
-Give CLI children isolated `HOME`, `XDG_CONFIG_HOME`, and `XDG_STATE_HOME` values.
-
 In a full-stack app, a module reads a server value inside the method that needs it, never at load time:
 
 ```ts

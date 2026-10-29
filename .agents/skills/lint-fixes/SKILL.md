@@ -1,6 +1,6 @@
 ---
 name: lint-fixes
-description: Use when an anti-slop or custom-tests oxlint rule reports a violation in this repository, or before you write code that parses input, asserts a type, builds an object, or replaces a test dependency.
+description: Use when an anti-slop, custom-tests, or operator oxlint rule reports a violation in this repository, or before you write code that parses input, asserts a type, builds an object, or replaces a test dependency.
 ---
 
 # Lint fixes
@@ -17,3 +17,4 @@ This is repository development guidance, not a bundled Operator skill.
 - **A type assertion chain, or a value widened and then asserted back**: [type-assertions.md](type-assertions.md).
 - **A conditional empty-object spread, or a reducer that copies its accumulator**: [object-construction.md](object-construction.md).
 - **A test replaces a module by path, or asserts on its own fixture**: [test-doubles.md](test-doubles.md).
+- **Code reads or writes `process.env` or `Bun.env`**: [environment.md](environment.md).

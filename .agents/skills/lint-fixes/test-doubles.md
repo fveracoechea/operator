@@ -6,7 +6,7 @@ Replace a dependency where the caller meets it, and assert on what the code unde
 
 `mock.module` replaces a file by its path, so the test no longer runs the real module graph.
 Use a scoped spy on the public interface, a function fake that the caller passes in, or a controlled external tool.
-The `bun` skill and `.agents/skills/unit-testing/writing-tests.md` describe these doubles.
+`.agents/skills/unit-testing/writing-tests.md` describes these doubles.
 
 ```ts
 // Wrong
