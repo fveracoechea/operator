@@ -224,6 +224,25 @@ describe("the release plan", () => {
     ]);
   });
 
+  test("refuses to publish when the registry cannot say whether it holds the version", async () => {
+    const fake = await jsrFake({ published: [version] });
+    const outage = Bun.serve({ port: 0, fetch: () => new Response(null, { status: 503 }) });
+    const api = `http://127.0.0.1:${outage.port}`;
+
+    let result;
+    try {
+      result = await ReleasePublish.publish(
+        request(fake, { jsr: { api, scope: "fveracoechea", package: "operator", fetch } }),
+      );
+    } finally {
+      await outage.stop(true);
+    }
+
+    expect(result.status).toBe("blocked");
+    expect(result.plan.blockers.map((one) => one.reason)).toEqual(["published_state_unknown"]);
+    expect(await fake.calls()).toEqual([]);
+  });
+
   test("allows a version the registry holds after this release recorded a send of it", async () => {
     await Bun.write(
       journalPath,

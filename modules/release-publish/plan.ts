@@ -18,6 +18,7 @@ export type ReleaseBlocker = {
     | "commit_not_merged"
     | "tag_moved"
     | "version_published"
+    | "published_state_unknown"
     | "unreadable_journal";
   detail: string;
   nextAction: string;
@@ -188,6 +189,26 @@ export function pathFacts(
   };
 }
 
+/**
+ * A read that failed is not an absent tag or version. Planned as missing, the path would be sent
+ * past the guards that keep a published tag and a published version immutable.
+ */
+function unknownStateBlockers(
+  reads: [string, { status: string; detail?: string }][],
+): ReleaseBlocker[] {
+  return reads.flatMap(([name, read]) =>
+    read.status === "unknown" || read.status === "failed" || read.status === "uncertain"
+      ? [
+          blocker(
+            "published_state_unknown",
+            `Whether ${name} exists could not be established: ${read.detail}`,
+            "Establish what is already published, then plan the release again.",
+          ),
+        ]
+      : [],
+  );
+}
+
 /** The blocker each refusal of a delivery path plan gives. */
 const PATH_REFUSALS: Record<
   "tag_moved" | "version_published",
@@ -272,6 +293,11 @@ export async function computeReleasePlan(request: PlanRequest) {
     ...artifactBlockers({ notes, inspection, commit: request.commit }),
     ...journalBlockers(journal, inspection),
     ...mergeBlockers(merged, request),
+    ...unknownStateBlockers([
+      [`the tag ${tag}`, tagState],
+      [`the release ${tag}`, releaseState],
+      [`JSR version ${version}`, publishedVersion],
+    ]),
     ...pathBlockers,
   ];
 
