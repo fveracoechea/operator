@@ -244,6 +244,19 @@ test("a stopped reviewer gets a replacement that keeps the request's state", () 
       expect(decideReview(facts("start", { state, launchState }))).toMatchObject({
         value: { launchState: "starting", lease: "hold", replace: true },
       });
+  // A replacement start that died leaves "starting" with no live owner.
+  for (const state of ["reviewing", "watching", "approved"]) {
+    const abandoned = { state, launchState: "starting" };
+    expect(decideReview(facts("start", abandoned))).toMatchObject({
+      value: { launchState: "starting", lease: "hold", replace: true },
+    });
+    expect(reviewAction(abandoned, false)).toEqual({
+      kind: "action",
+      action: "replace_reviewer",
+      reason: "launch_abandoned",
+    });
+    expect(reviewAction(abandoned, true)).toEqual({ kind: "wait", reason: "reviewer_starting" });
+  }
   const replacing = { state: "watching", launchState: "starting" };
   const started = decideReview(facts("started", replacing));
   expect(started).toMatchObject({ value: { launchState: "running", lease: "release" } });

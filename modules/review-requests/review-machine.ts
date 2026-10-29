@@ -193,12 +193,14 @@ const tables: Record<ReviewCommand, Rule[]> = {
       decide: () => Ok({ launchState: "starting", lease: "hold" }),
     },
     // The replacement reopens the request's worktree. Its brief names the earlier rounds.
+    // A live start was refused above, so a recorded start here was abandoned.
     {
       when: (facts) =>
         ["reviewing", "watching", "approved"].includes(
           // Stryker disable next-line OptionalChaining,StringLiteral: equivalent: every rule after the missing-request rule reads a recorded request
           facts.request?.state ?? "",
-        ) && stopped(facts.request),
+        ) &&
+        (stopped(facts.request) || facts.request?.launchState === "starting"),
       decide: () => Ok({ launchState: "starting", lease: "hold", replace: true }),
     },
     {
@@ -403,11 +405,17 @@ function queued(request: Listed, ownerActive: boolean): ReviewAction {
   };
 }
 
+/** A live start is waited on. A start whose owner died needs a replacement. */
+function replacement(request: Listed, ownerActive: boolean): ReviewAction | null {
+  if (request.launchState !== "starting") return null;
+  return ownerActive
+    ? { kind: "wait", reason: "reviewer_starting" }
+    : { kind: "action", action: "replace_reviewer", reason: "launch_abandoned" };
+}
+
 function reviewing(request: Listed, ownerActive: boolean): ReviewAction {
-  if (request.launchState === "starting")
-    return ownerActive
-      ? { kind: "wait", reason: "reviewer_starting" }
-      : { kind: "action", action: "replace_reviewer", reason: "launch_abandoned" };
+  const started = replacement(request, ownerActive);
+  if (started !== null) return started;
   if (stopped(request))
     return {
       kind: "action",
@@ -427,8 +435,10 @@ const steps: Record<string, (request: Listed, ownerActive: boolean) => ReviewAct
     ownerActive
       ? { kind: "wait", reason: "review_posting" }
       : { kind: "action", action: "post_review", reason: "review_post_uncertain" },
-  watching: () => ({ kind: "wait", reason: "review_watching" }),
-  approved: () => ({ kind: "wait", reason: "review_approved" }),
+  watching: (request, ownerActive) =>
+    replacement(request, ownerActive) ?? { kind: "wait", reason: "review_watching" },
+  approved: (request, ownerActive) =>
+    replacement(request, ownerActive) ?? { kind: "wait", reason: "review_approved" },
   closed: ended,
   skipped: ended,
 };

@@ -737,6 +737,28 @@ test("a post that another process turned into a retry after the read posts nothi
   expect(readRequest(home.paths).request).toMatchObject({ state: "posting", ownerPid: null });
 });
 
+test("a retry that another process failed after the read posts nothing", async () => {
+  reviewing();
+  await draft();
+  github({ post: () => ({ status: "uncertain", detail: "Timed out." }) });
+  await post({ paths: home.paths, url });
+  const read = DeviceState.readReviewRequest;
+  spyOn(DeviceState, "readReviewRequest").mockImplementationOnce((paths, request) => {
+    const snapshot = read(paths, request);
+    DeviceState.changeReviewRequest(home.paths, { ...target, id: "r1" }, () =>
+      Ok({ update: { state: "reviewing" } }),
+    );
+    return snapshot;
+  });
+  const calls = github({});
+  expect(await post({ paths: home.paths, url })).toMatchObject({
+    tag: "Err",
+    error: { reason: "review_post_in_progress" },
+  });
+  expect(calls.posts).toEqual([]);
+  expect(readRequest(home.paths).request).toMatchObject({ ownerPid: null });
+});
+
 test("a thread write after another process took the request stops and records nothing more", async () => {
   reviewing();
   await draft({

@@ -4,6 +4,7 @@ import {
   approvalBlocked,
   approvalWaits,
   blockerShorts,
+  countBlockers,
   counts,
   decideEvent,
   inlineComments,
@@ -137,6 +138,21 @@ test("an explained thread keeps a blocker open, so the review comments and canno
   });
   expect(body).toContain("**Needs changes** · 1 blocker");
   expect(body).toContain("1. **1 review thread stays open.**");
+  // The body, the post result, and the Slack reply count the same blocker list.
+  const twice = accepted({
+    threadReplies: [
+      { threadId: "T", kind: "explain", body: "B." },
+      { threadId: "U", kind: "explain", body: "C." },
+    ],
+  });
+  const rendered = renderReview({
+    marker: "<!-- m -->",
+    event: "COMMENT",
+    accepted: twice,
+    requiredChecks: 0,
+  });
+  expect(rendered.body).toContain(`· ${countBlockers(twice)} blocker\n`);
+  expect(rendered.body).toContain("1. **2 review threads stay open.**");
 });
 
 test("a post at the head-move limit states the older reviewed commit in its status and body", () => {
@@ -226,7 +242,7 @@ test("the body numbers every blocker kind and lists each breach and noise file",
   });
   expect(body).toBe(
     [
-      "m\n**Needs changes** · 6 blockers · reviewed at 1234567",
+      "m\n**Needs changes** · 5 blockers · reviewed at 1234567",
       `The PR head moved 3 times during this review, so this review covers ${"1234567890".repeat(4)}, not the current head ${"f".repeat(40)}.`,
       "The change keeps one owner.",
       "Strong breach of the opinions: Use x. Always.\nStrong breach of the architecture: One owner.",

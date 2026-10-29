@@ -128,14 +128,21 @@ export function chooseCommit(request: Row, draft: Draft, pr: PullRequestFacts) {
     return {
       kind: "post" as const,
       commit: recorded,
-      headLimit: { reviewedCommit: recorded, head: pr.head, moves: request.headMoves },
+      headLimit: {
+        reviewedCommit: recorded,
+        head: pr.head,
+        moves: request.headMoves,
+      },
     };
   return { kind: "post" as const, commit: pr.head, headLimit: null };
 }
 
 /** Records the head move and gives it to the reviewer. GitHub gets no post. */
 function moveReviewer(paths: Paths, target: Target, from: string, to: string): Posted {
-  return apply(paths, target, "head_moved", undefined, { observedFrom: from, to })
+  return apply(paths, target, "head_moved", undefined, {
+    observedFrom: from,
+    to,
+  })
     .toAsync()
     .flatMap(({ snapshot, transition }) =>
       (transition.sync === true
@@ -217,7 +224,11 @@ function nextRound(request: Row, rounds: Round[], prepared: Prepared): Round {
 export function plannedOperations(round: Round, draft: Draft, pr: PullRequestFacts): Operation[] {
   return draft.threadReplies.flatMap((reply) => {
     const marker = `${markerPrefix}${round.requestId} round ${round.number} thread ${reply.threadId} -->`;
-    const base = { requestId: round.requestId, round: round.number, threadId: reply.threadId };
+    const base = {
+      requestId: round.requestId,
+      round: round.number,
+      threadId: reply.threadId,
+    };
     const resolved = pr.threads.some((thread) => thread.id === reply.threadId && thread.resolved);
     return [
       {
@@ -229,7 +240,16 @@ export function plannedOperations(round: Round, draft: Draft, pr: PullRequestFac
         detail: null,
       },
       ...(reply.kind === "explain" && resolved
-        ? [{ ...base, kind: "unresolve", body: null, marker: null, state: "pending", detail: null }]
+        ? [
+            {
+              ...base,
+              kind: "unresolve",
+              body: null,
+              marker: null,
+              state: "pending",
+              detail: null,
+            },
+          ]
         : []),
     ];
   });
@@ -284,7 +304,9 @@ async function operationsInOrder(
       state: outcome.status === "done" ? "done" : "failed",
       detail: outcome.status === "failed" ? outcome.detail : null,
     };
-    const written = record(paths, target, request.id, { operations: [recorded] });
+    const written = record(paths, target, request.id, {
+      operations: [recorded],
+    });
     if (written.tag !== "Ok") return Err(failureOf(written));
     done.push(recorded);
   }
@@ -414,6 +436,24 @@ function send(target: Target, round: Round, comments: ReturnType<typeof inlineCo
   });
 }
 
+/**
+ * Gives up a post that another process changed between the read and the write. The write took
+ * the lease, so the next post decides again at once. No other process takes the fresh lease of
+ * this running process before this release.
+ */
+function yieldPost(paths: Paths, target: Target, request: Row): Posted {
+  return DeviceState.changeReviewRequest(paths, { ...target, id: request.id }, () =>
+    Ok({ lease: "release" as const }),
+  )
+    .toAsync()
+    .flatMap(() =>
+      ErrAsync<Failure>({
+        reason: "review_post_in_progress",
+        detail: "Another process started this post. Run the post again. Nothing was posted.",
+      }),
+    );
+}
+
 /** A first post of the current draft. */
 function freshPost(paths: Paths, target: Target, request: Row): Posted {
   return prepare(paths, target, request).flatMap((prepared): Posted => {
@@ -436,19 +476,7 @@ function freshPost(paths: Paths, target: Target, request: Row): Posted {
           // Stryker disable next-line ConditionalExpression: equivalent: the payload runs for every decided post, so a decided post always has its plan
           planned === null
         )
-          // The write that decided the retry took the lease, so the next post can retry at once.
-          // No other process takes the fresh lease of this running process before this release.
-          return DeviceState.changeReviewRequest(paths, { ...target, id: request.id }, () =>
-            Ok({ lease: "release" as const }),
-          )
-            .toAsync()
-            .flatMap(() =>
-              ErrAsync<Failure>({
-                reason: "review_post_in_progress",
-                detail:
-                  "Another process started this post. Run the post again. Nothing was posted.",
-              }),
-            );
+          return yieldPost(paths, target, request);
         const counts = {
           blockers: countBlockers(prepared.accepted),
           niceToHaves: prepared.accepted.draft.niceToHaves.length,
@@ -494,57 +522,73 @@ function threads(
 function retryPost(paths: Paths, target: Target, request: Row, snapshot: Snapshot): Posted {
   const round = snapshot.rounds.at(-1);
   if (round === undefined)
-    return ErrAsync({ reason: "review_defect", detail: "The retry lost its round." });
+    return ErrAsync({
+      reason: "review_defect",
+      detail: "The retry lost its round.",
+    });
   return apply(paths, target, "post")
     .toAsync()
-    .flatMap(() =>
-      holding(paths, request.id, () =>
-        readPullRequest(target).flatMap((pr): Posted => {
-          const operations = reconcile(snapshot.operations, pr);
-          const owner: Row = request;
-          function next(posted: Round) {
-            return threads(paths, target, owner, posted, pr, operations, {});
-          }
-          if (round.outcome === "posted") return next(round);
-          const found = pr.reviews.find(
-            (review) => review.byViewer && review.body.includes(round.marker),
-          );
-          if (found !== undefined)
-            return finish(
-              paths,
-              target,
-              request,
-              round,
-              { status: "posted", review: { id: found.id, url: found.url, event: found.event } },
-              next,
-            );
-          if (pr.state !== "OPEN" || pr.head !== round.reviewedCommit)
-            // No stale post: the request returns to its reviewer for a draft of the new head.
-            return apply(paths, target, "post_failed", () => ({
-              update: {
-                failureReason: "review_head_moved",
-                failureDetail: "The PR changed after a lost post.",
-              },
-              round: { ...round, outcome: "failed" },
-            }))
-              .toAsync()
-              .flatMap(() =>
-                ErrAsync<Failure>({
-                  reason: "review_head_moved",
-                  detail: `GitHub has no review from the lost post, and PR #${target.number} is no longer open at ${round.reviewedCommit}. Write a new draft for the current head. Nothing was posted.`,
-                }),
+    .flatMap(({ transition }) =>
+      // A concurrent process can end the retry between the read and the write.
+      transition.retry !== true
+        ? yieldPost(paths, target, request)
+        : holding(paths, request.id, () =>
+            readPullRequest(target).flatMap((pr): Posted => {
+              const operations = reconcile(snapshot.operations, pr);
+              const owner: Row = request;
+              function next(posted: Round) {
+                return threads(paths, target, owner, posted, pr, operations, {});
+              }
+              if (round.outcome === "posted") return next(round);
+              const found = pr.reviews.find(
+                (review) => review.byViewer && review.body.includes(round.marker),
               );
-          const draft = draftSchema.parse(JSON.parse(round.draft));
-          return send(target, round, inlineComments(draft)).flatMap((outcome) =>
-            finish(paths, target, request, round, outcome, next),
-          );
-        }),
-      ),
+              if (found !== undefined)
+                return finish(
+                  paths,
+                  target,
+                  request,
+                  round,
+                  {
+                    status: "posted",
+                    review: {
+                      id: found.id,
+                      url: found.url,
+                      event: found.event,
+                    },
+                  },
+                  next,
+                );
+              if (pr.state !== "OPEN" || pr.head !== round.reviewedCommit)
+                // No stale post: the request returns to its reviewer for a draft of the new head.
+                return apply(paths, target, "post_failed", () => ({
+                  update: {
+                    failureReason: "review_head_moved",
+                    failureDetail: "The PR changed after a lost post.",
+                  },
+                  round: { ...round, outcome: "failed" },
+                }))
+                  .toAsync()
+                  .flatMap(() =>
+                    ErrAsync<Failure>({
+                      reason: "review_head_moved",
+                      detail: `GitHub has no review from the lost post, and PR #${target.number} is no longer open at ${round.reviewedCommit}. Write a new draft for the current head. Nothing was posted.`,
+                    }),
+                  );
+              const draft = draftSchema.parse(JSON.parse(round.draft));
+              return send(target, round, inlineComments(draft)).flatMap((outcome) =>
+                finish(paths, target, request, round, outcome, next),
+              );
+            }),
+          ),
     );
 }
 
 // Stryker disable next-line ObjectLiteral,StringLiteral: equivalent: the machine refuses a post of a missing request, so no post reaches this failure
-const lostRequest: Failure = { reason: "review_defect", detail: "The post lost its request." };
+const lostRequest: Failure = {
+  reason: "review_defect",
+  detail: "The post lost its request.",
+};
 
 /**
  * The one review write path. It checks the draft, the live PR head, and required CI, computes

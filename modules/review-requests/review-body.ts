@@ -14,7 +14,7 @@ function openThreads(draft: AcceptedDraft["draft"]) {
   return draft.threadReplies.filter((reply) => reply.kind === "explain").length;
 }
 
-/** Draft blockers, failing required checks, and explained threads. */
+/** Draft blockers, failing required checks, and one entry for all explained threads. */
 export function countBlockers(accepted: AcceptedDraft) {
   return blockerShorts(accepted).length;
 }
@@ -116,7 +116,7 @@ export function renderReview(input: {
 }) {
   const { draft, failingChecks } = input.accepted;
   const explained = openThreads(draft);
-  const blockers = draft.blockers.length + failingChecks.length + explained;
+  const blockers = countBlockers(input.accepted);
   const limit = input.headLimit ?? null;
   const breaches = draft.blockers.flatMap((blocker) =>
     blocker.breach === undefined
