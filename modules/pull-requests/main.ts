@@ -51,24 +51,34 @@ function parents(input: Request, owner: Owner) {
     const planned = source.plan.assignments.find((row) => row.key === owner.assignment);
     return source.pullRequests
       .filter((pr) => planned?.dependencies.includes(pr.assignment) === true)
-      .map((pr) => ({ assignment: pr.assignment, number: pr.number, branch: pr.branch }));
+      .map((pr) => ({
+        parent: { assignment: pr.assignment, number: pr.number, branch: pr.branch },
+        open: pr.mergedAt === null,
+      }));
   });
 }
 
 /**
  * The PR targets the default branch, or stacks on the branch of a dependency's PR. A
- * source-wide integration branch or any other base is refused.
+ * source-wide integration branch or any other base is refused. While a dependency's PR is
+ * open, its commits would reach the default branch first, so the PR must stack on it.
  */
 function stackOf(
   pr: { base: string; defaultBranch: string | null },
-  candidates: Relay["parent"][],
+  candidates: { parent: Relay["parent"]; open: boolean }[],
 ): Result<Relay | null, Failure> {
+  const open = candidates.filter((candidate) => candidate.open);
+  if (pr.base === pr.defaultBranch && open.length > 0)
+    return Err({
+      reason: "pr_base_invalid",
+      detail: `The PR targets ${pr.base}, but the PR of a dependency is open. Target its branch: ${open.map((row) => row.parent.branch).join(", ")}. Nothing was changed.`,
+    });
   if (pr.base === pr.defaultBranch) return Ok(null);
-  const parent = candidates.find((candidate) => candidate.branch === pr.base);
+  const parent = candidates.find((candidate) => candidate.parent.branch === pr.base)?.parent;
   return parent === undefined
     ? Err({
         reason: "pr_base_invalid",
-        detail: `The PR targets ${pr.base}. Target the default branch or the branch of a dependency's PR: ${candidates.map((row) => row.branch).join(", ") || "none"}. Nothing was changed.`,
+        detail: `The PR targets ${pr.base}. Target the default branch or the branch of a dependency's PR: ${candidates.map((row) => row.parent.branch).join(", ") || "none"}. Nothing was changed.`,
       })
     : Ok(stacked(parent));
 }

@@ -9,7 +9,7 @@ A refusal changes nothing. Read its reason and tell your SuperAgent when you can
    Use the PR base that your brief names: the default branch, or the branch of the parent PR that your branch starts on.
 2. Run `operator pr associate --json`.
    `pr_not_found` or `pr_ambiguous` means that exactly one open PR from your branch is needed.
-   `pr_base_invalid` means that the PR base is not the default branch or a dependency's PR branch. Change the base, then repeat.
+   `pr_base_invalid` means that the PR base is not the default branch or a dependency's PR branch, or that it is the default branch while a dependency's PR is open. Change the base, then repeat.
 3. Run `operator pr wait --json`.
    Set your shell command timeout above the wait timeout, which is 300 seconds by default and `--timeout <seconds>` otherwise.
 4. Handle the result, then wait again.

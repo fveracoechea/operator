@@ -412,6 +412,30 @@ test("a PR base that is neither main nor a dependency's branch is refused withou
   expect(await stack("child")).toMatchObject({ reason: "assignment_active" });
 });
 
+test("a child PR of an open parent that targets main is refused without a change", async () => {
+  const { source } = await stackedDevice();
+  await openParent(source);
+  const owner = await (device as Device).dispatch(source, "child");
+  const worktree = owner.worktreePath ?? "";
+  await git(worktree, "push", "-q", "-u", "origin", "task/22-child");
+  await github((state) => {
+    state.pulls.push({
+      number: 8,
+      url: "https://github.com/example/one/pull/8",
+      headRefName: "task/22-child",
+      headRepository: "example/one",
+      baseRefName: "main",
+      state: "OPEN",
+    });
+  });
+  // The parent's commits would ride along into main before the parent PR merges.
+  const refused = await (device as Device).run(["pr", "associate"], { cwd: worktree });
+  expect(refused.code).toBe(4);
+  expect(refused.output).toMatchObject({ reason: "pr_base_invalid" });
+  expect(JSON.stringify(refused.output)).toContain("task/21-parent");
+  expect(await stack("child")).toMatchObject({ reason: "assignment_active" });
+});
+
 test("an unaccepted report dependency blocks start, and its acceptance permits it", async () => {
   device = await workerDevice();
   const source = await device.register({
