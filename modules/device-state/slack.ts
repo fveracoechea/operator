@@ -2,7 +2,12 @@ import { and, asc, desc, eq } from "drizzle-orm";
 import type { Database } from "bun:sqlite";
 import { Err, Ok, type Result } from "unthrown";
 import { checkHistory, transaction, type Db } from "./database.ts";
-import { emptyRequest, insertEffects, type NewSlackEffect } from "./review-requests.ts";
+import {
+  emptyRequest,
+  insertEffects,
+  type NewSlackEffect,
+  type ReviewRequestRow,
+} from "./review-requests.ts";
 import { projects, reviewRequests, slackEffects, slackWatches } from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
 
@@ -64,14 +69,9 @@ export function startSlackWatch(client: Database, channel: string, start: string
   );
 }
 
-function decideCandidate(db: Db, candidate: SlackCandidate): IngestOutcome {
-  const registered = db
-    .select({ repository: projects.repository })
-    .from(projects)
-    .where(eq(projects.repository, candidate.repository))
-    .get();
-  if (registered === undefined) return "unregistered";
-  const latest = db
+/** The newest request of the candidate's PR, whatever its state. */
+function latestRequest(db: Db, candidate: SlackCandidate) {
+  return db
     .select()
     .from(reviewRequests)
     .where(
@@ -82,6 +82,19 @@ function decideCandidate(db: Db, candidate: SlackCandidate): IngestOutcome {
     )
     .orderBy(desc(reviewRequests.requestedAt))
     .get();
+}
+
+function decideCandidate(
+  db: Db,
+  candidate: SlackCandidate,
+  latest: ReviewRequestRow | undefined,
+): IngestOutcome {
+  const registered = db
+    .select({ repository: projects.repository })
+    .from(projects)
+    .where(eq(projects.repository, candidate.repository))
+    .get();
+  if (registered === undefined) return "unregistered";
   if (latest === undefined) return "recorded";
   if (latest.state === "skipped") return "skipped";
   if (latest.state === "closed") return "recorded";
@@ -96,6 +109,7 @@ function applyCandidate(
   db: Db,
   input: { channel: string; candidate: SlackCandidate; start: NewSlackEffect[] },
   outcome: IngestOutcome,
+  latest: string | undefined,
 ) {
   const { candidate, channel } = input;
   const slack = { slackChannel: channel, slackTs: candidate.threadTs };
@@ -117,23 +131,12 @@ function applyCandidate(
     insertEffects(db, { id, ...slack }, input.start);
     return id;
   }
-  const open = db
-    .select({ id: reviewRequests.id })
-    .from(reviewRequests)
-    .where(
-      and(
-        eq(reviewRequests.repository, candidate.repository),
-        eq(reviewRequests.number, candidate.number),
-      ),
-    )
-    .orderBy(desc(reviewRequests.requestedAt))
-    .get();
-  // Stryker disable next-line ConditionalExpression: equivalent: an attached outcome comes from an existing latest request, which this query finds again
-  if (outcome === "attached" && open !== undefined) {
-    db.update(reviewRequests).set(slack).where(eq(reviewRequests.id, open.id)).run();
-    insertEffects(db, { id: open.id, ...slack }, input.start);
+  // Stryker disable next-line ConditionalExpression: equivalent: an attached outcome comes from an existing latest request
+  if (outcome === "attached" && latest !== undefined) {
+    db.update(reviewRequests).set(slack).where(eq(reviewRequests.id, latest)).run();
+    insertEffects(db, { id: latest, ...slack }, input.start);
   }
-  return open?.id ?? null;
+  return latest ?? null;
 }
 
 /**
@@ -176,11 +179,13 @@ export function ingestSlack(
             detail: `Another ingest moved the cursor of ${input.channel}. Run operator review wait for the next read. Nothing was recorded.`,
           });
         const outcomes = input.candidates.map((candidate) => {
-          const outcome = decideCandidate(db, candidate);
+          const latest = latestRequest(db, candidate);
+          const outcome = decideCandidate(db, candidate, latest);
           const id = applyCandidate(
             db,
             { channel: input.channel, candidate, start: input.start },
             outcome,
+            latest?.id,
           );
           return { candidate, outcome, id };
         });
@@ -221,23 +226,17 @@ export function acknowledgeSlackEffect(
         });
       if (effect.state === "done") return Ok({ effect, changed: false });
       const outcome = decide(effect);
-      db.update(slackEffects)
-        .set(
-          outcome.kind === "done"
-            ? {
-                state: "done",
-                doneAt: new Date().toISOString(),
-                slackTs: outcome.slackTs,
-                failure: null,
-              }
-            : { failure: outcome.detail },
-        )
-        .where(eq(slackEffects.id, id))
-        .run();
-      return Ok({
-        effect: db.select().from(slackEffects).where(eq(slackEffects.id, id)).get() ?? effect,
-        changed: true,
-      });
+      const change =
+        outcome.kind === "done"
+          ? {
+              state: "done",
+              doneAt: new Date().toISOString(),
+              slackTs: outcome.slackTs,
+              failure: null,
+            }
+          : { failure: outcome.detail };
+      db.update(slackEffects).set(change).where(eq(slackEffects.id, id)).run();
+      return Ok({ effect: { ...effect, ...change }, changed: true });
     }),
   );
 }
