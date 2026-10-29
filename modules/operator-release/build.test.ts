@@ -1,0 +1,65 @@
+import { afterEach, expect, test } from "bun:test";
+import { Environment } from "../environment/main.ts";
+// Bun has no recursive directory removal API.
+import { rm } from "node:fs/promises";
+import { buildArtifact, documentEntryPoint } from "./build.ts";
+import { releaseSchema } from "./schemas-fixture.ts";
+
+const root = `${Environment.read().TMPDIR ?? "/tmp"}/operator-build-${crypto.randomUUID()}`;
+const sourceRoot = new URL("../../", import.meta.url).pathname.replace(/\/$/, "");
+afterEach(async () => {
+  await rm(root, { recursive: true, force: true });
+});
+
+test("build follows runtime imports and excludes removed protocols and test fixtures", async () => {
+  const result = await buildArtifact({
+    sourceRoot,
+    artifactRoot: root,
+    commit: "a".repeat(40),
+    now: "2026-10-24T00:00:00.000Z",
+  });
+  expect(result).toMatchObject({ status: "built" });
+  const files = await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root }));
+  expect(files).toContain("modules/operator-release/manifest.js");
+  expect(
+    await Bun.file(`${root}/modules/device-state/migrations/0000_register_projects.sql`).text(),
+  ).toBe(
+    await Bun.file(
+      `${sourceRoot}/modules/device-state/migrations/0000_register_projects.sql`,
+    ).text(),
+  );
+  expect(files).toContain("modules/device-state/migrations/meta/_journal.json");
+  for (const shipped of [
+    "skills/worker-agent/SKILL.md",
+    "modules/worker-dispatch/herdr-plugin.toml",
+  ])
+    expect(await Bun.file(`${root}/${shipped}`).text()).toBe(
+      await Bun.file(`${sourceRoot}/${shipped}`).text(),
+    );
+  expect(files).toContain("schemas/config.schema.json");
+  expect(files).not.toContain("modules/release-publish/main.js");
+  expect(
+    files.some((file) => /crew-state|project-setup|release-install|\.test\.|fake-/.test(file)),
+  ).toBe(false);
+  expect(releaseSchema.parse(await Bun.file(`${root}/release.json`).json()).builtAt).toBe(
+    "2026-10-24T00:00:00.000Z",
+  );
+}, 300_000);
+
+test("the shipped entry point keeps its module and main documentation", () => {
+  const moduleDoc = "/**\n * The command.\n * @module\n */";
+  const mainDoc = "/** Runs one command. */";
+  const source = `${moduleDoc}\nimport { x } from "./x.ts";\n${mainDoc}\nexport async function main(args: string[]) {}\n`;
+  const compiled = 'import { x } from "./x.js";\nexport async function main(args) {}\n';
+  expect(documentEntryPoint(source, compiled)).toBe(
+    `${moduleDoc}\nimport { x } from "./x.js";\n${mainDoc}\nexport async function main(args) {}\n`,
+  );
+  for (const [changedSource, changedCompiled] of [
+    [source.replace("@module", "@other"), compiled],
+    [source.replace(`${mainDoc}\n`, ""), compiled],
+    [source, compiled.replace("export async function main(", "export function main(")],
+  ])
+    expect(() => documentEntryPoint(changedSource ?? "", changedCompiled ?? "")).toThrow(
+      "The CLI entry point must document its module and main function.",
+    );
+});

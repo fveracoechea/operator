@@ -1,170 +1,150 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { rm } from "node:fs/promises";
+import { afterEach, expect, mock, spyOn, test } from "bun:test";
+// Bun has no chmod, temporary-directory, or real-path API.
+import { chmod, mkdtemp, realpath, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { Environment } from "../environment/main.ts";
 import { ToolInvocation } from "./main.ts";
 
-const root = `${Bun.env.TMPDIR ?? "/tmp"}/operator-tool-invocation-${crypto.randomUUID()}`;
-const repo = `${root}/repo`;
-const log = `${root}/git.log`;
-const inheritedPath = process.env.PATH ?? "";
-
-// Git runs through a wrapper that logs each call, so a test reads every option a call used. When
-// the fault file names `<subcommand>:term` or `<subcommand>:exit`, the wrapper ends that one call
-// on SIGTERM, as a timeout does, or with exit 3, after it writes the text of the stderr file. A
-// file carries the fault, because a child does not see a change to process.env.
-beforeAll(async () => {
-  const realGit = Bun.which("git");
-  await Bun.$`mkdir -p ${root}/bin ${repo}`.quiet();
-  await Bun.write(
-    `${root}/bin/git`,
-    [
-      "#!/bin/sh",
-      `printf '%s\\n' "$*" >> ${log}`,
-      // The guard and `-C <repo>` come before the subcommand.
-      `fault=$(cat ${root}/fault 2>/dev/null)`,
-      'if [ -n "$fault" ] && [ "$6" = "${fault%%:*}" ]; then',
-      `  cat ${root}/stderr >&2`,
-      '  case "$fault" in *:term) kill -TERM $$ ;; *) exit 3 ;; esac',
-      "fi",
-      `exec ${realGit} "$@"`,
-      "",
-    ].join("\n"),
-  );
-  await Bun.$`chmod +x ${root}/bin/git`.quiet();
-  await Bun.$`git init -q -b main ${repo}`.quiet();
-  await Bun.write(`${repo}/data.bin`, new Uint8Array([0xff, 0x00, 0xfe, 0x0a]));
-  await Bun.$`git -C ${repo} add -A`.quiet();
-  await Bun.$`git -C ${repo} -c user.email=t@example.com -c user.name=Test commit -q -m first`.quiet();
-  process.env.PATH = `${root}/bin:${inheritedPath}`;
+const modulePath = new URL("./main.ts", import.meta.url).pathname;
+afterEach(() => {
+  mock.restore();
 });
 
-/** Runs one call while the wrapper fails one subcommand. */
-async function withFault<Value>(fault: string, stderr: string, run: () => Promise<Value>) {
-  await Bun.write(`${root}/fault`, fault);
-  await Bun.write(`${root}/stderr`, stderr);
-  try {
-    return await run();
-  } finally {
-    await rm(`${root}/fault`, { force: true });
-  }
+async function temporaryFolder() {
+  return realpath(await mkdtemp(path.join(tmpdir(), "operator-tool-")));
 }
 
-afterAll(async () => {
-  process.env.PATH = inheritedPath;
-  await rm(root, { force: true, recursive: true });
+test("passes exact input and arguments and reports the tool's exit and output", async () => {
+  const result = await ToolInvocation.run({
+    tool: process.execPath,
+    args: [
+      "-e",
+      'process.stdout.write((await Bun.stdin.text()) + Bun.argv[1]); process.stderr.write("failed"); process.exitCode = 3;',
+      "a b",
+    ],
+    input: "exact\n",
+    timeoutMs: 5_000,
+  });
+  expect(result).toEqual({
+    status: "completed",
+    exitCode: 3,
+    stdout: "exact\na b",
+    stderr: "failed",
+  });
 });
 
-describe("ToolInvocation.git", () => {
-  test("runs every call with the file system monitor off and no optional lock (ADR 0018)", async () => {
-    await rm(log, { force: true });
-    await ToolInvocation.git({ repoRoot: repo, args: ["rev-parse", "HEAD"] });
-    await ToolInvocation.git({ repoRoot: repo, args: ["no-such-command"] });
-
-    const calls = (await Bun.file(log).text()).trim().split("\n");
-    expect(calls).toEqual([
-      `--no-optional-locks -c core.fsmonitor=false -C ${repo} rev-parse HEAD`,
-      `--no-optional-locks -c core.fsmonitor=false -C ${repo} no-such-command`,
-    ]);
+test("reports an unavailable tool without running a command", async () => {
+  const tool = `operator-missing-${crypto.randomUUID()}`;
+  expect(await ToolInvocation.run({ tool, args: [], timeoutMs: 100 })).toEqual({
+    status: "unavailable",
+    tool,
+    detail: `${tool} is not on the path, so nothing was requested.`,
   });
+});
 
-  test("reads the output trimmed, or byte for byte when raw", async () => {
-    const trimmed = await ToolInvocation.git({
-      repoRoot: repo,
-      args: ["log", "-1", "--format=%s"],
-    });
-    const raw = await ToolInvocation.git({
-      repoRoot: repo,
-      args: ["log", "-1", "--format=%s"],
-      raw: true,
-    });
-
-    expect(trimmed).toMatchObject({ status: "read", value: "first", exitCode: 0 });
-    expect(raw).toMatchObject({ status: "read", value: "first\n" });
+test("keeps a timed-out external operation uncertain", async () => {
+  const result = await ToolInvocation.run({
+    tool: process.execPath,
+    args: ["-e", "await Bun.sleep(10_000)"],
+    timeoutMs: 100,
   });
-
-  test("keeps the exact bytes of a committed file", async () => {
-    const read = await ToolInvocation.git({
-      repoRoot: repo,
-      args: ["cat-file", "blob", "HEAD:data.bin"],
-    });
-
-    expect(read.status === "read" ? [...read.bytes] : null).toEqual([0xff, 0x00, 0xfe, 0x0a]);
+  expect(result).toEqual({
+    status: "no-answer",
+    detail: `${process.execPath} -e ended on SIGTERM with no answer.`,
   });
+});
 
-  test("reads an exit that is no answer as unread, with the exit and the error text", async () => {
-    const read = await ToolInvocation.git({
-      repoRoot: repo,
-      args: ["merge-base", "--is-ancestor", "HEAD", "nope"],
+test("names a timed-out tool that had no arguments", async () => {
+  const folder = await temporaryFolder();
+  try {
+    const tool = `${folder}/silent`;
+    await Bun.write(tool, `#!${process.execPath}\nawait Bun.sleep(10_000);\n`);
+    await chmod(tool, 0o755);
+    expect(await ToolInvocation.run({ tool, args: [], timeoutMs: 100 })).toEqual({
+      status: "no-answer",
+      detail: `${tool}  ended on SIGTERM with no answer.`,
     });
+  } finally {
+    await rm(folder, { recursive: true, force: true });
+  }
+});
 
-    expect(read.status).toBe("unread");
-    expect(read.status === "unread" ? read.detail : "").toStartWith("git merge-base exited 128: ");
-    expect(Object.keys(read)).toEqual(["status", "detail"]);
+test("finds the tool on the validated environment path", async () => {
+  const folder = await temporaryFolder();
+  try {
+    const tool = `operator-probe-${crypto.randomUUID()}`;
+    await Bun.write(`${folder}/${tool}`, `#!${process.execPath}\nprocess.stdout.write("found");\n`);
+    await chmod(`${folder}/${tool}`, 0o755);
+    spyOn(Environment, "read").mockReturnValue({ ...Environment.read(), PATH: folder });
+    expect(await ToolInvocation.run({ tool, args: [], timeoutMs: 5_000 })).toEqual({
+      status: "completed",
+      exitCode: 0,
+      stdout: "found",
+      stderr: "",
+    });
+  } finally {
+    await rm(folder, { recursive: true, force: true });
+  }
+});
+
+test("gives a tool no input stream when the call has no input", async () => {
+  const result = await ToolInvocation.run({
+    tool: process.execPath,
+    args: ["-e", 'process.stdout.write(String(require("node:fs").fstatSync(0).isFIFO()))'],
+    timeoutMs: 5_000,
   });
+  expect(result).toMatchObject({ status: "completed", stdout: "false" });
+});
 
-  test("reads an exit that the caller names as an answer, with its exit code", async () => {
-    const empty = await ToolInvocation.git({
-      repoRoot: repo,
-      args: ["config", "--get-regexp", "^remote\\..*\\.url$"],
-      answers: [0, 1],
-    });
-    const any = await ToolInvocation.git({
-      repoRoot: repo,
-      args: ["rev-parse", "--verify", "--quiet", "refs/heads/absent"],
-      answers: "any",
-    });
-
-    expect(empty).toMatchObject({ status: "read", value: "", exitCode: 1 });
-    expect(any).toMatchObject({ status: "read", exitCode: 1 });
-  });
-
-  test("gives the caller a structured failure to word, for a timeout and for an exit", async () => {
-    const failures: unknown[] = [];
-    const failed = (failure: unknown) => {
-      failures.push(failure);
-      return "worded";
-    };
-    const timedOut = await withFault("status:term", "stuck", () =>
-      ToolInvocation.git({ repoRoot: repo, args: ["status"], failed }),
+test("does not keep the caller open while a detached process runs", async () => {
+  const folder = await temporaryFolder();
+  try {
+    const started = performance.now();
+    const caller = Bun.spawn(
+      [
+        process.execPath,
+        "-e",
+        `const { ToolInvocation } = await import(${JSON.stringify(modulePath)}); console.log(ToolInvocation.detach({ tool: process.execPath, args: ["-e", "await Bun.sleep(10_000)"], cwd: ${JSON.stringify(folder)} }));`,
+      ],
+      { env: Environment.child(), stdout: "pipe", stderr: "pipe" },
     );
-    const exited = await withFault("status:exit", "boom", () =>
-      ToolInvocation.git({ repoRoot: repo, args: ["status"], failed }),
-    );
+    const [code, output] = await Promise.all([caller.exited, new Response(caller.stdout).text()]);
+    expect(code).toBe(0);
+    // The detached process sleeps for ten seconds, so a caller that waits for it ends far later.
+    expect(performance.now() - started).toBeLessThan(5000);
+    process.kill(Number(output.trim()));
+  } finally {
+    await rm(folder, { recursive: true, force: true });
+  }
+});
 
-    expect([timedOut, exited]).toEqual([
-      { status: "unread", detail: "worded" },
-      { status: "unread", detail: "worded" },
-    ]);
-    expect(failures).toEqual([
-      { kind: "no-answer", args: ["status"], signal: "SIGTERM", exitCode: 143, stderr: "stuck" },
-      { kind: "exit", args: ["status"], exitCode: 3, stderr: "boom" },
-    ]);
-  });
-
-  test("words a timeout and an exit as every Git call that started with -C did", async () => {
-    const timedOut = await withFault("status:term", "stuck", () =>
-      ToolInvocation.git({ repoRoot: repo, args: ["status"] }),
-    );
-    const exited = await withFault("status:exit", "boom\n", () =>
-      ToolInvocation.git({ repoRoot: repo, args: ["status"] }),
-    );
-
-    expect(timedOut).toEqual({
-      status: "unread",
-      detail: "git -C ended on SIGTERM with no answer.",
+test("detaches a process in its own group that runs in the given folder with the child environment", async () => {
+  const folder = await temporaryFolder();
+  let pid = 0;
+  try {
+    pid = ToolInvocation.detach({
+      tool: process.execPath,
+      args: [
+        "-e",
+        `await Bun.write("record.json", JSON.stringify({ pid: process.pid, path: process.env.PATH, stdin: await Bun.stdin.text() })); await Bun.write("done", ""); await Bun.sleep(60_000);`,
+      ],
+      cwd: folder,
     });
-    expect(exited).toEqual({ status: "unread", detail: "git status exited 3: boom" });
-  });
-
-  test("names a Git that is not on the path, and requests nothing", async () => {
-    process.env.PATH = `${root}/empty`;
-    try {
-      const read = await ToolInvocation.git({ repoRoot: repo, args: ["status"] });
-      expect(read).toEqual({
-        status: "unread",
-        detail: "git is not on the path, so nothing was requested.",
-      });
-    } finally {
-      process.env.PATH = `${root}/bin:${inheritedPath}`;
-    }
-  });
+    const done = Bun.file(`${folder}/done`);
+    for (let attempt = 0; attempt < 250 && !(await done.exists()); attempt++) await Bun.sleep(20);
+    expect(await Bun.file(`${folder}/record.json`).json()).toEqual({
+      pid,
+      path: Environment.read().PATH,
+      stdin: "",
+    });
+    const group = Bun.spawnSync(["ps", "-o", "pgid=", "-p", String(pid)])
+      .stdout.toString()
+      .trim();
+    expect(group).toBe(String(pid));
+  } finally {
+    // The child lives until the test kills it, so a test paused by a busy runner still finds it.
+    if (pid > 0) process.kill(pid);
+    await rm(folder, { recursive: true, force: true });
+  }
 });

@@ -23,13 +23,14 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile
-      # Both paths install for real: the GitHub source path from a local Git repository at one
-      # exact commit, and the registry path from a local registry that rewrites the package
-      # manifest the way JSR does. Nothing reaches the network, and nothing is published.
+      # Both paths install for real, globally and as project dependencies: the source path from a
+      # local Git repository at one full commit, and the registry path from a local registry that
+      # rewrites the package manifest the way JSR does. Global installs use isolated Bun folders.
+      # Nothing reaches the network, and nothing is published.
       # `shell: bash` sets `pipefail`, so `tee` cannot answer for the test run it copies.
       - name: Clean installation and CLI behaviour on both paths
         shell: bash
-        run: bun test modules/release-install modules/operator-release 2>&1 | tee release-smoke.log
+        run: bun run test modules/operator-release 2>&1 | tee release-smoke.log
       - name: Preserve the attempt
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -38,3 +39,69 @@ jobs:
           path: release-smoke.log
           if-no-files-found: error
           retention-days: 30
+
+  jsr-client:
+    name: Check the package with the official JSR client
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      # The pinned official client checks the artifact the way JSR would accept it. It needs no
+      # credential and uploads nothing, so a package JSR would refuse stops on its pull request,
+      # before any publication can start.
+      - name: Check the release artifact with the JSR client
+        run: |
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" \
+            bun scripts/release.ts build --out dist --commit "$(git rev-parse HEAD)"
+          bun run --bun release check --out dist
+
+  nix:
+    name: Nix package on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Both supported systems report, so one red system does not hide the other.
+      fail-fast: false
+      matrix:
+        # ubuntu-latest is x86_64-linux, and macos-latest is aarch64-darwin.
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          # The flake records the commit time as the build time, so it reads the full history.
+          fetch-depth: 0
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+      # Version reporting, artifact identity, bun.nix freshness, command discovery, and linked
+      # skill readiness, all from the installed package.
+      - run: nix flake check -L
+      - run: nix build -L --rebuild .#default
+      # The Nix package holds the same artifact and release record as the JSR release job.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - name: Compare the Nix artifact with the release job's artifact
+        run: |
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" \
+            bun scripts/release.ts build --out dist --commit "$(git rev-parse HEAD)"
+          diff -r dist result/lib/operator/node_modules/@fveracoechea/operator
+      # The workflow tests run again through the Nix package's command: registration, a named
+      # profile, readiness, dispatch, a report, two reviewed PRs with merge and cleanup, and a
+      # manual review, on both hosts. Every fixture command and hook runs `result/bin/operator`.
+      - name: Run the workflows through the Nix command
+        # The test name pattern holds `|`, and `shell: bash` keeps a real pipe safe all the same.
+        shell: bash
+        run: |
+          OPERATOR_INSTALLED_COMMAND="$PWD/result/bin/operator" bun test --isolate --timeout=120000 \
+            modules/operator-cli/run.delegated-run.test.ts modules/operator-cli/run.reviews.test.ts \
+            modules/operator-cli/run.reports.test.ts \
+            -t "finish with no human stop|a manual request reviews the PR repository|report"
+      # Consumers pin a github: input, which takes its commit time from the GitHub archive and not
+      # from a local checkout. The checked-out commit, a pull request merge commit included, is in
+      # this repository, so the archive of the same commit must hold the same artifact.
+      - name: Compare the github input that consumers pin
+        run: |
+          nix build -L --out-link result-github "github:${{ github.repository }}/$(git rev-parse HEAD)"
+          diff -r dist result-github/lib/operator/node_modules/@fveracoechea/operator

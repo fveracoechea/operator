@@ -1,5 +1,6 @@
 import { defineRule } from "@oxlint/plugins";
 import type { ESTree } from "@oxlint/plugins";
+import { withSkillTopic } from "../skill-topic.ts";
 
 function unwrapParentheses(node: ESTree.Expression): ESTree.Expression {
   let current = node;
@@ -31,8 +32,10 @@ export const noConditionalEmptyObjectSpreadRule = defineRule({
         "Disallow object spreads that conditionally spread an empty object to omit fields.",
     },
     messages: {
-      avoid:
+      avoid: withSkillTopic(
         "This conditional spread hides property omission behind an empty object. Build the object in separate statements and add the property only when present.",
+        "lint-fixes/object-construction.md",
+      ),
     },
   },
   createOnce(context) {

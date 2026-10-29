@@ -1,15 +1,18 @@
-import { SkillInstall } from "../skill-install/main.ts";
 import { buildArtifact } from "./build.ts";
 import { identifyArtifact, REQUIRED_PARTS, scanFiles } from "./inventory.ts";
+import { readArtifactRelease, readReleaseManifest } from "./manifest.ts";
 import {
-  installationRoot,
-  packageRoot,
-  readArtifactRelease,
-  readLockData,
-  readReleaseManifest,
-} from "./manifest.ts";
+  PACKAGE_NAMES,
+  type RegistryInstallRequest,
+  verifyRegistryInstall,
+} from "./registry-install.ts";
 
 export const OperatorRelease = {
+  /** The names JSR, the JSR npm registry, and a global Bun install give the package. */
+  packageNames() {
+    return PACKAGE_NAMES;
+  },
+
   /**
    * Reads what the release says about itself, with no reading of the skills it ships.
    * The command entry point checks the runtime before it does anything, so that check stays
@@ -17,36 +20,6 @@ export const OperatorRelease = {
    */
   async manifest() {
     return readReleaseManifest();
-  },
-
-  /**
-   * Reads the release this process runs as, wherever it was retrieved from.
-   * The record a built artifact carries wins over the package manifest, because a registry
-   * rewrites that manifest and drops the fields a published copy would be read from.
-   */
-  async identify() {
-    const [manifest, lock, skillsIdentity] = await Promise.all([
-      readReleaseManifest(),
-      readLockData(),
-      SkillInstall.identity(),
-    ]);
-
-    return {
-      version: manifest.version,
-      commit: manifest.commit,
-      supportedBun: manifest.supportedBun,
-      builtAt: manifest.builtAt,
-      artifact: manifest.artifactIdentity === null ? ("checkout" as const) : ("built" as const),
-      artifactIdentity: manifest.artifactIdentity,
-      root: packageRoot,
-      installationRoot: installationRoot(),
-      skillsIdentity,
-      // The identity covers the code version and the exact skills it installs, together.
-      identity: new Bun.CryptoHasher("sha256")
-        .update(`${manifest.version}\n${skillsIdentity}`)
-        .digest("hex"),
-      lock,
-    };
   },
 
   /** Writes one release artifact from one checkout, with no install-time build for a consumer. */
@@ -83,5 +56,13 @@ export const OperatorRelease = {
       version,
       commit,
     };
+  },
+
+  /**
+   * Installs one exact published version from a registry in isolated roots and checks that the
+   * installed CLI reports the recorded commit and artifact identity. It publishes nothing.
+   */
+  async verifyRegistryInstall(request: RegistryInstallRequest) {
+    return verifyRegistryInstall(request);
   },
 };

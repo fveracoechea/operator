@@ -1,0 +1,20 @@
+CREATE TABLE `reports` (
+	`source_id` text NOT NULL,
+	`assignment` text NOT NULL,
+	`number` integer NOT NULL,
+	`launch_id` text NOT NULL,
+	`submitted_at` text NOT NULL,
+	`conclusion` text NOT NULL,
+	`evidence` text NOT NULL,
+	`unresolved` text NOT NULL,
+	`decisions` text NOT NULL,
+	`files` text NOT NULL,
+	`decision` text,
+	`decided_at` text,
+	`follow_up` text,
+	`cleanup_state` text,
+	`cleanup_detail` text,
+	PRIMARY KEY(`source_id`, `assignment`, `number`),
+	FOREIGN KEY (`launch_id`) REFERENCES `launches`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`source_id`,`assignment`) REFERENCES `assignments`(`source_id`,`key`) ON UPDATE no action ON DELETE no action
+);

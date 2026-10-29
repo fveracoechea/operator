@@ -3,14 +3,17 @@
  * The plan reads the public registry API over `fetch` to learn whether a version exists. The
  * publication hands a staged copy of the artifact to the official `jsr` client, pinned in the
  * development dependencies, which authenticates with the short-lived credential the runner
- * issues to the job. See ADR 0013.
+ * issues to the job. See ADR 0007.
  */
 // Bun has no temporary directory or recursive removal API.
+import { z } from "zod";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import path from "node:path";
 import { OperatorRelease } from "../operator-release/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
+
+const { join } = path;
 
 export type JsrOutcome<Value> =
   | { status: "succeeded"; value: Value }
@@ -32,19 +35,7 @@ function classify(response: Response, detail: string): JsrOutcome<never> {
     : { status: "failed", code: `http_${response.status}`, detail, httpStatus: response.status };
 }
 
-async function readBody(response: Response): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch {
-    return null;
-  }
-}
-
-function message(body: unknown, fallback: string): string {
-  return body !== null && typeof body === "object" && "message" in body
-    ? String(body.message)
-    : fallback;
-}
+const errorBody = z.object({ message: z.string() });
 
 /** Reads whether one exact version is already published. An answer it cannot read is uncertain. */
 export async function readVersion(
@@ -65,8 +56,12 @@ export async function readVersion(
     return { status: "succeeded", value: { published: true } };
   }
 
-  const body = await readBody(response);
-  return classify(response, message(body, `JSR answered ${response.status}.`));
+  // A body that is not JSON keeps the status as the only detail.
+  const message = await response.json().then(
+    (body) => errorBody.safeParse(body).data?.message,
+    () => undefined,
+  );
+  return classify(response, message ?? `JSR answered ${response.status}.`);
 }
 
 // The client downloads its own runtime on a first run, then waits for the registry to process
@@ -87,9 +82,26 @@ function tail(text: string): string {
 export async function publishWithClient(request: {
   artifactRoot: string;
 }): Promise<JsrOutcome<{ output: string }>> {
+  return runClient(request.artifactRoot, ["publish"]);
+}
+
+/**
+ * Asks the official client to check the artifact the way JSR would accept it, with no upload.
+ * It needs no credential, so it runs before any publication can start.
+ */
+export async function checkWithClient(request: {
+  artifactRoot: string;
+}): Promise<JsrOutcome<{ output: string }>> {
+  return runClient(request.artifactRoot, ["publish", "--dry-run"]);
+}
+
+async function runClient(
+  artifactRoot: string,
+  args: string[],
+): Promise<JsrOutcome<{ output: string }>> {
   const staging = await mkdtemp(join(tmpdir(), "operator-jsr-"));
   try {
-    const root = request.artifactRoot.replace(/\/$/, "");
+    const root = artifactRoot.replace(/\/$/, "");
     for (const path of await OperatorRelease.contents({ artifactRoot: root })) {
       await Bun.write(`${staging}/${path}`, Bun.file(`${root}/${path}`), { createPath: true });
     }
@@ -114,7 +126,7 @@ export async function publishWithClient(request: {
 
     const published = await ToolInvocation.run({
       tool: "jsr",
-      args: ["publish"],
+      args,
       cwd: staging,
       timeoutMs: PUBLISH_TIMEOUT_MS,
     });

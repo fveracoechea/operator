@@ -5,18 +5,20 @@ import {
   beforeEach,
   describe,
   expect,
+  spyOn,
   test as bunTest,
 } from "bun:test";
 import { z } from "zod";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
 import { OperatorRelease } from "../operator-release/main.ts";
-import type { ReleaseFakeState } from "./fake-publish-state.ts";
-import { type JsrFake, type JsrFakeOptions, startJsrFake } from "./fake-jsr.ts";
+import { releaseFakeStateSchema, type ReleaseFakeState } from "./publish-state-fixture.ts";
+import { type JsrFake, type JsrFakeOptions, startJsrFake } from "./jsr-fixture.ts";
 import { ReleasePublish } from "./main.ts";
+import { Environment } from "../environment/main.ts";
 
 const sourceRoot = new URL("../../", import.meta.url).pathname.replace(/\/$/, "");
-const fakeGhPath = new URL("./fake-gh.ts", import.meta.url).pathname;
+const fakeGhPath = new URL("./gh-fixture.ts", import.meta.url).pathname;
 
 // Every test publishes a real artifact, and building one compiles the whole release. That takes
 // far longer than a default test, and longer again on a CI runner, so the file builds it once.
@@ -39,13 +41,17 @@ let binDirectory = "";
 let journalPath = "";
 let version = "";
 
-const inheritedPath = process.env.PATH ?? "";
+const inheritedEnvironment = Environment.read();
+const inheritedPath = inheritedEnvironment.PATH;
+let environmentSpy: ReturnType<typeof spyOn<typeof Environment, "read">> | undefined;
 
 // A hook does not take the bound of its test, so the one build states its own (#186).
 beforeAll(async () => {
-  builtRoot = `${Bun.env.TMPDIR ?? "/tmp"}/operator-publish-built-${crypto.randomUUID()}`;
+  builtRoot = `${Environment.read().TMPDIR ?? "/tmp"}/operator-publish-built-${crypto.randomUUID()}`;
   await OperatorRelease.build({ sourceRoot, artifactRoot: builtRoot, commit: COMMIT });
-  version = (await Bun.file(`${builtRoot}/release.json`).json()).version;
+  version = z
+    .object({ version: z.string() })
+    .parse(await Bun.file(`${builtRoot}/release.json`).json()).version;
 }, 300_000);
 
 afterAll(async () => {
@@ -53,9 +59,9 @@ afterAll(async () => {
 });
 
 afterEach(async () => {
-  process.env.PATH = inheritedPath;
+  environmentSpy?.mockRestore();
   for (const fake of fakes.splice(0)) {
-    fake.stop();
+    await fake.stop();
   }
   await Promise.all(roots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
 });
@@ -86,7 +92,7 @@ async function seedFault(name: string, kind: string, remaining = 1): Promise<voi
 }
 
 beforeEach(async () => {
-  root = `${Bun.env.TMPDIR ?? "/tmp"}/operator-publish-${crypto.randomUUID()}`;
+  root = `${Environment.read().TMPDIR ?? "/tmp"}/operator-publish-${crypto.randomUUID()}`;
   roots.push(root);
   artifactRoot = `${root}/artifact`;
   ghDirectory = `${root}/gh`;
@@ -102,7 +108,10 @@ beforeEach(async () => {
     `#!/bin/sh\nRELEASE_GH_DIR=${ghDirectory} exec bun ${fakeGhPath} "$@"\n`,
   );
   await Bun.$`chmod +x ${binDirectory}/gh`.quiet();
-  process.env.PATH = fixturePath();
+  environmentSpy = spyOn(Environment, "read").mockReturnValue({
+    ...inheritedEnvironment,
+    PATH: fixturePath(),
+  });
 
   await seedGithub({
     compare: { [COMMIT]: "behind", [OTHER_COMMIT]: "diverged" },
@@ -150,7 +159,7 @@ describe("the release plan", () => {
     const fake = await jsrFake();
     const before = await ReleasePublish.plan(request(fake));
 
-    await Bun.write(`${artifactRoot}/skills/operator/SKILL.md`, "changed\n");
+    await Bun.write(`${artifactRoot}/skills/deep-modules/SKILL.md`, "changed\n");
     const after = await ReleasePublish.plan(request(fake));
 
     expect(after.releaseId).not.toBe(before.releaseId);
@@ -215,6 +224,25 @@ describe("the release plan", () => {
     ]);
   });
 
+  test("refuses to publish when the registry cannot say whether it holds the version", async () => {
+    const fake = await jsrFake({ published: [version] });
+    const outage = Bun.serve({ port: 0, fetch: () => new Response(null, { status: 503 }) });
+    const api = `http://127.0.0.1:${outage.port}`;
+
+    let result;
+    try {
+      result = await ReleasePublish.publish(
+        request(fake, { jsr: { api, scope: "fveracoechea", package: "operator", fetch } }),
+      );
+    } finally {
+      await outage.stop(true);
+    }
+
+    expect(result.status).toBe("blocked");
+    expect(result.plan.blockers.map((one) => one.reason)).toEqual(["published_state_unknown"]);
+    expect(await fake.calls()).toEqual([]);
+  });
+
   test("allows a version the registry holds after this release recorded a send of it", async () => {
     await Bun.write(
       journalPath,
@@ -247,7 +275,7 @@ describe("the publication", () => {
     const result = await ReleasePublish.publish(request(fake, { changelogPath }));
 
     expect(result.status).toBe("published");
-    const state: ReleaseFakeState = await Bun.file(`${ghDirectory}/state.json`).json();
+    const state = releaseFakeStateSchema.parse(await Bun.file(`${ghDirectory}/state.json`).json());
     expect(state.releaseBodies?.[`v${version}`]).toBe(
       `## ${version}\n\n### Minor Changes\n\n- A new release note.`,
     );
@@ -262,7 +290,7 @@ describe("the publication", () => {
 
     expect(result.status).toBe("blocked");
     expect(result.plan.blockers.map((one) => one.reason)).toContain("changelog_missing");
-    const state: ReleaseFakeState = await Bun.file(`${ghDirectory}/state.json`).json();
+    const state = releaseFakeStateSchema.parse(await Bun.file(`${ghDirectory}/state.json`).json());
     expect(state.tags).toEqual({});
     expect(await fake.calls()).toEqual([]);
   });
@@ -278,7 +306,7 @@ describe("the publication", () => {
         state: "published",
         detail: `The tag v${version} and its release were created.`,
         reference: `https://github.test/releases/v${version}`,
-        at: expect.any(String),
+        at: expect.any(String) as string,
       },
       jsr: {
         state: "published",
@@ -294,9 +322,13 @@ describe("the publication", () => {
     expect(call?.cwd).not.toBe(artifactRoot);
     expect(call?.files).toEqual(await OperatorRelease.contents({ artifactRoot }));
     // It resolves the imports of the shipped code, so the dependencies are installed beside it.
-    const manifest = await Bun.file(`${artifactRoot}/package.json`).json();
-    expect(call?.installed).toEqual(Object.keys(manifest.dependencies).toSorted());
-    const state: ReleaseFakeState = await Bun.file(`${ghDirectory}/state.json`).json();
+    const manifest = z
+      .object({ dependencies: z.record(z.string(), z.string()) })
+      .parse(await Bun.file(`${artifactRoot}/package.json`).json());
+    // Bun may hoist transitive dependencies beside the required direct packages.
+    for (const dependency of Object.keys(manifest.dependencies))
+      expect(call?.installed).toContain(dependency);
+    const state = releaseFakeStateSchema.parse(await Bun.file(`${ghDirectory}/state.json`).json());
     expect(state.tags[`v${version}`]).toBe(COMMIT);
     expect(state.releases[`v${version}`]).toContain(`v${version}`);
   });
@@ -308,6 +340,29 @@ describe("the publication", () => {
     await ReleasePublish.publish(request(fake));
 
     expect((await fake.calls()).map((call) => call.args)).toEqual([["publish"]]);
+  });
+
+  test("checks the artifact with the official client and sends nothing", async () => {
+    const fake = await jsrFake();
+
+    expect(await ReleasePublish.check({ artifactRoot })).toMatchObject({ status: "succeeded" });
+
+    const [call, ...more] = await fake.calls();
+    expect(more).toEqual([]);
+    expect(call?.args).toEqual(["publish", "--dry-run"]);
+    expect(call?.cwd).not.toBe(artifactRoot);
+    expect(call?.files).toEqual(await OperatorRelease.contents({ artifactRoot }));
+    const plan = await ReleasePublish.plan(request(fake));
+    expect(plan.paths.find((path) => path.path === "jsr")?.state).toBe("missing");
+  });
+
+  test("reports a package the official client refuses as a failed check", async () => {
+    await jsrFake({ client: "refuses" });
+
+    expect(await ReleasePublish.check({ artifactRoot })).toMatchObject({
+      status: "failed",
+      code: "client_failed",
+    });
   });
 
   test("keeps the delivered path and retries only the missing one", async () => {
@@ -336,7 +391,7 @@ describe("the publication", () => {
     const fake = await jsrFake({ client: "refuses" });
     await ReleasePublish.publish(request(fake));
 
-    await Bun.write(`${artifactRoot}/skills/operator/SKILL.md`, "changed\n");
+    await Bun.write(`${artifactRoot}/skills/deep-modules/SKILL.md`, "changed\n");
     const retry = await ReleasePublish.publish(request(await jsrFake()));
 
     expect(retry.status).toBe("blocked");
@@ -380,28 +435,9 @@ describe("the publication", () => {
   });
 });
 
-describe("the published artifact", () => {
-  test("packs every byte of the artifact into one gzipped tarball", async () => {
-    const packed = await ReleasePublish.pack({ artifactRoot });
-
-    const extracted = `${artifactRoot}-extracted`;
-    roots.push(extracted);
-    await Bun.$`mkdir -p ${extracted}`.quiet();
-    await Bun.write(`${extracted}/artifact.tgz`, packed.bytes);
-    await Bun.$`tar -xzf ${extracted}/artifact.tgz -C ${extracted}`.quiet();
-
-    expect(await Bun.file(`${extracted}/cli.js`).text()).toBe(
-      await Bun.file(`${artifactRoot}/cli.js`).text(),
-    );
-    expect(await Bun.file(`${extracted}/skills/operator/SKILL.md`).exists()).toBe(true);
-    expect(await Bun.file(`${extracted}/jsr.json`).exists()).toBe(true);
-  });
-
-  test("packs the same bytes every time, so a retry sends what was approved", async () => {
-    const first = await ReleasePublish.pack({ artifactRoot });
-    const second = await ReleasePublish.pack({ artifactRoot });
-
-    expect(second.identity).toBe(first.identity);
+describe("the interface", () => {
+  test("holds only the release operations that production runs", () => {
+    expect(Object.keys(ReleasePublish)).toEqual(["plan", "publish", "check", "delivered"]);
   });
 });
 
@@ -415,6 +451,9 @@ const workflowSchema = z.object({
       if: z.string().optional(),
       outputs: z.record(z.string(), z.string()).optional(),
       permissions: z.record(z.string(), z.string()).optional(),
+      steps: z
+        .array(z.looseObject({ name: z.string().optional(), run: z.string().optional() }))
+        .optional(),
     }),
   ),
 });
@@ -451,7 +490,11 @@ describe("the release toolchain", () => {
       (publish?.needs ?? []).includes(name),
     );
 
-    expect(callers.map(([, job]) => job.uses).toSorted()).toEqual([
+    expect(
+      callers
+        .map(([, job]) => job.uses)
+        .toSorted((left, right) => (left ?? "").localeCompare(right ?? "")),
+    ).toEqual([
       "./.github/workflows/quality.yml",
       "./.github/workflows/release-smoke.yml",
       undefined,
@@ -470,6 +513,45 @@ describe("the release toolchain", () => {
     expect(release.jobs.publish?.needs).toContain("prepare");
     expect(release.jobs.prepare?.outputs?.hasChangesets).toContain("outputs.has-changesets");
     expect(release.jobs.publish?.if).toBe("needs.prepare.outputs.hasChangesets == 'false'");
+  });
+
+  test("checks the package with the official client on each pull request and before publication", async () => {
+    const smoke = await readWorkflow(".github/workflows/release-smoke.yml");
+    const runs = (smoke.jobs["jsr-client"]?.steps ?? []).map((step) => step.run ?? "");
+
+    expect(Object.keys(smoke.on)).toEqual(["pull_request", "workflow_call"]);
+    expect(runs.some((run) => run.includes("bun run --bun release check --out dist"))).toBe(true);
+    expect((await readWorkflow(".github/workflows/release.yml")).jobs.publish?.needs).toContain(
+      "smoke",
+    );
+  });
+
+  test("runs the workflow tests through the Nix command on both systems", async () => {
+    const smoke = await readWorkflow(".github/workflows/release-smoke.yml");
+    const runs = (smoke.jobs.nix?.steps ?? []).map((step) => step.run ?? "");
+
+    expect(
+      runs.some((run) =>
+        run.includes('OPERATOR_INSTALLED_COMMAND="$PWD/result/bin/operator" bun test'),
+      ),
+    ).toBe(true);
+  });
+
+  test("installs the published version from JSR right after this commit's publication", async () => {
+    const steps = (await readWorkflow(".github/workflows/release.yml")).jobs.publish?.steps ?? [];
+    function position(text: string) {
+      return steps.findIndex((step) => step.run?.includes(text));
+    }
+
+    const published = position("release publish --out dist");
+    const verified = position("scripts/release.ts verify --out dist");
+    expect(published).toBeGreaterThan(-1);
+    expect(verified).toBe(published + 1);
+    // The record of what was delivered is kept even when the live install fails.
+    expect(steps[verified + 1]).toMatchObject({
+      name: "Preserve the record of what was delivered",
+      if: "always()",
+    });
   });
 
   test("gives the publish job every scope the reads and writes it makes need", async () => {
@@ -494,14 +576,18 @@ describe("a source path that is half delivered", () => {
 
     const first = await ReleasePublish.publish(request(fake));
     expect(first.status).toBe("partial");
-    const afterFirst: ReleaseFakeState = await Bun.file(`${ghDirectory}/state.json`).json();
+    const afterFirst = releaseFakeStateSchema.parse(
+      await Bun.file(`${ghDirectory}/state.json`).json(),
+    );
     expect(afterFirst.tags[`v${version}`]).toBe(COMMIT);
     expect(afterFirst.releases[`v${version}`]).toBeUndefined();
 
     const retry = await ReleasePublish.publish(request(await jsrFake()));
 
     expect(retry.status).toBe("published");
-    const afterRetry: ReleaseFakeState = await Bun.file(`${ghDirectory}/state.json`).json();
+    const afterRetry = releaseFakeStateSchema.parse(
+      await Bun.file(`${ghDirectory}/state.json`).json(),
+    );
     expect(afterRetry.releases[`v${version}`]).toContain(`v${version}`);
     // The tag the first attempt created is never written a second time.
     const calls = await Bun.file(`${ghDirectory}/calls.log`).text();
@@ -548,26 +634,5 @@ describe("a path the record already names as delivered", () => {
     expect(await forgetful.calls()).toEqual([]);
     const delivered = await ReleasePublish.delivered({ journalPath });
     expect(delivered.state === "read" && delivered.journal.paths.jsr?.state).toBe("published");
-  });
-});
-
-describe("the tarball order", () => {
-  test("follows the byte order the artifact identity uses, not the locale", async () => {
-    await Bun.write(`${artifactRoot}/skills/operator/Z-upper.md`, "upper\n");
-    await Bun.write(`${artifactRoot}/skills/operator/a-lower.md`, "lower\n");
-    const packed = await ReleasePublish.pack({ artifactRoot });
-
-    const listed = `${artifactRoot}-listing`;
-    roots.push(listed);
-    await Bun.$`mkdir -p ${listed}`.quiet();
-    await Bun.write(`${listed}/artifact.tgz`, packed.bytes);
-    const names = (await Bun.$`tar -tzf ${listed}/artifact.tgz`.text())
-      .split("\n")
-      .filter((name) => name.startsWith("skills/operator/"));
-
-    // `toSorted()` compares code points, so the upper-case name precedes the lower-case one.
-    expect(names.indexOf("skills/operator/Z-upper.md")).toBeLessThan(
-      names.indexOf("skills/operator/a-lower.md"),
-    );
   });
 });

@@ -88,6 +88,6 @@ describe("every workflow", () => {
     }
 
     expect(piped.length).toBeGreaterThan(0);
-    expect([...new Set(piped)].toSorted()).toEqual(["quality.yml", "release-smoke.yml"]);
+    expect([...new Set(piped)].toSorted()).toEqual(["release-smoke.yml"]);
   });
 });

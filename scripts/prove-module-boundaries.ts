@@ -2,21 +2,29 @@
 // manipulation API.
 import { cp, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import path from "node:path";
+// Bun has no invariant assertion API outside its test runner.
+import assert from "node:assert/strict";
+
+const { join, resolve } = path;
 
 type Violation = {
   name: string;
   files: Record<string, string>;
   cleanupPath: string;
   expectedDiagnostic: string;
+  check?: "lint" | "typecheck" | "format:check";
 };
 
 /** Everything `lint:modules` reads. The copy holds this and nothing else. */
 const COPIED = [
   "cli.ts",
   "modules",
+  "lib",
   "scripts",
-  "dependency-cruiser.config.cjs",
+  ".oxlintrc.json",
+  ".oxfmtrc.json",
+  "tools/oxlint",
   "package.json",
   "tsconfig.json",
 ];
@@ -31,18 +39,21 @@ async function makeCopy(): Promise<string> {
   await Promise.all(
     COPIED.map((entry) => cp(resolve(entry), join(root, entry), { recursive: true })),
   );
-  // The check resolves `typescript` and `depcruise` through node_modules, so a link is enough
+  // The checks resolve pinned tools through node_modules, so a link is enough
   // and 90 MB is not copied. Removing the copy unlinks it and leaves the real one alone.
   await symlink(resolve("node_modules"), join(root, "node_modules"));
   return root;
 }
 
-async function runBoundaryCheck(copyRoot: string): Promise<{
+async function runBoundaryCheck(
+  copyRoot: string,
+  check = "lint:modules",
+): Promise<{
   exitCode: number;
   stderr: string;
   stdout: string;
 }> {
-  const child = Bun.spawn(["bun", "run", "lint:modules"], {
+  const child = Bun.spawn(["bun", "run", check], {
     cwd: copyRoot,
     stderr: "pipe",
     stdout: "pipe",
@@ -68,7 +79,7 @@ async function requireCleanGraph(copyRoot: string, message: string): Promise<voi
   const result = await runBoundaryCheck(copyRoot);
   if (result.exitCode !== 0) {
     report(result);
-    throw new Error(message);
+    assert.fail(message);
   }
 }
 
@@ -78,11 +89,11 @@ async function proveViolation(copyRoot: string, violation: Violation): Promise<v
       await Bun.write(join(copyRoot, path), content, { createPath: true });
     }
 
-    const result = await runBoundaryCheck(copyRoot);
+    const result = await runBoundaryCheck(copyRoot, violation.check);
     const diagnostics = `${result.stdout}\n${result.stderr}`;
     if (result.exitCode === 0 || !diagnostics.includes(violation.expectedDiagnostic)) {
       report(result);
-      throw new Error(`${violation.name} was not rejected`);
+      assert.fail(`${violation.name} was not rejected`);
     }
   } finally {
     await rm(join(copyRoot, violation.cleanupPath), { force: true, recursive: true });
@@ -145,31 +156,30 @@ const violations: Violation[] = [
     expectedDiagnostic: "production TypeScript must live",
   },
   {
-    name: "Git ref write outside the integration branch module",
+    name: "lib importing a module interface",
     files: {
-      [`modules/module-boundary-probe-ref-${probeIdentity}/main.ts`]:
-        'export const RefProbe = { run() { return ["update-ref", "refs/heads/x"]; } };\n',
+      [`lib/module-boundary-probe-${probeIdentity}.ts`]:
+        'export { OperatorCli } from "../modules/operator-cli/main.ts";\n',
     },
-    cleanupPath: `modules/module-boundary-probe-ref-${probeIdentity}`,
-    expectedDiagnostic: "only modules/integration-branch writes one",
+    cleanupPath: `lib/module-boundary-probe-${probeIdentity}.ts`,
+    expectedDiagnostic: "lib must not import application or tooling code",
   },
   {
-    name: "push outside the pull request stack module",
+    name: "lib importing private module code",
     files: {
-      [`modules/module-boundary-probe-push-${probeIdentity}/main.ts`]:
-        'export const PushProbe = { run() { return ["push", "--atomic", "origin"]; } };\n',
+      [`lib/module-boundary-probe-${probeIdentity}.ts`]:
+        'const run = import("../modules/operator-cli/run.ts");\n',
     },
-    cleanupPath: `modules/module-boundary-probe-push-${probeIdentity}`,
-    expectedDiagnostic: "only modules/pull-request-stack publishes",
+    cleanupPath: `lib/module-boundary-probe-${probeIdentity}.ts`,
+    expectedDiagnostic: "lib must not import application or tooling code",
   },
   {
-    name: "pull request write outside the pull request stack module",
+    name: "lib requiring application code",
     files: {
-      [`modules/module-boundary-probe-pulls-${probeIdentity}/main.ts`]:
-        "export const PullProbe = { run(repository: string) { return `repos/${repository}/pulls`; } };\n",
+      [`lib/module-boundary-probe-${probeIdentity}.ts`]: 'require("../cli.ts");\n',
     },
-    cleanupPath: `modules/module-boundary-probe-pulls-${probeIdentity}`,
-    expectedDiagnostic: "only modules/pull-request-stack publishes",
+    cleanupPath: `lib/module-boundary-probe-${probeIdentity}.ts`,
+    expectedDiagnostic: "lib must not import application or tooling code",
   },
   {
     name: "module dependency cycle",
@@ -179,13 +189,96 @@ const violations: Violation[] = [
       [`modules/module-boundary-probe-cycle-${probeIdentity}/worker.ts`]: 'import "./main.ts";\n',
     },
     cleanupPath: `modules/module-boundary-probe-cycle-${probeIdentity}`,
-    expectedDiagnostic: "no-module-cycles",
+    expectedDiagnostic: "import(no-cycle)",
+    check: "lint",
+  },
+  {
+    name: "module importing another module's private code",
+    files: {
+      [`modules/module-boundary-probe-private-${probeIdentity}/main.ts`]:
+        'import "../operator-cli/run.ts";\nexport const PrivateProbe = { run() {} };\n',
+    },
+    cleanupPath: `modules/module-boundary-probe-private-${probeIdentity}`,
+    expectedDiagnostic: "imports private module file",
+  },
+  {
+    name: "lib dependency cycle",
+    files: {
+      [`lib/module-boundary-probe-cycle-${probeIdentity}/a.ts`]: 'import "./b.ts";\n',
+      [`lib/module-boundary-probe-cycle-${probeIdentity}/b.ts`]: 'import "./a.ts";\n',
+    },
+    cleanupPath: `lib/module-boundary-probe-cycle-${probeIdentity}`,
+    expectedDiagnostic: "import(no-cycle)",
+    check: "lint",
+  },
+  {
+    name: "lib importing an application type",
+    files: {
+      [`lib/module-boundary-probe-${probeIdentity}.ts`]:
+        'export type App = typeof import("../modules/operator-cli/main.ts");\n',
+    },
+    cleanupPath: `lib/module-boundary-probe-${probeIdentity}.ts`,
+    expectedDiagnostic: "lib must not import application or tooling code",
+  },
+  {
+    name: "lib using an import-equals application reference",
+    files: {
+      [`lib/module-boundary-probe-${probeIdentity}.ts`]:
+        'import App = require("../modules/operator-cli/main.ts");\n',
+    },
+    cleanupPath: `lib/module-boundary-probe-${probeIdentity}.ts`,
+    expectedDiagnostic: "lib must not import application or tooling code",
+  },
+  {
+    name: "lib type error",
+    files: { [`lib/type-probe-${probeIdentity}.ts`]: 'export const count: number = "wrong";\n' },
+    cleanupPath: `lib/type-probe-${probeIdentity}.ts`,
+    expectedDiagnostic: "is not assignable to type 'number'",
+    check: "typecheck",
+  },
+  {
+    name: "lib formatting error",
+    files: { [`lib/format-probe-${probeIdentity}.ts`]: "export const count=1;\n" },
+    cleanupPath: `lib/format-probe-${probeIdentity}.ts`,
+    expectedDiagnostic: `lib/format-probe-${probeIdentity}.ts`,
+    check: "format:check",
+  },
+  {
+    name: "lib lint error",
+    files: {
+      [`lib/lint-probe-${probeIdentity}.ts`]: 'export const item = Reflect.get({}, "value");\n',
+    },
+    cleanupPath: `lib/lint-probe-${probeIdentity}.ts`,
+    expectedDiagnostic: "anti-slop(no-reflect-get)",
+    check: "lint",
   },
 ];
 
 const copyRoot = await makeCopy();
 try {
   await requireCleanGraph(copyRoot, "The clean module graph did not pass");
+  const valid = `lib/module-boundary-probe-valid-${probeIdentity}`;
+  // Bun.write creates the missing parent directories.
+  await Bun.write(join(copyRoot, `${valid}/value.ts`), "export function value() { return 1; }\n");
+  await Bun.write(
+    join(copyRoot, `${valid}/consumer.ts`),
+    'import { value } from "./value.ts";\n\nexport function twice() { return value() * 2; }\n',
+  );
+  const validModule = `modules/module-boundary-probe-valid-${probeIdentity}`;
+  await Bun.write(
+    join(copyRoot, `${validModule}/main.ts`),
+    `import { value } from "../../${valid}/value.ts";\n\nexport const ValidProbe = { run() { return value(); } };\n`,
+  );
+  const formatted = await runBoundaryCheck(copyRoot, "format");
+  assert.equal(formatted.exitCode, 0, "Could not format valid module and lib examples");
+  await requireCleanGraph(copyRoot, "Focused lib imports and named exports did not pass");
+  for (const check of ["lint", "typecheck", "format:check"]) {
+    const result = await runBoundaryCheck(copyRoot, check);
+    if (result.exitCode !== 0) report(result);
+    assert.equal(result.exitCode, 0, `Valid module-to-lib import failed ${check}`);
+  }
+  await rm(join(copyRoot, validModule), { recursive: true });
+  await rm(join(copyRoot, valid), { recursive: true });
   for (const violation of violations) {
     await proveViolation(copyRoot, violation);
   }

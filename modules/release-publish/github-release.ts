@@ -1,8 +1,10 @@
 import { GithubApi } from "../github-api/main.ts";
-import { ToolInvocation } from "../tool-invocation/main.ts";
+import { z } from "zod";
 
 const READ_TIMEOUT_MS = 30_000;
 const WRITE_TIMEOUT_MS = 60_000;
+const comparisonBody = z.object({ status: z.string() });
+const releaseBody = z.object({ html_url: z.string() });
 
 type Outcome<Value> =
   | Extract<
@@ -35,7 +37,8 @@ export async function readMerged(request: {
     return { status: "unknown", detail: outcome.detail };
   }
 
-  const comparison = ToolInvocation.text(outcome.value.body, "status") ?? "unknown";
+  const parsed = comparisonBody.safeParse(outcome.value.body);
+  const comparison = parsed.success ? parsed.data.status : "unknown";
   // `identical` and `behind` both mean the commit is already an ancestor of the base branch.
   return comparison === "identical" || comparison === "behind"
     ? { status: "merged", comparison }
@@ -55,8 +58,8 @@ export async function readTag(request: { repository: string; tag: string }): Pro
     return { status: "unknown", detail: outcome.detail };
   }
 
-  const object = ToolInvocation.record(outcome.value.body, "object");
-  const sha = ToolInvocation.text(object, "sha");
+  const parsed = z.object({ object: z.object({ sha: z.string() }) }).safeParse(outcome.value.body);
+  const sha = parsed.success ? parsed.data.object.sha : null;
   return sha === null
     ? { status: "unknown", detail: "The tag named no commit." }
     : { status: "present", sha };
@@ -97,7 +100,7 @@ export async function readRelease(request: {
     return { status: "unknown", detail: outcome.detail };
   }
 
-  return { status: "present", url: ToolInvocation.text(outcome.value.body, "html_url") ?? "" };
+  return { status: "present", url: releaseBody.safeParse(outcome.value.body).data?.html_url ?? "" };
 }
 
 /** Creates the release that carries the source delivery path of one version. */
@@ -122,7 +125,7 @@ export async function createRelease(request: {
   return outcome.status === "succeeded"
     ? {
         status: "succeeded",
-        value: { url: ToolInvocation.text(outcome.value.body, "html_url") ?? "" },
+        value: { url: releaseBody.safeParse(outcome.value.body).data?.html_url ?? "" },
       }
     : outcome;
 }

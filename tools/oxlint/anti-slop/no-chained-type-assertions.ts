@@ -1,5 +1,6 @@
 import { defineRule } from "@oxlint/plugins";
 import type { ESTree } from "@oxlint/plugins";
+import { withSkillTopic } from "../skill-topic.ts";
 
 type TypeAssertionExpression = ESTree.TSAsExpression | ESTree.TSTypeAssertion;
 
@@ -59,15 +60,17 @@ export const noChainedTypeAssertionsRule = defineRule({
         "Disallow chained TypeScript as and angle-bracket assertions, including parenthesized chains.",
     },
     messages: {
-      chained:
+      chained: withSkillTopic(
         "This assertion chain discards type evidence. Keep the original precise type, or parse untrusted input at its boundary before narrowing it.",
+        "lint-fixes/type-assertions.md",
+      ),
     },
   },
   createOnce(context) {
-    const checkTypeAssertion = (node: TypeAssertionExpression) => {
+    function checkTypeAssertion(node: TypeAssertionExpression) {
       if (!isOutermostAssertionInChain(node) || !isForbiddenAssertionChain(node)) return;
       context.report({ node, messageId: "chained" });
-    };
+    }
 
     return {
       TSAsExpression: checkTypeAssertion,

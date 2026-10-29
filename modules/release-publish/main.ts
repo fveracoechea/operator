@@ -1,10 +1,7 @@
-import { ContentIdentity } from "../content-identity/main.ts";
-import { OperatorRelease } from "../operator-release/main.ts";
 import { createRelease, createTag } from "./github-release.ts";
 import { DeliveryPath, type DeliveryPathEvent } from "./delivery.ts";
 import { type PublicationJournal, readJournal, writeJournal } from "./journal.ts";
-import { publishWithClient, readVersion } from "./jsr-registry.ts";
-import { scanArtifact } from "./pack.ts";
+import { checkWithClient, publishWithClient, readVersion } from "./jsr-registry.ts";
 import {
   computeReleasePlan,
   jsrSettings,
@@ -12,7 +9,6 @@ import {
   type PlanRequest,
   type ReleasePlan,
 } from "./plan.ts";
-import { packTarball } from "./tar.ts";
 
 type PublishRequest = PlanRequest & { now?: string };
 
@@ -58,18 +54,6 @@ export const ReleasePublish = {
   },
 
   /**
-   * Packs one built artifact into the gzipped tarball a registry serves.
-   * The bytes are fixed by the artifact alone, so the smoke test installs exactly what a
-   * registry would hold.
-   */
-  async pack(request: { artifactRoot: string; prefix?: string }) {
-    const entries = await scanArtifact(request.artifactRoot, request.prefix ?? "");
-    const bytes = packTarball(entries);
-
-    return { bytes, entries: entries.length, identity: ContentIdentity.ofBytes(bytes) };
-  },
-
-  /**
    * Delivers only the paths this release has not delivered yet.
    * A published tag is never moved and a published version is never replaced, so a retry of a
    * partial publication carries the same artifact to the missing path and nothing else. A
@@ -100,7 +84,7 @@ export const ReleasePublish = {
       const outcome: DeliveryOutcome = deliver.observed
         ? { event: "observed-published", detail: path.detail, reference: null, at: now }
         : path.path === "github-source"
-          ? await publishSource(plan)
+          ? await publishSource(plan, now)
           : await publishRegistry(plan, request, now);
       const delivered = DeliveryPath.decide(recorded, outcome.event, outcome);
       for (const effect of "refused" in delivered ? [] : delivered.effects) {
@@ -112,29 +96,37 @@ export const ReleasePublish = {
 
     await writeJournal(request.journalPath, journal);
 
-    const delivered = Object.values(journal.paths).filter((one) => one.state === "published");
-    const complete = delivered.length === plan.paths.length;
     return {
-      status: complete ? ("published" as const) : ("partial" as const),
+      status: publicationStatus(journal, plan),
       plan,
       journal,
       journalPath: request.journalPath,
     };
   },
 
+  /**
+   * Has the official client check the artifact the way JSR would accept it, and uploads nothing.
+   * The release smoke runs it on every pull request and before each publication.
+   */
+  async check(request: { artifactRoot: string }) {
+    return checkWithClient(request);
+  },
+
   /** Reports what one release has already delivered. Writes nothing. */
   async delivered(request: { journalPath: string }) {
     return readJournal(request.journalPath);
   },
-
-  /** The artifact this release would publish, identified by every byte it holds. */
-  async artifact(request: { artifactRoot: string }) {
-    return OperatorRelease.inspect(request);
-  },
 };
 
-async function publishSource(plan: ReleasePlan): Promise<DeliveryOutcome> {
-  const now = new Date().toISOString();
+function publicationStatus(
+  journal: PublicationJournal,
+  plan: ReleasePlan,
+): "published" | "partial" {
+  const delivered = Object.values(journal.paths).filter((one) => one.state === "published");
+  return delivered.length === plan.paths.length ? "published" : "partial";
+}
+
+async function publishSource(plan: ReleasePlan, now: string): Promise<DeliveryOutcome> {
   // A tag an earlier attempt already landed on this commit is left exactly as it is, so the
   // retry creates only the release that is still missing instead of writing the tag again.
   const alreadyTagged = plan.source.tag.status === "present" && plan.source.tag.sha === plan.commit;

@@ -1,9 +1,11 @@
 // Bun has no path manipulation API.
-import { dirname, relative, resolve, sep } from "node:path";
-import ts from "typescript";
+import path from "node:path";
+import * as ts from "typescript/unstable/ast";
+import { API } from "typescript/unstable/async";
 import packageJson from "../package.json" with { type: "json" };
 
 const root = process.cwd();
+const { dirname, relative, resolve, sep } = path;
 const errors: string[] = [];
 const sourcePaths = [
   ...new Set(
@@ -31,11 +33,11 @@ function isExportedStatement(node: ts.Statement): boolean {
     return true;
   }
 
-  return (
-    ts.canHaveModifiers(node) &&
-    (ts.getModifiers(node)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ??
-      false)
-  );
+  let exported = false;
+  node.forEachChild((child) => {
+    if (child.kind === ts.SyntaxKind.ExportKeyword) exported = true;
+  });
+  return exported;
 }
 
 function moduleName(path: string): string | undefined {
@@ -46,12 +48,10 @@ function moduleName(path: string): string | undefined {
 function isAllowedOutsideModules(path: string): boolean {
   return (
     path === "cli.ts" ||
+    path.startsWith("lib/") ||
     path.startsWith("scripts/") ||
     // Vendored lint rules are tooling, not Operator production modules.
-    path.startsWith("tools/oxlint/anti-slop/") ||
-    // These Herdr plugin scripts run on their own, outside the Operator CLI module.
-    path === "herdr/wake.ts" ||
-    path === "herdr/worktree.ts" ||
+    path.startsWith("tools/oxlint/") ||
     path.endsWith(".test.ts") ||
     path.endsWith(".config.ts")
   );
@@ -98,13 +98,18 @@ function checkModuleInterface(path: string, sourceFile: ts.SourceFile): void {
   }
 }
 
-function checkImport(importer: string, specifier: ts.Expression): void {
+function checkImport(importer: string, specifier: ts.Node): void {
   if (!ts.isStringLiteral(specifier)) {
     return;
   }
 
   const target = projectTarget(importer, specifier.text);
   if (!target) {
+    return;
+  }
+
+  if (normalized(importer).startsWith("lib/") && !normalized(target).startsWith("lib/")) {
+    errors.push(`${importer}: lib must not import application or tooling code ${target}`);
     return;
   }
 
@@ -125,6 +130,14 @@ function checkImports(path: string, sourceFile: ts.SourceFile): void {
       checkImport(path, node.moduleSpecifier);
     }
 
+    if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) {
+      checkImport(path, node.argument.literal);
+    }
+
+    if (ts.isExternalModuleReference(node)) {
+      checkImport(path, node.expression);
+    }
+
     if (
       ts.isCallExpression(node) &&
       (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
@@ -134,80 +147,50 @@ function checkImports(path: string, sourceFile: ts.SourceFile): void {
       checkImport(path, node.arguments[0]);
     }
 
-    ts.forEachChild(node, visit);
+    node.forEachChild(visit);
   }
 
   visit(sourceFile);
 }
 
-/**
- * The integration-branch module is the only writer of a Git ref (ADR 0020), so no other
- * production file may name the Git plumbing command that writes one. A test may, to set up a case.
- */
-function checkRefWriter(path: string, text: string): void {
-  if (
-    path.startsWith("modules/integration-branch/") ||
-    path.endsWith(".test.ts") ||
-    !path.startsWith("modules/")
-  ) {
-    return;
-  }
-  if (text.includes('"update-ref"')) {
-    errors.push(`${path}: writes a Git ref; only modules/integration-branch writes one`);
-  }
-}
-
-/**
- * The pull-request-stack module is the only module that pushes or writes a pull request
- * (ADR 0022), so no other production file may run `git push` or name the pull request endpoint.
- * A `kind: "push"`, or its schema literal, names a recorded effect, not a call. A test may, to set up a case.
- */
-function checkPublisher(path: string, text: string): void {
-  if (
-    path.startsWith("modules/pull-request-stack/") ||
-    path.endsWith(".test.ts") ||
-    !path.startsWith("modules/")
-  ) {
-    return;
-  }
-  if (/(?<!kind:\s*|literal\()["'`]push["'`]/.test(text) || /(?<![\\\w])\/pulls\b/.test(text)) {
-    errors.push(
-      `${path}: pushes or writes a pull request; only modules/pull-request-stack publishes`,
-    );
-  }
-}
-
 const moduleDirectories = new Set<string>();
-for (const path of sourcePaths) {
-  const normalizedPath = normalized(path);
-  const name = moduleName(path);
-  if (name) {
-    moduleDirectories.add(name);
-  }
+// The API starts in the current directory, which is the checked root.
+const api = new API();
+const snapshot = await api.updateSnapshot({
+  openFiles: sourcePaths.map((path) => resolve(root, path)),
+});
+try {
+  for (const path of sourcePaths) {
+    const normalizedPath = normalized(path);
+    const name = moduleName(path);
+    if (name) {
+      moduleDirectories.add(name);
+    }
 
-  if (normalizedPath.startsWith("modules/") && !name) {
-    errors.push(`${path}: production files must be inside a feature module`);
-  }
+    if (normalizedPath.startsWith("modules/") && !name) {
+      errors.push(`${path}: production files must be inside a feature module`);
+    }
 
-  if (!normalizedPath.startsWith("modules/") && !isAllowedOutsideModules(normalizedPath)) {
-    errors.push(`${path}: production TypeScript must live in modules/<feature>/`);
-  }
+    if (!normalizedPath.startsWith("modules/") && !isAllowedOutsideModules(normalizedPath)) {
+      errors.push(`${path}: production TypeScript must live in modules/<feature>/ or lib/`);
+    }
 
-  const text = await Bun.file(resolve(root, path)).text();
-  const sourceFile = ts.createSourceFile(
-    path,
-    text,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS,
-  );
-  checkImports(path, sourceFile);
-  checkRefWriter(normalizedPath, text);
-  checkPublisher(normalizedPath, text);
+    const absolutePath = resolve(root, path);
+    const project = await snapshot.getDefaultProjectForFile(absolutePath);
+    const sourceFile = await project?.program.getSourceFile(absolutePath);
+    if (!sourceFile) {
+      errors.push(`${path}: module checker could not read the source`);
+      continue;
+    }
+    checkImports(path, sourceFile);
 
-  if (/^modules\/[^/]+\/main\.ts$/.test(normalizedPath)) {
-    checkModuleInterface(path, sourceFile);
+    if (/^modules\/[^/]+\/main\.ts$/.test(normalizedPath)) {
+      checkModuleInterface(path, sourceFile);
+    }
   }
+} finally {
+  await snapshot.dispose();
+  await api.close();
 }
 
 for (const directory of moduleDirectories) {

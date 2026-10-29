@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, test as bunTest } from "bun:test";
-// Bun has no realpath, recursive directory removal, or symlink API.
-import { realpath, rm, symlink } from "node:fs/promises";
+import { Environment } from "../environment/main.ts";
+import { registerTestDevice } from "../../scripts/device-fixture.ts";
+// Bun has no recursive directory removal, symlink, or directory metadata API.
+import { rm, stat, symlink } from "node:fs/promises";
 import { OperatorRelease } from "./main.ts";
+import { DeviceSettings } from "../device-settings/main.ts";
+import { z } from "zod";
+import { packageSchema, jsrSchema, releaseSchema, versionSchema } from "./schemas-fixture.ts";
 
 // Most of these tests build a real artifact, which compiles the whole release. That takes far
 // longer than a default test, and longer again on a CI runner.
@@ -19,7 +24,7 @@ afterEach(async () => {
 });
 
 function outputRoot(): string {
-  const path = `${Bun.env.TMPDIR ?? "/tmp"}/operator-release-${crypto.randomUUID()}`;
+  const path = `${Environment.read().TMPDIR ?? "/tmp"}/operator-release-${crypto.randomUUID()}`;
   outputs.push(path);
   return path;
 }
@@ -32,28 +37,8 @@ async function buildArtifact() {
   return { artifactRoot, result };
 }
 
-describe("the running release", () => {
-  test("identifies itself from the checkout it runs in", async () => {
-    const release = await OperatorRelease.identify();
-
-    expect(release.version).toMatch(/^\d+\.\d+\.\d+/);
-    expect(release.artifact).toBe("checkout");
-    expect(release.identity).toMatch(/^[0-9a-f]{64}$/);
-    expect(release.skillsIdentity).toMatch(/^[0-9a-f]{64}$/);
-    expect(release.supportedBun.length).toBeGreaterThan(0);
-  });
-
-  test("reads the lock data that governs its own installation", async () => {
-    const release = await OperatorRelease.identify();
-
-    expect(release.lock.state).toBe("present");
-    expect(release.lock.name).toBe("bun.lock");
-    expect(release.lock.identity).toMatch(/^[0-9a-f]{64}$/);
-  });
-});
-
 describe("the release artifact", () => {
-  test("ships runnable ESM, declarations, documentation, skills, and the generated schema", async () => {
+  test("ships runnable ESM, declarations, documentation, and complete retained skills", async () => {
     const { artifactRoot, result } = await buildArtifact();
 
     expect(result.status).toBe("built");
@@ -61,26 +46,20 @@ describe("the release artifact", () => {
     expect(await Bun.file(`${artifactRoot}/cli.d.ts`).exists()).toBe(true);
     expect(await Bun.file(`${artifactRoot}/modules/operator-cli/main.js`).exists()).toBe(true);
     expect(await Bun.file(`${artifactRoot}/modules/operator-cli/main.d.ts`).exists()).toBe(true);
-    expect(await Bun.file(`${artifactRoot}/skills/operator/SKILL.md`).exists()).toBe(true);
-    expect(await Bun.file(`${artifactRoot}/herdr/herdr-plugin.toml`).exists()).toBe(true);
-    // A fetched release has its dependencies installed beside the CLI.
-    await symlink(`${sourceRoot}/node_modules`, `${artifactRoot}/node_modules`);
-    const discovery = Bun.spawn(
-      ["bun", `${artifactRoot}/cli.js`, "wake", "plugin-path", "--json"],
-      { cwd: artifactRoot, stdout: "pipe", stderr: "pipe" },
+    expect(await Bun.file(`${artifactRoot}/skills/deep-modules/SKILL.md`).exists()).toBe(true);
+    expect(await Bun.file(`${artifactRoot}/skills/deep-modules/module-shape.md`).exists()).toBe(
+      true,
     );
-    const [discoveryOutput, discoveryCode] = await Promise.all([
-      new Response(discovery.stdout).json(),
-      discovery.exited,
-    ]);
-    expect(discoveryCode).toBe(0);
-    // Bun resolves the CLI's own path through symlinks, such as the macOS temporary directory.
-    expect(discoveryOutput.data.path).toBe(`${await realpath(artifactRoot)}/herdr`);
-    expect(await Bun.file(`${artifactRoot}/config.schema.json`).exists()).toBe(true);
-    // The release publishes the gate schema that a project names as its `$schema`.
-    expect(await Bun.file(`${artifactRoot}/gate.schema.json`).json()).toMatchObject({
-      required: ["$schema", "commands"],
-    });
+    expect(await Bun.file(`${artifactRoot}/skills/operator/SKILL.md`).exists()).toBe(false);
+    expect(await Bun.file(`${artifactRoot}/herdr/herdr-plugin.toml`).exists()).toBe(false);
+    expect(await Bun.file(`${artifactRoot}/modules/worker-dispatch/herdr-plugin.toml`).text()).toBe(
+      await Bun.file(`${sourceRoot}/modules/worker-dispatch/herdr-plugin.toml`).text(),
+    );
+    expect(await Bun.file(`${artifactRoot}/config.schema.json`).exists()).toBe(false);
+    expect(await Bun.file(`${artifactRoot}/schemas/config.schema.json`).text()).toBe(
+      DeviceSettings.editorSchema(),
+    );
+    expect(await Bun.file(`${artifactRoot}/gate.schema.json`).exists()).toBe(false);
     expect(await Bun.file(`${artifactRoot}/jsr.json`).exists()).toBe(true);
     expect(await Bun.file(`${artifactRoot}/README.md`).text()).toBe(
       await Bun.file(`${sourceRoot}/docs/jsr/README.md`).text(),
@@ -103,13 +82,7 @@ describe("the release artifact", () => {
       new Bun.Glob("**/*").scan({ cwd: artifactRoot, dot: true }),
     );
 
-    expect(
-      paths.filter(
-        (path) => path.endsWith(".ts") && !path.endsWith(".d.ts") && !path.startsWith("herdr/"),
-      ),
-    ).toEqual([]);
-    expect(paths).toContain("herdr/wake.ts");
-    expect(paths).toContain("herdr/worktree.ts");
+    expect(paths.filter((path) => path.endsWith(".ts") && !path.endsWith(".d.ts"))).toEqual([]);
     expect(paths.filter((path) => path.includes(".test."))).toEqual([]);
   });
 
@@ -117,9 +90,7 @@ describe("the release artifact", () => {
     const { artifactRoot } = await buildArtifact();
 
     const js = await Bun.file(`${artifactRoot}/cli.js`).text();
-    const declaration = await Bun.file(
-      `${artifactRoot}/modules/project-readiness/main.d.ts`,
-    ).text();
+    const declaration = await Bun.file(`${artifactRoot}/modules/operator-release/main.d.ts`).text();
 
     expect(js).toContain('from "./modules/operator-cli/main.js"');
     expect(js).not.toContain('.ts"');
@@ -136,11 +107,11 @@ describe("the release artifact", () => {
   test("declares no install-time script, so retrieval needs no lifecycle trust", async () => {
     const { artifactRoot } = await buildArtifact();
 
-    const manifest = await Bun.file(`${artifactRoot}/package.json`).json();
+    const manifest = packageSchema.parse(await Bun.file(`${artifactRoot}/package.json`).json());
 
     expect(manifest.scripts).toBeUndefined();
     expect(manifest.bin).toEqual({ operator: "./cli.js" });
-    expect(manifest.exports["./cli"]).toEqual({ types: "./cli.d.ts", default: "./cli.js" });
+    expect(manifest.exports?.["./cli"]).toEqual({ types: "./cli.d.ts", default: "./cli.js" });
     expect(manifest.private).toBeUndefined();
   });
 
@@ -166,7 +137,7 @@ describe("the release artifact", () => {
       }
     }
 
-    const config = await Bun.file(`${artifactRoot}/jsr.json`).json();
+    const config = jsrSchema.parse(await Bun.file(`${artifactRoot}/jsr.json`).json());
     expect(reached.size).toBeGreaterThan(0);
     expect([...reached].toSorted()).toEqual(Object.keys(config.imports ?? {}).toSorted());
     for (const [name, specifier] of Object.entries(config.imports ?? {})) {
@@ -178,22 +149,28 @@ describe("the release artifact", () => {
   test("carries the source license into both manifests it publishes", async () => {
     // The registry refuses a package that names no license, so the build carries it forward.
     const { artifactRoot } = await buildArtifact();
-    const source = await Bun.file(new URL("../../package.json", import.meta.url)).json();
+    const source = z
+      .object({ license: z.string() })
+      .parse(await Bun.file(new URL("../../package.json", import.meta.url)).json());
 
     expect(source.license).toBeString();
-    expect((await Bun.file(`${artifactRoot}/jsr.json`).json()).license).toBe(source.license);
-    expect((await Bun.file(`${artifactRoot}/package.json`).json()).license).toBe(source.license);
+    expect(jsrSchema.parse(await Bun.file(`${artifactRoot}/jsr.json`).json()).license).toBe(
+      source.license,
+    );
+    expect(packageSchema.parse(await Bun.file(`${artifactRoot}/package.json`).json()).license).toBe(
+      source.license,
+    );
   });
 
   test("records the exact commit and version the artifact was built from", async () => {
     const { artifactRoot, result } = await buildArtifact();
 
-    const release = await Bun.file(`${artifactRoot}/release.json`).json();
-    const manifest = await Bun.file(`${artifactRoot}/package.json`).json();
+    const release = releaseSchema.parse(await Bun.file(`${artifactRoot}/release.json`).json());
+    const manifest = packageSchema.parse(await Bun.file(`${artifactRoot}/package.json`).json());
 
     expect(release.commit).toBe(commit);
     expect(release.version).toBe(manifest.version);
-    expect(release.artifactIdentity).toBe(result.artifactIdentity);
+    expect(result.artifactIdentity).toBe(release.artifactIdentity);
   });
 
   test("identifies the artifact by its content, so changed content is a different release", async () => {
@@ -201,7 +178,7 @@ describe("the release artifact", () => {
     const second = await buildArtifact();
     expect(second.result.artifactIdentity).toBe(first.result.artifactIdentity);
 
-    await Bun.write(`${second.artifactRoot}/skills/operator/SKILL.md`, "changed\n");
+    await Bun.write(`${second.artifactRoot}/skills/deep-modules/SKILL.md`, "changed\n");
     const changed = await OperatorRelease.inspect({ artifactRoot: second.artifactRoot });
 
     expect(changed.artifactIdentity).not.toBe(first.result.artifactIdentity);
@@ -209,17 +186,17 @@ describe("the release artifact", () => {
 
   test("reports an artifact that is missing a required part", async () => {
     const { artifactRoot } = await buildArtifact();
-    await rm(`${artifactRoot}/config.schema.json`);
+    await rm(`${artifactRoot}/skills/deep-modules/SKILL.md`);
 
     const inspection = await OperatorRelease.inspect({ artifactRoot });
 
     expect(inspection.status).toBe("incomplete");
-    expect(inspection.missing).toContain("config.schema.json");
+    expect(inspection.missing).toContain("skills/deep-modules/SKILL.md");
   });
 
   test("reads the version and the commit the artifact's release record names", async () => {
     const { artifactRoot } = await buildArtifact();
-    const recorded = await Bun.file(`${artifactRoot}/release.json`).json();
+    const recorded = releaseSchema.parse(await Bun.file(`${artifactRoot}/release.json`).json());
 
     const inspection = await OperatorRelease.inspect({ artifactRoot });
 
@@ -239,15 +216,17 @@ describe("the release artifact", () => {
   });
 
   async function refusal(artifactRoot: string): Promise<string> {
-    return OperatorRelease.inspect({ artifactRoot }).then(
-      () => "inspected",
-      (error: unknown) => (error instanceof Error ? error.message : String(error)),
-    );
+    try {
+      await OperatorRelease.inspect({ artifactRoot });
+      return "inspected";
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
   }
 
   test("refuses a release record that names its version or commit as something other than text", async () => {
     const { artifactRoot } = await buildArtifact();
-    const recorded = await Bun.file(`${artifactRoot}/release.json`).json();
+    const recorded = releaseSchema.parse(await Bun.file(`${artifactRoot}/release.json`).json());
 
     await Bun.write(`${artifactRoot}/release.json`, JSON.stringify({ ...recorded, version: 1 }));
     expect(await refusal(artifactRoot)).toBe(
@@ -265,6 +244,8 @@ describe("the release artifact", () => {
 
   test("runs the built command through the same importable entry point", async () => {
     const { artifactRoot } = await buildArtifact();
+    outputs.push(`${artifactRoot}.state`);
+    await registerTestDevice(artifactRoot, `${artifactRoot}.state`);
     // A real installation keeps its dependencies beside the package, so the fixture does too.
     await symlink(`${sourceRoot}/node_modules`, `${artifactRoot}/node_modules`);
 
@@ -278,107 +259,147 @@ describe("the release artifact", () => {
         "--version",
         "--json",
       ],
-      { cwd: sourceRoot, stderr: "pipe", stdout: "pipe" },
+      {
+        cwd: sourceRoot,
+        stderr: "pipe",
+        stdout: "pipe",
+        env: Environment.child({
+          HOME: `${artifactRoot}.home`,
+          XDG_CONFIG_HOME: `${artifactRoot}.config`,
+          XDG_STATE_HOME: `${artifactRoot}.state`,
+        }),
+      },
     );
     const [exitCode, stdout] = await Promise.all([child.exited, new Response(child.stdout).text()]);
 
     expect(exitCode).toBe(0);
-    expect(JSON.parse(stdout).data.operatorVersion).toBe(
-      (await Bun.file(`${artifactRoot}/release.json`).json()).version,
+    expect(versionSchema.parse(JSON.parse(stdout)).data.operatorVersion).toBe(
+      releaseSchema.parse(await Bun.file(`${artifactRoot}/release.json`).json()).version,
     );
   });
 });
 
-describe("an update run from a built release", () => {
-  /** Runs one built CLI in a scratch project, the way a retrieved release is run. */
-  async function runBuilt(artifactRoot: string, args: string[]) {
-    const project = outputRoot();
-    await Bun.$`mkdir -p ${project}`.quiet();
-    const child = Bun.spawn(
-      [
-        "bun",
-        "--no-install",
-        "-e",
-        `const { main } = await import(${JSON.stringify(`${artifactRoot}/cli.js`)}); await main(Bun.argv.slice(1));`,
-        "--",
-        ...args,
-      ],
-      { cwd: project, stderr: "pipe", stdout: "pipe" },
-    );
-    const [exitCode, stdout] = await Promise.all([child.exited, new Response(child.stdout).text()]);
-    return { exitCode, json: JSON.parse(stdout) };
-  }
-
-  test("refuses to record a commit the running release was not built from", async () => {
-    const { artifactRoot } = await buildArtifact();
-    await symlink(`${sourceRoot}/node_modules`, `${artifactRoot}/node_modules`);
-    // A retrieved installation keeps its own lock data, so the fixture keeps it too.
-    await Bun.write(`${artifactRoot}/bun.lock`, "{}\n");
-
-    const result = await runBuilt(artifactRoot, [
-      "update",
-      "plan",
-      "--claude",
-      "--commit",
-      "a".repeat(40),
-      "--json",
-    ]);
-
-    expect(result.json.reason).toBe("update_blocked");
-    expect(result.json.blockers.map((one: { reason: string }) => one.reason)).toContain(
-      "release_commit_mismatch",
-    );
+async function runTooling(args: string[], env: Record<string, string | undefined> = {}) {
+  const child = Bun.spawn(["bun", "scripts/release.ts", ...args], {
+    cwd: sourceRoot,
+    env: Environment.child({ SOURCE_DATE_EPOCH: undefined, ...env }),
+    stderr: "pipe",
+    stdout: "pipe",
   });
-
-  test("records the commit the running release was built from", async () => {
-    const { artifactRoot } = await buildArtifact();
-    await symlink(`${sourceRoot}/node_modules`, `${artifactRoot}/node_modules`);
-    // A retrieved installation keeps its own lock data, so the fixture keeps it too.
-    await Bun.write(`${artifactRoot}/bun.lock`, "{}\n");
-
-    const result = await runBuilt(artifactRoot, [
-      "update",
-      "plan",
-      "--claude",
-      "--commit",
-      commit,
-      "--json",
-    ]);
-
-    expect(result.json.reason).toBe("update_plan_ready");
-    expect(result.json.data.to.commit).toBe(commit);
-  });
-});
+  const [exitCode, stderr, stdout] = await Promise.all([
+    child.exited,
+    new Response(child.stderr).text(),
+    new Response(child.stdout).text(),
+  ]);
+  return { exitCode, stderr, stdout };
+}
 
 describe("the release tooling", () => {
-  test("builds a complete artifact through the command a maintainer runs", async () => {
+  test("builds a complete artifact that records the commit time as its build time", async () => {
     const artifactRoot = outputRoot();
+    const second = outputRoot();
+    function build(out: string) {
+      return runTooling(["build", "--out", out, "--commit", commit], {
+        SOURCE_DATE_EPOCH: "1761523200",
+      });
+    }
 
-    const child = Bun.spawn(
-      ["bun", "scripts/release.ts", "build", "--out", artifactRoot, "--commit", commit],
-      { cwd: sourceRoot, stderr: "pipe", stdout: "pipe" },
-    );
-    const [exitCode, stderr, stdout] = await Promise.all([
-      child.exited,
-      new Response(child.stderr).text(),
-      new Response(child.stdout).text(),
-    ]);
+    const { exitCode, stderr, stdout } = await build(artifactRoot);
 
     expect(stderr).toBe("");
     expect(exitCode).toBe(0);
-    expect(JSON.parse(stdout).status).toBe("built");
+    expect(z.object({ status: z.string() }).parse(JSON.parse(stdout)).status).toBe("built");
     expect((await OperatorRelease.inspect({ artifactRoot })).status).toBe("complete");
+    expect(releaseSchema.parse(await Bun.file(`${artifactRoot}/release.json`).json()).builtAt).toBe(
+      "2025-10-27T00:00:00.000Z",
+    );
+    // A second build of the same commit is byte for byte the same release record.
+    expect((await build(second)).exitCode).toBe(0);
+    expect(await Bun.file(`${second}/release.json`).text()).toBe(
+      await Bun.file(`${artifactRoot}/release.json`).text(),
+    );
   });
 
-  test("refuses to build without the commit it is built from", async () => {
-    const child = Bun.spawn(["bun", "scripts/release.ts", "build", "--out", outputRoot()], {
-      cwd: sourceRoot,
-      stderr: "pipe",
-      stdout: "pipe",
-    });
-    const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+  test("refuses to build without one full clean commit and writes nothing", async () => {
+    for (const named of [
+      [],
+      ["--commit", "unknown"],
+      ["--commit", "b".repeat(7)],
+      ["--commit", `${commit}-dirty`],
+      ["--commit", "B".repeat(40)],
+    ]) {
+      const artifactRoot = outputRoot();
+      const { exitCode, stderr } = await runTooling(["build", "--out", artifactRoot, ...named], {
+        SOURCE_DATE_EPOCH: "1761523200",
+      });
 
-    expect(exitCode).toBe(2);
-    expect(stderr).toContain("--commit");
+      expect(exitCode, named.join(" ")).toBe(2);
+      expect(stderr).toContain("--commit");
+      expect(await stat(artifactRoot).catch(() => null)).toBeNull();
+    }
+  });
+
+  test("refuses to build without a commit time in whole seconds and writes nothing", async () => {
+    for (const epoch of [undefined, "", "2025-10-27", "-1", "9".repeat(20)]) {
+      const artifactRoot = outputRoot();
+      const { exitCode, stderr } = await runTooling(
+        ["build", "--out", artifactRoot, "--commit", commit],
+        { SOURCE_DATE_EPOCH: epoch },
+      );
+
+      expect(exitCode, String(epoch)).toBe(2);
+      expect(stderr).toContain("SOURCE_DATE_EPOCH");
+      expect(await stat(artifactRoot).catch(() => null)).toBeNull();
+    }
+  });
+
+  test("reports a version the registry does not serve as unavailable after its attempts", async () => {
+    const asked: string[] = [];
+    const registry = Bun.serve({
+      port: 0,
+      fetch(incoming) {
+        asked.push(new URL(incoming.url).pathname);
+        return new Response("not found", { status: 404 });
+      },
+    });
+    try {
+      const result = await OperatorRelease.verifyRegistryInstall({
+        registry: `http://127.0.0.1:${registry.port}/`,
+        version: "9.9.9",
+        expected: { artifactIdentity: "a".repeat(64), commit },
+        attempts: 1,
+        pauseMs: 0,
+      });
+      expect(result).toMatchObject({ status: "unavailable" });
+      expect(result.status === "unavailable" && result.detail).toStartWith(
+        "bun add -g @fveracoechea/operator@npm:@jsr/fveracoechea__operator@9.9.9 failed 1 times",
+      );
+      expect(asked).toContain("/@jsr%2ffveracoechea__operator");
+    } finally {
+      await registry.stop(true);
+    }
+  }, 60_000);
+
+  test("writes the Nix launcher that names its install root and its Bun", async () => {
+    const { exitCode, stdout } = await runTooling([
+      "launcher",
+      "--root",
+      "/nix/store/x-operator/lib/operator",
+      "--bun",
+      "/nix/store/y-bun/bin/bun",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toEndWith(
+      `PATH=\${PATH:+$PATH:}'/nix/store/y-bun/bin' exec '/nix/store/y-bun/bin/bun' '/nix/store/x-operator/lib/operator/node_modules/@fveracoechea/operator/cli.js' "$@"\n`,
+    );
+    expect((await runTooling(["launcher", "--root", "/nix/store/x"])).exitCode).toBe(2);
+    expect(
+      (await runTooling(["launcher", "--root", "/nix/store/x", "--bun", "bun"])).exitCode,
+    ).toBe(2);
+    expect(
+      (await runTooling(["launcher", "--root", "lib/operator", "--bun", "/nix/store/y/bin/bun"]))
+        .exitCode,
+    ).toBe(2);
   });
 });

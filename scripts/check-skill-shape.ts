@@ -1,5 +1,8 @@
 // Bun has no path manipulation API.
-import { relative, resolve, sep } from "node:path";
+import path from "node:path";
+import { z } from "zod";
+
+const { relative, resolve, sep } = path;
 
 const skillsRoot = resolve(process.cwd(), process.argv[2] ?? "skills");
 const errors: string[] = [];
@@ -37,9 +40,8 @@ function frontmatter(text: string): Record<string, unknown> | undefined {
     return undefined;
   }
 
-  return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-    ? (parsed as Record<string, unknown>)
-    : undefined;
+  const fields = z.record(z.string(), z.unknown()).safeParse(parsed);
+  return fields.success ? fields.data : undefined;
 }
 
 function linkedFiles(skillDirectory: string, text: string): Set<string> {
@@ -67,9 +69,9 @@ function checkFrontmatter(routerPath: string, directory: string, text: string): 
     return;
   }
 
-  if (fields["name"] !== directory) {
+  if (fields.name !== directory) {
     errors.push(
-      `${routerPath}: frontmatter name ${JSON.stringify(fields["name"])} must be the directory name "${directory}"`,
+      `${routerPath}: frontmatter name ${JSON.stringify(fields.name)} must be the directory name "${directory}"`,
     );
   }
 

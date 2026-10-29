@@ -8,6 +8,7 @@ import {
   resolveArrayBinding,
   unwrapArrayExpression,
 } from "./array-method.ts";
+import { withSkillTopic } from "../skill-topic.ts";
 
 type ReducerCallback = ESTree.ArrowFunctionExpression | ESTree.Function;
 
@@ -80,8 +81,10 @@ export const noReduceAccumulatorCopyRule = defineRule({
         "Disallow copying growing reducer accumulators with Object.assign, Array.from, or array copy methods.",
     },
     messages: {
-      accumulatorCopy:
+      accumulatorCopy: withSkillTopic(
         "Do not copy the reducer accumulator on every iteration; growing copies can cause quadratic work. Mutate a fresh, locally owned accumulator and return it, or use an iterator pipeline/flatMap.",
+        "lint-fixes/object-construction.md",
+      ),
     },
   },
   createOnce(context) {
@@ -99,8 +102,13 @@ export const noReduceAccumulatorCopyRule = defineRule({
             ),
           );
         if (accumulator === undefined) return;
-        const isAccumulator = (expression: ESTree.Node) =>
-          referencesAccumulator(context.sourceCode, expression, accumulator);
+        // The narrowed binding keeps its type inside the hoisted helper.
+        const owned = accumulator;
+        function isAccumulator(expression: ESTree.Node | undefined) {
+          return (
+            expression !== undefined && referencesAccumulator(context.sourceCode, expression, owned)
+          );
+        }
         let copiesAccumulator = false;
         if (
           method.name === "assign" &&
@@ -115,8 +123,7 @@ export const noReduceAccumulatorCopyRule = defineRule({
           method.name === "from" &&
           isGlobalCopyOwner(context.sourceCode, method.object, "Array")
         ) {
-          const source = node.arguments[0];
-          copiesAccumulator = source !== undefined && isAccumulator(source);
+          copiesAccumulator = isAccumulator(node.arguments[0]);
         } else if (
           ["concat", "slice", "toSpliced", "toSorted", "toReversed", "with"].includes(method.name)
         ) {

@@ -1,0 +1,83 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1792968033776,
+      "tag": "0000_register_projects",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1793024341510,
+      "tag": "0001_supplied_sources",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1793031772449,
+      "tag": "0002_project_removals",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1793066920427,
+      "tag": "0003_worker_launches",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1793114012060,
+      "tag": "0004_pull_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1793115655370,
+      "tag": "0005_report_submissions",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1793118895818,
+      "tag": "0006_merge_cleanup",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1793121866694,
+      "tag": "0007_pr_relay",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1793126345841,
+      "tag": "0008_review_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1793127419030,
+      "tag": "0009_review_rounds",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1793140707700,
+      "tag": "0010_slack_effects",
+      "breakpoints": true
+    }
+  ]
+}

@@ -28,6 +28,10 @@ export function resolveArrayBinding(sourceCode: SourceCode, node: ESTree.Node): 
   return null;
 }
 
+function isText(value: unknown): value is string {
+  return typeof value === "string";
+}
+
 /** Read static method names, including computed string literals, without evaluating expressions. */
 export function arrayMethodTarget(
   node: ESTree.Node,
@@ -38,7 +42,9 @@ export function arrayMethodTarget(
   if (!node.computed && property.type === "Identifier") {
     return { name: property.name, object: node.object };
   }
-  if (node.computed && property.type === "Literal" && typeof property.value === "string") {
+  // A literal property is always computed, and only a literal carries a static string value.
+  // Stryker disable next-line ConditionalExpression: equivalent: no other property node has a string value, so the type check only narrows the type
+  if (property.type === "Literal" && isText(property.value)) {
     return { name: property.value, object: node.object };
   }
   return null;

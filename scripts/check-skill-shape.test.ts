@@ -2,7 +2,9 @@ import { afterAll, expect, test } from "bun:test";
 // Bun has no temporary directory API and no recursive remove.
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import path from "node:path";
+
+const { join } = path;
 
 const scriptPath = new URL("./check-skill-shape.ts", import.meta.url).pathname;
 const workspace = await mkdtemp(join(tmpdir(), "check-skill-shape-"));
@@ -112,24 +114,4 @@ test("refuses frontmatter it cannot read", async () => {
     stderr: "sample/SKILL.md: requires a readable frontmatter block delimited by ---\n",
     stdout: "",
   });
-});
-
-test("the operator router states the five rules of the person as a whole, before every topic", async () => {
-  const router = await Bun.file(`${import.meta.dir}/../skills/operator/SKILL.md`).text();
-  const start = router.indexOf("## The rules of the person");
-  const end = router.indexOf("\n## ", start + 1);
-  expect(start).toBeGreaterThan(-1);
-  expect(end).toBeLessThan(router.indexOf("## Where to start") + 1);
-  const section = router.slice(start, end);
-  const rules = section.split("\n").filter((line) => /^- R\d\. /.test(line));
-  expect(rules.map((line) => line.slice(2, 4))).toEqual(["R1", "R2", "R3", "R4", "R5"]);
-  expect(section).toContain("- R1. You are read-only. You never make a change on your own.");
-  expect(section).toContain(
-    "- R2. Nothing merges a pull request without the explicit approval of the person.",
-  );
-  expect(section).toContain("- R3. Nothing tears down unlanded work.");
-  expect(section).toContain("- R4. An Operative never addresses the person directly.");
-  expect(section).toContain("- R5. Keep your own context as low as possible.");
-  // A topic file can only narrow a rule, so the router names the precedence once.
-  expect(section).toContain("obey the rule and bring the conflict to the user");
 });

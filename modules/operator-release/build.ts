@@ -1,13 +1,21 @@
 // Bun has no directory creation, removal, or path manipulation API.
 import { mkdir, rm } from "node:fs/promises";
-import { dirname, relative, resolve } from "node:path";
+import path from "node:path";
+// Bun has no invariant assertion API outside its test runner.
+import assert from "node:assert/strict";
 import { z } from "zod";
-import { OperatorConfig } from "../operator-config/main.ts";
-import { ProjectGate } from "../project-gate/main.ts";
-import { identifyArtifact, RELEASE_MANIFEST_PATH, scanFiles } from "./inventory.ts";
+import {
+  identifyArtifact,
+  RELEASE_MANIFEST_PATH,
+  scanFiles,
+  SETTINGS_SCHEMA_PATH,
+  HERDR_PLUGIN_PATH,
+} from "./inventory.ts";
 import { rewriteSpecifiers } from "./specifiers.ts";
+import { DeviceSettings } from "../device-settings/main.ts";
 
 const ENTRY_POINT = "cli.ts";
+const { dirname, relative, resolve } = path;
 const README_SOURCE = "docs/jsr/README.md";
 
 /** The transpiler refuses a shebang, so the executable line travels beside the source it leads. */
@@ -17,19 +25,19 @@ function splitShebang(text: string): { shebang: string; body: string } {
 }
 
 /** The transpiler drops JSDoc, so restore the public entry point's comments in shipped JS. */
-function documentEntryPoint(source: string, compiled: string): string {
+export function documentEntryPoint(source: string, compiled: string): string {
   const docs = [...source.matchAll(/\/\*\*[\s\S]*?\*\//g)];
   const moduleDoc = docs.find((match) => match[0].includes("@module"))?.[0];
   const mainDoc = docs.find((match) =>
     source.slice(match.index + match[0].length).startsWith("\nexport async function main("),
   )?.[0];
-  if (!moduleDoc || !mainDoc || !compiled.includes("export async function main(")) {
-    throw new Error("The CLI entry point must document its module and main function.");
-  }
+  assert(
+    moduleDoc && mainDoc && compiled.includes("export async function main("),
+    "The CLI entry point must document its module and main function.",
+  );
   return `${moduleDoc}\n${compiled.replace("export async function main(", `${mainDoc}\nexport async function main(`)}`;
 }
 const SKILLS_DIRECTORY = "skills";
-const HERDR_DIRECTORY = "herdr";
 
 /** The fields of the source manifest a release carries forward into what it publishes. */
 const sourceManifestSchema = z.object({
@@ -179,8 +187,8 @@ function jsrManifest(source: SourceManifest): string {
 
 /**
  * Writes one release artifact from one checkout.
- * It holds runnable ESM, declarations, owned skills, the Herdr plugin, and the generated
- * configuration and project gate schemas, so retrieval never runs a build of its own.
+ * It holds runnable ESM, declarations, complete owned skills, the settings schema, the Herdr
+ * plugin manifest, and the fixed database migrations.
  */
 export async function buildArtifact(request: {
   sourceRoot: string;
@@ -212,20 +220,29 @@ export async function buildArtifact(request: {
     return { status: "declaration-failed" as const, detail: declarations.detail };
   }
 
-  for (const directory of [SKILLS_DIRECTORY, HERDR_DIRECTORY]) {
-    for (const path of await scanFiles(`${sourceRoot}/${directory}`)) {
-      // A test beside a plugin script checks the source and never ships.
-      if (path.endsWith(".test.ts")) continue;
-      await Bun.write(
-        `${artifactRoot}/${directory}/${path}`,
-        Bun.file(`${sourceRoot}/${directory}/${path}`),
-        { createPath: true },
-      );
-    }
+  for (const path of await scanFiles(`${sourceRoot}/${SKILLS_DIRECTORY}`)) {
+    if (path.endsWith(".test.ts")) continue;
+    await Bun.write(
+      `${artifactRoot}/${SKILLS_DIRECTORY}/${path}`,
+      Bun.file(`${sourceRoot}/${SKILLS_DIRECTORY}/${path}`),
+      { createPath: true },
+    );
   }
 
-  await Bun.write(`${artifactRoot}/config.schema.json`, OperatorConfig.jsonSchemaText());
-  await Bun.write(`${artifactRoot}/gate.schema.json`, ProjectGate.jsonSchemaText());
+  for (const file of await scanFiles(`${sourceRoot}/modules/device-state/migrations`)) {
+    await Bun.write(
+      `${artifactRoot}/modules/device-state/migrations/${file}`,
+      Bun.file(`${sourceRoot}/modules/device-state/migrations/${file}`),
+    );
+  }
+
+  // Nix and other read-only settings owners can name the schema the running release accepts.
+  await Bun.write(`${artifactRoot}/${SETTINGS_SCHEMA_PATH}`, DeviceSettings.editorSchema());
+  // Herdr links this manifest from device state, and its hooks call the global command.
+  await Bun.write(
+    `${artifactRoot}/${HERDR_PLUGIN_PATH}`,
+    Bun.file(`${sourceRoot}/${HERDR_PLUGIN_PATH}`),
+  );
   await Bun.write(`${artifactRoot}/README.md`, Bun.file(`${sourceRoot}/${README_SOURCE}`));
   await Bun.write(`${artifactRoot}/package.json`, packageManifest(source));
   await Bun.write(`${artifactRoot}/jsr.json`, jsrManifest(source));

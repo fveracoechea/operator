@@ -17,9 +17,10 @@
   },
   "include": [
     "cli.ts",
+    "cli.test.ts",
     "modules/**/*.ts",
+    "lib/**/*.ts",
     "scripts/**/*.ts",
-    "herdr/**/*.ts",
     "tools/oxlint/**/*.ts"
   ]
 }

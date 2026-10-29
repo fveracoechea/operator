@@ -2,7 +2,7 @@
 
 /**
  * Run the Operator CLI under Bun from an installed release or a source checkout.
- * The CLI uses the current working directory as the project.
+ * Every command checks device compatibility before its handler, including help and version.
  * @module
  */
 

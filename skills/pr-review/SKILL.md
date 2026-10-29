@@ -1,100 +1,115 @@
 ---
 name: pr-review
-description: Use when asked to review a pull request by number or URL, or to post review comments on a pull request.
+description: Use when asked to review a pull request by number or URL, or when a review brief names this skill.
 ---
 
 # Pull request review
 
-This skill posts one GitHub review.
+This skill writes one review draft.
+It never posts a review, a comment, or a thread reply.
+The only post path is `operator review post <pr-url> --json`, which checks the draft, the live PR head, and the required CI, computes the event, and posts.
+
 A run reads the diff on three axes, Standards, Spec, and Design.
+The review rules rank evidence in this order: the person's opinions in the `my-opinions` skill, the project skills, the architecture, the existing patterns, then general best practice.
 
-## Contract
+## 1. Find the head and the draft location
 
-A run posts one review through `gh api`, with a single-line body.
-Each inline comment sits on the exact line, opens with `Blocker.` or `Nice to have.`, and gives the evidence you gathered.
-A run that finds nothing posts the body alone.
+With a review brief, the worktree is already at the PR head on a local branch.
+Do not run `gh pr checkout`, commit, push, or change the PR branch.
+The brief names the draft file, which lives outside the worktree.
 
-## Process
+Without a brief, the person runs this skill alone.
+Run `operator review add <pr-url> --json`. The result names the `draft` file.
+An unregistered repository refuses. Tell the person to register its controlling checkout.
 
-### 1. Resolve the pull request and gather findings
+Run `gh pr view <number> --repo <owner>/<repo> --json headRefOid,baseRefName,mergeable,mergeStateStatus`.
+The draft's `reviewedCommit` is that full `headRefOid`.
 
-Run `gh pr view <number> --repo <owner>/<repo> --json headRefOid,baseRefName`.
-The value of `headRefOid` becomes the `commit_id` of the review.
-Run `gh pr checkout <number>`, because `code-review` diffs the local `HEAD`.
+## 2. Check the base before the diff
 
+A PR can be replaced by work that the base already holds.
+Do this check before you gather findings, because a rewrite request on a replaced PR wastes the author's time.
+
+Read `mergeable` and `mergeStateStatus` from step 1.
+If `mergeable` is `UNKNOWN`, read it again after a few seconds. The base comparison below does not depend on it.
+
+Fetch the base from the remote of `<owner>/<repo>`, which is not always `origin`.
+Find it with `git remote -v`: it is the remote whose URL names `<owner>/<repo>`.
+Then compare the base with the head:
+
+```sh
+git fetch <remote> <base>
+git rev-list --count HEAD..<remote>/<base>
+git diff --name-only -z <remote>/<base>...HEAD \
+  | xargs -0 -r git log --oneline "$(git merge-base HEAD <remote>/<base>)..<remote>/<base>" --
+```
+
+An empty file list from `git diff` means that the PR makes no net change against its merge base.
+Then `xargs -r` runs no log. Say so in a blocker and recommend to close the PR.
+
+For each base commit that changes the same files, find its merged PR and compare the two changes.
+A PR is superseded only when the base already holds the same change or a newer version of it, for example a newer bump of the same vendored skill.
+A PR that is behind, `CONFLICTING`, or `DIRTY` is not superseded for that reason alone.
+
+For a superseded PR, write one blocker that names the merged PR, with the evidence in `detail`, and recommend to close the PR.
+Put this result first in the `summary`. Skip the detailed findings, because they do not apply to replaced code.
+Never close the PR yourself.
+
+For a PR that is still needed but conflicts with the base, review it as usual and add a nice to have that names the conflicting base change.
+
+## 3. Gather findings
+
+Load the `my-opinions` skill and the project skills that the changed code needs.
 The `code-review` skill does Standards and Spec.
 Invoke it when the agent lists it, give it `baseRefName` as its fixed point, and read the diff yourself when it is absent.
 
 The design pass asks where the functionality landed, which module owns the use case, and what a caller must now know.
-Read [`DESIGN.md`](DESIGN.md) and run that pass whether or not `code-review` is available, because `code-review` judges lines and this axis judges placement.
+Read [`DESIGN.md`](DESIGN.md) and run that pass whether or not `code-review` is available.
 
-### 2. Verify every claim against its source
+Run the tests that touch the changed code.
+For each new guard, break it on purpose and run its test, then restore the code.
+Report each run in `checks` with its command and exit code.
+A guard break that exits 0 did not prove its guard, and the post refuses it.
 
-Treat the pull request body and the commit message as claims, and check each one against the artefact itself.
-Check a claim about a published package against the published files, so run `bun add <name>@<version>` in an empty directory and read what it installs.
-Check a claim about a route against the route file.
-Check a claim about behaviour by running the command and reading its output.
+## 4. Verify every claim against its source
+
+Treat the PR body and the commit messages as claims, and check each one against the artefact.
+Check behaviour by running the command and reading its output.
 Drop every claim you cannot verify.
 
-### 3. Rank the findings and cut to the caps
+## 5. Rank the findings and cut to the caps
 
-A blocker is a defect the author fixes before the pull request merges.
-Keep the three that matter most.
-
+A blocker is a defect the author fixes before the PR merges.
 A nice to have is a follow-up, or a small fix the author may take before merge.
-Keep the two that matter most.
+Keep the three of each that matter most, and drop the rest. The three axes compete for the same caps.
 
-Drop the rest.
-Both caps are ceilings, the three axes compete for the same caps, and the evidence from step 2 decides what earns a comment.
-A design finding on a new interface that later callers copy is a blocker, and a design finding inside one implementation is a nice to have.
-[`DESIGN.md`](DESIGN.md) carries the rest of that ranking.
-A run can end this step with no blockers, with no nice to haves, or with nothing at all.
+Name a `breach` on a blocker only for a strong breach of the person's opinions, a project skill, or the architecture.
+Give the rule in its own words. A named breach is the only cause of a request for changes.
 
-### 4. Anchor each comment to a line
+## 6. Write the draft
 
-Run `gh api repos/<owner>/<repo>/pulls/<number>/files --paginate --jq '.[] | .filename, .patch'`.
-Count the right-side line numbers from each hunk header to get the value of `line`.
-GitHub omits `patch` on a large file and on a binary file, so read that file at `headRefOid` and count its lines instead.
-Every line sits inside a hunk of the diff, and one bad line returns 422 and rejects the whole review, so check each comment before you post.
+Read [draft.md](draft.md) for the fields, the limits, CI noise, and the event that the CLI computes.
+Anchor each finding with `path` and `line` only on a line inside a diff hunk of a changed file.
+Run `gh api repos/<owner>/<repo>/pulls/<number>/files --paginate --jq '.[] | .filename, .patch'` and count the right-side lines from each hunk header.
 
-### 5. Show the findings and wait
+## 7. Post through the CLI
 
-Print the body and every comment in full, and give the file and the line of each one.
-Post after the user approves, or post at once when the user pre-authorised it in this session.
+Run `operator review post <pr-url> --json`.
+A refusal names its cause. Correct the draft and run the post again.
+A `review_head_moved` result means that the PR changed after your review.
+With a review brief, Operator moves your worktree and prompts you with the new commits. Review them and post again.
+When you run alone, tell the person and stop.
+Report the posted event and the review URL.
+With a review brief, stay in your pane after the post. Operator prompts you when a later round starts.
 
-### 6. Post one review
+## Finding text
 
-Write the payload to a file, then send the file.
-Leave `comments` out when you have none.
-
-```json
-{
-  "commit_id": "<headRefOid>",
-  "event": "COMMENT",
-  "body": "<one line>",
-  "comments": [{ "path": "src/route.ts", "line": 42, "side": "RIGHT", "body": "Blocker. ..." }]
-}
-```
-
-Run `gh api repos/<owner>/<repo>/pulls/<number>/reviews --method POST --input review.json --jq .html_url`, and report the URL that it returns.
-
-## Comment shape
-
-State the defect in one sentence after the opening word, then give the evidence.
-A simple finding stays as short prose.
-Add structure only when it helps the author act.
-
-Add a short fenced code example with a language tag when it shows the defect, the correction, or the interface more clearly than prose.
-Ground every snippet in code you read at `headRefOid`.
-Mark a proposed correction or interface as illustrative, so the author does not read it as the implementation you verified.
-Keep a proposal to the shape of the change, never a full replacement implementation.
-
-Flat bullets hold independent evidence, constraints, or requested changes.
-A numbered list holds steps whose order matters.
+State the defect in one sentence, then give the evidence.
+Add a short fenced code example with a language tag only when it shows the defect or the correction more clearly than prose.
+Ground every snippet in code you read at the reviewed commit, and mark a proposed correction as illustrative.
 
 ## Voice
 
 Write the way one colleague writes a note to another colleague, give the defect with its file and line, and stop on the last finding.
-
 Apply `no-slop` rules 7, 13, 18, 20, 22, 23, 25, 32 and 33, which are stable ids.
 Read [`../no-slop/SKILL.md`](../no-slop/SKILL.md) for the text of each rule.

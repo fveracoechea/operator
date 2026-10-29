@@ -1,6 +1,11 @@
 node_modules/
+.mutation-*/
 module-boundary-probe-*.ts
 modules/module-boundary-probe-*
 
-# Operator local files, written by `operator setup`.
+# Legacy state stays ignored until the person finishes it with the old release.
 /.operator/
+
+# Nix build links.
+/result
+/result-*
