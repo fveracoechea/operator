@@ -4,7 +4,7 @@ import type { drizzle } from "drizzle-orm/bun-sqlite";
 import { Err, Ok, type Result } from "unthrown";
 import { z } from "zod";
 import { checkHistory, transaction } from "./database.ts";
-import { ownerGone } from "./launches.ts";
+import { ownerGone } from "./leases.ts";
 import { assignments, cleanups, launches, projects, pullRequests, sources } from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
 import { requestAssignmentReview } from "./review-requests.ts";

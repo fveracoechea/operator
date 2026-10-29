@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { Err, Ok } from "unthrown";
 import type { StateFailure } from "./failures.ts";
-import { ownerGone } from "./launches.ts";
+import { ownerGone } from "./leases.ts";
 
 type Owned = { owner_pid: number | null; lease_at: string | null };
 

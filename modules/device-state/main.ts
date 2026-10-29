@@ -32,7 +32,6 @@ import {
   readPreparation,
   renewLaunch,
   renewPreparation,
-  leaseRenewMs,
   type LaunchRow,
 } from "./launches.ts";
 import {
@@ -43,6 +42,7 @@ import {
   recordPullRequestMerge,
   renewPullRequestRelay,
 } from "./pull-requests.ts";
+import { leaseRenewMs } from "./leases.ts";
 import { claimCleanup, advanceCleanup, renewCleanup, startCleanup } from "./cleanups.ts";
 
 import { changeReport, readReport, type ReportTarget } from "./reports.ts";

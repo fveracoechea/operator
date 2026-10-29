@@ -10,7 +10,6 @@ import {
   finishPreparation,
   launchNames,
   observePane,
-  ownerGone,
   readPreparation,
   renewLaunch,
   renewPreparation,
@@ -117,17 +116,6 @@ test("only a failed or interrupted launch permits a replacement with a new attem
 // A process that already exited has an identifier that no live process holds.
 const stoppedPid = Bun.spawnSync([process.execPath, "--version"]).pid;
 
-test("a start owned by a stopped process or with a stale lease is abandoned", () => {
-  const now = Date.now();
-  const fresh = new Date(now).toISOString();
-  expect(ownerGone({ ownerPid: process.pid, leaseAt: fresh }, now)).toBe(false);
-  expect(ownerGone({ ownerPid: stoppedPid, leaseAt: fresh }, now)).toBe(true);
-  expect(
-    ownerGone({ ownerPid: process.pid, leaseAt: new Date(now - 300001).toISOString() }, now),
-  ).toBe(true);
-  expect(ownerGone({ ownerPid: null, leaseAt: fresh }, now)).toBe(true);
-});
-
 test("a replacement ends an abandoned start and takes the next attempt", () => {
   using db = fixture();
   reserveLaunch(db, "/one", "owner/one", launch);
@@ -227,16 +215,6 @@ test("project removal deletes its launches and preparations with its sources", (
   expect(db.query("SELECT count(*) AS count FROM worktree_preparations").get()).toEqual({
     count: 0,
   });
-});
-
-test("an owner with no lease is gone, the stale limit is strict, and another user's process is alive", () => {
-  const now = Date.now();
-  expect(ownerGone({ ownerPid: process.pid, leaseAt: null }, now)).toBe(true);
-  expect(
-    ownerGone({ ownerPid: process.pid, leaseAt: new Date(now - 300000).toISOString() }, now),
-  ).toBe(false);
-  // The first process belongs to the system, so a signal check reports EPERM.
-  expect(ownerGone({ ownerPid: 1, leaseAt: new Date(now).toISOString() }, now)).toBe(false);
 });
 
 function reserveAgain(db: Database, attempt: number) {

@@ -2,7 +2,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import type { Database } from "bun:sqlite";
 import { Err, Ok, type Result } from "unthrown";
 import { checkHistory, transaction } from "./database.ts";
-import { ownerGone } from "./launches.ts";
+import { ownerGone } from "./leases.ts";
 import { cleanups, launches, projects, pullRequests, sources } from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
 

@@ -5,7 +5,7 @@ import type { Database } from "bun:sqlite";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import { Err, Ok, type Result } from "unthrown";
 import { checkHistory, transaction } from "./database.ts";
-import { ownerGone } from "./launches.ts";
+import { ownerGone } from "./leases.ts";
 import {
   assignments,
   cleanups,
