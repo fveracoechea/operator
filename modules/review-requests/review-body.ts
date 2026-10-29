@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { AcceptedDraft } from "./draft.ts";
 
 export type ReviewEvent = "APPROVE" | "COMMENT" | "REQUEST_CHANGES";
@@ -101,7 +102,13 @@ function checkLines(accepted: AcceptedDraft, required: number) {
   ];
 }
 
-export type HeadLimit = { reviewedCommit: string; head: string; moves: number };
+/** The facts of a round that posted against an older commit at the head-move limit. */
+export const headLimitSchema = z.object({
+  reviewedCommit: z.string(),
+  head: z.string(),
+  moves: z.number().int(),
+});
+export type HeadLimit = z.infer<typeof headLimitSchema>;
 
 /**
  * The posted text. The marker lets a later post find this review after a lost answer. At the

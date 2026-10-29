@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { draftSchema } from "./draft.ts";
-import { headLimitSchema, type Round } from "./request.ts";
-import { counts, status, type ReviewEvent } from "./review-body.ts";
+import type { Round } from "./request.ts";
+import { counts, headLimitSchema, status, type ReviewEvent } from "./review-body.ts";
 
 /** A reply or a reaction that the CLI generates and an agent only transports. */
 type SlackEffect = { key: string; kind: "reply" | "reaction"; content: string };

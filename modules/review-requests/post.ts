@@ -29,7 +29,6 @@ import { decideReview, headMoveLimit } from "./review-machine.ts";
 import {
   apply,
   files,
-  headLimitSchema,
   openPullRequest,
   parseTarget,
   qualify,
@@ -53,7 +52,7 @@ type Posted = AsyncResult<Outcome, Failure>;
 type Counts = Partial<{
   blockers: number;
   niceToHaves: number;
-  headLimit: z.infer<typeof headLimitSchema> | null;
+  headLimit: HeadLimit | null;
 }>;
 
 const draftJson = z.string().transform((value, context) => {

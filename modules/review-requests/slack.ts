@@ -1,4 +1,4 @@
-import { ErrAsync, OkAsync, type AsyncResult } from "unthrown";
+import { ErrAsync, OkAsync, type AsyncResult, type OkOf } from "unthrown";
 import { DeviceSettings } from "../device-settings/main.ts";
 import { DeviceState } from "../device-state/main.ts";
 import { readPullRequest, type Target } from "./github.ts";
@@ -11,7 +11,6 @@ export const readIntervalMs = 5 * 60 * 1000;
 const inputHint = "<file>";
 
 type Policy = { channel: string; repos: string[]; authors: string[] };
-type OkOf<R> = R extends { tag: "Ok"; value: infer V } ? V : never;
 type Read = OkOf<ReturnType<typeof DeviceState.readSlack>>;
 export type SlackView = ReturnType<typeof view>;
 

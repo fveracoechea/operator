@@ -1,5 +1,5 @@
 import { isCodedError } from "../../lib/coded-error.ts";
-import { Err, Ok, type Result } from "unthrown";
+import { Err, Ok, type OkOf, type Result } from "unthrown";
 import { z } from "zod";
 import { DeviceState } from "../device-state/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
@@ -15,10 +15,10 @@ import {
   type ReviewFacts,
   type ReviewTransition,
 } from "./review-machine.ts";
+import { headLimitSchema } from "./review-body.ts";
 
 export type Paths = ReturnType<typeof OperatorHome.resolve>;
 export type Failure = { reason: string; detail: string };
-type OkOf<R> = R extends { tag: "Ok"; value: infer V } ? V : never;
 export type Snapshot = OkOf<ReturnType<typeof DeviceState.readReviewRequest>>;
 export type Row = NonNullable<Snapshot["request"]>;
 export type Round = Snapshot["rounds"][number];
@@ -44,12 +44,6 @@ const syncSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 export type Sync = z.infer<typeof syncSchema>;
-/** The facts of a round that posted against an older commit at the head-move limit. */
-export const headLimitSchema = z.object({
-  reviewedCommit: z.string(),
-  head: z.string(),
-  moves: z.number().int(),
-});
 export type Outcome = { reason: string; data: object };
 
 /** A thrown file-system failure is an I/O failure. Any other cause is a defect. */
