@@ -103,6 +103,7 @@ test("prints a completed install as compact JSON or as indented text", async () 
 
 test.each([
   ["skill_copy_conflict", 4],
+  ["skills_missing", 3],
   ["upstream_install_unconfirmed", 5],
   ["skill_io_failed", 1],
 ])("refuses %s with exit code %d", async (reason, code) => {

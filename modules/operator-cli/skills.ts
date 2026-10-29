@@ -5,6 +5,7 @@ import { respond } from "./output.ts";
 
 const skillExitCodes = {
   skill_copy_conflict: 4,
+  skills_missing: 3,
   upstream_install_unconfirmed: 5,
 };
 

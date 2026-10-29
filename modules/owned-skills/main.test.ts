@@ -93,7 +93,7 @@ test("a check-only refusal is an error result without host writes", async () => 
   const input = { paths: paths(), hosts: ["opencode" as const], check: true };
   expect(await OwnedSkills.install(input)).toMatchObject({
     tag: "Err",
-    error: { reason: "skill_copy_conflict" },
+    error: { reason: "skills_missing" },
   });
   expect(await Bun.file(input.paths.ownedSkills).exists()).toBe(false);
 });

@@ -246,13 +246,13 @@ test("the documented JSR and source installation blocks run as written", async (
       { createPath: true },
     );
     const commands = await documented("### JSR with Bun", "sh");
-    expect(commands).toContain("<exact-version>");
+    // The registry fake tags its one release as latest, so the block runs unchanged.
+    expect(commands).toContain("bun add -g --exact");
     const project = await checkout("documented-jsr-project");
-    const result = await succeed(
-      ["/bin/sh", "-e", "-c", commands.replaceAll("<exact-version>", first.version)],
-      project,
-      { ...jsr.env, PATH: `${jsr.env.PATH}:${shellPath}` },
-    );
+    const result = await succeed(["/bin/sh", "-e", "-c", commands], project, {
+      ...jsr.env,
+      PATH: `${jsr.env.PATH}:${shellPath}`,
+    });
     expect(JSON.parse(result.stdout.trim().split("\n").at(-1) ?? "")).toMatchObject({
       data: { operatorVersion: first.version, commit, artifactIdentity: first.identity },
     });
@@ -263,7 +263,7 @@ test("the documented JSR and source installation blocks run as written", async (
   const source = device("documented-source");
   const staging = `${root}/documented-source-staging`;
   const staged = await sourceRepository(staging, first.version);
-  const commands = await documented("### Repository source at a full commit", "sh");
+  const commands = await documented("### Repository source", "sh");
   const published = "git+https://github.com/fveracoechea/operator.git#<full-commit>";
   expect(commands).toContain(published);
   const project = await checkout("documented-source-project");
