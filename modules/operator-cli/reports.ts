@@ -1,6 +1,6 @@
 import { ReportAssignments } from "../report-assignments/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
-import { failure } from "./output.ts";
+import { respond } from "./output.ts";
 
 const commands = {
   submit: ["--file"],
@@ -51,22 +51,13 @@ export function reportArgs(args: string[]) {
   };
 }
 
-function exitCode(reason: string) {
-  if (reason === "invalid_report_input") return 2;
-  if (["report_io_failed", "state_busy", "state_io_failed", "project_io_failed"].includes(reason))
-    return 1;
-  if (
-    [
-      "controller_mismatch",
-      "controller_identity_mismatch",
-      "report_changed",
-      "self_decision_refused",
-      "worker_launch_not_found",
-    ].includes(reason)
-  )
-    return 4;
-  return 3;
-}
+const reportExitCodes = {
+  invalid_report_input: 2,
+  report_io_failed: 1,
+  report_changed: 4,
+  self_decision_refused: 4,
+  worker_launch_not_found: 4,
+};
 
 export async function runReports(
   args: string[],
@@ -84,30 +75,6 @@ export async function runReports(
         ? ReportAssignments.accept(selected)
         : ReportAssignments.return(selected));
   const operation = `report_${parsed.command}`;
-  if (result.tag === "Ok") {
-    console.log(
-      JSON.stringify(
-        {
-          schemaVersion: 1,
-          operation,
-          outcome: "completed",
-          reason: result.value.reason,
-          blockers: [],
-          data: result.value.data,
-        },
-        null,
-        json ? undefined : 2,
-      ),
-    );
-    process.exitCode = 0;
-  } else if (result.tag === "Err")
-    failure(
-      operation,
-      result.error.reason,
-      result.error.detail,
-      exitCode(result.error.reason),
-      json,
-    );
-  else failure(operation, "report_defect", String(result.cause), 1, json);
+  respond({ operation, result, exitCodes: reportExitCodes, defect: "report_defect", json });
   return true;
 }

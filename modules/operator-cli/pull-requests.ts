@@ -1,6 +1,6 @@
 import { PullRequests } from "../pull-requests/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
-import { failure } from "./output.ts";
+import { respond } from "./output.ts";
 
 const defaultTimeoutSeconds = 300;
 const ownerCommands = ["associate", "wait", "merge"] as const;
@@ -57,40 +57,26 @@ function ownerArgs(command: string, flags: string[]) {
     : { operation: "pr_wait" as const, timeoutSeconds: timeoutSeconds ?? defaultTimeoutSeconds };
 }
 
-function exitCode(reason: string) {
-  if (
-    [
-      "pr_worktree_unrecorded",
-      "pr_owner_inactive",
-      "pr_repository_mismatch",
-      "pr_branch_mismatch",
-      "pr_already_associated",
-      "pr_owned_elsewhere",
-      "controller_mismatch",
-      "pr_base_invalid",
-    ].includes(reason)
-  )
-    return 4;
-  if (
-    [
-      "state_busy",
-      "state_io_failed",
-      "pr_io_failed",
-      "github_failed",
-      "github_uncertain",
-      "github_invalid_response",
-      "pr_merge_refused",
-      "pr_merge_unverified",
-      "cleanup_failed",
-      "relay_fetch_failed",
-      "relay_push_failed",
-      "relay_retarget_failed",
-      "relay_claim_lost",
-    ].includes(reason)
-  )
-    return 1;
-  return 3;
-}
+const pullRequestExitCodes = {
+  pr_worktree_unrecorded: 4,
+  pr_owner_inactive: 4,
+  pr_repository_mismatch: 4,
+  pr_branch_mismatch: 4,
+  pr_already_associated: 4,
+  pr_owned_elsewhere: 4,
+  pr_base_invalid: 4,
+  pr_io_failed: 1,
+  github_failed: 1,
+  github_uncertain: 1,
+  github_invalid_response: 1,
+  pr_merge_refused: 1,
+  pr_merge_unverified: 1,
+  cleanup_failed: 1,
+  relay_fetch_failed: 1,
+  relay_push_failed: 1,
+  relay_retarget_failed: 1,
+  relay_claim_lost: 1,
+};
 
 export async function runPullRequests(
   args: string[],
@@ -107,30 +93,12 @@ export async function runPullRequests(
       : parsed.operation === "pr_associate"
         ? PullRequests.associate(input)
         : PullRequests.wait({ ...input, timeoutSeconds: parsed.timeoutSeconds }));
-  if (result.tag === "Ok") {
-    console.log(
-      JSON.stringify(
-        {
-          schemaVersion: 1,
-          operation: parsed.operation,
-          outcome: "completed",
-          reason: result.value.reason,
-          blockers: [],
-          data: result.value.data,
-        },
-        null,
-        json ? undefined : 2,
-      ),
-    );
-    process.exitCode = 0;
-  } else if (result.tag === "Err")
-    failure(
-      parsed.operation,
-      result.error.reason,
-      result.error.detail,
-      exitCode(result.error.reason),
-      json,
-    );
-  else failure(parsed.operation, "pr_defect", String(result.cause), 1, json);
+  respond({
+    operation: parsed.operation,
+    result,
+    exitCodes: pullRequestExitCodes,
+    defect: "pr_defect",
+    json,
+  });
   return true;
 }

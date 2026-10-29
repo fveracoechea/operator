@@ -1,6 +1,6 @@
 import { WorkSources } from "../work-sources/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
-import { failure } from "./output.ts";
+import { respond } from "./output.ts";
 
 const sourceCommands = ["register", "show", "reset", "prune"] as const;
 
@@ -59,25 +59,12 @@ function sourceFlags(flags: string[], valueFlag: string | null, instructed: bool
   return { value, personInstructed };
 }
 
-function sourceExitCode(reason: string) {
-  if (reason === "invalid_source_plan") return 2;
-  if (
-    ["source_parent_open", "controller_mismatch", "controller_identity_mismatch"].includes(reason)
-  )
-    return 4;
-  if (
-    [
-      "state_busy",
-      "state_io_failed",
-      "source_io_failed",
-      "source_prune_failed",
-      "project_io_failed",
-      "settings_io_failed",
-    ].includes(reason)
-  )
-    return 1;
-  return 3;
-}
+const sourceExitCodes = {
+  invalid_source_plan: 2,
+  source_parent_open: 4,
+  source_io_failed: 1,
+  source_prune_failed: 1,
+};
 
 const completed = {
   register: "source_registered",
@@ -112,25 +99,12 @@ export async function runSources(
   if (parsed === null) return false;
   const result = await execute(parsed, { paths, cwd: process.cwd() });
   const operation = parsed.operation === "next" ? "next" : `source_${parsed.operation}`;
-  if (result.tag === "Ok") {
-    console.log(
-      JSON.stringify(
-        {
-          schemaVersion: 1,
-          operation,
-          outcome: "completed",
-          reason: completed[parsed.operation],
-          blockers: [],
-          data: result.value,
-        },
-        null,
-        json ? undefined : 2,
-      ),
-    );
-    process.exitCode = 0;
-  } else if (result.tag === "Err") {
-    const reason = result.error.reason;
-    failure(operation, reason, result.error.detail, sourceExitCode(reason), json);
-  } else failure(operation, "source_defect", String(result.cause), 1, json);
+  respond({
+    operation,
+    result: result.map((data) => ({ reason: completed[parsed.operation], data })),
+    exitCodes: sourceExitCodes,
+    defect: "source_defect",
+    json,
+  });
   return true;
 }

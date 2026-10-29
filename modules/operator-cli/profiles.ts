@@ -2,7 +2,8 @@ import { AgentHosts } from "../agent-hosts/main.ts";
 import { DeviceSettings } from "../device-settings/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { z } from "zod";
-import { failure, settingsExitCodes } from "./output.ts";
+import { respond } from "./output.ts";
+import { settingsExitCodes } from "./settings.ts";
 
 const flagsSchema = z.strictObject({
   host: z.enum(["opencode", "claude-code"]).optional(),
@@ -67,26 +68,15 @@ export async function runProfiles(
       })
     : AgentHosts.models({ host: parsed.host, cwd: process.cwd() }));
   const operation = parsed.launch === undefined ? "host_models" : "config_resolve";
-  if (result.tag === "Ok") {
-    console.log(
-      JSON.stringify(
-        {
-          schemaVersion: 1,
-          operation,
-          outcome: "completed",
-          reason: parsed.launch === undefined ? "host_models_read" : "launch_resolved",
-          blockers: [],
-          data: result.value,
-        },
-        null,
-        json ? undefined : 2,
-      ),
-    );
-    process.exitCode = 0;
-  } else {
-    const reason = result.tag === "Err" ? result.error.reason : "host_defect";
-    const detail = result.tag === "Err" ? result.error.detail : String(result.cause);
-    failure(operation, reason, detail, settingsExitCodes[reason], json);
-  }
+  respond({
+    operation,
+    result: result.map((data) => ({
+      reason: parsed.launch === undefined ? "host_models_read" : "launch_resolved",
+      data,
+    })),
+    exitCodes: settingsExitCodes,
+    defect: parsed.launch === undefined ? "host_defect" : "settings_defect",
+    json,
+  });
   return true;
 }

@@ -1,6 +1,6 @@
 import { WorkerDispatch } from "../worker-dispatch/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
-import { failure } from "./output.ts";
+import { respond } from "./output.ts";
 
 function herdrArgs(args: string[]) {
   const [, command, ...flags] = args;
@@ -37,32 +37,18 @@ export function dispatchArgs(args: string[]) {
   return { operation: "dispatch" as const, sourceId, assignment };
 }
 
-function exitCode(reason: string) {
-  if (
-    ["controller_mismatch", "controller_identity_mismatch", "assignment_not_dispatchable"].includes(
-      reason,
-    )
-  )
-    return 4;
-  if (
-    [
-      "launch_failed",
-      "launch_interrupted",
-      "state_busy",
-      "state_io_failed",
-      "dispatch_io_failed",
-      "preparation_failed",
-      "preparation_io_failed",
-      "herdr_failed",
-      "herdr_no_answer",
-      "herdr_invalid_response",
-      "host_metadata_failed",
-      "settings_io_failed",
-    ].includes(reason)
-  )
-    return 1;
-  return 3;
-}
+const dispatchExitCodes = {
+  assignment_not_dispatchable: 4,
+  launch_failed: 1,
+  launch_interrupted: 1,
+  dispatch_io_failed: 1,
+  preparation_failed: 1,
+  preparation_io_failed: 1,
+  herdr_failed: 1,
+  herdr_no_answer: 1,
+  herdr_invalid_response: 1,
+  host_metadata_failed: 1,
+};
 
 /**
  * Herdr runs the hook for every pane event on the device. Without device state there is no
@@ -110,30 +96,12 @@ export async function runDispatch(
     : parsed.operation === "herdr_install"
       ? WorkerDispatch.installPlugin({ paths })
       : WorkerDispatch.observe({ paths }));
-  if (result.tag === "Ok") {
-    console.log(
-      JSON.stringify(
-        {
-          schemaVersion: 1,
-          operation: parsed.operation,
-          outcome: "completed",
-          reason: result.value.reason,
-          blockers: [],
-          data: result.value.data,
-        },
-        null,
-        json ? undefined : 2,
-      ),
-    );
-    process.exitCode = 0;
-  } else if (result.tag === "Err")
-    failure(
-      parsed.operation,
-      result.error.reason,
-      result.error.detail,
-      exitCode(result.error.reason),
-      json,
-    );
-  else failure(parsed.operation, "dispatch_defect", String(result.cause), 1, json);
+  respond({
+    operation: parsed.operation,
+    result,
+    exitCodes: dispatchExitCodes,
+    defect: "dispatch_defect",
+    json,
+  });
   return true;
 }

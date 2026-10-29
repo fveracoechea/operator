@@ -107,6 +107,7 @@ test.each([
   [["review", "ingest"]],
   [["review", "ingest", "--input", ""]],
   [["review", "ingest", "--input"]],
+  [["review", "ingest", "--input", "--json"]],
   [["review", "ingest", "--json"]],
   [["review", "slack-done", "e1"]],
   [["review", "next", "--other", "x"]],

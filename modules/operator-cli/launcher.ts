@@ -1,7 +1,7 @@
 import { GlobalLauncher } from "../global-launcher/main.ts";
-import { failure } from "./output.ts";
+import { respond } from "./output.ts";
 
-const exitCodes = {
+const launcherExitCodes = {
   launcher_unsupported: 3,
   launcher_version_unpinned: 3,
   launcher_bun_failed: 3,
@@ -20,30 +20,12 @@ export async function runLauncher(args: string[], json: boolean) {
   )
     return false;
   const result = await GlobalLauncher.install();
-  if (result.tag === "Ok") {
-    console.log(
-      JSON.stringify(
-        {
-          schemaVersion: 1,
-          operation: "install_launcher",
-          outcome: "completed",
-          reason: result.value.reason,
-          blockers: [],
-          data: result.value.data,
-        },
-        null,
-        json ? undefined : 2,
-      ),
-    );
-    process.exitCode = 0;
-  } else if (result.tag === "Err")
-    failure(
-      "install_launcher",
-      result.error.reason,
-      result.error.detail,
-      exitCodes[result.error.reason],
-      json,
-    );
-  else failure("install_launcher", "launcher_defect", String(result.cause), 1, json);
+  respond({
+    operation: "install_launcher",
+    result,
+    exitCodes: launcherExitCodes,
+    defect: "launcher_defect",
+    json,
+  });
   return true;
 }

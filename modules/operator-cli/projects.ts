@@ -1,34 +1,13 @@
 import { Projects } from "../projects/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
-import { failure } from "./output.ts";
+import { respond } from "./output.ts";
 
 type OperatorPaths = ReturnType<typeof OperatorHome.resolve>;
 
-export const projectExitCodes = {
+// Other project refusals need a person or a setup step, so they exit 3.
+const projectExitCodes = {
   repository_choice_invalid: 2,
-  repository_choice_required: 3,
-  github_remote_missing: 3,
-  git_unavailable: 3,
-  git_checkout_invalid: 3,
-  bare_repository: 3,
-  linked_checkout: 3,
-  legacy_project_state: 3,
-  state_missing: 3,
-  state_busy: 1,
-  state_io_failed: 1,
-  state_corrupt: 3,
-  state_incompatible: 3,
-  state_backup_failed: 1,
-  state_migration_blocked: 3,
-  controller_mismatch: 4,
-  controller_identity_mismatch: 4,
-  project_not_registered: 3,
-  project_io_failed: 1,
-  project_source_open: 3,
-  project_cleanup_open: 3,
-  project_review_open: 3,
   project_cleanup_pending: 1,
-  person_instruction_required: 3,
 };
 
 const projectCommands = ["register", "show", "list", "move", "remove"] as const;
@@ -83,30 +62,6 @@ export async function runProject(args: string[], paths: OperatorPaths, json: boo
           ? Projects.register(input)
           : Projects.current(input));
   const operation = `project_${project.command}`;
-  if (result.tag === "Ok") {
-    console.log(
-      JSON.stringify(
-        {
-          schemaVersion: 1,
-          operation,
-          outcome: "completed",
-          reason: result.value.reason,
-          blockers: [],
-          data: result.value.data,
-        },
-        null,
-        json ? undefined : 2,
-      ),
-    );
-    process.exitCode = 0;
-  } else if (result.tag === "Err")
-    failure(
-      operation,
-      result.error.reason,
-      result.error.detail,
-      projectExitCodes[result.error.reason],
-      json,
-    );
-  else failure(operation, "project_defect", String(result.cause), 1, json);
+  respond({ operation, result, exitCodes: projectExitCodes, defect: "project_defect", json });
   return true;
 }

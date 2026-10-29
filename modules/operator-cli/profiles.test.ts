@@ -214,7 +214,7 @@ test("reports a settings refusal and a host defect with their exit codes", async
   expect(await runProfiles(["config", "resolve"], isolated, true)).toBe(true);
   expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
     operation: "config_resolve",
-    reason: "host_defect",
+    reason: "settings_defect",
   });
   expect(error).toHaveBeenLastCalledWith("operator: Error: boom");
   expect(process.exitCode).toBe(1);

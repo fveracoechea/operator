@@ -37,8 +37,8 @@ test.each([
   {
     name: "settings failure exit codes",
     file: "operator-cli/profiles.ts",
-    before: "settingsExitCodes[reason]",
-    after: '["host_defect", "host_metadata_failed"].includes(reason) ? 1 : 3',
+    before: "exitCodes: settingsExitCodes,",
+    after: "exitCodes: {},",
     testFile: "operator-cli/run.profiles.test.ts",
     pattern: "reports invalid settings consistently",
   },

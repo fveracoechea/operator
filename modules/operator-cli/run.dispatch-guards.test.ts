@@ -196,7 +196,7 @@ test.each([
   {
     name: "event without state",
     file: "operator-cli/startup.ts",
-    replacements: [["if (await herdrEventWithoutState(args, paths, json)) return false;", ""]],
+    replacements: [["if (await herdrEventWithoutState(args, paths, json)) return null;", ""]],
     testFile: "operator-cli/run.dispatch.test.ts",
     pattern: "a Herdr event on a device without state",
   },

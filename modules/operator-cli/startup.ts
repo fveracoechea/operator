@@ -5,8 +5,8 @@ import { DeviceState } from "../device-state/main.ts";
 import { fromThrowable } from "unthrown";
 import { z } from "zod";
 import { herdrEventWithoutState } from "./dispatch.ts";
-import { failure } from "./output.ts";
-import { projectArgs, projectExitCodes } from "./projects.ts";
+import { exitCodeOf, failure } from "./output.ts";
+import { projectArgs } from "./projects.ts";
 
 type OperatorPaths = ReturnType<typeof OperatorHome.resolve>;
 
@@ -38,9 +38,8 @@ function supportedRuntime(supportedBun: string, json: boolean) {
   return false;
 }
 
-/** Startup checks state compatibility before every command that reads device state. */
-async function compatibleState(args: string[], paths: OperatorPaths, json: boolean) {
-  if (await herdrEventWithoutState(args, paths, json)) return false;
+/** Startup checks state compatibility before every command, also help and version. */
+function compatibleState(args: string[], paths: OperatorPaths, json: boolean) {
   const compatible = DeviceState.checkCompatibility(
     paths,
     projectArgs(args)?.command === "register",
@@ -51,7 +50,7 @@ async function compatibleState(args: string[], paths: OperatorPaths, json: boole
       "startup",
       compatible.error.reason,
       compatible.error.detail,
-      projectExitCodes[compatible.error.reason],
+      exitCodeOf(compatible.error.reason),
       json,
     );
   else failure("startup", "startup_defect", String(compatible.cause), 1, json);
@@ -64,6 +63,7 @@ export async function startup(args: string[], json: boolean) {
   if (paths === null) return null;
   const release = await OperatorRelease.manifest();
   if (!supportedRuntime(release.supportedBun, json)) return null;
-  if (!(await compatibleState(args, paths, json))) return null;
+  if (await herdrEventWithoutState(args, paths, json)) return null;
+  if (!compatibleState(args, paths, json)) return null;
   return { paths, release };
 }

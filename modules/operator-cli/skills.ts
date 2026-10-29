@@ -1,10 +1,15 @@
 import { OwnedSkills } from "../owned-skills/main.ts";
 import { UpstreamSkills } from "../upstream-skills/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
-import { failure } from "./output.ts";
+import { respond } from "./output.ts";
+
+const skillExitCodes = {
+  skill_copy_conflict: 4,
+  upstream_install_unconfirmed: 5,
+};
 
 function skillArgs(args: string[]) {
-  if (args[0] !== "install") return false;
+  if (args[0] !== "install") return null;
   const upstream = args[1] === "matt";
   const flags = args.slice(upstream ? 2 : 1);
   if (
@@ -26,40 +31,19 @@ export async function runSkills(
   json: boolean,
 ) {
   const parsed = skillArgs(args);
-  if (!parsed) return false;
+  if (parsed === null) return false;
   const { upstream, hosts, check } = parsed;
   if (upstream) console.error(UpstreamSkills.replacementPolicy());
   const result = await (upstream
     ? UpstreamSkills.install(hosts, paths)
     : OwnedSkills.install({ paths, hosts, check }));
-  if (result.tag === "Ok") {
-    console.log(
-      JSON.stringify(
-        {
-          schemaVersion: 1,
-          operation: "install",
-          outcome: "completed",
-          reason: result.value.reason,
-          blockers: [],
-          data: result.value.data,
-        },
-        null,
-        json ? undefined : 2,
-      ),
-    );
-    process.exitCode = 0;
-  } else if (result.tag === "Err")
-    failure(
-      "install",
-      result.error.reason,
-      result.error.detail,
-      result.error.reason === "skill_copy_conflict"
-        ? 4
-        : result.error.reason === "upstream_install_unconfirmed"
-          ? 5
-          : 1,
-      json,
-    );
-  else failure("install", "skills_defect", String(result.cause), 1, json);
+  respond({
+    operation: "install",
+    result,
+    exitCodes: skillExitCodes,
+    fallback: 1,
+    defect: "skills_defect",
+    json,
+  });
   return true;
 }

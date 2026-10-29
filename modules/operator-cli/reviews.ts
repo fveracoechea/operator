@@ -1,7 +1,7 @@
 import { Err, fromPromise, type Result } from "unthrown";
 import { ReviewRequests } from "../review-requests/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
-import { failure } from "./output.ts";
+import { respond } from "./output.ts";
 
 const reviewCommands = [
   "add",
@@ -20,7 +20,10 @@ const inputCommands = ["ingest", "slack-done"];
 const valueFlags = new Map([
   ["--profile", { commands: ["start"], valid: (value: string) => !value.startsWith("--") }],
   ["--timeout", { commands: ["wait"], valid: (value: string) => /^\d{1,5}$/.test(value) }],
-  ["--input", { commands: inputCommands, valid: (value: string) => value !== "" }],
+  [
+    "--input",
+    { commands: inputCommands, valid: (value: string) => value !== "" && !value.startsWith("--") },
+  ],
 ]);
 
 // `--slack` makes a wait the Slack transport loop of the slack-pr-review-workflow skill.
@@ -97,7 +100,7 @@ export function reviewArgs(args: string[]) {
       };
 }
 
-const exitCodes: Record<string, number> = {
+const reviewExitCodes = {
   review_url_invalid: 2,
   review_start_in_progress: 4,
   review_post_in_progress: 4,
@@ -116,8 +119,6 @@ const exitCodes: Record<string, number> = {
   slack_cursor_moved: 4,
   slack_effect_failed: 1,
   slack_input_unreadable: 1,
-  state_busy: 1,
-  state_io_failed: 1,
   review_io_failed: 1,
   review_post_failed: 1,
   review_fetch_failed: 1,
@@ -177,30 +178,6 @@ export async function runReviews(
         .flatMap((text) => ReviewRequests.acknowledge({ paths, id: parsed.url, text })),
   };
   const result = await operations[parsed.command]();
-  if (result.tag === "Ok") {
-    console.log(
-      JSON.stringify(
-        {
-          schemaVersion: 1,
-          operation,
-          outcome: "completed",
-          reason: result.value.reason,
-          blockers: [],
-          data: result.value.data,
-        },
-        null,
-        json ? undefined : 2,
-      ),
-    );
-    process.exitCode = 0;
-  } else if (result.tag === "Err")
-    failure(
-      operation,
-      result.error.reason,
-      result.error.detail,
-      exitCodes[result.error.reason] ?? 3,
-      json,
-    );
-  else failure(operation, "review_defect", String(result.cause), 1, json);
+  respond({ operation, result, exitCodes: reviewExitCodes, defect: "review_defect", json });
   return true;
 }
