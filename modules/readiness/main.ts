@@ -23,51 +23,76 @@ type Blocker =
   | Extract<Awaited<ReturnType<typeof GlobalLauncher.check>>, { tag: "Ok" }>["value"][number]
   | Extract<Awaited<ReturnType<typeof GlobalLauncher.check>>, { tag: "Err" }>["error"];
 
-function checkHost(paths: ReturnType<typeof OperatorHome.resolve>) {
+type Host = "opencode" | "claude-code";
+
+/** The executable and the owned and upstream skills of one host. */
+async function checkHost(paths: ReturnType<typeof OperatorHome.resolve>, host: Host) {
+  const blockers: Blocker[] = [];
+  const tool = host === "opencode" ? "opencode" : "claude";
+  const flag = host === "opencode" ? "--opencode" : "--claude";
+  if (Bun.which(tool, { PATH: Environment.read().PATH }) === null)
+    blockers.push({ reason: "executable_missing", tool, detail: `Install ${tool} on PATH.` });
+  const owned = await OwnedSkills.install({ paths, hosts: [host], check: true });
+  // Stryker disable next-line ArrowFunction: equivalent: map on a Defect never calls its function
+  if (owned.tag === "Defect") return owned.map(() => blockers);
+  if (owned.tag === "Err")
+    blockers.push({
+      ...owned.error,
+      detail: `${owned.error.detail} Run operator install ${flag}, or update consumer-owned Nix links.`,
+    });
+  const upstream = await UpstreamSkills.check(paths, host);
+  // Stryker disable next-line ArrowFunction: equivalent: map on a Defect never calls its function
+  if (upstream.tag === "Defect") return upstream.map(() => blockers);
+  if (upstream.tag === "Err") blockers.push(upstream.error);
+  else if (upstream.value.length > 0)
+    blockers.push({
+      reason: "upstream_skills_missing",
+      detail: `Run operator install matt ${flag}. Missing required skill files: ${upstream.value.join(", ")}`,
+    });
+  return Ok(blockers);
+}
+
+/** A worker loads its own host's skills, so every host that settings select needs its checks. */
+function checkHosts(paths: ReturnType<typeof OperatorHome.resolve>, only: Host | undefined) {
   return fromPromise(
     async () => {
-      const blockers: Blocker[] = [];
       const settings = await DeviceSettings.show(paths);
       // Stryker disable next-line ArrowFunction: equivalent: map on a Defect never calls its function
-      if (settings.tag === "Defect") return settings.map(() => blockers);
-      if (settings.tag === "Err") return Ok([settings.error]);
-      const host = settings.value.data.config.superAgent.host;
-      if (host === undefined)
-        return Ok([
+      if (settings.tag === "Defect") return settings.map((): Blocker[] => []);
+      if (settings.tag === "Err") return Ok<Blocker[]>([settings.error]);
+      const config = settings.value.data.config;
+      if (config.superAgent.host === undefined)
+        return Ok<Blocker[]>([
           {
             reason: "host_unconfigured" as const,
             detail: "Set superAgent.host in device settings.",
           },
         ]);
-      const tool = host === "opencode" ? "opencode" : "claude";
-      if (Bun.which(tool, { PATH: Environment.read().PATH }) === null)
-        blockers.push({ reason: "executable_missing", tool, detail: `Install ${tool} on PATH.` });
-      const owned = await OwnedSkills.install({ paths, hosts: [host], check: true });
-      // Stryker disable next-line ArrowFunction: equivalent: map on a Defect never calls its function
-      if (owned.tag === "Defect") return owned.map(() => blockers);
-      if (owned.tag === "Err")
-        blockers.push({
-          ...owned.error,
-          detail: `${owned.error.detail} Run operator install ${host === "opencode" ? "--opencode" : "--claude"}, or update consumer-owned Nix links.`,
-        });
-      const upstream = await UpstreamSkills.check(paths, host);
-      // Stryker disable next-line ArrowFunction: equivalent: map on a Defect never calls its function
-      if (upstream.tag === "Defect") return upstream.map(() => blockers);
-      if (upstream.tag === "Err") blockers.push(upstream.error);
-      else if (upstream.value.length > 0)
-        blockers.push({
-          reason: "upstream_skills_missing",
-          detail: `Run operator install matt ${host === "opencode" ? "--opencode" : "--claude"}. Missing required skill files: ${upstream.value.join(", ")}`,
-        });
+      const selected = [
+        config.superAgent.host,
+        config.workerAgent.host,
+        ...Object.values(config.profiles ?? {}).map((profile) => profile.host),
+      ];
+      const hosts =
+        only === undefined ? [...new Set(selected.filter((host) => host !== undefined))] : [only];
+      const blockers: Blocker[] = [];
+      for (const host of hosts) {
+        const checked = await checkHost(paths, host);
+        if (checked.tag !== "Ok") return checked;
+        blockers.push(...checked.value);
+      }
       return Ok(blockers);
     },
     (cause, defect) => defect(cause),
   ).flatMap<Blocker[], Blocker>((result) => result);
 }
 
-/** Reports current static facts. It never initializes a host or saves a readiness result. */
+/**
+ * Reports current static facts. It never initializes a host or saves a readiness result.
+ * With a host, it checks only that host, as a launch on it needs.
+ */
 export const Readiness = {
-  check(paths: ReturnType<typeof OperatorHome.resolve>) {
+  check(paths: ReturnType<typeof OperatorHome.resolve>, options: { host?: Host } = {}) {
     return fromPromise(
       async () => {
         const blockers: Blocker[] = [];
@@ -97,7 +122,7 @@ export const Readiness = {
               detail: "Run gh auth login for github.com.",
             });
         }
-        const host = await checkHost(paths);
+        const host = await checkHosts(paths, options.host);
         return host.map((values) => ({ blockers: [...blockers, ...values] }));
       },
       (cause, defect) => defect(cause),

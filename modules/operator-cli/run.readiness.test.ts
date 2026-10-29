@@ -181,3 +181,25 @@ test.each([
     "github.com",
   ]);
 });
+
+test("readiness checks every host that settings select, not only the SuperAgent host", async () => {
+  await configure("opencode");
+  // A profile starts workers on Claude Code, which has no executable and no skills here.
+  await Bun.write(
+    `${root}/config/operator/config.json`,
+    JSON.stringify({
+      superAgent: { host: "opencode" },
+      profiles: { study: { host: "claude-code" } },
+    }),
+  );
+  const result = await run();
+  expect(result.code).toBe(3);
+  expect(result.output).toMatchObject({
+    reason: "not_ready",
+    blockers: [
+      { reason: "executable_missing", tool: "claude" },
+      { reason: "skill_copy_conflict" },
+      { reason: "upstream_skills_missing" },
+    ],
+  });
+});

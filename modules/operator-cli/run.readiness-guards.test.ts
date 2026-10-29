@@ -152,8 +152,8 @@ test.each([
   {
     name: "no retained readiness state",
     file: "readiness/main.ts",
-    before: "const host = await checkHost(paths);",
-    after: `await Bun.write(\`\${paths.stateRoot}/readiness.json\`, "ready", {createPath:true}); const host = await checkHost(paths);`,
+    before: "const host = await checkHosts(paths, options.host);",
+    after: `await Bun.write(\`\${paths.stateRoot}/readiness.json\`, "ready", {createPath:true}); const host = await checkHosts(paths, options.host);`,
     testFile: "operator-cli/run.readiness.test.ts",
     pattern: "reports missing tools",
   },

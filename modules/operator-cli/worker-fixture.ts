@@ -114,6 +114,11 @@ export async function workerDevice(options: { github?: boolean } = {}) {
   await Bun.write(`${root}/upstream/code-review/SKILL.md`, "upstream\n", { createPath: true });
   await mkdir(`${root}/home/.agents/skills`, { recursive: true });
   await symlink(`${root}/upstream/code-review`, `${root}/home/.agents/skills/code-review`);
+  // The claude profile launches workers on Claude Code, whose folder holds both skill kinds.
+  await cp(`${root}/release`, `${root}/claude-skills`, { recursive: true });
+  await mkdir(`${root}/home/.claude`, { recursive: true });
+  await symlink(`${root}/claude-skills`, `${root}/home/.claude/skills`);
+  await symlink(`${root}/upstream/code-review`, `${root}/claude-skills/code-review`);
 
   const main = await checkout("checkout", "example/one");
 

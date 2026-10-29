@@ -18,7 +18,7 @@ Select only the required host flags.
 The pinned upstream installer owns replacement and its lock, and can replace local edits without an Operator preview.
 Inspect failed or interrupted installs before requesting another install.
 
-Use `operator ready --json` to check current static prerequisites, including a pinned global command that runs this release, for `superAgent.host` in device settings.
+Use `operator ready --json` to check current static prerequisites, including a pinned global command that runs this release, for every host that device settings select.
 Resolve every returned blocker before delegated work.
 The check follows skill links and requires complete owned contents and upstream `code-review` presence.
 It launches no host or probe and writes no readiness record.

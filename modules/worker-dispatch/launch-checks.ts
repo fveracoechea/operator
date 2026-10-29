@@ -61,8 +61,11 @@ function herdrSession() {
 export function launchSettings(paths: Paths, checkout: string, profile: string | undefined) {
   return DoAsync()
     .bind("herdrSocket", () => herdrSession())
-    .flatTap(() =>
-      Readiness.check(paths).flatMap(({ blockers }) =>
+    .bind("launch", () =>
+      DeviceSettings.resolve({ paths, cwd: checkout, role: "workerAgent", profile }),
+    )
+    .flatTap(({ launch }) =>
+      Readiness.check(paths, { host: launch.host }).flatMap(({ blockers }) =>
         blockers.length === 0
           ? Ok(undefined)
           : Err<Failure>({
@@ -72,9 +75,6 @@ export function launchSettings(paths: Paths, checkout: string, profile: string |
       ),
     )
     .flatTap(() => pluginReady(paths))
-    .bind("launch", () =>
-      DeviceSettings.resolve({ paths, cwd: checkout, role: "workerAgent", profile }),
-    )
     .bind("release", () =>
       fromPromise(
         async () => {

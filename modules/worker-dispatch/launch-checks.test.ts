@@ -89,6 +89,15 @@ test("a ready start snapshots its socket, launch, release, and skills", async ()
   });
 });
 
+test("readiness checks the host that the worker launch resolves to", async () => {
+  const check = spyOn(Readiness, "check");
+  spyOn(DeviceSettings, "resolve").mockReturnValue(
+    OkAsync({ ...resolved, host: "claude-code" as const }),
+  );
+  expect(await launchSettings(paths, "/checkout", "careful")).toMatchObject({ tag: "Ok" });
+  expect(check).toHaveBeenCalledWith(paths, { host: "claude-code" });
+});
+
 test("the release snapshot holds only its version, commit, and artifact identity", async () => {
   spyOn(OperatorRelease, "manifest").mockResolvedValue({
     ...(await OperatorRelease.manifest()),
