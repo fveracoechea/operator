@@ -5,7 +5,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { type RegistryFake, startRegistryFake } from "./registry-fixture.ts";
-import { registryPackage, verifyRegistryInstall } from "./registry-install.ts";
+import { PACKAGE_NAMES, verifyRegistryInstall } from "./registry-install.ts";
+
+const registryPackage = PACKAGE_NAMES.registry;
 
 // A small hand-made package stands in for the release, so each answer of the installed command
 // is under the test's control and no release build is needed.

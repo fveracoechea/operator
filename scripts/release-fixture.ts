@@ -5,6 +5,7 @@ import { chmod, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
+import { OperatorRelease } from "../modules/operator-release/main.ts";
 
 /**
  * Records the host of each HTTPS request a child sends through it and refuses the connection, so
@@ -49,7 +50,7 @@ export async function startPackageRegistry(
   version: string,
   report: { operatorVersion: string; commit: string; artifactIdentity: string } | null,
 ): Promise<{ url: string; requests: string[]; times: number[]; stop: () => Promise<void> }> {
-  const packageName = "@jsr/fveracoechea__operator";
+  const packageName = OperatorRelease.packageNames().registry;
   const root = await mkdtemp(path.join(tmpdir(), "operator-release-package-"));
   await Bun.write(
     `${root}/package/package.json`,

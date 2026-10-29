@@ -6,8 +6,6 @@ import { type JournalRead, type PathRecord, readJournal } from "./journal.ts";
 import { readVersion } from "./jsr-registry.ts";
 
 export const REPOSITORY = "fveracoechea/operator";
-export const JSR_SCOPE = "fveracoechea";
-export const JSR_PACKAGE = "operator";
 export const JSR_API = "https://api.jsr.io";
 
 export type ReleaseBlocker = {
@@ -72,7 +70,12 @@ async function releaseNotes(path: string, version: string): Promise<string | nul
 
 export function jsrSettings(request: PlanRequest) {
   return (
-    request.jsr ?? { api: JSR_API, scope: JSR_SCOPE, package: JSR_PACKAGE, fetch: globalThis.fetch }
+    request.jsr ?? {
+      api: JSR_API,
+      scope: OperatorRelease.packageNames().jsrScope,
+      package: OperatorRelease.packageNames().jsrName,
+      fetch: globalThis.fetch,
+    }
   );
 }
 
@@ -223,7 +226,7 @@ const PATH_REFUSALS: Record<
   version_published: ({ version }) =>
     blocker(
       "version_published",
-      `JSR already holds ${JSR_SCOPE}/${JSR_PACKAGE}@${version}, and this release has no record of publishing it.`,
+      `JSR already holds ${OperatorRelease.packageNames().jsrScope}/${OperatorRelease.packageNames().jsrName}@${version}, and this release has no record of publishing it.`,
       "Publish the changed content as a new version.",
     ),
 };

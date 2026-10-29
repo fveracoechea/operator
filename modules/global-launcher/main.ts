@@ -13,7 +13,6 @@ import {
   decideLauncher,
   launcherTarget,
   nixLauncherText,
-  PACKAGE_ALIAS,
   pinnedSpecifier,
   type Destination,
 } from "./plan.ts";
@@ -84,12 +83,16 @@ function globalFolder(listing: string) {
 async function aliasSpecifier(folder: string) {
   const manifest = Bun.file(`${folder}/package.json`);
   if (!(await manifest.exists())) return null;
-  return globalManifest.parse(await manifest.json()).dependencies?.[PACKAGE_ALIAS] ?? null;
+  return (
+    globalManifest.parse(await manifest.json()).dependencies?.[
+      OperatorRelease.packageNames().installed
+    ] ?? null
+  );
 }
 
 /** The specifier the manifest beside an installed package records for it, if any. */
 async function installedSpecifier(packageRoot: string) {
-  const suffix = `/node_modules/${PACKAGE_ALIAS}`;
+  const suffix = `/node_modules/${OperatorRelease.packageNames().installed}`;
   if (!packageRoot.endsWith(suffix)) return null;
   return aliasSpecifier(packageRoot.slice(0, -suffix.length));
 }

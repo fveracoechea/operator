@@ -5,9 +5,16 @@ import path from "node:path";
 import { z } from "zod";
 import { Environment } from "../environment/main.ts";
 
-/** The npm name JSR serves the package under, and the name a global install gives it. */
-export const registryPackage = "@jsr/fveracoechea__operator";
-export const installedPackage = "@fveracoechea/operator";
+const jsrScope = "fveracoechea";
+const jsrName = "operator";
+
+/** The one home of the package names: JSR's, the npm name JSR serves, and the global alias. */
+export const PACKAGE_NAMES = {
+  jsrScope,
+  jsrName,
+  registry: `@jsr/${jsrScope}__${jsrName}`,
+  installed: `@${jsrScope}/${jsrName}`,
+} as const;
 
 // A stalled registry or command must not hold the publish job, so every process has a bound.
 const INSTALL_TIMEOUT_MS = 120_000;
@@ -104,7 +111,7 @@ export async function verifyRegistryInstall(
       `${env.XDG_CONFIG_HOME}/.bunfig.toml`,
       `[install.scopes]\n"@jsr" = ${JSON.stringify(request.registry)}\n`,
     );
-    const specifier = `${installedPackage}@npm:${registryPackage}@${request.version}`;
+    const specifier = `${PACKAGE_NAMES.installed}@npm:${PACKAGE_NAMES.registry}@${request.version}`;
     let attempt = 1;
     // Each attempt gets an empty cache, so a retry reads the registry again and never a cached
     // manifest that predates the publication.
@@ -130,7 +137,7 @@ export async function verifyRegistryInstall(
         detail: `bun add -g ${specifier} failed ${attempt} times: ${installed.text.join("\n")}`,
       };
 
-    const cli = `${env.BUN_INSTALL_GLOBAL_DIR}/node_modules/${installedPackage}/cli.js`;
+    const cli = `${env.BUN_INSTALL_GLOBAL_DIR}/node_modules/${PACKAGE_NAMES.installed}/cli.js`;
     const checkout = `${root}/checkout`;
     for (const command of [
       ["git", "init", "-q", checkout],

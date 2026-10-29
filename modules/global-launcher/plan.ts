@@ -1,7 +1,7 @@
-/** The name Bun installs the alias under, so the global package folder never changes on update. */
-export const PACKAGE_ALIAS = "@fveracoechea/operator";
-/** The name the JSR npm registry serves the release under. */
-export const REGISTRY_PACKAGE = "@jsr/fveracoechea__operator";
+import { OperatorRelease } from "../operator-release/main.ts";
+
+// Bun installs under the alias, so the global package folder never changes on update.
+const { installed: PACKAGE_ALIAS, registry: REGISTRY_PACKAGE } = OperatorRelease.packageNames();
 
 /** What is at the command path. Something other than a file has no text. */
 export type Destination = { absent: true } | { absent: false; text: string | null };

@@ -1,9 +1,18 @@
 import { buildArtifact } from "./build.ts";
 import { identifyArtifact, REQUIRED_PARTS, scanFiles } from "./inventory.ts";
 import { readArtifactRelease, readReleaseManifest } from "./manifest.ts";
-import { type RegistryInstallRequest, verifyRegistryInstall } from "./registry-install.ts";
+import {
+  PACKAGE_NAMES,
+  type RegistryInstallRequest,
+  verifyRegistryInstall,
+} from "./registry-install.ts";
 
 export const OperatorRelease = {
+  /** The names JSR, the JSR npm registry, and a global Bun install give the package. */
+  packageNames() {
+    return PACKAGE_NAMES;
+  },
+
   /**
    * Reads what the release says about itself, with no reading of the skills it ships.
    * The command entry point checks the runtime before it does anything, so that check stays
