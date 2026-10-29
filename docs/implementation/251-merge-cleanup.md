@@ -49,7 +49,8 @@ The merge method is GitHub's `viewerDefaultMergeMethod` for the repository.
 
 A lost answer, a refused answer, and a concurrent second merge are reconciled by reading the PR again.
 When GitHub reports the PR merged at the guarded head with a merge commit, the merge is recorded once.
-A second record of the same merge returns `pr_merge_unchanged` and adds no second cleanup.
+A second record of the same merge returns `pr_merge_unchanged` and starts the cleanup again.
+The cleanup claim lets only one process run it, so the restart only recovers a cleanup that no live process claimed, for example after a crash.
 A PR that the person merged on GitHub is verified the same way without a merge request, which is the recovery for the `pr_not_open` attention from #249.
 
 | Refusal | Exit | Effect |
@@ -114,6 +115,7 @@ When the person moves it away, the next run observes the path as absent and fini
 
 A finished source keeps its cleanup rows in `next` next to `source_ended`.
 Project removal and project move refuse with `project_cleanup_open` while a cleanup is not done, so an obligation cannot be hidden by removing its records.
+They refuse the same way with `project_review_open`, exit 3, while a review request or its reviewer cleanup is unfinished.
 
 ## Storage and compatibility
 

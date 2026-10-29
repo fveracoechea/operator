@@ -106,14 +106,14 @@ PR states are `ready`, `running`, `pr-open`, `merged`, and `abandoned`.
 Report states are `ready`, `running`, `reported`, `completed`, and `abandoned`.
 Only `pr-open` or `merged` satisfies a PR dependency.
 Only accepted `completed` satisfies a report dependency.
-Host activity is not an input or completion proof.
+Recorded Herdr activity is an input only to the idle attention rows of `247-dispatch.md` and `249-pr-feedback.md`, and it never proves completion.
 Finished or reset sources return `source_ended` and no ready work.
 An empty project returns an empty `sources` list.
 Source ordering is registration time followed by identity, and assignment ordering follows the supplied plan.
 
-`ready_assignment` is a candidate, not an executed launch or a command that is available in this slice.
-Active assignments receive a generic wait until their owning workflow adds its actions to this same read.
-The read changes no state and calls no host, Herdr, tracker, or provider.
+`ready_assignment` is a candidate that `operator dispatch` starts.
+Active assignments get the actions of their owning workflow in this same read, for example `replace_worker`, `review_report`, `owner_attention`, and `retry_cleanup`.
+The read changes no state and calls no host, Herdr, tracker, or provider. Herdr activity reaches it only as facts that the plugin hooks recorded.
 Later workflow operations must persist their transitions, rather than use this read as a write-path scheduler.
 
 ## Evidence and checks

@@ -37,6 +37,7 @@ The removal identity is mandatory.
 The SuperAgent must not infer that instruction from a plan or from permission to perform other work.
 No open source may remain.
 Unknown source lifecycle values or absent end times also prevent move and removal.
+Move and removal refuse with `project_review_open` and exit 3 while a review request of the project is open or its reviewer cleanup is pending, failed, or kept.
 Removal destroys local Operator history, not repository work.
 
 ## Removal and recovery

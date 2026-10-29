@@ -53,9 +53,9 @@ flowchart TD
     T -->|dispatch process stops| Y[next shows replace_worker launch_abandoned]
     U --> E[Hook marks interrupted on pane exit or close]
     E --> I[next shows replace_worker worker_interrupted]
-    U --> S[Hook records idle or done before a PR or report]
-    S --> W[next shows worker_attention worker_idle]
-    W -->|SuperAgent closes the pane| E
+    U --> L[Hook records idle or done before a PR or report]
+    L --> M[next shows worker_attention worker_idle]
+    M -->|SuperAgent closes the pane| E
 ```
 
 The decision source is the same `next` read.
@@ -83,7 +83,7 @@ The replacement's reservation records the abandoned launch as `failed` with `lau
 A late write from the stopped process then finds no `starting` launch and changes nothing.
 The migration idle guard covers `running` launches, live `starting` launches, and live `running` worktree preparations. An abandoned start or preparation does not block an upgrade.
 
-Names are `<completion>-<tracker tail>-<assignment key>`, limited to 28 characters for Herdr agent names.
+Names are `<completion>-<tracker tail>-<assignment key>`, with a 28-character base, so a collision suffix fits Herdr's 32-character agent names.
 A name taken by a Herdr agent, tab, or workspace label, or by an earlier launch, gets the next numbered suffix.
 A worktree branch taken locally or on `origin` gets the same suffix.
 Operator never adopts, overwrites, or deletes the colliding resource.

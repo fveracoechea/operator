@@ -124,6 +124,7 @@ It determines lifecycle and dependency rules, not the set of tasks a WorkerAgent
 **PR assignment**:
 An assignment whose owner WorkerAgent carries one pull request through review, feedback, CI, and merge.
 A dependent can start when the dependency's PR is open or merged.
+It stacks on the branch of one open parent PR, and it waits while more than one parent PR is open.
 
 **Report assignment**:
 An assignment that completes through SuperAgent acceptance of a durable report rather than a PR.

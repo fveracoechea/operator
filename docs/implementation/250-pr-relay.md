@@ -56,15 +56,18 @@ flowchart TD
     C -->|another live process holds it| D
     C -->|claimed| K{Worktree on the PR branch, no rebase in progress}
     K -->|no| B0[Blocker relay_worktree_branch or relay_rebase_in_progress]
-    K -->|yes| F[Fetch the default branch from the branch's remote]
+    K -->|yes| M{The branch has a remote}
+    M -->|no| B6[Blocker relay_remote_missing]
+    M -->|yes| F[Fetch the default branch from the branch's remote]
     F --> R{Already rebased: recorded rebase head, or the PR head already on the default branch}
     R -->|yes| U
     R -->|no| G{Worktree clean and at the PR head}
     G -->|no| B3[Blocker relay_worktree_unclean or relay_worktree_unsynced]
     G -->|yes| E[git rebase --onto default, from the merge base with the parent head]
     E -->|conflict| A[git rebase --abort, blocker relay_conflict]
-    E -->|done| H[Record the rebased head]
-    H --> U{Head differs from the PR head}
+    E -->|done| H{Record the rebased head}
+    H -->|another process took over| B7[Blocker relay_claim_lost]
+    H -->|recorded| U{Head differs from the PR head}
     U -->|yes| Q[Push with a lease on the PR head]
     U -->|no| T
     Q -->|refused| B4[Blocker relay_push_failed]
@@ -90,8 +93,9 @@ A successful relay returns `pr_events_observed` with one event:
 ```
 
 A blocker returns a refusal with the blocker as its reason.
-Conflicts, unclean or unsynced worktrees, and parent problems exit 3.
+Conflicts, unclean or unsynced worktrees, a branch with no remote (`relay_remote_missing`), and parent problems exit 3.
 Failed fetches, pushes, and base changes exit 1, and the next wait retries them.
+`relay_claim_lost` exits 1: another process took over the relay, so wait again.
 A blocker never reports a completed relay.
 
 ## Progress, repeats, and restarts
