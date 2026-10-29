@@ -16,11 +16,48 @@ One installed release serves every registered project on the device, and setting
 A SuperAgent coordinates WorkerAgents, and the CLI owns the workflow state machines and returns the next actions.
 `CONTEXT.md` defines the terms, and `docs/adr/` records the decisions.
 
-## Upgrading from 0.x
+## How the workflow runs
 
-Finish all old crews and their work with the old release before you update.
-The 1.0.0 release does not inspect, migrate, repair, or delete legacy `.operator` state, and registration refuses a checkout that still has that folder.
-There are no compatibility aliases for the removed commands or skills.
+The SuperAgent registers a work source, which is a plan of assignments from the tracker.
+Each assignment completes through a pull request or through a report.
+The CLI keeps the state of each source and assignment, and `operator next` returns the next action for each one.
+
+```mermaid
+stateDiagram-v2
+    state "pr-open" as pr_open
+
+    [*] --> ready: source register
+    ready --> running: dispatch
+    running --> pr_open: pr associate
+    pr_open --> merged: pr merge
+    running --> reported: report submit
+    reported --> completed: report accept
+    reported --> running: report return, then report resume
+    ready --> abandoned: source reset
+    running --> abandoned: source reset
+    pr_open --> abandoned: source reset
+    reported --> abandoned: source reset
+    merged --> [*]
+    completed --> [*]
+    abandoned --> [*]
+```
+
+- **ready**: the assignment waits for its dependencies.
+  A pull request dependency must be open or merged, and a report dependency must be completed.
+  A pull request with an open parent pull request stacks on the parent branch.
+- **running**: a WorkerAgent works in its own Herdr pane or worktree.
+- **pr-open**: the owner WorkerAgent answers feedback and failing checks with `pr wait`.
+  It merges with `pr merge` only after an approving review and passing checks.
+- **reported**: the report waits for the SuperAgent.
+  The SuperAgent accepts it, or returns it with a follow-up that the WorkerAgent resumes.
+- **merged** and **completed**: the work is done, and the CLI cleans up the branch, pane, and worktree.
+  Work that did not land stays until the person decides.
+- **abandoned**: the person ended the source with `source reset` before the work was done.
+
+A source is `open` until each assignment is merged or completed, and then it is `finished`.
+A `source reset` changes it to `reset`.
+`source prune` deletes an ended source 14 days after its end.
+Each state machine is a pure decision over gathered facts, as ADR-0003 records.
 
 ## Install Operator for the device
 
