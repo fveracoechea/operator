@@ -2,6 +2,15 @@
 
 Personal skills and CLI tools for coordinating coding agents in OpenCode and Claude Code through [Herdr](https://herdr.dev/).
 
+<img width="1600" height="689" alt="image" src="https://github.com/user-attachments/assets/800655fa-8603-47d5-9f2e-6cf0b56dcad6" />
+
+> [!NOTE]
+> Inspired by The Matrix, an Operator loads programs, guides missions, and keeps the crew in the field connected.
+
+Operator is based on [Matt Pocock's agent skills and workflow](https://github.com/mattpocock/skills).
+His skills guide the work from clarifying a goal and writing a spec through tickets, implementation, and review.
+Operator builds on that workflow by coordinating the agents, worktrees, and recorded decisions that carry the work between those steps.
+
 Operator 1.0.0 is a device-level tool.
 One installed release serves every registered project on the device, and settings and state live on the device, not in a checkout.
 A SuperAgent coordinates WorkerAgents, and the CLI owns the workflow state machines and returns the next actions.
