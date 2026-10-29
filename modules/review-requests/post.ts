@@ -1,5 +1,7 @@
 import { Err, ErrAsync, Ok, OkAsync, fromPromise, type AsyncResult, type Result } from "unthrown";
 import { z } from "zod";
+// Bun has no file delete that ignores a missing file, which a retry after a crash can find.
+import { rm } from "node:fs/promises";
 import { DeviceState } from "../device-state/main.ts";
 import { checkDraft, draftSchema, type AcceptedDraft, type Draft } from "./draft.ts";
 import {
@@ -358,7 +360,17 @@ function complete(
     { event: round.event },
   )
     .toAsync()
-    .map(({ snapshot }) => ({
+    .flatMap(({ snapshot }) =>
+      // The round row keeps the posted draft. A new round must not post the same file again.
+      fromPromise(
+        () =>
+          rm(files(paths, { repository: target.repository, id: round.requestId }).draft, {
+            force: true,
+          }),
+        qualify,
+      ).map(() => snapshot),
+    )
+    .map((snapshot) => ({
       reason: "review_posted",
       data: {
         ...summary(paths, snapshot),

@@ -109,6 +109,12 @@ for (const host of ["opencode", "claude-code"] as const)
       `because of a renewed review request. PR #7 moved from ${current.head} to ${moved} by a fast-forward.`,
     );
     expect(await current.git(launch.worktreePath, "rev-parse", "HEAD")).toBe(moved);
+    // A post moved the last draft away, so a new round cannot post it again.
+    expect(await Bun.file(request.draft).exists()).toBe(false);
+    expect(await current.run(["review", "post", url])).toMatchObject({
+      code: 3,
+      output: { reason: "review_draft_missing" },
+    });
     await current.draft(request.draft, moved, { blockers: [blocker] });
     expect(await current.run(["review", "post", url])).toMatchObject({
       code: 0,
