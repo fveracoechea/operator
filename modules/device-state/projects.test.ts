@@ -193,6 +193,32 @@ test("an open cleanup holds its project, and a done cleanup does not", () => {
   });
 });
 
+test("an unfinished review request holds its project until it ends and its cleanup finishes", () => {
+  using db = projectDb();
+  insertRow(db, "review_requests", {
+    id: "r1",
+    repository: "owner/one",
+    number: 7,
+    state: "approved",
+    cleanup_state: null,
+  });
+  const open = { tag: "Err", error: { reason: "project_review_open" } };
+  for (const [state, cleanup] of [
+    ["approved", null],
+    ["closed", "pending"],
+    ["closed", "failed"],
+    ["skipped", "kept"],
+  ] as const) {
+    db.query("UPDATE review_requests SET state = ?, cleanup_state = ?").run(state, cleanup);
+    expect(moveProject(db, "owner/one", "/alternate"), `${state} ${cleanup}`).toMatchObject(open);
+    expect(removeProject(db, "owner/one"), `${state} ${cleanup}`).toMatchObject(open);
+  }
+  db.exec("UPDATE review_requests SET state = 'closed', cleanup_state = 'done'");
+  expect(moveProject(db, "owner/one", "/alternate").tag).toBe("Ok");
+  db.exec("UPDATE review_requests SET state = 'skipped', cleanup_state = NULL");
+  expect(removeProject(db, "owner/one").tag).toBe("Ok");
+});
+
 test("removal deletes every record of the project and keeps the other project's records", () => {
   using db = projectDb();
   source(db, "s1", "finished", "later");

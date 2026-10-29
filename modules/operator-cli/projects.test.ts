@@ -154,6 +154,7 @@ test.each([
   ["project_io_failed", 1],
   ["project_source_open", 3],
   ["project_cleanup_open", 3],
+  ["project_review_open", 3],
   ["project_cleanup_pending", 1],
   ["person_instruction_required", 3],
 ])("refuses %s with exit code %d", async (reason, code) => {

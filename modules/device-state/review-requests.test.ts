@@ -191,6 +191,8 @@ test("reviewer names join the launch name space, and project removal deletes rev
   changeReviewRequest(db, target, () => Ok({ insert: identity }));
   changeReviewRequest(db, target, () => Ok({ update: { name: "one-pr7-review" } }));
   expect(launchNames(db)).toMatchObject({ tag: "Ok", value: ["one-pr7-review"] });
+  // An open request holds its project, so it ends and its cleanup finishes first.
+  changeReviewRequest(db, target, () => Ok({ update: { state: "closed", cleanupState: "done" } }));
   expect(removeProject(db, "owner/one").tag).toBe("Ok");
   expect(db.query("SELECT COUNT(*) AS count FROM review_requests").get()).toEqual({ count: 0 });
 });

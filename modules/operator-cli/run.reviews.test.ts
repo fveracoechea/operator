@@ -758,3 +758,27 @@ test("a start retry moves a clean recorded worktree to the new PR head", async (
   });
   expect(await Bun.file(`${dirty}/notes.md`).text()).toBe("mine\n");
 }, 90000);
+
+test("an unfinished review request blocks project move and removal until it ends", async () => {
+  await setup();
+  await add();
+  const alternate = `${root}/alternate`;
+  await git(root, "init", "-q", "-b", "main", alternate);
+  await git(alternate, "remote", "add", "origin", "https://github.com/example/one.git");
+  const before = await Bun.file(database()).arrayBuffer();
+  for (const [where, args] of [
+    [alternate, ["project", "move"]],
+    [root, ["project", "remove", "example/one", "--person-instructed"]],
+  ] as const) {
+    expect(await run([...args], where)).toMatchObject({
+      code: 3,
+      output: { reason: "project_review_open" },
+    });
+    expect(await Bun.file(database()).arrayBuffer()).toEqual(before);
+  }
+  expect((await run(["review", "skip", url])).code).toBe(0);
+  expect(await run(["project", "remove", "example/one", "--person-instructed"])).toMatchObject({
+    code: 0,
+    output: { reason: "project_removed" },
+  });
+});

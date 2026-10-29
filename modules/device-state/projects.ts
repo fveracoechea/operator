@@ -2,7 +2,7 @@ import { asc, eq, inArray, or } from "drizzle-orm";
 import { Err, Ok, type Result } from "unthrown";
 import type { Database } from "bun:sqlite";
 import { checkHistory, transaction, type Db } from "./database.ts";
-import { cleanups, projectRemovals, projects, sources } from "./schema.ts";
+import { cleanups, projectRemovals, projects, reviewRequests, sources } from "./schema.ts";
 import { deleteSourceRecords } from "./sources.ts";
 import type { StateFailure } from "./failures.ts";
 
@@ -14,6 +14,7 @@ export type ProjectStateFailure =
         | "project_not_registered"
         | "project_source_open"
         | "project_cleanup_open"
+        | "project_review_open"
         | "project_cleanup_pending";
       detail: string;
     };
@@ -41,6 +42,27 @@ function openCleanup(db: Db, repository: string) {
     .all()
     .some((cleanup) => cleanup.state !== "done");
 }
+
+// A review request holds a reviewer pane and worktree until it ends and its cleanup finishes.
+// The project row's foreign key would delete it, and a move would misdirect its cleanup.
+function openReview(db: Db, repository: string) {
+  return db
+    .select()
+    .from(reviewRequests)
+    .where(eq(reviewRequests.repository, repository))
+    .all()
+    .some(
+      (request) =>
+        !["closed", "skipped"].includes(request.state) ||
+        ["pending", "failed", "kept"].includes(request.cleanupState ?? ""),
+    );
+}
+
+const reviewOpen = {
+  reason: "project_review_open" as const,
+  detail:
+    "Finish every review request of this project first: close or skip it, and finish its reviewer cleanup. Read operator review next for it.",
+};
 
 const cleanupOpen = {
   reason: "project_cleanup_open" as const,
@@ -141,6 +163,7 @@ export function removeProject(client: Database, repository: string) {
           detail: "End every open source before removing this project.",
         });
       if (openCleanup(db, repository)) return Err(cleanupOpen);
+      if (openReview(db, repository)) return Err(reviewOpen);
       deleteSourceRecords(
         db,
         db
@@ -181,6 +204,7 @@ export function moveProject(client: Database, repository: string, checkout: stri
             detail: "End every open source before moving this project.",
           });
         if (openCleanup(db, repository)) return Err(cleanupOpen);
+        if (openReview(db, repository)) return Err(reviewOpen);
         db.update(projects).set({ checkout }).where(eq(projects.repository, repository)).run();
         return Ok({ reason: "project_moved", data: { ...project, checkout } });
       },
