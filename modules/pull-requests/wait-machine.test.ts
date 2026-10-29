@@ -18,6 +18,7 @@ const open: Observation = {
   unresolvedThreads: 0,
   feedback: [],
   checks: [],
+  checksComplete: true,
 };
 function item(id: string, change: Record<string, unknown> = {}) {
   return {

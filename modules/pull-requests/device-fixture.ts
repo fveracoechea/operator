@@ -350,6 +350,8 @@ type PullRequestFacts = {
 
 /** The GraphQL answer that `observePullRequest` reads, for an approved PR with one passing check. */
 export function pullRequestBody(facts: PullRequestFacts = {}) {
+  const checks = facts.checks ?? ["SUCCESS"];
+  const unresolved = facts.unresolved ?? 0;
   return {
     data: {
       viewer: { login: "owner" },
@@ -377,7 +379,8 @@ export function pullRequestBody(facts: PullRequestFacts = {}) {
             })),
           },
           reviewThreads: {
-            nodes: Array.from({ length: facts.unresolved ?? 0 }, (_, index) => ({
+            totalCount: unresolved,
+            nodes: Array.from({ length: unresolved }, (_, index) => ({
               isResolved: false,
               path: `file-${index}.ts`,
               comments: { nodes: [] },
@@ -389,7 +392,8 @@ export function pullRequestBody(facts: PullRequestFacts = {}) {
                 commit: {
                   statusCheckRollup: {
                     contexts: {
-                      nodes: (facts.checks ?? ["SUCCESS"]).map((state, index) => ({
+                      totalCount: checks.length,
+                      nodes: checks.map((state, index) => ({
                         __typename: "StatusContext",
                         context: `check-${index}`,
                         state,

@@ -13,6 +13,7 @@ const eligible: Observation = {
   unresolvedThreads: 0,
   feedback: [],
   checks: [{ name: "lint", state: "passing", url: null }],
+  checksComplete: true,
 };
 
 test("only a fresh observation with all five merge conditions and the local head merges", () => {

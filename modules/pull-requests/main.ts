@@ -295,6 +295,12 @@ function poll(
           data: {
             ...summary(owner, pr),
             head: relayed.head,
+            // The relay pushed a new head on a new base, so no check has reported for it yet,
+            // and the relay counts from the next wait.
+            mergeConditions: mergeConditions(
+              { ...observed, base: relayed.base, checks: [] },
+              false,
+            ),
             events: [
               {
                 kind: "parent_relayed",

@@ -419,6 +419,13 @@ test("a merged parent relays the child onto the default branch", async () => {
       data: {
         ...summary(device, "child", 7),
         head,
+        mergeConditions: {
+          approved: true,
+          checksPassing: false,
+          threadsResolved: true,
+          defaultBase: true,
+          stackRelayed: false,
+        },
         events: [{ kind: "parent_relayed", parent, base: "main", head }],
       },
     },

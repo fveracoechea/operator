@@ -35,7 +35,9 @@ export function mergeConditions(observed: Observation, stackRelayed = true): Mer
     approved: observed.approved,
     // Just after a push GitHub can report no checks yet, so no checks is not passing checks.
     checksPassing:
-      observed.checks.length > 0 && observed.checks.every((check) => check.state === "passing"),
+      observed.checksComplete &&
+      observed.checks.length > 0 &&
+      observed.checks.every((check) => check.state === "passing"),
     threadsResolved: observed.unresolvedThreads === 0,
     // A repository without a default branch reports null, which no base name equals.
     defaultBase: observed.base === observed.defaultBranch,

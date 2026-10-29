@@ -27,9 +27,10 @@ const pullRequestQuery = `query($owner: String!, $name: String!, $number: Int!) 
       reviews(last: 100) { nodes { id state body url author { login } } }
       comments(last: 100) { nodes { id body url author { login } } }
       reviewThreads(last: 100) {
+        totalCount
         nodes { isResolved path comments(last: 50) { nodes { id body url author { login } } } }
       }
-      commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
+      commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { totalCount nodes {
         __typename
         ... on CheckRun { name status conclusion detailsUrl }
         ... on StatusContext { context state targetUrl }
@@ -56,6 +57,8 @@ const pullRequestAnswer = z.object({
         }),
         comments: z.object({ nodes: z.array(comment) }),
         reviewThreads: z.object({
+          // Optional only until the CLI GitHub fixture sends it. GitHub always answers it.
+          totalCount: z.number().int().optional(),
           nodes: z.array(
             z.object({
               isResolved: z.boolean(),
@@ -71,6 +74,7 @@ const pullRequestAnswer = z.object({
                 statusCheckRollup: z
                   .object({
                     contexts: z.object({
+                      totalCount: z.number().int().optional(),
                       nodes: z.array(
                         z.union([
                           z.object({
@@ -170,9 +174,12 @@ export type Observation = {
   base: string;
   defaultBranch: string | null;
   approved: boolean;
+  /** Counts each thread past the read as unresolved, because the gate cannot see it. */
   unresolvedThreads: number;
   feedback: FeedbackItem[];
   checks: Check[];
+  /** False when the PR has more check contexts than one read returns. */
+  checksComplete: boolean;
 };
 
 const failingConclusions = [
@@ -269,6 +276,11 @@ export function retarget(repository: string, number: number, base: string) {
   );
 }
 
+/** Items past one read. The gate cannot see them, so they never count as resolved or passing. */
+function unread(page: { totalCount?: number; nodes: unknown[] }) {
+  return (page.totalCount ?? page.nodes.length) - page.nodes.length;
+}
+
 /** Maps one GitHub answer to the facts that the wait decision reads. */
 export function observation(data: z.infer<typeof pullRequestAnswer>["data"]): Observation {
   const pr = data.repository.pullRequest;
@@ -291,7 +303,9 @@ export function observation(data: z.infer<typeof pullRequestAnswer>["data"]): Ob
     };
   }
   const none = { reviewState: null, path: null, threadResolved: null };
-  const contexts = pr.commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes ?? [];
+  const rollup = pr.commits.nodes[0]?.commit.statusCheckRollup?.contexts ?? null;
+  const contexts = rollup?.nodes ?? [];
+  const threads = pr.reviewThreads;
   return {
     state: pr.state,
     head: pr.headRefOid,
@@ -305,7 +319,8 @@ export function observation(data: z.infer<typeof pullRequestAnswer>["data"]): Ob
     base: pr.baseRefName,
     defaultBranch: data.repository.defaultBranchRef?.name ?? null,
     approved: pr.reviewDecision === "APPROVED",
-    unresolvedThreads: pr.reviewThreads.nodes.filter((thread) => !thread.isResolved).length,
+    unresolvedThreads:
+      threads.nodes.filter((thread) => !thread.isResolved).length + unread(threads),
     feedback: [
       ...pr.reviews.nodes.map((node) => item(node, "review", { ...none, reviewState: node.state })),
       ...pr.comments.nodes.map((node) => item(node, "comment", none)),
@@ -319,6 +334,7 @@ export function observation(data: z.infer<typeof pullRequestAnswer>["data"]): Ob
         ),
       ),
     ],
+    checksComplete: rollup === null || unread(rollup) === 0,
     checks: contexts.map((context) =>
       context.__typename === "CheckRun"
         ? {

@@ -10,6 +10,7 @@ import {
   remoteBranch,
   retarget,
 } from "./github.ts";
+import { mergeConditions } from "./wait-machine.ts";
 
 function answer(change: Record<string, unknown> = {}) {
   return {
@@ -26,7 +27,7 @@ function answer(change: Record<string, unknown> = {}) {
         mergeCommit: null,
         reviews: { nodes: [] },
         comments: { nodes: [] },
-        reviewThreads: { nodes: [] },
+        reviewThreads: { totalCount: 0, nodes: [] },
         commits: { nodes: [{ commit: { statusCheckRollup: null } }] },
         ...change,
       },
@@ -69,6 +70,7 @@ test("feedback keeps its kind, author, viewer flag, thread path, and resolution"
       reviews: { nodes: [{ id: "R", state: "APPROVED", body: "", url: "u", author: null }] },
       comments: { nodes: [{ id: "C", body: "Mine.", url: "u", author: { login: "owner" } }] },
       reviewThreads: {
+        totalCount: 2,
         nodes: [
           {
             isResolved: false,
@@ -96,6 +98,35 @@ test("feedback keeps its kind, author, viewer flag, thread path, and resolution"
   });
 });
 
+test("threads and checks beyond one read keep the merge gate closed", () => {
+  const passing = {
+    __typename: "CheckRun" as const,
+    name: "ok",
+    status: "COMPLETED",
+    conclusion: "SUCCESS",
+    detailsUrl: null,
+  };
+  const observed = observation(
+    answer({
+      reviewThreads: {
+        totalCount: 102,
+        nodes: [{ isResolved: true, path: "a.ts", comments: { nodes: [] } }],
+      },
+      commits: {
+        nodes: [
+          { commit: { statusCheckRollup: { contexts: { totalCount: 2, nodes: [passing] } } } },
+        ],
+      },
+    }),
+  );
+  // An unread thread can be unresolved, and an unread check can fail.
+  expect(observed).toMatchObject({ unresolvedThreads: 101, checksComplete: false });
+  expect(mergeConditions(observed, true)).toMatchObject({
+    threadsResolved: false,
+    checksPassing: false,
+  });
+});
+
 test("check runs and status contexts map to pending, passing, or failing", () => {
   function run(name: string, status: string, conclusion: string | null) {
     return { __typename: "CheckRun" as const, name, status, conclusion, detailsUrl: null };
@@ -111,6 +142,7 @@ test("check runs and status contexts map to pending, passing, or failing", () =>
             commit: {
               statusCheckRollup: {
                 contexts: {
+                  totalCount: 12,
                   nodes: [
                     run("running", "IN_PROGRESS", null),
                     run("ok", "COMPLETED", "SUCCESS"),
@@ -435,6 +467,7 @@ describe("GitHub answers in the expected form", () => {
           reviews: { nodes: [{ ...node, id: "R", state: "APPROVED" }] },
           comments: { nodes: [node] },
           reviewThreads: {
+            totalCount: 3,
             nodes: [
               { isResolved: false, path: "a.ts", comments: { nodes: [{ ...node, id: "T" }] } },
               { isResolved: false, path: "b.ts", comments: { nodes: [] } },
@@ -447,6 +480,7 @@ describe("GitHub answers in the expected form", () => {
                 commit: {
                   statusCheckRollup: {
                     contexts: {
+                      totalCount: 2,
                       nodes: [
                         {
                           __typename: "CheckRun",
@@ -489,6 +523,7 @@ describe("GitHub answers in the expected form", () => {
         defaultBranch: "main",
         approved: true,
         unresolvedThreads: 2,
+        checksComplete: true,
         feedback: [
           {
             ...feedback,
@@ -614,6 +649,7 @@ test("an unfinished check run or one without a conclusion is pending", () => {
             commit: {
               statusCheckRollup: {
                 contexts: {
+                  totalCount: 1,
                   nodes: [
                     {
                       __typename: "CheckRun" as const,
