@@ -1,5 +1,5 @@
-// Bun has no realpath API.
 import { isCodedError, type CodedError } from "../../lib/coded-error.ts";
+// Bun has no realpath API.
 import { realpath } from "node:fs/promises";
 import { DoAsync, Err, Ok, OkAsync, fromPromise } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";

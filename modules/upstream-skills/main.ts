@@ -1,6 +1,8 @@
-// Bun has no temporary-directory, recursive removal, or file metadata API.
 import { isCodedError } from "../../lib/coded-error.ts";
+// Bun has no temporary-directory, recursive removal, file metadata, or path API.
 import { mkdtemp, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { fromPromise, Ok, Err } from "unthrown";
 import { z } from "zod";
 import { OperatorHome } from "../operator-home/main.ts";
@@ -27,7 +29,7 @@ function qualify<T>(cause: Error, defect: (cause: Error) => T) {
 }
 
 async function install(hosts: Host[]) {
-  const directory = await mkdtemp(OperatorHome.upstreamTemporaryPrefix());
+  const directory = await mkdtemp(path.join(tmpdir(), "operator-matt-"));
   try {
     const clone = await ToolInvocation.run({
       tool: "git",

@@ -14,7 +14,7 @@ export function approvedEnvFile(relative: string) {
 }
 
 /** The entry itself, never a link target, or null when nothing exists at the path. */
-async function entry(file: string) {
+function entry(file: string) {
   return lstatSync(file, { throwIfNoEntry: false }) ?? null;
 }
 
@@ -35,7 +35,7 @@ export async function copyEnvFiles(input: {
       result.refused.push(relative);
       continue;
     }
-    const source = await entry(path.join(input.controller, relative));
+    const source = entry(path.join(input.controller, relative));
     if (source === null || !source.isFile()) {
       result.refused.push(relative);
       continue;
@@ -62,7 +62,7 @@ async function realDirectories(root: string, relative: string) {
   let current = root;
   for (const part of relative.split("/").slice(0, -1)) {
     current = path.join(current, part);
-    const found = await entry(current);
+    const found = entry(current);
     if (found === null || !found.isDirectory()) return false;
   }
   return true;
@@ -72,7 +72,7 @@ async function prepareParents(root: string, relative: string) {
   let current = root;
   for (const part of relative.split("/").slice(0, -1)) {
     current = path.join(current, part);
-    const found = await entry(current);
+    const found = entry(current);
     if (found === null) await mkdir(current);
     else if (!found.isDirectory()) return false;
   }

@@ -141,7 +141,7 @@ test("installs the non-owned upstream roster at the resolved commit and removes 
       }),
     );
     const directory = calls[0]?.cwd ?? "";
-    expect(directory.startsWith(OperatorHome.upstreamTemporaryPrefix())).toBe(true);
+    expect(directory.startsWith(path.join(tmpdir(), "operator-matt-"))).toBe(true);
     expect(calls).toEqual([
       {
         tool: "git",

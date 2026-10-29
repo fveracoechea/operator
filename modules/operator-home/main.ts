@@ -86,9 +86,6 @@ export const OperatorHome = {
       receipt: path.join(directory, "verified.json"),
     };
   },
-  upstreamTemporaryPrefix() {
-    return path.join(tmpdir(), "operator-matt-");
-  },
   projectDirectory(paths: { projects: string }, repository: string) {
     return path.join(paths.projects, repository);
   },

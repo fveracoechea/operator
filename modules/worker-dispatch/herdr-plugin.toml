@@ -1,4 +1,4 @@
-# Hooks call the global operator command, so a release update needs no new link or wake binding.
+# Hooks call the global operator command, so a release update needs no new plugin link.
 id = "operator"
 name = "Operator"
 version = "1.0.0"

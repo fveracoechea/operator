@@ -60,7 +60,6 @@ test("owns separate XDG settings, receipts, and lock paths", () => {
     opencode: `${root}/home/.agents/skills`,
     "claude-code": `${root}/home/.claude/skills`,
   });
-  expect(OperatorHome.upstreamTemporaryPrefix()).toBe(path.join(tmpdir(), "operator-matt-"));
   expect(OperatorHome.registrationDatabase(paths, "test-nonce")).toBe(
     `${root}/state/operator/.registration-test-nonce.sqlite`,
   );

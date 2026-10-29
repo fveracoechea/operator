@@ -1,5 +1,5 @@
 import { realPathOrNull } from "../../lib/real-path.ts";
-import { DoAsync, Err, Ok, OkAsync, fromPromise, fromSafePromise } from "unthrown";
+import { DoAsync, Err, Ok, OkAsync, fromPromise, fromSafePromise, type AsyncOkOf } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { Herdr } from "../herdr/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
@@ -23,11 +23,9 @@ import {
 } from "./observations.ts";
 
 type Request = { paths: Paths; cwd: string; sourceId: string; assignment: string };
-type OkOf<R> =
-  R extends PromiseLike<infer A> ? OkOf<A> : R extends { tag: "Ok"; value: infer V } ? V : never;
-type Facts = OkOf<ReturnType<typeof assignmentFacts>>;
-type Settings = Facts & OkOf<ReturnType<typeof launchSettings>>;
-type Resources = OkOf<ReturnType<typeof chooseResources>>;
+type Facts = AsyncOkOf<ReturnType<typeof assignmentFacts>>;
+type Settings = Facts & AsyncOkOf<ReturnType<typeof launchSettings>>;
+type Resources = AsyncOkOf<ReturnType<typeof chooseResources>>;
 type Placement = {
   workspaceId: string;
   tabId: string;
