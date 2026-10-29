@@ -1,10 +1,10 @@
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import type { Database } from "bun:sqlite";
-import type { drizzle } from "drizzle-orm/bun-sqlite";
 import { Err, Ok, type Result } from "unthrown";
-import { checkHistory, transaction } from "./database.ts";
+import { checkHistory, transaction, type Db } from "./database.ts";
 import { ownerGone } from "./leases.ts";
-import { assignments, launches, projects, reports, sources } from "./schema.ts";
+import { assignments, launches, reports, sources } from "./schema.ts";
+import { controlledSource } from "./sources.ts";
 import type { StateFailure } from "./failures.ts";
 
 export type ReportRow = typeof reports.$inferSelect;
@@ -31,7 +31,6 @@ export type ReportChange = {
   update?: Partial<Omit<ReportRow, "sourceId" | "assignment" | "number">> & { number: number };
 };
 
-type Db = ReturnType<typeof drizzle>;
 type TargetFailure = StateFailure | { reason: string; detail: string };
 
 function locate(db: Db, target: ReportTarget) {
@@ -55,27 +54,10 @@ function locate(db: Db, target: ReportTarget) {
         })
       : Ok({ sourceId: launch.sourceId, assignment: launch.assignment });
   }
-  const controller = db
-    .select()
-    .from(projects)
-    .where(eq(projects.repository, target.repository))
-    .get();
-  if (controller?.checkout !== target.checkout)
-    return Err<TargetFailure>({
-      reason: "controller_mismatch",
-      detail: "The controlling checkout changed. Read the project again. Nothing changed.",
-    });
-  const source = db
-    .select()
-    .from(sources)
-    .where(and(eq(sources.id, target.sourceId), eq(sources.repository, target.repository)))
-    .get();
-  return source === undefined
-    ? Err<TargetFailure>({
-        reason: "source_not_found",
-        detail: "The source does not exist in this project. Nothing changed.",
-      })
-    : Ok({ sourceId: source.id, assignment: target.assignment });
+  return controlledSource(db, target).map((source) => ({
+    sourceId: source.id,
+    assignment: target.assignment,
+  }));
 }
 
 function readFacts(db: Db, target: ReportTarget) {

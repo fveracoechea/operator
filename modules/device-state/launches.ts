@@ -1,8 +1,7 @@
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import type { Database } from "bun:sqlite";
-import type { drizzle } from "drizzle-orm/bun-sqlite";
 import { Err, Ok, type Result } from "unthrown";
-import { checkHistory, transaction } from "./database.ts";
+import { checkHistory, transaction, type Db } from "./database.ts";
 import {
   assignments,
   launches,
@@ -38,7 +37,7 @@ type LaunchResources = Partial<
 const abandonedDetail =
   "The dispatching process stopped before it recorded a launch outcome. Its recorded resources stay.";
 
-function endAbandoned(db: ReturnType<typeof drizzle>, id: string, now: number) {
+function endAbandoned(db: Db, id: string, now: number) {
   db.update(launches)
     .set({
       state: "failed",
@@ -70,7 +69,7 @@ function dispatchable(
 }
 
 /** A report that the SuperAgent returned with follow-up needs a worker again. */
-function latestReturned(db: ReturnType<typeof drizzle>, sourceId: string, assignment: string) {
+function latestReturned(db: Db, sourceId: string, assignment: string) {
   const report = db
     .select({ decision: reports.decision })
     .from(reports)

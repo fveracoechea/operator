@@ -5,6 +5,9 @@ import { fromThrowable, Err, Ok, type Result } from "unthrown";
 import { z } from "zod";
 import { qualifyStateFailure, type StateFailure } from "./failures.ts";
 
+/** The query builder that a state transaction hands to its action. */
+export type Db = ReturnType<typeof drizzle>;
+
 export const migrationsFolder = Bun.fileURLToPath(new URL("./migrations/", import.meta.url));
 
 /**

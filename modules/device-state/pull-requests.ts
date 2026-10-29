@@ -1,9 +1,8 @@
 import { and, desc, eq, gt, isNotNull } from "drizzle-orm";
 import type { Database } from "bun:sqlite";
-import type { drizzle } from "drizzle-orm/bun-sqlite";
 import { Err, Ok, type Result } from "unthrown";
 import { z } from "zod";
-import { checkHistory, transaction } from "./database.ts";
+import { checkHistory, transaction, type Db } from "./database.ts";
 import { ownerGone } from "./leases.ts";
 import { assignments, cleanups, launches, projects, pullRequests, sources } from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
@@ -77,7 +76,7 @@ export function worktreeOwners(client: Database) {
  * Every PR write checks again that this launch is the running latest start of an open PR
  * assignment. A replaced or interrupted owner cannot change the assignment or its progress.
  */
-function activeOwner(db: ReturnType<typeof drizzle>, launchId: string) {
+function activeOwner(db: Db, launchId: string) {
   const owner = db
     .select({ launch: launches, source: sources, assignment: assignments })
     .from(launches)
@@ -117,7 +116,7 @@ function activeOwner(db: ReturnType<typeof drizzle>, launchId: string) {
   return Ok(owner);
 }
 
-function current(db: ReturnType<typeof drizzle>, sourceId: string, assignment: string) {
+function current(db: Db, sourceId: string, assignment: string) {
   return db
     .select()
     .from(pullRequests)

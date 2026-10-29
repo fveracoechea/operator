@@ -1,13 +1,11 @@
 import { and, asc, desc, eq } from "drizzle-orm";
 import type { Database } from "bun:sqlite";
-import type { drizzle } from "drizzle-orm/bun-sqlite";
 import { Err, Ok, type Result } from "unthrown";
-import { checkHistory, transaction } from "./database.ts";
+import { checkHistory, transaction, type Db } from "./database.ts";
 import { emptyRequest, insertEffects, type NewSlackEffect } from "./review-requests.ts";
 import { projects, reviewRequests, slackEffects, slackWatches } from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
 
-type Db = ReturnType<typeof drizzle>;
 export type SlackEffectRow = typeof slackEffects.$inferSelect;
 export type SlackWatchRow = typeof slackWatches.$inferSelect;
 export type SlackCandidate = {

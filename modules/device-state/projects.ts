@@ -1,8 +1,7 @@
 import { asc, eq, inArray, or } from "drizzle-orm";
 import { Err, Ok, type Result } from "unthrown";
 import type { Database } from "bun:sqlite";
-import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
-import { checkHistory, transaction } from "./database.ts";
+import { checkHistory, transaction, type Db } from "./database.ts";
 import { cleanups, projectRemovals, projects, sources } from "./schema.ts";
 import { deleteSourceRecords } from "./sources.ts";
 import type { StateFailure } from "./failures.ts";
@@ -23,7 +22,7 @@ export type Registration = {
   data: RegisteredProject;
 };
 
-function hasOpenSource(db: BunSQLiteDatabase, repository: string) {
+function hasOpenSource(db: Db, repository: string) {
   return db
     .select()
     .from(sources)
@@ -33,7 +32,7 @@ function hasOpenSource(db: BunSQLiteDatabase, repository: string) {
 }
 
 // A failed cleanup outlives its finished source. Removal or a move would hide or misdirect it.
-function openCleanup(db: BunSQLiteDatabase, repository: string) {
+function openCleanup(db: Db, repository: string) {
   const ids = db.select({ id: sources.id }).from(sources).where(eq(sources.repository, repository));
   return db
     .select()

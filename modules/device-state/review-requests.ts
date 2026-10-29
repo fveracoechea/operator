@@ -1,8 +1,7 @@
 import { and, asc, desc, eq, inArray, notInArray, or } from "drizzle-orm";
 import type { Database } from "bun:sqlite";
-import type { drizzle } from "drizzle-orm/bun-sqlite";
 import type { Result } from "unthrown";
-import { checkHistory, transaction } from "./database.ts";
+import { checkHistory, transaction, type Db } from "./database.ts";
 import { ownerGone } from "./leases.ts";
 import {
   projects,
@@ -40,7 +39,6 @@ export type ReviewChange = {
   lease?: "hold" | "release";
 };
 type Target = { repository: string; number: number; id?: string };
-type Db = ReturnType<typeof drizzle>;
 
 const ended = ["closed", "skipped"];
 const unfinishedCleanup = ["pending", "failed", "kept"];

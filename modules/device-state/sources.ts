@@ -2,9 +2,8 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 // Bun has no synchronous file existence API for directories.
 import { existsSync } from "node:fs";
 import type { Database } from "bun:sqlite";
-import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import { Err, Ok, type Result } from "unthrown";
-import { checkHistory, transaction } from "./database.ts";
+import { checkHistory, transaction, type Db } from "./database.ts";
 import { ownerGone } from "./leases.ts";
 import {
   assignments,
@@ -152,7 +151,8 @@ export function readSources(client: Database, repository: string, sourceId?: str
 
 type ControlledSource = { repository: string; checkout: string; sourceId: string };
 
-function controlledSource(db: BunSQLiteDatabase, target: ControlledSource) {
+/** The source of a project whose controlling checkout is still the caller's checkout. */
+export function controlledSource(db: Db, target: ControlledSource) {
   const controller = db
     .select()
     .from(projects)
@@ -185,7 +185,7 @@ export type EndFacts = {
   reports: { decision: string | null; cleanupState: string | null }[];
 };
 
-function endFacts(db: BunSQLiteDatabase, source: SourceRow): EndFacts {
+function endFacts(db: Db, source: SourceRow): EndFacts {
   const now = Date.now();
   return {
     source,
@@ -225,7 +225,7 @@ export type RetainedResource = {
  * The project work that ending a source leaves: each recorded worktree that still exists, and each
  * PR that has no verified merge. A cleanup that removed a worktree leaves no row for it.
  */
-function retainedResources(db: BunSQLiteDatabase, sourceId: string) {
+function retainedResources(db: Db, sourceId: string) {
   const open = db
     .select()
     .from(pullRequests)
@@ -338,7 +338,7 @@ export function pruneSource(
  * Delete the sources and every record that belongs to them, children first. A review request
  * keeps its own lifecycle, so it stays.
  */
-export function deleteSourceRecords(db: BunSQLiteDatabase, ids: string[]) {
+export function deleteSourceRecords(db: Db, ids: string[]) {
   db.delete(reports).where(inArray(reports.sourceId, ids)).run();
   db.delete(cleanups).where(inArray(cleanups.sourceId, ids)).run();
   db.delete(pullRequests).where(inArray(pullRequests.sourceId, ids)).run();
