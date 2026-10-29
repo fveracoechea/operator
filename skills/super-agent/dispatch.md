@@ -37,8 +37,6 @@ A host can report idle during a long command. Ask before you close the pane.
 If it cannot continue, for example after it lost its context, close its pane with `herdr pane close`.
 `next` then shows `replace_worker` with `worker_interrupted`, and the replacement reopens the recorded worktree with its partial work.
 Dispatch refuses while the worker is live.
-Observed Herdr activity is shown only for orientation.
-It never proves a submitted report or a completed task.
 
 A host trust, login, or permission prompt is host configuration.
 Herdr refuses a blocked startup, and dispatch records the launch as failed.

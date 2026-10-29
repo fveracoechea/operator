@@ -36,9 +36,6 @@ All the state is in the device database, so a new session starts here too.
 4. A reviewer agent that Herdr shows as `blocked`: read its pane with Herdr and tell the person what it waits for. Do not answer review questions for it.
 5. Run `operator review wait --slack --json` again.
 
-`operator review add <pr-url> --json` reviews a PR that is not in the channel, with no Slack effects.
-`operator review skip <pr-url> --json` ends one PR's request on the person's instruction. A skip never names an author.
-
 ## Refusals
 
 - `slack_effect_failed`: Slack refused the send. The effect stays pending, and the next wait gives it again. Tell the person when the same effect fails twice, for example a missing custom reaction.

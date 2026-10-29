@@ -29,18 +29,10 @@ A no-logic file can opt out with this exact first line:
 // Stryker disable all: no logic
 ```
 
-Stryker's command runner starts a fresh Bun process for each mutant, with the sandbox as the working folder.
-It runs the checkout's unchanged `scripts/test-watchdog.ts`, so a mutant in the test runner never judges itself.
-A project without that runner uses its `test` script.
 The first failed test kills a mutant, and a hanging mutant stops soon after the time of a clean run.
-The tool keeps killed and survived results in the ignored `.mutation-incremental/` folder.
-A rerun reuses a result when its code, the unit's beside-tests, and the runner did not change.
-A timeout or other incomplete result always runs again.
-A stored result does not see a change in an imported file.
-Remove `.mutation-incremental/` before the final full run.
-It mutates disposable copies and removes them after the run.
-It never copies `.operator` state or host skill links into those copies.
-Mutation testing is local, not a consumer command, quality gate, or CI job.
+A rerun reuses a stored result when the unit, its beside-tests, and the runner did not change.
+A stored result does not see a change in an imported file, so remove `.mutation-incremental/` before the final full run.
+Mutation testing is local, not a quality gate or CI job.
 
 ## Survivors
 

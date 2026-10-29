@@ -5,15 +5,17 @@ description: Use when recording an architectural decision, when an existing ADR 
 
 # ADR
 
-An Architecture Decision Record, in Michael Nygard's sense, is a short record of one architecturally significant decision: the context that forced it, the decision, and its consequences. It is written for the reader two years out who looks at the code and asks "why is it like this". It records the **decision, not the implementation**. The code records the implementation, and the two change on different clocks.
+An ADR is a short record of one architecturally significant decision: the context that forced it, the decision, and its consequences.
+It records the **decision, not the implementation**, for the reader two years out who asks "why is it like this".
 
-The test for every sentence is the **rename test**: would this sentence still be true if every file in the repo were renamed, moved or rewritten tomorrow? A sentence that passes belongs in the ADR. A sentence that fails describes the implementation and belongs in the repo's code style document or in a comment at the code it describes, citing the ADR.
+The test for every sentence is the **rename test**: would it still be true if every file in the repo were renamed, moved or rewritten tomorrow?
+A sentence that fails describes the implementation and belongs in the code style document or in a comment at the code, citing the ADR.
 
 [`DRIFTED-ADR-EXAMPLE.md`](DRIFTED-ADR-EXAMPLE.md) shows a drifted ADR beside its decision form.
 
 ## 1. Is it an ADR?
 
-The three tests, the same ones `/domain-modeling` applies when it offers an ADR in a modeling session. All three must hold:
+All three tests must hold:
 
 1. **Hard to reverse.** Changing your mind later costs something real.
 2. **Surprising without context.** A future reader would wonder why on earth.
@@ -25,14 +27,13 @@ When one fails, the fact is not an ADR. A convention goes in the code style docu
 
 Pick one before writing a word:
 
-- **The implementation changed and the decision did not.** Leave the ADR alone. A renamed file, a moved module, a deleted feature that still followed the rule: none of these touch the record. The ADR does not track the code, and "reconcile the ADR with what shipped" is the request that turns a decision record back into an implementation log.
+- **The implementation changed and the decision did not.** Leave the ADR alone. A renamed file or a moved module does not touch the record.
 - **The decision's scope changed, or one detail of it reversed.** One clause in Status: `Amended YYYY-MM-DD: <what changed about the decision>.` The body is rewritten to read true today; no amendment section, no dated inventory of what was removed.
 - **The decision was replaced.** A new ADR with the next number. The old one's Status becomes `Superseded by ADR-NNNN.` and nothing else in it changes; it is the historical record.
 - **A new decision.** The next number, `NNNN-kebab-slug.md`, sequential with no gaps.
 
 ## 3. Write it in the house shape
 
-The shape extends `/domain-modeling`'s minimal template with its optional sections, used consistently across the suite:
 
 ```md
 # ADR-NNNN: <the decision as a short sentence>

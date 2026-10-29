@@ -10,6 +10,4 @@ You remain responsible for their work and evidence.
 Ask the SuperAgent for a separate assignment when work needs independent scheduling, dependency links, or separate acceptance.
 
 Preserve unlanded work and report blockers without bypassing them.
-Native subagents run in your pane, so their work is part of your report.
-Use only the reporting and PR commands that the running CLI and your brief actually supply.
-Do not replace an unavailable guarded workflow with a direct merge or invented completion command.
+Use only the commands that the running CLI and your brief supply. Never replace a guarded workflow with a direct merge or an invented command.

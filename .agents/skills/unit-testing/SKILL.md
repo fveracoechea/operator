@@ -10,5 +10,3 @@ description: Use when writing beside-tests, strengthening assertions, or running
 - For the test-first loop, use `tdd`.
 - For module interfaces and private logic, read `deep-modules` topic `module-tests.md`.
 - For Bun runtime APIs and test isolation, use `bun`.
-
-This is repository development guidance, not a bundled Operator skill.

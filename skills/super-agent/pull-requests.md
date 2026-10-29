@@ -21,7 +21,6 @@ A PR assignment with several open parent PRs waits with `dependencies_pending` u
 Dispatch refuses a replacement with `pr_worktree_missing` when the PR's worktree is gone. Ask the person how to recover it.
 A stuck owner whose pane is still open cannot be replaced.
 Close its pane with Herdr only after you inspect the worktree, then dispatch the replacement.
-Herdr activity is an observation, not a result.
 A `merge_eligible` report from the owner is not a merge. The owner runs `operator pr merge --json`, which checks GitHub again. Never merge for the owner.
 
 ## Cleanup after a verified merge

@@ -80,11 +80,8 @@ Drop every claim you cannot verify.
 ## 5. Rank the findings and cut to the caps
 
 A blocker is a defect the author fixes before the PR merges.
-Keep the three that matter most.
 A nice to have is a follow-up, or a small fix the author may take before merge.
-Keep the three that matter most.
-Drop the rest. The three axes compete for the same caps.
-A design finding on a new interface that later callers copy is a blocker, and a design finding inside one implementation is a nice to have.
+Keep the three of each that matter most, and drop the rest. The three axes compete for the same caps.
 
 Name a `breach` on a blocker only for a strong breach of the person's opinions, a project skill, or the architecture.
 Give the rule in its own words. A named breach is the only cause of a request for changes.
@@ -108,7 +105,6 @@ With a review brief, stay in your pane after the post. Operator prompts you when
 ## Finding text
 
 State the defect in one sentence, then give the evidence.
-A blocker's `short` field has at most six words, for one-line summaries.
 Add a short fenced code example with a language tag only when it shows the defect or the correction more clearly than prose.
 Ground every snippet in code you read at the reviewed commit, and mark a proposed correction as illustrative.
 

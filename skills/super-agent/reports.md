@@ -22,8 +22,7 @@ The acceptance result repeats the unresolved points. An unresolved point does no
 Each `next` row of a dependent shows `dependencyReports` with the accepted reports of its direct dependencies, and the dependent's brief copies their conclusions, unresolved points, and references.
 Decide whether a point needs other work. Operator does not schedule it. Create a tracker issue or a new plan yourself when it does.
 `operator source show --source <source-id> --json` keeps every report with its unresolved points and `reference` after acceptance.
-It is your decision, not a human answer, and it does not change how the report labels its answers.
-Ask the person when the instructions require human participation, a question exceeds your authority, or the authority is unclear.
+Acceptance is your decision, not a human answer, as [delegation.md](delegation.md) says.
 
 Acceptance closes the worker pane and removes a report worktree only when Git shows no unlanded work.
 A kept worktree names its reason. Only the person can authorize its deletion, so tell the person.

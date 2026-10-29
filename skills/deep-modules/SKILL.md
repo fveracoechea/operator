@@ -6,12 +6,10 @@ description: 'Use when adding or changing a feature in a TypeScript app: a scree
 # Deep modules
 
 Sort code by feature and capability, never by technical layer or by page.
-Each feature and capability has one folder under the project's module root that holds every file it needs.
-Operator uses root `modules/<name>/` and root `lib/`.
-An app with a `src/` root can use `src/modules/` and `src/lib/`.
-Small reusable functions that own no feature or capability belong in focused lib files with direct named exports and beside-tests.
-Lib code imports no application module, and it needs no interface object or barrel.
-Keep single-use details with their owner, and keep a small feature in a module.
+Each feature and capability has one folder under the module root, such as `modules/` or `src/modules/`, that holds every file it needs.
+Small reusable functions that own no feature or capability go in focused `lib/` files with direct named exports and beside-tests.
+Lib code imports no application module.
+Keep single-use details with their owner.
 
 - A **feature** is a domain concept the product names, such as invoices, payments or customers. Its module owns the calls to the backend, the reads, the transforms, the cache rules and the UI.
 - A **capability** is what features use and users never see, such as auth, the HTTP client for a backend, or a cache.

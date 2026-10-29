@@ -3,14 +3,14 @@ name: bun
 description: Use when writing or reviewing Bun code including runtime, bun test and its mocks, Bun.serve, bundler, bun install, or scripts.
 ---
 
-# Bun's APIs move fast, pretraining may be stale
+# Bun
 
-1. Fetch `https://bun.com/llms.txt`
-2. Only read pages for APIs needed on the current tasks
+Bun's APIs move fast, so pretraining may be stale.
+Fetch `https://bun.com/llms.txt`, then read only the pages for the APIs the task needs.
 
 ## Bun-native first
 
-Consider Nodejs APIs that run in Bun as a LEGACY compatibility layer. Reach for the Bun equivalent:
+Treat Node APIs in Bun as a legacy compatibility layer. Reach for the Bun equivalent:
 
 - HTTP, WebSockets, routing: `Bun.serve`
 - Files, streams, stdio: `Bun.file`, `Bun.write`, `Bun.stdin`
@@ -38,10 +38,7 @@ Name no path root in the `test` script, since bun finds every test file on its o
 
 ### Import the module dynamically after `mock.module`
 
-Check the repository's lint policy before using module replacement.
-Operator enables `anti-slop/no-module-mocking` without a test exception.
-In Operator, use a scoped public-method spy, a function fake, or a controlled external tool instead.
-The examples below apply only where the repository permits module replacement.
+Use this only where the repository's lint permits module replacement. Operator does not, so use a scoped spy, a function fake, or a controlled external tool there.
 
 `mock.module` runs in file order, after the static imports around it have evaluated.
 The real module has already loaded and run its load-time code by then, and the mock only swaps the live bindings.

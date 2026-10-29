@@ -6,9 +6,6 @@ A JSR install has no command until its package CLI runs `install launcher --json
 A source install gets its command from Bun, and a Nix install from its package.
 Do not install or select a release inside a project.
 
-First run `operator project register --json` from the main checkout with a matching GitHub remote and no legacy `.operator` folder.
-Until it creates the device database, every other command, including help and version, refuses.
-
 Use `operator install --opencode --claude --json` for complete owned skills in both personal host locations.
 Select only one host flag when needed.
 Use `operator install --opencode --claude --check --json` for a content-only check.
@@ -16,8 +13,6 @@ Nix installations always check owned contents and leave consumer-owned links unc
 A conflict requires the person to preserve or move their edits, or change their external wiring.
 Operator does not overwrite a modified skill or install permission rules.
 
-Use `operator --help` for available settings, host selection, and project registration commands.
-No project-local control file or release selection is required.
 Use `operator install matt --opencode --claude --json` for an explicit global upstream install.
 Select only the required host flags.
 The pinned upstream installer owns replacement and its lock, and can replace local edits without an Operator preview.

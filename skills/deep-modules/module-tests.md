@@ -5,13 +5,7 @@
 A test sits beside the unit it covers and carries its name, such as `main.test.ts` beside `main.ts`.
 Call the interface the way its caller does and assert on its result or effects.
 Private files with logic also need direct beside-tests that import the private file.
-Only same-folder `stem.test.ts` and `stem.<scenario>.test.ts` cover `stem.ts` for mutation testing.
-Interface tests cover `main.ts`, not every private unit in the module.
 Functions in `lib/` follow the same beside-test rule.
-
-For Operator workflows, the public CLI is the primary test boundary.
-Use real Git and SQLite with isolated device roots.
-Control external tools at their process or network interfaces.
 A refusal test also proves that prohibited writes and external actions did not occur.
 
 ## Fake a public interface or external boundary
@@ -21,9 +15,7 @@ Restore spies after each test.
 Use a controlled executable or local server when the collaborator is an external tool or service.
 Keep the code under test real.
 
-Operator enforces `anti-slop/no-module-mocking` in production and tests.
-It has no exception for entry-file replacement or shared test setup.
-Replacing imports by path couples a test to loading and file layout instead of the caller's contract.
+Do not replace imports by path. It couples a test to loading and file layout instead of the caller's contract.
 
 ## Test a UI member through the real route tree
 

@@ -7,25 +7,9 @@ Validate them at startup, so a bad value fails the boot.
 
 ### Operator environment ownership
 
-In Operator, use `Environment.read()` from `modules/environment/main.ts` for validated values.
-The CLI reads the startup snapshot once.
-Use `Environment.child(overrides)` for subprocess environments and `Environment.parse(values)` for supplied module inputs.
-`operator/env-through-schema` rejects raw environment reads and writes outside that owner and its exact fake-tool exemptions in `.oxlintrc.json`.
-Tests have no general exemption.
-Supply isolated `HOME`, `XDG_CONFIG_HOME`, and `XDG_STATE_HOME` values to CLI children.
-`OperatorHome.resolve()` owns Operator paths and refuses real default settings or state roots in test mode, including aliases and descendants.
-The preload requires test mode, and tests do not change the parent environment.
-`DeviceState` owns SQLite connections, fixed Drizzle history, and transactions.
-Only explicit `Projects.register()` can create the device database.
-Project lookup refuses missing state instead of creating tables.
-Complete external tool observations before starting a write transaction.
-See `docs/implementation/240-project-registration.md` in the Operator source for registration tests and compatibility limits.
-`DeviceSettings` owns profile inheritance and protected edits.
-`AgentHosts` owns current host metadata and launch command arguments.
-Use `DeviceSettings.resolve()` for a new launch, and retain its returned value for that launch.
-Settings edits do not update existing launch values.
-Host metadata checks send no prompts and add no permission policy.
-See `docs/implementation/241-host-profiles.md` in the Operator source before changing host selection or profile inheritance.
+In Operator, `operator/env-through-schema` rejects raw environment reads and writes outside `modules/environment/main.ts`.
+Read validated values with `Environment.read()`, build subprocess environments with `Environment.child(overrides)`, and never change the parent environment.
+Give CLI children isolated `HOME`, `XDG_CONFIG_HOME`, and `XDG_STATE_HOME` values.
 
 In a full-stack app, a module reads a server value inside the method that needs it, never at load time:
 
