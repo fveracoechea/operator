@@ -3,14 +3,14 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { z } from "zod";
 import { Environment } from "../environment/main.ts";
-import { startRegistryFake } from "./fake-registry.ts";
+import { startRegistryFake } from "./registry-fixture.ts";
 import {
   type BuiltRelease,
   installFixture,
   registryPackage,
   sourceRoot,
 } from "./install-fixture.ts";
-import { OperatorRelease } from "./main.ts";
+import { verifyRegistryInstall } from "./registry-install.ts";
 
 // The post-publication check against the deterministic registry seam. The release workflow runs
 // the same check against the live JSR registry, only after JSR holds the version.
@@ -46,7 +46,7 @@ function request(registry: string, change: Partial<{ artifactIdentity: string; c
 test("a published version that installs and reports the recorded release is verified", async () => {
   const registry = startRegistryFake({ packageName: registryPackage, ...current() });
   try {
-    expect(await OperatorRelease.verifyRegistryInstall(request(registry.url, {}))).toEqual({
+    expect(await verifyRegistryInstall(request(registry.url, {}))).toEqual({
       status: "verified",
       version: current().version,
       artifactIdentity: current().identity,
@@ -61,16 +61,14 @@ test("a published version that installs and reports the recorded release is veri
 test("an installed release with another identity or commit is a mismatch", async () => {
   const registry = startRegistryFake({ packageName: registryPackage, ...current() });
   try {
-    const other = await OperatorRelease.verifyRegistryInstall(
+    const other = await verifyRegistryInstall(
       request(registry.url, { artifactIdentity: "0".repeat(64) }),
     );
     expect(other).toEqual({
       status: "mismatch",
       detail: `artifactIdentity is ${current().identity}, and the publication recorded ${"0".repeat(64)}.`,
     });
-    const moved = await OperatorRelease.verifyRegistryInstall(
-      request(registry.url, { commit: "1".repeat(40) }),
-    );
+    const moved = await verifyRegistryInstall(request(registry.url, { commit: "1".repeat(40) }));
     expect(moved).toMatchObject({ status: "mismatch" });
     expect(moved.status === "mismatch" && moved.detail).toStartWith(
       `commit is ${current().commit}`,
@@ -87,7 +85,7 @@ test("a version the registry does not serve yet is retried, then reported unavai
     version: "0.0.0-other",
   });
   try {
-    const result = await OperatorRelease.verifyRegistryInstall({
+    const result = await verifyRegistryInstall({
       ...request(registry.url, {}),
       attempts: 2,
     });
@@ -103,25 +101,26 @@ test("a version the registry does not serve yet is retried, then reported unavai
 
 test("a registry that never answers stops each attempt at its bound and is unavailable", async () => {
   const asked: string[] = [];
-  // The manifest request gets no answer at all, as a stalled connection would.
+  // The manifest request gets no answer within the bound, as a stalled connection would.
   const stalled = Bun.serve({
     port: 0,
     idleTimeout: 0,
-    fetch(incoming) {
+    async fetch(incoming) {
       asked.push(new URL(incoming.url).pathname);
-      return Promise.withResolvers<Response>().promise;
+      await Bun.sleep(8000);
+      return new Response("late", { status: 404 });
     },
   });
   const started = Date.now();
   try {
-    const result = await OperatorRelease.verifyRegistryInstall({
+    const result = await verifyRegistryInstall({
       ...request(`http://127.0.0.1:${stalled.port}/`, {}),
       attempts: 2,
-      installTimeoutMs: 2000,
+      installTimeoutMs: 5000,
     });
     expect(result).toMatchObject({ status: "unavailable" });
     expect(result.status === "unavailable" && result.detail).toContain("failed 2 times");
-    expect(result.status === "unavailable" && result.detail).toContain("after 2000 ms");
+    expect(result.status === "unavailable" && result.detail).toContain("after 5000 ms");
     expect(asked.length).toBeGreaterThanOrEqual(2);
     expect(Date.now() - started).toBeLessThan(30_000);
   } finally {

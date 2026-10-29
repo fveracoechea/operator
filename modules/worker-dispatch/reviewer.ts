@@ -50,6 +50,7 @@ export type ReviewerLaunch = {
 
 async function git(cwd: string, args: string[]) {
   const result = await ToolInvocation.run({ tool: "git", args, cwd, timeoutMs: 120000 });
+  // Stryker disable next-line ConditionalExpression: equivalent: a result that did not complete has no exit code, so the exit code check also answers null
   return result.status === "completed" && result.exitCode === 0 ? result.stdout.trim() : null;
 }
 
@@ -94,6 +95,7 @@ function fetchHead(input: ReviewerLaunch) {
                 detail: `PR #${input.number} moved to ${head} after it was read. Start the reviewer again. Nothing was launched.`,
               });
         },
+        // Stryker disable next-line ConditionalExpression: equivalent: qualify passes any cause without an I/O code to defect, as the other branch does
         (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
       ).flatMap((result) => result),
   );
@@ -105,6 +107,7 @@ function names(input: ReviewerLaunch) {
     .bind("workspace", () => projectWorkspace(input.checkout))
     .bind("agents", () => Herdr.agentNames())
     .bind("tabs", ({ workspace }) =>
+      // Stryker disable next-line ArrayDeclaration: equivalent: a launch name is a slug, so the mutant's sentinel label with spaces and capitals never matches one
       workspace.workspaceId === null ? Ok([]) : Herdr.tabLabels(workspace.workspaceId),
     )
     .bind("recorded", () => DeviceState.launchNames(input.paths))
@@ -123,6 +126,7 @@ function names(input: ReviewerLaunch) {
           })
         : Ok({
             name: chosen.name,
+            // Stryker disable next-line StringLiteral: equivalent: without a reuse, chooseNames gets a branch base and always returns a branch
             branch: input.reuse?.branch ?? chosen.branch ?? "",
             workspaceId: workspace.workspaceId,
           });
@@ -137,8 +141,9 @@ function names(input: ReviewerLaunch) {
 function reusable(input: ReviewerLaunch) {
   return fromPromise(
     async () => {
-      const path = input.reuse?.path ?? null;
-      if (path === null || (await realPathOrNull(path)) === null) return Ok(null);
+      if (input.reuse === null || (await realPathOrNull(input.reuse.path)) === null)
+        return Ok(null);
+      const path = input.reuse.path;
       if ((await git(path, ["rev-parse", "HEAD"])) === input.head) return Ok(path);
       const status = await git(path, ["status", "--porcelain"]);
       if (status !== "")
@@ -153,6 +158,7 @@ function reusable(input: ReviewerLaunch) {
           })
         : Ok(path);
     },
+    // Stryker disable next-line ConditionalExpression: equivalent: qualify passes any cause without an I/O code to defect, as the other branch does
     (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
   ).flatMap((result) => result);
 }
@@ -179,9 +185,9 @@ export function launchReviewer(input: ReviewerLaunch) {
   const startedAt = new Date().toISOString();
   return launchSettings(input.paths, input.checkout, input.profile).flatMap((settings) =>
     DoAsync()
-      .bind("head", () => fetchHead(input))
+      .flatTap(() => fetchHead(input))
       .bind("chosen", () => names(input))
-      .bind("snapshot", ({ chosen }) => {
+      .flatTap(({ chosen }) => {
         const { launch, release, skills } = settings;
         return input.record({
           name: chosen.name,
@@ -201,11 +207,11 @@ export function launchReviewer(input: ReviewerLaunch) {
       .bind("workspaceId", ({ chosen }) =>
         ensureWorkspace(input.checkout, input.repository, chosen.workspaceId),
       )
-      .bind("recordedWorkspace", ({ workspaceId }) => input.record({ workspaceId }))
+      .flatTap(({ workspaceId }) => input.record({ workspaceId }))
       .bind("placement", ({ workspaceId, chosen }) =>
         place(input, workspaceId, chosen.name, chosen.branch),
       )
-      .bind("recordedPlacement", ({ placement }) =>
+      .flatTap(({ placement }) =>
         input.record({
           tabId: placement.tabId,
           paneId: placement.paneId,
@@ -224,16 +230,14 @@ export function launchReviewer(input: ReviewerLaunch) {
             await Bun.write(
               input.brief.file,
               input.brief.render({ worktree: placement.path, branch: chosen.branch }),
-              {
-                createPath: true,
-              },
             );
             return input.brief.file;
           },
+          // Stryker disable next-line ConditionalExpression: equivalent: qualify passes any cause without an I/O code to defect, as the other branch does
           (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
         ),
       )
-      .bind("agent", ({ chosen, placement }) =>
+      .flatTap(({ chosen, placement }) =>
         Herdr.startAgent({
           name: chosen.name,
           kind: settings.launch.host === "claude-code" ? "claude" : "opencode",
@@ -241,7 +245,7 @@ export function launchReviewer(input: ReviewerLaunch) {
           args: settings.launch.command.args,
         }),
       )
-      .bind("prompted", ({ chosen, brief }) =>
+      .flatTap(({ chosen, brief }) =>
         Herdr.prompt({ name: chosen.name, text: `Read ${brief} and follow it.` }),
       )
       .map(({ chosen, placement, preparation, brief }) => ({
@@ -298,14 +302,18 @@ export function moveReviewer(input: {
               reason: "review_fetch_failed",
               detail: `Git could not fetch ${input.to} of PR #${input.number} from ${remote}.`,
             });
+          const changed = Err<Failure>({
+            reason: "review_worktree_changed",
+            detail: `The reviewer worktree ${input.worktree} is missing, changed, or not at ${input.from}. Ask the person what to keep.`,
+          });
           const path = await realPathOrNull(input.worktree);
-          const at = path === null ? null : await git(path, ["rev-parse", "HEAD"]);
-          const status = path === null ? null : await git(path, ["status", "--porcelain"]);
-          if (path === null || (at !== input.from && at !== input.to) || status !== "")
-            return Err<Failure>({
-              reason: "review_worktree_changed",
-              detail: `The reviewer worktree ${input.worktree} is missing, changed, or not at ${input.from}. Ask the person what to keep.`,
-            });
+          if (path === null) return changed;
+          const at = await git(path, ["rev-parse", "HEAD"]);
+          if (
+            (at !== input.from && at !== input.to) ||
+            (await git(path, ["status", "--porcelain"])) !== ""
+          )
+            return changed;
           const ancestor =
             (await git(path, ["merge-base", "--is-ancestor", input.from, input.to])) !== null;
           const mode = ancestor ? ("fast-forward" as const) : ("force-push" as const);
@@ -320,6 +328,7 @@ export function moveReviewer(input: {
               })
             : Ok({ mode });
         },
+        // Stryker disable next-line ConditionalExpression: equivalent: qualify passes any cause without an I/O code to defect, as the other branch does
         (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
       ).flatMap((result) => result),
   );

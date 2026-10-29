@@ -52,7 +52,8 @@ export const headLimitSchema = z.object({
 });
 export type Outcome = { reason: string; data: object };
 
-export function qualify<T>(cause: Error, defect: (cause: Error) => T) {
+/** A thrown file-system failure is an I/O failure. Any other cause is a defect. */
+export function qualify<C, T>(cause: C, defect: (cause: C) => T) {
   if (
     isCodedError(cause) &&
     ["ENOENT", "EACCES", "EPERM", "EIO", "EROFS", "ENOSPC", "ENOTDIR", "EISDIR"].includes(
@@ -96,48 +97,53 @@ export function parseSync(text: string | null): Sync | null {
 }
 
 /** The head that a round moves the reviewer to, when the PR moved since the reviewer's head. */
-function roundHead(current: Snapshot, facts: Extra) {
-  const from = current.request?.head ?? null;
+function roundHead(request: Row, facts: Extra) {
+  const from = request.head;
   return from !== null && facts.to !== undefined && facts.to !== from
     ? { from, to: facts.to }
     : null;
 }
 
 /** A round on a moved PR moves the worktree first. Other rounds only prompt. */
-function roundSync(transition: ReviewTransition, current: Snapshot, facts: Extra): Sync {
-  const round = roundNumber(current.rounds);
-  const trigger = transition.round ?? "first";
-  const moved = roundHead(current, facts);
+function roundSync(trigger: string, request: Row, rounds: Round[], facts: Extra): Sync {
+  const round = roundNumber(rounds);
+  const moved = roundHead(request, facts);
   return moved === null
     ? { kind: "round", round, trigger }
     : { kind: "head", ...moved, round, trigger };
 }
 
 /** A round restarts the head-move count and the activity clock, and clears the stale flag. */
-function roundUpdate(transition: ReviewTransition, current: Snapshot, facts: Extra, now: string) {
+function roundUpdate(
+  trigger: string,
+  sync: boolean,
+  current: { request: Row; rounds: Round[] },
+  facts: Extra,
+  now: string,
+) {
   return {
-    trigger: transition.round,
+    trigger,
     headMoves: 0,
     activityAt: now,
     staleAt: null,
-    sync: transition.sync === true ? JSON.stringify(roundSync(transition, current, facts)) : null,
-    head: roundHead(current, facts)?.to ?? current.request?.head ?? null,
+    sync: sync ? JSON.stringify(roundSync(trigger, current.request, current.rounds, facts)) : null,
+    head: roundHead(current.request, facts)?.to ?? current.request.head,
   };
 }
 
-function headMoveUpdate(transition: ReviewTransition, current: Snapshot, from: string, to: string) {
+function headMoveUpdate(transition: ReviewTransition, request: Row, from: string, to: string) {
   return {
     head: to,
-    headMoves: (current.request?.headMoves ?? 0) + 1,
+    headMoves: request.headMoves + 1,
     sync:
       transition.sync === true ? JSON.stringify({ kind: "head", from, to } satisfies Sync) : null,
   };
 }
 
-/** The recorded fields that a decided transition sets. */
+/** The recorded fields that a decided transition sets on a recorded request. */
 function transitionUpdate(
   transition: ReviewTransition,
-  current: Snapshot,
+  current: { request: Row; rounds: Round[] },
   facts: Extra,
 ): Partial<Omit<Row, "id">> {
   const now = new Date().toISOString();
@@ -147,9 +153,18 @@ function transitionUpdate(
   if (transition.ended === true) update.endedAt = now;
   if (transition.cleanup === true) update.cleanupState = "pending";
   if (transition.round !== undefined)
-    Object.assign(update, roundUpdate(transition, current, facts, now));
-  if (transition.headMoved === true && facts.observedFrom !== undefined && facts.to !== undefined)
-    Object.assign(update, headMoveUpdate(transition, current, facts.observedFrom, facts.to));
+    Object.assign(
+      update,
+      roundUpdate(transition.round, transition.sync === true, current, facts, now),
+    );
+  const observed = facts.observedFrom;
+  if (
+    transition.headMoved === true &&
+    facts.to !== undefined &&
+    // Stryker disable next-line ConditionalExpression: equivalent: a head move is decided only when the observed head equals the recorded head, so it always has an observed head
+    observed !== undefined
+  )
+    Object.assign(update, headMoveUpdate(transition, current.request, observed, facts.to));
   return update;
 }
 
@@ -171,7 +186,7 @@ export function apply(
   payload: (transition: ReviewTransition, current: Snapshot) => Payload = () => ({}),
   extra: Extra = {},
 ) {
-  const seen: { transition: ReviewTransition } = { transition: {} };
+  let decided: ReviewTransition = {};
   return DeviceState.changeReviewRequest(paths, { ...target, id: extra.id }, (current) =>
     decideReview({
       command,
@@ -183,18 +198,27 @@ export function apply(
       observedFrom: extra.observedFrom,
       ownLease: current.request?.ownerPid === process.pid,
     }).map((transition) => {
-      seen.transition = transition;
+      decided = transition;
       const added = payload(transition, current);
+      const request = current.request;
       return {
         insert: transition.insert === true ? added.insert : undefined,
-        update: { ...added.update, ...transitionUpdate(transition, current, extra) },
+        // A new request is inserted with its identity alone.
+        update:
+          // Stryker disable next-line ConditionalExpression: equivalent: a change ignores the update of an inserted request, and only a round or a head move reads the request
+          request === null
+            ? added.update
+            : {
+                ...added.update,
+                ...transitionUpdate(transition, { request, rounds: current.rounds }, extra),
+              },
         round: added.round,
         operations: added.operations,
         effects: added.effects,
         lease: transition.lease,
       };
     }),
-  ).map((snapshot) => ({ snapshot, transition: seen.transition }));
+  ).map((snapshot) => ({ snapshot, transition: decided }));
 }
 
 /** Records a change that is not a transition, only while this process holds the request. */

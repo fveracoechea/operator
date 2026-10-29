@@ -19,7 +19,7 @@ function isFixture(source: SourceCode, input: ESTree.Node, visited = new Set<Var
       (element) => element !== null && isFixture(source, element, new Set(visited)),
     );
   if (node.type === "MemberExpression") return isFixture(source, node.object, visited);
-  if (node.type !== "Identifier") return false;
+  // A node that is not an identifier resolves to no binding.
   const variable = resolveArrayBinding(source, node);
   if (!variable || visited.has(variable)) return false;
   visited.add(variable);
@@ -44,7 +44,6 @@ function isBunExpect(source: SourceCode, node: ESTree.Node): boolean {
   return (
     variable?.defs.some(
       (definition) =>
-        definition.type === "ImportBinding" &&
         definition.parent?.type === "ImportDeclaration" &&
         definition.parent.source.value === "bun:test" &&
         definition.node.type === "ImportSpecifier" &&
@@ -57,8 +56,6 @@ function isBunExpect(source: SourceCode, node: ESTree.Node): boolean {
 
 export const noFixtureAssertionRule = defineRule({
   meta: {
-    type: "problem",
-    docs: { description: "Assert on observed behavior, not a local fixture." },
     messages: {
       fixture: withSkillTopic(
         "This assertion reads its own fixture. Call the code under test and assert on its result or effects.",

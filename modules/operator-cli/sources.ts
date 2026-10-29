@@ -2,48 +2,48 @@ import { WorkSources } from "../work-sources/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { failure } from "./output.ts";
 
-// Each command's value flag, and whether the command requires it.
-const commands = {
-  register: { flag: "--file", required: true },
-  show: { flag: "--source", required: true },
-  reset: { flag: "--source", required: true },
-  prune: { flag: null, required: false },
-} as const;
+const sourceCommands = ["register", "show", "reset", "prune"] as const;
 
-function isCommand(command: string | undefined): command is keyof typeof commands {
-  return command !== undefined && Object.hasOwn(commands, command);
-}
+// Each operation's value flag. Only prune and next run without their value.
+const valueFlags = {
+  register: "--file",
+  show: "--source",
+  reset: "--source",
+  prune: null,
+  next: "--source",
+} as const;
 
 function sourceOperation(group: string | undefined, command: string | undefined) {
   if (group === "next") return "next" as const;
-  return group === "source" && isCommand(command) ? command : null;
+  return group === "source" ? sourceCommands.find((known) => known === command) : undefined;
 }
 
 export function sourceArgs(args: string[]) {
   const [group, command] = args;
   const operation = sourceOperation(group, command);
-  if (operation === null) return null;
-  const rule = operation === "next" ? { flag: "--source", required: false } : commands[operation];
+  // Stryker disable next-line ConditionalExpression: equivalent: an unknown operation has no value flag and is not next or prune, so the later checks refuse every input
+  if (operation === undefined) return null;
   const flags = sourceFlags(
     args.slice(operation === "next" ? 1 : 2),
-    rule.flag,
+    valueFlags[operation],
     operation === "reset",
   );
-  if (flags === null || (rule.required && flags.value === undefined)) return null;
-  return {
-    operation,
-    file: operation === "register" ? flags.value : undefined,
-    sourceId: operation === "register" ? undefined : flags.value,
-    personInstructed: flags.personInstructed,
-  };
+  if (flags === null) return null;
+  const { value, personInstructed } = flags;
+  if (operation === "next" || operation === "prune")
+    return { operation, sourceId: value, personInstructed };
+  if (value === undefined) return null;
+  return operation === "register"
+    ? { operation, file: value, personInstructed }
+    : { operation, sourceId: value, personInstructed };
 }
 
 function sourceFlags(flags: string[], valueFlag: string | null, instructed: boolean) {
   let value: string | undefined;
   let json = false;
   let personInstructed = false;
-  for (let index = 0; index < flags.length; index++) {
-    const flag = flags[index];
+  const rest = flags.values();
+  for (const flag of rest) {
     if (flag === "--json" && !json) {
       json = true;
       continue;
@@ -52,8 +52,8 @@ function sourceFlags(flags: string[], valueFlag: string | null, instructed: bool
       personInstructed = true;
       continue;
     }
-    if (valueFlag === null || flag !== valueFlag || value !== undefined) return null;
-    value = flags[++index];
+    if (flag !== valueFlag || value !== undefined) return null;
+    value = rest.next().value;
     if (value === undefined || value.startsWith("--")) return null;
   }
   return { value, personInstructed };
@@ -91,15 +91,16 @@ function execute(
   parsed: NonNullable<ReturnType<typeof sourceArgs>>,
   input: { paths: ReturnType<typeof OperatorHome.resolve>; cwd: string },
 ) {
-  const { operation, file, sourceId } = parsed;
-  if (operation === "register" && file !== undefined)
-    return WorkSources.register({ ...input, file });
-  if (operation === "show" && sourceId !== undefined)
-    return WorkSources.show({ ...input, sourceId });
-  if (operation === "reset" && sourceId !== undefined)
-    return WorkSources.reset({ ...input, sourceId, personInstructed: parsed.personInstructed });
-  if (operation === "prune") return WorkSources.prune(input);
-  return WorkSources.next({ ...input, sourceId });
+  if (parsed.operation === "register") return WorkSources.register({ ...input, file: parsed.file });
+  if (parsed.operation === "show") return WorkSources.show({ ...input, sourceId: parsed.sourceId });
+  if (parsed.operation === "reset")
+    return WorkSources.reset({
+      ...input,
+      sourceId: parsed.sourceId,
+      personInstructed: parsed.personInstructed,
+    });
+  if (parsed.operation === "prune") return WorkSources.prune(input);
+  return WorkSources.next({ ...input, sourceId: parsed.sourceId });
 }
 
 export async function runSources(

@@ -81,3 +81,63 @@ test("verification needs GitHub's merged state, a merge commit, and the guarded 
   expect(verifiedMerge({ ...merged, mergeCommit: null }, "h1")).toBeNull();
   expect(verifiedMerge({ ...eligible, mergeCommit: "m1" }, "h1")).toBeNull();
 });
+
+test("each refusal names every missing condition and carries the observed conditions", () => {
+  const nothing = "Nothing was merged or changed.";
+  const none = {
+    approved: false,
+    checksPassing: false,
+    threadsResolved: false,
+    defaultBase: false,
+    stackRelayed: false,
+  };
+  const blocked = {
+    ...eligible,
+    approved: false,
+    checks: [],
+    unresolvedThreads: 2,
+    base: "release",
+  };
+  expect(decideMerge({ observed: blocked, localHead: "h1", stackRelayed: false })).toEqual({
+    result: "refused",
+    reason: "pr_merge_blocked",
+    detail: `The PR needs an approving review decision, at least one check with every check passing, no unresolved review thread, the default branch as base, a finished parent-merge relay. ${nothing}`,
+    conditions: none,
+  });
+  expect(
+    decideMerge({
+      observed: { ...blocked, state: "CLOSED" },
+      localHead: "h1",
+      stackRelayed: false,
+    }),
+  ).toEqual({
+    result: "refused",
+    reason: "pr_not_open",
+    detail: `The PR is closed without a merge. Ask the SuperAgent. ${nothing}`,
+    conditions: none,
+  });
+  const met = {
+    approved: true,
+    checksPassing: true,
+    threadsResolved: true,
+    defaultBase: true,
+    stackRelayed: true,
+  };
+  expect(decideMerge({ observed: eligible, localHead: null })).toEqual({
+    result: "refused",
+    reason: "pr_head_mismatch",
+    detail: `The PR head is h1, but the worktree is at no commit. Push or reconcile first. ${nothing}`,
+    conditions: met,
+  });
+  expect(decideMerge({ observed: eligible, localHead: "h0", stackRelayed: true })).toMatchObject({
+    detail: `The PR head is h1, but the worktree is at h0. Push or reconcile first. ${nothing}`,
+  });
+});
+
+test("a single missing condition is named alone", () => {
+  expect(
+    decideMerge({ observed: { ...eligible, unresolvedThreads: 1 }, localHead: "h1" }),
+  ).toMatchObject({
+    detail: "The PR needs no unresolved review thread. Nothing was merged or changed.",
+  });
+});

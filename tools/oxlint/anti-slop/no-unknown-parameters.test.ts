@@ -25,10 +25,18 @@ test("accepts named domain inputs and the subject of an explicit validator", asy
       "type Draft = { id: string };",
       "export function id(draft: Draft) { return draft.id; }",
       "export function list(values: unknown[]) { return values.length; }",
+      "export const loose = function (input) { return input; };",
       "export function isDraft(value: unknown): value is Draft {",
       '  return value !== null && typeof value === "object" && "id" in value && typeof value.id === "string";',
       "}",
     ].join("\n"),
   );
   expect(result.findings.filter((finding) => finding.endsWith(code))).toEqual([]);
+});
+
+test("names the parameter and the fix topic", async () => {
+  const result = await check("export function read(input: unknown) { return input; }");
+  expect(result.stdout).toContain(
+    "Parameter `input` leaves input unparsed. Accept a named domain type, and run the schema at the I/O boundary before the call. See lint-fixes/parse-at-the-boundary.md.",
+  );
 });

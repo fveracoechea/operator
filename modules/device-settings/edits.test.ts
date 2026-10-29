@@ -24,22 +24,110 @@ test("sorts edits and changes only the selected role fields", () => {
   expect(original.workerAgent.model).toBe("old");
 });
 
+function unsupported(raw: string) {
+  return `Unsupported settings field: ${raw}.`;
+}
+function repeated(key: string) {
+  return `Settings field ${key} was named more than once.`;
+}
+function empty(key: string) {
+  return `Set ${key} with a non-empty path=value argument.`;
+}
+
 test.each([
-  { sets: [], unsets: [] },
-  { sets: ["superAgent.host="], unsets: [] },
-  { sets: ["superAgent.host"], unsets: [] },
-  { sets: ["superAgent.host=opencode"], unsets: ["superAgent.host"] },
-  { sets: ["projects.example.host=opencode"], unsets: [] },
-  { sets: ["crew.maxActiveAgents=3"], unsets: [] },
-  { sets: [], unsets: ["superAgent.host=value"] },
-  { sets: ["profiles.study.model=chosen"], unsets: ["profiles.study"] },
-  { sets: ["profiles.__proto__.model=chosen"], unsets: [] },
-  { sets: ["profiles.constructor.host=opencode"], unsets: [] },
-  { sets: ["profiles.study.permissions=allow"], unsets: [] },
-  { sets: ["profiles.study=chosen"], unsets: [] },
-  { sets: ["profiles.study.model.extra=chosen"], unsets: [] },
-])("refuses invalid or conflicting edit arguments %j", ({ sets, unsets }) => {
-  expect(parseEdits([...sets], [...unsets]).issues?.length).toBeGreaterThan(0);
+  { sets: [], unsets: [], issues: ["Name at least one --set or --unset field."] },
+  { sets: ["superAgent.host="], unsets: [], issues: [empty("superAgent.host")] },
+  { sets: ["superAgent.host= "], unsets: [], issues: [empty("superAgent.host")] },
+  { sets: ["review.channelX"], unsets: [], issues: [empty("review.channel")] },
+  { sets: ["superAgent.host"], unsets: [], issues: [unsupported("superAgent.host")] },
+  {
+    sets: ["xsuperAgent.host=opencode"],
+    unsets: [],
+    issues: [unsupported("xsuperAgent.host=opencode")],
+  },
+  {
+    sets: ["superAgent.host=opencode"],
+    unsets: ["superAgent.host"],
+    issues: [repeated("superAgent.host")],
+  },
+  {
+    sets: ["projects.example.host=opencode"],
+    unsets: [],
+    issues: [unsupported("projects.example.host=opencode")],
+  },
+  { sets: ["crew.maxActiveAgents=3"], unsets: [], issues: [unsupported("crew.maxActiveAgents=3")] },
+  { sets: [], unsets: ["superAgent.host=value"], issues: [unsupported("superAgent.host=value")] },
+  {
+    sets: ["profiles.study.model=chosen"],
+    unsets: ["profiles.study"],
+    issues: [repeated("profiles.study")],
+  },
+  {
+    sets: [],
+    unsets: ["profiles.study", "profiles.study.model"],
+    issues: [repeated("profiles.study.model")],
+  },
+  {
+    sets: ["profiles.__proto__.model=chosen"],
+    unsets: [],
+    issues: [unsupported("profiles.__proto__.model=chosen")],
+  },
+  {
+    sets: ["profiles.constructor.host=opencode"],
+    unsets: [],
+    issues: [unsupported("profiles.constructor.host=opencode")],
+  },
+  {
+    sets: ["profiles.study.permissions=allow"],
+    unsets: [],
+    issues: [unsupported("profiles.study.permissions=allow")],
+  },
+  {
+    sets: ["profiles.study.xmodel=chosen"],
+    unsets: [],
+    issues: [unsupported("profiles.study.xmodel=chosen")],
+  },
+  {
+    sets: ["profiles.study.modelx=chosen"],
+    unsets: [],
+    issues: [unsupported("profiles.study.modelx=chosen")],
+  },
+  { sets: ["profiles.study=chosen"], unsets: [], issues: [unsupported("profiles.study=chosen")] },
+  {
+    sets: ["profiles.study.model.extra=chosen"],
+    unsets: [],
+    issues: [unsupported("profiles.study.model.extra=chosen")],
+  },
+])("refuses invalid or conflicting edit arguments %j", ({ sets, unsets, issues }) => {
+  expect(parseEdits([...sets], [...unsets])).toEqual({ issues: [...issues] });
+});
+
+test("accepts one profile field set and one complete profile unset", () => {
+  expect(parseEdits(["profiles.study.model=chosen"], ["profiles.old"])).toEqual({
+    edits: [
+      { path: "profiles.old", value: null },
+      { path: "profiles.study.model", value: "chosen" },
+    ],
+  });
+  expect(parseEdits(["review.assignments=false"], [])).toEqual({
+    edits: [{ path: "review.assignments", value: "false" }],
+  });
+});
+
+test("an edit with no named field or profile changes nothing", () => {
+  const original = settingsSchema.parse({ profiles: { undefined: { host: "opencode" } } });
+  for (const edit of [
+    { path: "profiles", value: null },
+    { path: "superAgent", value: "opencode" },
+  ]) {
+    const changed = editConfig(original, [edit]);
+    expect(changed.success && changed.data).toEqual(original);
+  }
+});
+
+test("unsets a complete profile when no profiles exist", () => {
+  const changed = editConfig(settingsSchema.parse({}), [{ path: "profiles.study", value: null }]);
+  expect(changed.success && changed.data).toEqual(settingsSchema.parse({}));
 });
 
 test("removes one profile field or a complete named profile without changing other profiles", () => {
@@ -92,7 +180,11 @@ test("the optional assignment reviewer is a boolean that is off until it is set"
 
 test("edits the Slack author policy as a channel id, lowercase repositories, and GitHub logins", () => {
   const edits = parseEdits(
-    ["review.channel=C0REVIEW", "review.repos=Owner/One, owner/two", "review.authors=Alice,bob-2"],
+    [
+      "review.channel=C0REVIEW",
+      "review.repos=Owner/One,, owner/two,",
+      "review.authors=Alice,bob-2",
+    ],
     [],
   );
   const changed = editConfig(

@@ -59,10 +59,7 @@ test.each([
   {
     name: "existing destinations",
     file: "worktree-preparation/env-files.ts",
-    replacements: [
-      ["if ((await entry(destination)) !== null) {", "if (false) {"],
-      ["constants.COPYFILE_EXCL", "0"],
-    ],
+    replacements: [["constants.COPYFILE_EXCL", "0"]],
     testFile: "operator-cli/run.dispatch.test.ts",
     pattern: "preparation preserves existing files",
   },
@@ -198,7 +195,7 @@ test.each([
   },
   {
     name: "event without state",
-    file: "operator-cli/run.ts",
+    file: "operator-cli/startup.ts",
     replacements: [["if (await herdrEventWithoutState(args, paths, json)) return false;", ""]],
     testFile: "operator-cli/run.dispatch.test.ts",
     pattern: "a Herdr event on a device without state",

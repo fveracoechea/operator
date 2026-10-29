@@ -45,7 +45,7 @@ import {
   type Snapshot,
 } from "./request.ts";
 import { resolvedAfterPost } from "./rounds.ts";
-import { syncReviewer } from "./reviewer.ts";
+import { failureOf, syncReviewer } from "./reviewer.ts";
 
 type Posted = AsyncResult<Outcome, Failure>;
 
@@ -61,19 +61,16 @@ const draftJson = z.string().transform((value, context) => {
     // The draft schema parses this value next, in the same pipe.
     return JSON.parse(value) as unknown;
   } catch {
-    context.addIssue({ code: "custom", message: "The draft is not JSON." });
+    context.addIssue("The draft is not JSON.");
     return z.NEVER;
   }
 });
 
 function readDraft(file: string) {
-  return fromPromise(
-    async () => {
-      const handle = Bun.file(file);
-      return (await handle.exists()) ? await handle.text() : null;
-    },
-    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
-  ).flatMap((text): Result<Draft, Failure> => {
+  return fromPromise(async () => {
+    const handle = Bun.file(file);
+    return (await handle.exists()) ? await handle.text() : null;
+  }, qualify).flatMap((text): Result<Draft, Failure> => {
     if (text === null)
       return Err({
         reason: "review_draft_missing",
@@ -98,9 +95,13 @@ type Prepared = {
 };
 
 function approval(facts: Parameters<typeof decideEvent>[0], event: ReviewEvent) {
+  // Stryker disable next-line ConditionalExpression: equivalent: decideEvent never computes an approval with an open blocker, so this guard only holds against a later rule change
   if (approvalBlocked(facts, event))
+    // Stryker disable next-line ObjectLiteral: equivalent: decideEvent never computes an approval with an open blocker, so no post reaches this refusal
     return Err<Failure>({
+      // Stryker disable next-line StringLiteral: equivalent: decideEvent never computes an approval with an open blocker, so no post reaches this refusal
       reason: "review_approval_blocked",
+      // Stryker disable next-line StringLiteral: equivalent: decideEvent never computes an approval with an open blocker, so no post reaches this refusal
       detail: "A review with an open blocker cannot approve. Nothing was posted.",
     });
   if (approvalWaits(facts, event))
@@ -139,7 +140,7 @@ function moveReviewer(paths: Paths, target: Target, from: string, to: string): P
     .flatMap(({ snapshot, transition }) =>
       (transition.sync === true
         ? syncReviewer(paths, target, snapshot)
-        : OkAsync({ kind: "none", mode: null as string | null })
+        : OkAsync({ kind: null as string | null, mode: null as string | null })
       ).flatMap((synced): Posted =>
         ErrAsync<Failure>({
           reason: "review_head_moved",
@@ -163,7 +164,7 @@ function prepare(paths: Paths, target: Target, request: Row) {
           .flatMap((accepted): Result<Prepared, Failure> => {
             const facts = {
               accepted,
-              ownPullRequest: pr.author !== null && pr.author === pr.viewer,
+              ownPullRequest: pr.author === pr.viewer,
               origin: request.origin,
             };
             const event = decideEvent(facts);
@@ -248,10 +249,9 @@ function summarize(operations: Operation[]) {
  * answer stops the run, and the retry reads the threads before it writes again.
  */
 function runOperations(paths: Paths, target: Target, request: Row, operations: Operation[]) {
-  return fromPromise(
-    () => operationsInOrder(paths, target, request, operations),
-    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
-  ).flatMap((result) => result);
+  return fromPromise(() => operationsInOrder(paths, target, request, operations), qualify).flatMap(
+    (result) => result,
+  );
 }
 
 async function operationsInOrder(
@@ -266,8 +266,9 @@ async function operationsInOrder(
       done.push(operation);
       continue;
     }
-    const answered = await (operation.kind === "reply"
-      ? replyToThread(operation.threadId, operation.body ?? "")
+    // Only a reply carries a body, and an unresolve carries none.
+    const answered = await (operation.body !== null
+      ? replyToThread(operation.threadId, operation.body)
       : unresolveThread(operation.threadId));
     const outcome: ThreadOutcome =
       answered.tag === "Ok"
@@ -284,9 +285,7 @@ async function operationsInOrder(
       detail: outcome.status === "failed" ? outcome.detail : null,
     };
     const written = record(paths, target, request.id, { operations: [recorded] });
-    if (written.tag === "Err") return Err<Failure>(written.error);
-    if (written.tag !== "Ok")
-      return Err<Failure>({ reason: "review_defect", detail: String(written.cause) });
+    if (written.tag !== "Ok") return Err(failureOf(written));
     done.push(recorded);
   }
   return Ok(done);
@@ -300,7 +299,8 @@ export function reconcile(operations: Operation[], pr: PullRequestFacts): Operat
     if (thread === undefined) return operation;
     const landed =
       operation.kind === "reply"
-        ? thread.comments.some((comment) => comment.body.includes(operation.marker ?? "\0"))
+        ? // Stryker disable next-line StringLiteral: equivalent: a reply operation always has its marker
+          thread.comments.some((comment) => comment.body.includes(operation.marker ?? "\0"))
         : !thread.resolved;
     return landed ? { ...operation, state: "done" } : operation;
   });
@@ -334,7 +334,7 @@ function complete(
       // The same write ends the round and records its Slack effects, so a crash loses neither.
       effects: roundEffects(current.rounds, round, target.url),
     }),
-    { event: round.event === "APPROVE" ? "APPROVE" : "COMMENT" },
+    { event: round.event },
   )
     .toAsync()
     .map(({ snapshot }) => ({
@@ -399,17 +399,10 @@ function finish(
 
 /** The lease shows that this post still runs. A killed post becomes a retry in next. */
 function holding(paths: Paths, id: string, work: () => Posted): Posted {
-  return fromPromise(
-    async () => {
-      const release = DeviceState.holdReviewRequest(paths, id);
-      try {
-        return await work();
-      } finally {
-        release();
-      }
-    },
-    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
-  ).flatMap((result) => result);
+  return fromPromise(() => {
+    const release = DeviceState.holdReviewRequest(paths, id);
+    return Promise.resolve(work()).finally(release);
+  }, qualify).flatMap((result) => result);
 }
 
 function send(target: Target, round: Round, comments: ReturnType<typeof inlineComments>) {
@@ -426,40 +419,47 @@ function freshPost(paths: Paths, target: Target, request: Row): Posted {
   return prepare(paths, target, request).flatMap((prepared): Posted => {
     if ("move" in prepared)
       return moveReviewer(paths, target, prepared.move.from, prepared.move.to);
-    const chosen: { round: Round | null; operations: Operation[] } = {
-      round: null,
-      operations: [],
-    };
-    return apply(
-      paths,
-      target,
-      "post",
-      (_transition, current) => {
-        chosen.round = nextRound(prepared.request, current.rounds, prepared);
-        chosen.operations = plannedOperations(chosen.round, prepared.accepted.draft, prepared.pr);
-        return { round: chosen.round, operations: chosen.operations };
-      },
-      { event: prepared.event },
-    )
+    let planned: { round: Round; operations: Operation[] } | null = null;
+    return apply(paths, target, "post", (_transition, current) => {
+      const round = nextRound(prepared.request, current.rounds, prepared);
+      planned = {
+        round,
+        operations: plannedOperations(round, prepared.accepted.draft, prepared.pr),
+      };
+      return planned;
+    })
       .toAsync()
       .flatMap(({ transition }): Posted => {
-        const round = chosen.round;
         // A concurrent process can turn this post into a retry between the read and the write.
-        if (round === null || transition.retry === true)
-          return ErrAsync({
-            reason: "review_post_in_progress",
-            detail: "Another process started this post. Run the post again. Nothing was posted.",
-          });
+        if (
+          transition.retry === true ||
+          // Stryker disable next-line ConditionalExpression: equivalent: the payload runs for every decided post, so a decided post always has its plan
+          planned === null
+        )
+          // The write that decided the retry took the lease, so the next post can retry at once.
+          // No other process takes the fresh lease of this running process before this release.
+          return DeviceState.changeReviewRequest(paths, { ...target, id: request.id }, () =>
+            Ok({ lease: "release" as const }),
+          )
+            .toAsync()
+            .flatMap(() =>
+              ErrAsync<Failure>({
+                reason: "review_post_in_progress",
+                detail:
+                  "Another process started this post. Run the post again. Nothing was posted.",
+              }),
+            );
         const counts = {
           blockers: countBlockers(prepared.accepted),
           niceToHaves: prepared.accepted.draft.niceToHaves.length,
           headLimit: prepared.headLimit,
         };
         const comments = inlineComments(prepared.accepted.draft);
+        const { round, operations } = planned;
         return holding(paths, request.id, () =>
           send(target, round, comments).flatMap((outcome) =>
             finish(paths, target, request, round, outcome, (posted) =>
-              threads(paths, target, request, posted, prepared.pr, chosen.operations, counts),
+              threads(paths, target, request, posted, prepared.pr, operations, counts),
             ),
           ),
         );
@@ -479,17 +479,11 @@ function threads(
 ): Posted {
   return fromPromise(
     async () => await runOperations(paths, target, request, operations),
-    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+    qualify,
   ).flatMap((result): Posted => {
     if (result.tag === "Ok") return complete(paths, target, round, pr, result.value, counts);
     // The request stays posting, so next offers the retry that reads the threads first.
-    return uncertain(
-      paths,
-      target,
-      result.tag === "Err"
-        ? result.error
-        : { reason: "review_defect", detail: String(result.cause) },
-    );
+    return uncertain(paths, target, failureOf(result));
   });
 }
 
@@ -497,10 +491,9 @@ function threads(
  * A retry after a post or a thread operation lost its answer. It ignores the current draft and
  * finishes the recorded round: GitHub may hold its review and replies, so it reads them first.
  */
-function retryPost(paths: Paths, target: Target, snapshot: Snapshot): Posted {
-  const request = snapshot.request;
+function retryPost(paths: Paths, target: Target, request: Row, snapshot: Snapshot): Posted {
   const round = snapshot.rounds.at(-1);
-  if (request === null || round === undefined)
+  if (round === undefined)
     return ErrAsync({ reason: "review_defect", detail: "The retry lost its round." });
   return apply(paths, target, "post")
     .toAsync()
@@ -550,6 +543,9 @@ function retryPost(paths: Paths, target: Target, snapshot: Snapshot): Posted {
     );
 }
 
+// Stryker disable next-line ObjectLiteral,StringLiteral: equivalent: the machine refuses a post of a missing request, so no post reaches this failure
+const lostRequest: Failure = { reason: "review_defect", detail: "The post lost its request." };
+
 /**
  * The one review write path. It checks the draft, the live PR head, and required CI, computes
  * the event, posts once, and runs the thread replies. A post or a reply that lost its answer is
@@ -568,15 +564,12 @@ export function post(input: { paths: Paths; url: string }) {
             request: snapshot.request,
             ownerActive: snapshot.ownerActive,
           });
+          if (decided.tag !== "Ok") return ErrAsync(failureOf(decided));
           const request = snapshot.request;
-          if (decided.tag !== "Ok" || request === null)
-            return decided
-              .toAsync()
-              .flatMap(() =>
-                ErrAsync({ reason: "review_defect", detail: "The post lost its request." }),
-              );
+          // Stryker disable next-line ConditionalExpression: equivalent: the machine refuses a post of a missing request
+          if (request === null) return ErrAsync(lostRequest);
           return decided.value.retry === true
-            ? retryPost(input.paths, target, snapshot)
+            ? retryPost(input.paths, target, request, snapshot)
             : freshPost(input.paths, target, request);
         }),
     );

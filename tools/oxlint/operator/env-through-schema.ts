@@ -13,7 +13,6 @@ import { withSkillTopic } from "../skill-topic.ts";
 function processImport(variable: Variable) {
   return variable.defs.some(
     (definition) =>
-      definition.type === "ImportBinding" &&
       definition.parent?.type === "ImportDeclaration" &&
       ["node:process", "process"].includes(String(definition.parent.source.value)),
   );
@@ -25,20 +24,18 @@ function environmentHost(
   seen = new Set<Variable>(),
 ): boolean {
   const node = unwrapArrayExpression(input);
-  if (node.type === "MetaProperty")
-    return node.meta.name === "import" && node.property.name === "meta";
+  // The only meta properties are import.meta and new.target.
+  if (node.type === "MetaProperty") return node.meta.name === "import";
   const member = arrayMethodTarget(node);
   if (
     member !== null &&
     ["process", "Bun"].includes(member.name) &&
-    member.object.type === "Identifier" &&
-    member.object.name === "globalThis"
+    source.getText(member.object) === "globalThis"
   )
     return true;
-  if (node.type !== "Identifier") return false;
+  // Only an identifier resolves to a binding, and only an identifier's text names a global.
   const variable = resolveArrayBinding(source, node);
-  if (variable === null || variable.defs.length === 0)
-    return ["process", "Bun"].includes(node.name);
+  if (!variable?.defs.length) return ["process", "Bun"].includes(source.getText(node));
   if (processImport(variable)) return true;
   if (seen.has(variable)) return false;
   seen.add(variable);
@@ -50,8 +47,6 @@ const optionsSchema = z.object({ allowFiles: z.array(z.string()) });
 
 export const envThroughSchemaRule = defineRule({
   meta: {
-    type: "problem",
-    docs: { description: "Read environment values through the validated owner." },
     schema: [
       {
         type: "object",
@@ -59,6 +54,7 @@ export const envThroughSchemaRule = defineRule({
         additionalProperties: false,
       },
     ],
+    // Stryker disable next-line ArrayDeclaration: equivalent: Oxlint lints only source files, and no source path equals the replacement text
     defaultOptions: [{ allowFiles: [] }],
     messages: {
       environment: withSkillTopic(
@@ -86,7 +82,8 @@ export const envThroughSchemaRule = defineRule({
             property.type === "Property" &&
             (property.key.type === "Identifier"
               ? property.key.name === "env"
-              : property.key.type === "Literal" && property.key.value === "env"),
+              : // Stryker disable next-line ConditionalExpression: equivalent: only a Literal key can have the value "env"
+                property.key.type === "Literal" && property.key.value === "env"),
         )
       )
         context.report({ node, messageId: "environment" });

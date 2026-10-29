@@ -1,5 +1,5 @@
 import { realPathOrNull } from "../../lib/real-path.ts";
-import { DoAsync, Err, Ok, OkAsync, fromPromise } from "unthrown";
+import { DoAsync, Err, Ok, OkAsync, fromPromise, fromSafePromise } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { WorktreePreparation } from "../worktree-preparation/main.ts";
 import { DeviceSettings } from "../device-settings/main.ts";
@@ -61,7 +61,7 @@ function herdrSession() {
 export function launchSettings(paths: Paths, checkout: string, profile: string | undefined) {
   return DoAsync()
     .bind("herdrSocket", () => herdrSession())
-    .bind("ready", () =>
+    .flatTap(() =>
       Readiness.check(paths).flatMap(({ blockers }) =>
         blockers.length === 0
           ? Ok(undefined)
@@ -71,7 +71,7 @@ export function launchSettings(paths: Paths, checkout: string, profile: string |
             }),
       ),
     )
-    .bind("plugin", () => pluginReady(paths))
+    .flatTap(() => pluginReady(paths))
     .bind("launch", () =>
       DeviceSettings.resolve({ paths, cwd: checkout, role: "workerAgent", profile }),
     )
@@ -110,24 +110,19 @@ export function ensureWorkspace(checkout: string, repository: string, workspaceI
  * it is prepared here. Preparation keeps existing files, so a second run is safe.
  */
 export function preparedAgain(paths: Paths, worktree: string) {
-  return fromPromise(
-    async () => {
-      const real = await realPathOrNull(worktree);
-      if (real === null)
-        return Err<Failure>({
-          reason: "worktree_missing",
-          detail: `The recorded worktree ${worktree} no longer exists.`,
-        });
-      const read = DeviceState.readPreparation(paths, real);
-      if (read.tag !== "Ok") return read.flatMap(() => Ok(""));
-      if (read.value?.state === "prepared") return Ok(read.value.detail);
-      const prepared = await WorktreePreparation.prepare({ paths, worktree: real });
-      if (prepared.tag === "Err")
-        return Err<Failure>({ reason: "worktree_setup_failed", detail: prepared.error.detail });
-      return prepared.map((done) =>
-        "detail" in done.data ? String(done.data.detail) : done.reason,
-      );
-    },
-    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
-  ).flatMap((result) => result);
+  return fromSafePromise(async () => {
+    const real = await realPathOrNull(worktree);
+    if (real === null)
+      return Err<Failure>({
+        reason: "worktree_missing",
+        detail: `The recorded worktree ${worktree} no longer exists.`,
+      });
+    const read = DeviceState.readPreparation(paths, real);
+    if (read.tag !== "Ok") return read.as(null);
+    if (read.value?.state === "prepared") return Ok(read.value.detail);
+    const prepared = await WorktreePreparation.prepare({ paths, worktree: real });
+    if (prepared.tag === "Err")
+      return Err<Failure>({ reason: "worktree_setup_failed", detail: prepared.error.detail });
+    return prepared.map((done) => ("detail" in done.data ? String(done.data.detail) : done.reason));
+  }).flatMap((result) => result);
 }

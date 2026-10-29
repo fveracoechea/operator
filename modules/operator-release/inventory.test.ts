@@ -2,7 +2,13 @@ import { afterEach, expect, test } from "bun:test";
 import { Environment } from "../environment/main.ts";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
-import { identifyArtifact, scanFiles } from "./inventory.ts";
+import {
+  HERDR_PLUGIN_PATH,
+  identifyArtifact,
+  REQUIRED_PARTS,
+  scanFiles,
+  SETTINGS_SCHEMA_PATH,
+} from "./inventory.ts";
 
 const root = `${Environment.read().TMPDIR ?? "/tmp"}/operator-inventory-${crypto.randomUUID()}`;
 afterEach(async () => {
@@ -33,4 +39,36 @@ test("artifact identity covers file names and bytes but excludes its own release
   await rm(`${root}/file`);
   await Bun.write(`${root}/renamed`, "first");
   expect(await identifyArtifact(root)).not.toBe(original);
+});
+
+test("a release must carry its manifests, entry point, settings schema, plugin, migrations, and skills", () => {
+  expect(SETTINGS_SCHEMA_PATH).toBe("schemas/config.schema.json");
+  expect(HERDR_PLUGIN_PATH).toBe("modules/worker-dispatch/herdr-plugin.toml");
+  expect(REQUIRED_PARTS).toEqual([
+    "README.md",
+    "cli.js",
+    "cli.d.ts",
+    "package.json",
+    "jsr.json",
+    "release.json",
+    "schemas/config.schema.json",
+    "modules/worker-dispatch/herdr-plugin.toml",
+    "modules/operator-cli/main.js",
+    "modules/operator-cli/main.d.ts",
+    "modules/device-state/migrations/0000_register_projects.sql",
+    "modules/device-state/migrations/meta/_journal.json",
+    "skills/deep-modules/SKILL.md",
+    "skills/pr-review/DESIGN.md",
+    "skills/pr-review/SKILL.md",
+    "skills/pr-review/draft.md",
+    "skills/slack-pr-review-workflow/SKILL.md",
+    "skills/super-agent/SKILL.md",
+    "skills/super-agent/delegation.md",
+    "skills/super-agent/dispatch.md",
+    "skills/super-agent/reports.md",
+    "skills/super-agent/reviews.md",
+    "skills/super-agent/setup.md",
+    "skills/worker-agent/SKILL.md",
+    "skills/worker-agent/responsibility.md",
+  ]);
 });

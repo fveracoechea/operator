@@ -258,9 +258,8 @@ const copyRoot = await makeCopy();
 try {
   await requireCleanGraph(copyRoot, "The clean module graph did not pass");
   const valid = `lib/module-boundary-probe-valid-${probeIdentity}`;
-  await Bun.write(join(copyRoot, `${valid}/value.ts`), "export function value() { return 1; }\n", {
-    createPath: true,
-  });
+  // Bun.write creates the missing parent directories.
+  await Bun.write(join(copyRoot, `${valid}/value.ts`), "export function value() { return 1; }\n");
   await Bun.write(
     join(copyRoot, `${valid}/consumer.ts`),
     'import { value } from "./value.ts";\n\nexport function twice() { return value() * 2; }\n',
@@ -269,7 +268,6 @@ try {
   await Bun.write(
     join(copyRoot, `${validModule}/main.ts`),
     `import { value } from "../../${valid}/value.ts";\n\nexport const ValidProbe = { run() { return value(); } };\n`,
-    { createPath: true },
   );
   const formatted = await runBoundaryCheck(copyRoot, "format");
   assert.equal(formatted.exitCode, 0, "Could not format valid module and lib examples");

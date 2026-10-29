@@ -1,5 +1,5 @@
 // Bun has no realpath API.
-import { isCodedError } from "../../lib/coded-error.ts";
+import { isCodedError, type CodedError } from "../../lib/coded-error.ts";
 import { realpath } from "node:fs/promises";
 import { DoAsync, Err, Ok, OkAsync, fromPromise } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
@@ -17,11 +17,13 @@ async function git(cwd: string, args: string[]) {
     args: ["-C", cwd, ...args],
     timeoutMs: 60000,
   });
+  // Stryker disable next-line ConditionalExpression: equivalent: a result that is not completed has no exit code, so the exit check refuses it too
   return result.status === "completed" && result.exitCode === 0 ? result.stdout : null;
 }
 
 async function commonDirectory(checkout: string) {
   const output = await git(checkout, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+  // Stryker disable next-line ArrowFunction: equivalent: an undefined directory matches no project, as null does
   return output === null ? null : realpath(output.trim()).catch(() => null);
 }
 
@@ -40,7 +42,7 @@ function owner(paths: Paths, worktree: string) {
           }
           return null;
         },
-        (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+        (cause, defect) => (isCodedError(cause) ? qualify(cause, defect) : defect(cause)),
       ),
     );
 }
@@ -81,6 +83,7 @@ async function prepare(input: { controller: string; worktree: string }) {
     cwd: input.worktree,
     timeoutMs: 600000,
   });
+  // Stryker disable next-line ConditionalExpression: equivalent: a result that is not completed has no exit code, so the exit check fails it too
   if (install.status !== "completed" || install.exitCode !== 0)
     return {
       state: "failed" as const,
@@ -92,9 +95,8 @@ async function prepare(input: { controller: string; worktree: string }) {
   };
 }
 
-function qualify<T>(cause: Error, defect: (cause: Error) => T) {
+function qualify<T>(cause: CodedError, defect: (cause: CodedError) => T) {
   if (
-    isCodedError(cause) &&
     ["ENOENT", "EACCES", "EPERM", "EIO", "EROFS", "ENOSPC", "ENOTDIR", "EEXIST", "ELOOP"].includes(
       cause.code,
     )
@@ -123,7 +125,7 @@ function prepareProject(
             release();
           }
         },
-        (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+        (cause, defect) => (isCodedError(cause) ? qualify(cause, defect) : defect(cause)),
       ),
     )
     .flatMap((outcome) =>
@@ -170,11 +172,12 @@ function classify(input: {
               copiedUnchanged.add(entry);
           return classifyIgnored({
             ignored: input.ignored,
-            tracked: new Set(listed.split("\0").filter((file) => file !== "")),
+            // The empty name after the last separator matches no manifest or lockfile.
+            tracked: new Set(listed.split("\0")),
             copiedUnchanged,
           });
         },
-        (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+        (cause, defect) => (isCodedError(cause) ? qualify(cause, defect) : defect(cause)),
       ),
     );
 }
@@ -186,7 +189,7 @@ export const WorktreePreparation = {
       .bind("worktree", () =>
         fromPromise(
           () => realpath(input.worktree),
-          (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+          (cause, defect) => (isCodedError(cause) ? qualify(cause, defect) : defect(cause)),
         ),
       )
       .bind("project", ({ worktree }) => owner(input.paths, worktree))

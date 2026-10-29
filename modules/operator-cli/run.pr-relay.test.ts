@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 // Bun has no permission or recursive removal API.
 import { chmod, rm } from "node:fs/promises";
 import { z } from "zod";
-import { fakeGithubScript } from "./fake-github.ts";
+import { fakeGithubScript } from "./github-fixture.ts";
 import { workerDevice } from "./worker-fixture.ts";
 
 type Device = Awaited<ReturnType<typeof workerDevice>>;

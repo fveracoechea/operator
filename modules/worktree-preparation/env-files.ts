@@ -1,24 +1,21 @@
+import { isCodedError } from "../../lib/coded-error.ts";
 // Bun has no lstat, exclusive copy, or directory creation API that refuses links.
-import { constants } from "node:fs";
-import { copyFile, lstat, mkdir } from "node:fs/promises";
+import { constants, lstatSync } from "node:fs";
+import { copyFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 
 /** Only local environment overrides such as .env.local or .env.development.local qualify. */
 export function approvedEnvFile(relative: string) {
-  if (relative === "" || path.isAbsolute(relative) || relative.includes("\\")) return false;
+  // An empty or absolute path has an empty part, so the part check refuses it.
+  if (relative.includes("\\")) return false;
   const parts = relative.split("/");
   if (parts.some((part) => part === "" || part === "." || part === "..")) return false;
-  return /^\.env(?:\.[^/]+)?\.local$/.test(parts.at(-1) ?? "");
+  return /^\.env(?:\.[^/]+)?\.local$/.test(path.basename(relative));
 }
 
+/** The entry itself, never a link target, or null when nothing exists at the path. */
 async function entry(file: string) {
-  try {
-    return await lstat(file);
-  } catch (cause) {
-    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") return null;
-    // oxlint-disable-next-line unthrown/no-throw -- The module boundary qualifies filesystem failures.
-    throw cause;
-  }
+  return lstatSync(file, { throwIfNoEntry: false }) ?? null;
 }
 
 type Copied = { copied: string[]; preserved: string[]; refused: string[] };
@@ -48,17 +45,12 @@ export async function copyEnvFiles(input: {
       result.refused.push(relative);
       continue;
     }
-    if ((await entry(destination)) !== null) {
-      result.preserved.push(relative);
-      continue;
-    }
     try {
       await copyFile(path.join(input.controller, relative), destination, constants.COPYFILE_EXCL);
       result.copied.push(relative);
     } catch (cause) {
-      // Another writer created the destination after the check. Its content stays untouched.
-      if (cause instanceof Error && "code" in cause && cause.code === "EEXIST")
-        result.preserved.push(relative);
+      // The exclusive copy refuses every existing destination, so its content stays untouched.
+      if (isCodedError(cause) && cause.code === "EEXIST") result.preserved.push(relative);
       // oxlint-disable-next-line unthrown/no-throw -- The module boundary qualifies filesystem failures.
       else throw cause;
     }

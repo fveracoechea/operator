@@ -17,8 +17,19 @@ No private Jarvis source or skill text is an input.
 
 Each unit runs only its same-folder `stem.test.ts` and `stem.<scenario>.test.ts` tests.
 Private units cannot borrow `main.test.ts`.
-Stryker's command runner calls the repository test script in a new Bun process for each mutant.
-Coverage analysis and incremental mode are off.
+Stryker's command runner starts a new Bun process for each mutant, with the sandbox as the working folder.
+That process runs the checkout's own `scripts/test-watchdog.ts` by absolute path, so a mutant in the test runner never judges itself.
+A project without that file runs its `test` script instead.
+The command adds `--bail`, so the first failed test kills the mutant and the rest of a slow suite does not run.
+Coverage analysis is off.
+Incremental mode is on, with one result file per unit under the ignored `.mutation-incremental/` folder.
+The file name holds a hash of the mutated ranges, the unit's beside-tests, and the runner.
+A changed beside-test or runner, or a changed `--since` range, starts a new file, so every mutant runs again.
+Without coverage, Stryker reuses each stored result whose code did not change.
+Before a run, the tool keeps only killed and survived results in that file.
+A timeout, a runtime error, or a mutant that a new suppression ignores runs again.
+A stored result does not see a change in an imported file. Remove `.mutation-incremental/` before a final full run.
+`timeoutFactor` is 1.5 and `timeoutMS` is 2000, so a hanging mutant stops 2 seconds after one and a half times the clean run.
 Stryker does not rewrite the copied TypeScript configuration because its rewrite API is absent in TypeScript 7.
 Bun reads the unchanged configuration instead.
 The tool uses a separate temporary directory per unit and removes it on success or failure.

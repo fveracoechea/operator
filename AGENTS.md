@@ -63,4 +63,5 @@ For the boundary lint rules, the validator exception, and lint skill-topic point
 Read `docs/implementation/235-legacy-removal.md` for the inventory and verification.
 For the final replacement audit and the command example guard, read `docs/implementation/258-replacement-audit.md`.
 For installed workflow acceptance, the breaking changeset, the JSR client check, and the post-publication install, read `docs/implementation/259-installed-delivery.md`.
+For the changed-lines mutation cleanup, its merge base, unfinished units, and accepted suppressions, read `docs/implementation/260-mutation-cleanup.md`.
 Do not inspect, migrate, repair, or remove real legacy Operator state.

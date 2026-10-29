@@ -18,9 +18,10 @@ export type OwnerFailure = {
   detail: string;
 };
 type Owners = Extract<ReturnType<typeof DeviceState.worktreeOwners>, { tag: "Ok" }>["value"];
-export type Owner = Owners[number] & { branch: string };
+type Recorded = Owners[number] & { worktreePath: string };
+export type Owner = Recorded & { branch: string };
 
-export function qualify<T>(cause: Error, defect: (cause: Error) => T) {
+export function qualify<C, T>(cause: C, defect: (cause: C) => T) {
   if (
     isCodedError(cause) &&
     ["ENOENT", "EACCES", "EPERM", "EIO", "ENOTDIR", "ELOOP"].includes(cause.code)
@@ -31,13 +32,14 @@ export function qualify<T>(cause: Error, defect: (cause: Error) => T) {
 
 async function git(cwd: string, args: string[]) {
   const result = await ToolInvocation.run({ tool: "git", args, cwd, timeoutMs: 10000 });
+  // Stryker disable next-line ConditionalExpression: equivalent: a result that did not complete has no exit code, so the exit code check alone returns null
   return result.status === "completed" && result.exitCode === 0 ? result.stdout.trim() : null;
 }
 
 const nothing = "Nothing was read from GitHub or changed.";
 
 /** The caller's real Git top level must be a recorded worktree. A running owner wins a reused path. */
-async function recorded(cwd: string, owners: Owners): Promise<Owners[number] | OwnerFailure> {
+async function recorded(cwd: string, owners: Owners): Promise<Recorded | OwnerFailure> {
   const top = await git(cwd, ["rev-parse", "--show-toplevel"]);
   if (top === null)
     return {
@@ -45,10 +47,11 @@ async function recorded(cwd: string, owners: Owners): Promise<Owners[number] | O
       detail: `Run PR commands inside the recorded worktree of your assignment. ${nothing}`,
     };
   const real = await realpath(top);
-  const matches: Owners = [];
+  const matches: Recorded[] = [];
   for (const row of owners)
+    // Stryker disable next-line ConditionalExpression: equivalent: a null path has no real path, so it never equals the caller's top level
     if (row.worktreePath !== null && (await realPathOrNull(row.worktreePath)) === real)
-      matches.push(row);
+      matches.push({ ...row, worktreePath: row.worktreePath });
   return (
     matches.find((row) => row.launchState === "running") ??
     matches[0] ?? {
@@ -58,7 +61,7 @@ async function recorded(cwd: string, owners: Owners): Promise<Owners[number] | O
   );
 }
 
-function running(owner: Owners[number]): Owner | OwnerFailure {
+function running(owner: Recorded): Owner | OwnerFailure {
   const branch = owner.branch;
   return owner.launchState === "running" &&
     owner.sourceState === "open" &&
@@ -75,11 +78,13 @@ function running(owner: Owners[number]): Owner | OwnerFailure {
 /** The worktree shares the controlling checkout's repository, which still has its identity. */
 async function sameRepository(paths: Paths, owner: Owner) {
   const args = ["rev-parse", "--path-format=absolute", "--git-common-dir"];
-  const common = await git(owner.worktreePath ?? "", args);
+  const common = await git(owner.worktreePath, args);
   const controller = await git(owner.checkout, args);
   const project = await Projects.current({ paths, cwd: owner.checkout });
   return (
+    // Stryker disable next-line ConditionalExpression,LogicalOperator: equivalent: the caller's top level is this worktree, so Git names its common folder, and a null controller folder never equals that real path
     common !== null &&
+    // Stryker disable next-line ConditionalExpression: equivalent: a null controller folder has a null real path, which never equals the worktree common folder
     controller !== null &&
     (await realPathOrNull(common)) === (await realPathOrNull(controller)) &&
     project.tag === "Ok" &&
@@ -101,7 +106,7 @@ async function find(paths: Paths, cwd: string, owners: Owners): Promise<Owner | 
       reason: "pr_repository_mismatch",
       detail: `This worktree is not a worktree of the registered ${owner.repository} checkout. ${nothing}`,
     };
-  const head = await git(owner.worktreePath ?? "", ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  const head = await git(owner.worktreePath, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
   return head === owner.branch
     ? owner
     : {
@@ -114,9 +119,8 @@ export function resolveOwner(input: { paths: Paths; cwd: string }) {
   return DeviceState.worktreeOwners(input.paths)
     .toAsync()
     .flatMap((owners) =>
-      fromPromise(
-        () => find(input.paths, input.cwd, owners),
-        (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
-      ).flatMap((found) => ("reason" in found ? Err(found) : Ok(found))),
+      fromPromise(() => find(input.paths, input.cwd, owners), qualify).flatMap((found) =>
+        "reason" in found ? Err(found) : Ok(found),
+      ),
     );
 }

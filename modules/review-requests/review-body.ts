@@ -39,7 +39,6 @@ const rules: { when: (facts: EventFacts) => boolean; event: ReviewEvent }[] = [
     event: "REQUEST_CHANGES",
   },
   { when: (facts) => countBlockers(facts.accepted) > 0, event: "COMMENT" },
-  { when: () => true, event: "APPROVE" },
 ];
 
 /**
@@ -47,7 +46,7 @@ const rules: { when: (facts: EventFacts) => boolean; event: ReviewEvent }[] = [
  * the architecture. Otherwise an open blocker gives a comment, and no blocker gives approval.
  */
 export function decideEvent(facts: EventFacts): ReviewEvent {
-  return rules.find((rule) => rule.when(facts))?.event ?? "COMMENT";
+  return rules.find((rule) => rule.when(facts))?.event ?? "APPROVE";
 }
 
 /** Approval with an open blocker is refused even when a later rule change would compute it. */

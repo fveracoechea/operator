@@ -25,8 +25,10 @@ function readEvent() {
   const environment = Environment.read();
   return fromThrowable(
     () =>
-      eventSchema.parse(JSON.parse(environment.HERDR_PLUGIN_EVENT_JSON ?? "null")) satisfies object,
+      // A missing value parses as the text "undefined", which is not JSON.
+      eventSchema.parse(JSON.parse(String(environment.HERDR_PLUGIN_EVENT_JSON))) satisfies object,
     (cause, defect) =>
+      // Stryker disable next-line ConditionalExpression: equivalent: JSON.parse and a zod parse throw only these errors
       cause instanceof SyntaxError || cause instanceof z.ZodError
         ? { reason: "herdr_event_invalid", detail: "Herdr did not describe a supported event." }
         : defect(cause),
@@ -83,7 +85,8 @@ export function installPlugin(input: { paths: Paths }) {
         const released = await Bun.file(pluginManifestFile).text();
         const current = Bun.file(manifest);
         const written = !(await current.exists()) || (await current.text()) !== released;
-        if (written) await Bun.write(manifest, released, { createPath: true });
+        // Bun.write creates the missing parent folders.
+        if (written) await Bun.write(manifest, released);
         const directory = await realpath(input.paths.herdrPlugin);
         return { conflict: false as const, written, directory, existing: linked };
       },

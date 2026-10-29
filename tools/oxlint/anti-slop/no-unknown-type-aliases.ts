@@ -8,11 +8,10 @@ function hidesUnknown(
   visited = new Set<Variable>(),
 ): boolean {
   if (type.type === "TSUnknownKeyword") return true;
-  if (type.type === "TSParenthesizedType")
-    return hidesUnknown(source, type.typeAnnotation, visited);
   if (type.type === "TSUnionType")
     return type.types.some((part) => hidesUnknown(source, part, visited));
-  if (type.type !== "TSTypeReference" || type.typeName.type !== "Identifier") return false;
+  if (type.type !== "TSTypeReference") return false;
+  // A qualified name resolves to no local binding.
   const variable = resolveArrayBinding(source, type.typeName);
   if (!variable || visited.has(variable)) return false;
   visited.add(variable);
@@ -25,8 +24,6 @@ function hidesUnknown(
 
 export const noUnknownTypeAliasesRule = defineRule({
   meta: {
-    type: "problem",
-    docs: { description: "Keep unknown visible at parse boundaries." },
     messages: {
       alias: withSkillTopic(
         "This type alias hides unknown. Keep unknown explicit at the parse boundary.",

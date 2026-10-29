@@ -10,8 +10,6 @@ import { resolvedTypeMatches } from "./type-alias-resolution.ts";
 
 export const noObjectParametersRule = defineRule({
   meta: {
-    type: "problem",
-    docs: { description: "Disallow the broad object type on function parameters." },
     messages: {
       objectParameter: withSkillTopic(
         "Parameter `{{parameter}}` uses the broad `object` type. Accept a named owner type, and parse external input at its boundary before the call.",
@@ -26,7 +24,6 @@ export const noObjectParametersRule = defineRule({
         if (!annotation) continue;
         const broad = resolvedTypeMatches(context.sourceCode, annotation, (resolved, matches) => {
           if (resolved.type === "TSObjectKeyword") return true;
-          if (resolved.type === "TSParenthesizedType") return matches(resolved.typeAnnotation);
           return resolved.type === "TSUnionType" && resolved.types.some(matches);
         });
         if (broad)

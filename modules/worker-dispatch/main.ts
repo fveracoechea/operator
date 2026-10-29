@@ -1,5 +1,5 @@
 import { realPathOrNull } from "../../lib/real-path.ts";
-import { DoAsync, Err, Ok, OkAsync, fromPromise } from "unthrown";
+import { DoAsync, Err, Ok, OkAsync, fromPromise, fromSafePromise } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { Herdr } from "../herdr/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
@@ -35,28 +35,39 @@ type Placement = {
   workingDirectory: string;
   worktreePath: string | null;
   worktreeWorkspaceId: string | null;
-  created: boolean;
 };
+
+function notDispatchable(assignment: string) {
+  return Err<Failure>({
+    reason: "assignment_not_dispatchable",
+    detail: `Assignment ${assignment} has no dispatch action. Read operator next for its waits. Nothing was launched.`,
+  });
+}
 
 function assignmentFacts(input: Request) {
   return (
     DoAsync()
       .bind("project", () => Projects.current(input).map(({ data }) => data))
-      .bind("source", () => WorkSources.show(input))
+      .bind("source", () =>
+        WorkSources.show(input).flatMap((source) =>
+          // Stryker disable next-line ConditionalExpression: equivalent: show refuses an unknown source with source_not_found, so it never answers undefined here
+          source === undefined ? notDispatchable(input.assignment) : Ok(source),
+        ),
+      )
       .bind("next", () => WorkSources.next(input))
       .bind("planned", ({ source, next }) => {
-        const planned = source?.plan.assignments.find((row) => row.key === input.assignment);
-        const action = next.sources[0]?.actions.find(
-          (row) =>
-            "assignment" in row &&
-            row.assignment === input.assignment &&
-            (row.action === "ready_assignment" || row.action === "replace_worker"),
-        );
-        return planned === undefined || action === undefined || source === undefined
-          ? Err<Failure>({
-              reason: "assignment_not_dispatchable",
-              detail: `Assignment ${input.assignment} has no dispatch action. Read operator next for its waits. Nothing was launched.`,
-            })
+        const planned = source.plan.assignments.find((row) => row.key === input.assignment);
+        const action = next.sources
+          .flatMap((row) => row.actions)
+          .find(
+            (row) =>
+              "assignment" in row &&
+              row.assignment === input.assignment &&
+              (row.action === "ready_assignment" || row.action === "replace_worker"),
+          );
+        // Stryker disable next-line ConditionalExpression: equivalent: next gives a dispatch action only for a planned assignment
+        return planned === undefined || action === undefined
+          ? notDispatchable(input.assignment)
           : Ok({
               ...planned,
               sourceTrackerKey: source.trackerKey,
@@ -66,21 +77,23 @@ function assignmentFacts(input: Request) {
       .let(
         "pullRequest",
         ({ source }) =>
-          source?.pullRequests.find((row) => row.assignment === input.assignment) ?? null,
+          source.pullRequests.find((row) => row.assignment === input.assignment) ?? null,
       )
       // A PR stacks on the branch of its one open parent PR. Next waits while several are open.
       .let("stack", ({ source, planned }) => {
-        const open = (source?.assignments ?? []).filter(
+        const open = source.assignments.filter(
           (row) => planned.dependencies.includes(row.key) && row.state === "pr-open",
         );
-        const parent = source?.pullRequests.find((pr) => pr.assignment === open[0]?.key);
-        return planned.completion === "pr" && open.length === 1 && parent !== undefined
+        const parent = source.pullRequests.find((pr) => pr.assignment === open[0]?.key);
+        // Stryker disable next-line ConditionalExpression, LogicalOperator: equivalent: next gives no dispatch action while several parents are open, and an open parent always has its PR
+        const one = open.length === 1 && parent !== undefined;
+        return planned.completion === "pr" && one
           ? { assignment: parent.assignment, number: parent.number, branch: parent.branch }
           : null;
       })
       // An open PR lives on the worktree of an earlier start, even after a later start failed.
       .let("previous", ({ source, pullRequest }) =>
-        source?.launches.findLast(
+        source.launches.findLast(
           (row) =>
             row.assignment === input.assignment &&
             (pullRequest === null ||
@@ -97,21 +110,19 @@ function chooseResources(input: Request, facts: Facts) {
     .bind("workspace", () => projectWorkspace(checkout))
     .bind("agents", () => Herdr.agentNames())
     .bind("tabs", ({ workspace }) =>
+      // Stryker disable next-line ArrayDeclaration: equivalent: a taken name that no launch base can form changes no choice
       workspace.workspaceId === null ? Ok([]) : Herdr.tabLabels(workspace.workspaceId),
     )
     .bind("recorded", () => DeviceState.launchNames(input.paths))
     .bind("branches", () => gitBranches(checkout))
     .bind("reuse", () =>
-      fromPromise(
-        async () => {
-          const path = facts.previous?.worktreePath ?? null;
-          const branch = facts.previous?.branch ?? null;
-          return path === null || branch === null || (await realPathOrNull(path)) === null
-            ? null
-            : { path, branch };
-        },
-        (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
-      ).flatMap((reuse) =>
+      fromSafePromise(async () => {
+        const path = facts.previous?.worktreePath ?? null;
+        const branch = facts.previous?.branch ?? null;
+        // Stryker disable next-line ConditionalExpression, LogicalOperator: equivalent: a launch with a worktree always records its branch, and the real-path check below refuses a missing path too
+        if (path === null || branch === null) return null;
+        return (await realPathOrNull(path)) === null ? null : { path, branch };
+      }).flatMap((reuse) =>
         // A PR owner continues only on the PR's worktree. A new branch would lose the PR.
         facts.pullRequest !== null && reuse === null
           ? Err<Failure>({
@@ -122,7 +133,7 @@ function chooseResources(input: Request, facts: Facts) {
       ),
     )
     .bind("base", ({ reuse }) =>
-      facts.stack === null || reuse !== null || facts.planned.resources !== "worktree"
+      facts.stack === null || reuse !== null
         ? OkAsync(undefined)
         : parentBase(checkout, facts.stack.branch),
     )
@@ -159,7 +170,6 @@ function place(input: {
       workingDirectory: checkout,
       worktreePath: null,
       worktreeWorkspaceId: null,
-      created: false,
     }));
   const worktree =
     reuse === null
@@ -175,7 +185,6 @@ function place(input: {
     workingDirectory: opened.path,
     worktreePath: opened.path,
     worktreeWorkspaceId: opened.workspaceId,
-    created: reuse === null,
   }));
 }
 
@@ -201,16 +210,17 @@ function writeBrief(
         profile: settings.launch.profile,
         instructions: settings.planned.instructions,
         workingDirectory: placement.workingDirectory,
-        resources: branch === null ? { kind: "pane" } : { kind: "worktree", branch },
+        branch,
         reports: { directory: files.reports, files: await listFiles(files.reports) },
         followUps: { directory: files.followUps, files: await listFiles(files.followUps) },
         pullRequest: settings.pullRequest,
         dependencyReports: settings.planned.dependencyReports,
         stack: settings.stack,
       });
-      await Bun.write(files.brief, text, { createPath: true });
+      await Bun.write(files.brief, text);
       return files.brief;
     },
+    // Stryker disable next-line ConditionalExpression: equivalent: qualify passes any cause without an I/O code to defect, as the other branch does
     (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
   );
 }
@@ -233,11 +243,11 @@ function launchEffects(input: {
     .bind("workspaceId", () =>
       ensureWorkspace(checkout, repository, resources.workspace.workspaceId),
     )
-    .bind("recordedWorkspace", ({ workspaceId }) => record({ workspaceId }))
+    .flatTap(({ workspaceId }) => record({ workspaceId }))
     .bind("placement", ({ workspaceId }) =>
       place({ workspaceId, checkout, name, branch, reuse: resources.reuse, base: resources.base }),
     )
-    .bind("recordedPlacement", ({ placement }) =>
+    .flatTap(({ placement }) =>
       record({
         tabId: placement.tabId,
         paneId: placement.paneId,
@@ -247,12 +257,13 @@ function launchEffects(input: {
     )
     .bind("preparation", ({ placement }) => {
       if (placement.worktreePath === null) return OkAsync(null);
-      return placement.created
+      // A new worktree gets its preparation from the Herdr hook. A reopened one gets no event.
+      return resources.reuse === null
         ? waitForPreparation(request.paths, placement.worktreePath, input.startedAt)
         : preparedAgain(request.paths, placement.worktreePath);
     })
     .bind("brief", ({ placement }) => writeBrief(request, settings, placement, branch))
-    .bind("agent", ({ placement }) =>
+    .flatTap(({ placement }) =>
       Herdr.startAgent({
         name,
         kind: settings.launch.host === "claude-code" ? "claude" : "opencode",
@@ -260,8 +271,8 @@ function launchEffects(input: {
         args: settings.launch.command.args,
       }),
     )
-    .bind("prompted", ({ brief }) => Herdr.prompt({ name, text: `Read ${brief} and follow it.` }))
-    .bind("running", () => record({ state: "running" }))
+    .flatTap(({ brief }) => Herdr.prompt({ name, text: `Read ${brief} and follow it.` }))
+    .flatTap(() => record({ state: "running" }))
     .map(({ workspaceId, placement, preparation, brief }) => ({
       brief,
       workspaceId,
@@ -362,41 +373,38 @@ function launch(request: Request, settings: Settings, resources: Resources) {
   return reserve(request, settings, resources, startedAt)
     .toAsync()
     .flatMap((reserved) =>
-      fromPromise(
-        async () => {
-          const release = guardStart(request.paths, reserved.id);
-          const started = await launchEffects({
-            request,
-            settings,
-            resources,
-            id: reserved.id,
-            startedAt,
+      fromSafePromise(async () => {
+        const release = guardStart(request.paths, reserved.id);
+        const started = await launchEffects({
+          request,
+          settings,
+          resources,
+          id: reserved.id,
+          startedAt,
+        });
+        release();
+        if (started.tag === "Ok")
+          return Ok({
+            sourceId: request.sourceId,
+            assignment: request.assignment,
+            attempt: reserved.attempt,
+            name: resources.names.name,
+            host: settings.launch.host,
+            model: settings.launch.model,
+            reasoningEffort: settings.launch.reasoningEffort,
+            profile: settings.launch.profile,
+            release: settings.release,
+            skills: settings.skills,
+            ...started.value,
           });
-          release();
-          if (started.tag === "Ok")
-            return Ok({
-              sourceId: request.sourceId,
-              assignment: request.assignment,
-              attempt: reserved.attempt,
-              name: resources.names.name,
-              host: settings.launch.host,
-              model: settings.launch.model,
-              reasoningEffort: settings.launch.reasoningEffort,
-              profile: settings.launch.profile,
-              release: settings.release,
-              skills: settings.skills,
-              ...started.value,
-            });
-          return recordFailure(
-            request.paths,
-            reserved.id,
-            started.tag === "Err"
-              ? started.error
-              : { reason: "launch_defect", detail: `Dispatch stopped: ${String(started.cause)}` },
-          );
-        },
-        (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
-      ).flatMap((result) => result),
+        return recordFailure(
+          request.paths,
+          reserved.id,
+          started.tag === "Err"
+            ? started.error
+            : { reason: "launch_defect", detail: `Dispatch stopped: ${String(started.cause)}` },
+        );
+      }).flatMap((result) => result),
     );
 }
 

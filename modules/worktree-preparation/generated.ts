@@ -18,7 +18,7 @@ export function classifyIgnored(input: {
   const unknown: string[] = [];
   for (const entry of input.ignored) {
     // The first dependency folder on the path decides, so nested dependency folders follow it.
-    const folder = /^(?<parent>(?:[^/]+\/)*?)node_modules\//.exec(entry)?.groups?.parent;
+    const folder = /^((?:[^/]+\/)*?)node_modules\//.exec(entry)?.[1];
     const dependencies =
       installed && folder !== undefined && input.tracked.has(`${folder}package.json`);
     const environment = approvedEnvFile(entry) && input.copiedUnchanged.has(entry);

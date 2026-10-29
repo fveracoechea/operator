@@ -192,7 +192,8 @@ type Context = NonNullable<
 >["commits"]["nodes"][number]["commit"]["statusCheckRollup"];
 
 function requiredChecks(rollup: Context): RequiredCheck[] {
-  return (rollup?.contexts.nodes ?? [])
+  if (rollup === null) return [];
+  return rollup.contexts.nodes
     .filter((node) => node.isRequired)
     .map((node) => {
       if (node.__typename === "StatusContext")
@@ -277,7 +278,7 @@ export function pullRequestFacts(
 }
 
 function fields(target: Target) {
-  const [owner = "", name = ""] = target.repository.split("/");
+  const [owner, name = ""] = target.repository.split("/");
   return ["-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `number=${target.number}`];
 }
 
@@ -412,11 +413,9 @@ function threadWrite(args: string[], done: (answer: z.infer<typeof mutationAnswe
           status: "uncertain",
           detail: "GitHub answered a thread write in an unknown form.",
         };
-      if ((parsed.data.errors ?? []).length > 0)
-        return {
-          status: "failed",
-          detail: (parsed.data.errors ?? []).map((error) => error.message).join(" "),
-        };
+      const errors = parsed.data.errors ?? [];
+      if (errors.length > 0)
+        return { status: "failed", detail: errors.map((error) => error.message).join(" ") };
       return done(parsed.data)
         ? { status: "done" }
         : { status: "uncertain", detail: "GitHub did not confirm the thread write." };

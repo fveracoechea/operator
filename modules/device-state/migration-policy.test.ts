@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { readMigrationFiles } from "drizzle-orm/migrator";
+import { migrationsFolder } from "./database.ts";
 import { idleForMigration, migrationBlockers } from "./migration-policy.ts";
 
 test("idle guards cover active assignments on the whole device, not ready or ended work", () => {
@@ -25,15 +27,94 @@ test("idle guards cover active assignments on the whole device, not ready or end
 
 test("each fixed migration declares its held-record policy and unknown policies refuse", () => {
   using db = new Database(":memory:");
-  expect(migrationBlockers(db, 1792968033776).tag).toBe("Ok");
-  expect(migrationBlockers(db, 1793024341510).tag).toBe("Ok");
-  expect(migrationBlockers(db, 1793031772449).tag).toBe("Ok");
-  expect(migrationBlockers(db, 1793114012060).tag).toBe("Ok");
-  expect(migrationBlockers(db, 1793118895818).tag).toBe("Ok");
+  for (const migration of readMigrationFiles({ migrationsFolder }))
+    expect(migrationBlockers(db, migration.folderMillis), migration.hash).toMatchObject({
+      tag: "Ok",
+      value: undefined,
+    });
   expect(migrationBlockers(db, 9999999999999)).toMatchObject({
     tag: "Err",
-    error: { reason: "state_incompatible" },
+    error: {
+      reason: "state_incompatible",
+      detail: "The shipped migration has no declared blocker policy. No handler ran.",
+    },
   });
+});
+
+test("a declared held-record query blocks its migration only while it finds a record", () => {
+  using db = new Database(":memory:");
+  db.exec("CREATE TABLE held (value TEXT)");
+  const policies = new Map([[1, ["SELECT 1 FROM held WHERE value = 'held' LIMIT 1"]]]);
+  db.exec("INSERT INTO held VALUES ('released')");
+  expect(migrationBlockers(db, 1, policies)).toMatchObject({ tag: "Ok", value: undefined });
+  db.exec("INSERT INTO held VALUES ('held')");
+  expect(migrationBlockers(db, 1, policies)).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "state_migration_blocked",
+      detail: "A migration-specific held record blocks startup. No handler ran.",
+    },
+  });
+});
+
+test("each idle guard starts at the migration that adds its records and names what it waits for", () => {
+  using db = new Database(":memory:");
+  db.exec(
+    "CREATE TABLE assignments (state TEXT); CREATE TABLE project_removals (repository TEXT); CREATE TABLE launches (state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE worktree_preparations (state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE cleanups (state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE review_requests (state TEXT, launch_state TEXT, owner_pid INTEGER, lease_at TEXT)",
+  );
+  const lease = new Date().toISOString();
+  const cases: [number, string, string][] = [
+    [
+      2,
+      "INSERT INTO assignments VALUES ('running')",
+      "Migration is waiting for active assignments across all registered projects to become idle. No handler ran.",
+    ],
+    [
+      3,
+      "INSERT INTO project_removals VALUES ('owner/removed')",
+      "Finish pending project file cleanup before an upgrade. No handler ran.",
+    ],
+    [
+      4,
+      "INSERT INTO launches VALUES ('running', NULL, NULL)",
+      "Migration is waiting for active worker launches and worktree preparations to finish. No handler ran.",
+    ],
+    [
+      7,
+      `INSERT INTO cleanups VALUES ('pending', ${process.pid}, '${lease}')`,
+      "Migration is waiting for a running cleanup to finish. No handler ran.",
+    ],
+    [
+      9,
+      "INSERT INTO review_requests VALUES ('reviewing', 'running', NULL, NULL)",
+      "Migration is waiting for active reviewers, reviewer starts, and review posts to finish. No handler ran.",
+    ],
+    [
+      10,
+      `INSERT INTO review_requests VALUES ('watching', 'running', ${process.pid}, '${lease}')`,
+      "Migration is waiting for a reviewer move or a reviewer cleanup to finish. No handler ran.",
+    ],
+  ];
+  for (const [applied, insert, detail] of cases) {
+    for (const table of [
+      "assignments",
+      "project_removals",
+      "launches",
+      "cleanups",
+      "review_requests",
+    ])
+      db.exec(`DELETE FROM ${table}`);
+    db.exec(insert);
+    expect(idleForMigration(db, applied - 1), `${applied - 1}`).toMatchObject({
+      tag: "Ok",
+      value: undefined,
+    });
+    expect(idleForMigration(db, applied), `${applied}`).toMatchObject({
+      tag: "Err",
+      error: { reason: "state_migration_blocked", detail },
+    });
+    expect(idleForMigration(db, 11).tag).toBe("Err");
+  }
 });
 
 test("pending project file cleanup blocks an upgrade across the device until recovered", () => {

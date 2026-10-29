@@ -17,7 +17,7 @@ const facts: LauncherFacts = {
   globalRoot: global,
   specifier: "npm:@jsr/fveracoechea__operator@1.2.3",
   command: "/home/person/.bun/bin/operator",
-  destination: { kind: "absent" },
+  destination: { absent: true },
 };
 
 test("an exact global JSR install gets a launcher that names Bun's folder and no release", () => {
@@ -44,13 +44,13 @@ test("the launcher quotes a global folder that contains shell syntax", () => {
 
 test("matching content needs no write, and other content is a conflict", () => {
   const text = launcherText(global.reported);
-  expect(decideLauncher({ ...facts, destination: { kind: "file", text } })).toMatchObject({
+  expect(decideLauncher({ ...facts, destination: { absent: false, text } })).toMatchObject({
     action: "unchanged",
   });
   for (const destination of [
-    { kind: "file", text: `${text}\n` },
-    { kind: "file", text: "" },
-    { kind: "other" },
+    { absent: false, text: `${text}\n` },
+    { absent: false, text: "" },
+    { absent: false, text: null },
   ] as const)
     expect(decideLauncher({ ...facts, destination })).toEqual({
       action: "refuse",
@@ -88,11 +88,24 @@ test("only the built release that Bun installed globally at the exact version ge
 });
 
 test("refusals check the release before the destination and name the exact install command", () => {
-  const occupied = { destination: { kind: "other" } } as const;
+  const occupied = { destination: { absent: false, text: null } } as const;
   const install = 'bun add -g "@fveracoechea/operator@npm:@jsr/fveracoechea__operator@1.2.3"';
   expect(exactInstall("1.2.3")).toBe(install);
-  expect(decideLauncher({ ...facts, ...occupied, built: false })).toMatchObject({
+  expect(decideLauncher({ ...facts, ...occupied, built: false })).toEqual({
+    action: "refuse",
     reason: "launcher_unsupported",
+    detail:
+      "The running Operator at /real/global/node_modules/@fveracoechea/operator is not a built release. A source installation from bun add -g at a full commit gets its operator command from Bun.",
+  });
+  expect(decideLauncher({ ...facts, ...occupied, globalRoot: null })).toEqual({
+    action: "refuse",
+    reason: "launcher_unsupported",
+    detail: `The running Operator at /real/global/node_modules/@fveracoechea/operator is not Bun's global package. Run ${install}, then run this command from that package.`,
+  });
+  expect(decideLauncher({ ...facts, ...occupied, specifier: null })).toEqual({
+    action: "refuse",
+    reason: "launcher_version_unpinned",
+    detail: `Bun's global manifest names no specifier for @fveracoechea/operator, not the exact running version. Run ${install}.`,
   });
   const elsewhere = decideLauncher({ ...facts, ...occupied, packageRoot: "/tmp/copy" });
   expect(elsewhere).toEqual({
@@ -158,6 +171,8 @@ test("only an exact JSR version or a full source commit is pinned", () => {
     "^1.2.3",
     "file:../operator",
     `file:../operator#${commit}`,
+    `git+https://github.com/fveracoechea/operator.git#${commit}a`,
+    `file:../git+operator#${commit}`,
   ])
     expect(pinnedSpecifier(loose, "1.2.3")).toBe(false);
 });

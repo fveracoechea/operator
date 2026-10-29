@@ -31,8 +31,8 @@ test.each([
   {
     name: "refusal database contents",
     file: "operator-cli/run.ts",
-    before: "console.error(usage);",
-    after: `using broken = new (await import("bun:sqlite")).Database(paths.database); broken.exec("UPDATE projects SET registered_at = 'prohibited'"); console.error(usage);`,
+    before: "invalidArguments(json);",
+    after: `using broken = new (await import("bun:sqlite")).Database(started.paths.database); broken.exec("UPDATE projects SET registered_at = 'prohibited'"); invalidArguments(json);`,
     pattern: "rejects removed or invalid command.*unknown",
     testFile: "operator-cli/run.test.ts",
   },
@@ -54,9 +54,9 @@ test.each([
   },
   {
     name: "shared startup",
-    file: "operator-cli/run.ts",
-    before: 'if (compatible.tag !== "Ok")',
-    after: "if (false)",
+    file: "operator-cli/startup.ts",
+    before: 'if (compatible.tag === "Ok") return true;',
+    after: "return true;",
     pattern: "startup refuses conflicting-hash",
     testFile: "operator-cli/run.compatibility.test.ts",
   },

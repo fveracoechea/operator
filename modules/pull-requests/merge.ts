@@ -15,6 +15,7 @@ type Outcome = { reason: string; data: object };
 const packageRoot = new URL("../../", import.meta.url);
 
 async function entryPoint() {
+  // Stryker disable next-line StringLiteral: no rule: only a built release has cli.js, and a source test cannot add one to the shared package root
   const built = Bun.fileURLToPath(new URL("cli.js", packageRoot));
   return (await Bun.file(built).exists())
     ? built
@@ -27,6 +28,7 @@ async function localHead(worktree: string) {
     args: ["-C", worktree, "rev-parse", "--verify", "HEAD"],
     timeoutMs: 10000,
   });
+  // Stryker disable next-line ConditionalExpression: equivalent: a result that did not complete has no exit code, so the exit code check alone returns null
   return result.status === "completed" && result.exitCode === 0 ? result.stdout.trim() : null;
 }
 
@@ -50,7 +52,7 @@ function startCleanup(paths: Paths, owner: Owner) {
         ],
         cwd: owner.checkout,
       }),
-    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+    qualify,
   )
     .flatMap((pid) => DeviceState.startCleanup(paths, owner.sourceId, owner.assignment, pid))
     .map(() => "started");
@@ -123,29 +125,24 @@ function guarded(
     return ErrAsync<Failure>({ reason: decision.reason, detail: decision.detail });
   if (decision.result === "verify") return verify(input, owner, number, null, null);
   // A refused or lost answer can follow a merge that landed, so every answer is verified.
-  return fromPromise(
-    async () => {
-      const answer = await mergePullRequest(owner.repository, {
-        number,
-        head: decision.head,
-        method: decision.method,
-      });
-      const refused =
-        answer.tag === "Ok"
-          ? null
-          : answer.tag === "Err"
-            ? {
-                reason:
-                  answer.error.reason === "github_failed"
-                    ? "pr_merge_refused"
-                    : answer.error.reason,
-                detail: answer.error.detail,
-              }
-            : { reason: "pr_defect", detail: String(answer.cause) };
-      return await verify(input, owner, number, decision.head, refused);
-    },
-    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
-  ).flatMap((result) => result);
+  return fromPromise(async () => {
+    const answer = await mergePullRequest(owner.repository, {
+      number,
+      head: decision.head,
+      method: decision.method,
+    });
+    const refused =
+      answer.tag === "Ok"
+        ? null
+        : answer.tag === "Err"
+          ? {
+              reason:
+                answer.error.reason === "github_failed" ? "pr_merge_refused" : answer.error.reason,
+              detail: answer.error.detail,
+            }
+          : { reason: "pr_defect", detail: String(answer.cause) };
+    return await verify(input, owner, number, decision.head, refused);
+  }, qualify).flatMap((result) => result);
 }
 
 /**
@@ -162,10 +159,9 @@ export function merge(input: Request) {
         detail: "Run operator pr associate after you open the PR. Nothing was merged or changed.",
       });
     return observePullRequest(owner.repository, number).flatMap((observed) =>
-      fromPromise(
-        () => localHead(owner.worktreePath ?? ""),
-        (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
-      ).flatMap((local) => guarded(input, owner, number, observed, local)),
+      fromPromise(() => localHead(owner.worktreePath), qualify).flatMap((local) =>
+        guarded(input, owner, number, observed, local),
+      ),
     );
   });
 }

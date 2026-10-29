@@ -71,6 +71,16 @@ test("a later round says how many earlier blockers are gone and shows only open 
   expect(replyText([clean, after], after, "u")).toBe(`Approved · ${link}`);
 });
 
+test("a blocker shows as one trimmed line, and an unknown event reads as a comment", () => {
+  const spaced = round({ event: "DISMISSED", blockers: '["  a  \\n\\t b  "]' });
+  expect(replyText([spaced], spaced, "u")).toBe(`Needs changes · 1 blocker · ${link}\n• a b`);
+  expect(roundEffects([spaced], spaced, "u")[0]).toEqual({
+    key: "reaction:speech_balloon",
+    kind: "reaction",
+    content: "speech_balloon",
+  });
+});
+
 test("the reviewed-at suffix appears only at the head-move limit", () => {
   const limited = round({
     warning: JSON.stringify({ reviewedCommit: "1234567890abcdef", head: "f".repeat(40), moves: 3 }),

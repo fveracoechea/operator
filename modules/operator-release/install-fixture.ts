@@ -6,9 +6,9 @@ import { z } from "zod";
 import { Environment } from "../environment/main.ts";
 import { ReleasePublish } from "../release-publish/main.ts";
 import { OperatorRelease } from "./main.ts";
-import { registryDependencies, registryManifest, startRegistryFake } from "./fake-registry.ts";
+import { registryDependencies, registryManifest, startRegistryFake } from "./registry-fixture.ts";
 import { registryPackage } from "./registry-install.ts";
-import { jsrSchema, releaseSchema } from "./test-schemas.ts";
+import { jsrSchema, releaseSchema } from "./schemas-fixture.ts";
 
 export const sourceRoot = new URL("../../", import.meta.url).pathname.replace(/\/$/, "");
 export { installedPackage as launcherPackage, registryPackage } from "./registry-install.ts";

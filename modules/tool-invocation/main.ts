@@ -42,7 +42,8 @@ export const ToolInvocation = {
     const child = Bun.spawn([path, ...input.args], {
       cwd: input.cwd,
       env: environment,
-      stdin: input.input === undefined ? "ignore" : new TextEncoder().encode(input.input),
+      // Bun gives an empty input the null device, as it does for "ignore".
+      stdin: new TextEncoder().encode(input.input),
       stdout: "pipe",
       stderr: "pipe",
       timeout: input.timeoutMs,

@@ -75,3 +75,23 @@ test("other ignored content, a linked folder, or a folder named like one is unkn
     unknown: [".cache/", "node_modules", "my_node_modules/", "dist/node_modules/", "build.log"],
   });
 });
+
+test("a tracked binary Bun lockfile also made preparation install", () => {
+  expect(
+    classifyIgnored({
+      ignored: ["node_modules/"],
+      tracked: new Set(["bun.lockb", "package.json"]),
+      copiedUnchanged: new Set(),
+    }),
+  ).toEqual({ generated: ["node_modules/"], unknown: [] });
+});
+
+test("an entry outside every dependency folder never borrows a manifest", () => {
+  expect(
+    classifyIgnored({
+      ignored: [".cache/"],
+      tracked: new Set(["bun.lock", "undefinedpackage.json", "package.json"]),
+      copiedUnchanged: new Set(),
+    }),
+  ).toEqual({ generated: [], unknown: [".cache/"] });
+});

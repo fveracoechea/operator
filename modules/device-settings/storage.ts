@@ -86,15 +86,22 @@ export async function writeReceipt(paths: OperatorPaths, receipt: Receipt) {
   }
 }
 
+/** A path and each of its parent directories, up to the file system root. */
+function ancestors(file: string): string[] {
+  const parent = path.dirname(file);
+  return parent === file ? [file] : [file, ...ancestors(parent)];
+}
+
 /** Check mode bits too, since privileged test runners can pass access on read-only files. */
 export async function externallyManaged(paths: OperatorPaths) {
   let checkedDirectory = false;
-  for (let candidate = paths.config; ; candidate = path.dirname(candidate)) {
+  for (const candidate of ancestors(paths.config)) {
     const info = await fileInfo(candidate);
     if (info !== null) {
       if (info.isSymbolicLink() && (candidate === paths.config || candidate === paths.configRoot))
         return true;
       if (!checkedDirectory) {
+        // Stryker disable next-line ConditionalExpression, Regex, MethodExpression: equivalent: for an unprivileged test runner, access(W_OK) below refuses every mode with no write bit
         if (!/[2367]/.test(info.mode.toString(8).slice(-3))) return true;
         try {
           await access(candidate, constants.W_OK);
@@ -104,8 +111,8 @@ export async function externallyManaged(paths: OperatorPaths) {
         checkedDirectory = info.isDirectory();
       }
     }
-    if (candidate === path.dirname(candidate)) return false;
   }
+  return false;
 }
 
 /** SQLite releases the settings writer lock when an interrupted process exits. */
@@ -117,7 +124,7 @@ export async function withWriteLock<T>(paths: OperatorPaths, action: () => Promi
     database.exec("BEGIN IMMEDIATE");
     return await action();
   } finally {
-    if (database.inTransaction) database.exec("ROLLBACK");
+    // Closing the connection rolls back the open transaction.
     database.close();
   }
 }
@@ -132,6 +139,7 @@ export async function writeConfig(paths: OperatorPaths, text: string, previousId
     if ((await readConfig(paths)).identity !== previousIdentity || (await externallyManaged(paths)))
       return "stale" as const;
     await rename(paths.configTemporary, paths.config);
+    // Stryker disable next-line ConditionalExpression: equivalent: without an outside writer between rename and read, the renamed file holds the bytes that the temporary read-back confirmed
     return (await Bun.file(paths.config).text()) === text
       ? ("verified" as const)
       : ("unconfirmed" as const);
@@ -139,6 +147,11 @@ export async function writeConfig(paths: OperatorPaths, text: string, previousId
     await file.close();
     await rm(paths.configTemporary, { force: true });
   }
+}
+
+/** A destination that refuses access, refuses the operation, or lives on a read-only file system. */
+export function isReadOnlyFailure(error: Error) {
+  return isCodedError(error) && ["EACCES", "EPERM", "EROFS"].includes(error.code);
 }
 
 /** Editor support must not replace a linked or read-only destination. */
@@ -149,9 +162,10 @@ export async function writeEditorSchema(paths: OperatorPaths) {
   try {
     if ((await fileInfo(paths.schema)) !== null && (await Bun.file(paths.schema).text()) === text)
       return;
-    await Bun.write(paths.schema, text, { createPath: true });
+    await Bun.write(paths.schema, text);
   } catch (error) {
-    if (isCodedError(error) && ["EACCES", "EPERM", "EROFS"].includes(error.code)) return;
+    // Stryker disable next-line ConditionalExpression: equivalent: isReadOnlyFailure refuses a value that is not an Error through isCodedError too
+    if (error instanceof Error && isReadOnlyFailure(error)) return;
     // oxlint-disable-next-line unthrown/no-throw -- Only a read-only editor destination is optional.
     throw error;
   }

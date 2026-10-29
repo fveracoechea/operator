@@ -1,7 +1,20 @@
 import { expect, test } from "bun:test";
+import path from "node:path";
 import { lintProject } from "../check.ts";
+import { ruleProbe } from "../rule-probe-fixture.ts";
 
 const check = lintProject();
+const probe = ruleProbe();
+const imports = `import { readsValidatorSubject, validatorSubject } from ${JSON.stringify(path.join(import.meta.dir, "validator-subject.ts"))};`;
+const subjects = `(() => {
+  const subject = (node) => report(node, validatorSubject(context.sourceCode, node)?.name ?? null);
+  return {
+    ArrowFunctionExpression: subject,
+    FunctionDeclaration: subject,
+    FunctionExpression: subject,
+    TSDeclareFunction: subject,
+  };
+})()`;
 const boundaryRules = new Set([
   "anti-slop(no-unknown-parameters)",
   "anti-slop(no-runtime-typeof)",
@@ -182,4 +195,96 @@ test("an enclosing type parameter, a broad dictionary, or a broad intersection g
     "14 anti-slop(no-unknown-parameters)",
     "15 anti-slop(no-runtime-typeof)",
   ]);
+});
+
+test("a validator subject needs a specific, non-generic target and an unknown parameter", async () => {
+  expect(
+    await probe({
+      imports,
+      visitor: subjects,
+      code: [
+        "function isText(value: unknown): value is string { return true; }",
+        "function isAny(value: unknown): value is any { return true; }",
+        "function isObjectType(value: unknown): value is Object { return true; }",
+        "function isRecordUnknown(value: unknown): value is Record<string, unknown> { return true; }",
+        "function isRecordText(value: unknown): value is Record<string, string> { return true; }",
+        "function isMap(value: unknown): value is Map<string, unknown> { return true; }",
+        "function isBareRecord(value: unknown): value is Record { return true; }",
+        "function isQualified(value: unknown): value is Space.Object { return true; }",
+        "function isEither(value: unknown): value is string | unknown { return true; }",
+        "function isTextOrCount(value: unknown): value is string | number { return true; }",
+        "function isShaped(value: unknown): value is { id: string } & object { return true; }",
+        "function isDate(value: unknown): value is Date { return true; }",
+        "function isGeneric<T>(value: unknown): value is string { return true; }",
+        "function isSecond(other: unknown, value: unknown): value is string { return true; }",
+        "function isBare(value): value is string { return true; }",
+        "declare function isDeclared(value: unknown): value is string;",
+        "const isArrow = (value: unknown): value is string => true;",
+      ].join("\n"),
+    }),
+  ).toEqual([
+    '1 "value"',
+    "2 null",
+    "3 null",
+    "4 null",
+    '5 "value"',
+    '6 "value"',
+    '7 "value"',
+    '8 "value"',
+    "9 null",
+    '10 "value"',
+    '11 "value"',
+    '12 "value"',
+    "13 null",
+    '14 "value"',
+    "15 null",
+    "16 null",
+    '17 "value"',
+  ]);
+});
+
+test("a local type named like a global broad type is a specific target", async () => {
+  expect(
+    await probe({
+      imports,
+      visitor: subjects,
+      code: [
+        "interface Object { id: string }",
+        "function isLocal(value: unknown): value is Object { return true; }",
+      ].join("\n"),
+    }),
+  ).toEqual(['2 "value"']);
+});
+
+test("only a type parameter used inside the target makes a nested predicate generic", async () => {
+  expect(
+    await probe({
+      imports,
+      visitor: subjects,
+      code: [
+        "function outerUse<T>() { return function inner(value: unknown): value is T { return true; }; }",
+        "function outerBefore<T>(seed: T) { return function inner(value: unknown): value is string { return true; }; }",
+        "function outerBoth<T>(seed: T) { return function inner(value: unknown): value is T { return true; }; }",
+        "function outerAfter<T>() { const inner = function (value: unknown): value is string { return true; }; let later: T; return [inner, later]; }",
+      ].join("\n"),
+    }),
+  ).toEqual(["1 null", "1 null", "2 null", '2 "value"', "3 null", "3 null", "4 null", '4 "value"']);
+});
+
+test("a read of the subject binding, directly or through a member chain, is the subject", async () => {
+  expect(
+    await probe({
+      imports,
+      visitor:
+        '{ UnaryExpression(node) { if (node.operator === "typeof") report(node, readsValidatorSubject(context.sourceCode, node.argument)); } }',
+      code: [
+        'function isNamed(value: unknown): value is Named { return typeof value?.name === "string"; }',
+        'function isRedeclared(value: unknown): value is string { var value; return typeof value === "string"; }',
+        'function isLost(value: unknown): value is string { return typeof undeclared === "string"; }',
+        'function isSelf(value: unknown): value is string { return typeof this === "object"; }',
+        'function plain(value: unknown) { return typeof value === "string"; }',
+        'const outside = typeof globalThis === "object";',
+      ].join("\n"),
+    }),
+  ).toEqual(["1 true", "2 true", "3 false", "4 false", "5 false", "6 false"]);
 });

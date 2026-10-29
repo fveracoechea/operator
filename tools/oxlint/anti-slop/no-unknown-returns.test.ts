@@ -30,7 +30,20 @@ test("accepts named results, unknown inside a container, and shadowing type para
       "export function read(text: string): Draft { return { id: text }; }",
       "export function later(): Later<Draft> { return Promise.resolve({ id: '' }); }",
       "export function list(): string[] { return []; }",
+      "export function set(): Set<unknown> { return new Set(); }",
+      "export function bare() { return 1; }",
+      "export function untyped(): Promise { return Promise.resolve(1); }",
+      "export function qualified(): Space.Promise<unknown> { return null; }",
     ].join("\n"),
   );
   expect(result.findings.filter((finding) => finding.endsWith(code))).toEqual([]);
+});
+
+test("names the fix topic", async () => {
+  const result = await check(
+    "export function read(text: string): unknown { return JSON.parse(text); }",
+  );
+  expect(result.stdout).toContain(
+    "This function gives `unknown` to its caller. Parse the value at its boundary and return a named domain type. See lint-fixes/parse-at-the-boundary.md.",
+  );
 });

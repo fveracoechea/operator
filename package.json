@@ -11,9 +11,9 @@
     "./cli": "./cli.ts"
   },
   "scripts": {
-    "format": "bunx --bun --no-install oxfmt cli.ts modules lib scripts tools/oxlint package.json tsconfig.json .oxfmtrc.json .oxlintrc.json .github",
-    "format:check": "bunx --bun --no-install oxfmt --check cli.ts modules lib scripts tools/oxlint package.json tsconfig.json .oxfmtrc.json .oxlintrc.json .github",
-    "lint": "bunx --bun --no-install oxlint --deny-warnings cli.ts modules lib scripts tools/oxlint",
+    "format": "bunx --bun --no-install oxfmt cli.ts cli.test.ts modules lib scripts tools/oxlint package.json tsconfig.json .oxfmtrc.json .oxlintrc.json .github",
+    "format:check": "bunx --bun --no-install oxfmt --check cli.ts cli.test.ts modules lib scripts tools/oxlint package.json tsconfig.json .oxfmtrc.json .oxlintrc.json .github",
+    "lint": "bunx --bun --no-install oxlint --deny-warnings cli.ts cli.test.ts modules lib scripts tools/oxlint",
     "lint:modules": "bun scripts/check-module-shape.ts",
     "lint:skills": "bun scripts/check-skill-shape.ts",
     "mutate": "bun scripts/mutate.ts",

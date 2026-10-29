@@ -13,10 +13,11 @@ function isRuntimeFunction(node: ESTree.Node): node is RuntimeFunction {
 }
 
 function isGlobalType(source: SourceCode, type: ESTree.TSTypeReference, name: string): boolean {
+  // A global has no definition: a built-in value such as Object resolves to a binding without one,
+  // and a library type such as Record resolves to none. A qualified name never has a global's text.
   return (
-    type.typeName.type === "Identifier" &&
-    type.typeName.name === name &&
-    resolveArrayBinding(source, type.typeName) === null
+    source.getText(type.typeName) === name &&
+    !resolveArrayBinding(source, type.typeName)?.defs.length
   );
 }
 
@@ -26,9 +27,9 @@ function isBroadTarget(source: SourceCode, type: ESTree.TSType): boolean {
     if (["TSAnyKeyword", "TSUnknownKeyword", "TSObjectKeyword"].includes(resolved.type))
       return true;
     if (resolved.type === "TSTypeLiteral") return resolved.members.length === 0;
-    if (resolved.type === "TSParenthesizedType") return matches(resolved.typeAnnotation);
     if (resolved.type === "TSUnionType") return resolved.types.some(matches);
     if (resolved.type === "TSIntersectionType") return resolved.types.every(matches);
+    // Stryker disable next-line ConditionalExpression: equivalent: another type has no type name, so the name checks below refuse it; this check narrows the type
     if (resolved.type !== "TSTypeReference") return false;
     // A dictionary of unknown values is an unparsed payload under another name.
     const values = resolved.typeArguments?.params[1];
@@ -56,6 +57,7 @@ function predicateSubjectName(source: SourceCode, node: RuntimeFunction): string
   if (node.typeParameters) return null;
   const predicate = node.returnType?.typeAnnotation;
   if (predicate?.type !== "TSTypePredicate" || predicate.asserts) return null;
+  // Stryker disable next-line ConditionalExpression, LogicalOperator: equivalent: a `this` predicate names no parameter and a non-asserts predicate always has a type; these checks narrow the types
   if (predicate.parameterName.type !== "Identifier" || !predicate.typeAnnotation) return null;
   const target = predicate.typeAnnotation.typeAnnotation;
   return isBroadTarget(source, target) || usesTypeParameter(source, node, target)
@@ -71,11 +73,13 @@ export function validatorSubject(
   source: SourceCode,
   node: ESTree.Node,
 ): ESTree.BindingIdentifier | null {
-  const name = isRuntimeFunction(node) ? predicateSubjectName(source, node) : null;
-  if (name === null || !isRuntimeFunction(node)) return null;
+  if (!isRuntimeFunction(node)) return null;
+  // A null name matches no parameter.
+  const name = predicateSubjectName(source, node);
   for (const parameter of node.params) {
+    // Stryker disable next-line ConditionalExpression: equivalent: only an identifier parameter has a name, so the name check alone refuses the others; this check narrows the type
+    if (parameter.type !== "Identifier") continue;
     if (
-      parameter.type === "Identifier" &&
       parameter.name === name &&
       parameter.typeAnnotation?.typeAnnotation.type === "TSUnknownKeyword"
     )
@@ -100,8 +104,8 @@ function nearestRuntimeFunction(node: ESTree.Node): RuntimeFunction | null {
 export function readsValidatorSubject(source: SourceCode, expression: ESTree.Node): boolean {
   const owner = nearestRuntimeFunction(expression);
   const subject = owner && validatorSubject(source, owner);
+  // Without a subject, or with a root that is no identifier, no definition matches.
   const root = memberRoot(expression);
-  if (!subject || root.type !== "Identifier") return false;
   // A parameter definition names its binding identifier, so an alias or a shadowing binding never matches.
   return resolveArrayBinding(source, root)?.defs.some((def) => def.name === subject) ?? false;
 }

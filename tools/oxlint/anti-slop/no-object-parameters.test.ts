@@ -26,9 +26,17 @@ test("accepts named owner types and records", async () => {
       "type Draft = { id: string };",
       "type Anything = object;",
       "export function id(draft: Draft) { return draft.id; }",
+      "export const loose = function (value) { return value; };",
       "export function same<Anything>(value: Anything) { return value; }",
       "export function count(values: Record<string, number>) { return Object.keys(values).length; }",
     ].join("\n"),
   );
   expect(result.findings.filter((finding) => finding.endsWith(code))).toEqual([]);
+});
+
+test("names the parameter and the fix topic", async () => {
+  const result = await check("export function keys(value: object) { return Object.keys(value); }");
+  expect(result.stdout).toContain(
+    "Parameter `value` uses the broad `object` type. Accept a named owner type, and parse external input at its boundary before the call. See lint-fixes/parse-at-the-boundary.md.",
+  );
 });

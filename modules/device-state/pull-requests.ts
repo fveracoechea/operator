@@ -1,4 +1,4 @@
-import { and, desc, eq, isNotNull } from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull } from "drizzle-orm";
 import type { Database } from "bun:sqlite";
 import type { drizzle } from "drizzle-orm/bun-sqlite";
 import { Err, Ok, type Result } from "unthrown";
@@ -78,45 +78,43 @@ export function worktreeOwners(client: Database) {
  * assignment. A replaced or interrupted owner cannot change the assignment or its progress.
  */
 function activeOwner(db: ReturnType<typeof drizzle>, launchId: string) {
-  const launch = db.select().from(launches).where(eq(launches.id, launchId)).get();
-  const latest =
-    launch === undefined
+  const owner = db
+    .select({ launch: launches, source: sources, assignment: assignments })
+    .from(launches)
+    .innerJoin(sources, eq(sources.id, launches.sourceId))
+    .innerJoin(
+      assignments,
+      and(eq(assignments.sourceId, launches.sourceId), eq(assignments.key, launches.assignment)),
+    )
+    .where(eq(launches.id, launchId))
+    .get();
+  const newer =
+    owner === undefined
       ? undefined
       : db
           .select({ id: launches.id })
           .from(launches)
           .where(
-            and(eq(launches.sourceId, launch.sourceId), eq(launches.assignment, launch.assignment)),
-          )
-          .orderBy(desc(launches.attempt))
-          .get();
-  const source =
-    launch === undefined
-      ? undefined
-      : db.select().from(sources).where(eq(sources.id, launch.sourceId)).get();
-  const assignment =
-    launch === undefined
-      ? undefined
-      : db
-          .select()
-          .from(assignments)
-          .where(
-            and(eq(assignments.sourceId, launch.sourceId), eq(assignments.key, launch.assignment)),
+            and(
+              eq(launches.sourceId, owner.launch.sourceId),
+              eq(launches.assignment, owner.launch.assignment),
+              gt(launches.attempt, owner.launch.attempt),
+            ),
           )
           .get();
   if (
-    launch?.state !== "running" ||
-    latest?.id !== launch.id ||
-    source?.state !== "open" ||
-    assignment?.completion !== "pr" ||
-    !["running", "pr-open"].includes(assignment.state)
+    owner?.launch.state !== "running" ||
+    newer !== undefined ||
+    owner.source.state !== "open" ||
+    owner.assignment.completion !== "pr" ||
+    !["running", "pr-open"].includes(owner.assignment.state)
   )
     return Err<PullRequestFailure>({
       reason: "pr_owner_inactive",
       detail:
         "This worktree no longer belongs to the running owner of an open PR assignment. Nothing was changed.",
     });
-  return Ok({ launch, source, assignment });
+  return Ok(owner);
 }
 
 function current(db: ReturnType<typeof drizzle>, sourceId: string, assignment: string) {
@@ -217,9 +215,8 @@ const relayLease = z.object({
 function relayHeld(row: PullRequestRow) {
   if (row.relay === null) return false;
   const { ownerPid, leaseAt } = relayLease.parse(JSON.parse(row.relay));
-  return (
-    ownerPid !== null && ownerPid !== process.pid && !ownerGone({ ownerPid, leaseAt }, Date.now())
-  );
+  // A claim with no owner is gone, so it holds nothing.
+  return ownerPid !== process.pid && !ownerGone({ ownerPid, leaseAt }, Date.now());
 }
 
 /**
@@ -282,6 +279,7 @@ export function recordPullRequestWait(
 
 /** Renew the lease of a wait that this process runs. */
 export function renewPullRequestWait(client: Database, sourceId: string, assignment: string) {
+  // Stryker disable next-line BooleanLiteral: equivalent: every path writes, so a deferred begin reaches the same writer reservation before any result
   return transaction(client, true, () =>
     checkHistory(client).map((db) => {
       db.update(pullRequests)
@@ -379,6 +377,7 @@ export function recordPullRequestMerge(
 
 /** Renew the claim of a relay that this process runs, so no other wait takes over its Git steps. */
 export function renewPullRequestRelay(client: Database, sourceId: string, assignment: string) {
+  // Stryker disable next-line BooleanLiteral: equivalent: every path writes, so a deferred begin reaches the same writer reservation before any result
   return transaction(client, true, () =>
     checkHistory(client).map(() => {
       client

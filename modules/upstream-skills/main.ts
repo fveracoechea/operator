@@ -112,7 +112,7 @@ async function install(hosts: Host[]) {
       data: { installerVersion, commit, hosts, skills, replacementPolicy },
     };
   } finally {
-    await rm(directory, { recursive: true, force: true });
+    await rm(directory, { recursive: true });
   }
 }
 

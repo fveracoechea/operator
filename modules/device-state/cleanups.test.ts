@@ -8,6 +8,7 @@ import { registerProject, removeProject } from "./projects.ts";
 import { reserveLaunch, updateLaunch } from "./launches.ts";
 import { associatePullRequest, recordPullRequestMerge } from "./pull-requests.ts";
 import { advanceCleanup, claimCleanup, renewCleanup, startCleanup } from "./cleanups.ts";
+import { busy, reservedCopy } from "./state-fixture.ts";
 
 function fixture(keys = ["change", "other"]) {
   const db = new Database(":memory:");
@@ -209,4 +210,112 @@ test("the merge records its cleanup process, which alone may claim it while it r
   } finally {
     other.kill();
   }
+});
+
+function otherCleanup(db: Database) {
+  db.exec(
+    "INSERT INTO cleanups (source_id, assignment, launch_id, step, state, updated_at) VALUES ('s1', 'other', 'l1', 'remote_branch', 'pending', 'then')",
+  );
+}
+function otherRow(db: Database) {
+  return db
+    .query(
+      "SELECT step, state, owner_pid, lease_at, updated_at FROM cleanups WHERE assignment = 'other'",
+    )
+    .get();
+}
+const untouched = {
+  step: "remote_branch",
+  state: "pending",
+  owner_pid: null,
+  lease_at: null,
+  updated_at: "then",
+};
+
+test("each cleanup operation changes only its own assignment", () => {
+  using db = fixture();
+  associate(db);
+  recordPullRequestMerge(db, "l1", merge, sourceState);
+  otherCleanup(db);
+  startCleanup(db, "s1", "change", process.pid);
+  expect(otherRow(db)).toEqual(untouched);
+  expect(claimCleanup(db, "owner/one", "s1", "change").tag).toBe("Ok");
+  expect(otherRow(db)).toEqual(untouched);
+  db.query("UPDATE cleanups SET owner_pid = ? WHERE assignment = 'other'").run(process.pid);
+  renewCleanup(db, "s1", "change");
+  advanceCleanup(db, "s1", "change", {
+    step: "pane",
+    state: "pending",
+    reason: null,
+    detail: null,
+    release: false,
+  });
+  expect(otherRow(db)).toEqual({ ...untouched, owner_pid: process.pid });
+  // A step that keeps its claim keeps the owner and the lease.
+  expect(
+    db
+      .query(
+        "SELECT step, owner_pid, lease_at IS NOT NULL AS leased FROM cleanups WHERE assignment = 'change'",
+      )
+      .get(),
+  ).toEqual({ step: "pane", owner_pid: process.pid, leased: 1 });
+});
+
+test("a cleanup refusal names the missing record, and a finished cleanup is returned unclaimed", () => {
+  using db = fixture();
+  associate(db);
+  recordPullRequestMerge(db, "l1", merge, sourceState);
+  expect(claimCleanup(db, "owner/other", "s1", "change")).toMatchObject({
+    tag: "Err",
+    error: { reason: "source_not_found", detail: "The source does not exist in this project." },
+  });
+  const missing = {
+    tag: "Err",
+    error: {
+      reason: "cleanup_not_found",
+      detail:
+        "Assignment change has no cleanup. Only a verified merge records one. Nothing was changed.",
+    },
+  };
+  const other = Bun.spawn([process.execPath, "-e", "await Bun.sleep(5000)"]);
+  try {
+    db.query("UPDATE cleanups SET owner_pid = ?, lease_at = ?").run(
+      other.pid,
+      new Date().toISOString(),
+    );
+    expect(claimCleanup(db, "owner/one", "s1", "change")).toMatchObject({
+      tag: "Err",
+      error: {
+        reason: "cleanup_running",
+        detail: `Process ${other.pid} is still cleaning up assignment change. Read operator next later. Nothing was changed.`,
+      },
+    });
+    db.exec("UPDATE cleanups SET step = NULL, state = 'done'");
+    expect(claimCleanup(db, "owner/one", "s1", "change")).toMatchObject({
+      tag: "Ok",
+      value: { cleanup: { state: "done", ownerPid: other.pid }, checkout: "/one" },
+    });
+    expect(db.query("SELECT owner_pid FROM cleanups").get()).toEqual({ owner_pid: other.pid });
+  } finally {
+    other.kill();
+  }
+  for (const remove of [
+    "DELETE FROM projects",
+    "DELETE FROM launches",
+    "DELETE FROM pull_requests",
+    "DELETE FROM cleanups",
+  ]) {
+    using copy = Database.deserialize(db.serialize());
+    copy.exec("PRAGMA foreign_keys = OFF");
+    copy.exec(remove);
+    expect(claimCleanup(copy, "owner/one", "s1", "change"), remove).toMatchObject(missing);
+  }
+});
+
+test("a claim reserves the writer before it reads, so even a refusal waits for another writer", () => {
+  using db = fixture();
+  associate(db);
+  recordPullRequestMerge(db, "l1", merge, sourceState);
+  using reserved = reservedCopy(db);
+  expect(claimCleanup(reserved.subject, "owner/other", "s1", "change")).toMatchObject(busy);
 });

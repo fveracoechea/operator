@@ -1,6 +1,6 @@
 import { Err, Ok, type Result } from "unthrown";
 import type { AssignmentState } from "./assignment-machine.ts";
-import { decideSource } from "./source-machine.ts";
+import { complete } from "./source-machine.ts";
 
 export type ReportCommand = "submit" | "resume" | "accept" | "return" | "cleanup";
 type Pane = { socket: string | null; paneId: string | null };
@@ -69,14 +69,10 @@ function accept(facts: Facts): Result<ReportTransition, Refusal> {
       "report_not_submitted",
       `${assignment.key} has no submitted report that awaits a decision.`,
     );
-  const assignments = facts.assignments.map((row): AssignmentState =>
-    row.key === assignment.key && row.completion === "report"
-      ? { ...row, state: "completed" }
-      : row,
-  );
+  // The accepted assignment becomes complete, so the source finishes when all other work is.
   return Ok({
     assignmentState: "completed",
-    sourceFinished: decideSource({ state: "open", assignments }) === "finished",
+    sourceFinished: facts.assignments.filter((row) => row.key !== assignment.key).every(complete),
     finishLaunch: launch?.state === "running" ? launch.id : undefined,
     report: { update: latest.number, decision: "accepted" },
     cleanup: "pending",

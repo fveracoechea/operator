@@ -10,3 +10,10 @@ test("rejects assertion chains and accepts a single const assertion", async () =
   expect(valid.codes).toEqual([]);
   expect(valid.exitCode).toBe(0);
 });
+
+test("the finding names the fix topic", async () => {
+  const invalid = await check("export const value = (null as unknown) as { id: string };");
+  expect(invalid.stdout).toContain(
+    "This assertion chain discards type evidence. Keep the original precise type, or parse untrusted input at its boundary before narrowing it. See lint-fixes/type-assertions.md.",
+  );
+});

@@ -154,3 +154,144 @@ test("thread replies name their outcome, and the round's commit can be older tha
     error: { reason: "review_head_moved" },
   });
 });
+
+function issues(change: Record<string, unknown>) {
+  const parsed = draftSchema.safeParse({ reviewedCommit: head, summary: "S", ...change });
+  return parsed.success ? [] : parsed.error.issues.map((issue) => issue.message);
+}
+
+test("a draft defaults to no findings, trims its text, and keeps one spelling of each path", () => {
+  expect(draftSchema.parse({ reviewedCommit: head, summary: "  S  " })).toEqual({
+    reviewedCommit: head,
+    summary: "S",
+    blockers: [],
+    niceToHaves: [],
+    threadReplies: [],
+    checks: [],
+    noise: [],
+  });
+  const paths = ["src//a.ts", "a./b.ts", "./", "dir/"].map(
+    (path) => draft({ niceToHaves: [{ detail: "D.", path, line: 1 }] }).niceToHaves[0]?.path,
+  );
+  expect(paths).toEqual(["src/a.ts", "a./b.ts", "", "dir/"]);
+  expect(
+    draft({
+      blockers: ["opinions", "project-skill", "architecture"].map((source) => ({
+        short: "one  two three four five six",
+        detail: "D.",
+        breach: { source, rule: "R." },
+      })),
+      checks: ["test", "lint", "typecheck", "guard-break", "other"].map((kind) => ({
+        kind,
+        command: "c",
+        exitCode: 1,
+      })),
+    }).blockers.map((blocker) => blocker.breach?.source),
+  ).toEqual(["opinions", "project-skill", "architecture"]);
+});
+
+test("each invalid draft field names its rule", () => {
+  const blocker = { short: "Short", detail: "D." };
+  expect(issues({ niceToHaves: [{ detail: "D.", path: "/abs", line: 1 }] })).toEqual([
+    "Give a path relative to the repository root, without ..",
+  ]);
+  expect(issues({ niceToHaves: [{ detail: "D.", path: "a/../b", line: 1 }] })).toEqual([
+    "Give a path relative to the repository root, without ..",
+  ]);
+  expect(issues({ blockers: [{ ...blocker, short: "a b c d e f g" }] })).toEqual([
+    "A blocker's short description has at most six words.",
+  ]);
+  expect(issues({ blockers: [{ ...blocker, breach: {} }] })).toHaveLength(2);
+  expect(issues({ reviewedCommit: `x${head}` })).toEqual(["Use the full 40-character commit."]);
+  expect(issues({ reviewedCommit: `${head}x` })).toEqual(["Use the full 40-character commit."]);
+  expect(issues({ summary: "a\nb" })).toEqual(["Write the summary on one line."]);
+  expect(issues({ niceToHaves: [{ detail: "D.", line: 1 }] })).toEqual([
+    "Give a finding both path and line, or neither.",
+  ]);
+  expect(
+    draftSchema.safeParse({
+      reviewedCommit: head,
+      summary: "S",
+      blockers: [{ ...blocker, path: "a.ts" }],
+    }).error?.issues,
+  ).toMatchObject([{ code: "custom" }]);
+});
+
+function refusal(change: Record<string, unknown>, facts: Partial<PullRequestFacts> = {}) {
+  const checked = checkDraft(draft(change), pr(facts));
+  return checked.tag === "Err" ? checked.error : null;
+}
+
+test("each refusal states its cause", () => {
+  const other = "b".repeat(40);
+  expect(refusal({ reviewedCommit: other })).toEqual({
+    reason: "review_head_moved",
+    detail: `The draft reviews ${other}, but this round reviews ${head} and the PR head is ${head}. A stale draft is not posted. Nothing was posted.`,
+  });
+  expect(refusal({ checks: [{ kind: "guard-break", command: "x", exitCode: 0 }] })).toEqual({
+    reason: "review_draft_invalid",
+    detail: "A deliberate guard break that exited 0 did not prove its guard. Nothing was posted.",
+  });
+  expect(refusal({ blockers: [{ short: "S", detail: "D.", path: "b.ts", line: 1 }] })).toEqual({
+    reason: "review_draft_invalid",
+    detail: "The finding at b.ts is not on a file that this PR changes. Nothing was posted.",
+  });
+  const noise = [{ check: "lint", files: ["x.ts"], reason: "R." }];
+  expect(refusal({ noise }, { filesComplete: false })).toEqual({
+    reason: "review_noise_unverifiable",
+    detail:
+      "This PR changes more files than one read returns, so a noise claim cannot be checked. Nothing was posted.",
+  });
+  expect(
+    refusal({ noise }, { requiredChecks: [{ name: "unit", state: "failing", url: null }] }),
+  ).toEqual({
+    reason: "review_noise_unknown_check",
+    detail: "No failing required check is named lint. Nothing was posted.",
+  });
+  expect(
+    refusal(
+      { noise: [{ check: "lint", files: ["src/a.ts"], reason: "R." }] },
+      { requiredChecks: [{ name: "lint", state: "failing", url: null }] },
+    ),
+  ).toEqual({
+    reason: "review_noise_changed_file",
+    detail:
+      "The noise claim cites src/a.ts, which this PR changes. A failure in a changed file is a blocker. Nothing was posted.",
+  });
+  expect(
+    refusal(
+      { threadReplies: [{ threadId: "X", kind: "explain", body: "B." }] },
+      { threads: [thread()] },
+    ),
+  ).toEqual({
+    reason: "review_thread_unknown",
+    detail:
+      "Thread X is not a review thread that this account started on the PR. Nothing was posted.",
+  });
+  const twice = [
+    { threadId: "T", kind: "acknowledge", body: "B." },
+    { threadId: "T", kind: "explain", body: "C." },
+  ];
+  expect(refusal({ threadReplies: twice }, { threads: [thread()] })).toEqual({
+    reason: "review_draft_invalid",
+    detail: "Reply to each thread at most once. Nothing was posted.",
+  });
+});
+
+test("reported checks, findings with no location, and replies among other threads are accepted", () => {
+  expect(
+    refusal({
+      checks: [
+        { kind: "guard-break", command: "x", exitCode: 1 },
+        { kind: "test", command: "y", exitCode: 0 },
+      ],
+      blockers: [{ short: "S", detail: "D." }],
+    }),
+  ).toBeNull();
+  expect(
+    refusal(
+      { threadReplies: [{ threadId: "T", kind: "explain", body: "B." }] },
+      { threads: [thread(), thread({ id: "U", startedByViewer: false })] },
+    ),
+  ).toBeNull();
+});

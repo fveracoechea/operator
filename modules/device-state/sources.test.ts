@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-// Bun has no temporary-directory, symlink, or recursive removal API.
-import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
+// Bun has no temporary-directory, symlink, mode, or recursive removal API.
+import { chmod, mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Err, Ok } from "unthrown";
@@ -12,6 +12,10 @@ import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { migrationsFolder } from "./database.ts";
 import { registerProject } from "./projects.ts";
 import { registerSource, readSources, resetSource, pruneSource } from "./sources.ts";
+import { busy, insertRow, reservedCopy } from "./state-fixture.ts";
+
+// Root ignores file modes, so a test of a denied access cannot run as root.
+const asRoot = process.getuid?.() === 0;
 
 let root = "";
 afterEach(async () => {
@@ -203,4 +207,301 @@ test("prune deletes files and records together, and a refused path keeps both", 
   expect(db.query("SELECT repository FROM projects").all()).toEqual([
     { repository: project.repository },
   ]);
+});
+
+function stopped() {
+  return Bun.spawnSync([process.execPath, "--version"]).pid;
+}
+
+test("refusals name the recorded fact, and reads scope by source", () => {
+  using db = endedDatabase();
+  for (const repository of ["owner/unregistered", project.repository])
+    expect(registerSource(db, "/other", { ...source, id: "x", repository }, [])).toMatchObject({
+      tag: "Err",
+      error: {
+        reason: "controller_mismatch",
+        detail: "The controlling checkout changed before registration. Read the project again.",
+      },
+    });
+  expect(registerSource(db, project.checkout, { ...source, id: "two" }, [])).toMatchObject({
+    tag: "Err",
+    error: { reason: "source_parent_open", detail: "Source one is still open for APP-1." },
+  });
+  registerSource(db, project.checkout, { ...source, id: "two", trackerKey: "APP-2" }, []);
+  expect(
+    readSources(db, project.repository)
+      .getOrNull()
+      ?.map((row) => row.source.id),
+  ).toEqual(["one", "two"]);
+  expect(
+    readSources(db, project.repository, "two")
+      .getOrNull()
+      ?.map((row) => row.source.id),
+  ).toEqual(["two"]);
+  expect(readSources(db, project.repository, "three")).toMatchObject({
+    tag: "Err",
+    error: { reason: "source_not_found", detail: "The source does not exist in this project." },
+  });
+  for (const changed of [
+    { ...target, checkout: "/other" },
+    { ...target, repository: "other/repo" },
+  ])
+    expect(resetSource(db, changed, () => Ok({ abandon: [] }))).toMatchObject({
+      tag: "Err",
+      error: {
+        reason: "controller_mismatch",
+        detail: "The controlling checkout changed. Read the project again. Nothing changed.",
+      },
+    });
+  expect(
+    resetSource(db, { ...target, sourceId: "three" }, () => Ok({ abandon: [] })),
+  ).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "source_not_found",
+      detail: "The source does not exist in this project. Nothing changed.",
+    },
+  });
+});
+
+test("a read marks abandoned starts, stopped PR waits, and running cleanups", () => {
+  using db = endedDatabase();
+  const lease = new Date().toISOString();
+  const gone = stopped();
+  for (const [id, assignment, state, pid] of [
+    ["l1", "open", "starting", gone],
+    ["l2", "open", "starting", process.pid],
+    ["l3", "done", "running", gone],
+  ] as const)
+    insertRow(db, "launches", {
+      id,
+      source_id: "one",
+      assignment,
+      attempt: Number(id.slice(1)),
+      state,
+      owner_pid: pid,
+      lease_at: lease,
+    });
+  insertRow(db, "pull_requests", {
+    source_id: "one",
+    assignment: "open",
+    wait_state: "waiting",
+    wait_owner_pid: gone,
+    wait_lease_at: lease,
+  });
+  insertRow(db, "pull_requests", {
+    source_id: "one",
+    assignment: "done",
+    wait_state: "idle",
+    wait_owner_pid: gone,
+    wait_lease_at: lease,
+  });
+  insertRow(db, "cleanups", {
+    source_id: "one",
+    assignment: "open",
+    launch_id: "l1",
+    state: "pending",
+    owner_pid: process.pid,
+    lease_at: lease,
+  });
+  insertRow(db, "cleanups", {
+    source_id: "one",
+    assignment: "done",
+    launch_id: "l3",
+    state: "pending",
+    owner_pid: null,
+    lease_at: null,
+  });
+  const [read] = readSources(db, project.repository).getOrNull() ?? [];
+  expect(read?.launches.map((launch) => [launch.id, launch.abandoned])).toEqual([
+    ["l3", false],
+    ["l1", true],
+    ["l2", false],
+  ]);
+  expect(
+    Object.fromEntries(read?.pullRequests.map((pr) => [pr.assignment, pr.waitStopped]) ?? []),
+  ).toEqual({ open: true, done: false });
+  expect(
+    Object.fromEntries(
+      read?.cleanups.map((cleanup) => [cleanup.assignment, cleanup.running]) ?? [],
+    ),
+  ).toEqual({ open: true, done: false });
+  db.query("UPDATE pull_requests SET wait_owner_pid = ? WHERE assignment = 'open'").run(
+    process.pid,
+  );
+  db.query("UPDATE cleanups SET owner_pid = ? WHERE assignment = 'open'").run(gone);
+  const [later] = readSources(db, project.repository).getOrNull() ?? [];
+  expect(later?.pullRequests.map((pr) => pr.waitStopped)).toEqual([false, false]);
+  expect(later?.cleanups.map((cleanup) => cleanup.running)).toEqual([false, false]);
+  let facts: unknown;
+  resetSource(db, target, (seen) => {
+    facts = seen.launches.map((launch) => [launch.assignment, launch.state, launch.abandoned]);
+    return Err({ reason: "refused", detail: "no" });
+  });
+  expect(facts).toEqual(
+    expect.arrayContaining([
+      ["open", "starting", true],
+      ["open", "starting", false],
+      ["done", "running", false],
+    ]),
+  );
+});
+
+test("a reset lists the retained worktrees and unmerged PRs of the abandoned assignments only", async () => {
+  root = await mkdtemp(path.join(tmpdir(), "operator-source-reset-"));
+  using db = endedDatabase();
+  registerSource(db, project.checkout, { ...source, id: "x", trackerKey: "X" }, []);
+  db.exec(
+    "INSERT INTO assignments VALUES ('one', 'other', 'pr', 'pr-open'), ('one', 'merged', 'pr', 'merged')",
+  );
+  await mkdir(`${root}/open`);
+  await mkdir(`${root}/other`);
+  for (const [id, assignment, attempt, worktree] of [
+    ["l1", "open", 1, `${root}/open`],
+    // A second attempt on the same worktree is one retained worktree.
+    ["l2", "open", 2, `${root}/open`],
+    ["l3", "other", 1, `${root}/other`],
+    ["l4", "done", 1, `${root}/removed`],
+  ] as const)
+    insertRow(db, "launches", {
+      id,
+      source_id: "one",
+      assignment,
+      attempt,
+      state: "finished",
+      branch: `task/${assignment}`,
+      worktree_path: worktree,
+    });
+  for (const [assignment, merged] of [
+    ["open", null],
+    ["other", null],
+    ["merged", "head"],
+    ["done", null],
+  ] as const)
+    insertRow(db, "pull_requests", {
+      source_id: "one",
+      assignment,
+      url: `https://github.com/owner/one/pull/${assignment}`,
+      branch: `task/${assignment}`,
+      merged_head: merged,
+    });
+  expect(resetSource(db, target, () => Ok({ abandon: ["open", "done", "merged"] }))).toMatchObject({
+    tag: "Ok",
+    value: {
+      retained: [
+        {
+          assignment: "open",
+          worktreePath: `${root}/open`,
+          branch: "task/open",
+          pullRequest: "https://github.com/owner/one/pull/open",
+        },
+        {
+          assignment: "done",
+          worktreePath: null,
+          branch: "task/done",
+          pullRequest: "https://github.com/owner/one/pull/done",
+        },
+      ],
+    },
+  });
+  expect(
+    db.query("SELECT key, state FROM assignments WHERE source_id = 'one' ORDER BY key").all(),
+  ).toEqual([
+    { key: "done", state: "abandoned" },
+    { key: "merged", state: "abandoned" },
+    { key: "open", state: "abandoned" },
+    { key: "other", state: "pr-open" },
+  ]);
+});
+
+test("a worktree with no PR keeps no PR link, and an empty abandon list changes no assignment", async () => {
+  root = await mkdtemp(path.join(tmpdir(), "operator-source-reset-"));
+  using db = endedDatabase();
+  await mkdir(`${root}/open`);
+  insertRow(db, "launches", {
+    id: "l1",
+    source_id: "one",
+    assignment: "open",
+    attempt: 1,
+    state: "finished",
+    branch: "task/open",
+    worktree_path: `${root}/open`,
+  });
+  insertRow(db, "pull_requests", {
+    source_id: "one",
+    assignment: "done",
+    url: "https://github.com/owner/one/pull/done",
+    merged_head: "head",
+  });
+  expect(resetSource(db, target, () => Ok({ abandon: [] }))).toMatchObject({
+    tag: "Ok",
+    value: { retained: [] },
+  });
+  expect(db.query("SELECT key, state FROM assignments ORDER BY key").all()).toEqual([
+    { key: "done", state: "completed" },
+    { key: "open", state: "pr-open" },
+  ]);
+  db.exec("UPDATE sources SET state = 'open', ended_at = NULL");
+  expect(resetSource(db, target, () => Ok({ abandon: ["open"] }))).toMatchObject({
+    value: {
+      retained: [
+        {
+          assignment: "open",
+          worktreePath: `${root}/open`,
+          branch: "task/open",
+          pullRequest: null,
+        },
+      ],
+    },
+  });
+});
+
+test.skipIf(asRoot)(
+  "prune deletes report and cleanup records, and a failed file removal keeps every record",
+  async () => {
+    root = await mkdtemp(path.join(tmpdir(), "operator-source-prune-"));
+    const paths = OperatorHome.resolve(Environment.parse({ HOME: root, NODE_ENV: "test" }));
+    using db = endedDatabase();
+    db.exec("UPDATE sources SET state = 'reset', ended_at = 'old'");
+    insertRow(db, "launches", { id: "l1", source_id: "one", assignment: "open", attempt: 1 });
+    insertRow(db, "reports", { source_id: "one", assignment: "open", launch_id: "l1", number: 1 });
+    insertRow(db, "cleanups", {
+      source_id: "one",
+      assignment: "open",
+      launch_id: "l1",
+      state: "done",
+    });
+    const directory = OperatorHome.sourceDirectory(paths, {
+      repository: project.repository,
+      sourceId: "one",
+    });
+    await Bun.write(`${directory}/assignments/open/brief.md`, "brief", { createPath: true });
+    const unchanged = db.serialize();
+    await chmod(`${directory}/assignments`, 0o500);
+    try {
+      expect(pruneSource(db, paths, target, () => true)).toMatchObject({
+        tag: "Err",
+        error: { reason: "source_prune_failed" },
+      });
+    } finally {
+      await chmod(`${directory}/assignments`, 0o700);
+    }
+    expect(db.serialize()).toEqual(unchanged);
+    expect(pruneSource(db, paths, target, () => true).tag).toBe("Ok");
+    for (const table of ["sources", "assignments", "launches", "reports", "cleanups"])
+      expect(db.query(`SELECT * FROM ${table}`).all(), table).toEqual([]);
+  },
+);
+
+test("reads need no writer reservation, and source changes wait for it even when they refuse", async () => {
+  root = await mkdtemp(path.join(tmpdir(), "operator-source-prune-"));
+  const paths = OperatorHome.resolve(Environment.parse({ HOME: root, NODE_ENV: "test" }));
+  using db = endedDatabase();
+  using reserved = reservedCopy(db);
+  expect(readSources(reserved.subject, project.repository).tag).toBe("Ok");
+  expect(registerSource(reserved.subject, "/other", source, [])).toMatchObject(busy);
+  expect(
+    resetSource(reserved.subject, target, () => Err({ reason: "refused", detail: "no" })),
+  ).toMatchObject(busy);
+  expect(pruneSource(reserved.subject, paths, target, () => false)).toMatchObject(busy);
 });

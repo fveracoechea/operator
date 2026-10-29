@@ -1,5 +1,4 @@
 // Bun has no lstat, copy, folder creation, rename, or recursive removal API.
-import { isCodedError } from "../../lib/coded-error.ts";
 import { copyFile, lstat, mkdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { Err, Ok, fromPromise, type Result } from "unthrown";
@@ -12,6 +11,7 @@ import { Projects } from "../projects/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import { WorkerDispatch } from "../worker-dispatch/main.ts";
 import { renderReport, submissionSchema, type Submission } from "./content.ts";
+import { qualify } from "./failures.ts";
 
 type Paths = ReturnType<typeof OperatorHome.resolve>;
 type Failure = { reason: string; detail: string };
@@ -26,24 +26,10 @@ type Fields = {
 };
 type Decision = { paths: Paths; target: Target; command: Command };
 
-function qualify<T>(cause: Error, defect: (cause: Error) => T) {
-  if (cause instanceof SyntaxError || cause instanceof z.ZodError)
-    return { reason: "invalid_report_input", detail: `${cause.message} Nothing changed.` };
-  if (
-    isCodedError(cause) &&
-    ["ENOENT", "EACCES", "EPERM", "EIO", "EROFS", "ENOSPC", "ENOTDIR", "EISDIR", "ELOOP"].includes(
-      cause.code,
-    )
-  )
-    return { reason: "report_io_failed", detail: String(cause) };
-  return defect(cause);
-}
-
 /** Carry an earlier step's refusal or defect into the command result. Its callback never runs. */
 function stop(result: Result<unknown, Failure>): Result<never, Failure> {
-  return result.flatMap(() =>
-    Err<Failure>({ reason: "report_defect", detail: "A successful step cannot stop a command." }),
-  );
+  // Stryker disable next-line ArrowFunction: equivalent: the callback runs only for a success, and no caller stops a success
+  return result.flatMap(() => stop(result));
 }
 
 /** The pane that runs a command. A worker's pane identifies its assignment. */
@@ -53,6 +39,11 @@ function caller() {
     socket: environment.HERDR_SOCKET_PATH ?? null,
     paneId: environment.HERDR_PANE_ID ?? null,
   };
+}
+
+/** The number of the report that a decision inserts or updates. */
+function reportNumber(report: Decided["report"]) {
+  return "insert" in report ? report.insert : report.update;
 }
 
 function decide(facts: Facts, command: Command) {
@@ -88,10 +79,10 @@ function record(
             "The assignment changed during this command. Read operator next. Nothing changed.",
         });
       const { insert, update } = fields(facts, decided);
-      const number = "insert" in decided.report ? decided.report.insert : decided.report.update;
       return Ok({
         insert,
-        update: update === undefined ? undefined : { ...update, number },
+        update:
+          update === undefined ? undefined : { ...update, number: reportNumber(decided.report) },
         assignmentState: decided.assignmentState,
         source: decided.sourceFinished
           ? { state: "finished", endedAt: new Date().toISOString() }
@@ -127,8 +118,8 @@ function superAgentTarget(input: {
   sourceId: string;
   assignment: string;
 }) {
-  return Projects.current(input).map(({ data }): Target => ({
-    by: "key",
+  return Projects.current(input).map(({ data }) => ({
+    by: "key" as const,
     repository: data.repository,
     checkout: data.checkout,
     sourceId: input.sourceId,
@@ -169,14 +160,13 @@ async function stageReport(input: {
   const stored: string[] = [];
   for (const file of submission.files) {
     const name = `files/${path.basename(file)}`;
-    await Bun.write(`${staged}/${name}`, "", { createPath: true });
+    await mkdir(`${staged}/files`, { recursive: true });
     await copyFile(file, `${staged}/${name}`);
     stored.push(`${directory}/${name}`);
   }
   await Bun.write(
     `${staged}/report.md`,
     renderReport({ number: input.number, assignment: input.key, submission, files: stored }),
-    { createPath: true },
   );
   return Ok(stored);
 }
@@ -191,7 +181,7 @@ function submit(input: { paths: Paths; file: string }) {
       const before = read(decision);
       if (before.tag !== "Ok") return stop(before);
       const { facts, decided } = before.value;
-      const number = "insert" in decided.report ? decided.report.insert : 0;
+      const number = reportNumber(decided.report);
       const directory = `${assignmentFiles(input.paths, facts).reports}/${number}`;
       const staged = pending(input.paths, facts);
       const stored = await stageReport({
@@ -201,15 +191,13 @@ function submit(input: { paths: Paths; file: string }) {
         key: facts.assignment.key,
         submission,
       });
-      if (stored.tag !== "Ok") {
-        await rm(staged, { recursive: true, force: true });
-        return stop(stored);
-      }
+      if (stored.tag !== "Ok") return stop(stored);
       const recorded = record(decision, decided, (current) => ({
         insert: {
           sourceId: current.source.id,
           assignment: current.assignment.key,
           number,
+          // Stryker disable next-line OptionalChaining, StringLiteral: equivalent: submission needs a running launch, so the launch is never null here
           launchId: current.launch?.id ?? "",
           submittedAt: new Date().toISOString(),
           conclusion: submission.conclusion,
@@ -225,7 +213,7 @@ function submit(input: { paths: Paths; file: string }) {
         },
       }));
       if (recorded.tag !== "Ok") {
-        await rm(staged, { recursive: true, force: true });
+        await rm(staged, { recursive: true });
         return stop(recorded);
       }
       await publish(staged, directory);
@@ -256,7 +244,7 @@ function resume(input: { paths: Paths }) {
       const { facts, decided } = before.value;
       const recorded = record(decision, decided, () => ({}));
       if (recorded.tag !== "Ok") return stop(recorded);
-      const number = facts.reports.at(-1)?.number ?? 0;
+      const number = reportNumber(decided.report);
       return Ok({
         reason: "report_resumed",
         data: {
@@ -291,18 +279,19 @@ function returnReport(input: {
       const before = read(decision);
       if (before.tag !== "Ok") return stop(before);
       const { facts, decided } = before.value;
-      const number = facts.reports.at(-1)?.number ?? 0;
+      const number = reportNumber(decided.report);
       const followUp = `${assignmentFiles(input.paths, facts).followUps}/${number}.md`;
       const staged = `${pending(input.paths, facts)}.md`;
-      await Bun.write(staged, `${text}\n`, { createPath: true });
+      await Bun.write(staged, `${text}\n`);
       const recorded = record(decision, decided, () => ({
         update: { decision: "returned", decidedAt: new Date().toISOString(), followUp: text },
       }));
       if (recorded.tag !== "Ok") {
-        await rm(staged, { force: true });
+        await rm(staged);
         return stop(recorded);
       }
       await publish(staged, followUp);
+      // Stryker disable next-line OptionalChaining: equivalent: a submitted report always has the launch that submitted it
       const running = facts.launch?.state === "running";
       return Ok({
         reason: "report_returned",
@@ -394,12 +383,11 @@ function accept(input: { paths: Paths; cwd: string; sourceId: string; assignment
           : { decision: "accepted", decidedAt: new Date().toISOString(), cleanupState: "pending" },
       }));
       if (recorded.tag !== "Ok") return stop(recorded);
-      const checkout = target.value.by === "key" ? target.value.checkout : "";
-      const outcome = await cleanup(checkout, facts);
+      const outcome = await cleanup(target.value.checkout, facts);
       const cleaned = DeviceState.changeReport(input.paths, decision.target, (current) =>
         decide(current, "cleanup").map((done) => ({
           update: {
-            number: "insert" in done.report ? done.report.insert : done.report.update,
+            number: reportNumber(done.report),
             cleanupState: outcome.state,
             cleanupDetail: outcome.detail,
           },

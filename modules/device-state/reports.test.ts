@@ -8,6 +8,7 @@ import { registerSource } from "./sources.ts";
 import { registerProject } from "./projects.ts";
 import { observePane, reserveLaunch, updateLaunch } from "./launches.ts";
 import { changeReport, readReport, type ReportRow } from "./reports.ts";
+import { busy, reservedCopy } from "./state-fixture.ts";
 
 function fixture() {
   const db = new Database(":memory:");
@@ -175,4 +176,79 @@ test("a returned report whose worker stopped permits a replacement launch", () =
     value: { attempt: 2 },
   });
   expect(db.query("SELECT state FROM assignments").get()).toEqual({ state: "running" });
+});
+
+test("each target refusal names what is missing and changes nothing", () => {
+  using db = fixture();
+  expect(readReport(db, pane)).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "worker_launch_not_found",
+      detail:
+        "This pane holds no running WorkerAgent launch. Run the command in the pane that Operator dispatched for the assignment. Nothing changed.",
+    },
+  });
+  for (const target of [
+    { ...key, checkout: "/moved" },
+    { ...key, repository: "owner/unregistered" },
+  ])
+    expect(readReport(db, target), target.repository).toMatchObject({
+      tag: "Err",
+      error: {
+        reason: "controller_mismatch",
+        detail: "The controlling checkout changed. Read the project again. Nothing changed.",
+      },
+    });
+  expect(readReport(db, { ...key, sourceId: "s2" })).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "source_not_found",
+      detail: "The source does not exist in this project. Nothing changed.",
+    },
+  });
+  expect(readReport(db, { ...key, assignment: "missing" })).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "assignment_not_found",
+      detail: "Assignment missing does not exist in this source. Nothing changed.",
+    },
+  });
+  expect(db.query("SELECT count(*) AS n FROM reports").get()).toEqual({ n: 0 });
+});
+
+test("the facts show no launch before dispatch, and a starting launch is abandoned only after its owner stops", () => {
+  using db = fixture();
+  expect(readReport(db, key)).toMatchObject({
+    tag: "Ok",
+    value: { source: { id: "s1" }, assignment: { key: "read" }, launch: null, reports: [] },
+  });
+  reserveLaunch(db, "/one", "owner/one", launch);
+  updateLaunch(db, "l1", { paneId: "w1:p1" });
+  // A starting launch on its pane is already the worker's launch.
+  expect(readReport(db, pane)).toMatchObject({
+    tag: "Ok",
+    value: { launch: { id: "l1", state: "starting", abandoned: false } },
+  });
+  const gone = Bun.spawnSync([process.execPath, "--version"]).pid;
+  db.query("UPDATE launches SET owner_pid = ?").run(gone);
+  expect(readReport(db, key)).toMatchObject({ value: { launch: { abandoned: true } } });
+  db.exec("UPDATE launches SET state = 'running'");
+  expect(readReport(db, key)).toMatchObject({ value: { launch: { abandoned: false } } });
+});
+
+test("an accepted change returns its facts and change, and a report change reserves the writer first", () => {
+  using db = fixture();
+  running(db);
+  const change = { assignmentState: "reported", insert: row };
+  const result = changeReport(db, pane, () => Ok(change));
+  expect(result).toMatchObject({
+    tag: "Ok",
+    value: { facts: { assignment: { key: "read", state: "running" }, reports: [] }, change },
+  });
+  using reserved = reservedCopy(db);
+  // A read needs no reservation, but a change waits even when its rule refuses.
+  expect(readReport(reserved.subject, key)).toMatchObject({ tag: "Ok" });
+  expect(
+    changeReport(reserved.subject, key, () => Err({ reason: "refused", detail: "No." })),
+  ).toMatchObject(busy);
 });

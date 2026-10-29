@@ -3,26 +3,24 @@ import type { AssignmentState } from "./assignment-machine.ts";
 
 export type SourceState = "open" | "finished" | "reset";
 type Facts = { state: SourceState; assignments: AssignmentState[] };
+// A reset source stays reset. Any other source finishes once all its work is complete.
 const rules: { when: (facts: Facts) => boolean; state: SourceState }[] = [
   { when: ({ state }) => state === "reset", state: "reset" },
-  { when: ({ state }) => state === "finished", state: "finished" },
   {
     when: ({ assignments }) => assignments.every(complete),
     state: "finished",
   },
-  { when: () => true, state: "open" },
 ];
 
-function complete(assignment: AssignmentState) {
+/** Merged PR work and completed report work are complete. */
+export function complete(assignment: AssignmentState) {
   return assignment.completion === "pr"
     ? assignment.state === "merged"
     : assignment.state === "completed";
 }
 
 export function decideSource(facts: Facts): SourceState {
-  for (const rule of rules) if (rule.when(facts)) return rule.state;
-  // oxlint-disable-next-line unthrown/no-throw -- The final rule is unconditional, so this is a programming defect.
-  throw new Error("The source table has no matching rule.");
+  return rules.find((rule) => rule.when(facts))?.state ?? facts.state;
 }
 
 type Refusal = {
@@ -83,9 +81,9 @@ export function decidePrune(facts: {
   cleanupOpen: boolean;
   workerRunning: boolean;
 }): PruneDecision {
-  const ended = facts.endedAt === null ? Number.NaN : Date.parse(facts.endedAt);
   if (facts.state === "open" || facts.endedAt === null)
     return { prune: false, prunableAt: null, reason: "source_open" };
+  const ended = Date.parse(facts.endedAt);
   if (Number.isNaN(ended)) return { prune: false, prunableAt: null, reason: "end_time_invalid" };
   const prunableAt = new Date(ended + retentionMs).toISOString();
   if (facts.now < ended + retentionMs)

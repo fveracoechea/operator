@@ -25,6 +25,27 @@ test("permits incomplete defaults without discovering a host but refuses an orph
   ).toMatchObject({ reason: "selection_incomplete" });
 });
 
+test("refuses an incomplete selection only where that selection names a model", async () => {
+  const resolve = spyOn(AgentHosts, "resolve");
+  for (const value of [
+    { superAgent: { model: "orphan" } },
+    { workerAgent: { model: "orphan" } },
+    { profiles: { study: { model: "orphan" } } },
+  ])
+    expect(await validateSelections(settingsSchema.parse(value), "/isolated")).toEqual({
+      reason: "selection_incomplete",
+      detail:
+        "Set a host and model in device settings or explicit launch overrides. Operator does not choose a model for you.",
+    });
+  expect(
+    await validateSelections(
+      settingsSchema.parse({ profiles: { study: { host: "opencode" } } }),
+      "/isolated",
+    ),
+  ).toBeNull();
+  expect(resolve).not.toHaveBeenCalled();
+});
+
 test("validates defaults and every extensible profile before an edit writes", async () => {
   const resolve = spyOn(AgentHosts, "resolve").mockImplementation((input) =>
     input.model === "bad"

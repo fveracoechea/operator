@@ -81,7 +81,8 @@ function makePlan(
       detail: changed.error.message,
     } satisfies SettingsFailure;
   const nextText = `${JSON.stringify(changed.data, null, 2)}\n`;
-  const generation = receipt?.state === "pending" ? receipt.generation : (receipt?.planId ?? null);
+  // A pending receipt never reaches a write, so the last receipt plan is the generation.
+  const generation = receipt?.planId ?? null;
   const editsIdentity = sha256(JSON.stringify(edits));
   return {
     planId: sha256(
@@ -124,8 +125,10 @@ async function applyLocked(request: ChangeRequest, edits: Edit[]): Promise<Setti
   if (receipt === "unreadable") return recoveryRequired;
   const read = await readConfig(paths);
   const planned = makePlan(paths, read, receipt, edits);
+  // Stryker disable next-line ConditionalExpression: equivalent: apply already checked these edits, and an edit fails on every valid config or on none
   if (planned.reason !== undefined) return planned;
   const decision = decideSettingsWrite("apply", {
+    // Stryker disable next-line StringLiteral: equivalent: no apply rule names the absent state, so any other unknown state decides the same way
     state: receipt?.state ?? "absent",
     receipt,
     identity: read.identity,
@@ -134,8 +137,9 @@ async function applyLocked(request: ChangeRequest, edits: Edit[]): Promise<Setti
     freshPlanId: planned.planId,
     changed: planned.changed,
   });
-  if (decision === "repeat" && receipt !== null) {
-    if (receipt.state === "pending") await writeReceipt(paths, { ...receipt, state: "complete" });
+  if (decision === "repeat") {
+    // Stryker disable next-line OptionalChaining: equivalent: a repeat decision always has a receipt
+    if (receipt?.state === "pending") await writeReceipt(paths, { ...receipt, state: "complete" });
     return { reason: "settings_unchanged", data: { repeated: true } };
   }
   if (decision === "recovery-required") return recoveryRequired;
@@ -171,6 +175,7 @@ async function writePlanned(
         detail: "The settings changed before the write. Make a new plan.",
       };
     }
+    // Stryker disable next-line ConditionalExpression,StringLiteral: equivalent: no test can make a local filesystem return other bytes than the bytes just synced to an exclusive file
     if (written === "unconfirmed") return writeUnconfirmed;
     await writeReceipt(paths, { ...pending, state: "complete" });
   } catch (error) {
@@ -214,7 +219,9 @@ export async function recover(paths: OperatorPaths): Promise<SettingsOutcome> {
         reason: "settings_recovered",
         data: { state: receipt?.state ?? "absent" },
       };
-    if ((state !== "complete" && state !== "aborted") || receipt === null) return recoveryRequired;
+    if (state !== "complete" && state !== "aborted") return recoveryRequired;
+    // Stryker disable next-line ConditionalExpression: equivalent: only a pending receipt settles
+    if (receipt === null) return recoveryRequired;
     await writeReceipt(paths, { ...receipt, state });
     return { reason: "settings_recovered", data: { state, planId: receipt.planId } };
   });

@@ -3,10 +3,11 @@ import { z } from "zod";
 import { checkOnly, install, type Request } from "./install.ts";
 // Bun has no realpath API.
 import { realpath } from "node:fs/promises";
+import path from "node:path";
 import { OperatorHome } from "../operator-home/main.ts";
 import { Environment } from "../environment/main.ts";
-import { contents } from "./content.ts";
-import { sha256 } from "../../lib/sha256.ts";
+import { contents, identity } from "./content.ts";
+import { isCodedError } from "../../lib/coded-error.ts";
 
 const source = Bun.fileURLToPath(new URL("../../skills/", import.meta.url));
 
@@ -15,18 +16,14 @@ export const OwnedSkills = {
   async names() {
     const names = [];
     for await (const file of new Bun.Glob("*/SKILL.md").scan({ cwd: source }))
-      names.push(file.split("/")[0] ?? "");
+      names.push(path.dirname(file));
     return names.toSorted();
   },
   /** Content identities of the running release's skills, for a launch snapshot. */
   async identities() {
     const identities = [];
     for (const name of await OwnedSkills.names()) {
-      const files = (await contents(`${source}${name}`, false)) ?? {};
-      const canonical = JSON.stringify(
-        Object.entries(files).toSorted(([a], [b]) => (a < b ? -1 : 1)),
-      );
-      identities.push({ name, identity: sha256(new TextEncoder().encode(canonical)) });
+      identities.push({ name, identity: identity((await contents(`${source}${name}`)) ?? {}) });
     }
     return identities;
   },
@@ -47,8 +44,7 @@ export const OwnedSkills = {
         if (cause instanceof SyntaxError || cause instanceof z.ZodError)
           return { reason: "skills_ledger_invalid" as const, detail: String(cause) };
         if (
-          cause instanceof Error &&
-          "code" in cause &&
+          isCodedError(cause) &&
           [
             "EACCES",
             "EPERM",
@@ -65,7 +61,7 @@ export const OwnedSkills = {
             "SQLITE_CANTOPEN",
             "SQLITE_CORRUPT",
             "SQLITE_NOTADB",
-          ].includes(String(cause.code))
+          ].includes(cause.code)
         )
           return { reason: "skills_io_failed" as const, detail: String(cause) };
         return defect(cause);

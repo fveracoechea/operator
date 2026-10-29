@@ -216,3 +216,31 @@ test("a retry marks a reply that GitHub holds and an unresolve that took effect"
     ),
   ).toEqual(["pending", "pending", "done", "failed"]);
 });
+
+test("a recorded head that is missing or live posts the live head", () => {
+  for (const recorded of [null, h2])
+    expect(chooseCommit(request({ head: recorded }), draft(h1), pr())).toEqual({
+      kind: "post",
+      commit: h2,
+      headLimit: null,
+    });
+});
+
+test("a retry keeps a finished operation even when the thread holds its marker", () => {
+  const failed: Operation = {
+    requestId: "r1",
+    round: 2,
+    threadId: "A",
+    kind: "reply",
+    body: "x",
+    marker: "MA",
+    state: "failed",
+    detail: "gone",
+  };
+  const facts = pr({
+    threads: [
+      thread({ id: "A", comments: [{ id: "c", author: "me", body: "MA", createdAt: "t" }] }),
+    ],
+  });
+  expect(reconcile([failed], facts)).toEqual([failed]);
+});

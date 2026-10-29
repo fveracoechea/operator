@@ -76,23 +76,19 @@ export const planSchema = z
           });
       }
     }
-    const pending = new Map(
-      plan.assignments.map((assignment) => [assignment.key, new Set(assignment.dependencies)]),
-    );
-    while (pending.size > 0) {
-      const ready = [...pending]
-        .filter(([, dependencies]) => dependencies.size === 0)
-        .map(([name]) => name);
-      if (ready.length === 0) {
+    // Each round settles the assignments whose dependencies are settled. An acyclic plan settles
+    // within one round per assignment, so an assignment left after the last round is on a cycle.
+    let pending = plan.assignments;
+    for (const round of plan.assignments.keys()) {
+      pending = pending.filter((assignment) =>
+        assignment.dependencies.some((key) => pending.some((row) => row.key === key)),
+      );
+      if (round === plan.assignments.length - 1 && pending.length > 0) {
         context.addIssue({
           code: "custom",
           message: "Dependencies must form an acyclic plan within this source.",
         });
-        break;
       }
-      for (const name of ready) pending.delete(name);
-      for (const dependencies of pending.values())
-        for (const name of ready) dependencies.delete(name);
     }
   });
 export type SourcePlan = z.infer<typeof planSchema>;

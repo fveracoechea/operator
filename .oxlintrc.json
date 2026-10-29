@@ -14,8 +14,8 @@
       {
         "allowFiles": [
           "modules/environment/main.ts",
-          "modules/release-publish/fake-gh.ts",
-          "modules/release-publish/fake-jsr-client.ts"
+          "modules/release-publish/gh-fixture.ts",
+          "modules/release-publish/jsr-client-fixture.ts"
         ]
       }
     ],

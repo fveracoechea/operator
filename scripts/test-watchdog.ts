@@ -1,4 +1,5 @@
 import { Environment } from "../modules/environment/main.ts";
+import { descendants } from "./process-tree.ts";
 
 // bun test has no whole-run deadline. A deadlocked --parallel worker (oven-sh/bun#39987) keeps
 // the run silent forever, and per-test timeouts cannot fire in a blocked worker. The dots
@@ -23,9 +24,11 @@ const child = Bun.spawn(
     "test",
     ...flags,
     "--dots",
+    // Stryker disable next-line MethodExpression: no rule: bun test ignores an unknown flag, so a passed-through silence flag changes no result
     ...args.filter((arg) => !arg.startsWith(silenceFlag)),
   ],
   {
+    // Stryker disable next-line StringLiteral: equivalent: Bun forces color when FORCE_COLOR is set, even to an empty value
     env: Environment.child({ FORCE_COLOR: process.stdout.isTTY ? "1" : undefined }),
     stdin: "ignore",
     stdout: "pipe",
@@ -41,21 +44,8 @@ async function relay(stream: ReadableStream<Uint8Array>, sink: NodeJS.WriteStrea
 }
 
 /** Only processes under this run's own child, so a concurrent run in another worktree is never touched. */
-function descendants(root: number) {
-  const children = new Map<number, number[]>();
-  for (const line of Bun.spawnSync(["ps", "-A", "-o", "pid=,ppid="])
-    .stdout.toString()
-    .split("\n")) {
-    const [pid, ppid] = line.trim().split(/\s+/).map(Number);
-    if (pid && ppid) children.set(ppid, [...(children.get(ppid) ?? []), pid]);
-  }
-  const found: number[] = [];
-  const pending = [root];
-  for (let pid = pending.pop(); pid !== undefined; pid = pending.pop()) {
-    found.push(pid);
-    pending.push(...(children.get(pid) ?? []));
-  }
-  return found;
+function tree(root: number) {
+  return descendants(root, Bun.spawnSync(["ps", "-A", "-o", "pid=,ppid="]).stdout.toString());
 }
 
 function report(pids: number[]) {
@@ -67,12 +57,12 @@ function report(pids: number[]) {
         .stdout.toString()
         .split("\n")
         .filter((line) => / (cwd|IPv4|IPv6|unix|FIFO|PIPE) /.test(line))
-        .slice(0, 80)
         .join("\n")
     : "lsof is not available.";
   const now = Date.now();
   console.error(
     [
+      // Stryker disable next-line StringLiteral: no rule: the blank line only separates the report from the dots
       "",
       `test-watchdog: no test progress for ${Math.round((now - progressAt) / 1000)}s after ${Math.round((now - started) / 1000)}s. Stopping bun test.`,
       "test-watchdog: a silent worker at 0% CPU matches the open Bun worker deadlock oven-sh/bun#39987.",
@@ -88,7 +78,7 @@ let stalled = false;
 const signalNumbers = { SIGINT: 2, SIGTERM: 15 } as const;
 let received: keyof typeof signalNumbers | undefined;
 function stop() {
-  for (const pid of descendants(child.pid)) {
+  for (const pid of tree(child.pid)) {
     try {
       process.kill(pid, "SIGKILL");
     } catch {
@@ -97,10 +87,12 @@ function stop() {
   }
 }
 const watchdog = setInterval(() => {
+  // Stryker disable next-line EqualityOperator: equivalent: the check runs once a second on a millisecond clock, so no run lands on the exact limit
   if (Date.now() - progressAt < silenceSeconds * 1000) return;
   stalled = true;
+  // Stryker disable next-line CallExpression: equivalent: stop kills the child, and the process exits before the next one-second check
   clearInterval(watchdog);
-  report(descendants(child.pid));
+  report(tree(child.pid));
   stop();
 }, 1000);
 for (const signal of ["SIGINT", "SIGTERM"] as const)
@@ -111,7 +103,6 @@ for (const signal of ["SIGINT", "SIGTERM"] as const)
 
 await Promise.all([relay(child.stdout, process.stdout), relay(child.stderr, process.stderr)]);
 const code = await child.exited;
-clearInterval(watchdog);
 // A caller sees the signal it sent, not the SIGKILL that cleaned up the run.
 const finished = received ? 128 + signalNumbers[received] : code;
 process.exit(stalled ? 124 : finished);

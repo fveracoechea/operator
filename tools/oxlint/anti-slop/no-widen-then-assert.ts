@@ -323,11 +323,6 @@ function assertionIsNarrower(
 /** Detect immutable local bindings that erase a known type and are later asserted back to a narrower type. */
 export const noWidenThenAssertRule = defineRule({
   meta: {
-    type: "problem",
-    docs: {
-      description:
-        "Disallow local const flows that explicitly widen a known value before asserting the widened binding to a narrower type.",
-    },
     messages: {
       widenThenAssert: withSkillTopic(
         'Binding "{{name}}" discards type evidence and later recreates it with an assertion. Keep the precise type from initialization through use; parse boundary input once.',

@@ -18,7 +18,9 @@ export function qualifyStateFailure<T>(
   cause: Error,
   defect: (cause: Error) => T,
 ): StateFailure | T {
-  const code = isCodedError(cause) ? cause.code : undefined;
+  // Stryker disable next-line ConditionalExpression: equivalent: an uncoded cause matches no listed code, so every check below falls through to the defect
+  if (!isCodedError(cause)) return defect(cause);
+  const { code } = cause;
   if (code === "STATE_UNSUPPORTED") return { reason: "state_incompatible", detail: String(cause) };
   if (code === "SQLITE_BUSY" || code === "SQLITE_LOCKED")
     return {
@@ -31,7 +33,6 @@ export function qualifyStateFailure<T>(
       detail: `The device database is damaged and was not replaced. ${String(cause)}`,
     };
   if (
-    code &&
     [
       "ENOENT",
       "EEXIST",

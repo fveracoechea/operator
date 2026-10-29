@@ -3,7 +3,18 @@ import { ReviewRequests } from "../review-requests/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { failure } from "./output.ts";
 
-const deviceCommands = ["next", "wait", "ingest"];
+const reviewCommands = [
+  "add",
+  "start",
+  "post",
+  "skip",
+  "cleanup",
+  "slack-done",
+  "next",
+  "wait",
+  "ingest",
+] as const;
+const deviceCommands: readonly string[] = ["next", "wait", "ingest"];
 // `ingest` and `slack-done` read the raw result of a Slack MCP tool from a file, or `-` for stdin.
 const inputCommands = ["ingest", "slack-done"];
 const valueFlags = new Map([
@@ -32,7 +43,7 @@ function acceptsValue(
   flag: string,
   value: string | undefined,
   values: Map<string, string>,
-) {
+): value is string {
   const rule = valueFlags.get(flag);
   return (
     rule !== undefined &&
@@ -46,14 +57,14 @@ function acceptsValue(
 function reviewFlags(command: string, flags: string[]) {
   const switches = new Set<string>();
   const values = new Map<string, string>();
-  for (let index = 0; index < flags.length; index++) {
-    const flag = flags[index] ?? "";
+  const rest = flags.values();
+  for (const flag of rest) {
     if (acceptsSwitch(command, flag, switches)) {
       switches.add(flag);
       continue;
     }
-    const value = flags[++index];
-    if (!acceptsValue(command, flag, value, values) || value === undefined) return null;
+    const value = rest.next().value;
+    if (!acceptsValue(command, flag, value, values)) return null;
     values.set(flag, value);
   }
   if (inputCommands.includes(command) && !values.has("--input")) return null;
@@ -68,12 +79,9 @@ function reviewFlags(command: string, flags: string[]) {
 
 /** A PR URL is the only request selector, so every review command runs from any folder. */
 export function reviewArgs(args: string[]) {
-  const [group, command = "", ...rest] = args;
-  if (
-    group !== "review" ||
-    !["add", "start", "post", "skip", "cleanup", "slack-done", ...deviceCommands].includes(command)
-  )
-    return null;
+  const [group, name, ...rest] = args;
+  const command = reviewCommands.find((known) => known === name);
+  if (group !== "review" || command === undefined) return null;
   const url = deviceCommands.includes(command) ? "" : (rest.shift() ?? "");
   if (!deviceCommands.includes(command) && (url === "" || url.startsWith("--"))) return null;
   const flags = reviewFlags(command, rest);
@@ -149,7 +157,7 @@ export async function runReviews(
   const operation = `review_${parsed.command.replace("-", "_")}`;
   const input = { paths, url: parsed.url };
   const operations: Record<
-    string,
+    (typeof reviewCommands)[number],
     () => PromiseLike<Result<{ reason: string; data: unknown }, { reason: string; detail: string }>>
   > = {
     add: () => ReviewRequests.add(input),
@@ -168,9 +176,7 @@ export async function runReviews(
         .toAsync()
         .flatMap((text) => ReviewRequests.acknowledge({ paths, id: parsed.url, text })),
   };
-  const chosen = operations[parsed.command];
-  if (chosen === undefined) return false;
-  const result = await chosen();
+  const result = await operations[parsed.command]();
   if (result.tag === "Ok") {
     console.log(
       JSON.stringify(

@@ -4,8 +4,6 @@ import { withSkillTopic } from "../skill-topic.ts";
 
 export const noReflectGetRule = defineRule({
   meta: {
-    type: "problem",
-    docs: { description: "Require typed property access instead of Reflect.get." },
     messages: {
       reflect: withSkillTopic(
         "Use typed property access. Parse external data before reading its fields.",

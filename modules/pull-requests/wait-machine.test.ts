@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { Observation } from "./github.ts";
-import { decideWait, mergeConditions } from "./wait-machine.ts";
+import { decideWait, mergeConditions, progressSchema } from "./wait-machine.ts";
 
 const empty: { seen: string[]; failures: string[]; eligibleHead: string | null } = {
   seen: [],
@@ -190,4 +190,29 @@ test("the owner's own items never end a wait alone and are reported with the nex
       observed: { ...open, feedback: [own], checks: [{ name: "ci", state: "failing", url: null }] },
     }),
   ).toMatchObject({ events: [{ kind: "feedback", items: [own] }, { kind: "checks_failed" }] });
+});
+
+test("a report while not eligible keeps the recorded eligible head", () => {
+  const progress = { seen: [], failures: [], eligibleHead: "h0" };
+  const blank = item("blank", { kind: "review", body: "  \n", reviewState: "COMMENTED" });
+  expect(decideWait({ progress, observed: { ...open, feedback: [blank, item("a")] } })).toEqual({
+    result: "reported",
+    events: [{ kind: "feedback", items: [item("a")] }],
+    progress: { seen: ["a"], failures: [], eligibleHead: "h0" },
+  });
+});
+
+test("recorded progress parses with every field, and one failing check is not passing", () => {
+  const progress = { seen: ["a"], failures: ["h1:lint"], eligibleHead: "h1" };
+  expect(progressSchema.parse(progress)).toEqual(progress);
+  expect(progressSchema.safeParse({ seen: [], failures: [] }).success).toBe(false);
+  expect(
+    mergeConditions({
+      ...open,
+      checks: [
+        { name: "a", state: "passing", url: null },
+        { name: "b", state: "failing", url: null },
+      ],
+    }).checksPassing,
+  ).toBe(false);
 });

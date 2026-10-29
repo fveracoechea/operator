@@ -1,5 +1,5 @@
 // Bun has no directory metadata API.
-import { isCodedError } from "../../lib/coded-error.ts";
+import { isCodedError, type CodedError } from "../../lib/coded-error.ts";
 import { stat } from "node:fs/promises";
 import { fromPromise, Ok, Err, type Result } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
@@ -31,9 +31,8 @@ type ControllerStatus =
   | { status: "missing" | "available" | "mismatched" }
   | { status: "blocked"; reason: CheckoutFailure["reason"] | "project_io_failed"; detail: string };
 
-function qualify<T>(cause: Error, defect: (cause: Error) => T) {
+function qualify<T>(cause: CodedError, defect: (cause: CodedError) => T) {
   if (
-    isCodedError(cause) &&
     ["ENOENT", "EACCES", "EPERM", "EIO", "EROFS", "ENOSPC", "ENOTDIR", "EEXIST"].includes(
       cause.code,
     )
@@ -62,7 +61,7 @@ export const Projects = {
   move(input: { paths: Paths; cwd: string; repository?: string }) {
     return fromPromise(
       () => inspectCheckout(input.cwd),
-      (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+      (cause, defect) => (isCodedError(cause) ? qualify(cause, defect) : defect(cause)),
     ).flatMap(
       (observed): Result<{ reason: "project_moved"; data: RegisteredProject }, ProjectFailure> => {
         if ("reason" in observed) return Err(observed);
@@ -75,7 +74,7 @@ export const Projects = {
   list(paths: Paths) {
     return fromPromise(
       async () => DeviceState.listProjects(paths),
-      (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+      (cause, defect) => (isCodedError(cause) ? qualify(cause, defect) : defect(cause)),
     )
       .flatMap((result) => result)
       .flatMap(({ projects, pendingRemovals }) =>
@@ -101,7 +100,7 @@ export const Projects = {
                 if (isCodedError(cause) && cause.code === "ENOENT")
                   controller = { status: "missing" };
                 else {
-                  const error = cause instanceof Error ? qualify(cause, () => null) : null;
+                  const error = isCodedError(cause) ? qualify(cause, () => null) : null;
                   // oxlint-disable-next-line unthrown/no-throw -- Expected controller failures are statuses, but defects must still stop the list.
                   if (error === null) throw cause;
                   controller = { status: "blocked", ...error };
@@ -114,14 +113,15 @@ export const Projects = {
               data: { projects: listed, pendingRemovals },
             };
           },
-          (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+          // Controller failures that qualify became statuses above, so the rest are defects.
+          (cause, defect) => defect(cause),
         ),
       );
   },
   register(input: { paths: Paths; cwd: string; repository?: string }) {
     return fromPromise(
       () => inspectCheckout(input.cwd),
-      (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+      (cause, defect) => (isCodedError(cause) ? qualify(cause, defect) : defect(cause)),
     ).flatMap((observed): Result<ProjectOutcome, ProjectFailure> => {
       if ("reason" in observed) return Err(observed);
       const selected = selectRepository(observed.repositories, input.repository);
@@ -137,13 +137,13 @@ export const Projects = {
   githubRemote(input: { checkout: string; repository: string }) {
     return fromPromise(
       () => githubRemote(input.checkout, input.repository),
-      (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+      (cause, defect) => (isCodedError(cause) ? qualify(cause, defect) : defect(cause)),
     );
   },
   current(input: { paths: Paths; cwd: string }) {
     return fromPromise(
       () => inspectCheckout(input.cwd),
-      (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+      (cause, defect) => (isCodedError(cause) ? qualify(cause, defect) : defect(cause)),
     ).flatMap((observed): Result<ProjectOutcome, ProjectFailure> => {
       if ("reason" in observed) return Err(observed);
       const result = DeviceState.lookupProject(

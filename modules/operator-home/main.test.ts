@@ -15,6 +15,7 @@ test("uses the same home defaults on Linux and macOS without creating them", asy
   const paths = OperatorHome.resolve(Environment.parse({ HOME: `${root}/home`, NODE_ENV: "test" }));
   expect(paths.config).toBe(`${root}/home/.config/operator/config.json`);
   expect(paths.stateRoot).toBe(`${root}/home/.local/state/operator`);
+  expect(paths.skillHosts.opencode).toBe(`${root}/home/.config/opencode/skills`);
   expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root }))).toEqual([]);
 });
 
@@ -31,6 +32,16 @@ test("owns separate XDG settings, receipts, and lock paths", () => {
   expect(paths.schema).toBe(`${root}/config/operator/config.schema.json`);
   expect(paths.receipt).toBe(`${root}/state/operator/config/apply.json`);
   expect(paths.writeLock).toBe(`${root}/state/operator/config/write.sqlite`);
+  expect(paths.configState).toBe(`${root}/state/operator/config`);
+  expect(paths.receiptTemporary).toBe(`${root}/state/operator/config/apply.json.tmp`);
+  expect(paths.configTemporary).toBe(`${root}/config/operator/config.json.tmp`);
+  expect(paths.herdrPlugin).toBe(`${root}/state/operator/herdr-plugin`);
+  expect(OperatorHome.reviewFiles(paths, { repository: "o/r", requestId: "a/b" })).toEqual({
+    directory: `${root}/state/operator/projects/o/r/reviews/a%2Fb`,
+    brief: `${root}/state/operator/projects/o/r/reviews/a%2Fb/brief.md`,
+    draft: `${root}/state/operator/projects/o/r/reviews/a%2Fb/draft.json`,
+    rounds: `${root}/state/operator/projects/o/r/reviews/a%2Fb/rounds`,
+  });
   expect(paths.database).toBe(`${root}/state/operator/operator.sqlite`);
   expect(paths.backups).toBe(`${root}/state/operator/backups`);
   expect(OperatorHome.migrationBackup(paths, "update-id")).toEqual({
@@ -61,6 +72,10 @@ test("owns separate XDG settings, receipts, and lock paths", () => {
 test("skill and launcher test roots must remain in temporary storage without probing real contents", () => {
   const environment = Environment.parse({ HOME: root, NODE_ENV: "test" });
   expect(() => OperatorHome.guardTemporaryTests(environment, [root])).not.toThrow();
+  expect(() => OperatorHome.guardTemporaryTests(environment, [tmpdir()])).not.toThrow();
+  expect(() =>
+    OperatorHome.guardTemporaryTests(environment, [`${root}/missing/child`]),
+  ).not.toThrow();
   expect(() =>
     OperatorHome.guardTemporaryTests(environment, ["/non-temporary-skill-test"]),
   ).toThrow("Tests cannot access non-temporary install roots");
@@ -83,6 +98,46 @@ test("refuses the real default roots, descendants, and aliases without opening s
       }),
     ),
   ).toThrow("Tests cannot access");
+  expect(() =>
+    OperatorHome.resolve(
+      Environment.parse({
+        HOME: `${root}/fake`,
+        XDG_STATE_HOME: `${home}/.local/state`,
+        NODE_ENV: "test",
+      }),
+    ),
+  ).toThrow(new Error(`Tests cannot access the real Operator root: ${home}/.local/state/operator`));
+  await symlink(`${home}/.config`, `${root}/config-alias`);
+  expect(() =>
+    OperatorHome.resolve(
+      Environment.parse({
+        HOME: `${root}/fake`,
+        XDG_CONFIG_HOME: `${root}/config-alias`,
+        NODE_ENV: "test",
+      }),
+    ),
+  ).toThrow(new Error(`Tests cannot access the real Operator root: ${home}/.config/operator`));
+});
+
+test("allows a sibling of a real root and leaves resolution unguarded outside tests", () => {
+  const home = userInfo().homedir;
+  expect(
+    OperatorHome.resolve(
+      Environment.parse({
+        HOME: `${root}/fake`,
+        XDG_CONFIG_HOME: `${home}/.config/operator-sibling`,
+        NODE_ENV: "test",
+      }),
+    ).configRoot,
+  ).toBe(`${home}/.config/operator-sibling/operator`);
+  expect(OperatorHome.resolve(Environment.parse({ HOME: home })).stateRoot).toBe(
+    `${home}/.local/state/operator`,
+  );
+  expect(() =>
+    OperatorHome.guardTemporaryTests(Environment.parse({ HOME: home }), [
+      "/non-temporary-skill-test",
+    ]),
+  ).not.toThrow();
 });
 
 test("assignment files stay in one encoded directory under the project state", () => {

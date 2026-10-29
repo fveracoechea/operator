@@ -20,6 +20,17 @@ test("accepts an owned mutable accumulator and does not follow reassigned arrays
 export const value = [1].reduce<number[]>((acc, item) => { acc.push(item); return acc; }, []);
 let initial: number[] = [1]; initial = [2];
 export const copied = [1].reduce((acc, item) => acc.concat([item]), initial);
+export const fresh = [1].reduce<number[]>((acc, item) => Array.from([item, ...acc.keys()]), []);
+export const empty = [1].reduce<number[]>((acc) => { Array.from(); return acc; }, []);
 `);
   expect(valid.codes).toEqual([]);
+});
+
+test("the finding names the fix topic", async () => {
+  const invalid = await check(
+    "export const value = [1].reduce<number[]>((acc) => Array.from(acc), []);",
+  );
+  expect(invalid.stdout).toContain(
+    "Do not copy the reducer accumulator on every iteration; growing copies can cause quadratic work. Mutate a fresh, locally owned accumulator and return it, or use an iterator pipeline/flatMap. See lint-fixes/object-construction.md.",
+  );
 });

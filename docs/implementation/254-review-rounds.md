@@ -198,7 +198,7 @@ The device-wide idle guard also blocks a migration while a live process holds a 
 
 ## Verification
 
-Public CLI scenarios in `modules/operator-cli/run.review-rounds.test.ts` use `review-fixture.ts`: real Git with a local bare origin that holds only `refs/pull/7/head`, real SQLite, isolated device roots, and the controlled `fake-herdr.ts` and `fake-github.ts`.
+Public CLI scenarios in `modules/operator-cli/run.review-rounds.test.ts` use `review-fixture.ts`: real Git with a local bare origin that holds only `refs/pull/7/head`, real SQLite, isolated device roots, and the controlled `herdr-fixture.ts` and `github-fixture.ts`.
 They cover:
 
 - Both hosts through every trigger with one reviewer and one worktree: an author reply, an approval that ignores later commits, a renewed request on a moved PR, a resolved thread, a fast-forward commits round, and a repeated `review add`.

@@ -57,8 +57,11 @@ export async function readVersion(
   }
 
   // A body that is not JSON keeps the status as the only detail.
-  const body = errorBody.safeParse(await response.json().catch(() => null));
-  return classify(response, body.success ? body.data.message : `JSR answered ${response.status}.`);
+  const message = await response.json().then(
+    (body) => errorBody.safeParse(body).data?.message,
+    () => undefined,
+  );
+  return classify(response, message ?? `JSR answered ${response.status}.`);
 }
 
 // The client downloads its own runtime on a first run, then waits for the registry to process

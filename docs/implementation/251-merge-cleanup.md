@@ -138,7 +138,7 @@ Deferred parts of #215: report pane closure and report worktree rules need repor
 
 ## Verification
 
-Public CLI scenarios in `run.pr-merge.test.ts` use real Git, real SQLite, real `bun install`, isolated device roots, the controlled `fake-herdr.ts`, and the controlled `fake-github.ts`:
+Public CLI scenarios in `run.pr-merge.test.ts` use real Git, real SQLite, real `bun install`, isolated device roots, the controlled `herdr-fixture.ts`, and the controlled `github-fixture.ts`:
 
 - Both hosts, OpenCode and Claude Code: a verified merge, then the remote branch, the pane, the prepared worktree with `node_modules` and a copied `.env.local`, and the local branch are gone, and the other assignment stays ready.
 - Every merge refusal, including an earlier `merge_eligible` wait result followed by a lost approval, sends no merge request and leaves the database bytes unchanged.

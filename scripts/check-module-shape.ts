@@ -134,7 +134,7 @@ function checkImports(path: string, sourceFile: ts.SourceFile): void {
       checkImport(path, node.argument.literal);
     }
 
-    if (ts.isExternalModuleReference(node) && node.expression) {
+    if (ts.isExternalModuleReference(node)) {
       checkImport(path, node.expression);
     }
 
@@ -154,7 +154,8 @@ function checkImports(path: string, sourceFile: ts.SourceFile): void {
 }
 
 const moduleDirectories = new Set<string>();
-const api = new API({ cwd: root });
+// The API starts in the current directory, which is the checked root.
+const api = new API();
 const snapshot = await api.updateSnapshot({
   openFiles: sourcePaths.map((path) => resolve(root, path)),
 });

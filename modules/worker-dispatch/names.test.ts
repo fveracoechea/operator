@@ -8,6 +8,14 @@ test("names show the task type, tracker key, and assignment within Herdr's name 
   expect(launchBase({ completion: "report", trackerKey: "APP-7", key: "Read Docs!" })).toBe(
     "report-app-7-read-docs",
   );
+  // An empty part leaves no double hyphen, and a cut after a hyphen drops it.
+  expect(launchBase({ completion: "pr", trackerKey: "github:example/###", key: "impl" })).toBe(
+    "pr-impl",
+  );
+  expect(launchBase({ completion: "pr", trackerKey: "APP/7", key: "impl" })).toBe("pr-7-impl");
+  expect(launchBase({ completion: "report", trackerKey: "a".repeat(20), key: "next-part" })).toBe(
+    `report-${"a".repeat(20)}`,
+  );
   const long = launchBase({
     completion: "report",
     trackerKey: "x".repeat(80),

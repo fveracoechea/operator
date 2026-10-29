@@ -5,9 +5,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { Environment } from "../environment/main.ts";
-import { fakeHerdrScript } from "./fake-herdr.ts";
-import { fakeGithubScript } from "./fake-github.ts";
-import { fixtureCommand } from "./fixture-command.ts";
+import { fakeHerdrScript } from "./herdr-fixture.ts";
+import { fakeGithubScript } from "./github-fixture.ts";
+import { fixtureCommand } from "./command-fixture.ts";
 
 const command = fixtureCommand();
 const gitEnv = {

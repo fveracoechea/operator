@@ -1,12 +1,13 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { Environment } from "../environment/main.ts";
-// Bun has no recursive directory removal API.
-import { rm } from "node:fs/promises";
-import { readVersion } from "./jsr-registry.ts";
+// Bun has no recursive directory removal or chmod API.
+import { chmod, rm } from "node:fs/promises";
+import { checkWithClient, publishWithClient, readVersion } from "./jsr-registry.ts";
 import { z } from "zod";
 
 const root = `${Environment.read().TMPDIR ?? "/tmp"}/operator-jsr-registry-${crypto.randomUUID()}`;
 afterEach(async () => {
+  mock.restore();
   await rm(root, { recursive: true, force: true });
 });
 
@@ -75,4 +76,59 @@ test("a missing dependency installer prevents publication and removes only its s
   expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root }))).toEqual([
     "artifact/file",
   ]);
+});
+
+test("a refusal carries the registry's message, or only the status when the body has none", async () => {
+  const bodies = [
+    Response.json({ message: "scope is not yours" }, { status: 403 }),
+    Response.json({ other: "field" }, { status: 403 }),
+    new Response("not json", { status: 403 }),
+  ];
+  const server = Bun.serve({ port: 0, fetch: () => bodies.shift() ?? new Response(null) });
+  const input = {
+    api: `http://127.0.0.1:${server.port}`,
+    scope: "owner",
+    package: "operator",
+    version: "1.0.0",
+    fetch: globalThis.fetch,
+  };
+  try {
+    for (const detail of ["scope is not yours", "JSR answered 403.", "JSR answered 403."])
+      expect(await readVersion(input)).toEqual({
+        status: "failed",
+        code: "http_403",
+        detail,
+        httpStatus: 403,
+      });
+  } finally {
+    await server.stop(true);
+  }
+});
+
+/** A controlled Bun that installs nothing, and a controlled client that records its call. */
+async function controlledTools() {
+  await Bun.write(`${root}/tools/bun`, "#!/bin/sh\nexit 0\n", { createPath: true });
+  await Bun.write(
+    `${root}/tools/jsr`,
+    `#!/bin/sh\necho "$*" > ${JSON.stringify(`${root}/args`)}\n/bin/ls > ${JSON.stringify(`${root}/staged`)}\necho "client output"\n`,
+  );
+  await chmod(`${root}/tools/bun`, 0o755);
+  await chmod(`${root}/tools/jsr`, 0o755);
+  spyOn(Environment, "read").mockReturnValue({ ...Environment.read(), PATH: `${root}/tools` });
+}
+
+test("publication sends the staged artifact and the check only simulates it", async () => {
+  await Bun.write(`${root}/artifact/jsr.json`, "{}", { createPath: true });
+  await controlledTools();
+  for (const [run, args] of [
+    [publishWithClient, "publish"],
+    [checkWithClient, "publish --dry-run"],
+  ] as const) {
+    expect(await run({ artifactRoot: `${root}/artifact/` })).toEqual({
+      status: "succeeded",
+      value: { output: "client output" },
+    });
+    expect((await Bun.file(`${root}/args`).text()).trim()).toBe(args);
+    expect((await Bun.file(`${root}/staged`).text()).trim()).toBe("jsr.json");
+  }
 });

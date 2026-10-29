@@ -71,8 +71,9 @@ async function spawn(
   ]);
   const stopped =
     child.signalCode === null ? "" : `\nStopped by ${child.signalCode} after ${timeoutMs} ms.`;
+  // A command the bound stopped has no zero exit code, so it counts as failed.
   return {
-    exitCode: child.signalCode === null ? code : 124,
+    exitCode: code,
     stdout,
     text: `${stdout}${stderr}${stopped}`.trim().split("\n").slice(-10),
   };
@@ -102,7 +103,6 @@ export async function verifyRegistryInstall(
     await Bun.write(
       `${env.XDG_CONFIG_HOME}/.bunfig.toml`,
       `[install.scopes]\n"@jsr" = ${JSON.stringify(request.registry)}\n`,
-      { createPath: true },
     );
     const specifier = `${installedPackage}@npm:${registryPackage}@${request.version}`;
     let attempt = 1;
@@ -117,9 +117,11 @@ export async function verifyRegistryInstall(
       );
     }
     let installed = await install();
-    while (installed.exitCode !== 0 && attempt < request.attempts) {
+    // Each later attempt has a fixed number, so the retries are bounded.
+    for (const next of Array.from({ length: request.attempts - 1 }, (_, index) => index + 2)) {
+      if (installed.exitCode === 0) break;
       await Bun.sleep(request.pauseMs);
-      attempt += 1;
+      attempt = next;
       installed = await install();
     }
     if (installed.exitCode !== 0)
@@ -170,6 +172,6 @@ export async function verifyRegistryInstall(
       attempts: attempt,
     };
   } finally {
-    await rm(root, { force: true, recursive: true });
+    await rm(root, { recursive: true });
   }
 }

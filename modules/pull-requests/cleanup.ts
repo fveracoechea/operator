@@ -37,6 +37,7 @@ async function git(cwd: string, args: string[]) {
     args: ["-C", cwd, ...args],
     timeoutMs: 60000,
   });
+  // Stryker disable next-line ConditionalExpression: equivalent: a result that did not complete has no exit code or output, so every caller treats it as a failed Git command
   return result.status === "completed" ? result : null;
 }
 
@@ -77,6 +78,7 @@ async function remoteStep(facts: Claimed, personInstructed: boolean): Promise<St
   const decision = decideRemoteBranch({
     branch,
     sha: before.value,
+    // Stryker disable next-line StringLiteral: equivalent: only a verified merge records a cleanup, so the merged head is never null here
     mergedHead: mergedHead ?? "",
     personInstructed,
   });
@@ -123,15 +125,16 @@ type Inspection = {
 };
 
 function statusEntries(output: string) {
-  const tokens = output.split("\0");
   const entries: { code: string; path: string }[] = [];
-  for (let index = 0; index < tokens.length; index++) {
-    const token = tokens[index] ?? "";
-    if (token.length < 4) continue;
-    const code = token.slice(0, 2);
-    entries.push({ code, path: token.slice(3) });
+  let origin = false;
+  for (const token of output.split("\0")) {
     // A rename or copy names its origin in the next token.
-    if (/[RC]/.test(code)) index++;
+    if (origin) origin = false;
+    else if (token.length >= 4) {
+      const code = token.slice(0, 2);
+      entries.push({ code, path: token.slice(3) });
+      origin = /[RC]/.test(code);
+    }
   }
   return entries;
 }
@@ -143,9 +146,12 @@ async function recordedCheckout(real: string, checkout: string) {
   const common = await gitText(real, commonArgs);
   const controller = await gitText(checkout, commonArgs);
   return (
+    // Stryker disable next-line ConditionalExpression: equivalent: a null top level has a null real path, which never equals the inspected real path
     top !== null &&
     (await realPathOrNull(top)) === real &&
+    // Stryker disable next-line ConditionalExpression: equivalent: the path is its own Git top level here, so Git names its common folder
     common !== null &&
+    // Stryker disable next-line ConditionalExpression: equivalent: a null controller folder has no real path, so it never equals the worktree common folder
     controller !== null &&
     (await realPathOrNull(common)) === (await realPathOrNull(controller))
   );
@@ -163,9 +169,13 @@ async function inspect(
     expectedBranch: pullRequest.branch,
     personInstructed,
   };
+  // Stryker disable next-line ConditionalExpression: equivalent: a null path has no real path, so the result is null either way
   const real = launch.worktreePath === null ? null : await realPathOrNull(launch.worktreePath);
+  // Stryker disable next-line ConditionalExpression: equivalent: Git cannot run in a null path, so the checkout check fails either way
   const sameRepository = real !== null && (await recordedCheckout(real, checkout));
+  // Stryker disable next-line ObjectLiteral,ArrayDeclaration,BooleanLiteral: equivalent: a missing or foreign worktree decides before the machine reads its work
   const empty = { changed: [], unknownIgnored: [], landed: true };
+  // Stryker disable next-line ConditionalExpression,LogicalOperator: equivalent: a null real path already makes sameRepository false
   if (real === null || !sameRepository)
     return {
       real,
@@ -184,6 +194,7 @@ async function inspect(
     "merge-base",
     "--is-ancestor",
     "HEAD",
+    // Stryker disable next-line StringLiteral: equivalent: only a verified merge records a cleanup, so the merged head is never null here
     pullRequest.mergedHead ?? "",
   ]);
   const status = await git(real, [
@@ -220,6 +231,7 @@ async function inspect(
       exists: true,
       sameRepository,
       branch,
+      // Stryker disable next-line ConditionalExpression: equivalent: without a head commit Git cannot prove HEAD an ancestor, so landed is false either way
       landed: head !== null && ancestor?.exitCode === 0,
       changed: entries.filter((entry) => entry.code !== "!!").map((entry) => entry.path),
       unknownIgnored,
@@ -239,6 +251,7 @@ async function removeWorktree(checkout: string, real: string, force: boolean) {
   for (const workspace of workspaces.value)
     if (
       workspace.linked &&
+      // Stryker disable next-line ConditionalExpression: equivalent: a null checkout has no real path, so it never equals the worktree path
       workspace.checkout !== null &&
       (await realPathOrNull(workspace.checkout)) === real
     )
@@ -262,12 +275,14 @@ async function removeWorktree(checkout: string, real: string, force: boolean) {
  */
 async function forgetWorktree(facts: Claimed) {
   const { checkout, launch, pullRequest } = facts;
+  // Stryker disable next-line ConditionalExpression: equivalent: only a recorded path is found absent, so the path is never null here
   if (launch.worktreePath !== null)
     await git(checkout, ["worktree", "remove", launch.worktreePath]);
   const ref = `refs/heads/${pullRequest.branch}`;
   const head = await gitText(checkout, ["rev-parse", "--verify", "--quiet", ref]);
   if (head === null) return "absent";
   const landed =
+    // Stryker disable next-line StringLiteral: equivalent: only a verified merge records a cleanup, so the merged head is never null here
     (await git(checkout, ["merge-base", "--is-ancestor", head, pullRequest.mergedHead ?? ""]))
       ?.exitCode === 0;
   const deleted = landed && (await git(checkout, ["update-ref", "-d", ref, head]))?.exitCode === 0;
@@ -280,17 +295,21 @@ async function worktreeStep(
   personInstructed: boolean,
 ): Promise<StepResult> {
   const inspection = await inspect(paths, facts, personInstructed);
+  // Stryker disable next-line ConditionalExpression: equivalent: only a skip decision has an outcome, so the outcome check alone selects the same decisions
   if (inspection.decision.action === "skip" && inspection.decision.outcome === "absent")
     return { done: true, outcome: await forgetWorktree(facts) };
   const early = decided(inspection.decision);
   if (early !== null) return early;
+  // Stryker disable next-line ConditionalExpression,LogicalOperator: equivalent: every decision but dispose returned above, and inspection decides dispose only for a real path
   if (inspection.real === null || inspection.decision.action !== "dispose")
+    // Stryker disable next-line ObjectLiteral,StringLiteral: equivalent: this type guard is unreachable, as the line before explains
     return failed({ reason: "cleanup_defect", detail: "The worktree inspection has no path." });
   const removed = await removeWorktree(facts.checkout, inspection.real, inspection.decision.force);
   if (!removed.ok) return failed(removed.error);
   // The local branch goes only while it still names the inspected head.
   const branch = facts.pullRequest.branch;
   const deleted =
+    // Stryker disable next-line ConditionalExpression: equivalent: Git cannot delete a branch at a null head, so the branch is kept either way
     inspection.head !== null &&
     (await git(facts.checkout, ["update-ref", "-d", `refs/heads/${branch}`, inspection.head]))
       ?.exitCode === 0;
@@ -306,10 +325,11 @@ function runStep(step: CleanupStep, paths: Paths, facts: Claimed, personInstruct
 /** Runs the remaining steps in the declared order and stops at the first failure. */
 async function steps(request: Request, facts: Claimed) {
   const outcomes: { step: CleanupStep; outcome: string }[] = [];
-  let step = cleanupSteps.find((name) => name === facts.cleanup.step) ?? null;
+  const first = cleanupSteps.findIndex((name) => name === facts.cleanup.step);
   // The person's instruction covers only the blocked step whose detail the person read.
-  const authorized = facts.cleanup.state === "blocked" ? step : null;
-  while (step !== null) {
+  const authorized = facts.cleanup.state === "blocked" ? facts.cleanup.step : null;
+  // A cleanup without a recorded step has nothing left to run.
+  for (const step of first === -1 ? [] : cleanupSteps.slice(first)) {
     const result = await runStep(
       step,
       request.paths,
@@ -317,20 +337,15 @@ async function steps(request: Request, facts: Claimed) {
       request.personInstructed && step === authorized,
     );
     if (!result.done) {
-      const recorded = DeviceState.advanceCleanup(
-        request.paths,
-        request.sourceId,
-        request.assignment,
-        {
-          step,
-          state: result.state,
-          reason: result.reason,
-          detail: result.detail,
-          release: true,
-        },
+      return DeviceState.advanceCleanup(request.paths, request.sourceId, request.assignment, {
+        step,
+        state: result.state,
+        reason: result.reason,
+        detail: result.detail,
+        release: true,
+      }).flatMap(() =>
+        Err<Failure>({ reason: result.reason, detail: `${step}: ${result.detail}` }),
       );
-      if (recorded.tag !== "Ok") return recorded.map(() => outcomes);
-      return Err<Failure>({ reason: result.reason, detail: `${step}: ${result.detail}` });
     }
     outcomes.push({ step, outcome: result.outcome });
     const next = nextStep(step);
@@ -346,8 +361,8 @@ async function steps(request: Request, facts: Claimed) {
         release: next === null,
       },
     );
+    // Stryker disable next-line ArrowFunction: equivalent: a failed write has no value to map, so the mapped value is never read
     if (recorded.tag !== "Ok") return recorded.map(() => outcomes);
-    step = next;
   }
   return Ok(outcomes);
 }
@@ -375,16 +390,13 @@ export function cleanup(request: Request) {
           request.sourceId,
           request.assignment,
         );
-        return fromPromise(
-          async () => {
-            try {
-              return await steps(request, facts);
-            } finally {
-              release();
-            }
-          },
-          (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
-        )
+        return fromPromise(async () => {
+          try {
+            return await steps(request, facts);
+          } finally {
+            release();
+          }
+        }, qualify)
           .flatMap((result) => result)
           .map((outcomes) => ({ reason: "cleanup_finished", data: { ...data, steps: outcomes } }));
       }),

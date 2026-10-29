@@ -9,7 +9,8 @@ type BriefInput = {
   profile: string | null;
   instructions: string;
   workingDirectory: string;
-  resources: { kind: "pane" } | { kind: "worktree"; branch: string };
+  /** The worktree branch, or null for read-only work in a pane of the checkout. */
+  branch: string | null;
   reports: { directory: string; files: string[] };
   followUps: { directory: string; files: string[] };
   pullRequest: { number: number; url: string } | null;
@@ -115,14 +116,14 @@ function reportSteps(directory: string) {
  */
 export function renderBrief(input: BriefInput) {
   const resources =
-    input.resources.kind === "worktree"
+    input.branch === null
       ? [
-          `- Work in the isolated Herdr worktree \`${input.workingDirectory}\` on branch \`${input.resources.branch}\`.`,
-          "- Change project files only in this worktree.",
-        ]
-      : [
           `- Work in a separate pane of the controlling checkout \`${input.workingDirectory}\`.`,
           "- This is read-only work. Do not change project files, branches, or worktrees.",
+        ]
+      : [
+          `- Work in the isolated Herdr worktree \`${input.workingDirectory}\` on branch \`${input.branch}\`.`,
+          "- Change project files only in this worktree.",
         ];
   return `# Assignment brief
 

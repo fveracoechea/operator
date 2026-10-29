@@ -244,3 +244,104 @@ test("a check list longer than one read is incomplete, and review states map to 
   expect(reviewEvent("CHANGES_REQUESTED")).toBe("REQUEST_CHANGES");
   expect(reviewEvent("COMMENTED")).toBe("COMMENT");
 });
+
+test("a PR URL may name digits and end without a slash, and nothing may come before it", () => {
+  expect(pullRequestTarget("https://github.com/1o2/r3po/pull/123456789")).toEqual({
+    repository: "1o2/r3po",
+    number: 123456789,
+    url: "https://github.com/1o2/r3po/pull/123456789",
+  });
+  for (const text of [
+    "xhttps://github.com/example/one/pull/1",
+    "https://github.com/example/./pull/1",
+    "https://github.com/example/one/pull/1234567890",
+  ])
+    expect(pullRequestTarget(text), text).toBeNull();
+});
+
+function check(conclusion: string | null, status = "COMPLETED") {
+  return {
+    __typename: "CheckRun",
+    name: `${status}-${conclusion}`,
+    status,
+    conclusion,
+    detailsUrl: null,
+    isRequired: true,
+  };
+}
+
+test("each failing conclusion fails, and an unfinished run is pending", () => {
+  const nodes = [
+    check("FAILURE"),
+    check("CANCELLED"),
+    check("ACTION_REQUIRED"),
+    check("STARTUP_FAILURE"),
+    check("NEUTRAL"),
+    check(null),
+    check("SUCCESS", "IN_PROGRESS"),
+    {
+      __typename: "StatusContext",
+      context: "ci/fail",
+      state: "FAILURE",
+      targetUrl: null,
+      isRequired: true,
+    },
+  ];
+  const facts = pullRequestFacts(
+    answer({
+      commits: {
+        nodes: [{ commit: { statusCheckRollup: { contexts: { totalCount: 8, nodes } } } }],
+      },
+    }),
+  );
+  expect(facts?.requiredChecks.map((required) => required.state)).toEqual([
+    "failing",
+    "failing",
+    "failing",
+    "failing",
+    "passing",
+    "pending",
+    "pending",
+    "failing",
+  ]);
+  expect(facts?.checksComplete).toBe(true);
+});
+
+test("missing commits, starters, and authors give empty facts", () => {
+  const facts = pullRequestFacts(
+    answer({
+      state: "MERGED",
+      commits: { nodes: [] },
+      reviewThreads: {
+        nodes: [
+          {
+            id: "T",
+            isResolved: false,
+            resolvedBy: null,
+            starter: { nodes: [] },
+            comments: { nodes: [{ id: "C", body: "b", createdAt: "t", author: null }] },
+          },
+        ],
+      },
+      reviews: { nodes: [{ id: "R", url: "r", body: "b", state: "COMMENTED", author: null }] },
+      comments: { nodes: [{ id: "P", body: "b", createdAt: "t", author: null }] },
+      timelineItems: {
+        nodes: [
+          { requestedReviewer: { login: "me" } },
+          { createdAt: "t", requestedReviewer: null },
+        ],
+      },
+    }),
+  );
+  expect(facts).toMatchObject({
+    state: "MERGED",
+    filesComplete: true,
+    requiredChecks: [],
+    checksComplete: true,
+    threads: [{ startedByViewer: false, comments: [{ author: null }] }],
+    reviews: [{ byViewer: false }],
+    comments: [{ author: null }],
+    reviewRequests: [],
+  });
+  expect(pullRequestFacts(answer({ state: "CLOSED" }))?.state).toBe("CLOSED");
+});

@@ -18,13 +18,13 @@ function commandOf(value: string | undefined) {
 function reportFlags(flags: string[], required: readonly string[]) {
   const values: Record<string, string> = {};
   let json = false;
-  for (let index = 0; index < flags.length; index++) {
-    const flag = flags[index] ?? "";
+  const rest = flags.values();
+  for (const flag of rest) {
     if (flag === "--json" && !json) {
       json = true;
       continue;
     }
-    const value = flags[++index];
+    const value = rest.next().value;
     if (
       !required.includes(flag) ||
       Object.hasOwn(values, flag) ||

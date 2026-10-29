@@ -2,6 +2,12 @@ import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { OkAsync, ErrAsync } from "unthrown";
 import { AgentHosts } from "./main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
+import { Environment } from "../environment/main.ts";
+
+const metadataFailure = {
+  reason: "host_metadata_failed",
+  detail: "The host did not return valid model and effort metadata. No selection was substituted.",
+};
 
 afterEach(() => {
   mock.restore();
@@ -18,20 +24,65 @@ test("preserves unexpected host-boundary defects instead of reclassifying them a
 
 test("classifies malformed metadata and known spawn failures without swallowing other Errors", async () => {
   const run = spyOn(ToolInvocation, "run");
-  run.mockRejectedValue(Object.assign(new Error("missing executable"), { code: "ENOENT" }));
-  expect(await AgentHosts.models({ host: "opencode", cwd: "/isolated" })).toMatchObject({
-    tag: "Err",
-    error: { reason: "host_metadata_failed" },
-  });
+  for (const code of ["ENOENT", "EACCES", "EPERM", "EIO", "ENOTDIR"]) {
+    run.mockRejectedValue(Object.assign(new Error("spawn failed"), { code }));
+    expect(await AgentHosts.models({ host: "opencode", cwd: "/isolated" })).toMatchObject({
+      tag: "Err",
+      error: metadataFailure,
+    });
+  }
   run.mockResolvedValue({ status: "completed", exitCode: 0, stdout: "{", stderr: "" });
   expect(await AgentHosts.models({ host: "opencode", cwd: "/isolated" })).toMatchObject({
     tag: "Err",
-    error: { reason: "host_metadata_failed" },
+    error: metadataFailure,
+  });
+  run.mockResolvedValue({ status: "completed", exitCode: 0, stdout: "{}", stderr: "" });
+  expect(await AgentHosts.models({ host: "opencode", cwd: "/isolated" })).toMatchObject({
+    tag: "Err",
+    error: metadataFailure,
   });
   run.mockRejectedValue(new Error("unexpected logic failure"));
   expect(await AgentHosts.models({ host: "opencode", cwd: "/isolated" })).toMatchObject({
     tag: "Defect",
   });
+  run.mockRejectedValue(Object.assign(new Error("unknown system failure"), { code: "EBUSY" }));
+  expect(await AgentHosts.models({ host: "opencode", cwd: "/isolated" })).toMatchObject({
+    tag: "Defect",
+  });
+});
+
+test("returns advertised models and keeps host refusals as errors", async () => {
+  const run = spyOn(ToolInvocation, "run").mockResolvedValue({
+    status: "completed",
+    exitCode: 0,
+    stderr: "",
+    stdout: JSON.stringify({
+      location: { directory: "/isolated" },
+      data: [{ providerID: "p", id: "m", enabled: true, variants: [{ id: "high" }] }],
+    }),
+  });
+  expect(await AgentHosts.models({ host: "opencode", cwd: "/isolated" })).toMatchObject({
+    tag: "Ok",
+    value: [{ model: "p/m", efforts: ["high"] }],
+  });
+  run.mockResolvedValue({ status: "unavailable", tool: "opencode", detail: "missing" });
+  expect(await AgentHosts.models({ host: "opencode", cwd: "/isolated" })).toMatchObject({
+    tag: "Err",
+    error: { reason: "host_unavailable", detail: "missing" },
+  });
+});
+
+test("reads Claude Code metadata only from the claude host", async () => {
+  const run = spyOn(ToolInvocation, "run");
+  spyOn(Environment, "read").mockReturnValue({ ...Environment.read(), PATH: "" });
+  expect(await AgentHosts.models({ host: "claude-code", cwd: "/isolated" })).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "host_unavailable",
+      detail: "claude is not on PATH. Install Claude Code before selecting it.",
+    },
+  });
+  expect(run).not.toHaveBeenCalled();
 });
 
 test("constructs only model and effort command arguments for both hosts", async () => {
@@ -72,6 +123,14 @@ test("resolves an advertised alias to its precise model without losing the reque
       requestedModel: "alias",
       command: { args: ["--model", "precise", "--effort", "high"] },
     });
+  expect(
+    await AgentHosts.resolve({
+      host: "claude-code",
+      model: "precise",
+      reasoningEffort: "high",
+      cwd: "/isolated",
+    }),
+  ).toMatchObject({ tag: "Ok", value: { model: "precise", requestedModel: "precise" } });
 });
 
 test("refuses unknown models, unknown efforts, and unavailable metadata", async () => {
@@ -86,11 +145,32 @@ test("refuses unknown models, unknown efforts, and unavailable metadata", async 
   );
   expect(await AgentHosts.resolve(input)).toMatchObject({
     tag: "Err",
-    error: { reason: "unsupported_model" },
+    error: {
+      reason: "unsupported_model",
+      detail:
+        "opencode does not advertise model missing. Select a model from operator host models.",
+    },
   });
   expect(await AgentHosts.resolve({ ...input, model: "selected" })).toMatchObject({
     tag: "Err",
-    error: { reason: "unsupported_effort" },
+    error: {
+      reason: "unsupported_effort",
+      detail: "opencode model selected does not advertise effort medium. Supported efforts: high.",
+    },
+  });
+  mockModels.mockReturnValue(OkAsync([{ model: "selected", efforts: ["low", "high"] }]));
+  expect(await AgentHosts.resolve({ ...input, model: "selected" })).toMatchObject({
+    error: {
+      detail:
+        "opencode model selected does not advertise effort medium. Supported efforts: low, high.",
+    },
+  });
+  mockModels.mockReturnValue(OkAsync([{ model: "selected", efforts: [] }]));
+  expect(await AgentHosts.resolve({ ...input, model: "selected" })).toMatchObject({
+    error: {
+      detail:
+        "opencode model selected does not advertise effort medium. Supported efforts: none advertised.",
+    },
   });
   mockModels.mockReturnValue(ErrAsync({ reason: "host_unavailable", detail: "missing" } as const));
   expect(await AgentHosts.resolve(input)).toMatchObject({

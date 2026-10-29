@@ -28,7 +28,6 @@ export function parameterOwnerVisitor(check: (node: ParameterOwner) => void) {
 /** Return whether a type is or contains TypeScript's absorbing unknown top type. */
 export function containsUnknownType(type: ESTree.TSType): boolean {
   if (type.type === "TSUnknownKeyword") return true;
-  if (type.type === "TSParenthesizedType") return containsUnknownType(type.typeAnnotation);
   return type.type === "TSUnionType" && type.types.some(containsUnknownType);
 }
 
@@ -37,8 +36,6 @@ export function parameterTypeAnnotation(
   parameter: ESTree.ParamPattern,
 ): ESTree.TSTypeAnnotation | null | undefined {
   if (parameter.type === "TSParameterProperty") return parameterTypeAnnotation(parameter.parameter);
-  if (parameter.type === "RestElement")
-    return parameter.typeAnnotation ?? parameterTypeAnnotation(parameter.argument);
   if (parameter.type === "AssignmentPattern")
     return parameter.typeAnnotation ?? parameterTypeAnnotation(parameter.left);
   return parameter.typeAnnotation;
@@ -50,7 +47,6 @@ export function parameterBindingName(parameter: ESTree.ParamPattern, source: Sou
     return parameterBindingName(parameter.parameter, source);
   if (parameter.type === "AssignmentPattern") return parameterBindingName(parameter.left, source);
   if (parameter.type === "RestElement") return parameterBindingName(parameter.argument, source);
-  if (parameter.type === "Identifier") return parameter.name;
   const text = source.getText(parameter);
   const annotation = parameter.typeAnnotation;
   return annotation ? text.slice(0, annotation.start - parameter.start).trimEnd() : text;

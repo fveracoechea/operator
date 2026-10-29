@@ -36,7 +36,7 @@ Two more tests run the CLI workflow tests again in a child `bun test`, with `OPE
 - `run.delegated-run.test.ts`, the tests that run one report and two reviewed PRs to a finished source on OpenCode and on Claude Code. They dispatch, submit and accept a report, associate PRs, wait for feedback, merge, and clean up.
 - `run.reviews.test.ts`, the manual review request on OpenCode and on Claude Code. It adds, starts, and posts a review.
 
-`modules/operator-cli/fixture-command.ts` reads that variable for the worker and review fixtures, so every fixture command and the Herdr hook run the installed command.
+`modules/operator-cli/command-fixture.ts` reads that variable for the worker and review fixtures, so every fixture command and the Herdr hook run the installed command.
 The fixture links `operator` on the tool path to the same command.
 Readiness accepts only a command that runs the running release, and the delegated run requires `ready`, so a fixture that ran the checkout would fail.
 The CLI never reads the variable.

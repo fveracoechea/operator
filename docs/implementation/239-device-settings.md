@@ -20,7 +20,7 @@ No real legacy state is read or changed.
 
 `operator/env-through-schema` implements the approved environment-owner policy locally.
 It uses no private plugin code.
-The only exemptions are the environment owner and the exact `fake-gh.ts` and `fake-jsr-client.ts` files used by release tests.
+The only exemptions are the environment owner and the exact `gh-fixture.ts` and `jsr-client-fixture.ts` files used by release tests.
 The rule rejects direct reads, bracket access, destructuring, process imports, aliases, and parent mutations.
 Its message points to the checked `deep-modules/server-state.md` topic.
 Other rule-topic coverage remains #219 and does not decide its human parser policy.

@@ -18,7 +18,7 @@ export function githubIdentity(remote: string) {
       return null;
     return repositoryIdentity(
       url.pathname
-        .replace(/^\//, "")
+        .slice(1)
         .replace(/\/$/, "")
         .replace(/\.git$/i, ""),
     );
@@ -36,13 +36,15 @@ export function selectRepository(
       reason: "github_remote_missing" | "repository_choice_invalid" | "repository_choice_required";
       detail: string;
     } {
-  if (repositories.length === 0)
+  const [first, ...rest] = repositories;
+  if (first === undefined)
     return {
       reason: "github_remote_missing" as const,
       detail: "This checkout has no github.com remote. Add a matching remote before registration.",
     };
   if (choice !== undefined) {
     const identity = repositoryIdentity(choice);
+    // Stryker disable next-line ConditionalExpression: equivalent: the list holds only strings, so includes(null) is false and the right side refuses a null identity too
     if (identity === null || !repositories.includes(identity))
       return {
         reason: "repository_choice_invalid" as const,
@@ -51,8 +53,7 @@ export function selectRepository(
       };
     return { repository: identity };
   }
-  const first = repositories[0];
-  if (repositories.length !== 1 || first === undefined)
+  if (rest.length > 0)
     return {
       reason: "repository_choice_required" as const,
       detail: `Several GitHub identities match. Repeat with --repository owner/repository. Choices: ${repositories.join(", ")}. Remote names have no authority.`,

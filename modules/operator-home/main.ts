@@ -11,12 +11,17 @@ function refuseRealRoot(candidate: string, forbidden: string[]) {
   }
 }
 
+function existingAncestor(file: string): string {
+  return existsSync(file) ? file : existingAncestor(path.dirname(file));
+}
+
 function guardTestRoots(roots: string[]) {
   const home = userInfo().homedir;
   const forbidden = [path.join(home, ".config/operator"), path.join(home, ".local/state/operator")];
   for (const root of roots) {
-    const parts = path.resolve(root).split("/").filter(Boolean);
+    const parts = path.resolve(root).split("/");
     let resolved = "/";
+    // Stryker disable next-line EqualityOperator: no rule: the last pass differs only for a final link into an existing real Operator root, and tests must not create or inspect real Operator state
     for (let index = 0; index <= parts.length; index++) {
       // Check the remaining path before following a link into a real settings or state folder.
       refuseRealRoot(path.join(resolved, ...parts.slice(index)), forbidden);
@@ -130,9 +135,7 @@ export const OperatorHome = {
     if (environment.NODE_ENV !== "test") return;
     const temporary = realpathSync(tmpdir());
     for (const root of roots) {
-      let resolved = root;
-      while (!existsSync(resolved)) resolved = path.dirname(resolved);
-      const real = realpathSync(resolved);
+      const real = realpathSync(existingAncestor(root));
       if (real !== temporary && !real.startsWith(`${temporary}/`)) {
         // oxlint-disable-next-line unthrown/no-throw -- Tests may inspect personal skills and global commands only inside isolated temporary roots.
         throw new Error(`Tests cannot access non-temporary install roots: ${root}`);

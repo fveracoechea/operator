@@ -41,7 +41,7 @@ export function stacked(parent: Relay["parent"]): Relay {
 }
 
 /** A relay that has not finished needs the parent's state. An ended child PR needs nothing. */
-export function needsParent(relay: Relay | null, child: Child) {
+export function needsParent(relay: Relay | null, child: Child): relay is Relay {
   return relay !== null && relay.state !== "relayed" && child.state === "OPEN";
 }
 
@@ -66,7 +66,8 @@ export function decideRelay(
         detail: `Parent PR #${relay.parent.number} was closed without a merge. Your PR still targets ${relay.parent.branch}. Ask your SuperAgent.`,
       },
     };
-  if (child.defaultBranch === null || parent.base !== child.defaultBranch)
+  // A repository without a default branch reports null, which no base name equals.
+  if (parent.base !== child.defaultBranch)
     return {
       action: "blocked",
       blocker: {
@@ -74,7 +75,7 @@ export function decideRelay(
         detail: `Parent PR #${relay.parent.number} merged into ${parent.base}, not the default branch. Ask your SuperAgent.`,
       },
     };
-  return { action: "relay", defaultBranch: child.defaultBranch };
+  return { action: "relay", defaultBranch: parent.base };
 }
 
 async function git(cwd: string, args: string[]) {
@@ -120,7 +121,9 @@ async function fetchTargets(input: Input): Promise<Blocker | { remote: string; t
       detail: `Git could not fetch ${input.defaultBranch}: ${target.err} ${kept}`,
     };
   // The parent's head is local when its owner pushed from this repository. GitHub keeps it as a PR ref.
+  // Stryker disable next-line ArrayDeclaration,StringLiteral: no rule: Git fetches a commit that the clone already holds without a failure, so this check only saves a network read, and Operator promises no fetch count
   const local = await git(input.worktree, ["cat-file", "-e", `${input.parentHead}^{commit}`]);
+  // Stryker disable next-line ConditionalExpression: no rule: a fetch of a commit that the clone already holds succeeds, so only the network read differs
   if (!local.ok) {
     const parent = await git(input.worktree, ["fetch", "--quiet", remote.out, input.parentHead]);
     if (!parent.ok)

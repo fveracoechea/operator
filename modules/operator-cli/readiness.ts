@@ -13,7 +13,7 @@ export async function runReadiness(
   if (result.tag === "Defect") failure("ready", "readiness_defect", String(result.cause), 1, json);
   else if (result.tag === "Err")
     failure("ready", result.error.reason, result.error.detail, 1, json);
-  else if (result.tag === "Ok") {
+  else {
     const ready = result.value.blockers.length === 0;
     console.log(
       JSON.stringify(

@@ -9,6 +9,7 @@ test("the preload refuses a disabled test-root guard without changing the parent
   });
   const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
   expect(code).toBe(1);
-  expect(stderr).toContain("Tests require NODE_ENV=test");
+  // The source frame quotes the throw line, so only the reported error line proves the reason.
+  expect(stderr).toMatch(/^error: Tests require NODE_ENV=test /m);
   expect(Environment.read().NODE_ENV).toBe("test");
 });

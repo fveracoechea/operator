@@ -7,7 +7,7 @@
 
 import { z } from "zod";
 
-const fakeClientPath = new URL("./fake-jsr-client.ts", import.meta.url).pathname;
+const fakeClientPath = new URL("./jsr-client-fixture.ts", import.meta.url).pathname;
 
 export type JsrClientBehaviour = "publishes" | "refuses" | "publishes-then-fails";
 

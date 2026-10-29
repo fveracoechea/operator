@@ -8,11 +8,13 @@ import { registerProject, removeProject } from "./projects.ts";
 import { observePane, reserveLaunch, updateLaunch } from "./launches.ts";
 import {
   associatePullRequest,
+  recordPullRequestMerge,
   recordPullRequestWait,
   renewPullRequestRelay,
   renewPullRequestWait,
   worktreeOwners,
 } from "./pull-requests.ts";
+import { busy, reservedCopy } from "./state-fixture.ts";
 
 function fixture() {
   const db = new Database(":memory:");
@@ -40,8 +42,8 @@ function fixture() {
   return db;
 }
 
-function start(db: Database, id: string, assignment: string, paneId: string) {
-  const reserved = reserveLaunch(db, "/one", "owner/one", {
+function launchRow(id: string, assignment: string) {
+  return {
     id,
     sourceId: "s1",
     assignment,
@@ -68,7 +70,11 @@ function start(db: Database, id: string, assignment: string, paneId: string) {
     failureDetail: null,
     activity: null,
     activityAt: null,
-  });
+  };
+}
+
+function start(db: Database, id: string, assignment: string, paneId: string) {
+  const reserved = reserveLaunch(db, "/one", "owner/one", launchRow(id, assignment));
   expect(reserved.tag).toBe("Ok");
   expect(
     updateLaunch(db, id, { paneId, worktreePath: `/worktrees/${assignment}`, state: "running" })
@@ -288,4 +294,274 @@ test("a relay renews only its own claim, so a slow relay is not taken over", () 
   }
   expect(claim(process.pid)).not.toBe(old);
   expect(claim(process.pid + 1)).toBe(old);
+});
+
+const merge = { number: 7, head: "h1", mergeCommit: "m1" };
+
+test("worktree owners list each assignment of each source once", () => {
+  using db = fixture();
+  registerSource(
+    db,
+    "/one",
+    {
+      id: "s2",
+      repository: "owner/one",
+      trackerKey: "APP-2",
+      state: "open",
+      registeredAt: "now",
+      endedAt: null,
+      plan: "{}",
+    },
+    [{ sourceId: "s2", key: "change", completion: "pr", state: "ready" }],
+  );
+  start(db, "l1", "change", "p1");
+  start(db, "l2", "other", "p2");
+  reserveLaunch(db, "/one", "owner/one", {
+    ...launchRow("l3", "change"),
+    sourceId: "s2",
+  });
+  updateLaunch(db, "l3", { paneId: "p3", worktreePath: "/worktrees/s2", state: "running" });
+  const owners = worktreeOwners(db).getOrNull() ?? [];
+  expect(
+    owners.map((row) => `${row.sourceId}/${row.assignment}/${row.launchId}`).toSorted(),
+  ).toEqual(["s1/change/l1", "s1/other/l2", "s2/change/l3"]);
+});
+
+test("an owner is inactive when a newer start exists, its source ended, or it is not a PR assignment", () => {
+  using db = fixture();
+  start(db, "l1", "change", "p1");
+  const inactive = {
+    tag: "Err",
+    error: {
+      reason: "pr_owner_inactive",
+      detail:
+        "This worktree no longer belongs to the running owner of an open PR assignment. Nothing was changed.",
+    },
+  };
+  // A newer start replaces this owner even while the older launch still reads as running.
+  db.exec(
+    "INSERT INTO launches (id, source_id, assignment, attempt, state, name, resources, host, model, requested_model, reasoning_effort, release, skills, started_at) SELECT 'l9', source_id, assignment, 2, 'starting', 'n9', resources, host, model, requested_model, reasoning_effort, release, skills, started_at FROM launches WHERE id = 'l1'",
+  );
+  expect(associatePullRequest(db, "l1", pr)).toMatchObject(inactive);
+  db.exec("DELETE FROM launches WHERE id = 'l9'");
+  db.exec("UPDATE sources SET state = 'reset'");
+  expect(associatePullRequest(db, "l1", pr)).toMatchObject(inactive);
+  db.exec(
+    "UPDATE sources SET state = 'open'; UPDATE assignments SET state = 'completed' WHERE key = 'change'",
+  );
+  expect(associatePullRequest(db, "l1", pr)).toMatchObject(inactive);
+  db.exec("UPDATE assignments SET state = 'running' WHERE key = 'change'");
+  expect(associatePullRequest(db, "l1", pr).tag).toBe("Ok");
+});
+
+test("association records idle progress, names the owning PR, and asks for a review only when told", () => {
+  using db = fixture();
+  start(db, "l1", "change", "p1");
+  start(db, "l2", "other", "p2");
+  expect(associatePullRequest(db, "l1", pr)).toMatchObject({
+    tag: "Ok",
+    value: {
+      changed: true,
+      row: {
+        sourceId: "s1",
+        assignment: "change",
+        progress: '{"seen":[],"failures":[],"eligibleHead":null}',
+        waitState: "idle",
+        mergedHead: null,
+      },
+    },
+  });
+  expect(db.query("SELECT * FROM review_requests").all()).toEqual([]);
+  expect(associatePullRequest(db, "l1", { ...pr, number: 8 })).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "pr_already_associated",
+      detail: "Assignment change already owns PR #7. Nothing was changed.",
+    },
+  });
+  expect(associatePullRequest(db, "l2", pr)).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "pr_owned_elsewhere",
+      detail: "PR #7 belongs to another open PR assignment. Nothing was changed.",
+    },
+  });
+  const other = {
+    number: 9,
+    url: "https://github.com/owner/one/pull/9",
+    branch: "task/other",
+    relay: null,
+  };
+  expect(associatePullRequest(db, "l2", other, true).tag).toBe("Ok");
+  expect(
+    db
+      .query(
+        "SELECT repository, number, url, source_id, assignment, origin, state FROM review_requests",
+      )
+      .all(),
+  ).toEqual([
+    {
+      repository: "owner/one",
+      number: 9,
+      url: other.url,
+      source_id: "s1",
+      assignment: "other",
+      origin: "assignment",
+      state: "queued",
+    },
+  ]);
+});
+
+test("a wait needs the PR row and the PR open state, and names a missing branch", () => {
+  using db = fixture();
+  start(db, "l1", "change", "p1");
+  const missing = {
+    tag: "Err",
+    error: {
+      reason: "pr_not_associated",
+      detail: "Run operator pr associate after you open the PR. Nothing was changed.",
+    },
+  };
+  db.exec("UPDATE assignments SET state = 'pr-open' WHERE key = 'change'");
+  expect(recordPullRequestWait(db, "l1", () => null)).toMatchObject(missing);
+  db.exec("UPDATE assignments SET state = 'running' WHERE key = 'change'");
+  associatePullRequest(db, "l1", pr);
+  db.exec("UPDATE assignments SET state = 'running' WHERE key = 'change'");
+  expect(recordPullRequestWait(db, "l1", () => null)).toMatchObject(missing);
+  db.exec(
+    "UPDATE assignments SET state = 'pr-open' WHERE key = 'change'; UPDATE launches SET branch = NULL",
+  );
+  expect(recordPullRequestWait(db, "l1", () => null)).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "pr_branch_mismatch",
+      detail: "This launch is on no branch, but PR #7 is on task/change. Nothing was changed.",
+    },
+  });
+  db.exec("UPDATE launches SET branch = 'task/change'");
+  const held: boolean[] = [];
+  recordPullRequestWait(db, "l1", (row) => {
+    held.push(row.relayHeld);
+    return null;
+  });
+  // A PR with no relay has no claim to hold.
+  expect(held).toEqual([false]);
+});
+
+test("a verified merge records the merge, the merged state, the cleanup, and the source decision once", () => {
+  using db = fixture();
+  start(db, "l1", "change", "p1");
+  associatePullRequest(db, "l1", pr);
+  const seen: unknown[] = [];
+  expect(
+    recordPullRequestMerge(db, "l1", merge, (rows) => {
+      seen.push(rows);
+      return "open";
+    }),
+  ).toMatchObject({ tag: "Ok", value: { changed: true } });
+  expect(seen).toEqual([
+    [
+      { key: "change", completion: "pr", state: "merged" },
+      { key: "other", completion: "pr", state: "ready" },
+      { key: "read", completion: "report", state: "ready" },
+    ],
+  ]);
+  expect(
+    db
+      .query("SELECT merged_head, merge_commit, merged_at IS NOT NULL AS at FROM pull_requests")
+      .get(),
+  ).toEqual({
+    merged_head: "h1",
+    merge_commit: "m1",
+    at: 1,
+  });
+  expect(assignmentState(db, "change")).toEqual({ state: "merged" });
+  expect(
+    db
+      .query(
+        "SELECT source_id, assignment, launch_id, step, state, reason, detail, owner_pid, lease_at FROM cleanups",
+      )
+      .all(),
+  ).toEqual([
+    {
+      source_id: "s1",
+      assignment: "change",
+      launch_id: "l1",
+      step: "remote_branch",
+      state: "pending",
+      reason: null,
+      detail: null,
+      owner_pid: null,
+      lease_at: null,
+    },
+  ]);
+  // The decision kept the source open, so it has no end.
+  expect(db.query("SELECT state, ended_at FROM sources").get()).toEqual({
+    state: "open",
+    ended_at: null,
+  });
+  expect(recordPullRequestMerge(db, "l1", merge, () => "finished")).toMatchObject({
+    tag: "Ok",
+    value: { changed: false },
+  });
+  // Another PR number on the merged assignment is no repeat, and its owner is no longer active.
+  expect(recordPullRequestMerge(db, "l1", { ...merge, number: 8 }, () => "finished")).toMatchObject(
+    {
+      tag: "Err",
+      error: { reason: "pr_owner_inactive" },
+    },
+  );
+  expect(db.query("SELECT state FROM sources").get()).toEqual({ state: "open" });
+});
+
+test("a merge that the source decision ends finishes the source", () => {
+  using db = fixture();
+  start(db, "l1", "change", "p1");
+  associatePullRequest(db, "l1", pr);
+  expect(recordPullRequestMerge(db, "l1", merge, () => "finished").tag).toBe("Ok");
+  expect(db.query("SELECT state, ended_at IS NOT NULL AS ended FROM sources").get()).toEqual({
+    state: "finished",
+    ended: 1,
+  });
+});
+
+test("a merge refuses an unknown launch, an unassociated PR, another PR number, and a left PR state", () => {
+  using db = fixture();
+  start(db, "l1", "change", "p1");
+  expect(recordPullRequestMerge(db, "missing", merge, () => "open")).toMatchObject({
+    error: { reason: "pr_owner_inactive" },
+  });
+  function notOpen(number: number) {
+    return {
+      tag: "Err",
+      error: {
+        reason: "pr_not_associated",
+        detail: `PR #${number} is not the open PR of assignment change. Nothing was changed.`,
+      },
+    };
+  }
+  expect(recordPullRequestMerge(db, "l1", merge, () => "open")).toMatchObject(notOpen(7));
+  // A PR open state without its PR record is still no associated PR.
+  db.exec("UPDATE assignments SET state = 'pr-open' WHERE key = 'change'");
+  expect(recordPullRequestMerge(db, "l1", merge, () => "open")).toMatchObject(notOpen(7));
+  db.exec("UPDATE assignments SET state = 'running' WHERE key = 'change'");
+  associatePullRequest(db, "l1", pr);
+  expect(recordPullRequestMerge(db, "l1", { ...merge, number: 8 }, () => "open")).toMatchObject(
+    notOpen(8),
+  );
+  db.exec("UPDATE assignments SET state = 'running' WHERE key = 'change'");
+  expect(recordPullRequestMerge(db, "l1", merge, () => "open")).toMatchObject(notOpen(7));
+  expect(db.query("SELECT COUNT(*) AS count FROM cleanups").get()).toEqual({ count: 0 });
+  expect(db.query("SELECT merged_head FROM pull_requests").get()).toEqual({ merged_head: null });
+});
+
+test("reads need no writer reservation, and PR changes wait for it even when they refuse", () => {
+  using db = fixture();
+  using reserved = reservedCopy(db);
+  expect(worktreeOwners(reserved.subject).tag).toBe("Ok");
+  expect(associatePullRequest(reserved.subject, "missing", pr)).toMatchObject(busy);
+  expect(recordPullRequestWait(reserved.subject, "missing", () => null)).toMatchObject(busy);
+  expect(recordPullRequestMerge(reserved.subject, "missing", merge, () => "open")).toMatchObject(
+    busy,
+  );
 });

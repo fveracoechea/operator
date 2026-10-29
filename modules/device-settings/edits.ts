@@ -33,7 +33,7 @@ export function parseEdits(sets: string[], unsets: string[]) {
         edits.some((edit) => edit.path.startsWith(`${key}.`) || key.startsWith(`${edit.path}.`))
       ) {
         issues.push(`Settings field ${key} was named more than once.`);
-      } else if (action === "set" && (separator < 1 || !value?.trim())) {
+      } else if (value !== null && (!raw.includes("=") || value.trim() === "")) {
         issues.push(`Set ${key} with a non-empty path=value argument.`);
       } else {
         edits.push({ path: key, value });
@@ -54,8 +54,11 @@ export function editConfig(config: DeviceConfig, edits: Edit[]) {
 }
 
 function applyEdit(next: DeviceConfig, edit: Edit) {
-  if (edit.path.startsWith("review.")) {
-    applyReviewEdit(next, edit);
+  const reviewEdit = reviewEdits.get(edit.path);
+  if (reviewEdit) {
+    const review = { ...next.review };
+    reviewEdit(review, edit.value);
+    next.review = review;
     return;
   }
   const [role, name, profileField] = edit.path.split(".");
@@ -117,9 +120,3 @@ const reviewEdits = new Map<string, (review: Review, value: string | null) => vo
     },
   ],
 ]);
-
-function applyReviewEdit(next: DeviceConfig, edit: Edit) {
-  const review = { ...next.review };
-  reviewEdits.get(edit.path)?.(review, edit.value);
-  next.review = review;
-}

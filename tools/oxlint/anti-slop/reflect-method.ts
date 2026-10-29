@@ -9,10 +9,13 @@ export function isGlobalReflectMethod(
   const member = arrayMethodTarget(node);
   if (
     member?.name !== name ||
+    // Stryker disable next-line ConditionalExpression: equivalent: only an identifier has a name, so the name check alone refuses other objects; this check narrows the type
     member.object.type !== "Identifier" ||
     member.object.name !== "Reflect"
   )
     return false;
   const variable = resolveArrayBinding(source, member.object);
-  return variable === null || variable.defs.length === 0;
+  // A global has no definition. The scope manager always declares the built-in Reflect global.
+  // Stryker disable next-line OptionalChaining: equivalent: the built-in Reflect global always resolves, so the binding is never null
+  return !variable?.defs.length;
 }

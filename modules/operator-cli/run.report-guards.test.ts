@@ -93,7 +93,7 @@ test.each([
   {
     name: "recorded branch tip inspection",
     file: "worker-dispatch/worktree-cleanup.ts",
-    before: "(await branchExists(worktree, branch))",
+    before: "await branchExists(worktree, branch)",
     after: "false",
     testFile: "worker-dispatch/worktree-cleanup.test.ts",
     pattern: "a branch commit while HEAD is detached elsewhere",

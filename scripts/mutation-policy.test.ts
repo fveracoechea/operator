@@ -77,3 +77,64 @@ test("test, fixture, declaration, and generated paths are not units", () => {
     expect(excludedUnit(name)).toBe(false);
   }
 });
+
+test("a suppression comment is found by its own leading text, spacing, and comment style", () => {
+  const cases: [string, number[]][] = [
+    ["//Stryker disable all\n", [1]],
+    ["// Stryker  disable all\n", [1]],
+    ["/**Stryker disable all */\n", [1]],
+    ["/** Stryker disable all */\n", [1]],
+    ["// note: Stryker disable all is not a suppression here\n", []],
+    ["const a = 1;\n// Stryker disable all: no logic\n", [2]],
+    ["/* Stryker disable all: no logic*/\nconst a = 1;\n", [1]],
+    ["// Stryker disable all and Stryker disable next-line A: no rule: why\n", [1]],
+    ["//Stryker disable next-line StringLiteral: no rule: why\n", []],
+    ["/**Stryker disable next-line StringLiteral: no rule: why */\n", []],
+    ["/*\n * Stryker disable next-line StringLiteral: no rule: why\n */\n", []],
+    ["// Stryker disable next-line StringLiteral: no rule:   \n", [1]],
+    ["// Stryker disable next-line StringLiteral: equivalent:why\n", []],
+  ];
+  for (const [source, lines] of cases) {
+    expect(suppressionErrors(source), source).toEqual(lines);
+  }
+});
+
+test("an explained suppression may name several mutators with any comma spacing", () => {
+  for (const names of [
+    "StringLiteral,Regex",
+    "StringLiteral , Regex",
+    "StringLiteral, Regex",
+    "StringLiteral,\tRegex , ArrayDeclaration",
+  ]) {
+    expect(
+      suppressionErrors(`// Stryker disable next-line ${names}: no rule: why\n`),
+      names,
+    ).toEqual([]);
+  }
+  expect(suppressionErrors("// Stryker disable next-line StringLiteral,: no rule: why\n")).toEqual([
+    1,
+  ]);
+  expect(
+    suppressionErrors("// Stryker disable next-line StringLiteral, 1x: no rule: why\n"),
+  ).toEqual([1]);
+});
+
+test("folders count as excluded only as whole folder names, and a test name must end the path", () => {
+  for (const name of [
+    "fixtures/a.ts",
+    "lib/fixture/a.ts",
+    "generated/a.ts",
+    "lib/__tests__/a.ts",
+  ]) {
+    expect(excludedUnit(name), name).toBe(true);
+  }
+  for (const name of [
+    "lib/a.test.tsx.ts",
+    "lib/a.d.tsx.ts",
+    "lib/myfixtures/a.ts",
+    "lib/generated.ts",
+    "lib/fixtures.ts",
+  ]) {
+    expect(excludedUnit(name), name).toBe(false);
+  }
+});

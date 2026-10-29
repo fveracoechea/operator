@@ -13,3 +13,12 @@ test("rejects conditional empty-object spreads and accepts direct fields", async
   );
   expect(valid.codes).toEqual([]);
 });
+
+test("the finding names the fix topic", async () => {
+  const invalid = await check(
+    "export function options(enabled: boolean) { return { ...(enabled ? { id: 1 } : {}) }; }",
+  );
+  expect(invalid.stdout).toContain(
+    "This conditional spread hides property omission behind an empty object. Build the object in separate statements and add the property only when present. See lint-fixes/object-construction.md.",
+  );
+});

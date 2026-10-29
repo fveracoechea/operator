@@ -1,11 +1,15 @@
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { Environment } from "../modules/environment/main.ts";
 // Bun has no temporary directory or recursive removal API.
-import { mkdtemp, rm, symlink } from "node:fs/promises";
+import { mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { z } from "zod";
 
-const root = await mkdtemp(path.join(tmpdir(), "operator-mutate-"));
+// Most tests run Stryker, which starts several Bun processes, so a busy machine needs time.
+setDefaultTimeout(60_000);
+// The real path, because Bun reports a script path with symlinks such as macOS /var resolved.
+const root = await realpath(await mkdtemp(path.join(tmpdir(), "operator-mutate-")));
 const script = path.join(import.meta.dir, "mutate.ts");
 
 afterAll(async () => {
@@ -86,6 +90,41 @@ test("the repository's public script invokes the mutation CLI", async () => {
   expect(code).toBe(0);
   expect(stdout).toStartWith("Usage: bun run mutate");
 });
+
+// Early in the file, so a broken reuse fails before the slow tests run.
+test("a rerun reuses verdicts, and a changed test or an incomplete result runs again", async () => {
+  const runs = path.join(root, crypto.randomUUID());
+  const besideTest = `import { test, expect } from "bun:test";
+import { appendFileSync } from "node:fs";
+import { count, drain } from "./count.ts";
+test("exact", () => {
+  appendFileSync(${JSON.stringify(runs)}, "run\\n");
+  expect(count(2)).toBe(3);
+  expect(drain(2)).toBe(0);
+});\n`;
+  const cwd = await fixture({
+    "lib/count.ts":
+      "export function count(n: number) { return n + 1; }\nexport function drain(n: number) {\n  while (n > 0) n--;\n  return n;\n}\nexport const unchecked = (n: number) => n * 2;\n",
+    "lib/count.test.ts": besideTest,
+  });
+  async function rerun() {
+    await Bun.write(runs, "");
+    const result = await mutate(cwd, ["lib/count.ts"]);
+    const count = (await Bun.file(runs).text()).split("\n").length - 1;
+    return { code: result.code, summary: result.stdout.trim().split("\n").at(-1), count };
+  }
+  const first = await rerun();
+  expect(first.code).toBe(3);
+  // The dry run and the timeout run each time. The stored killed and survived verdicts are reused.
+  const second = await rerun();
+  expect(second).toEqual({ ...first, count: 2 });
+  expect(second.summary).toMatch(
+    / [1-9]\d* survivors, 0 untested, [1-9]\d* incomplete, [1-9]\d* killed, /,
+  );
+  // A changed beside-test reruns every mutant.
+  await Bun.write(path.join(cwd, "lib/count.test.ts"), besideTest.replace('"exact"', '"renamed"'));
+  expect((await rerun()).count).toBe(first.count);
+}, 120_000);
 
 test("a weak beside-test reports actionable survivors in fresh Bun processes", async () => {
   const processes = path.join(root, crypto.randomUUID());
@@ -218,6 +257,7 @@ test.each(
     ["missing.ts"],
     ["../escape.ts"],
     [".operator/untouched.ts"],
+    ["--help", "--help"],
   ].map((args) => ({ args })),
 )("usage refusal %j has no effects", async ({ args }) => {
   const cwd = await fixture({ ".operator/untouched.ts": "do not read or change\n" });
@@ -240,6 +280,9 @@ test("a failed initial test run is incomplete, never clean or a killed mutant", 
   const result = await mutate(cwd, ["lib/count.ts"]);
   expect(result.code).toBe(3);
   expect(result.stderr).toContain("Mutation execution incomplete");
+  expect(result.stdout).toEndWith(
+    "Mutation summary: incomplete. See .agents/skills/unit-testing/mutation-testing.md.\n",
+  );
   expect(
     await Array.fromAsync(new Bun.Glob(".mutation-*").scan({ cwd, onlyFiles: false })),
   ).toEqual([]);
@@ -272,7 +315,7 @@ test("valid local suppressions are ignored, not reported as killed", async () =>
   });
   const result = await mutate(cwd, ["lib/count.ts"]);
   expect(result.code).toBe(0);
-  expect(result.stdout).toContain("1 killed, 1 ignored");
+  expect(result.stdout).toContain(", 1 killed, 1 ignored");
 });
 
 test("case-insensitive wildcard suppressions cannot hide survivors", async () => {
@@ -320,3 +363,137 @@ test("removing the summary's guidance topic makes its real check fail", async ()
   expect(broken.code).toBe(1);
   expect(broken.stderr).toContain("the summary points to an existing topic");
 });
+
+test("each mutant runs in a sandbox with type checks off and no host-only state", async () => {
+  const seen = path.join(root, crypto.randomUUID());
+  const cwd = await fixture({
+    ".agents/skills/unit-testing/mutation-testing.md": "local guidance\n",
+    ".agents/skills/dev-skill/SKILL.md": "development skill\n",
+    ".agents/skills/.dot-skill/SKILL.md": "hidden development skill\n",
+    ".claude/settings.json": "{}\n",
+    ".operator/untouched": "unfinished legacy work\n",
+    "lib/data.ts": "export const data = 1;\n",
+    "lib/count.ts": "export function count(n: number) { return n + 1; }\n",
+    "lib/count.test.ts": `import { test, expect } from "bun:test";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { count } from "./count.ts";
+test("exact", () => {
+  writeFileSync(${JSON.stringify(seen)}, JSON.stringify({
+    cwd: process.cwd(),
+    entries: readdirSync(".").toSorted(),
+    skills: readdirSync(".agents/skills").toSorted(),
+    data: readFileSync("lib/data.ts", "utf8"),
+  }));
+  expect(count(2)).toBe(3);
+});\n`,
+  });
+  const before = await Array.fromAsync(new Bun.Glob("**").scan({ cwd, dot: true }));
+  const result = await mutate(cwd, ["lib/count.ts"]);
+
+  expect(result).toMatchObject({
+    code: 0,
+    stdout:
+      "Mutation summary: 0 survivors, 0 untested, 0 incomplete, 2 killed, 0 ignored, 0 skipped. See .agents/skills/unit-testing/mutation-testing.md.\n",
+  });
+  const sandbox = z
+    .object({
+      cwd: z.string(),
+      entries: z.array(z.string()),
+      skills: z.array(z.string()),
+      data: z.string(),
+    })
+    .parse(JSON.parse(await Bun.file(seen).text()));
+  expect(sandbox).toEqual({
+    cwd: expect.stringMatching(/\/\.mutation-\w+\/sandbox\/sandbox-\w+$/) as string,
+    entries: [".agents", "lib", "package.json"],
+    skills: ["unit-testing"],
+    // Stryker turns off type checks in sandbox sources, because instrumented code fails strict tsc.
+    data: "// @ts-nocheck\nexport const data = 1;\n",
+  });
+  // Only the ignored incremental result stays in the checkout. No report or temporary folder does.
+  const after = await Array.fromAsync(new Bun.Glob("**").scan({ cwd, dot: true }));
+  expect(after.filter((file) => !before.includes(file))).toEqual([
+    expect.stringMatching(/^\.mutation-incremental\/lib\/count\.ts\.[\da-f]+\.json$/) as string,
+  ]);
+  expect(before.filter((file) => !after.includes(file))).toEqual([]);
+}, 60_000);
+
+test("survivors quote multi-line originals and backticks, and timeouts are incomplete", async () => {
+  const cwd = await fixture({
+    "lib/pick.ts": `export function pick(flag: boolean) {
+  if (flag) {
+    return \`a\`;
+  } else return "b";
+}
+export function anyPositive(items: number[]) {
+  return items.some((item) => {
+    return item > 0;
+  });
+}
+export function drain(n: number) {
+  while (n > 0) n--;
+  return n;
+}
+`,
+    "lib/pick.test.ts": `import { test, expect } from "bun:test";
+import { anyPositive, drain, pick } from "./pick.ts";
+test("weak", () => {
+  expect(typeof pick(true)).toBe("string");
+  expect(typeof anyPositive([1])).toBe("boolean");
+  expect(drain(2)).toBe(0);
+});\n`,
+  });
+  const result = await mutate(cwd, ["lib/pick.ts"]);
+
+  expect(result.code).toBe(3);
+  expect(result.stdout.split("\n")).toContain(
+    "lib/pick.ts:7: survived: BlockStatement: `{\\n    return item > 0;\\n  }` to `{}`",
+  );
+  expect(result.stdout.split("\n")).toContain(
+    "lib/pick.ts:3: survived: StringLiteral: `\\`a\\`` to `\\`\\``",
+  );
+  // A multi-line replacement is quoted on one line too.
+  const every = result.stdout
+    .split("\n")
+    .find((line) => line.startsWith("lib/pick.ts:7: survived: MethodExpression: "));
+  expect(every?.slice(every.indexOf(" to `"))).toStartWith(" to `items.every(");
+  expect(every?.slice(every.indexOf(" to `"))).toContain("\\n");
+  expect(result.stderr).toContain("lib/pick.ts:12: incomplete: Timeout: no result");
+  expect(result.stdout).toMatch(/ \d+ survivors, 0 untested, [1-9]\d* incomplete, /);
+}, 120_000);
+
+test("the checkout's own runner judges each mutant from the sandbox", async () => {
+  const record = path.join(root, crypto.randomUUID());
+  const cwd = await fixture({
+    // The test script would fail, so a passing run proves that the runner judged the mutants.
+    "package.json": JSON.stringify({ type: "module", scripts: { test: "exit 9" } }),
+    "scripts/test-watchdog.ts": `import { appendFileSync } from "node:fs";
+appendFileSync(${JSON.stringify(record)}, JSON.stringify({ runner: import.meta.path, cwd: process.cwd(), args: process.argv.slice(2) }) + "\\n");
+const child = Bun.spawn([process.execPath, "test", "--isolate", ...process.argv.slice(2)], { stdout: "inherit", stderr: "inherit" });
+process.exit(await child.exited);\n`,
+    "lib/count.ts": "export function count(n: number) { return n + 1; }\n",
+    "lib/count.test.ts":
+      'import { test, expect } from "bun:test"; import { count } from "./count.ts"; test("exact", () => { expect(count(2)).toBe(3); });\n',
+  });
+  const result = await mutate(cwd, ["lib/count.ts"]);
+
+  expect({ code: result.code, stderr: result.stderr }).toEqual({ code: 0, stderr: "" });
+  const run = z.object({ runner: z.string(), cwd: z.string(), args: z.array(z.string()) });
+  const runs = (await Bun.file(record).text())
+    .trim()
+    .split("\n")
+    .map((line) => run.parse(JSON.parse(line)));
+  // One dry run and one run for each of the two mutants.
+  expect(runs).toHaveLength(3);
+  for (const recorded of runs) {
+    expect(recorded.runner).toBe(path.join(cwd, "scripts/test-watchdog.ts"));
+    expect(recorded.cwd).toMatch(/\/\.mutation-\w+\/sandbox\/sandbox-\w+$/);
+    expect(recorded.args).toEqual(["--bail", "./lib/count.test.ts"]);
+  }
+  // A changed runner judges every mutant again.
+  await Bun.write(record, "");
+  const runnerFile = path.join(cwd, "scripts/test-watchdog.ts");
+  await Bun.write(runnerFile, `${await Bun.file(runnerFile).text()}// changed\n`);
+  expect((await mutate(cwd, ["lib/count.ts"])).code).toBe(0);
+  expect((await Bun.file(record).text()).trim().split("\n")).toHaveLength(3);
+}, 60_000);

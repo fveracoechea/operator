@@ -42,7 +42,9 @@ export function arrayMethodTarget(
   if (!node.computed && property.type === "Identifier") {
     return { name: property.name, object: node.object };
   }
-  if (node.computed && property.type === "Literal" && isText(property.value)) {
+  // A literal property is always computed, and only a literal carries a static string value.
+  // Stryker disable next-line ConditionalExpression: equivalent: no other property node has a string value, so the type check only narrows the type
+  if (property.type === "Literal" && isText(property.value)) {
     return { name: property.value, object: node.object };
   }
   return null;

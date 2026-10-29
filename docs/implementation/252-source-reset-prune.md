@@ -108,7 +108,7 @@ Prune from the consumer's checkout does not touch the producer's sources.
 
 ## Verification
 
-`run.source-reset.test.ts` drives the public CLI with real Git and SQLite, isolated device roots, the controlled `fake-herdr.ts`, the controlled `fake-github.ts`, and the controlled OpenCode host:
+`run.source-reset.test.ts` drives the public CLI with real Git and SQLite, isolated device roots, the controlled `herdr-fixture.ts`, the controlled `github-fixture.ts`, and the controlled OpenCode host:
 
 - A mixed source with a verified PR merge, an accepted report, an associated PR with a stopped owner, a submitted report with a stopped worker, a running report worker, and a ready dependent. Reset without the flag and reset with a running worker refuse with unchanged database bytes. After the worker stops, reset keeps the merged and completed work, abandons the rest, and lists the open PR with its worktree as retained. A later prune lists the same work and not the worktree that merge cleanup removed. Branches, worktrees, Herdr calls, and GitHub calls stay the same. Dispatch, PR association, report acceptance, and a second reset then refuse with unchanged bytes.
 - A finished source, a missing source, and another project's source refuse with unchanged bytes.

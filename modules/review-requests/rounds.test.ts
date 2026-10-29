@@ -204,3 +204,31 @@ test("a renewed request that a later post already answered starts no round", () 
     ),
   ).toEqual({ kind: "none" });
 });
+
+test("the stale limit is seven days", () => {
+  expect(staleAfterMs).toBe(7 * 86_400_000);
+});
+
+test("activity at the round start, by a PR with no author, or with no head starts no round", () => {
+  const mention = { id: "p", author: null, body: "@me PTAL.", createdAt: later };
+  expect(decideWatch(facts({ pr: pr({ author: null, comments: [mention] }) }))).toEqual({
+    kind: "none",
+  });
+  expect(
+    decideWatch(
+      facts({
+        pr: pr({ comments: [{ id: "p", author: "author", body: "@me PTAL.", createdAt: since }] }),
+      }),
+    ),
+  ).toEqual({ kind: "none" });
+  expect(decideWatch(facts({ head: null, pr: pr({ head: "h2" }) }))).toEqual({ kind: "none" });
+});
+
+test("a mention matches the login without its other characters, in any case", () => {
+  const comment = { id: "p", author: "author", body: "@MYBOT please look", createdAt: later };
+  expect(decideWatch(facts({ pr: pr({ viewer: "my_bot", comments: [comment] }) }))).toEqual({
+    kind: "round",
+    trigger: "reply",
+    head: "h1",
+  });
+});

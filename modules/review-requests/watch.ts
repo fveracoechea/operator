@@ -24,13 +24,8 @@ const pollMs = 30000;
 type Listed = Snapshot;
 type Event = { url: string; kind: string } & Record<string, unknown>;
 
-function targetOf(listed: Listed): Target {
-  const request = listed.request;
-  return {
-    repository: request?.repository ?? "",
-    number: request?.number ?? 0,
-    url: request?.url ?? "",
-  };
+function targetOf(request: Row): Target {
+  return { repository: request.repository, number: request.number, url: request.url };
 }
 
 const threadIds = z.array(z.string());
@@ -64,22 +59,21 @@ export function rows(paths: Paths, listed: Snapshot[]) {
 /** A running reviewer that Herdr no longer lists in this server is interrupted. */
 async function checkReviewers(paths: Paths, listed: Listed[]) {
   const socket = Environment.read().HERDR_SOCKET_PATH ?? null;
-  const running = listed.filter(
-    (row) => row.request?.launchState === "running" && row.request.herdrSocket === socket,
+  const running = listed.flatMap(({ request }) =>
+    request?.launchState === "running" && request.herdrSocket === socket ? [request] : [],
   );
   if (running.length === 0) return [];
   const agents = await Herdr.agentNames();
   if (agents.tag !== "Ok") return [];
   const events: Event[] = [];
-  for (const row of running) {
-    const request = row.request;
-    if (request === null || (request.name !== null && agents.value.includes(request.name)))
-      continue;
+  for (const request of running) {
+    if (agents.value.some((name) => name === request.name)) continue;
     const changed = DeviceState.changeReviewRequest(
       paths,
-      { ...targetOf(row), id: request.id },
+      { ...targetOf(request), id: request.id },
       (current) =>
         Ok(
+          // Stryker disable next-line OptionalChaining: equivalent: the change reads the listed request by its id, so it always exists
           current.request?.launchState === "running"
             ? { update: { launchState: "interrupted" } }
             : {},
@@ -92,11 +86,13 @@ async function checkReviewers(paths: Paths, listed: Listed[]) {
 
 /** The flag is set once, so a second wait reports nothing. A round start clears it. */
 function markStale(paths: Paths, target: Target, request: Row, now: number): Event[] {
+  // Stryker disable next-line ObjectLiteral, BooleanLiteral: equivalent: the change decision always sets the flag before a successful write reads it
   const changed = { stale: false };
   const marked = DeviceState.changeReviewRequest(
     paths,
     { ...target, id: request.id },
     (current) => {
+      // Stryker disable next-line OptionalChaining: equivalent: the change reads the listed request by its id, so it always exists
       changed.stale = current.request?.state === "watching" && current.request.staleAt === null;
       return Ok(changed.stale ? { update: { staleAt: new Date(now).toISOString() } } : {});
     },
@@ -106,7 +102,8 @@ function markStale(paths: Paths, target: Target, request: Row, now: number): Eve
 
 async function close(paths: Paths, target: Target, request: Row, prState: string) {
   const closed = apply(paths, target, "close", undefined, { id: request.id });
-  if (closed.tag !== "Ok" || closed.value.transition.ended !== true) return [];
+  // An end that the request refuses, such as during a live start, waits for a later read.
+  if (closed.tag !== "Ok") return [];
   const cleaned = await cleanupReviewer(paths, target, closed.value.snapshot);
   return [
     {
@@ -157,7 +154,7 @@ async function advance(
 async function observe(paths: Paths, row: Listed, now: number): Promise<Event[]> {
   const request = row.request;
   if (request === null || ["closed", "skipped", "posting"].includes(request.state)) return [];
-  const target = targetOf(row);
+  const target = targetOf(request);
   const read = await readPullRequest(target);
   if (read.tag !== "Ok") return [{ url: request.url, kind: "read_failed", ...failureOf(read) }];
   const decision = decideWatch({
@@ -180,7 +177,7 @@ async function observe(paths: Paths, row: Listed, now: number): Promise<Event[]>
 async function resume(paths: Paths, row: Listed): Promise<Event[]> {
   const request = row.request;
   if (request === null || row.ownerActive) return [];
-  const target = targetOf(row);
+  const target = targetOf(request);
   // A failed move is retried by every wait, and only a new failure is reported again.
   if (request.sync !== null) {
     const claimed = apply(paths, target, "sync", undefined, { id: request.id });
@@ -199,11 +196,13 @@ async function resume(paths: Paths, row: Listed): Promise<Event[]> {
       { ...target, id: request.id },
       (current) =>
         Ok(
+          // Stryker disable next-line OptionalChaining: equivalent: the change reads the listed request by its id, so it always exists
           current.request?.cleanupState === "pending" && !current.ownerActive
             ? { lease: "hold" as const }
             : {},
         ),
     );
+    // Stryker disable next-line OptionalChaining: equivalent: the change reads the listed request by its id, so it always exists
     if (claimed.tag !== "Ok" || claimed.value.request?.ownerPid !== process.pid) return [];
     const cleaned = await cleanupReviewer(paths, target, claimed.value);
     return [
@@ -221,16 +220,13 @@ function pass(paths: Paths) {
   return DeviceState.readReviewRequests(paths)
     .toAsync()
     .flatMap((listed) =>
-      fromPromise(
-        async () => {
-          const events = await checkReviewers(paths, listed);
-          const now = Date.now();
-          for (const row of listed)
-            events.push(...(await resume(paths, row)), ...(await observe(paths, row, now)));
-          return events;
-        },
-        (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
-      ),
+      fromPromise(async () => {
+        const events = await checkReviewers(paths, listed);
+        const now = Date.now();
+        for (const row of listed)
+          events.push(...(await resume(paths, row)), ...(await observe(paths, row, now)));
+        return events;
+      }, qualify),
     )
     .flatMap((events) =>
       DeviceState.readReviewRequests(paths).map((after) => ({ events, listed: after })),
@@ -268,10 +264,9 @@ function poll(loop: Loop): AsyncResult<Outcome, Failure> {
         return OkAsync({ reason: "review_actions_ready", data: { events, requests, slack } });
       if (Date.now() >= deadline)
         return OkAsync({ reason: "review_wait_timed_out", data: { events, requests, slack } });
-      return fromPromise(
-        () => Bun.sleep(Math.min(pollMs, deadline - Date.now())),
-        (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
-      ).flatMap(() => poll({ ...loop, first: false }));
+      return fromPromise(() => Bun.sleep(Math.min(pollMs, deadline - Date.now())), qualify).flatMap(
+        () => poll({ ...loop, first: false }),
+      );
     });
 }
 

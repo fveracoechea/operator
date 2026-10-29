@@ -4,21 +4,18 @@ import type { DeviceConfig } from "./schema.ts";
 
 export async function validateSelections(config: DeviceConfig, cwd: string) {
   const requests = [
-    { role: "superAgent" as const },
-    { role: "workerAgent" as const },
-    ...Object.keys(config.profiles ?? {}).map((profile) => ({
+    { role: "superAgent" as const, model: config.superAgent.model },
+    { role: "workerAgent" as const, model: config.workerAgent.model },
+    ...Object.entries(config.profiles ?? {}).map(([profile, selection]) => ({
       role: "workerAgent" as const,
       profile,
+      model: selection.model,
     })),
   ];
-  for (const request of requests) {
+  for (const { model, ...request } of requests) {
     const selected = selectLaunch(config, request);
     if ("reason" in selected) {
-      const explicit =
-        "profile" in request
-          ? config.profiles?.[request.profile]?.model
-          : config[request.role].model;
-      if (explicit !== undefined) return selected;
+      if (model !== undefined) return selected;
       continue;
     }
     const result = await AgentHosts.resolve({ ...selected, cwd });

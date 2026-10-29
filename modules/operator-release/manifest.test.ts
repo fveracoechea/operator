@@ -86,3 +86,14 @@ test("the default running-package root decodes escaped URL path characters", asy
     supportedBun: ">=1.4.0",
   });
 });
+
+test("a package with no readable metadata reports version 0.0.0 and any Bun", async () => {
+  await Bun.write(`${root}/package.json`, "not json", { createPath: true });
+  expect(await readReleaseManifest(root)).toEqual({
+    version: "0.0.0",
+    commit: null,
+    supportedBun: "*",
+    builtAt: null,
+    artifactIdentity: null,
+  });
+});

@@ -47,31 +47,29 @@ export function claimCleanup(
           reason: "source_not_found",
           detail: "The source does not exist in this project.",
         });
-      const cleanup = db.select().from(cleanups).where(key(sourceId, assignment)).get();
+      const recorded = db
+        .select({ cleanup: cleanups, launch: launches })
+        .from(cleanups)
+        .innerJoin(launches, eq(launches.id, cleanups.launchId))
+        .where(key(sourceId, assignment))
+        .get();
       const pullRequest = db
         .select()
         .from(pullRequests)
         .where(and(eq(pullRequests.sourceId, sourceId), eq(pullRequests.assignment, assignment)))
         .get();
-      const launch =
-        cleanup === undefined
-          ? undefined
-          : db.select().from(launches).where(eq(launches.id, cleanup.launchId)).get();
       const project = db.select().from(projects).where(eq(projects.repository, repository)).get();
-      if (
-        cleanup === undefined ||
-        pullRequest === undefined ||
-        launch === undefined ||
-        project === undefined
-      )
+      if (recorded === undefined || pullRequest === undefined || project === undefined)
         return Err({
           reason: "cleanup_not_found",
           detail: `Assignment ${assignment} has no cleanup. Only a verified merge records one. Nothing was changed.`,
         });
+      const { cleanup, launch } = recorded;
       const facts = { pullRequest, launch, checkout: project.checkout };
       if (cleanup.state === "done") return Ok({ cleanup, ...facts });
       // The merge records its cleanup process at start, so that process may take its own claim.
       if (
+        // Stryker disable next-line ConditionalExpression: equivalent: ownerGone already treats a cleanup with no owner as stopped
         cleanup.ownerPid !== null &&
         cleanup.ownerPid !== process.pid &&
         !ownerGone(cleanup, Date.now())
@@ -93,6 +91,7 @@ export function claimCleanup(
  * before that process claims it. A cleanup that a process already claimed or ended stays.
  */
 export function startCleanup(client: Database, sourceId: string, assignment: string, pid: number) {
+  // Stryker disable next-line BooleanLiteral: equivalent: every path writes, so a deferred begin reaches the same writer reservation before any result
   return transaction(client, true, () =>
     checkHistory(client).map((db) => {
       db.update(cleanups)
@@ -118,6 +117,7 @@ export function advanceCleanup(
   assignment: string,
   change: Pick<CleanupRow, "step" | "state" | "reason" | "detail"> & { release: boolean },
 ) {
+  // Stryker disable next-line BooleanLiteral: equivalent: every path writes, so a deferred begin reaches the same writer reservation before any result
   return transaction(client, true, () =>
     checkHistory(client).map((db) => {
       const { release, ...outcome } = change;
@@ -137,6 +137,7 @@ export function advanceCleanup(
 
 /** Renew the lease of a cleanup that this process runs. */
 export function renewCleanup(client: Database, sourceId: string, assignment: string) {
+  // Stryker disable next-line BooleanLiteral: equivalent: every path writes, so a deferred begin reaches the same writer reservation before any result
   return transaction(client, true, () =>
     checkHistory(client).map((db) => {
       db.update(cleanups)

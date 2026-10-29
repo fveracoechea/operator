@@ -11,8 +11,8 @@ import {
   sourceRoot,
   succeed,
 } from "./install-fixture.ts";
-import { startRegistryFake } from "./fake-registry.ts";
-import { versionSchema } from "./test-schemas.ts";
+import { startRegistryFake } from "./registry-fixture.ts";
+import { versionSchema } from "./schemas-fixture.ts";
 
 // Real global installations from a local Git repository and a local registry that rewrites the
 // package manifest the way JSR does. These are deterministic contract tests, not evidence about

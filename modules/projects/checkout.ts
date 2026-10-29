@@ -1,5 +1,6 @@
 // Bun has no lstat or realpath API.
 import { lstat, realpath } from "node:fs/promises";
+import { isCodedError } from "../../lib/coded-error.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 import { githubIdentity } from "./identity.ts";
 
@@ -34,7 +35,8 @@ export async function inspectCheckout(cwd: string): Promise<Checkout | CheckoutF
         "This checkout has legacy .operator state. Finish old work with the old release. Then the person must remove that folder before using this release. Operator does not migrate, delete, or repair it.",
     };
   } catch (cause) {
-    if (!(cause instanceof Error && "code" in cause && cause.code === "ENOENT")) {
+    // Stryker disable next-line ConditionalExpression: equivalent: lstat rejects only with coded errors
+    if (!(isCodedError(cause) && cause.code === "ENOENT")) {
       // oxlint-disable-next-line unthrown/no-throw -- The public project boundary qualifies filesystem errors.
       throw cause;
     }
@@ -53,8 +55,7 @@ export async function inspectCheckout(cwd: string): Promise<Checkout | CheckoutF
   const repositories = [
     ...new Set(
       remotes.text.split("\n").flatMap((line) => {
-        const match = /^\S+\s+(\S+)\s+\(fetch\)$/.exec(line);
-        const identity = match?.[1] ? githubIdentity(match[1]) : null;
+        const identity = githubIdentity(String(/\t(\S+) \(fetch\)/.exec(line)?.[1]));
         return identity === null ? [] : [identity];
       }),
     ),
@@ -70,8 +71,8 @@ export async function githubRemote(checkout: string, repository: string) {
   const remotes = await git(checkout, ["config", "--get-regexp", "^remote\\..*\\.url$"]);
   if ("reason" in remotes) return null;
   for (const line of remotes.text.split("\n")) {
-    const match = /^remote\.(.+)\.url\s+(\S+)$/.exec(line);
-    if (match?.[1] && match[2] && githubIdentity(match[2]) === repository) return match[1];
+    const match = /remote\.(.+)\.url (\S+)$/.exec(line);
+    if (match && githubIdentity(String(match[2])) === repository) return String(match[1]);
   }
   return null;
 }

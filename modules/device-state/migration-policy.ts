@@ -83,21 +83,23 @@ export function idleForMigration(client: Database, applied: number) {
     : Err<StateFailure>({ reason: "state_migration_blocked", detail: guard.detail });
 }
 
-export function migrationBlockers(client: Database, timestamp: number) {
-  // The fixed migrations have no migration-specific held-record blockers.
-  const policies: ReadonlyMap<number, readonly string[]> = new Map([
-    [1792968033776, []],
-    [1793024341510, []],
-    [1793031772449, []],
-    [1793066920427, []],
-    [1793114012060, []],
-    [1793115655370, []],
-    [1793118895818, []],
-    [1793121866694, []],
-    [1793126345841, []],
-    [1793127419030, []],
-    [1793140707700, []],
-  ]);
+/** The fixed migrations have no migration-specific held-record blockers. */
+const shippedPolicies: ReadonlyMap<number, readonly string[]> = new Map([
+  [1792968033776, []],
+  [1793024341510, []],
+  [1793031772449, []],
+  [1793066920427, []],
+  [1793114012060, []],
+  [1793115655370, []],
+  [1793118895818, []],
+  [1793121866694, []],
+  [1793126345841, []],
+  [1793127419030, []],
+  [1793140707700, []],
+]);
+
+/** Each policy names queries that find records the migration must not run past. */
+export function migrationBlockers(client: Database, timestamp: number, policies = shippedPolicies) {
   const queries = policies.get(timestamp);
   if (!queries)
     return Err<StateFailure>({

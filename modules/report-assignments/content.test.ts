@@ -46,3 +46,33 @@ test("the report keeps human answers apart from SuperAgent decisions", () => {
   );
   expect(text).toContain("- `/state/reports/2/files/notes.md`");
 });
+
+test("submission lines are trimmed, and supporting files need distinct absolute paths", () => {
+  expect(
+    submissionSchema.parse({ ...submission, evidence: [" a.ts:10 "], unresolved: [" Gap. "] }),
+  ).toMatchObject({ evidence: ["a.ts:10"], unresolved: ["Gap."] });
+  expect(submissionSchema.safeParse({ ...submission, evidence: ["  "] }).success).toBe(false);
+  expect(
+    submissionSchema.parse({ ...submission, files: ["/a/notes.md", "/b/log.md"] }).files,
+  ).toEqual(["/a/notes.md", "/b/log.md"]);
+  for (const [files, message] of [
+    [["relative.md"], "Use absolute file paths."],
+    [["/a/notes.md", "/b/notes.md"], "Supporting file names must be unique."],
+  ] as const) {
+    const result = submissionSchema.safeParse({ ...submission, files });
+    expect(
+      result.success ? [] : result.error.issues.map((issue) => [issue.code, issue.message]),
+    ).toEqual([["custom", message]]);
+  }
+});
+
+test("each list item is its own line", () => {
+  const text = renderReport({
+    number: 1,
+    assignment: "read",
+    submission: submissionSchema.parse({ ...submission, evidence: ["a.ts:1", "b.ts:2"] }),
+    files: [],
+  });
+  expect(text).toContain("## Evidence\n\n- a.ts:1\n- b.ts:2\n");
+  expect(text).toContain("## Supporting files\n\n- None.\n");
+});

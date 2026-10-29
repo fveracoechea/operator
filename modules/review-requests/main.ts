@@ -75,6 +75,7 @@ function start(input: { paths: Paths; url: string; profile?: string }) {
         apply(input.paths, target, "start", (transition, current) => ({
           // A replacement keeps the recorded head, so newer commits still start a round.
           update: {
+            // Stryker disable next-line OptionalChaining: equivalent: a start that the machine allows always reads its request
             head: transition.replace === true ? (current.request?.head ?? pr.head) : pr.head,
             failureReason: null,
             failureDetail: null,
@@ -82,18 +83,16 @@ function start(input: { paths: Paths; url: string; profile?: string }) {
         }))
           .toAsync()
           .flatMap(({ snapshot, transition }) =>
-            fromPromise(
-              async () => {
-                const id = snapshot.request?.id ?? "";
-                const release = DeviceState.holdReviewRequest(input.paths, id);
-                try {
-                  return await launch(input, target, snapshot, transition.replace === true);
-                } finally {
-                  release();
-                }
-              },
-              (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
-            ).flatMap((started): AsyncResult<Outcome, Failure> => {
+            fromPromise(async () => {
+              // Stryker disable next-line OptionalChaining, StringLiteral: equivalent: a start that the machine allows always has its request, so the fallback never runs
+              const id = snapshot.request?.id ?? "";
+              const release = DeviceState.holdReviewRequest(input.paths, id);
+              try {
+                return await launch(input, target, snapshot, transition.replace === true);
+              } finally {
+                release();
+              }
+            }, qualify).flatMap((started): AsyncResult<Outcome, Failure> => {
               if (started.tag === "Ok")
                 return apply(input.paths, target, "started")
                   .toAsync()

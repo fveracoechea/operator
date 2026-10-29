@@ -11,7 +11,7 @@ import {
   sourceRoot,
   succeed,
 } from "./install-fixture.ts";
-import { versionSchema } from "./test-schemas.ts";
+import { versionSchema } from "./schemas-fixture.ts";
 
 // The documented workflows run through real installed commands: an exact JSR install from the
 // local registry fake with its launcher, and a global source install at one full commit. The

@@ -15,13 +15,13 @@ export function dispatchArgs(args: string[]) {
   if (args[0] !== "dispatch") return null;
   const values: Record<string, string> = {};
   const flags = args.slice(1);
-  for (let index = 0; index < flags.length; index++) {
-    const flag = flags[index];
+  const rest = flags.values();
+  for (const flag of rest) {
     if (flag === "--json" && !values.json) {
       values.json = "yes";
       continue;
     }
-    const value = flags[++index];
+    const value = rest.next().value;
     if (
       (flag !== "--source" && flag !== "--assignment") ||
       Object.hasOwn(values, flag) ||

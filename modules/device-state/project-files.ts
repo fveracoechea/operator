@@ -1,6 +1,6 @@
-// Bun has no synchronous directory inspection, removal, creation, or sync API.
+// Bun has no synchronous directory inspection, removal, or creation API.
 import { isCodedError } from "../../lib/coded-error.ts";
-import { lstatSync, mkdirSync, rmSync, openSync, fsyncSync, closeSync } from "node:fs";
+import { lstatSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import type { Database } from "bun:sqlite";
 import { eq } from "drizzle-orm";
@@ -10,6 +10,7 @@ import { checkHistory, transaction } from "./database.ts";
 import { projectRemovals, projects } from "./schema.ts";
 import { qualifyStateFailure } from "./failures.ts";
 import type { ProjectStateFailure, RegisteredProject } from "./projects.ts";
+import { syncPath } from "./sync.ts";
 
 type Paths = ReturnType<typeof OperatorHome.resolve>;
 
@@ -22,6 +23,7 @@ function checkDirectory<R extends string>(root: string, directory: string, reaso
         current = path.join(current, segment);
         try {
           const info = lstatSync(current);
+          // Stryker disable next-line ConditionalExpression: equivalent: lstat never reports a link as a directory, so the first check already refuses a link
           if (!info.isDirectory() || info.isSymbolicLink())
             return Err({
               reason,
@@ -69,7 +71,7 @@ export function ensureProjectDirectory(client: Database, paths: Paths, project: 
 }
 
 /**
- * Delete one state directory and synchronize the nearest existing parent. A linked ancestor or a
+ * Delete one state directory and synchronize its parent. A linked ancestor or a
  * non-directory refuses, so external content stays. The caller holds the writer reservation.
  */
 export function removeStateDirectory<R extends string>(root: string, directory: string, reason: R) {
@@ -77,23 +79,14 @@ export function removeStateDirectory<R extends string>(root: string, directory: 
     fromThrowable(
       () => {
         rmSync(directory, { recursive: true, force: true });
-        // A missing parent means no directory entry remains to synchronize.
-        let parent = path.dirname(directory);
-        while (true) {
-          try {
-            const fd = openSync(parent, "r");
-            try {
-              fsyncSync(fd);
-            } finally {
-              closeSync(fd);
-            }
-            return undefined;
-          } catch (cause) {
-            // oxlint-disable-next-line unthrown/no-throw -- The state boundary qualifies filesystem failures, and the caller keeps its record.
-            if (!(isCodedError(cause) && cause.code === "ENOENT")) throw cause;
-            parent = path.dirname(parent);
-          }
+        try {
+          syncPath(path.dirname(directory));
+        } catch (cause) {
+          // A missing parent means the removal changed no directory entry.
+          // oxlint-disable-next-line unthrown/no-throw -- The state boundary qualifies filesystem failures, and the caller keeps its record.
+          if (!(isCodedError(cause) && cause.code === "ENOENT")) throw cause;
         }
+        return undefined;
       },
       (cause, defect) =>
         cause instanceof Error ? qualifyStateFailure(cause, defect) : defect(cause),

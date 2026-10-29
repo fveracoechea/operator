@@ -11,11 +11,6 @@ import { validatorSubject } from "./validator-subject.ts";
 
 export const noUnknownParametersRule = defineRule({
   meta: {
-    type: "problem",
-    docs: {
-      description:
-        "Disallow unknown function parameters, except the subject of an explicit non-generic validator.",
-    },
     messages: {
       unknownParameter: withSkillTopic(
         "Parameter `{{parameter}}` leaves input unparsed. Accept a named domain type, and run the schema at the I/O boundary before the call.",

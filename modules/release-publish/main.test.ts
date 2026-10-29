@@ -12,13 +12,13 @@ import { z } from "zod";
 // Bun has no recursive directory removal API.
 import { rm } from "node:fs/promises";
 import { OperatorRelease } from "../operator-release/main.ts";
-import { releaseFakeStateSchema, type ReleaseFakeState } from "./fake-publish-state.ts";
-import { type JsrFake, type JsrFakeOptions, startJsrFake } from "./fake-jsr.ts";
+import { releaseFakeStateSchema, type ReleaseFakeState } from "./publish-state-fixture.ts";
+import { type JsrFake, type JsrFakeOptions, startJsrFake } from "./jsr-fixture.ts";
 import { ReleasePublish } from "./main.ts";
 import { Environment } from "../environment/main.ts";
 
 const sourceRoot = new URL("../../", import.meta.url).pathname.replace(/\/$/, "");
-const fakeGhPath = new URL("./fake-gh.ts", import.meta.url).pathname;
+const fakeGhPath = new URL("./gh-fixture.ts", import.meta.url).pathname;
 
 // Every test publishes a real artifact, and building one compiles the whole release. That takes
 // far longer than a default test, and longer again on a CI runner, so the file builds it once.

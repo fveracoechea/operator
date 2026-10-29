@@ -23,14 +23,12 @@ import {
 } from "./request.ts";
 
 /** Writes each posted round's draft beside the brief, so a replacement reads the history. */
-async function writeHistory(paths: Paths, snapshot: Pick<Snapshot, "request" | "rounds">) {
-  const request = snapshot.request;
-  if (request === null) return [];
+async function writeHistory(paths: Paths, request: Row, rounds: Snapshot["rounds"]) {
   const directory = files(paths, request).rounds;
   const history = [];
-  for (const round of snapshot.rounds.filter((row) => row.outcome === "posted")) {
+  for (const round of rounds.filter((row) => row.outcome === "posted")) {
     const draft = path.join(directory, `${round.number}.json`);
-    await Bun.write(draft, `${round.draft}\n`, { createPath: true });
+    await Bun.write(draft, `${round.draft}\n`);
     history.push({
       number: round.number,
       trigger: round.trigger,
@@ -79,32 +77,32 @@ export function launch(
   const project = snapshot.project;
   if (request === null || project === null || request.head === null)
     return ErrAsync<Failure>({ reason: "review_defect", detail: "The start lost its request." });
-  const name = slug(target.repository.split("/").at(-1) ?? "");
+  const head = request.head;
+  const name = slug(target.repository.slice(target.repository.indexOf("/") + 1));
   const brief = files(input.paths, request).brief;
-  return fromPromise(
-    () => writeHistory(input.paths, snapshot),
-    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
-  ).flatMap((history) =>
-    WorkerDispatch.launchReviewer({
-      paths: input.paths,
-      checkout: project.checkout,
-      repository: target.repository,
-      number: target.number,
-      head: request.head ?? "",
-      exactHead: !replace,
-      nameBase: `${name}-pr${target.number}-review`.slice(0, 28).replace(/-+$/, ""),
-      branchBase: `review/${name}-pr-${target.number}`,
-      profile: input.profile,
-      reuse:
-        request.worktreePath === null || request.branch === null
-          ? null
-          : { path: request.worktreePath, branch: request.branch },
-      brief: {
-        file: brief,
-        render: (placement) => briefText(input.paths, request, placement, history, snapshot.rounds),
-      },
-      record: (change) => record(input.paths, target, request.id, { update: change }),
-    }),
+  return fromPromise(() => writeHistory(input.paths, request, snapshot.rounds), qualify).flatMap(
+    (history) =>
+      WorkerDispatch.launchReviewer({
+        paths: input.paths,
+        checkout: project.checkout,
+        repository: target.repository,
+        number: target.number,
+        head,
+        exactHead: !replace,
+        nameBase: `${name}-pr${target.number}-review`.slice(0, 28).replace(/-$/, ""),
+        branchBase: `review/${name}-pr-${target.number}`,
+        profile: input.profile,
+        reuse:
+          request.worktreePath === null || request.branch === null
+            ? null
+            : { path: request.worktreePath, branch: request.branch },
+        brief: {
+          file: brief,
+          render: (placement) =>
+            briefText(input.paths, request, placement, history, snapshot.rounds),
+        },
+        record: (change) => record(input.paths, target, request.id, { update: change }),
+      }),
   );
 }
 
@@ -147,77 +145,72 @@ export function syncReviewer(
 ): AsyncResult<Synced, Failure> {
   const request = snapshot.request;
   const project = snapshot.project;
-  const sync = parseSync(request?.sync ?? null);
-  if (request === null || project === null || sync === null)
-    return OkAsync({ kind: "none", mode: null });
-  const exact = { ...target, id: request.id };
-  return fromPromise(
-    async () => {
-      const release = DeviceState.holdReviewRequest(paths, request.id);
-      try {
-        let mode: string | null = null;
-        if (sync.kind === "head" && request.worktreePath !== null) {
-          const moved = await WorkerDispatch.moveReviewer({
-            checkout: project.checkout,
-            repository: target.repository,
-            number: target.number,
-            worktree: request.worktreePath,
-            from: sync.from,
-            to: sync.to,
-          });
-          if (moved.tag !== "Ok") {
-            const error = failureOf(moved);
-            const kept = apply(
-              paths,
-              exact,
-              "synced",
-              () => ({ update: { failureReason: error.reason, failureDetail: error.detail } }),
-              { id: request.id },
-            );
-            return kept.tag === "Ok" ? Err(error) : kept.map(() => ({ kind: "none", mode: null }));
-          }
-          mode = moved.value.mode;
-        }
-        const history = await writeHistory(paths, snapshot);
-        const brief = files(paths, request).brief;
-        await Bun.write(
-          brief,
-          briefText(
+  if (request === null || project === null) return OkAsync({ kind: "none", mode: null });
+  const sync = parseSync(request.sync);
+  if (sync === null) return OkAsync({ kind: "none", mode: null });
+  return fromPromise(async () => {
+    const release = DeviceState.holdReviewRequest(paths, request.id);
+    try {
+      let mode: string | null = null;
+      if (sync.kind === "head" && request.worktreePath !== null) {
+        const moved = await WorkerDispatch.moveReviewer({
+          checkout: project.checkout,
+          repository: target.repository,
+          number: target.number,
+          worktree: request.worktreePath,
+          from: sync.from,
+          to: sync.to,
+        });
+        if (moved.tag !== "Ok") {
+          const error = failureOf(moved);
+          const kept = apply(
             paths,
-            request,
-            { worktree: request.worktreePath ?? "", branch: request.branch ?? "" },
-            history,
-            snapshot.rounds,
-          ),
-          { createPath: true },
-        );
-        const prompted =
-          (
-            await Herdr.prompt({
-              name: request.name ?? "",
-              text: prompt(request, sync, brief, mode),
-            })
-          ).tag === "Ok";
-        return apply(
-          paths,
-          exact,
-          "synced",
-          () => ({
-            update: {
-              sync: null,
-              failureReason: null,
-              failureDetail: null,
-              launchState: prompted ? request.launchState : "interrupted",
-            },
-          }),
-          { id: request.id },
-        ).map(() => ({ kind: prompted ? sync.kind : "reviewer_interrupted", mode }));
-      } finally {
-        release();
+            target,
+            "synced",
+            () => ({ update: { failureReason: error.reason, failureDetail: error.detail } }),
+            { id: request.id },
+          );
+          return kept.flatMap(() => Err(error));
+        }
+        mode = moved.value.mode;
       }
-    },
-    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
-  ).flatMap((result) => result);
+      const history = await writeHistory(paths, request, snapshot.rounds);
+      const brief = files(paths, request).brief;
+      await Bun.write(
+        brief,
+        briefText(
+          paths,
+          request,
+          { worktree: request.worktreePath ?? "", branch: request.branch ?? "" },
+          history,
+          snapshot.rounds,
+        ),
+      );
+      const prompted =
+        (
+          await Herdr.prompt({
+            name: request.name ?? "",
+            text: prompt(request, sync, brief, mode),
+          })
+        ).tag === "Ok";
+      return apply(
+        paths,
+        target,
+        "synced",
+        () => ({
+          update: {
+            sync: null,
+            failureReason: null,
+            failureDetail: null,
+            launchState: prompted ? request.launchState : "interrupted",
+          },
+        }),
+        { id: request.id },
+      ).map(() => ({ kind: prompted ? sync.kind : "reviewer_interrupted", mode }));
+    } finally {
+      release();
+    }
+  }, qualify).flatMap((result) => result);
 }
 
 type CleanupOutcome = { state: "done" | "kept" | "failed"; detail: string };
@@ -236,7 +229,7 @@ async function closePane(request: Row): Promise<CleanupOutcome> {
       state: "failed",
       detail: agents.tag === "Err" ? agents.error.detail : String(agents.cause),
     };
-  if (request.name === null || !agents.value.includes(request.name))
+  if (!agents.value.some((name) => name === request.name))
     return {
       state: "done",
       detail: `Pane ${request.paneId} no longer holds ${request.name ?? "the reviewer"}.`,
@@ -283,16 +276,13 @@ export function cleanupReviewer(paths: Paths, target: Target, snapshot: Snapshot
       detail: "The cleanup lost its request.",
     });
   const release = DeviceState.holdReviewRequest(paths, request.id);
-  return fromPromise(
-    async () => {
-      try {
-        return await dispose(request, project.checkout);
-      } finally {
-        release();
-      }
-    },
-    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
-  ).flatMap((outcome) =>
+  return fromPromise(async () => {
+    try {
+      return await dispose(request, project.checkout);
+    } finally {
+      release();
+    }
+  }, qualify).flatMap((outcome) =>
     DeviceState.changeReviewRequest(paths, { ...target, id: request.id }, () =>
       Ok({
         update: { cleanupState: outcome.state, cleanupDetail: outcome.detail },

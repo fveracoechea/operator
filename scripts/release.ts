@@ -56,17 +56,16 @@ const base = flag(args, "base") ?? "main";
 if (command === "build") {
   // A release names one full commit, the same as a source install. A short, dirty, or unknown
   // revision cannot pass as a release.
-  const commit = flag(args, "commit");
-  if (commit === undefined || !/^[0-9a-f]{40}$/.test(commit)) {
+  const commit = /^[0-9a-f]{40}$/.exec(String(flag(args, "commit")))?.[0];
+  if (commit === undefined) {
     fail("build needs the full 40-character --commit it is built from, from a clean checkout");
   }
 
   // Every delivery path builds the same release.json from the same commit, so the build time is
   // the commit time and never the clock of the machine that builds it.
-  const epoch = environment.SOURCE_DATE_EPOCH;
-  const builtAt =
-    epoch !== undefined && /^\d+$/.test(epoch) ? new Date(Number(epoch) * 1000) : null;
-  if (builtAt === null || Number.isNaN(builtAt.getTime())) {
+  const epoch = /^\d+$/.exec(String(environment.SOURCE_DATE_EPOCH))?.[0];
+  const builtAt = new Date(Number(epoch) * 1000);
+  if (Number.isNaN(builtAt.getTime())) {
     fail(
       "build needs SOURCE_DATE_EPOCH, the commit time in seconds, for example $(git log -1 --format=%ct)",
     );
@@ -125,11 +124,11 @@ if (command === "build") {
   // Only after JSR holds the version can a live install prove it, so this runs right after the
   // publication of this commit. A push that published nothing has nothing to verify.
   const recorded = await ReleasePublish.delivered({ journalPath });
-  const journal = recorded.state === "read" ? recorded.journal : null;
-  if (journal?.paths.jsr?.state !== "published") {
+  if (recorded.state !== "read" || recorded.journal.paths.jsr?.state !== "published") {
     report({ status: "nothing_published", detail: "This commit recorded no JSR publication." });
     process.exit(recorded.state === "unreadable" ? 1 : 0);
   }
+  const journal = recorded.journal;
 
   // JSR builds the npm tarball after the publication, so a first install can miss it.
   const attempts = Number(flag(args, "attempts") ?? 20);

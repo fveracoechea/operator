@@ -37,7 +37,8 @@ export function mergeConditions(observed: Observation, stackRelayed = true): Mer
     checksPassing:
       observed.checks.length > 0 && observed.checks.every((check) => check.state === "passing"),
     threadsResolved: observed.unresolvedThreads === 0,
-    defaultBase: observed.defaultBranch !== null && observed.base === observed.defaultBranch,
+    // A repository without a default branch reports null, which no base name equals.
+    defaultBase: observed.base === observed.defaultBranch,
     stackRelayed,
   };
 }
@@ -51,7 +52,8 @@ function unseenFeedback({ progress, observed }: Facts) {
   return observed.feedback.filter(
     (item) =>
       !progress.seen.includes(item.id) &&
-      (item.kind !== "review" || item.body.trim() !== "" || item.reviewState !== "COMMENTED"),
+      // Only a review carries a review state, so this keeps every comment.
+      (item.body.trim() !== "" || item.reviewState !== "COMMENTED"),
   );
 }
 
@@ -104,7 +106,6 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
       newlyEligible(facts),
     decide: report,
   },
-  { when: () => true, decide: () => ({ result: "none" }) },
 ];
 
 /**
@@ -112,7 +113,5 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
  * head, and eligible head is reported once, so a repeated or restarted wait does not repeat it.
  */
 export function decideWait(facts: Facts): Decision {
-  for (const rule of rules) if (rule.when(facts)) return rule.decide(facts);
-  // oxlint-disable-next-line unthrown/no-throw -- The final rule is unconditional, so this is a programming defect.
-  throw new Error("The wait table has no matching rule.");
+  return rules.find((rule) => rule.when(facts))?.decide(facts) ?? { result: "none" };
 }

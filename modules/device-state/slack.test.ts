@@ -7,6 +7,7 @@ import { migrationsFolder } from "./database.ts";
 import { registerProject } from "./projects.ts";
 import { changeReviewRequest } from "./review-requests.ts";
 import { acknowledgeSlackEffect, ingestSlack, readSlack, startSlackWatch } from "./slack.ts";
+import { busy, reservedCopy } from "./state-fixture.ts";
 
 function fixture() {
   const db = new Database(":memory:");
@@ -264,4 +265,62 @@ test("an approved request and an assignment review take no Slack thread", () => 
     { slack_ts: null },
   ]);
   expect(rows(db, "SELECT * FROM slack_effects")).toEqual([]);
+});
+
+test("a cursor refusal compares the paging bounds too and names the channel", () => {
+  using db = fixture();
+  startSlackWatch(db, "C1", "10.000000");
+  const moved = {
+    tag: "Err",
+    error: {
+      reason: "slack_cursor_moved",
+      detail:
+        "Another ingest moved the cursor of C1. Run operator review wait for the next read. Nothing was recorded.",
+    },
+  };
+  for (const from of [
+    { cursor: "10.000000", latest: "15.000000", pending: null },
+    { cursor: "10.000000", latest: null, pending: "20.000000" },
+  ])
+    expect(
+      ingestSlack(db, {
+        channel: "C1",
+        from,
+        to: { ...at("30.000000"), paging: false },
+        candidates: [candidate(7)],
+        start: [eyes],
+      }),
+      JSON.stringify(from),
+    ).toMatchObject(moved);
+  expect(rows(db, "SELECT * FROM review_requests")).toEqual([]);
+  expect(rows(db, "SELECT cursor FROM slack_watches")).toEqual([{ cursor: "10.000000" }]);
+  expect(
+    acknowledgeSlackEffect(db, "missing", () => ({ kind: "done", slackTs: null })),
+  ).toMatchObject({
+    tag: "Err",
+    error: {
+      reason: "slack_effect_missing",
+      detail:
+        "No Slack effect has the id missing. Read operator review wait for the pending effects.",
+    },
+  });
+});
+
+test("a read needs no writer reservation, and an ingest or an acknowledgement waits for it", () => {
+  using db = fixture();
+  startSlackWatch(db, "C1", "10.000000");
+  using reserved = reservedCopy(db);
+  expect(readSlack(reserved.subject, "C1").tag).toBe("Ok");
+  expect(
+    ingestSlack(reserved.subject, {
+      channel: "C1",
+      from: at("1.000000"),
+      to: { ...at("2.000000"), paging: false },
+      candidates: [],
+      start: [],
+    }),
+  ).toMatchObject(busy);
+  expect(
+    acknowledgeSlackEffect(reserved.subject, "missing", () => ({ kind: "done", slackTs: null })),
+  ).toMatchObject(busy);
 });

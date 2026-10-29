@@ -4,8 +4,6 @@ import { withSkillTopic } from "../skill-topic.ts";
 
 export const noReflectApplyRule = defineRule({
   meta: {
-    type: "problem",
-    docs: { description: "Require typed calls instead of Reflect.apply." },
     messages: {
       reflect: withSkillTopic(
         "Call the typed function directly instead of Reflect.apply.",

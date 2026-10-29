@@ -214,6 +214,7 @@ function query<T>(fields: string[], schema: z.ZodType<T>) {
 }
 
 function repositoryFields(repository: string) {
+  // Stryker disable next-line StringLiteral: equivalent: split always returns a first element, so the owner default is never used
   const [owner = "", name = ""] = repository.split("/");
   return ["-f", `owner=${owner}`, "-f", `name=${name}`];
 }

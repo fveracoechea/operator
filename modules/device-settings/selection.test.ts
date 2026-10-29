@@ -47,14 +47,54 @@ test("overrides each field in role, profile, and explicit launch order without c
 test.each(["missing", "constructor", "toString", "__proto__"])(
   "refuses absent or inherited profile %s",
   (profile) => {
-    expect(selectLaunch(settingsSchema.parse({ profiles: {} }), { profile })).toMatchObject({
-      reason: "profile_missing",
-    });
+    for (const config of [settingsSchema.parse({ profiles: {} }), settingsSchema.parse({})])
+      expect(selectLaunch(config, { profile })).toEqual({
+        reason: "profile_missing",
+        detail: `Start profile ${profile} does not exist.`,
+      });
   },
 );
 
-test("does not infer a host or model", () => {
-  expect(selectLaunch(settingsSchema.parse({}), {})).toMatchObject({
-    reason: "selection_incomplete",
+test("uses a profile only when the request names it", () => {
+  const config = settingsSchema.parse({
+    superAgent: { host: "opencode", model: "provider/model" },
+    profiles: { undefined: { host: "claude-code" } },
+  });
+  expect(selectLaunch(config, {})).toMatchObject({ host: "opencode", profile: null });
+  expect(selectLaunch(config, { profile: "undefined" })).toMatchObject({
+    host: "claude-code",
+    profile: "undefined",
   });
 });
+
+test("only the WorkerAgent role takes the WorkerAgent settings", () => {
+  const config = settingsSchema.parse({
+    superAgent: { host: "opencode", model: "provider/super" },
+    workerAgent: { host: "claude-code", model: "provider/worker" },
+  });
+  expect(selectLaunch(config, { role: "superAgent" })).toEqual({
+    host: "opencode",
+    model: "provider/super",
+    reasoningEffort: "high",
+    role: "superAgent",
+    profile: null,
+  });
+  expect(selectLaunch(config, { role: "workerAgent" })).toEqual({
+    host: "claude-code",
+    model: "provider/worker",
+    reasoningEffort: "medium",
+    role: "workerAgent",
+    profile: null,
+  });
+});
+
+test.each([{}, { host: "opencode" }, { model: "provider/model" }])(
+  "does not infer a host or model from %j",
+  (superAgent) => {
+    expect(selectLaunch(settingsSchema.parse({ superAgent }), {})).toEqual({
+      reason: "selection_incomplete",
+      detail:
+        "Set a host and model in device settings or explicit launch overrides. Operator does not choose a model for you.",
+    });
+  },
+);

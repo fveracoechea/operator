@@ -7,7 +7,6 @@ function isBunMock(source: SourceCode, node: ESTree.Node): boolean {
   return (
     variable?.defs.some(
       (definition) =>
-        definition.type === "ImportBinding" &&
         definition.parent?.type === "ImportDeclaration" &&
         definition.parent.source.value === "bun:test" &&
         definition.node.type === "ImportSpecifier" &&
@@ -25,7 +24,6 @@ function isBunNamespaceMock(source: SourceCode, node: ESTree.Node): boolean {
   return (
     variable?.defs.some(
       (definition) =>
-        definition.type === "ImportBinding" &&
         definition.parent?.type === "ImportDeclaration" &&
         definition.parent.source.value === "bun:test" &&
         definition.node.type === "ImportNamespaceSpecifier",
@@ -35,8 +33,6 @@ function isBunNamespaceMock(source: SourceCode, node: ESTree.Node): boolean {
 
 export const noModuleMockingRule = defineRule({
   meta: {
-    type: "problem",
-    docs: { description: "Reject Bun module replacement by import path." },
     messages: {
       moduleMock: withSkillTopic(
         "Replace dependencies at their public interface or external tool boundary, not with mock.module.",

@@ -3,7 +3,8 @@ export const PACKAGE_ALIAS = "@fveracoechea/operator";
 /** The name the JSR npm registry serves the release under. */
 export const REGISTRY_PACKAGE = "@jsr/fveracoechea__operator";
 
-export type Destination = { kind: "absent" } | { kind: "file"; text: string } | { kind: "other" };
+/** What is at the command path. Something other than a file has no text. */
+export type Destination = { absent: true } | { absent: false; text: string | null };
 
 export type LauncherFacts = {
   /** The real path of the running package. */
@@ -67,6 +68,10 @@ PATH=\${PATH:+$PATH:}${shellQuote(bun.slice(0, bun.lastIndexOf("/")))} exec ${sh
 `;
 }
 
+function installedRoot(globalRoot: string): string {
+  return `${globalRoot}/node_modules/${PACKAGE_ALIAS}`;
+}
+
 /** Decides one launcher installation from facts that the caller gathered first. */
 export function decideLauncher(facts: LauncherFacts): LauncherDecision {
   const install = exactInstall(facts.version);
@@ -76,9 +81,12 @@ export function decideLauncher(facts: LauncherFacts): LauncherDecision {
       reason: "launcher_unsupported",
       detail: `The running Operator at ${facts.packageRoot} is not a built release. A source installation from bun add -g at a full commit gets its operator command from Bun.`,
     };
-  const expected =
-    facts.globalRoot === null ? null : `${facts.globalRoot.real}/node_modules/${PACKAGE_ALIAS}`;
-  if (facts.globalRoot === null || facts.packageRoot !== expected)
+  const expected = facts.globalRoot === null ? null : installedRoot(facts.globalRoot.real);
+  if (
+    // Stryker disable next-line ConditionalExpression: equivalent: with no global root, expected is null and never equals the package root, so the second test refuses too
+    facts.globalRoot === null ||
+    facts.packageRoot !== expected
+  )
     return {
       action: "refuse",
       reason: "launcher_unsupported",
@@ -91,10 +99,9 @@ export function decideLauncher(facts: LauncherFacts): LauncherDecision {
       detail: `Bun's global manifest names ${facts.specifier ?? "no specifier"} for ${PACKAGE_ALIAS}, not the exact running version. Run ${install}.`,
     };
   const text = launcherText(facts.globalRoot.reported);
-  const runs = `${facts.globalRoot.reported}/node_modules/${PACKAGE_ALIAS}/cli.js`;
-  if (facts.destination.kind === "absent")
-    return { action: "write", command: facts.command, text, runs };
-  if (facts.destination.kind === "file" && facts.destination.text === text)
+  const runs = `${installedRoot(facts.globalRoot.reported)}/cli.js`;
+  if (facts.destination.absent) return { action: "write", command: facts.command, text, runs };
+  if (facts.destination.text === text)
     return { action: "unchanged", command: facts.command, text, runs };
   return {
     action: "refuse",
@@ -108,7 +115,7 @@ export function launcherTarget(text: string): string | null {
   const found = new RegExp(String.raw`exec (?:bun|${QUOTED}) ${QUOTED} "\$@"\n$`).exec(text);
   if (found?.[2] === undefined) return null;
   const target = unquote(found[2]);
-  if (!target.endsWith(ENTRY)) return null;
+  // A target outside the package entry gives a different text below, so it names no target.
   const root = target.slice(0, -ENTRY.length);
   const expected =
     found[1] === undefined ? launcherText(root) : nixLauncherText(root, unquote(found[1]));

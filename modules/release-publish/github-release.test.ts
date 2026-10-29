@@ -1,14 +1,17 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { Environment } from "../environment/main.ts";
 // Bun has no chmod or recursive directory removal API.
 import { chmod, rm } from "node:fs/promises";
 import { z } from "zod";
-import { releaseFakeStateSchema } from "./fake-publish-state.ts";
+import { GithubApi } from "../github-api/main.ts";
+import { createRelease, readMerged, readRelease } from "./github-release.ts";
+import { releaseFakeStateSchema } from "./publish-state-fixture.ts";
 
 const root = `${Environment.read().TMPDIR ?? "/tmp"}/operator-github-release-${crypto.randomUUID()}`;
 const modulePath = new URL("./github-release.ts", import.meta.url).pathname;
-const fakePath = new URL("./fake-gh.ts", import.meta.url).pathname;
+const fakePath = new URL("./gh-fixture.ts", import.meta.url).pathname;
 afterEach(async () => {
+  mock.restore();
   await rm(root, { recursive: true, force: true });
 });
 
@@ -66,4 +69,29 @@ console.log(JSON.stringify(results));`;
   expect(
     releaseFakeStateSchema.parse(await Bun.file(`${root}/state.json`).json()).releaseBodies?.v1,
   ).toBe("notes");
+});
+
+test("release reads keep the URL GitHub names and an empty URL when it names none", async () => {
+  const answers = [{ html_url: "https://github.test/releases/v1" }, { tag_name: "v1" }];
+  spyOn(GithubApi, "call").mockImplementation(async () => ({
+    status: "succeeded",
+    value: { httpStatus: 200, body: answers[0] },
+  }));
+  const common = { repository: "test/repo", tag: "v1" };
+  const release = { ...common, name: "Release", body: "notes" };
+  expect(await readRelease(common)).toEqual({
+    status: "present",
+    url: "https://github.test/releases/v1",
+  });
+  expect(await createRelease(release)).toEqual({
+    status: "succeeded",
+    value: { url: "https://github.test/releases/v1" },
+  });
+  answers.shift();
+  expect(await readRelease(common)).toEqual({ status: "present", url: "" });
+  expect(await createRelease(release)).toEqual({ status: "succeeded", value: { url: "" } });
+  expect(await readMerged({ ...common, base: "main", commit: "c" })).toEqual({
+    status: "not-merged",
+    comparison: "unknown",
+  });
 });

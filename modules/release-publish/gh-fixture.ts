@@ -13,7 +13,7 @@ import {
   releaseFakeFaultSchema,
   releaseFakeStateSchema,
   type ReleaseFakeState,
-} from "./fake-publish-state.ts";
+} from "./publish-state-fixture.ts";
 
 const directory = process.env.RELEASE_GH_DIR ?? "";
 const statePath = `${directory}/state.json`;

@@ -11,6 +11,7 @@ async function git(cwd: string, args: string[]) {
     args: ["-C", cwd, ...args],
     timeoutMs: 60000,
   });
+  // Stryker disable next-line ConditionalExpression: equivalent: an invocation that did not complete has no exit code, so the exit check alone refuses it
   if (result.status !== "completed" || result.exitCode !== 0)
     // oxlint-disable-next-line unthrown/no-throw -- The caller records any Git failure as a failed cleanup.
     throw new Error(
@@ -19,8 +20,7 @@ async function git(cwd: string, args: string[]) {
   return result.stdout;
 }
 
-async function branchExists(cwd: string, branch: string | null) {
-  if (branch === null) return false;
+async function branchExists(cwd: string, branch: string) {
   const result = await ToolInvocation.run({
     tool: "git",
     args: ["-C", cwd, "show-ref", "--verify", "--quiet", `refs/heads/${branch}`],
@@ -54,10 +54,14 @@ async function unlanded(checkout: string, worktree: string, branch: string | nul
     if (!line.startsWith("!! ")) reasons.push(`changed or untracked ${entry}`);
     else if (!(await preparedInput(checkout, worktree, entry))) reasons.push(`ignored ${entry}`);
   }
-  // Git matches a pattern before --branches without the refs/heads/ prefix.
-  const exclude = branch === null ? [] : [`--exclude=${branch}`];
-  // HEAD can leave the recorded branch, so the branch tip is inspected as well.
-  const tips = (await branchExists(worktree, branch)) ? ["HEAD", `refs/heads/${branch}`] : ["HEAD"];
+  const tips = ["HEAD"];
+  const exclude: string[] = [];
+  if (branch !== null) {
+    // Git matches a pattern before --branches without the refs/heads/ prefix.
+    exclude.push(`--exclude=${branch}`);
+    // HEAD can leave the recorded branch, so the branch tip is inspected as well.
+    if (await branchExists(worktree, branch)) tips.push(`refs/heads/${branch}`);
+  }
   const commits = await git(worktree, [
     "rev-list",
     "--max-count=1",
@@ -67,7 +71,7 @@ async function unlanded(checkout: string, worktree: string, branch: string | nul
     "--branches",
     "--remotes",
   ]);
-  if (commits.trim() !== "") reasons.push("commits that no other branch or remote branch holds");
+  if (commits !== "") reasons.push("commits that no other branch or remote branch holds");
   return reasons;
 }
 

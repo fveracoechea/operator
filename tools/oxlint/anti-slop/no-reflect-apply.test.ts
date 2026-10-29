@@ -18,3 +18,11 @@ test("accepts typed calls and a shadowed Reflect binding", async () => {
   );
   expect(valid.codes).toEqual([]);
 });
+
+test("the finding names the fix topic", async () => {
+  expect(
+    (await check("export const value: unknown = Reflect.apply(String, null, [1]);")).stdout,
+  ).toContain(
+    "Call the typed function directly instead of Reflect.apply. See lint-fixes/parse-at-the-boundary.md.",
+  );
+});

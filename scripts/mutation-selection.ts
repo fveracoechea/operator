@@ -12,11 +12,12 @@ export function parseMutationArgs(args: string[]): Arguments | Problem {
   const paths: string[] = [];
   let since: string | undefined;
   let positional = false;
-  for (let index = 0; index < args.length; index++) {
-    const arg = args[index] ?? "";
+  // The loop and the option value read one iterator, so --since consumes its ref.
+  const remaining = args.values();
+  for (const arg of remaining) {
     if (!positional && arg === "--") positional = true;
     else if (!positional && arg === "--since") {
-      const ref = args[++index];
+      const ref = remaining.next().value;
       if (since || !ref || ref.startsWith("-"))
         return { error: "--since needs one explicit Git ref." };
       since = ref;
@@ -59,13 +60,14 @@ async function checkedPath(root: string, selected: string): Promise<{ name: stri
 }
 
 async function unitForTest(root: string, test: string): Promise<string | undefined> {
-  let stem = test.slice(0, -".test.ts".length);
-  while (true) {
-    const unit = `${stem}.ts`;
+  const directory = path.dirname(test);
+  const parts = path.basename(test, ".test.ts").split(".");
+  // The longest existing stem owns the test: a.b.test.ts tries a.b.ts, then a.ts.
+  for (const count of parts.keys()) {
+    const unit = path.join(directory, `${parts.slice(0, parts.length - count).join(".")}.ts`);
     if (await Bun.file(path.join(root, unit)).exists()) return unit;
-    if (!path.basename(stem).includes(".")) return undefined;
-    stem = stem.slice(0, stem.lastIndexOf("."));
   }
+  return undefined;
 }
 
 async function besideTests(root: string, unit: string): Promise<string[] | Problem> {
@@ -105,9 +107,10 @@ function changedFiles(root: string, ref: string): Map<string, Range[] | undefine
   ]);
   if ("error" in names) return names;
   const untracked = git(root, ["ls-files", "--others", "--exclude-standard", "-z"]);
+  // Stryker disable next-line ConditionalExpression, StringLiteral: equivalent: every failure of this listing, such as a bad index or exclude file, already failed the diff above
   if ("error" in untracked) return untracked;
   const files = new Map<string, Range[] | undefined>();
-  for (const name of names.output.split("\0").filter(Boolean)) {
+  for (const name of names.output.split("\0")) {
     if (unsafePath(name) || excludedUnit(name)) continue;
     const diff = git(root, [
       "diff",
@@ -123,7 +126,7 @@ function changedFiles(root: string, ref: string): Map<string, Range[] | undefine
     const ranges = changedRanges(diff.output);
     if (ranges.length > 0) files.set(name, ranges);
   }
-  for (const name of untracked.output.split("\0").filter(Boolean)) {
+  for (const name of untracked.output.split("\0")) {
     if (!unsafePath(name) && !excludedUnit(name)) files.set(name, undefined);
   }
   return files;

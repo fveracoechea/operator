@@ -6,7 +6,7 @@ import { rm, stat, symlink } from "node:fs/promises";
 import { OperatorRelease } from "./main.ts";
 import { DeviceSettings } from "../device-settings/main.ts";
 import { z } from "zod";
-import { packageSchema, jsrSchema, releaseSchema, versionSchema } from "./test-schemas.ts";
+import { packageSchema, jsrSchema, releaseSchema, versionSchema } from "./schemas-fixture.ts";
 
 // Most of these tests build a real artifact, which compiles the whole release. That takes far
 // longer than a default test, and longer again on a CI runner.
@@ -352,6 +352,33 @@ describe("the release tooling", () => {
       expect(await stat(artifactRoot).catch(() => null)).toBeNull();
     }
   });
+
+  test("reports a version the registry does not serve as unavailable after its attempts", async () => {
+    const asked: string[] = [];
+    const registry = Bun.serve({
+      port: 0,
+      fetch(incoming) {
+        asked.push(new URL(incoming.url).pathname);
+        return new Response("not found", { status: 404 });
+      },
+    });
+    try {
+      const result = await OperatorRelease.verifyRegistryInstall({
+        registry: `http://127.0.0.1:${registry.port}/`,
+        version: "9.9.9",
+        expected: { artifactIdentity: "a".repeat(64), commit },
+        attempts: 1,
+        pauseMs: 0,
+      });
+      expect(result).toMatchObject({ status: "unavailable" });
+      expect(result.status === "unavailable" && result.detail).toStartWith(
+        "bun add -g @fveracoechea/operator@npm:@jsr/fveracoechea__operator@9.9.9 failed 1 times",
+      );
+      expect(asked).toContain("/@jsr%2ffveracoechea__operator");
+    } finally {
+      await registry.stop(true);
+    }
+  }, 60_000);
 
   test("writes the Nix launcher that names its install root and its Bun", async () => {
     const { exitCode, stdout } = await runTooling([

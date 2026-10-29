@@ -140,7 +140,8 @@ export function readSources(client: Database, repository: string, sourceId?: str
               .all()
               .map((cleanup) => ({
                 ...cleanup,
-                running: cleanup.ownerPid !== null && !ownerGone(cleanup, now),
+                // A cleanup with no owner is gone, so it is not running.
+                running: !ownerGone(cleanup, now),
               })),
           })),
         );
@@ -239,6 +240,7 @@ function retainedResources(db: BunSQLiteDatabase, sourceId: string) {
     .orderBy(asc(launches.assignment), asc(launches.attempt))
     .all()) {
     const path = launch.worktreePath;
+    // Stryker disable next-line ConditionalExpression: equivalent: existsSync reports no file for a null path, so the null check only narrows the type
     if (path === null || !existsSync(path) || rows.some((row) => row.worktreePath === path))
       continue;
     rows.push({
@@ -274,11 +276,11 @@ export function resetSource<E extends { reason: string; detail: string }>(
         (source): Result<{ source: SourceRow; retained: RetainedResource[] }, SourceFailure | E> =>
           decide(endFacts(db, source)).map(({ abandon }) => {
             const endedAt = new Date().toISOString();
-            if (abandon.length > 0)
-              db.update(assignments)
-                .set({ state: "abandoned" })
-                .where(and(eq(assignments.sourceId, source.id), inArray(assignments.key, abandon)))
-                .run();
+            // An empty list matches no assignment.
+            db.update(assignments)
+              .set({ state: "abandoned" })
+              .where(and(eq(assignments.sourceId, source.id), inArray(assignments.key, abandon)))
+              .run();
             db.update(sources)
               .set({ state: "reset", endedAt })
               .where(eq(sources.id, source.id))
@@ -317,6 +319,7 @@ export function pruneSource(
             repository: source.repository,
             sourceId: source.id,
           }),
+          // Stryker disable next-line StringLiteral: equivalent: the Err below replaces this reason with its own
           "source_prune_failed",
         );
         // An Err rolls the records back, so they keep the obligation to delete the files.

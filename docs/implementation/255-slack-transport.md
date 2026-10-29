@@ -178,7 +178,7 @@ No new idle guard blocks the migration, because a pending effect needs no runnin
 
 ## Verification
 
-Public CLI scenarios in `modules/operator-cli/run.review-slack.test.ts` use `review-fixture.ts`: real Git and SQLite, isolated device roots, the controlled `fake-herdr.ts` and `fake-github.ts`, and controlled raw Slack tool results in files. They cover:
+Public CLI scenarios in `modules/operator-cli/run.review-slack.test.ts` use `review-fixture.ts`: real Git and SQLite, isolated device roots, the controlled `herdr-fixture.ts` and `github-fixture.ts`, and controlled raw Slack tool results in files. They cover:
 
 - A plain `wait` on a device with a channel that times out with no Slack stop, and a `next` that records no cursor.
 - A paged read that keeps the cursor, a due read with `latest`, and a last page that moves the cursor past every page.

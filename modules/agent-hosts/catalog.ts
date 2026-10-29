@@ -70,14 +70,10 @@ export async function discoverClaude(cwd: string): Promise<Model[] | HostFailure
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 10000);
   // An open input stream permits metadata initialization, but sends no user message or generation request.
-  const prompt = new ReadableStream<SDKUserMessage>({
-    start(stream) {
-      controller.signal.addEventListener("abort", () => stream.close(), { once: true });
-    },
-  });
-  let session: ReturnType<typeof query> | undefined;
+  // Aborting the controller stops the host process and closes its input.
+  const prompt = new ReadableStream<SDKUserMessage>();
   try {
-    session = query({
+    const session = query({
       prompt,
       options: {
         pathToClaudeCodeExecutable: executable,
@@ -99,7 +95,7 @@ export async function discoverClaude(cwd: string): Promise<Model[] | HostFailure
     if (
       cause instanceof Error &&
       (cause instanceof AbortError ||
-        /^Claude Code process (?:exited with code \d+|terminated by signal SIG[A-Z0-9]+)/.test(
+        /^Claude Code process (?:exited with code \d|terminated by signal SIG[A-Z0-9])/.test(
           cause.message,
         ))
     )
@@ -112,6 +108,5 @@ export async function discoverClaude(cwd: string): Promise<Model[] | HostFailure
   } finally {
     clearTimeout(timer);
     controller.abort();
-    session?.close();
   }
 }

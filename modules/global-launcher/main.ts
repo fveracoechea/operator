@@ -44,9 +44,8 @@ function qualify<T>(cause: Error, defect: (cause: Error) => T) {
   if (cause instanceof SyntaxError || cause instanceof z.ZodError)
     return { reason: "launcher_global_manifest_invalid" as const, detail: String(cause) };
   if (
-    ["EACCES", "EPERM", "EIO", "ENOSPC", "EROFS", "ENOTDIR", "ELOOP"].includes(
-      isCodedError(cause) ? cause.code : "",
-    )
+    isCodedError(cause) &&
+    ["EACCES", "EPERM", "EIO", "ENOSPC", "EROFS", "ENOTDIR", "ELOOP"].includes(cause.code)
   )
     return { reason: "launcher_io_failed" as const, detail: String(cause) };
   return defect(cause);
@@ -54,7 +53,12 @@ function qualify<T>(cause: Error, defect: (cause: Error) => T) {
 
 async function bun(args: string[]) {
   const result = await ToolInvocation.run({ tool: "bun", args, timeoutMs: 30000 });
-  if (result.status === "completed" && result.exitCode === 0) return result.stdout;
+  if (
+    // Stryker disable next-line ConditionalExpression: equivalent: only a completed run has an exit code, so any other run fails the exit code test too
+    result.status === "completed" &&
+    result.exitCode === 0
+  )
+    return result.stdout;
   return null;
 }
 
@@ -63,17 +67,21 @@ async function destination(command: string): Promise<Destination> {
   try {
     found = await lstat(command);
   } catch (cause) {
-    if (isCodedError(cause) && cause.code === "ENOENT") return { kind: "absent" };
+    if (isCodedError(cause) && cause.code === "ENOENT") return { absent: true };
     // oxlint-disable-next-line unthrown/no-throw -- Only a missing launcher is modeled here. Qualification handles other I/O.
     throw cause;
   }
-  if (!found.isFile()) return { kind: "other" };
-  return { kind: "file", text: await Bun.file(command).text() };
+  return { absent: false, text: found.isFile() ? await Bun.file(command).text() : null };
 }
 
-/** Bun prints its global install folder before the dependency tree. */
+/** Bun prints its global install folder on the first line, before the dependency tree. */
 function globalFolder(listing: string) {
-  return /^(.+) node_modules \(/.exec(listing.split("\n")[0] ?? "")?.[1] ?? null;
+  return /^(.+) node_modules \(/.exec(listing)?.[1] ?? null;
+}
+
+/** The real path, or null when nothing is there to resolve. */
+function real(file: string) {
+  return realpath(file).catch(() => null);
 }
 
 /** The specifier the manifest beside an installed package records for it, if any. */
@@ -89,12 +97,12 @@ async function installedSpecifier(packageRoot: string) {
 async function globalInstall(listing: string) {
   const reported = globalFolder(listing);
   if (reported === null) return { root: null, specifier: null };
-  const real = await realpath(reported).catch(() => null);
+  const resolved = await real(reported);
   const manifest = Bun.file(`${reported}/package.json`);
   const specifier = (await manifest.exists())
     ? (globalManifest.parse(await manifest.json()).dependencies?.[PACKAGE_ALIAS] ?? null)
     : null;
-  return { root: real === null ? null : { reported, real }, specifier };
+  return { root: resolved === null ? null : { reported, real: resolved }, specifier };
 }
 
 type CommandBlocker = {
@@ -110,13 +118,13 @@ async function commandBlockers(): Promise<CommandBlocker[]> {
     return [{ reason: "executable_missing", tool: "operator", detail: missingCommand }];
   const running = await realpath(runningPackage);
   const entries = await Promise.all(
-    ["cli.ts", "cli.js"].map((entry) => realpath(`${running}/${entry}`).catch(() => null)),
+    ["cli.ts", "cli.js"].map((entry) => real(`${running}/${entry}`)),
   );
+  // Stryker disable next-line ArrowFunction: no rule: Bun.which found the command, so stat fails only when it is removed during the check
   const entry = await stat(found).catch(() => null);
+  // Stryker disable next-line OptionalChaining: no rule: the entry is null only when the command is removed during the check
   const target = entry?.isFile() ? launcherTarget(await Bun.file(found).text()) : null;
-  const reached = await Promise.all(
-    [found, target].filter((path) => path !== null).map((path) => realpath(path).catch(() => null)),
-  );
+  const reached = await Promise.all([found, target ?? found].map((path) => real(path)));
   const blockers: CommandBlocker[] = [];
   if (!reached.some((path) => path !== null && entries.includes(path)))
     blockers.push({
@@ -211,7 +219,6 @@ export const GlobalLauncher = {
         const data = { command: decision.command, runs: decision.runs };
         if (decision.action === "unchanged")
           return Ok({ reason: "launcher_current" as const, data });
-        OperatorHome.guardTemporaryTests(Environment.read(), [binDirectory]);
         if (!(await write(binDirectory, decision.command, decision.text)))
           return Err({
             reason: "launcher_conflict" as const,

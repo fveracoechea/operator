@@ -5,19 +5,16 @@ import { readsValidatorSubject } from "./validator-subject.ts";
 // Comparing against "undefined" probes whether a binding exists. It grants no validator exemption.
 function isExistenceProbe(node: ESTree.UnaryExpression): boolean {
   const parent = node.parent;
+  // Stryker disable next-line ConditionalExpression: equivalent: no other parent has an equality operator, so the operator check alone refuses it; this check narrows the type
   if (parent.type !== "BinaryExpression") return false;
   if (!["===", "!==", "==", "!="].includes(parent.operator)) return false;
   const other = parent.left === node ? parent.right : parent.left;
+  // Stryker disable next-line ConditionalExpression: equivalent: only a literal has the string value "undefined"; this check narrows the type
   return other.type === "Literal" && other.value === "undefined";
 }
 
 export const noRuntimeTypeofRule = defineRule({
   meta: {
-    type: "problem",
-    docs: {
-      description:
-        "Disallow runtime typeof outside existence probes and the subject of an explicit validator.",
-    },
     messages: {
       runtimeTypeof: withSkillTopic(
         "A `typeof` check narrows a representation without its contract. Parse input at its I/O boundary, then branch on the domain value.",

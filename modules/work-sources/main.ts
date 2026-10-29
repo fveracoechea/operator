@@ -1,4 +1,3 @@
-import { isCodedError } from "../../lib/coded-error.ts";
 import { fromPromise, fromThrowable, Ok, Err, type Result } from "unthrown";
 import { z } from "zod";
 import { DeviceState } from "../device-state/main.ts";
@@ -16,22 +15,12 @@ import {
 } from "./snapshot.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { decideReport } from "./report-machine.ts";
+import { qualify } from "./failures.ts";
 
 type ResetRefusal =
   | Extract<ReturnType<typeof decideReset>, { tag: "Err" }>["error"]
   | { reason: "state_corrupt"; detail: string };
 type Input = { paths: ReturnType<typeof OperatorHome.resolve>; cwd: string };
-
-function qualify<T>(cause: Error, defect: (cause: Error) => T) {
-  if (cause instanceof SyntaxError || cause instanceof z.ZodError)
-    return { reason: "invalid_source_plan" as const, detail: cause.message };
-  if (
-    isCodedError(cause) &&
-    ["ENOENT", "EACCES", "EPERM", "EISDIR", "EIO", "ENOTDIR"].includes(cause.code)
-  )
-    return { reason: "source_io_failed" as const, detail: String(cause) };
-  return defect(cause);
-}
 
 // Activity is shown as an observation only. It never proves a submitted or completed result.
 function launchSummary(launch: Launch) {
@@ -187,14 +176,7 @@ export const WorkSources = {
             completion: assignment.completion,
             state: "ready" as const,
           }));
-          const state = decideSource({
-            state: "open",
-            assignments: plan.assignments.map((assignment) => ({
-              key: assignment.key,
-              completion: assignment.completion,
-              state: "ready",
-            })),
-          });
+          const state = decideSource({ state: "open", assignments });
           return DeviceState.registerSource(
             input.paths,
             project.checkout,
@@ -260,17 +242,20 @@ export const WorkSources = {
           "Reset a source only on the person's explicit instruction. --person-instructed attests that instruction, it does not grant authority. Nothing changed.",
       });
     return Projects.current(input).flatMap(({ data: project }) => {
+      // Stryker disable next-line ArrayDeclaration: equivalent: the reset rule sets both lists before any success reads them
       let preserved: string[] = [];
+      // Stryker disable next-line ArrayDeclaration: equivalent: the reset rule sets both lists before any success reads them
       let abandoned: string[] = [];
       return DeviceState.resetSource(
         input.paths,
         { repository: project.repository, checkout: project.checkout, sourceId: input.sourceId },
         (facts): Result<{ abandon: string[] }, ResetRefusal> => {
           const parsed = z.array(assignmentStateSchema).safeParse(facts.assignments);
+          // Any failure to read the stored plan is corruption.
           const plan = fromThrowable(
             () => planSchema.parse(JSON.parse(facts.source.plan)),
-            (cause, defect) =>
-              cause instanceof z.ZodError || cause instanceof SyntaxError ? null : defect(cause),
+            // Stryker disable next-line ArrowFunction: equivalent: every failed plan read ends as the same state_corrupt refusal
+            () => null,
           )();
           if (!parsed.success || plan.tag !== "Ok")
             return Err({
@@ -299,6 +284,7 @@ export const WorkSources = {
         trackerKey: source.trackerKey,
         state: source.state,
         endedAt: source.endedAt,
+        // Stryker disable next-line ArrayDeclaration: equivalent: the prunable time depends only on the state and the end time
         prunableAt: retention({ ...source, launches: [], cleanups: [], reports: [] }, 0).prunableAt,
         preserved,
         abandoned,
@@ -341,6 +327,7 @@ export const WorkSources = {
           (facts) => retention({ ...facts.source, ...facts }, now).prune,
         );
         // A defect keeps its own channel. The map only restates the value type.
+        // Stryker disable next-line ArrowFunction, ObjectLiteral: equivalent: the map callback never runs for a defect
         if (result.tag === "Defect") return result.map(() => ({ pruned, kept }));
         if (result.tag === "Err")
           return Err({
@@ -357,18 +344,10 @@ export const WorkSources = {
   },
   next(input: Input & { sourceId?: string }) {
     const now = Date.now();
-    return read(input).flatMap((sources) =>
-      fromThrowable(
-        () => ({ sources: sources.map((source) => nextActions(input, source, now)) }),
-        (cause, defect) =>
-          cause instanceof z.ZodError
-            ? {
-                reason: "state_corrupt" as const,
-                detail: "The source assignments do not match their plan.",
-              }
-            : defect(cause),
-      )(),
-    );
+    // Decoding already refused rows that do not match their plan.
+    return read(input).map((sources) => ({
+      sources: sources.map((source) => nextActions(input, source, now)),
+    }));
   },
   /** The report lifecycle rule. Device state applies it inside the transaction that read its facts. */
   decideReport(
@@ -387,7 +366,8 @@ type Source = ReturnType<typeof decodeSource>;
 
 function dependencyReports(source: Source, assignment: string) {
   const planned = source.plan.assignments.find((row) => row.key === assignment);
-  return (planned?.dependencies ?? []).flatMap((key) => {
+  if (planned === undefined) return [];
+  return planned.dependencies.flatMap((key) => {
     const report = source.reports.findLast(
       (row) => row.assignment === key && row.decision === "accepted",
     );
@@ -415,21 +395,22 @@ function pullRequestFacts(pullRequest: PullRequest | undefined) {
 
 function decide(input: Input, source: Source) {
   return source.plan.assignments.map((assignment) => {
-    const current = source.assignments.find((row) => row.key === assignment.key);
-    const dependencies = assignment.dependencies.map((key) =>
-      source.assignments.find((row) => row.key === key),
+    // Decoding matched each planned key to one stored row.
+    const current = assignmentStateSchema.parse(
+      source.assignments.find((row) => row.key === assignment.key),
     );
-    if (current === undefined || dependencies.some((dependency) => dependency === undefined)) {
-      // oxlint-disable-next-line unthrown/no-throw -- Inconsistent persisted rows are corruption, not permission to schedule work.
-      throw new z.ZodError([]);
-    }
+    const dependencies = z
+      .array(assignmentStateSchema)
+      .parse(
+        assignment.dependencies.map((key) => source.assignments.find((row) => row.key === key)),
+      );
     const launch = source.launches.findLast((row) => row.assignment === assignment.key);
     const pullRequest = source.pullRequests.find((pr) => pr.assignment === assignment.key);
     const report = source.reports.findLast((row) => row.assignment === assignment.key);
     const cleanup = source.cleanups.find((row) => row.assignment === assignment.key);
     const decision = decideAssignment({
       assignment: current,
-      dependencies: dependencies.filter((dependency) => dependency !== undefined),
+      dependencies,
       // A start whose dispatching process stopped can be replaced.
       launch: launch?.abandoned === true ? "abandoned" : launch?.state,
       ...pullRequestFacts(pullRequest),

@@ -8,10 +8,14 @@ import { launchNames } from "./launches.ts";
 import { registerProject, removeProject } from "./projects.ts";
 import {
   changeReviewRequest,
+  emptyRequest,
+  insertEffects,
   readReviewRequest,
   readReviewRequests,
   renewReviewLease,
+  requestAssignmentReview,
 } from "./review-requests.ts";
+import { busy, reservedCopy } from "./state-fixture.ts";
 
 function fixture() {
   const db = new Database(":memory:");
@@ -189,4 +193,140 @@ test("reviewer names join the launch name space, and project removal deletes rev
   expect(launchNames(db)).toMatchObject({ tag: "Ok", value: ["one-pr7-review"] });
   expect(removeProject(db, "owner/one").tag).toBe("Ok");
   expect(db.query("SELECT COUNT(*) AS count FROM review_requests").get()).toEqual({ count: 0 });
+});
+
+test("an ended request with a pending or kept cleanup stays visible by its PR, but not by its id read", () => {
+  for (const cleanupState of ["pending", "kept"]) {
+    using db = fixture();
+    changeReviewRequest(db, target, () => Ok({ insert: identity }));
+    changeReviewRequest(db, target, () =>
+      Ok({ update: { state: "closed", endedAt: "2026-10-27T00:00:00.000Z", cleanupState } }),
+    );
+    expect(readReviewRequest(db, target), cleanupState).toMatchObject({
+      value: { request: null, ended: { id: "r1", cleanupState } },
+    });
+    expect(readReviewRequests(db), cleanupState).toMatchObject({
+      tag: "Ok",
+      value: [{ project: { repository: "owner/one", checkout: "/one" }, request: { id: "r1" } }],
+    });
+    // A read by id names its request and no ended one.
+    expect(readReviewRequest(db, { ...target, id: "r1" })).toMatchObject({
+      value: { request: { id: "r1" }, ended: null },
+    });
+  }
+});
+
+test("a change keeps a held lease unless it releases it, and returns the request it ended", () => {
+  using db = fixture();
+  changeReviewRequest(db, target, () => Ok({ insert: identity, lease: "hold" as const }));
+  expect(
+    changeReviewRequest(db, target, () => Ok({ update: { state: "reviewing" } })),
+  ).toMatchObject({ value: { request: { state: "reviewing", ownerPid: process.pid } } });
+  db.exec("UPDATE review_requests SET lease_at = '2000-01-01T00:00:00.000Z'");
+  expect(renewReviewLease(db, "r1").tag).toBe("Ok");
+  expect(db.query("SELECT lease_at > '2001' AS fresh FROM review_requests").get()).toEqual({
+    fresh: 1,
+  });
+  // The change ends the open request, and its result is that ended request.
+  expect(changeReviewRequest(db, target, () => Ok({ update: { state: "closed" } }))).toMatchObject({
+    value: { request: { id: "r1", state: "closed" } },
+  });
+  // A change on a PR with no request returns no request.
+  expect(changeReviewRequest(db, target, () => Ok({}))).toMatchObject({
+    tag: "Ok",
+    value: { request: null, rounds: [], operations: [] },
+  });
+});
+
+test("a change adds Slack effects only to a request with a Slack thread, once per key", () => {
+  using db = fixture();
+  const eyes = { key: "reaction:eyes", kind: "reaction", content: "eyes" };
+  changeReviewRequest(db, target, () => Ok({ insert: identity, effects: [eyes] }));
+  expect(db.query("SELECT * FROM slack_effects").all()).toEqual([]);
+  changeReviewRequest(db, target, () =>
+    Ok({ update: { slackChannel: "C1", slackTs: "100.000001" } }),
+  );
+  expect(db.query("SELECT * FROM slack_effects").all()).toEqual([]);
+  changeReviewRequest(db, target, () => Ok({ effects: [eyes] }));
+  changeReviewRequest(db, target, () => Ok({ effects: [{ ...eyes, content: "later" }] }));
+  expect(
+    db
+      .query(
+        "SELECT request_id, channel, thread_ts, key, kind, content, state, done_at, slack_ts, failure FROM slack_effects",
+      )
+      .all(),
+  ).toEqual([
+    {
+      request_id: "r1",
+      channel: "C1",
+      thread_ts: "100.000001",
+      key: "reaction:eyes",
+      kind: "reaction",
+      content: "eyes",
+      state: "pending",
+      done_at: null,
+      slack_ts: null,
+      failure: null,
+    },
+  ]);
+});
+
+test("Slack effects need both the channel and the thread of their request", () => {
+  using db = fixture();
+  changeReviewRequest(db, target, () => Ok({ insert: identity }));
+  const eyes = { key: "reaction:eyes", kind: "reaction", content: "eyes" };
+  function effects() {
+    return db.query("SELECT key FROM slack_effects").all();
+  }
+  insertEffects(drizzle(db), { id: "r1", slackChannel: "C1", slackTs: null }, [eyes]);
+  insertEffects(drizzle(db), { id: "r1", slackChannel: null, slackTs: "100.000001" }, [eyes]);
+  expect(effects()).toEqual([]);
+  insertEffects(drizzle(db), { id: "r1", slackChannel: "C1", slackTs: "100.000001" }, [eyes]);
+  expect(effects()).toEqual([{ key: "reaction:eyes" }]);
+});
+
+test("a PR assignment gets one queued reviewer request unless its PR has an open request", () => {
+  using db = fixture();
+  const pr = {
+    repository: "owner/one",
+    number: 7,
+    url: identity.url,
+    sourceId: "s1",
+    assignment: "change",
+  };
+  requestAssignmentReview(drizzle(db), pr);
+  requestAssignmentReview(drizzle(db), pr);
+  expect(
+    db
+      .query(
+        "SELECT repository, number, url, origin, source_id, assignment, state, head_moves, owner_pid, slack_ts FROM review_requests",
+      )
+      .all(),
+  ).toEqual([
+    {
+      repository: "owner/one",
+      number: 7,
+      url: identity.url,
+      origin: "assignment",
+      source_id: "s1",
+      assignment: "change",
+      state: "queued",
+      head_moves: 0,
+      owner_pid: null,
+      slack_ts: null,
+    },
+  ]);
+  expect(emptyRequest()).toMatchObject({ sourceId: null, headMoves: 0, slackTs: null });
+  expect(Object.values(emptyRequest()).filter((value) => value !== null)).toEqual([0]);
+  expect(Object.keys(emptyRequest())).toHaveLength(28);
+});
+
+test("reads need no writer reservation, and a change waits for it even when it refuses", () => {
+  using db = fixture();
+  using reserved = reservedCopy(db);
+  expect(readReviewRequest(reserved.subject, target).tag).toBe("Ok");
+  expect(readReviewRequests(reserved.subject).tag).toBe("Ok");
+  expect(
+    changeReviewRequest(reserved.subject, target, () => Err({ reason: "refused", detail: "No." })),
+  ).toMatchObject(busy);
 });

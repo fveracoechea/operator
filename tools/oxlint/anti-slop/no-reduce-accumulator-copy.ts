@@ -102,11 +102,11 @@ export const noReduceAccumulatorCopyRule = defineRule({
             ),
           );
         if (accumulator === undefined) return;
+        // The narrowed binding keeps its type inside the hoisted helper.
+        const owned = accumulator;
         function isAccumulator(expression: ESTree.Node | undefined) {
           return (
-            expression !== undefined &&
-            accumulator !== undefined &&
-            referencesAccumulator(context.sourceCode, expression, accumulator)
+            expression !== undefined && referencesAccumulator(context.sourceCode, expression, owned)
           );
         }
         let copiesAccumulator = false;

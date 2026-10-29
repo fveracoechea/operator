@@ -26,6 +26,7 @@ const toolResultSchema = z.looseObject({
 });
 // The live header: `=== Message from <name> (<user id>) at <YYYY-MM-DD HH:MM:SS TZ> ===`.
 const headerPattern =
+  // Stryker disable next-line Regex: equivalent: text after a header on its line never starts with a TS line, so it joins the message before it either way
   /^=== Message from .+ \([UWB][A-Z0-9]+\) at \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} [A-Z]{2,5} ===[ \t]*$/m;
 const tsLinePattern = /^\s*Message TS: (\d{1,12}\.\d{1,6})[ \t]*$/m;
 const linkPattern = /https:\/\/github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9._-]+\/pull\/\d+/g;
@@ -38,9 +39,10 @@ type ChannelRead = z.infer<typeof channelReadSchema>;
 
 /** Parses JSON text with one schema, or gives undefined for other text. */
 function parseText<T>(text: string, schema: z.ZodType<T>): T | undefined {
+  // JSON.parse of a string throws only a SyntaxError, so any throw means other text.
   const value = fromThrowable(
     () => JSON.parse(text) as unknown,
-    (cause, defect) => (cause instanceof SyntaxError ? "invalid" : defect(cause)),
+    () => undefined,
   )().getOr(undefined);
   return schema.safeParse(value).data;
 }
@@ -53,6 +55,7 @@ function channelReadOf(text: string, depth = 0): ChannelRead | undefined {
   // An MCP error result is not a read, whatever its text holds.
   if (wrapper === undefined || wrapper.isError === true || depth >= wrapLimit) return undefined;
   for (const part of wrapper.content) {
+    // Stryker disable next-line ConditionalExpression: equivalent: a part without text parses as no JSON, so it also gives no read
     const inner = part.text === undefined ? undefined : channelReadOf(part.text, depth + 1);
     if (inner !== undefined) return inner;
   }
@@ -61,12 +64,16 @@ function channelReadOf(text: string, depth = 0): ChannelRead | undefined {
 
 /** Compares two Slack ts values as numbers, without float rounding. */
 export function compareTs(left: string, right: string) {
+  // Stryker disable next-line StringLiteral: no rule: split always gives the seconds, and every Slack ts that Operator compares has its fraction
   const [leftSeconds = "0", leftMicros = ""] = left.split(".");
+  // Stryker disable next-line StringLiteral: no rule: split always gives the seconds, and every Slack ts that Operator compares has its fraction
   const [rightSeconds = "0", rightMicros = ""] = right.split(".");
   const seconds = BigInt(leftSeconds) - BigInt(rightSeconds);
-  if (seconds !== 0n) return seconds > 0n ? 1 : -1;
-  const micros = BigInt(leftMicros.padEnd(6, "0")) - BigInt(rightMicros.padEnd(6, "0"));
-  return micros === 0n ? 0 : micros > 0n ? 1 : -1;
+  const difference =
+    seconds === 0n
+      ? BigInt(leftMicros.padEnd(6, "0")) - BigInt(rightMicros.padEnd(6, "0"))
+      : seconds;
+  return Number(difference > 0n) - Number(difference < 0n);
 }
 
 /** The Slack ts of a moment, the form that `oldest` takes. */
@@ -91,6 +98,7 @@ function linksOf(body: string) {
  * belongs to the message before it. Only a first block without one refuses the read.
  */
 function messagesOf(prose: string): ChannelMessage[] | null {
+  // Stryker disable next-line StringLiteral: equivalent: split always gives a first part, so the default never applies
   const [preamble = "", ...blocks] = prose.split(headerPattern);
   // A TS line before the first header means a header form that this parser does not know.
   if (tsLinePattern.test(preamble)) return null;
@@ -98,10 +106,12 @@ function messagesOf(prose: string): ChannelMessage[] | null {
   for (const block of blocks) {
     const ts = tsLinePattern.exec(block);
     const previous = messages.at(-1);
+    // Stryker disable next-line MethodExpression: equivalent: the TS pattern starts at the line start with \s*, so text before a match is never only whitespace
     if (ts !== null && block.slice(0, ts.index).trim() === "") {
-      const body = block.slice(ts.index + ts[0].length);
+      // The TS line holds no link, so the links of the whole block are the links of its body.
       // Channel history holds only top-level messages, so each message is its own thread.
-      messages.push({ ts: ts[1] ?? "", threadTs: ts[1] ?? "", links: linksOf(body) });
+      // Stryker disable next-line StringLiteral: equivalent: a TS match always captures its ts group
+      messages.push({ ts: ts[1] ?? "", threadTs: ts[1] ?? "", links: linksOf(block) });
     } else if (previous === undefined) return null;
     else previous.links = uniqueLinks([...previous.links, ...linksOf(block)]);
   }
@@ -118,6 +128,7 @@ export function parseChannelRead(
 ): Result<{ messages: ChannelMessage[]; hasMore: boolean }, Failure> {
   const read = channelReadOf(text);
   const messages = read === undefined ? null : messagesOf(read.messages);
+  // Stryker disable next-line ConditionalExpression: equivalent: an undefined read always gives null messages
   if (read === undefined || messages === null)
     return Err({
       reason: "slack_input_unrecognized",
@@ -126,7 +137,7 @@ export function parseChannelRead(
     });
   return Ok({
     messages: messages.toSorted((left, right) => compareTs(left.ts, right.ts)),
-    hasMore: morePattern.test(read.pagination_info ?? ""),
+    hasMore: morePattern.test(String(read.pagination_info)),
   });
 }
 
@@ -147,11 +158,10 @@ function readWrapped(
   depth: number,
 ) {
   if (wrapper.isError === true) return { kind: "failed" as const, detail: text.slice(0, 300) };
+  if (depth >= wrapLimit) return null;
   for (const part of wrapper.content) {
-    const inner =
-      part.text === undefined || depth >= wrapLimit
-        ? null
-        : readSent(part.text, expected, depth + 1);
+    // Stryker disable next-line ConditionalExpression: equivalent: a part without text parses as no JSON, so it also gives null
+    const inner = part.text === undefined ? null : readSent(part.text, expected, depth + 1);
     if (inner !== null) return inner;
   }
   return null;
@@ -167,7 +177,8 @@ function sentReply(
 ): Sent | null {
   const context = sent.message_context;
   if (context === undefined || context.channel_id !== expected.channel) return null;
-  const link = sent.message_link === undefined ? null : URL.parse(sent.message_link);
+  // A missing link parses as no URL.
+  const link = URL.parse(String(sent.message_link));
   if (sent.message_link !== undefined && link?.searchParams.get("thread_ts") !== expected.threadTs)
     return null;
   return { kind: "done", slackTs: context.message_ts };
@@ -214,6 +225,7 @@ type Watch = { cursor: string; latest: string | null; pending: string | null };
 function newest(values: (string | null)[]) {
   return values.reduce<string | null>(
     (best, value) =>
+      // Stryker disable next-line EqualityOperator: no rule: two equal ts values name the same moment, so either form is the newest
       value !== null && (best === null || compareTs(value, best) > 0) ? value : best,
     null,
   );

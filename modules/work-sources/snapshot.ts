@@ -160,9 +160,9 @@ export function decodeSource(input: StoredSource) {
       ),
     );
   // Only a verified merge ends a PR assignment as merged, and it always records its cleanup.
+  // Report work has no PR, so it can have neither.
   const validMerges =
     source.assignments.every((row) => {
-      if (row.completion !== "pr") return true;
       const pr = source.pullRequests.find((item) => item.assignment === row.key);
       const merged = pr !== undefined && pr.mergedHead !== null && pr.mergeCommit !== null;
       const cleanup = source.cleanups.some((item) => item.assignment === row.key);
@@ -171,17 +171,14 @@ export function decodeSource(input: StoredSource) {
     source.cleanups.every(
       (cleanup) =>
         (cleanup.step === null) === (cleanup.state === "done") &&
-        source.assignments.some(
-          (row) =>
-            row.key === cleanup.assignment && row.completion === "pr" && row.state === "merged",
-        ),
+        source.assignments.some((row) => row.key === cleanup.assignment),
     );
-  // A report belongs to a report assignment that left the ready state, and to one of its launches.
+  // A report belongs to a report assignment and to one of its launches. A launch already shows
+  // that its assignment left the ready state.
   const validReports = source.reports.every(
     (report) =>
       source.assignments.some(
-        (row) =>
-          row.key === report.assignment && row.completion === "report" && row.state !== "ready",
+        (row) => row.key === report.assignment && row.completion === "report",
       ) &&
       source.launches.some(
         (launch) => launch.assignment === report.assignment && launch.id === report.launchId,

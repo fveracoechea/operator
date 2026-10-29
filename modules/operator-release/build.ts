@@ -25,7 +25,7 @@ function splitShebang(text: string): { shebang: string; body: string } {
 }
 
 /** The transpiler drops JSDoc, so restore the public entry point's comments in shipped JS. */
-function documentEntryPoint(source: string, compiled: string): string {
+export function documentEntryPoint(source: string, compiled: string): string {
   const docs = [...source.matchAll(/\/\*\*[\s\S]*?\*\//g)];
   const moduleDoc = docs.find((match) => match[0].includes("@module"))?.[0];
   const mainDoc = docs.find((match) =>
@@ -235,19 +235,15 @@ export async function buildArtifact(request: {
     await Bun.write(
       `${artifactRoot}/modules/device-state/migrations/${file}`,
       Bun.file(`${sourceRoot}/modules/device-state/migrations/${file}`),
-      { createPath: true },
     );
   }
 
   // Nix and other read-only settings owners can name the schema the running release accepts.
-  await Bun.write(`${artifactRoot}/${SETTINGS_SCHEMA_PATH}`, DeviceSettings.editorSchema(), {
-    createPath: true,
-  });
+  await Bun.write(`${artifactRoot}/${SETTINGS_SCHEMA_PATH}`, DeviceSettings.editorSchema());
   // Herdr links this manifest from device state, and its hooks call the global command.
   await Bun.write(
     `${artifactRoot}/${HERDR_PLUGIN_PATH}`,
     Bun.file(`${sourceRoot}/${HERDR_PLUGIN_PATH}`),
-    { createPath: true },
   );
   await Bun.write(`${artifactRoot}/README.md`, Bun.file(`${sourceRoot}/${README_SOURCE}`));
   await Bun.write(`${artifactRoot}/package.json`, packageManifest(source));

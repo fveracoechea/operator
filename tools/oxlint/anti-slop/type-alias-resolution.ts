@@ -14,7 +14,6 @@ function visibleAlias(
   source: SourceCode,
   reference: ESTree.TSTypeReference,
 ): ESTree.TSTypeAliasDeclaration | null {
-  if (reference.typeName.type !== "Identifier") return null;
   const variable = resolveArrayBinding(source, reference.typeName);
   const definition = variable?.defs.find((def) => def.node.type === "TSTypeAliasDeclaration");
   return definition?.node.type === "TSTypeAliasDeclaration" ? definition.node : null;
@@ -49,8 +48,9 @@ export function resolvedTypeMatches(
     substitutions: Substitutions,
     resolving: ReadonlySet<ESTree.TSTypeAliasDeclaration>,
   ): boolean {
-    if (current.type === "TSTypeReference" && current.typeName.type === "Identifier") {
-      const substitution = substitutions.get(current.typeName.name);
+    if (current.type === "TSTypeReference") {
+      // Only an identifier's text can name a type parameter. A qualified name never matches.
+      const substitution = substitutions.get(source.getText(current.typeName));
       if (substitution && !current.typeArguments)
         return evaluate(substitution.type, substitution.substitutions, resolving);
       const alias = visibleAlias(source, current);

@@ -12,7 +12,6 @@ import {
   pullRequests,
   reports,
   sources,
-  worktreePreparations,
 } from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
 
@@ -84,6 +83,7 @@ export function registerProject(client: Database, project: RegisteredProject) {
           reason: "controller_identity_mismatch",
           detail: `This checkout is recorded as ${byPath.repository}. Restore its remote identity before use. It was not re-registered as ${project.repository}.`,
         });
+      // Stryker disable next-line ConditionalExpression: equivalent: a checkout row of another identity returned above, so at most one row remains and it is this identity's
       const byIdentity = existing.find((row) => row.repository === project.repository);
       if (byIdentity && byIdentity.checkout !== project.checkout)
         return Err<StateFailure>({
@@ -158,7 +158,7 @@ export function removeProject(client: Database, repository: string) {
       db.delete(cleanups).where(inArray(cleanups.sourceId, ids)).run();
       db.delete(launches).where(inArray(launches.sourceId, ids)).run();
       db.delete(pullRequests).where(inArray(pullRequests.sourceId, ids)).run();
-      db.delete(worktreePreparations).where(eq(worktreePreparations.repository, repository)).run();
+      // The project row's foreign key deletes its worktree preparations and review requests.
       db.delete(assignments).where(inArray(assignments.sourceId, ids)).run();
       db.delete(sources).where(eq(sources.repository, repository)).run();
       db.insert(projectRemovals).values({ repository, removedAt: new Date().toISOString() }).run();

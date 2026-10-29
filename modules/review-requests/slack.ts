@@ -34,15 +34,17 @@ function call(effect: Read["effects"][number]) {
 
 function view(policy: Policy, read: Read, now: number) {
   const watch = read.watch;
-  const readAt = watch?.readAt === null || watch === null ? null : Date.parse(watch.readAt);
-  const dueAt = readAt === null ? now : readAt + readIntervalMs;
+  const readAt = watch?.readAt ?? null;
+  const dueAt = readAt === null ? now : Date.parse(readAt) + readIntervalMs;
   const params: { channel_id: string; oldest?: string; latest?: string } = {
     channel_id: policy.channel,
   };
   // Before the first Slack loop there is no cursor, and the tool takes no null.
-  if (watch !== null) params.oldest = watch.cursor;
-  // Set while Slack pages older messages: the next read asks only for messages before it.
-  if (watch?.latest !== null && watch?.latest !== undefined) params.latest = watch.latest;
+  if (watch !== null) {
+    params.oldest = watch.cursor;
+    // Set while Slack pages older messages: the next read asks only for messages before it.
+    if (watch.latest !== null) params.latest = watch.latest;
+  }
   return {
     channel: policy.channel,
     // Before the first watch, the read is due and the Slack loop records its start cursor.
@@ -112,6 +114,7 @@ function exclusion(
       if (recorded.project === null) return OkAsync("repository_unregistered");
       const authors = chosen.authors.map((author) => author.toLowerCase());
       return readPullRequest(target).map((pr) => {
+        // Stryker disable next-line StringLiteral: no rule: the policy lists GitHub logins, so Operator promises nothing for a policy entry that matches the fallback text
         if (!authors.includes((pr.author ?? "").toLowerCase())) return "author_not_in_policy";
         return pr.state === "OPEN" ? null : "pr_not_open";
       });
@@ -158,16 +161,15 @@ export function ingest(input: { paths: Paths; text: string }): AsyncResult<Outco
   return configured(paths).flatMap((chosen) =>
     parseChannelRead(input.text)
       .toAsync()
-      .flatMap((read) =>
-        DeviceState.startSlackWatch(paths, chosen.channel, slackTs(Date.now()))
+      .flatMap((read) => {
+        const start = slackTs(Date.now());
+        return DeviceState.startSlackWatch(paths, chosen.channel, start)
           .flatMap(() => DeviceState.readSlack(paths, chosen.channel))
           .toAsync()
           .flatMap((state): AsyncResult<Outcome, Failure> => {
-            const from = {
-              cursor: state.watch?.cursor ?? slackTs(Date.now()),
-              latest: state.watch?.latest ?? null,
-              pending: state.watch?.pending ?? null,
-            };
+            // Stryker disable next-line ObjectLiteral: equivalent: the start above recorded the watch, so this fallback is never read
+            const watch = state.watch ?? { cursor: start, latest: null, pending: null };
+            const from = { cursor: watch.cursor, latest: watch.latest, pending: watch.pending };
             // A minute of clock skew. A later ts can only come from a forged line in a body.
             const { fresh, to } = advanceWatch(from, read, slackTs(Date.now() + 60_000));
             return screen(paths, chosen, candidates(fresh)).flatMap((screened) =>
@@ -183,27 +185,30 @@ export function ingest(input: { paths: Paths; text: string }): AsyncResult<Outco
               })
                 .toAsync()
                 .flatMap((outcomes) =>
-                  slackActions(paths, true).map((slack) => ({
-                    reason: to.paging ? "slack_ingested_page" : "slack_ingested",
-                    data: {
-                      channel: chosen.channel,
-                      cursor: { from: from.cursor, to: to.cursor },
-                      // While paging, the next read is due at once for messages before `latest`.
-                      paging: to.paging ? { latest: to.latest } : null,
-                      messages: fresh.length,
-                      requests: outcomes.map((row) => ({
-                        url: row.candidate.url,
-                        outcome: row.outcome,
-                        id: row.id,
-                      })),
-                      ignored: screened.ignored,
-                      slack,
-                    },
-                  })),
+                  DeviceState.readSlack(paths, chosen.channel)
+                    .toAsync()
+                    .map((after) => view(chosen, after, Date.now()))
+                    .map((slack) => ({
+                      reason: to.paging ? "slack_ingested_page" : "slack_ingested",
+                      data: {
+                        channel: chosen.channel,
+                        cursor: { from: from.cursor, to: to.cursor },
+                        // While paging, the next read is due at once for messages before `latest`.
+                        paging: to.paging ? { latest: to.latest } : null,
+                        messages: fresh.length,
+                        requests: outcomes.map((row) => ({
+                          url: row.candidate.url,
+                          outcome: row.outcome,
+                          id: row.id,
+                        })),
+                        ignored: screened.ignored,
+                        slack,
+                      },
+                    })),
                 ),
             );
-          }),
-      ),
+          });
+      }),
   );
 }
 
@@ -226,6 +231,7 @@ export function acknowledge(input: {
         : { kind: "reaction", emoji: effect.content },
     );
     seen.outcome = outcome;
+    // Stryker disable next-line ConditionalExpression,StringLiteral: equivalent: the state owner records any outcome that is not done as a failure with its detail
     return outcome.kind === "done" ? outcome : { kind: "failed", detail: outcome.detail };
   })
     .toAsync()

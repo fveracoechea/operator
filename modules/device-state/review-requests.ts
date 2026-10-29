@@ -97,14 +97,14 @@ function snapshot(db: Db, request: ReviewRequestRow | null) {
     request,
     rounds,
     operations:
-      request === null || last === undefined
+      last === undefined
         ? []
         : db
             .select()
             .from(reviewThreadOperations)
             .where(
               and(
-                eq(reviewThreadOperations.requestId, request.id),
+                eq(reviewThreadOperations.requestId, last.requestId),
                 eq(reviewThreadOperations.round, last.number),
               ),
             )
@@ -149,7 +149,11 @@ export function changeReviewRequest<E>(
             .values({ ...emptyRequest(), ...change.insert, requestedAt: now, ...lease })
             .run();
           id = change.insert.id;
-        } else if (id !== null && Object.keys({ ...change.update, ...lease }).length > 0)
+        } else if (
+          // Stryker disable next-line ConditionalExpression: equivalent: with no request id the update matches no row
+          id !== null &&
+          Object.keys({ ...change.update, ...lease }).length > 0
+        )
           db.update(reviewRequests)
             .set({ ...change.update, ...lease })
             .where(eq(reviewRequests.id, id))
@@ -175,7 +179,7 @@ export function changeReviewRequest<E>(
               set: operation,
             })
             .run();
-        const after = read(db, id === null ? target : { ...target, id });
+        const after = read(db, { ...target, id: id ?? target.id });
         if (after.request !== null) insertEffects(db, after.request, change.effects ?? []);
         return { ...after, ended: before.ended };
       });
@@ -312,6 +316,7 @@ export function insertEffects(
 
 /** Renew the lease of a start, post, reviewer move, or cleanup that this process runs. */
 export function renewReviewLease(client: Database, id: string) {
+  // Stryker disable next-line BooleanLiteral: equivalent: every path writes, so a deferred begin reaches the same writer reservation before any result
   return transaction(client, true, () =>
     checkHistory(client).map((db) => {
       db.update(reviewRequests)

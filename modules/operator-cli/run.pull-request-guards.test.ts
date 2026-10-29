@@ -38,7 +38,7 @@ test.each([
   {
     name: "running owner in the write transaction",
     file: "device-state/pull-requests.ts",
-    replacements: [['launch?.state !== "running" ||', ""]],
+    replacements: [['owner?.launch.state !== "running" ||', ""]],
     testFile: "device-state/pull-requests.test.ts",
     pattern: "a replacement keeps PR open",
   },

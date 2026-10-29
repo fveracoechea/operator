@@ -1,24 +1,62 @@
 import { expect, test } from "bun:test";
 import { qualifyStateFailure } from "./failures.ts";
 
-test("qualifies known SQLite and filesystem failures, but keeps defects separate", () => {
-  for (const [code, reason] of [
-    ["SQLITE_BUSY", "state_busy"],
-    ["SQLITE_LOCKED", "state_busy"],
-    ["SQLITE_CORRUPT", "state_corrupt"],
-    ["SQLITE_NOTADB", "state_corrupt"],
-    ["EACCES", "state_io_failed"],
+function coded(code: string) {
+  return Object.assign(new Error(`failure ${code}`), { code });
+}
+function asDefect(cause: Error) {
+  return { defect: cause };
+}
+
+test("qualifies known SQLite and filesystem failures as input failures", () => {
+  for (const code of [
+    "ENOENT",
+    "EEXIST",
+    "EACCES",
+    "EPERM",
+    "EROFS",
+    "EIO",
+    "ENOSPC",
     // A recursive removal that a permission stops reports a folder that is not empty.
-    ["ENOTEMPTY", "state_io_failed"],
-    ["EBUSY", "state_io_failed"],
-    ["SQLITE_CANTOPEN", "state_io_failed"],
+    "ENOTEMPTY",
+    "EBUSY",
+    "EISDIR",
+    "ENOTDIR",
+    "SQLITE_CANTOPEN",
+    "SQLITE_READONLY",
+    "SQLITE_IOERR",
+    "SQLITE_FULL",
   ]) {
-    expect(
-      qualifyStateFailure(Object.assign(new Error(code), { code }), (cause) => ({ defect: cause })),
-    ).toMatchObject({ reason });
+    const cause = coded(code);
+    expect(qualifyStateFailure(cause, asDefect), code).toEqual({
+      reason: "state_io_failed",
+      detail: String(cause),
+    });
   }
+});
+
+test("qualifies busy, damaged, and unsupported state with the fact that nothing was written", () => {
+  for (const code of ["SQLITE_BUSY", "SQLITE_LOCKED"])
+    expect(qualifyStateFailure(coded(code), asDefect), code).toEqual({
+      reason: "state_busy",
+      detail: "The device database stayed busy for 5000 ms. No command write was committed.",
+    });
+  for (const code of ["SQLITE_CORRUPT", "SQLITE_NOTADB"])
+    expect(qualifyStateFailure(coded(code), asDefect), code).toEqual({
+      reason: "state_corrupt",
+      detail: `The device database is damaged and was not replaced. Error: failure ${code}`,
+    });
+  expect(qualifyStateFailure(coded("STATE_UNSUPPORTED"), asDefect)).toEqual({
+    reason: "state_incompatible",
+    detail: "Error: failure STATE_UNSUPPORTED",
+  });
+});
+
+test("keeps defects and unknown codes separate from state failures", () => {
   const cause = new TypeError("implementation defect");
-  expect(qualifyStateFailure(cause, (value) => ({ defect: value }))).toEqual({ defect: cause });
+  expect(qualifyStateFailure(cause, asDefect)).toEqual({ defect: cause });
   const numeric = Object.assign(new Error("numeric"), { code: 5 });
-  expect(qualifyStateFailure(numeric, (value) => ({ defect: value }))).toEqual({ defect: numeric });
+  expect(qualifyStateFailure(numeric, asDefect)).toEqual({ defect: numeric });
+  const unknown = coded("EUNKNOWN");
+  expect(qualifyStateFailure(unknown, asDefect)).toEqual({ defect: unknown });
 });

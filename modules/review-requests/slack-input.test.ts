@@ -253,3 +253,194 @@ test.each([
 ])("a reply result for %s does not prove this reply", (_name, result) => {
   expect(parseAcknowledgement(JSON.stringify(result), reply).kind).toBe("unrecognized");
 });
+
+test("compares the fraction of equal seconds in both directions", () => {
+  expect(compareTs("5.900000", "5.9")).toBe(0);
+  expect(compareTs("1.000001", "1.000002")).toBe(-1);
+  expect(compareTs("1.000002", "1.000001")).toBe(1);
+  expect(compareTs("2.000000", "1.999999")).toBe(1);
+});
+
+test("a link that names no PR adds no target", () => {
+  const read = channelRead([
+    prose(
+      "1792003966.909819",
+      "https://github.com/owner/../pull/1 https://github.com/owner/one/pull/0",
+    ),
+  ]);
+  const parsed = parseChannelRead(read);
+  expect(parsed.tag === "Ok" && parsed.value.messages).toEqual([
+    { ts: "1792003966.909819", threadTs: "1792003966.909819", links: [] },
+  ]);
+});
+
+test("a refused read names the expected input", () => {
+  expect(parseChannelRead("{}")).toMatchObject({
+    tag: "Err",
+    error: {
+      detail:
+        "The input is not a slack_read_channel result with a messages history, each message with its Message TS line. Pipe the unchanged result. Nothing was recorded, and the cursor did not move.",
+    },
+  });
+});
+
+test("a read with no pagination text has no more pages", () => {
+  const parsed = parseChannelRead(JSON.stringify({ messages: "Channel: #reviews (C0REVIEW)\n" }));
+  expect(parsed.tag === "Ok" && parsed.value).toEqual({ messages: [], hasMore: false });
+});
+
+/** Wraps a result in the text content of this many MCP tool results. */
+function wrap(text: string, layers: number): string {
+  return layers === 0
+    ? text
+    : wrap(JSON.stringify({ content: [{ type: "text", text }] }), layers - 1);
+}
+
+test("at most three layers of tool results are opened", () => {
+  const sent = JSON.stringify({ result: "Successfully added :eyes: reaction to the message." });
+  const reaction = { kind: "reaction", emoji: "eyes" } as const;
+  expect(parseAcknowledgement(wrap(sent, 3), reaction).kind).toBe("done");
+  expect(parseAcknowledgement(wrap(sent, 4), reaction).kind).toBe("unrecognized");
+  expect(parseAcknowledgement(wrap(sent, 5), reaction).kind).toBe("unrecognized");
+});
+
+test("a tool result with an image part before the answer still proves the effect", () => {
+  const text = JSON.stringify({
+    content: [
+      { type: "image" },
+      { type: "text", text: "no JSON" },
+      { type: "text", text: liveReaction },
+    ],
+  });
+  expect(parseAcknowledgement(text, { kind: "reaction", emoji: "request-changes" }).kind).toBe(
+    "done",
+  );
+});
+
+test("a reply result proves its reply without a link, but not with a link that is no URL", () => {
+  const context = { message_ts: "1.000002", channel_id: "D0BF4TK0336" };
+  expect(parseAcknowledgement(JSON.stringify({ message_context: context }), reply)).toEqual({
+    kind: "done",
+    slackTs: "1.000002",
+  });
+  expect(
+    parseAcknowledgement(
+      JSON.stringify({ message_link: "not a link", message_context: context }),
+      reply,
+    ).kind,
+  ).toBe("unrecognized");
+});
+
+test("a failure keeps Slack's error, and its detail is at most 300 characters", () => {
+  expect(parseAcknowledgement(JSON.stringify({ ok: false }), reply)).toEqual({
+    kind: "failed",
+    detail: "Slack answered ok: false.",
+  });
+  expect(parseAcknowledgement(JSON.stringify({ ok: false, error: "gone" }), reply)).toEqual({
+    kind: "failed",
+    detail: "gone",
+  });
+  const long = JSON.stringify({ isError: true, content: [], note: "x".repeat(400) });
+  expect(parseAcknowledgement(long, reply)).toEqual({ kind: "failed", detail: long.slice(0, 300) });
+});
+
+test("an unrecognized result names the result, cut at 300 characters", () => {
+  expect(parseAcknowledgement("  \n", reply)).toEqual({
+    kind: "unrecognized",
+    detail: "The send result is empty.",
+  });
+  const text = `Reaction added ${"y".repeat(400)}`;
+  expect(parseAcknowledgement(text, { kind: "reaction", emoji: "eyes" })).toEqual({
+    kind: "unrecognized",
+    detail: `The send result shows no success for this reaction: ${text.slice(0, 300)}`,
+  });
+});
+
+test("a message at the ingest ceiling is fresh", () => {
+  const from = { cursor: "10.0", latest: null, pending: null };
+  expect(
+    advanceWatch(from, { messages: ["99.0", "99.000001"].map(message), hasMore: false }, ceiling),
+  ).toEqual({
+    fresh: [message("99.0")],
+    to: { cursor: "99.0", latest: null, pending: null, paging: false },
+  });
+});
+
+test("only a whole ts is a reply ts", () => {
+  for (const ts of ["x1.000002", "1.000002x"])
+    expect(
+      parseAcknowledgement(
+        JSON.stringify({ message_context: { message_ts: ts, channel_id: "D0BF4TK0336" } }),
+        reply,
+      ).kind,
+    ).toBe("unrecognized");
+});
+
+test("a tool result part needs its type", () => {
+  const text = JSON.stringify({ content: [{ text: liveReaction }] });
+  expect(parseAcknowledgement(text, { kind: "reaction", emoji: "request-changes" }).kind).toBe(
+    "unrecognized",
+  );
+});
+
+test("a channel read opens at most three layers, past parts that hold no read", () => {
+  function layer(text: string) {
+    return JSON.stringify({
+      content: [{ type: "image" }, { type: "text", text: "{}" }, { type: "text", text }],
+    });
+  }
+  expect(parseChannelRead(layer(layer(layer(liveRead))))).toMatchObject({ tag: "Ok" });
+  expect(parseChannelRead(layer(layer(layer(layer(liveRead)))))).toMatchObject({ tag: "Err" });
+  expect(parseChannelRead(layer(layer(layer(layer(layer(liveRead))))))).toMatchObject({
+    tag: "Err",
+  });
+});
+
+function messagesOf(prose: string) {
+  const parsed = parseChannelRead(JSON.stringify({ messages: prose }));
+  if (parsed.tag === "Ok") return parsed.value.messages;
+  return parsed.tag === "Err" ? parsed.error.reason : "defect";
+}
+
+test("a header or a TS line counts only as a whole line", () => {
+  // A TS text inside a preamble line is no TS line.
+  expect(messagesOf("Channel: x Message TS: 1.000001\n")).toEqual([]);
+  // A quoted header, or a header with more text, stays in the body of its message.
+  const quoted = `> ${header}\nMessage TS: 9.000001\nhttps://github.com/owner/two/pull/3`;
+  const extended = `${header}more\nMessage TS: 9.000002\nhttps://github.com/owner/two/pull/4`;
+  for (const [body, number] of [
+    [quoted, 3],
+    [extended, 4],
+  ] as const)
+    expect(messagesOf(prose("1.000001", body))).toEqual([
+      {
+        ts: "1.000001",
+        threadTs: "1.000001",
+        links: [
+          {
+            repository: "owner/two",
+            number,
+            url: `https://github.com/owner/two/pull/${number}`,
+          },
+        ],
+      },
+    ]);
+  // A TS line with more text is no TS line, so the first message is refused.
+  expect(messagesOf(`${header}\nMessage TS: 1.000001 later\nbody`)).toBe(
+    "slack_input_unrecognized",
+  );
+});
+
+test("a header without trailing space and an indented TS line with trailing space parse", () => {
+  expect(
+    messagesOf(
+      `${header.trimEnd()}\n  Message TS: 1.000001 \t\n${"https://github.com/o/r/pull/12"}`,
+    ),
+  ).toEqual([
+    {
+      ts: "1.000001",
+      threadTs: "1.000001",
+      links: [{ repository: "o/r", number: 12, url: "https://github.com/o/r/pull/12" }],
+    },
+  ]);
+});

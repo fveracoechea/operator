@@ -28,6 +28,7 @@ function checkHost(paths: ReturnType<typeof OperatorHome.resolve>) {
     async () => {
       const blockers: Blocker[] = [];
       const settings = await DeviceSettings.show(paths);
+      // Stryker disable next-line ArrowFunction: equivalent: map on a Defect never calls its function
       if (settings.tag === "Defect") return settings.map(() => blockers);
       if (settings.tag === "Err") return Ok([settings.error]);
       const host = settings.value.data.config.superAgent.host;
@@ -42,6 +43,7 @@ function checkHost(paths: ReturnType<typeof OperatorHome.resolve>) {
       if (Bun.which(tool, { PATH: Environment.read().PATH }) === null)
         blockers.push({ reason: "executable_missing", tool, detail: `Install ${tool} on PATH.` });
       const owned = await OwnedSkills.install({ paths, hosts: [host], check: true });
+      // Stryker disable next-line ArrowFunction: equivalent: map on a Defect never calls its function
       if (owned.tag === "Defect") return owned.map(() => blockers);
       if (owned.tag === "Err")
         blockers.push({
@@ -49,6 +51,7 @@ function checkHost(paths: ReturnType<typeof OperatorHome.resolve>) {
           detail: `${owned.error.detail} Run operator install ${host === "opencode" ? "--opencode" : "--claude"}, or update consumer-owned Nix links.`,
         });
       const upstream = await UpstreamSkills.check(paths, host);
+      // Stryker disable next-line ArrowFunction: equivalent: map on a Defect never calls its function
       if (upstream.tag === "Defect") return upstream.map(() => blockers);
       if (upstream.tag === "Err") blockers.push(upstream.error);
       else if (upstream.value.length > 0)
@@ -78,6 +81,7 @@ export const Readiness = {
         }
         // Herdr hooks and agents reach the running release only through the global command.
         const command = await GlobalLauncher.check();
+        // Stryker disable next-line ArrowFunction,ObjectLiteral: equivalent: map on a Defect never calls its function
         if (command.tag === "Defect") return command.map(() => ({ blockers }));
         if (command.tag === "Err") blockers.push(command.error);
         else blockers.push(...command.value);

@@ -3,6 +3,7 @@ import type { OperatorHome } from "../operator-home/main.ts";
 import { failure } from "./output.ts";
 
 const defaultTimeoutSeconds = 300;
+const ownerCommands = ["associate", "wait", "merge"] as const;
 
 /** The SuperAgent names the merged assignment, because cleanup runs outside the worktree. */
 function cleanupArgs(flags: string[]) {
@@ -10,14 +11,14 @@ function cleanupArgs(flags: string[]) {
   let assignment: string | undefined;
   let personInstructed = false;
   const seen = new Set<string>();
-  for (let index = 0; index < flags.length; index++) {
-    const flag = flags[index] ?? "";
+  const rest = flags.values();
+  for (const flag of rest) {
     if (seen.has(flag)) return null;
     seen.add(flag);
     if (flag === "--json") continue;
     if (flag === "--person-instructed") personInstructed = true;
     else if (flag === "--source" || flag === "--assignment") {
-      const value = flags[++index];
+      const value = rest.next().value;
       if (value === undefined || value.startsWith("--")) return null;
       if (flag === "--source") sourceId = value;
       else assignment = value;
@@ -30,20 +31,22 @@ function cleanupArgs(flags: string[]) {
 
 /** No owner flag selects an assignment or a PR. The caller's worktree is the only selector. */
 export function pullRequestArgs(args: string[]) {
-  const [group, command, ...flags] = args;
+  const [group, name, ...flags] = args;
   if (group === "cleanup") return cleanupArgs(args.slice(1));
-  if (group !== "pr" || !["associate", "wait", "merge"].includes(command ?? "")) return null;
-  return ownerArgs(command ?? "", flags);
+  const command = ownerCommands.find((known) => known === name);
+  if (group !== "pr" || command === undefined) return null;
+  return ownerArgs(command, flags);
 }
 
 function ownerArgs(command: string, flags: string[]) {
   let json = false;
   let timeoutSeconds: number | undefined;
-  for (let index = 0; index < flags.length; index++) {
-    const flag = flags[index];
+  const rest = flags.values();
+  for (const flag of rest) {
     if (flag === "--json" && !json) json = true;
     else if (flag === "--timeout" && command === "wait" && timeoutSeconds === undefined) {
-      const value = flags[++index] ?? "";
+      // An absent value reads as "undefined", which the pattern refuses.
+      const value = String(rest.next().value);
       if (!/^\d{1,5}$/.test(value)) return null;
       timeoutSeconds = Number(value);
     } else return null;

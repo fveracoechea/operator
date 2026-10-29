@@ -80,10 +80,12 @@ function refuse(reason: string, detail: string) {
 }
 
 function starting({ request, ownerActive }: ReviewFacts) {
+  // Stryker disable next-line OptionalChaining: equivalent: a start is checked only after the missing-request rule, or for a listed request
   return request?.launchState === "starting" && ownerActive;
 }
 
 function stopped(request: Request | null) {
+  // Stryker disable next-line OptionalChaining: equivalent: a stopped reviewer is checked only after the missing-request rule, or for a listed request
   return request?.launchState === "interrupted" || request?.launchState === "failed";
 }
 
@@ -92,6 +94,7 @@ function stopped(request: Request | null) {
  * when no reviewer ever started.
  */
 function startRound(facts: ReviewFacts, trigger: "first" | RoundTrigger): ReviewTransition {
+  // Stryker disable next-line OptionalChaining: equivalent: a round starts only for a recorded request
   const launch = facts.request?.launchState ?? null;
   if (launch === "running")
     return { state: "reviewing", round: trigger, sync: true, lease: "hold" };
@@ -105,6 +108,7 @@ function startRound(facts: ReviewFacts, trigger: "first" | RoundTrigger): Review
  */
 function movable({ request, observedFrom }: ReviewFacts) {
   return (
+    // Stryker disable next-line OptionalChaining: equivalent: a head move is checked only after the missing-request rule
     request?.state === "reviewing" &&
     request.launchState !== "starting" &&
     request.head === observedFrom &&
@@ -138,12 +142,14 @@ function endRules(state: "closed" | "skipped"): Rule[] {
       decide: () => refuse("review_start_in_progress", "Wait until the reviewer start ends."),
     },
     {
+      // Stryker disable next-line OptionalChaining: equivalent: every rule after the missing-request rule reads a recorded request
       when: (facts) => facts.ownerActive && facts.request?.state === "posting",
       decide: () =>
         refuse("review_post_in_progress", "Another process posts this review now. Wait for it."),
     },
     // A wait that moves or prompts the reviewer holds its pane and worktree.
     {
+      // Stryker disable next-line OptionalChaining: equivalent: every rule after the missing-request rule reads a recorded request
       when: (facts) => facts.ownerActive && (facts.request?.sync ?? null) !== null,
       decide: () =>
         refuse(
@@ -165,7 +171,11 @@ const tables: Record<ReviewCommand, Rule[]> = {
     },
     // A renewed request reopens a watching or approved request with the same reviewer.
     {
-      when: (facts) => ["watching", "approved"].includes(facts.request?.state ?? ""),
+      when: (facts) =>
+        ["watching", "approved"].includes(
+          // Stryker disable next-line OptionalChaining,StringLiteral: equivalent: every rule after the missing-request rule reads a recorded request
+          facts.request?.state ?? "",
+        ),
       decide: (facts) => Ok(startRound(facts, "re-request")),
     },
     { when: () => true, decide: () => Ok({ unchanged: true }) },
@@ -178,14 +188,17 @@ const tables: Record<ReviewCommand, Rule[]> = {
       decide: () => refuse("review_start_in_progress", "Another process starts this reviewer."),
     },
     {
+      // Stryker disable next-line OptionalChaining: equivalent: every rule after the missing-request rule reads a recorded request
       when: (facts) => facts.request?.state === "queued",
       decide: () => Ok({ launchState: "starting", lease: "hold" }),
     },
     // The replacement reopens the request's worktree. Its brief names the earlier rounds.
     {
       when: (facts) =>
-        ["reviewing", "watching", "approved"].includes(facts.request?.state ?? "") &&
-        stopped(facts.request),
+        ["reviewing", "watching", "approved"].includes(
+          // Stryker disable next-line OptionalChaining,StringLiteral: equivalent: every rule after the missing-request rule reads a recorded request
+          facts.request?.state ?? "",
+        ) && stopped(facts.request),
       decide: () => Ok({ launchState: "starting", lease: "hold", replace: true }),
     },
     {
@@ -225,6 +238,7 @@ const tables: Record<ReviewCommand, Rule[]> = {
       decide: () => refuse("review_start_in_progress", "Wait until the reviewer start ends."),
     },
     {
+      // Stryker disable next-line OptionalChaining: equivalent: every rule after the missing-request rule reads a recorded request
       when: (facts) => facts.request?.state === "posting" && facts.ownerActive,
       decide: () =>
         refuse(
@@ -233,6 +247,7 @@ const tables: Record<ReviewCommand, Rule[]> = {
         ),
     },
     {
+      // Stryker disable next-line OptionalChaining: equivalent: every rule after the missing-request rule reads a recorded request
       when: (facts) => (facts.request?.sync ?? null) !== null && facts.ownerActive,
       decide: () =>
         refuse(
@@ -242,20 +257,28 @@ const tables: Record<ReviewCommand, Rule[]> = {
     },
     // A post whose process stopped can have reached GitHub. The retry looks for it first.
     {
+      // Stryker disable next-line OptionalChaining: equivalent: every rule after the missing-request rule reads a recorded request
       when: (facts) => facts.request?.state === "posting",
       decide: () => Ok({ lease: "hold", retry: true }),
     },
     {
-      when: (facts) => ["queued", "reviewing"].includes(facts.request?.state ?? ""),
+      when: (facts) =>
+        ["queued", "reviewing"].includes(
+          // Stryker disable next-line OptionalChaining,StringLiteral: equivalent: every rule after the missing-request rule reads a recorded request
+          facts.request?.state ?? "",
+        ),
       decide: () => Ok({ state: "posting", lease: "hold" }),
     },
     {
       when: () => true,
-      decide: (facts) =>
-        refuse(
+      decide: (facts) => {
+        // Stryker disable next-line OptionalChaining,StringLiteral: equivalent: every rule after the missing-request rule reads a recorded request
+        const state = facts.request?.state ?? "missing";
+        return refuse(
           "review_already_posted",
-          `This review request is ${facts.request?.state ?? "missing"}, so its review is already posted.`,
-        ),
+          `This review request is ${state}, so its review is already posted.`,
+        );
+      },
     },
   ],
   posted: [
@@ -275,7 +298,11 @@ const tables: Record<ReviewCommand, Rule[]> = {
   // A definite refusal returns the request to its reviewer, or to the queue when none runs.
   post_failed: [
     {
-      when: (facts) => ["running", "interrupted"].includes(facts.request?.launchState ?? ""),
+      when: (facts) =>
+        ["running", "interrupted"].includes(
+          // Stryker disable next-line StringLiteral: equivalent: no recorded launch state is the empty text, so a missing request matches neither state
+          facts.request?.launchState ?? "",
+        ),
       decide: () => Ok({ state: "reviewing", lease: "release" }),
     },
     { when: () => true, decide: () => Ok({ state: "queued", lease: "release" }) },
@@ -288,7 +315,9 @@ const tables: Record<ReviewCommand, Rule[]> = {
     { when: starting, decide: () => Ok({ unchanged: true }) },
     {
       when: (facts) =>
+        // Stryker disable next-line OptionalChaining: equivalent: every rule after the missing-request rule reads a recorded request
         facts.request?.state === "watching" ||
+        // Stryker disable next-line OptionalChaining: equivalent: every rule after the missing-request rule reads a recorded request
         (facts.request?.state === "approved" && facts.trigger === "re-request"),
       decide: (facts) => Ok(startRound(facts, facts.trigger ?? "commits")),
     },
@@ -297,6 +326,7 @@ const tables: Record<ReviewCommand, Rule[]> = {
   head_moved: [
     missing,
     {
+      // Stryker disable next-line OptionalChaining: equivalent: every rule after the missing-request rule reads a recorded request
       when: (facts) => movable(facts) && facts.request?.launchState === "running",
       decide: () => Ok({ headMoved: true, sync: true, lease: "hold" }),
     },
@@ -316,7 +346,8 @@ const tables: Record<ReviewCommand, Rule[]> = {
   synced: [
     {
       when: (facts) =>
-        facts.ownLease !== true || ["closed", "skipped"].includes(facts.request?.state ?? ""),
+        facts.ownLease !== true ||
+        (facts.request !== null && ["closed", "skipped"].includes(facts.request.state)),
       decide: () =>
         refuse("review_lease_lost", "Another process took this review request during the move."),
     },
@@ -329,6 +360,7 @@ const tables: Record<ReviewCommand, Rule[]> = {
 /** One review-request transition from recorded and observed facts, with no effect. */
 export function decideReview(facts: ReviewFacts): Result<ReviewTransition, Refusal> {
   const rule = tables[facts.command].find((row) => row.when(facts));
+  // Stryker disable next-line ConditionalExpression,StringLiteral: equivalent: every table ends with a rule that always matches
   return rule === undefined ? refuse("review_defect", "No rule matched.") : rule.decide(facts);
 }
 

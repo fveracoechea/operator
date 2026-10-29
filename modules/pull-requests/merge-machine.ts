@@ -62,14 +62,6 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
       conditions: mergeConditions(observed, stackRelayed),
     }),
   },
-  {
-    when: () => true,
-    decide: ({ observed }) => ({
-      result: "merge",
-      head: observed.head,
-      method: observed.mergeMethod,
-    }),
-  },
 ];
 
 /**
@@ -77,9 +69,13 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
  * input, so only GitHub's current approval, checks, threads, and base permit the merge.
  */
 export function decideMerge(facts: Facts): Decision {
-  for (const rule of rules) if (rule.when(facts)) return rule.decide(facts);
-  // oxlint-disable-next-line unthrown/no-throw -- The final rule is unconditional, so this is a programming defect.
-  throw new Error("The merge table has no matching rule.");
+  return (
+    rules.find((rule) => rule.when(facts))?.decide(facts) ?? {
+      result: "merge",
+      head: facts.observed.head,
+      method: facts.observed.mergeMethod,
+    }
+  );
 }
 
 /** Only GitHub's merged state with a merge commit for the expected head proves completion. */

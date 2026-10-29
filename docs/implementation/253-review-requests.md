@@ -167,7 +167,7 @@ A post whose process stopped does not block, because its retry needs no running 
 
 ## Verification
 
-Public CLI scenarios in `modules/operator-cli/run.reviews.test.ts` use real Git with a local bare origin that holds only `refs/pull/7/head`, real SQLite, isolated device roots, and the controlled `fake-herdr.ts` and `fake-github.ts`.
+Public CLI scenarios in `modules/operator-cli/run.reviews.test.ts` use real Git with a local bare origin that holds only `refs/pull/7/head`, real SQLite, isolated device roots, and the controlled `herdr-fixture.ts` and `github-fixture.ts`.
 They cover both hosts from add to an approved post, the workspace and base of the reviewer worktree, no reviewer branch on the remote, the event policy with blockers, breaches, and the posting account's own PR, required CI blockers and noise claims, a repository without required CI, thirteen draft refusals with unchanged database bytes and no post, two simultaneous posts with one GitHub write, a lost answer found by its marker, a refused post, unregistered and closed PRs, a failed start and its retry, and the assignment reviewer off and on.
 They also cover a lost answer followed by an edited draft, a lost answer followed by a head move, path spellings in noise claims and findings, pending and incomplete required CI, a GitHub remote named `upstream` beside a fork `origin`, and a retried start after the PR head moved.
 

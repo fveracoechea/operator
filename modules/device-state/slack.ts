@@ -54,6 +54,7 @@ export function readSlack(client: Database, channel: string) {
  * database alone. A recorded cursor stays.
  */
 export function startSlackWatch(client: Database, channel: string, start: string) {
+  // Stryker disable next-line BooleanLiteral: equivalent: every path writes, so a deferred begin reaches the same writer reservation before any result
   return transaction(client, true, () =>
     checkHistory(client).map((db) => {
       db.insert(slackWatches)
@@ -129,6 +130,7 @@ function applyCandidate(
     )
     .orderBy(desc(reviewRequests.requestedAt))
     .get();
+  // Stryker disable next-line ConditionalExpression: equivalent: an attached outcome comes from an existing latest request, which this query finds again
   if (outcome === "attached" && open !== undefined) {
     db.update(reviewRequests).set(slack).where(eq(reviewRequests.id, open.id)).run();
     insertEffects(db, { id: open.id, ...slack }, input.start);

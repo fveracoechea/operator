@@ -55,3 +55,29 @@ test("requires the inspected plan and distinguishes a no-op from a write", () =>
   expect(decideSettingsWrite("apply", { ...facts, changed: false })).toBe("unchanged");
   expect(decideSettingsWrite("apply", { ...facts, freshPlanId: "stale" })).toBe("stale");
 });
+
+test("decides without a receipt as if no recorded intent matches", () => {
+  const facts = { receipt: null, identity: "after", planId: "approved", freshPlanId: "approved" };
+  expect(decideSettingsWrite("apply", { ...facts, state: "complete" })).toBe("write");
+  expect(decideSettingsWrite("apply", { ...facts, state: "pending" })).toBe("recovery-required");
+  expect(decideSettingsWrite("recover", { ...facts, state: "pending" })).toBe("recovery-required");
+});
+
+test("applies a completed earlier intent like a settled file", () => {
+  const facts = {
+    receipt: { ...receipt, state: "complete" as const },
+    identity: "after",
+    planId: "next",
+    editsIdentity: "edits",
+    freshPlanId: "next",
+  };
+  expect(decideSettingsWrite("apply", { ...facts, state: "complete", changed: true })).toBe(
+    "write",
+  );
+  expect(decideSettingsWrite("apply", { ...facts, state: "complete", changed: false })).toBe(
+    "unchanged",
+  );
+  expect(decideSettingsWrite("apply", { ...facts, state: "complete", freshPlanId: "other" })).toBe(
+    "stale",
+  );
+});

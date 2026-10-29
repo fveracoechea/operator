@@ -1,4 +1,4 @@
-import { fromThrowable, Err, Ok, type Result } from "unthrown";
+import { all, fromThrowable, Err, Ok, type Result } from "unthrown";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { databaseExists } from "./creation.ts";
 import { openDatabase, readHistory, transaction } from "./database.ts";
@@ -10,27 +10,35 @@ type Paths = ReturnType<typeof OperatorHome.resolve>;
 
 function upgrade(paths: Paths) {
   using client = openDatabase(paths.database, false);
+  // Stryker disable next-line BooleanLiteral: equivalent: one synchronous call leaves no other connection a turn between BEGIN and the first write, so only concurrent processes observe the early reservation
   return transaction(client, true, () =>
     readHistory(client).flatMap(({ recorded, shipped }): Result<boolean, StateFailure> => {
+      // Stryker disable next-line ConditionalExpression,EqualityOperator,BooleanLiteral: equivalent: the reader returns first when the history matches, so only a concurrent upgrade between the two transactions reaches this check
       if (recorded.length === shipped.length) return Ok(false);
-      const idle = idleForMigration(client, recorded.length);
-      if (idle.tag !== "Ok") return idle.map(() => false);
       const pending = shipped.slice(recorded.length);
-      for (const migration of pending) {
-        const blockers = migrationBlockers(client, migration.folderMillis);
-        if (blockers.tag !== "Ok") return blockers.map(() => false);
-      }
-      const backup = createBackup(client, paths, recorded);
-      if (backup.tag !== "Ok") return backup.map(() => false);
-      for (const migration of pending) {
-        for (const sql of migration.sql) client.exec(sql);
-        client
-          .query("INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)")
-          .run(migration.hash, migration.folderMillis);
-      }
-      return readHistory(client).map(() => true);
+      return idleForMigration(client, recorded.length)
+        .flatMap(() =>
+          all(pending.map((migration) => migrationBlockers(client, migration.folderMillis))),
+        )
+        .flatMap(() => createBackup(client, paths, recorded))
+        .flatMap(() => {
+          for (const migration of pending) {
+            for (const sql of migration.sql) client.exec(sql);
+            client
+              .query("INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)")
+              .run(migration.hash, migration.folderMillis);
+          }
+          return readHistory(client);
+        })
+        .map(() => true);
     }),
   );
+}
+
+function readCurrent(paths: Paths) {
+  // Stryker disable next-line BooleanLiteral: equivalent: this connection only reads, and query_only refuses nothing a read needs
+  using reader = openDatabase(paths.database, true);
+  return transaction(reader, false, () => readHistory(reader));
 }
 
 /** Missing state is never created here. Only explicit project registration can publish it. */
@@ -45,13 +53,12 @@ export function compatibility(paths: Paths, firstRegistration = false) {
               detail:
                 "The device database is missing. Run operator project register explicitly in the controlling checkout before any other command.",
             });
-      using reader = openDatabase(paths.database, true);
-      const current = transaction(reader, false, () => readHistory(reader));
+      const current = readCurrent(paths);
       if (current.tag !== "Ok") return current.map(() => undefined);
       if (current.value.recorded.length === current.value.shipped.length) return Ok(undefined);
-      reader.close();
       const upgraded = upgrade(paths);
       if (upgraded.tag !== "Ok") return upgraded.map(() => undefined);
+      // Stryker disable next-line ConditionalExpression: equivalent: a concurrent upgrade already pruned to the newest three verified backups, so pruning again removes nothing
       if (upgraded.value) return pruneBackups(paths);
       return Ok(undefined);
     },

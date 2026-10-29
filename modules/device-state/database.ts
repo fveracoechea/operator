@@ -45,8 +45,8 @@ export function transaction<T, E>(client: Database, write: boolean, action: () =
 export const historySchema = z.array(z.object({ hash: z.string(), created_at: z.number() }));
 
 export function readHistory(client: Database) {
-  const integrity = client.query("PRAGMA quick_check").values();
-  if (integrity.length !== 1 || integrity[0]?.[0] !== "ok")
+  // A healthy database returns one row with "ok". Any other result names damage.
+  if (client.query("PRAGMA quick_check").values().join() !== "ok")
     return Err<StateFailure>({
       reason: "state_corrupt",
       detail: "The device database failed its integrity check. It was not repaired or replaced.",
@@ -73,10 +73,11 @@ export function readHistory(client: Database) {
   if (
     !recorded.success ||
     recorded.data.length === 0 ||
-    recorded.data.length > shipped.length ||
+    // A longer history has a recorded migration with no shipped counterpart at its index.
     recorded.data.some(
       (migration, index) =>
         shipped[index]?.hash !== migration.hash ||
+        // Stryker disable next-line OptionalChaining: equivalent: the hash comparison before it already refuses an index with no shipped migration
         shipped[index]?.folderMillis !== migration.created_at,
     )
   )

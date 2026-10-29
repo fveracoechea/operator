@@ -118,7 +118,7 @@ The relay adds no integration-branch publication and no source-wide stack lifecy
 
 ## Verification
 
-Public CLI scenarios in `run.pr-relay.test.ts` use real Git with a bare `origin` remote, real SQLite, isolated device roots, the controlled `fake-herdr.ts`, and the controlled `fake-github.ts`.
+Public CLI scenarios in `run.pr-relay.test.ts` use real Git with a bare `origin` remote, real SQLite, isolated device roots, the controlled `herdr-fixture.ts`, and the controlled `github-fixture.ts`.
 A second `github` remote names the GitHub identity.
 The controlled GitHub reports an open PR's head from the bare remote, as GitHub reports a push.
 They cover:

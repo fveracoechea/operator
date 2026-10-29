@@ -25,7 +25,9 @@ export function selectLaunch(
       reason: "profile_missing",
       detail: `Start profile ${request.profile} does not exist.`,
     };
-  const profile = request.profile === undefined ? {} : (config.profiles?.[request.profile] ?? {});
+  const profile =
+    // Stryker disable next-line OptionalChaining: equivalent: the ownership check above proves that a named profile exists
+    request.profile === undefined ? {} : config.profiles?.[request.profile];
   const selected = {
     ...config.superAgent,
     reasoningEffort:

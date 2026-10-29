@@ -144,7 +144,7 @@ Project removal deletes reports with the other source records.
 
 ## Verification
 
-`run.reports.test.ts` drives the public CLI with real Git and SQLite, isolated device roots, the controlled `fake-herdr.ts`, and controlled OpenCode and Claude Code hosts.
+`run.reports.test.ts` drives the public CLI with real Git and SQLite, isolated device roots, the controlled `herdr-fixture.ts`, and controlled OpenCode and Claude Code hosts.
 It covers submission versus acceptance on both hosts, activity that completes nothing, foreign panes and servers, self-acceptance, dependents that wait for acceptance, return and resume, a replacement with changed settings that reads every report and follow-up, copied supporting files, kept and removed worktrees, failed and retried cleanup on an ended source, refusals with unchanged database bytes, a consumer brief that outlives the removed producer, and the absence of host permission files.
 Beside-tests cover the report table, the next rules, stored report decoding, report content, worktree inspection with real Git, the report transaction, the returned-report reservation, argument parsing, the brief, and the migration policy.
 `run.report-guards.test.ts` proves 11 guards with deliberate breaks in a disposable copy.

@@ -30,6 +30,11 @@ test("an empty source and a mixed completed source finish, but active or abandon
 test("ended source states are stable on repeated reads", () => {
   expect(decideSource({ state: "reset", assignments: [] })).toBe("reset");
   expect(decideSource({ state: "finished", assignments: [] })).toBe("finished");
+  const running = [{ key: "a", completion: "report" as const, state: "running" as const }];
+  expect(decideSource({ state: "finished", assignments: running })).toBe("finished");
+  expect(decideSource({ state: "reset", assignments: running })).toBe("reset");
+  const done = [{ key: "a", completion: "report" as const, state: "completed" as const }];
+  expect(decideSource({ state: "reset", assignments: done })).toBe("reset");
 });
 
 test("reset abandons every incomplete assignment of both completion types and keeps completed work", () => {

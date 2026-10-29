@@ -100,3 +100,39 @@ test("a foreign checkout is never removed, even on the person's instruction", ()
         reason: "cleanup_resource_mismatch",
       });
 });
+
+test("each blocked decision explains what the person must do", () => {
+  const person =
+    "Only the person can authorize its deletion: repeat operator cleanup with --person-instructed on the person's instruction.";
+  expect(
+    decideRemoteBranch({ branch: "task/1", sha: "h2", mergedHead: "h1", personInstructed: false }),
+  ).toEqual({
+    action: "blocked",
+    reason: "cleanup_unlanded_work",
+    detail: `The remote branch task/1 is at h2, not at the merged head h1. ${person}`,
+  });
+  expect(decideWorktree({ ...clean, branch: "other" })).toEqual({
+    action: "blocked",
+    reason: "cleanup_resource_mismatch",
+    detail:
+      "/w is no longer the recorded worktree on task/1. Operator never removes another checkout. Move it away, then repeat operator cleanup.",
+  });
+  expect(
+    decideWorktree({ ...clean, landed: false, changed: ["a", "b"], unknownIgnored: ["c/"] }),
+  ).toEqual({
+    action: "blocked",
+    reason: "cleanup_unlanded_work",
+    detail: `/w holds commits that are not in the merged head; changed or untracked a, b; ignored content that preparation did not write: c/. ${person}`,
+  });
+  function names(count: number) {
+    return Array.from({ length: count }, (_, i) => `f${i}`);
+  }
+  function listed(count: number) {
+    const decision = decideWorktree({ ...clean, changed: names(count) });
+    return "detail" in decision ? decision.detail : "";
+  }
+  expect(listed(20)).toBe(`/w holds changed or untracked ${names(20).join(", ")}. ${person}`);
+  expect(listed(21)).toBe(
+    `/w holds changed or untracked ${names(20).join(", ")}, and 1 more. ${person}`,
+  );
+});

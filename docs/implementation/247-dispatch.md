@@ -133,7 +133,7 @@ A pane that ends while the plugin is not linked stays `running` until a later wo
 
 ## Verification
 
-Public CLI scenarios in `run.dispatch.test.ts` use real Git and SQLite, isolated roots, and the controlled `fake-herdr.ts` executable.
+Public CLI scenarios in `run.dispatch.test.ts` use real Git and SQLite, isolated roots, and the controlled `herdr-fixture.ts` executable.
 The fake keeps topology in one file, creates real Git worktrees, and runs the linked manifest's hook command as Herdr does.
 They cover plugin install and conflict, pane and worktree dispatch, preparation, collisions, refusals with unchanged database bytes and no Herdr effect, failed launch and replacement with changed settings, activity, idle-worker attention, foreign-server events, and pane exit.
 Direct beside-tests cover names, the brief, the manifest, environment files, launch records, decisions, migration policy, assignment paths, and skill identities.

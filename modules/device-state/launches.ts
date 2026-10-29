@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import type { Database } from "bun:sqlite";
 import type { drizzle } from "drizzle-orm/bun-sqlite";
 import { Err, Ok, type Result } from "unthrown";
+import { isCodedError } from "../../lib/coded-error.ts";
 import { checkHistory, transaction } from "./database.ts";
 import {
   assignments,
@@ -47,7 +48,8 @@ export function ownerGone(row: { ownerPid: number | null; leaseAt: string | null
     return false;
   } catch (cause) {
     // EPERM means that the process exists under another user.
-    return cause instanceof Error && "code" in cause && cause.code === "ESRCH";
+    // Stryker disable next-line ConditionalExpression: equivalent: process.kill fails only with a coded error, so the type check only narrows the type
+    return isCodedError(cause) && cause.code === "ESRCH";
   }
 }
 
@@ -209,6 +211,7 @@ export function updateLaunch(
 
 /** Renew the lease of a start that this process owns. */
 export function renewLaunch(client: Database, id: string) {
+  // Stryker disable next-line BooleanLiteral: equivalent: every path writes, so a deferred begin reaches the same writer reservation before any result
   return transaction(client, true, () =>
     checkHistory(client).map((db) => {
       db.update(launches)
@@ -292,24 +295,25 @@ function writeObservation(
   reviewer: ReturnType<typeof and>,
   input: Parameters<typeof observePane>[1],
 ) {
+  // Stryker disable next-line BooleanLiteral: equivalent: the read before it found a match, so every path writes and a deferred begin reaches the same writer reservation
   return transaction(client, true, () =>
     checkHistory(client).map((db) => {
       const now = new Date().toISOString();
       const matched = db.select({ id: launches.id }).from(launches).where(matching).all();
-      if (matched.length > 0)
-        db.update(launches)
-          .set(
-            input.observation.exited
-              ? {
-                  state: "interrupted",
-                  endedAt: now,
-                  failureReason: "pane_ended",
-                  failureDetail: `Herdr reported that pane ${input.paneId} exited or closed before the assignment completed.`,
-                }
-              : { activity: input.observation.activity, activityAt: now },
-          )
-          .where(matching)
-          .run();
+      // With no match, the update changes no row.
+      db.update(launches)
+        .set(
+          input.observation.exited
+            ? {
+                state: "interrupted",
+                endedAt: now,
+                failureReason: "pane_ended",
+                failureDetail: `Herdr reported that pane ${input.paneId} exited or closed before the assignment completed.`,
+              }
+            : { activity: input.observation.activity, activityAt: now },
+        )
+        .where(matching)
+        .run();
       // A reviewer whose pane ended needs a replacement. Its worktree and rounds stay.
       const reviewers = input.observation.exited
         ? db
@@ -372,6 +376,7 @@ export function finishPreparation(
   path: string,
   outcome: { state: "prepared" | "failed"; detail: string },
 ) {
+  // Stryker disable next-line BooleanLiteral: equivalent: every path writes, so a deferred begin reaches the same writer reservation before any result
   return transaction(client, true, () =>
     checkHistory(client).map((db) => {
       db.update(worktreePreparations)
@@ -385,6 +390,7 @@ export function finishPreparation(
 
 /** Renew the lease of a preparation that this process owns. */
 export function renewPreparation(client: Database, path: string) {
+  // Stryker disable next-line BooleanLiteral: equivalent: every path writes, so a deferred begin reaches the same writer reservation before any result
   return transaction(client, true, () =>
     checkHistory(client).map((db) => {
       db.update(worktreePreparations)

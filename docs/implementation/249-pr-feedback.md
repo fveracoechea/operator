@@ -129,7 +129,7 @@ The new migration declares no migration-specific held-record query.
 
 ## Verification
 
-Public CLI scenarios in `run.pull-requests.test.ts` use real Git and SQLite, isolated device roots, the controlled `fake-herdr.ts`, and the controlled `fake-github.ts`.
+Public CLI scenarios in `run.pull-requests.test.ts` use real Git and SQLite, isolated device roots, the controlled `herdr-fixture.ts`, and the controlled `github-fixture.ts`.
 They cover:
 
 - Both hosts, OpenCode and Claude Code, through association, feedback, restart without repeats, timeout attention, CI failure and a failure on a new head, eligibility, and a merged PR that stays `pr-open` with attention.

@@ -2,7 +2,7 @@
  * The fake `jsr` command. It records what it was asked to publish and from where, then answers
  * the way the test chose, through the state the fake registry reads its versions from.
  */
-import { jsrFakeStateSchema, type JsrClientCall } from "./fake-jsr.ts";
+import { jsrFakeStateSchema, type JsrClientCall } from "./jsr-fixture.ts";
 import { z } from "zod";
 
 const directory = Bun.env.FAKE_JSR_DIR;

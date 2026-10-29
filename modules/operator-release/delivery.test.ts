@@ -7,14 +7,14 @@ import { chmod, cp, mkdir, rm, symlink } from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import { OperatorRelease } from "./main.ts";
 import { ReleasePublish } from "../release-publish/main.ts";
-import { packageSchema, jsrSchema, releaseSchema, versionSchema } from "./test-schemas.ts";
+import { packageSchema, jsrSchema, releaseSchema, versionSchema } from "./schemas-fixture.ts";
 import { z } from "zod";
 import {
   registryDependencies,
   registryManifest,
   type RegistryFake,
   startRegistryFake,
-} from "./fake-registry.ts";
+} from "./registry-fixture.ts";
 
 const sourceRoot = new URL("../../", import.meta.url).pathname.replace(/\/$/, "");
 // Commands report real checkout paths, and a macOS temporary folder is reached through a link.

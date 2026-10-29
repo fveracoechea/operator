@@ -84,6 +84,7 @@ function readFacts(db: Db, target: ReportTarget) {
       const source = db.select().from(sources).where(eq(sources.id, sourceId)).get();
       const rows = db.select().from(assignments).where(eq(assignments.sourceId, sourceId)).all();
       const assignment = rows.find((row) => row.key === key);
+      // Stryker disable next-line ConditionalExpression: equivalent: the source id comes from a located source or from a launch whose foreign key names one
       if (source === undefined || assignment === undefined)
         return Err({
           reason: "assignment_not_found",
@@ -171,6 +172,7 @@ function apply(db: Db, facts: ReportFacts, change: ReportChange) {
   if (change.source !== undefined)
     db.update(sources).set(change.source).where(eq(sources.id, sourceId)).run();
   // An accepted report ends its running launch, so the later pane close is not an interruption.
+  // Stryker disable next-line ConditionalExpression: equivalent: an absent launch id matches no launch row
   if (change.finishLaunch !== undefined)
     db.update(launches)
       .set({ state: "finished", endedAt: now })

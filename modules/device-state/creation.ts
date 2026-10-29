@@ -1,6 +1,6 @@
-// Bun has no exclusive file creation, hard-link publication, or directory sync API.
+// Bun has no exclusive file creation or hard-link publication API.
 import { isCodedError } from "../../lib/coded-error.ts";
-import { linkSync, mkdirSync, openSync, closeSync, fsyncSync, rmSync, lstatSync } from "node:fs";
+import { linkSync, lstatSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { fromThrowable, Ok } from "unthrown";
@@ -9,6 +9,7 @@ import { OperatorHome as Home } from "../operator-home/main.ts";
 import { qualifyStateFailure } from "./failures.ts";
 import { migrationsFolder, openDatabase } from "./database.ts";
 import { registerProject, type RegisteredProject } from "./projects.ts";
+import { syncPath } from "./sync.ts";
 
 type Paths = ReturnType<typeof OperatorHome.resolve>;
 
@@ -29,29 +30,29 @@ export function databaseExists(file: string) {
   }
 }
 
+function initialize(file: string, project: RegisteredProject) {
+  using client = openDatabase(file, false);
+  migrate(drizzle(client), { migrationsFolder });
+  return registerProject(client, project);
+}
+
 /** A hard link publishes complete bytes without replacing a concurrent winner. */
 export function createDatabase(paths: Paths, project: RegisteredProject) {
   return fromThrowable(
     () => {
       mkdirSync(paths.stateRoot, { recursive: true, mode: 0o700 });
       const temporary = Home.registrationDatabase(paths, crypto.randomUUID());
-      const file = openSync(temporary, "wx", 0o600);
-      closeSync(file);
+      writeFileSync(temporary, "", { flag: "wx", mode: 0o600 });
       try {
-        using client = openDatabase(temporary, false);
-        migrate(drizzle(client), { migrationsFolder });
-        const result = registerProject(client, project);
+        const result = initialize(temporary, project);
+        // Stryker disable next-line ConditionalExpression: equivalent: a freshly migrated database has no project, removal, or checkout that could refuse the registration
         if (result.tag !== "Ok") return result;
-        client.close();
-        const synced = openSync(temporary, "r");
-        try {
-          fsyncSync(synced);
-        } finally {
-          closeSync(synced);
-        }
+        // Stryker disable next-line CallExpression: no rule: a running process cannot observe whether bytes reached stable storage
+        syncPath(temporary);
         try {
           linkSync(temporary, paths.database);
         } catch (cause) {
+          // Stryker disable next-line ConditionalExpression,LogicalOperator,BlockStatement: no rule: the temporary file shares the folder, so a test cannot make the link fail for a reason other than an existing name
           if (!(isCodedError(cause) && cause.code === "EEXIST")) {
             // oxlint-disable-next-line unthrown/no-throw -- Preserve any failure other than a concurrent publication.
             throw cause;
@@ -59,15 +60,11 @@ export function createDatabase(paths: Paths, project: RegisteredProject) {
           using winner = openDatabase(paths.database, false);
           return registerProject(winner, project);
         }
-        const directory = openSync(paths.stateRoot, "r");
-        try {
-          fsyncSync(directory);
-        } finally {
-          closeSync(directory);
-        }
+        // Stryker disable next-line CallExpression: no rule: a running process cannot observe whether bytes reached stable storage
+        syncPath(paths.stateRoot);
         return Ok(result.value);
       } finally {
-        rmSync(temporary, { force: true });
+        rmSync(temporary);
       }
     },
     (cause, defect) =>

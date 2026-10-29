@@ -15,5 +15,12 @@
     "target": "ESNext",
     "types": ["bun"]
   },
-  "include": ["cli.ts", "modules/**/*.ts", "lib/**/*.ts", "scripts/**/*.ts", "tools/oxlint/**/*.ts"]
+  "include": [
+    "cli.ts",
+    "cli.test.ts",
+    "modules/**/*.ts",
+    "lib/**/*.ts",
+    "scripts/**/*.ts",
+    "tools/oxlint/**/*.ts"
+  ]
 }

@@ -358,3 +358,166 @@ test("a round waits while a live start places the worktree", () => {
     value: { state: "queued", round: "commits" },
   });
 });
+
+function refusal(input: ReviewFacts) {
+  const decided = decideReview(input);
+  return decided.tag === "Err" ? decided.error : null;
+}
+
+test("each refusal states its cause and that nothing changed", () => {
+  const reviewing = { state: "reviewing", launchState: "running" };
+  const starting = { state: "queued", launchState: "starting" };
+  const cases: [ReviewFacts, string, string][] = [
+    [
+      facts("add", null, { registered: false }),
+      "review_repository_unregistered",
+      "The PR repository is not a registered project on this device. Register its controlling checkout first.",
+    ],
+    [facts("start", null), "review_request_missing", "Add the review request first."],
+    [
+      facts("close", starting, { ownerActive: true }),
+      "review_start_in_progress",
+      "Wait until the reviewer start ends.",
+    ],
+    [
+      facts("close", { state: "posting", launchState: "running" }, { ownerActive: true }),
+      "review_post_in_progress",
+      "Another process posts this review now. Wait for it.",
+    ],
+    [
+      facts("close", { ...reviewing, sync: "{}" }, { ownerActive: true }),
+      "review_reviewer_moving",
+      "A wait moves or prompts the reviewer now. End the request after it finishes.",
+    ],
+    [
+      facts("start", starting, { ownerActive: true }),
+      "review_start_in_progress",
+      "Another process starts this reviewer.",
+    ],
+    [
+      facts("start", reviewing),
+      "review_reviewer_started",
+      "This review request already has its reviewer, and the reviewer has not stopped.",
+    ],
+    [
+      facts("started", reviewing),
+      "review_start_interrupted",
+      "The reviewer start is no longer recorded as running.",
+    ],
+    [
+      facts("post", starting, { ownerActive: true }),
+      "review_start_in_progress",
+      "Wait until the reviewer start ends.",
+    ],
+    [
+      facts("post", { state: "posting", launchState: "running" }, { ownerActive: true }),
+      "review_post_in_progress",
+      "Another process posts this review now. Do not repeat it.",
+    ],
+    [
+      facts("post", { ...reviewing, sync: "{}" }, { ownerActive: true }),
+      "review_reviewer_moving",
+      "A wait moves the reviewer to the new PR head now. Post after the reviewer gets it.",
+    ],
+    [
+      facts("post", { state: "watching", launchState: "running" }),
+      "review_already_posted",
+      "This review request is watching, so its review is already posted.",
+    ],
+    [
+      facts("posted", reviewing, { event: "APPROVE" }),
+      "review_post_interrupted",
+      "The post is no longer recorded.",
+    ],
+    [
+      facts("synced", { state: "closed", launchState: "running" }, { ownLease: true }),
+      "review_lease_lost",
+      "Another process took this review request during the move.",
+    ],
+  ];
+  for (const [input, reason, detail] of cases)
+    expect(refusal(input), reason).toEqual({ reason, detail: `${detail} Nothing changed.` });
+});
+
+test("commands that a running effect finishes decide for a missing request without a defect", () => {
+  expect(refusal(facts("started", null))).toMatchObject({ reason: "review_start_interrupted" });
+  expect(refusal(facts("posted", null))).toMatchObject({ reason: "review_post_interrupted" });
+  expect(decideReview(facts("post_failed", null))).toMatchObject({
+    tag: "Ok",
+    value: { state: "queued", lease: "release" },
+  });
+  expect(
+    decideReview(facts("post_failed", { state: "posting", launchState: "running" })),
+  ).toMatchObject({ tag: "Ok", value: { state: "reviewing", lease: "release" } });
+  expect(decideReview(facts("sync", null))).toMatchObject({
+    tag: "Ok",
+    value: { unchanged: true },
+  });
+  expect(decideReview(facts("synced", null, { ownLease: true }))).toMatchObject({
+    tag: "Ok",
+    value: { lease: "release" },
+  });
+});
+
+test("a live owner with no running move neither blocks an end nor a post", () => {
+  const reviewing = { state: "reviewing", launchState: "running" };
+  expect(decideReview(facts("close", reviewing, { ownerActive: true }))).toMatchObject({
+    tag: "Ok",
+    value: { state: "closed" },
+  });
+  expect(decideReview(facts("post", reviewing, { ownerActive: true }))).toMatchObject({
+    tag: "Ok",
+    value: { state: "posting" },
+  });
+  expect(decideReview(facts("post", { ...reviewing, sync: "{}" }))).toMatchObject({
+    tag: "Ok",
+    value: { state: "posting" },
+  });
+});
+
+test("an approved request starts a round only for a renewed request, and a round defaults to commits", () => {
+  const approved = { state: "approved", launchState: "interrupted" };
+  expect(decideReview(facts("round", approved, { trigger: "re-request" }))).toMatchObject({
+    tag: "Ok",
+    value: { state: "reviewing", round: "re-request" },
+  });
+  expect(decideReview(facts("round", approved, { trigger: "commits" }))).toMatchObject({
+    tag: "Ok",
+    value: { unchanged: true },
+  });
+  expect(
+    decideReview(facts("round", { state: "watching", launchState: "interrupted" })),
+  ).toMatchObject({ tag: "Ok", value: { round: "commits" } });
+});
+
+test("next asks for the failed cleanup even while an owner runs, and starts an abandoned start", () => {
+  expect(
+    reviewAction({ state: "closed", launchState: null, cleanupState: "failed" }, true),
+  ).toEqual({
+    kind: "action",
+    action: "clean_reviewer",
+    reason: "cleanup_failed",
+  });
+  expect(reviewAction({ state: "queued", launchState: "starting" }, false)).toEqual({
+    kind: "action",
+    action: "start_reviewer",
+    reason: "launch_abandoned",
+  });
+  expect(reviewAction({ state: "reviewing", launchState: "starting" }, false)).toEqual({
+    kind: "action",
+    action: "replace_reviewer",
+    reason: "launch_abandoned",
+  });
+  expect(reviewAction({ state: "other", launchState: null }, false)).toEqual({
+    kind: "attention",
+    reason: "review_state_unknown",
+  });
+});
+
+test("a renewed request starts no round for a request that is still under review", () => {
+  expect(
+    decideReview(
+      facts("round", { state: "reviewing", launchState: "running" }, { trigger: "re-request" }),
+    ),
+  ).toMatchObject({ tag: "Ok", value: { unchanged: true } });
+});

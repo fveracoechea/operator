@@ -18,27 +18,32 @@ function parse(args: string[]) {
     !((group === "host" && command === "models") || (group === "config" && command === "resolve"))
   )
     return null;
-  const values = readFlags(flags);
-  if (values === null) return null;
-  const parsed = flagsSchema.safeParse(values);
+  const parsed = flagsSchema.safeParse(readFlags(flags));
   if (!parsed.success) return null;
-  if (
-    group === "host" &&
-    (parsed.data.host === undefined || Object.keys(values).some((key) => key !== "host"))
-  )
-    return null;
-  return { group, ...parsed.data };
+  if (group === "host") {
+    const { host, ...others } = parsed.data;
+    return host === undefined || Object.keys(others).length > 0 ? null : { host };
+  }
+  return { launch: parsed.data };
+}
+
+function overridesOf(flags: z.infer<typeof flagsSchema>) {
+  const overrides: Parameters<typeof DeviceSettings.resolve>[0]["overrides"] = {};
+  if (flags.host !== undefined) overrides.host = flags.host;
+  if (flags.model !== undefined) overrides.model = flags.model;
+  if (flags.effort !== undefined) overrides.reasoningEffort = flags.effort;
+  return overrides;
 }
 
 function readFlags(flags: string[]) {
   const values: Record<string, string> = {};
   const seen = new Set<string>();
-  for (let index = 0; index < flags.length; index++) {
-    const key = flags[index];
-    if (key === undefined || seen.has(key)) return null;
+  const rest = flags.values();
+  for (const key of rest) {
+    if (seen.has(key)) return null;
     seen.add(key);
     if (key === "--json") continue;
-    const value = flags[++index];
+    const value = rest.next().value;
     if (!key.startsWith("--") || value === undefined || value.startsWith("--")) return null;
     values[key.slice(2)] = value;
   }
@@ -52,20 +57,16 @@ export async function runProfiles(
 ) {
   const parsed = parse(args);
   if (parsed === null) return false;
-  const overrides: Parameters<typeof DeviceSettings.resolve>[0]["overrides"] = {};
-  if (parsed.host !== undefined) overrides.host = parsed.host;
-  if (parsed.model !== undefined) overrides.model = parsed.model;
-  if (parsed.effort !== undefined) overrides.reasoningEffort = parsed.effort;
-  const result = await (parsed.group === "host" && parsed.host !== undefined
-    ? AgentHosts.models({ host: parsed.host, cwd: process.cwd() })
-    : DeviceSettings.resolve({
+  const result = await (parsed.launch !== undefined
+    ? DeviceSettings.resolve({
         paths,
         cwd: process.cwd(),
-        role: parsed.role,
-        profile: parsed.profile,
-        overrides,
-      }));
-  const operation = parsed.group === "host" ? "host_models" : "config_resolve";
+        role: parsed.launch.role,
+        profile: parsed.launch.profile,
+        overrides: overridesOf(parsed.launch),
+      })
+    : AgentHosts.models({ host: parsed.host, cwd: process.cwd() }));
+  const operation = parsed.launch === undefined ? "host_models" : "config_resolve";
   if (result.tag === "Ok") {
     console.log(
       JSON.stringify(
@@ -73,7 +74,7 @@ export async function runProfiles(
           schemaVersion: 1,
           operation,
           outcome: "completed",
-          reason: parsed.group === "host" ? "host_models_read" : "launch_resolved",
+          reason: parsed.launch === undefined ? "host_models_read" : "launch_resolved",
           blockers: [],
           data: result.value,
         },

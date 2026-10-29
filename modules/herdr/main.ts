@@ -45,7 +45,8 @@ const pluginList = z.object({
 function parse<T>(text: string, schema: z.ZodType<T>): T | undefined {
   const value = fromThrowable(
     () => JSON.parse(text) as unknown,
-    (cause, defect) => (cause instanceof SyntaxError ? "invalid" : defect(cause)),
+    // Stryker disable next-line ArrowFunction: equivalent: JSON.parse of a string throws only a SyntaxError, and the caller reads only a parsed value
+    (cause, defect) => (cause instanceof SyntaxError ? undefined : defect(cause)),
   )().getOr(undefined);
   return schema.safeParse(value).data;
 }
@@ -90,7 +91,10 @@ function answer<T>(args: string[], stdout: string, schema: z.ZodType<T>) {
 }
 
 function invoke<T>(args: string[], schema: z.ZodType<T>, timeoutMs = 60000) {
-  return call(args, timeoutMs).flatMap((stdout) => answer(args, stdout ?? "", schema));
+  return call(args, timeoutMs).flatMap((stdout) =>
+    // Stryker disable next-line StringLiteral: equivalent: without an absent code, call never answers null
+    answer(args, stdout ?? "", schema),
+  );
 }
 
 /** Like invoke, but a refusal with the `absent` error code answers null. */

@@ -122,6 +122,7 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
       (report.cleanup === "failed" || report.cleanup === "pending"),
     decide: ({ report }) => ({
       action: "retry_cleanup",
+      // Stryker disable next-line OptionalChaining: equivalent: this rule matches only when a report exists
       reason: report?.cleanup === "failed" ? "cleanup_failed" : "cleanup_unfinished",
       blockers: [],
     }),
@@ -235,15 +236,15 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
       blockers: dependencyBlockers(assignment, dependencies),
     }),
   },
-  {
-    when: () => true,
-    decide: () => ({ action: "ready_assignment", reason: "assignment_ready", blockers: [] }),
-  },
 ];
 
 /** This dispatch decision uses only recorded facts. Herdr activity is never an input. */
 export function decideAssignment(facts: Facts): Decision {
-  for (const rule of rules) if (rule.when(facts)) return rule.decide(facts);
-  // oxlint-disable-next-line unthrown/no-throw -- The final rule is unconditional, so this is a programming defect.
-  throw new Error("The assignment table has no matching rule.");
+  return (
+    rules.find((rule) => rule.when(facts))?.decide(facts) ?? {
+      action: "ready_assignment",
+      reason: "assignment_ready",
+      blockers: [],
+    }
+  );
 }

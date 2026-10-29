@@ -65,3 +65,34 @@ test("a later round names its trigger and every earlier draft, so a replacement 
   );
   expect(renderReviewerBrief(input)).not.toContain("## Earlier rounds");
 });
+
+test("each trigger has its words, and a request names its origin", () => {
+  const brief = renderReviewerBrief({
+    ...input,
+    round: { number: 4, trigger: "re-request" },
+    history: [
+      {
+        number: 2,
+        trigger: "resolved",
+        reviewedCommit: "c2",
+        event: "COMMENT",
+        url: null,
+        draft: "/d/2.json",
+      },
+      {
+        number: 3,
+        trigger: "other",
+        reviewedCommit: "c3",
+        event: "APPROVE",
+        url: null,
+        draft: "/d/3.json",
+      },
+    ],
+  });
+  expect(brief).toContain("- Origin: a review request.\n");
+  expect(brief).toContain("This is round 4, for a renewed review request.");
+  expect(brief).toContain(
+    "- Round 2, a thread that the author resolved: `COMMENT` at `c2`. Draft: `/d/2.json`.\n- Round 3, other: `APPROVE` at `c3`. Draft: `/d/3.json`.\n",
+  );
+  expect(renderReviewerBrief(input)).toContain("Operator never pushes this branch.\n\n## Skills");
+});

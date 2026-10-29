@@ -46,8 +46,10 @@ function parents(input: Request, owner: Owner) {
     cwd: owner.checkout,
     sourceId: owner.sourceId,
   }).map((source) => {
-    const planned = source?.plan.assignments.find((row) => row.key === owner.assignment);
-    return (source?.pullRequests ?? [])
+    // Stryker disable next-line ArrayDeclaration: equivalent: an entry that is not a PR row has no branch, so it matches no base and lists as none
+    if (source === undefined) return [];
+    const planned = source.plan.assignments.find((row) => row.key === owner.assignment);
+    return source.pullRequests
       .filter((pr) => planned?.dependencies.includes(pr.assignment) === true)
       .map((pr) => ({ assignment: pr.assignment, number: pr.number, branch: pr.branch }));
   });
@@ -130,8 +132,9 @@ function progress(text: string) {
 
 type Outcome = { reason: string; data: object };
 type Recorded = { number: number; url: string; relay: string | null };
+// Null means that this wait relayed nothing.
 type RelayOutcome =
-  | { kind: "none" }
+  | null
   | { kind: "blocked"; blocker: Blocker }
   | { kind: "relayed"; relay: Relay; head: string; base: string };
 
@@ -174,42 +177,34 @@ function runRelay(
   plan: { defaultBranch: string; parentHead: string },
 ) {
   const worktree = owner.worktreePath;
-  if (worktree === null)
-    return ErrAsync<Failure>({
-      reason: "pr_worktree_unrecorded",
-      detail: "The PR owner has no recorded worktree, so the relay changes nothing.",
-    });
   // The lease shows that this relay still runs, also through slow Git steps.
   const release = DeviceState.holdPullRequestRelay(input.paths, owner.sourceId, owner.assignment);
-  return fromPromise(
-    async () => {
-      try {
-        return await relayBranch({
-          worktree,
-          branch: owner.branch,
-          head: observed.head,
-          base: observed.base,
-          defaultBranch: plan.defaultBranch,
-          parentHead: plan.parentHead,
-          rebasedHead: relay.rebasedHead,
-          recordRebase: async (head) => {
-            const recorded = recordRelay(input, owner, (current) => ({
-              ...current,
-              rebasedHead: head,
-            }));
-            return recorded.tag === "Ok" && recorded.value !== null;
-          },
-          retarget: async () => {
-            const changed = await retarget(owner.repository, observed.number, plan.defaultBranch);
-            return changed.tag === "Ok" ? changed.value : "The base change stopped with a defect.";
-          },
-        });
-      } finally {
-        release();
-      }
-    },
-    (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
-  ).flatMap((result) => {
+  return fromPromise(async () => {
+    try {
+      return await relayBranch({
+        worktree,
+        branch: owner.branch,
+        head: observed.head,
+        base: observed.base,
+        defaultBranch: plan.defaultBranch,
+        parentHead: plan.parentHead,
+        rebasedHead: relay.rebasedHead,
+        recordRebase: async (head) => {
+          const recorded = recordRelay(input, owner, (current) => ({
+            ...current,
+            rebasedHead: head,
+          }));
+          return recorded.tag === "Ok" && recorded.value !== null;
+        },
+        retarget: async () => {
+          const changed = await retarget(owner.repository, observed.number, plan.defaultBranch);
+          return changed.tag === "Ok" ? changed.value : "The base change stopped with a defect.";
+        },
+      });
+    } finally {
+      release();
+    }
+  }, qualify).flatMap((result) => {
     const done: (current: Relay) => Relay =
       "blocker" in result
         ? (current) => ({
@@ -230,7 +225,7 @@ function runRelay(
       const recorded = parseRelay(row?.relay ?? null);
       if ("blocker" in result) return { kind: "blocked", blocker: result.blocker };
       return recorded === null
-        ? { kind: "none" }
+        ? null
         : { kind: "relayed", relay: recorded, head: result.head, base: plan.defaultBranch };
     });
   });
@@ -247,14 +242,14 @@ function relayStep(
   observed: Observation,
 ): AsyncResult<RelayOutcome, Failure> {
   const relay = parseRelay(pr.relay);
-  if (relay === null || !needsParent(relay, observed)) return OkAsync({ kind: "none" });
+  if (!needsParent(relay, observed)) return OkAsync(null);
   return observeParent(owner.repository, relay.parent.number).flatMap((parent) => {
     const decision = decideRelay(relay, observed, parent);
-    if (decision.action === "none") return OkAsync<RelayOutcome>({ kind: "none" });
+    if (decision.action === "none") return OkAsync<RelayOutcome>(null);
     return claimRelay(input, owner)
       .toAsync()
       .flatMap((claimed): AsyncResult<RelayOutcome, Failure> => {
-        if (claimed === null) return OkAsync({ kind: "none" });
+        if (claimed === null) return OkAsync(null);
         if (decision.action === "blocked")
           return recordRelay(
             input,
@@ -293,8 +288,8 @@ function poll(
 ): AsyncResult<Outcome, Failure> {
   return observePullRequest(owner.repository, pr.number).flatMap((observed) =>
     relayStep(input, owner, pr, observed).flatMap((relayed): AsyncResult<Outcome, Failure> => {
-      if (relayed.kind === "blocked") return ErrAsync(relayed.blocker);
-      if (relayed.kind === "relayed")
+      if (relayed?.kind === "blocked") return ErrAsync(relayed.blocker);
+      if (relayed?.kind === "relayed")
         return OkAsync({
           reason: "pr_events_observed",
           data: {
@@ -327,6 +322,7 @@ function decideOnce(
     const relay = parseRelay(pr.relay);
     const stackRelayed = relay === null || relay.state === "relayed";
     // The decision runs inside the write transaction on the progress that it reads there.
+    // Stryker disable next-line ObjectLiteral,StringLiteral: equivalent: a successful write always runs the decision, which replaces this start value before it is read
     const outcome: { decision: ReturnType<typeof decideWait> } = { decision: { result: "none" } };
     const data = {
       ...summary(owner, pr),
@@ -348,6 +344,7 @@ function decideOnce(
             reason: reported.result === "not_open" ? "pr_not_open" : "pr_events_observed",
             data: { ...data, events: reported.events },
           });
+        // Stryker disable next-line EqualityOperator: no rule: Operator promises no result for a read that ends in the same millisecond as the deadline
         if (Date.now() >= deadline)
           return DeviceState.recordPullRequestWait(input.paths, owner.launchId, (row) => ({
             progress: row.progress,
@@ -357,7 +354,7 @@ function decideOnce(
             .map(() => ({ reason: "pr_wait_timed_out", data: { ...data, events: [] } }));
         return fromPromise(
           () => Bun.sleep(Math.min(pollMs, deadline - Date.now())),
-          (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
+          qualify,
         ).flatMap(() => poll(input, owner, pr, deadline));
       });
   }
@@ -377,7 +374,9 @@ function wait(input: Request & { timeoutSeconds: number }) {
     }))
       .toAsync()
       .flatMap((pr): AsyncResult<Outcome, Failure> => {
+        // Stryker disable next-line ConditionalExpression: equivalent: the start write always changes the row, so it never returns null
         if (pr === null)
+          // Stryker disable next-line ObjectLiteral,StringLiteral: equivalent: the start write never returns null, so this failure is never returned
           return ErrAsync<Failure>({ reason: "pr_not_associated", detail: "No PR is recorded." });
         // The lease shows that this wait still runs. A killed wait becomes visible in next.
         const release = DeviceState.holdPullRequestWait(
@@ -385,16 +384,13 @@ function wait(input: Request & { timeoutSeconds: number }) {
           owner.sourceId,
           owner.assignment,
         );
-        return fromPromise(
-          async () => {
-            try {
-              return await poll(input, owner, pr, Date.now() + input.timeoutSeconds * 1000);
-            } finally {
-              release();
-            }
-          },
-          (cause, defect) => (cause instanceof Error ? qualify(cause, defect) : defect(cause)),
-        ).flatMap((result) => result);
+        return fromPromise(async () => {
+          try {
+            return await poll(input, owner, pr, Date.now() + input.timeoutSeconds * 1000);
+          } finally {
+            release();
+          }
+        }, qualify).flatMap((result) => result);
       }),
   );
 }
