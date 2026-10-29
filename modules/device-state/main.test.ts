@@ -192,13 +192,9 @@ test("missing state refuses each operation with its own detail and writes nothin
       "The device database is missing. Run operator project register explicitly in the controlling checkout.",
     ),
   );
-  // Project management opens the database it expects, so absence is an input failure.
-  for (const result of [
-    DeviceState.listProjects(paths),
-    DeviceState.moveProject(paths, "owner/one", "/moved"),
-    DeviceState.removeProject(paths, "owner/one"),
-  ])
-    expect(result).toMatchObject({ tag: "Err", error: { reason: "state_io_failed" } });
+  expect(DeviceState.listProjects(paths)).toMatchObject(operation);
+  expect(DeviceState.moveProject(paths, "owner/one", "/moved")).toMatchObject(operation);
+  expect(DeviceState.removeProject(paths, "owner/one")).toMatchObject(operation);
   expect(await Bun.file(paths.database).exists()).toBe(false);
   // A linked database is unsupported state, never adopted.
   await Bun.write(`${paths.stateRoot}/elsewhere.sqlite`, "", { createPath: true });

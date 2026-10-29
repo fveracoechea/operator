@@ -314,14 +314,13 @@ export const DeviceState = {
     );
   },
   listProjects(paths: Paths) {
-    // Stryker disable next-line BooleanLiteral: equivalent: a read action writes nothing, so query_only refuses nothing it does
-    return open(paths, true, (client) => listProjects(client));
+    return reading(paths, (client) => listProjects(client));
   },
   moveProject(paths: Paths, repository: string, checkout: string) {
-    return open(paths, false, (client) => moveProject(client, repository, checkout));
+    return writing(paths, (client) => moveProject(client, repository, checkout));
   },
   removeProject(paths: Paths, repository: string) {
-    const removed = open(paths, false, (client) => removeProject(client, repository));
+    const removed = writing(paths, (client) => removeProject(client, repository));
     if (removed.tag !== "Ok") return removed;
     const cleaned = open(paths, false, (client) => finishProjectRemoval(client, paths, repository));
     if (cleaned.tag === "Err")
