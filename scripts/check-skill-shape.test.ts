@@ -64,6 +64,15 @@ test("refuses a frontmatter field outside the portable floor", async () => {
   });
 });
 
+test("accepts a user-invoked router", async () => {
+  const frontmatter = [...validFrontmatter, "disable-model-invocation: true"];
+  expect(await checkSkills({ "sample/SKILL.md": router(frontmatter) })).toEqual({
+    exitCode: 0,
+    stderr: "",
+    stdout: "",
+  });
+});
+
 test("refuses a router over 150 lines", async () => {
   const body = Array.from({ length: 145 }, (_, index) => `Line ${index + 1}.`);
   expect(await checkSkills({ "sample/SKILL.md": router(validFrontmatter, body) })).toEqual({

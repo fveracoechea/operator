@@ -9,6 +9,9 @@ const errors: string[] = [];
 
 // opencode drops every field outside this set without a word.
 const portableFloor = new Set(["name", "description", "license", "compatibility", "metadata"]);
+// Claude Code keeps a user-invoked skill out of the agent's reach. opencode drops the field,
+// so there the skill falls back to model invocation.
+const allowedFields = new Set([...portableFloor, "disable-model-invocation"]);
 const routerLineLimit = 150;
 
 function normalized(path: string): string {
@@ -73,7 +76,7 @@ function checkFrontmatter(routerPath: string, directory: string, text: string): 
   }
 
   for (const field of Object.keys(fields)) {
-    if (!portableFloor.has(field)) {
+    if (!allowedFields.has(field)) {
       errors.push(`${routerPath}: frontmatter field "${field}" is outside the portable floor`);
     }
   }
