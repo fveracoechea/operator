@@ -3,16 +3,8 @@ import { Err, Ok, type Result } from "unthrown";
 import type { Database } from "bun:sqlite";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import { checkHistory, transaction } from "./database.ts";
-import {
-  assignments,
-  cleanups,
-  launches,
-  projectRemovals,
-  projects,
-  pullRequests,
-  reports,
-  sources,
-} from "./schema.ts";
+import { cleanups, projectRemovals, projects, sources } from "./schema.ts";
+import { deleteSourceRecords } from "./sources.ts";
 import type { StateFailure } from "./failures.ts";
 
 export type RegisteredProject = typeof projects.$inferSelect;
@@ -150,17 +142,16 @@ export function removeProject(client: Database, repository: string) {
           detail: "End every open source before removing this project.",
         });
       if (openCleanup(db, repository)) return Err(cleanupOpen);
-      const ids = db
-        .select({ id: sources.id })
-        .from(sources)
-        .where(eq(sources.repository, repository));
-      db.delete(reports).where(inArray(reports.sourceId, ids)).run();
-      db.delete(cleanups).where(inArray(cleanups.sourceId, ids)).run();
-      db.delete(launches).where(inArray(launches.sourceId, ids)).run();
-      db.delete(pullRequests).where(inArray(pullRequests.sourceId, ids)).run();
+      deleteSourceRecords(
+        db,
+        db
+          .select({ id: sources.id })
+          .from(sources)
+          .where(eq(sources.repository, repository))
+          .all()
+          .map((source) => source.id),
+      );
       // The project row's foreign key deletes its worktree preparations and review requests.
-      db.delete(assignments).where(inArray(assignments.sourceId, ids)).run();
-      db.delete(sources).where(eq(sources.repository, repository)).run();
       db.insert(projectRemovals).values({ repository, removedAt: new Date().toISOString() }).run();
       db.delete(projects).where(eq(projects.repository, repository)).run();
       return Ok(undefined);

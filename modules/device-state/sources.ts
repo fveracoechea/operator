@@ -326,15 +326,23 @@ export function pruneSource(
         if (removed.tag === "Err")
           return Err({ reason: "source_prune_failed" as const, detail: removed.error.detail });
         return removed.map(() => {
-          db.delete(reports).where(eq(reports.sourceId, source.id)).run();
-          db.delete(cleanups).where(eq(cleanups.sourceId, source.id)).run();
-          db.delete(pullRequests).where(eq(pullRequests.sourceId, source.id)).run();
-          db.delete(launches).where(eq(launches.sourceId, source.id)).run();
-          db.delete(assignments).where(eq(assignments.sourceId, source.id)).run();
-          db.delete(sources).where(eq(sources.id, source.id)).run();
+          deleteSourceRecords(db, [source.id]);
           return { source, retained };
         });
       }),
     ),
   );
+}
+
+/**
+ * Delete the sources and every record that belongs to them, children first. A review request
+ * keeps its own lifecycle, so it stays.
+ */
+export function deleteSourceRecords(db: BunSQLiteDatabase, ids: string[]) {
+  db.delete(reports).where(inArray(reports.sourceId, ids)).run();
+  db.delete(cleanups).where(inArray(cleanups.sourceId, ids)).run();
+  db.delete(pullRequests).where(inArray(pullRequests.sourceId, ids)).run();
+  db.delete(launches).where(inArray(launches.sourceId, ids)).run();
+  db.delete(assignments).where(inArray(assignments.sourceId, ids)).run();
+  db.delete(sources).where(inArray(sources.id, ids)).run();
 }
