@@ -68,18 +68,18 @@ Add the JSR scope to `~/.bunfig.toml`:
 "@jsr" = "https://npm.jsr.io"
 ```
 
-Install an exact version, then register the project and write the `operator` command:
+Install the latest release, then register the project and write the `operator` command:
 
 ```sh
-bun add -g "@fveracoechea/operator@npm:@jsr/fveracoechea__operator@<exact-version>"
+bun add -g --exact "@fveracoechea/operator@npm:@jsr/fveracoechea__operator@latest"
 OPERATOR_PACKAGE="$(bun pm ls -g | head -n 1 | sed 's/ node_modules (.*//')/node_modules/@fveracoechea/operator"
 bun "$OPERATOR_PACKAGE/cli.js" project register --json
 bun "$OPERATOR_PACKAGE/cli.js" install launcher --json
 operator --version --json
 ```
 
-To update, run the same `bun add -g` command with the new exact version.
-Do not install a version range, because Bun then records `^<version>` and not the exact release.
+To update, run the same `bun add -g` command again.
+Keep `--exact`, because `install launcher` refuses a release without an exact version, and `ready` reports one.
 
 ### Repository source
 
