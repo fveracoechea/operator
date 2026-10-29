@@ -151,6 +151,16 @@ test("prune deletes files and records together, and a refused path keeps both", 
   db.exec(
     "INSERT INTO pull_requests (source_id, assignment, repository, number, url, branch, associated_at, progress, wait_state) VALUES ('one', 'open', 'owner/one', 8, 'https://github.com/owner/one/pull/8', 'task/open', 'now', '{}', 'idle')",
   );
+  // A review request has its own lifecycle (ADR-0015), so prune keeps it with its source id.
+  insertRow(db, "review_requests", {
+    id: "r1",
+    repository: project.repository,
+    number: 8,
+    origin: "assignment",
+    source_id: "one",
+    assignment: "open",
+    state: "approved",
+  });
   await mkdir(`${root}/kept`);
   const directory = OperatorHome.sourceDirectory(paths, {
     repository: project.repository,
@@ -204,6 +214,9 @@ test("prune deletes files and records together, and a refused path keeps both", 
     expect(db.query(`SELECT * FROM ${table}`).all()).toEqual([]);
   expect(await Bun.file(`${directory}/assignments/open/brief.md`).exists()).toBe(false);
   expect(await Bun.file(`${sibling}/keep`).text()).toBe("keep");
+  expect(db.query("SELECT id, source_id FROM review_requests").all()).toEqual([
+    { id: "r1", source_id: "one" },
+  ]);
   expect(db.query("SELECT repository FROM projects").all()).toEqual([
     { repository: project.repository },
   ]);
