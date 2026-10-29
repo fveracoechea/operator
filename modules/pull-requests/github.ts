@@ -57,8 +57,7 @@ const pullRequestAnswer = z.object({
         }),
         comments: z.object({ nodes: z.array(comment) }),
         reviewThreads: z.object({
-          // Optional only until the CLI GitHub fixture sends it. GitHub always answers it.
-          totalCount: z.number().int().optional(),
+          totalCount: z.number().int(),
           nodes: z.array(
             z.object({
               isResolved: z.boolean(),
@@ -74,7 +73,7 @@ const pullRequestAnswer = z.object({
                 statusCheckRollup: z
                   .object({
                     contexts: z.object({
-                      totalCount: z.number().int().optional(),
+                      totalCount: z.number().int(),
                       nodes: z.array(
                         z.union([
                           z.object({
@@ -277,8 +276,8 @@ export function retarget(repository: string, number: number, base: string) {
 }
 
 /** Items past one read. The gate cannot see them, so they never count as resolved or passing. */
-function unread(page: { totalCount?: number; nodes: unknown[] }) {
-  return (page.totalCount ?? page.nodes.length) - page.nodes.length;
+function unread(page: { totalCount: number; nodes: unknown[] }) {
+  return page.totalCount - page.nodes.length;
 }
 
 /** Maps one GitHub answer to the facts that the wait decision reads. */

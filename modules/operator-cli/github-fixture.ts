@@ -49,7 +49,7 @@ if (path?.includes("/git/ref")) {
   process.exit(0);
 }
 const query = field("query") ?? "";
-const nodes = (items) => ({ nodes: items });
+const nodes = (items) => ({ totalCount: items.length, nodes: items });
 const author = (login) => (login === null ? null : { login });
 const reviewsPath = args.find((arg) => arg.startsWith("repos/") && arg.endsWith("/reviews"));
 const check = (item) => item.status ? { __typename: "StatusContext", context: item.name, state: item.status, targetUrl: null, isRequired: item.required ?? false } : { __typename: "CheckRun", name: item.name, status: item.conclusion ? "COMPLETED" : "IN_PROGRESS", conclusion: item.conclusion ?? null, detailsUrl: "https://ci/" + item.name, isRequired: item.required ?? false };
@@ -94,7 +94,7 @@ if (query.includes("files(first")) {
     reviews: nodes((pr.reviews ?? []).map((review) => ({ id: review.id, url: "https://github.com/r/" + review.id, body: review.body ?? "", state: { APPROVE: "APPROVED", REQUEST_CHANGES: "CHANGES_REQUESTED", COMMENT: "COMMENTED" }[review.state] ?? review.state ?? "COMMENTED", author: author(review.author ?? "reviewer") }))),
     comments: nodes((pr.comments ?? []).map((comment) => ({ id: comment.id, body: comment.body ?? "", createdAt: comment.createdAt ?? "2000-01-01T00:00:00Z", author: author(comment.author ?? "reviewer") }))),
     timelineItems: nodes((pr.reviewRequests ?? []).map((request) => ({ createdAt: request.createdAt, requestedReviewer: { login: request.reviewer } }))),
-    commits: nodes([{ commit: { statusCheckRollup: (pr.checks ?? []).length === 0 ? null : { contexts: { totalCount: pr.totalChecks ?? pr.checks.length, ...nodes(pr.checks.map(check)) } } } }]),
+    commits: nodes([{ commit: { statusCheckRollup: (pr.checks ?? []).length === 0 ? null : { contexts: { ...nodes(pr.checks.map(check)), totalCount: pr.totalChecks ?? pr.checks.length } } } }]),
   } } } });
   process.exit(0);
 }

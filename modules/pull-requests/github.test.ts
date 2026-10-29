@@ -602,6 +602,8 @@ describe("GitHub answers in the expected form", () => {
       { comments: { nodes: [{ ...node, body: undefined }] } },
       { mergeCommit: {} },
       { reviews: { nodes: [node] } },
+      { reviewThreads: { nodes: [] } },
+      { commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: [] } } } }] } },
       { reviewThreads: { nodes: [{ isResolved: false, comments: { nodes: [] } }] } },
       {
         reviewThreads: {
