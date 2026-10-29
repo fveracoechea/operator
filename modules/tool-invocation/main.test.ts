@@ -121,12 +121,13 @@ test("does not keep the caller open while a detached process runs", async () => 
 
 test("detaches a process in its own group that runs in the given folder with the child environment", async () => {
   const folder = await temporaryFolder();
+  let pid = 0;
   try {
-    const pid = ToolInvocation.detach({
+    pid = ToolInvocation.detach({
       tool: process.execPath,
       args: [
         "-e",
-        `await Bun.write("record.json", JSON.stringify({ pid: process.pid, path: process.env.PATH, stdin: await Bun.stdin.text() })); await Bun.write("done", ""); await Bun.sleep(2000);`,
+        `await Bun.write("record.json", JSON.stringify({ pid: process.pid, path: process.env.PATH, stdin: await Bun.stdin.text() })); await Bun.write("done", ""); await Bun.sleep(60_000);`,
       ],
       cwd: folder,
     });
@@ -141,8 +142,9 @@ test("detaches a process in its own group that runs in the given folder with the
       .stdout.toString()
       .trim();
     expect(group).toBe(String(pid));
-    process.kill(pid);
   } finally {
+    // The child lives until the test kills it, so a test paused by a busy runner still finds it.
+    if (pid > 0) process.kill(pid);
     await rm(folder, { recursive: true, force: true });
   }
 });

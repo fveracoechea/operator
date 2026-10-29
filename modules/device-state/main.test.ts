@@ -252,8 +252,9 @@ test.skipIf(asRoot)(
     }
     expect(removed).toMatchObject({ tag: "Err", error: { reason: "project_cleanup_pending" } });
     if (removed.tag === "Err")
-      expect(removed.error.detail).toStartWith(
-        "Project records were removed, but file cleanup is still pending. Repeat project remove owner/one --person-instructed after resolving the path or I/O failure. Error: ENOTEMPTY",
+      // The cause is the platform's: macOS reports ENOTEMPTY and Linux EACCES for the same blocked removal.
+      expect(removed.error.detail).toMatch(
+        /^Project records were removed, but file cleanup is still pending\. Repeat project remove owner\/one --person-instructed after resolving the path or I\/O failure\. Error: (ENOTEMPTY|EACCES)\b/,
       );
     expect(DeviceState.listProjects(paths)).toMatchObject({
       value: { projects: [], pendingRemovals: [{ repository: "owner/one" }] },
