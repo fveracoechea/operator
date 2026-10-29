@@ -51,6 +51,13 @@ test("a running worker submits the next report, and submission is not completion
     });
 });
 
+test("a submit after a return names the resume, not a pending decision", () => {
+  const returned = { number: 1, decision: "returned", cleanupState: null };
+  const refused = decideReport(facts({ command: "submit", state: "reported", latest: returned }));
+  expect(refused).toMatchObject({ tag: "Err", error: { reason: "report_returned" } });
+  expect(refused.tag === "Err" && refused.error.detail).toContain("operator report resume");
+});
+
 test("PR assignments have no report transitions", () => {
   for (const command of ["submit", "resume", "accept", "return", "cleanup"] as const)
     expect(decideReport(facts({ command, state: "running", completion: "pr" }))).toMatchObject({

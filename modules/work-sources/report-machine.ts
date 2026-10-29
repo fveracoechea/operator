@@ -41,6 +41,12 @@ function selfDecision(facts: Facts) {
 
 function submit(facts: Facts): Result<ReportTransition, Refusal> {
   const { assignment, launch, latest } = facts;
+  // A returned report stays reported until the worker resumes with the follow-up.
+  if (assignment.state === "reported" && latest?.decision === "returned")
+    return refuse(
+      "report_returned",
+      `Report ${latest.number} of ${assignment.key} was returned. Run operator report resume first.`,
+    );
   if (assignment.state === "reported")
     return refuse(
       "report_awaiting_decision",
