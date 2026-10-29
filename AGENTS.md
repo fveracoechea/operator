@@ -34,34 +34,9 @@ Keep single-use details with their module.
 Edit Francisco's global agent instructions in `agents/AGENTS.md`.
 The dotfiles link that file into each agent host, so this repository is its one home.
 
-## Breaking workflow replacement
+## Implementation records
 
-The legacy CLI workflows are removed under #235 before their device-level replacements land.
-Help, version reporting, global installation, the Nix package, device settings, launch selection, project registration, skill installation, static readiness, supplied assignment plans, next actions, worker dispatch, the global Herdr plugin, the PR feedback loop with parent-merge relay, report assignments, the guarded merge with cleanup, the core review request and posting path, review rounds, Slack review transport through Claude Code, source reset and prune, and the boundary lint rules are available.
+`docs/implementation/<issue>-<topic>.md` holds the contract, the refusals, the evidence, and the limits of one issue.
+Before you change an area, find its record with `ls docs/implementation` and read it.
 For concurrent quality runs, the test watchdog, and open Bun defects, read `docs/implementation/220-concurrent-quality.md`.
-For global JSR and source installation, the launcher, and global command discovery, read `docs/implementation/256-global-installation.md`.
-For the Nix flake, its launcher, its checks, and `nix/bun.nix` refreshes, read `docs/implementation/257-nix-package.md`.
-For review requests, reviewer launch, draft validation, and the guarded review post, read `docs/implementation/253-review-requests.md`.
-For Slack channel reads, the author policy, Slack effects, and the live tool contract, read `docs/implementation/255-slack-transport.md`.
-For review rounds, head moves, thread operations, the stale flag, reviewer replacement, and reviewer cleanup, read `docs/implementation/254-review-rounds.md`.
-For PR association, the owner wait loop, and owner attention, read `docs/implementation/249-pr-feedback.md`.
-For stacked PR starts, the parent-merge relay, and relay blockers, read `docs/implementation/250-pr-relay.md`.
-For report submission, return, acceptance, and cleanup, read `docs/implementation/248-report-assignments.md`.
-For the guarded merge, merge verification, ordered cleanup, and unlanded work, read `docs/implementation/251-merge-cleanup.md`.
-For source reset, the 14-day retention, prune, and failed file cleanup, read `docs/implementation/252-source-reset-prune.md`.
-For dispatch, launch snapshots, worktree preparation, and the live Herdr evidence, read `docs/implementation/247-dispatch.md`.
-For startup compatibility, migration blockers, and verified backups, read `docs/implementation/245-automatic-compatibility.md`.
-For project listing, controller moves, removal authority, and durable file cleanup, read `docs/implementation/246-project-management.md`.
-For source registration, dependencies, and read-only next actions, read `docs/implementation/244-assignment-plans.md`.
-For upstream installation, readiness blockers, and evidence limits, read `docs/implementation/243-static-readiness.md`.
-For owned copies, conflict rules, and check-only links, read `docs/implementation/242-owned-skills.md`.
-For host metadata, profile inheritance, and resolved launch values, read `docs/implementation/241-host-profiles.md`.
-For project registration, lookup, database creation, and isolated Git tests, read `docs/implementation/240-project-registration.md`.
-For settings edits, environment values, and isolated test roots, read `docs/implementation/239-device-settings.md`.
-For delegated runs without routine approval stops and the remaining human stops, read `docs/implementation/61-delegated-authority.md`.
-For the boundary lint rules, the validator exception, and lint skill-topic pointers, read `docs/implementation/219-boundary-lint.md`.
-Read `docs/implementation/235-legacy-removal.md` for the inventory and verification.
-For the final replacement audit and the command example guard, read `docs/implementation/258-replacement-audit.md`.
-For installed workflow acceptance, the breaking changeset, the JSR client check, and the post-publication install, read `docs/implementation/259-installed-delivery.md`.
-For the changed-lines mutation cleanup, its merge base, unfinished units, and accepted suppressions, read `docs/implementation/260-mutation-cleanup.md`.
 Do not inspect, migrate, repair, or remove real legacy Operator state.

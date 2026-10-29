@@ -2,24 +2,16 @@
 
 Personal skills and CLI tools for coordinating coding agents in OpenCode and Claude Code through [Herdr](https://herdr.dev/).
 
-## Breaking replacement in progress
-
-Issue [#234](https://github.com/fveracoechea/operator/issues/234) defines the device-level replacement.
-This branch starts with [#235](https://github.com/fveracoechea/operator/issues/235), which removes the legacy architecture before new workflows land.
-It is not an intermediate release.
-Help, version reporting, global installation, the Nix package, device settings, launch selection, project registration, skill installation, static readiness, supplied assignment plans, next actions, worker dispatch, the global Herdr plugin, the PR feedback loop with parent-merge relay, report assignments, the guarded PR merge, cleanup after a merge, source reset and prune, the core review request and posting path, review rounds, and Slack review transport are available.
+## Upgrading from 0.x
 
 Finish all old crews and their work with the old release before updating to the breaking 1.0.0 release.
 This code does not inspect, migrate, repair, or delete legacy Operator state, and registration refuses a checkout that still has a `.operator` folder.
 Do not use it to resume an old session.
+There are no compatibility aliases for the removed commands.
 
-The workflows of the device-level design in `CONTEXT.md` and `docs/adr/` are implemented on this branch.
-They run through the installed commands of the JSR, source, and Nix paths with both hosts, and the Nix package passes its flake checks on both systems.
+The installed commands of the JSR, source, and Nix paths run with both hosts.
 See `docs/implementation/259-installed-delivery.md` for the matrix, the service evidence, and the gaps.
-The base lint policy in ADR-0018 is now enforced.
-Local mutation testing from ADR-0016 is also available for repository development.
-Slack review transport runs through the Claude Code Slack MCP tools. A live check on 2026-10-28 verified its tool contract.
-There are no replacement-command placeholders or compatibility aliases.
+Slack review transport runs through the Claude Code Slack MCP tools.
 
 ## Install Operator for the device
 
@@ -490,10 +482,7 @@ See `docs/implementation/253-review-requests.md` for the draft, the event rule, 
 
 ## Retained code and checks
 
-Features and capabilities live under root `modules/`.
-Each module exposes one interface object from `main.ts`, and other files are private.
-Focused reusable functions live under root `lib/`, with direct named imports and beside-tests.
-Lib code imports no application module or tooling.
+`bun run lint:modules` enforces the module shape and boundaries that `AGENTS.md` names.
 
 ```sh
 bun run quality

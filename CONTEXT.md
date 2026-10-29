@@ -2,7 +2,7 @@
 
 Shared language for Operator's declarative and deterministic agent coordination workflow.
 The CLI owns the workflow state machines, performs the mechanical steps, and gives agents and subagents the applicable next actions.
-These definitions describe the accepted design, including planned changes that are not yet implemented.
+These definitions describe the implemented design.
 
 ## Roles and authority
 

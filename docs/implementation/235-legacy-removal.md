@@ -63,39 +63,10 @@ flowchart TD
   Retry --> Publish
 ```
 
-Device registration, settings, migrations, profiles, personal skill installation, assignments, reviews, and global plugin delivery are not available in this slice.
-The later tickets under #234 own those operations.
+Later tickets under #234 added the device-level workflows on top of this retained base.
 
 ## Verification
 
-The public CLI is the approved workflow seam from #234.
-Remaining release tests use real Bun installs, real Git, isolated directories, and controlled GitHub and registry tools.
-There is no database operation in the retained runtime, so this slice has no SQLite scenario.
-Structural proofs run deliberate violations in a temporary copy, never in a live checkout.
-Verified on Linux with Bun 1.4.3:
-
-| Command | Result |
-| --- | --- |
-| `bun test --isolate modules/operator-cli/removal.test.ts` before replacing routing | Red. The old CLI read the poisoned project selection and returned `data.selection`. This test now lives in `run.test.ts`. |
-| `bun install --frozen-lockfile` | Passed with no dependency changes. |
-| `bun run test:timings` | Passed, 117 tests across 23 files. Rebuilt timing data without deleted tests. |
-| `bun run quality` | Passed, 117 tests and all static checks. |
-| `bun run test:module-boundaries` | Passed. Clean graph, 14 rejected deliberate violations, restored clean graph. |
-| `bun run test modules/operator-release` | Passed, 27 tests, including real source and registry installation and consumer declarations. This is the release-smoke test invocation. |
-| `bun cli.ts --help` | Exit 0, only help and version usage. |
-| `bun cli.ts --version` | Exit 0, running package version. |
-| `bun cli.ts --version --json` | Exit 0, running release metadata without project selection. |
-| `git diff --check` | Passed. |
-
-The first full test run found an obsolete assertion about the removed role skill.
-Removed that assertion with its workflow, then reran the full suite successfully.
-No flaky test was observed.
-The tests also deliberately change the supported Bun range in a scratch artifact and verify startup refusal before any command handler.
-
-The Standards review reported no findings.
-The Spec review found an unused release-identity API, missing verification evidence, and a link to a deleted role-skill topic.
-Removed the API and its dedicated tests, recorded the evidence, and corrected the link.
-The Spec reviewer verified all three corrections.
-
+Removal tests run through the public CLI with real Bun installs, real Git, isolated directories, and controlled GitHub and registry tools.
+`bun run quality` and `bun run test modules/operator-release` passed when the removal landed.
 No release was published, no pull request was merged, and no real legacy state was changed.
-Nix delivery, macOS packaging, global launchers, both-host dispatch, and live external integrations remain unproven and belong to later slices under #234.

@@ -62,13 +62,11 @@ Future workflow owners must apply ADR-0019 at their own operation and command bo
 
 The person approved removal of both completed disposable prototype directories, including their comparison pages and tests, rather than many lint suppressions for deliberately prohibited forms.
 The selected ordered-table architecture and unthrown contract remain in ADR-0003 and ADR-0019.
-Historical state-machine evidence remains in the [implementation record](236-state-machine-prototypes.md) and commits `662d7d8` and `3421d86`.
+Historical state-machine evidence remains in commits `662d7d8` and `3421d86`.
 The Result comparison and its selected contract remain in [#261](https://github.com/fveracoechea/operator/issues/261#issuecomment-6397078608) and commit `b606a950969ca7a4dfaace5e243c2f5c2b724a49`.
 Those experiments are no longer live commands in this checkout.
 
 Agent instructions and the affected skills now name the separate cycle and structural owners and use public-interface or external-tool fakes instead of path-based module replacement.
-The CLI remains help and version only.
-No replacement workflow, real legacy state, host permission, merge, or release publication is part of this change.
 
 ## Verification
 
