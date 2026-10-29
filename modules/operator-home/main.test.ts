@@ -33,8 +33,8 @@ test("owns separate XDG settings, receipts, and lock paths", () => {
   expect(paths.receipt).toBe(`${root}/state/operator/config/apply.json`);
   expect(paths.writeLock).toBe(`${root}/state/operator/config/write.sqlite`);
   expect(paths.configState).toBe(`${root}/state/operator/config`);
-  expect(paths.receiptTemporary).toBe(`${root}/state/operator/config/apply.json.tmp`);
-  expect(paths.configTemporary).toBe(`${root}/config/operator/config.json.tmp`);
+  expect(paths.receiptTemporaryPrefix).toBe(`${root}/state/operator/config/apply.json.tmp-`);
+  expect(paths.configTemporaryPrefix).toBe(`${root}/config/operator/config.json.tmp-`);
   expect(paths.herdrPlugin).toBe(`${root}/state/operator/herdr-plugin`);
   expect(OperatorHome.reviewFiles(paths, { repository: "o/r", requestId: "a/b" })).toEqual({
     directory: `${root}/state/operator/projects/o/r/reviews/a%2Fb`,

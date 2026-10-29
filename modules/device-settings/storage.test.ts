@@ -33,6 +33,13 @@ function paths() {
   return OperatorHome.resolve(Environment.parse({ HOME: root, NODE_ENV: "test" }));
 }
 
+/** Temporary files that a write left behind, found by their prefix. */
+function leftovers(prefix: string) {
+  return Array.fromAsync(
+    new Bun.Glob(`${path.basename(prefix)}*`).scan({ cwd: path.dirname(prefix), dot: true }),
+  );
+}
+
 test("reads defaults, missing receipts, and invalid receipts without creating files", async () => {
   const home = paths();
   expect(await readConfig(home)).toMatchObject({
@@ -53,7 +60,7 @@ test("writes and verifies exact bytes while refusing stale settings", async () =
   expect(await writeConfig(home, "{}\n", initial.identity)).toBe("verified");
   expect(await writeConfig(home, '{"superAgent":{}}\n', initial.identity)).toBe("stale");
   expect(await Bun.file(home.config).text()).toBe("{}\n");
-  expect(await Bun.file(home.configTemporary).exists()).toBe(false);
+  expect(await leftovers(home.configTemporaryPrefix)).toEqual([]);
 });
 
 test("preserves dangling settings links and read-only directories", async () => {
@@ -83,12 +90,12 @@ test("atomic receipt writes round-trip and do not replace a pre-existing tempora
   };
   await writeReceipt(home, receipt);
   expect(await readReceipt(home)).toEqual(receipt);
-  await Bun.write(home.receiptTemporary, "unowned\n");
-  await expect(writeReceipt(home, { ...receipt, state: "complete" })).rejects.toMatchObject({
-    code: "EEXIST",
-  });
-  expect(await readReceipt(home)).toEqual(receipt);
-  expect(await Bun.file(home.receiptTemporary).text()).toBe("unowned\n");
+  // A file left by a stopped write neither blocks the next write nor is touched by it.
+  const stopped = `${home.receiptTemporaryPrefix}stopped`;
+  await Bun.write(stopped, "unowned\n");
+  await writeReceipt(home, { ...receipt, state: "complete" });
+  expect(await readReceipt(home)).toEqual({ ...receipt, state: "complete" });
+  expect(await Bun.file(stopped).text()).toBe("unowned\n");
 });
 
 test("releases the SQLite lock after an action fails", async () => {
@@ -201,7 +208,7 @@ test("removes its temporary receipt when the receipt cannot replace the destinat
       state: "pending",
     }),
   ).rejects.toMatchObject({ code: "EISDIR" });
-  expect(await Bun.file(home.receiptTemporary).exists()).toBe(false);
+  expect(await leftovers(home.receiptTemporaryPrefix)).toEqual([]);
 });
 
 test("releases the SQLite lock after an action succeeds", async () => {
@@ -221,7 +228,7 @@ test("does not replace settings whose bytes do not read back the same", async ()
   const initial = await readConfig(home);
   expect(await writeConfig(home, "\uD800", initial.identity)).toBe("unconfirmed");
   expect(await Bun.file(home.config).exists()).toBe(false);
-  expect(await Bun.file(home.configTemporary).exists()).toBe(false);
+  expect(await leftovers(home.configTemporaryPrefix)).toEqual([]);
 });
 
 test("treats a linked settings file or settings directory as externally managed", async () => {

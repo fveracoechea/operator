@@ -273,7 +273,10 @@ test("refuses a linked settings file and one that becomes linked during validati
 test("aborts the write when the settings become read-only before the write", async () => {
   const base = await freshPaths();
   // The temporary file lives outside the settings folder, so only the folder mode changes.
-  const paths = { ...base, configTemporary: path.join(base.configState, "config.json.tmp") };
+  const paths = {
+    ...base,
+    configTemporaryPrefix: path.join(base.configState, "config.json.tmp-"),
+  };
   const request = { paths, sets: ["superAgent.host=opencode"], unsets: [] };
   const { planId } = await planOf(request);
   await mkdir(paths.configState, { recursive: true });
@@ -290,23 +293,28 @@ test("aborts the write when the settings become read-only before the write", asy
   }
   expect(await readJson(paths.receipt)).toMatchObject({ planId, state: "aborted" });
   expect(await Bun.file(paths.config).exists()).toBe(false);
-  expect(await Bun.file(paths.configTemporary).exists()).toBe(false);
+  expect(
+    await Array.fromAsync(new Bun.Glob("config.json.tmp-*").scan({ cwd: paths.configState })),
+  ).toEqual([]);
 });
 
 test("keeps a pending receipt when the settings write cannot be confirmed", async () => {
-  const paths = await freshPaths();
+  const base = await freshPaths();
+  // A missing temporary folder makes the settings write fail with an I/O error.
+  const paths = {
+    ...base,
+    configTemporaryPrefix: path.join(base.configRoot, "missing/config.json.tmp-"),
+  };
   const request = { paths, sets: ["superAgent.host=opencode"], unsets: [] };
   const { planId } = await planOf(request);
-  await Bun.write(paths.configTemporary, "unowned\n", { createPath: true });
   expect(await apply({ ...request, planId })).toEqual(writeUnconfirmed);
   expect(await readJson(paths.receipt)).toMatchObject({ planId, state: "pending" });
-  expect(await Bun.file(paths.configTemporary).text()).toBe("unowned\n");
   expect(await Bun.file(paths.config).exists()).toBe(false);
 });
 
 test("keeps a pending receipt and rethrows an unexpected write defect", async () => {
   const base = await freshPaths();
-  const paths = { ...base, configTemporary: path.join(base.configRoot, "x".repeat(300)) };
+  const paths = { ...base, configTemporaryPrefix: path.join(base.configRoot, "x".repeat(300)) };
   const request = { paths, sets: ["superAgent.host=opencode"], unsets: [] };
   const { planId } = await planOf(request);
   expect(apply({ ...request, planId })).rejects.toMatchObject({ code: "ENAMETOOLONG" });

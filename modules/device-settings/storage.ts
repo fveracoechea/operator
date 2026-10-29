@@ -75,14 +75,15 @@ export async function readReceipt(paths: OperatorPaths) {
 }
 
 export async function writeReceipt(paths: OperatorPaths, receipt: Receipt) {
-  const file = await open(paths.receiptTemporary, "wx", 0o600);
+  const temporary = `${paths.receiptTemporaryPrefix}${crypto.randomUUID()}`;
+  const file = await open(temporary, "wx", 0o600);
   try {
     await Bun.write(Bun.file(file.fd), `${JSON.stringify(receipt, null, 2)}\n`);
     await file.sync();
-    await rename(paths.receiptTemporary, paths.receipt);
+    await rename(temporary, paths.receipt);
   } finally {
     await file.close();
-    await rm(paths.receiptTemporary, { force: true });
+    await rm(temporary, { force: true });
   }
 }
 
@@ -131,21 +132,22 @@ export async function withWriteLock<T>(paths: OperatorPaths, action: () => Promi
 
 export async function writeConfig(paths: OperatorPaths, text: string, previousIdentity: string) {
   await mkdir(paths.configRoot, { recursive: true });
-  const file = await open(paths.configTemporary, "wx", 0o600);
+  const temporary = `${paths.configTemporaryPrefix}${crypto.randomUUID()}`;
+  const file = await open(temporary, "wx", 0o600);
   try {
     await Bun.write(Bun.file(file.fd), text);
     await file.sync();
-    if ((await Bun.file(paths.configTemporary).text()) !== text) return "unconfirmed" as const;
+    if ((await Bun.file(temporary).text()) !== text) return "unconfirmed" as const;
     if ((await readConfig(paths)).identity !== previousIdentity || (await externallyManaged(paths)))
       return "stale" as const;
-    await rename(paths.configTemporary, paths.config);
+    await rename(temporary, paths.config);
     // Stryker disable next-line ConditionalExpression: equivalent: without an outside writer between rename and read, the renamed file holds the bytes that the temporary read-back confirmed
     return (await Bun.file(paths.config).text()) === text
       ? ("verified" as const)
       : ("unconfirmed" as const);
   } finally {
     await file.close();
-    await rm(paths.configTemporary, { force: true });
+    await rm(temporary, { force: true });
   }
 }
 

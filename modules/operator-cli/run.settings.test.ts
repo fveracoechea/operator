@@ -202,19 +202,26 @@ test("a held settings lock refuses with no settings write", async () => {
   expect((await run(["config", "apply", ...edit, "--plan", id])).code).toBe(0);
 }, 15_000);
 
-test("retains an unconfirmed intent and recovers without changing settings", async () => {
+test("a write that stopped after its pending receipt needs recovery, which changes no settings", async () => {
   const edit = ["--set", "superAgent.host=opencode"];
   const planned = await run(["config", "plan", ...edit]);
-  const id = z.object({ data: z.object({ planId: z.string() }) }).parse(planned.output).data.planId;
-  await Bun.write(`${root}/config/operator/config.json.tmp`, "unowned temporary file\n", {
-    createPath: true,
-  });
-  const applied = await run(["config", "apply", ...edit, "--plan", id]);
-  expect(applied.code).toBe(5);
-  expect(applied.output).toMatchObject({ reason: "settings_write_unconfirmed" });
-  expect(await Bun.file(`${root}/config/operator/config.json`).exists()).toBe(false);
-  expect(await Bun.file(`${root}/config/operator/config.json.tmp`).text()).toBe(
-    "unowned temporary file\n",
+  const data = z
+    .object({
+      data: z.object({
+        planId: z.string(),
+        generation: z.string().nullable(),
+        editsIdentity: z.string(),
+        previousIdentity: z.string(),
+        nextIdentity: z.string(),
+      }),
+    })
+    .parse(planned.output).data;
+  const { planId, generation, editsIdentity, previousIdentity, nextIdentity } = data;
+  const receipt = { planId, generation, editsIdentity, previousIdentity, nextIdentity };
+  await Bun.write(
+    `${root}/state/operator/config/apply.json`,
+    JSON.stringify({ ...receipt, state: "pending" }),
+    { createPath: true },
   );
   expect((await run(["config", "plan", ...edit])).output).toMatchObject({
     reason: "settings_recovery_required",
@@ -326,4 +333,28 @@ test("plans and applies an exact device edit once, with a receipt and no checkou
     "state/operator/config/write.sqlite",
     "state/operator/operator.sqlite",
   ]);
+});
+
+test("a temporary file left by a stopped write neither blocks a later apply nor is touched", async () => {
+  // A writer that stops after it opens its temporary files leaves them behind.
+  await Bun.write(`${root}/config/operator/config.json.tmp`, "stopped\n", { createPath: true });
+  await Bun.write(`${root}/state/operator/config/apply.json.tmp`, "stopped\n", {
+    createPath: true,
+  });
+  const planned = await run(["config", "plan", "--set", "superAgent.host=opencode"]);
+  const plan = z
+    .object({ data: z.object({ planId: z.string(), nextText: z.string() }) })
+    .parse(planned.output).data;
+  const applied = await run([
+    "config",
+    "apply",
+    "--set",
+    "superAgent.host=opencode",
+    "--plan",
+    plan.planId,
+  ]);
+  expect(applied).toMatchObject({ code: 0, output: { reason: "settings_applied" } });
+  expect(await Bun.file(`${root}/config/operator/config.json`).text()).toBe(plan.nextText);
+  expect(await Bun.file(`${root}/config/operator/config.json.tmp`).text()).toBe("stopped\n");
+  expect(await Bun.file(`${root}/state/operator/config/apply.json.tmp`).text()).toBe("stopped\n");
 });

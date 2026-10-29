@@ -62,9 +62,10 @@ export const OperatorHome = {
       schema: path.join(configRoot, "config.schema.json"),
       configState: path.join(stateRoot, "config"),
       receipt: path.join(stateRoot, "config/apply.json"),
-      receiptTemporary: path.join(stateRoot, "config/apply.json.tmp"),
+      // Each write adds a random suffix, so a file left by a stopped write never blocks the next.
+      receiptTemporaryPrefix: path.join(stateRoot, "config/apply.json.tmp-"),
       writeLock: path.join(stateRoot, "config/write.sqlite"),
-      configTemporary: path.join(configRoot, "config.json.tmp"),
+      configTemporaryPrefix: path.join(configRoot, "config.json.tmp-"),
       skillHosts,
       upstreamSkills: {
         opencode: path.join(environment.HOME, ".agents/skills"),
