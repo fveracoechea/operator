@@ -4,7 +4,7 @@ Personal skills and CLI tools for coordinating coding agents in OpenCode and Cla
 
 <img width="1600" height="689" alt="image" src="https://github.com/user-attachments/assets/800655fa-8603-47d5-9f2e-6cf0b56dcad6" />
 
-> [!NOTE]
+
 > Inspired by The Matrix, an Operator loads programs, guides missions, and keeps the crew in the field connected.
 
 Operator is based on [Matt Pocock's agent skills and workflow](https://github.com/mattpocock/skills).
