@@ -34,9 +34,6 @@ Keep single-use details with their module.
 Edit Francisco's global agent instructions in `agents/AGENTS.md`.
 The dotfiles link that file into each agent host, so this repository is its one home.
 
-## Implementation records
+## Legacy state
 
-`docs/implementation/<issue>-<topic>.md` holds the contract, the refusals, the evidence, and the limits of one issue.
-Before you change an area, find its record with `ls docs/implementation` and read it.
-For concurrent quality runs, the test watchdog, and open Bun defects, read `docs/implementation/220-concurrent-quality.md`.
 Do not inspect, migrate, repair, or remove real legacy Operator state.

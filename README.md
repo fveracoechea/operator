@@ -10,7 +10,6 @@ Do not use it to resume an old session.
 There are no compatibility aliases for the removed commands.
 
 The installed commands of the JSR, source, and Nix paths run with both hosts.
-See `docs/implementation/259-installed-delivery.md` for the matrix, the service evidence, and the gaps.
 Slack review transport runs through the Claude Code Slack MCP tools.
 
 ## Install Operator for the device
@@ -113,7 +112,6 @@ Herdr hooks and agents find Operator through `PATH`, never through a release-spe
 All delivery paths keep working after the registry, the source repository, or the Bun cache is gone.
 Installing an unrelated global Bun package changes Bun's global lock but not Operator's release identity.
 `operator ready --json` reports a missing global command, a global command that runs another release, and an installation that names no exact version or full commit.
-See `docs/implementation/256-global-installation.md` and `docs/implementation/257-nix-package.md` for the decision diagram and verification limits.
 
 ```mermaid
 flowchart TD
@@ -200,7 +198,6 @@ Missing prerequisites return current blockers and exit 3, while a ready result e
 The command writes no readiness record, changes no project, and launches no host, metadata handshake, or live probe.
 It requires no Slack MCP tools on either host.
 Static readiness is not proof of host loading or provider access.
-See `docs/implementation/243-static-readiness.md` for ownership, the decision diagram, and verification limits.
 
 ## Device settings
 
@@ -235,7 +232,6 @@ An unmatched or unreadable receipt remains blocked for inspection.
 An unconfirmed write exits with code 5 and requires recovery, not a blind new edit.
 Linked or read-only settings remain readable, but edits refuse with instructions to change their external owner, such as Nix or Home Manager.
 Settings commands do not inspect legacy state or change a project checkout.
-See `docs/implementation/239-device-settings.md` for the state diagram and test rules.
 
 ## Hosts and start profiles
 
@@ -280,7 +276,6 @@ Later settings edits change later resolutions but cannot change an earlier retur
 Dispatch records each launch's resolved selection, release, and skill identities.
 Operator adds no host permission rules, allow lists, permission modes, or fallback flags.
 Host configuration remains under its external owner's control.
-See `docs/implementation/241-host-profiles.md` for the selection diagram and verification limits.
 
 ## Project registration and management
 
@@ -317,7 +312,6 @@ Removal deletes project records and device-state content, never checkouts, branc
 If file cleanup fails, the command exits 1 and keeps a durable pending removal.
 Resolve the reported filesystem problem, then repeat the same person-instructed removal.
 Registration of that identity stays blocked until cleanup completes.
-See `docs/implementation/246-project-management.md` for the decision diagram and failure limits.
 Every command checks device compatibility before its handler, including help and version reporting.
 An older matching Drizzle history applies all pending fixed migrations automatically, with a verified SQLite snapshot and writer protection.
 Migration waits for device-wide idle work and declared held-record blockers.
@@ -325,9 +319,6 @@ The latest three verified migration backups remain under the device state's `bac
 Damaged or incompatible state is not repaired or replaced.
 Corruption reports the last currently verified backup, if one is available.
 Only explicit registration creates a missing database.
-See [automatic compatibility](docs/implementation/245-automatic-compatibility.md) for refusals and backup limits.
-Project management and recoverable file cleanup are recorded in `docs/implementation/246-project-management.md`.
-See `docs/implementation/240-project-registration.md` for the state diagram, refusals, and test rules.
 
 ## Assignment plans and next actions
 
@@ -344,7 +335,6 @@ operator source prune --json
 
 Use `bun cli.ts` instead of `operator` in a source checkout.
 The plan supplies tracker keys, instructions, PR or report completion, dependencies, optional named profiles, resources, and branch names for worktrees.
-See `docs/implementation/244-assignment-plans.md` for the complete JSON example and decision diagram.
 Invalid or cyclic plans refuse before writes.
 A second open source for the same project and tracker parent refuses.
 Each registration after an ended source gets a new identity.
@@ -362,7 +352,6 @@ It refuses while a worker of the source runs, keeps merged PR assignments and co
 It removes no worktree, branch, or pane and changes no tracker content.
 `source prune` deletes the records, briefs, reports, and supporting files of each ended source of the project once 14 days have passed since its end.
 It keeps a source with open cleanup or a running worker, creates no archive, and never touches worktrees, branches, or migration backups.
-See `docs/implementation/252-source-reset-prune.md` for the lifecycle, refusals, and recovery.
 
 ## Worker dispatch and the Herdr plugin
 
@@ -388,7 +377,6 @@ A failed launch keeps its recorded resources and appears in `next` as `replace_w
 A start whose dispatch process stopped appears as `replace_worker` with `launch_abandoned`.
 Herdr activity is shown as an observation only, never as completion.
 A running worker that Herdr reports `idle` or `done` before it associates a PR or submits a report appears as `worker_attention` with `worker_idle`.
-See `docs/implementation/247-dispatch.md` for the diagram, live evidence, and limits.
 
 ## PR feedback loop
 
@@ -405,14 +393,12 @@ The real Git top level must be the recorded worktree of the running owner, on th
 Its progress is in device state, so a restarted wait does not repeat a result.
 `next` shows `owner_attention` for a timed-out or stopped wait, an owner that Herdr reports idle between waits, or a PR that is no longer open, and `replace_worker` for an ended owner pane.
 A replacement keeps the PR, its progress, and the PR's recorded worktree, and refuses when that worktree is missing.
-See `docs/implementation/249-pr-feedback.md` for the diagrams, refusals, and evidence.
 
 A PR assignment whose dependency has an open PR starts on that PR's pushed branch, and its owner opens its PR against that branch.
 `pr associate` accepts only the default branch or the branch of a dependency's PR as the base, never a source-wide integration branch.
 After the parent PR merges into the default branch, the child's `pr wait` rebases the child branch onto it, pushes with a lease on the PR head, changes the PR base, and reports `parent_relayed`.
 A conflict or a failed Git or GitHub step is a `relay_*` blocker that keeps the branch, and `next` shows `owner_attention` with `pr_relay_blocked`.
 The child is not merge eligible while its base is not the default branch.
-See `docs/implementation/250-pr-relay.md` for the relay diagram, its progress record, and evidence.
 
 ## Report assignments
 
@@ -430,7 +416,6 @@ Only acceptance completes the assignment and unblocks its dependents. Herdr acti
 `return` records follow-up instructions. A live worker runs `resume`, and a stopped worker is replaced with every earlier report and follow-up in its brief.
 Acceptance closes the worker pane and removes a report worktree only when Git shows no unlanded work.
 A kept worktree waits for the person, and a failed cleanup stays in `next` as `retry_cleanup`.
-See `docs/implementation/248-report-assignments.md` for the report file, the lifecycle, and cross-project use.
 
 ## Guarded merge and cleanup
 
@@ -449,7 +434,6 @@ Commits that are not in the merged head, changed or untracked files, and ignored
 Lockfile-installed `node_modules` folders and unchanged copies of `.env*.local` files are preparation output and do not block.
 Only the person's instruction, `--person-instructed`, deletes unlanded work, and it covers only the step that is blocked when the cleanup starts.
 A moved remote branch is deleted only on the person's instruction, and a foreign checkout is never deleted.
-See `docs/implementation/251-merge-cleanup.md` for the diagrams, refusals, and evidence.
 
 ## Review requests
 
@@ -478,7 +462,6 @@ Thread replies post once, and a merged, closed, or skipped request removes its r
 With `review.channel`, `review.repos`, and `review.authors` in device settings, `wait --slack` also schedules Slack channel reads and returns the Slack replies and reactions that the CLI generated. A plain `wait` only reports them.
 A Claude Code agent carries them through the Slack MCP tools with the `slack-pr-review-workflow` skill, `ingest` records the eligible PRs of a raw channel read and moves the cursor, and `slack-done` records each sent effect.
 Operator holds no Slack credentials. OpenCode keeps every non-Slack review command.
-See `docs/implementation/253-review-requests.md` for the draft, the event rule, and the evidence, `docs/implementation/254-review-rounds.md` for rounds, and `docs/implementation/255-slack-transport.md` for Slack.
 
 ## Retained code and checks
 
@@ -494,17 +477,14 @@ The tests use isolated globals.
 `bun run test` stops with exit code 124 when no test makes progress for 120 seconds.
 It then prints the processes, working directories, sockets, and pipes of its own run, and kills only that run.
 Two quality runs in separate worktrees can run at the same time.
-See `docs/implementation/220-concurrent-quality.md` for the concurrency evidence and the open Bun defects.
 Oxlint owns dependency cycles and type-aware code policy, while the module checker owns structural boundaries.
 The deliberate-break tests run the real lint command in disposable checkout copies.
-See `docs/implementation/237-lint-policy.md` for policy coverage, exception boundaries, and verification.
 The installed delivery smoke uses real Bun global and project installs, Git, a local registry fixture, and the built public declarations.
 It runs the dispatch, report, PR, and review workflow tests again through the installed `operator` of the JSR and source paths.
 Publication tests use controlled GitHub and official-client commands.
 They publish no real release.
 
 A beside-test reads `operator --help` and refuses a command example in the docs, the skills, or a next action that names no implemented command.
-See `docs/implementation/235-legacy-removal.md` for the removal inventory and `docs/implementation/258-replacement-audit.md` for the final audit.
 `skills/` contains the owned `super-agent`, `worker-agent`, and draft-only `pr-review` skills, and complete owned engineering skills.
 There are no Crew or Operative skills, forwarding skills, or aliases.
 

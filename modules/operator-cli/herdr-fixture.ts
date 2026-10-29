@@ -1,7 +1,7 @@
 /**
  * A controlled Herdr executable for public CLI tests. It keeps its topology in one JSON file,
  * creates real Git worktrees, and runs the linked plugin manifest's hook command as Herdr does.
- * It is not evidence of the live integration, which `docs/implementation/247-dispatch.md` records.
+ * It is not evidence of the live integration.
  */
 export function fakeHerdrScript(root: string) {
   return `#!${process.execPath}

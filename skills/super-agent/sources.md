@@ -2,7 +2,6 @@
 
 Read the tracker with its existing tools, then supply a JSON plan to `operator source register --file <path> --json` from the registered controlling checkout.
 The CLI reads no tracker.
-Use the plan format and examples in the running release's `docs/implementation/244-assignment-plans.md` when working from source.
 
 The top-level fields are `trackerKey` and `assignments`.
 Each assignment supplies `key`, `trackerKey`, `instructions`, `completion`, `resources`, and `dependencies`.
