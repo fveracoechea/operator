@@ -121,10 +121,10 @@ test("a post result approves, watches, returns the request, or keeps it posting"
       value: { state: "queued" },
     },
   );
-  expect(decideReview(facts("post_uncertain", posting))).toEqual({
+  expect<unknown>(decideReview(facts("post_uncertain", posting))).toEqual({
     tag: "Ok",
     value: { lease: "release" },
-  } as never);
+  });
 });
 
 function reviewingOf() {
@@ -203,11 +203,11 @@ test("a head move counts once per observed head, stops at the limit, and waits f
   expect(decideReview(facts("head_moved", reviewing, { observedFrom: "h1" }))).toMatchObject({
     value: { headMoved: true, sync: true, lease: "hold" },
   });
-  expect(
+  expect<unknown>(
     decideReview(
       facts("head_moved", { ...reviewing, launchState: "interrupted" }, { observedFrom: "h1" }),
     ),
-  ).toEqual({ tag: "Ok", value: { headMoved: true } } as never);
+  ).toEqual({ tag: "Ok", value: { headMoved: true } });
   for (const request of [
     { ...reviewing, head: "h2" },
     { ...reviewing, headMoves: headMoveLimit },

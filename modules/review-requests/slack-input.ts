@@ -34,7 +34,7 @@ const morePattern = /There are more messages available/;
 /** A raw MCP tool result wraps its answer in text content. At most this many layers are opened. */
 const wrapLimit = 3;
 
-export type ChannelMessage = { ts: string; threadTs: string; links: Target[] };
+type ChannelMessage = { ts: string; threadTs: string; links: Target[] };
 type ChannelRead = z.infer<typeof channelReadSchema>;
 
 /** Parses JSON text with one schema, or gives undefined for other text. */

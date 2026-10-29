@@ -2,7 +2,7 @@ import type { Observation } from "./github.ts";
 import { mergeConditions, type MergeConditions } from "./wait-machine.ts";
 
 // A stacked PR merges only after its parent merged and its relay finished.
-type Facts = { observed: Observation; localHead: string | null; stackRelayed?: boolean };
+type Facts = { observed: Observation; localHead: string | null; stackRelayed: boolean };
 type Refusal = {
   result: "refused";
   reason: "pr_not_open" | "pr_merge_blocked" | "pr_head_mismatch";

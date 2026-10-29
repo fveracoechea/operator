@@ -1,6 +1,6 @@
 import { Err, Ok, type Result } from "unthrown";
 
-export type ReviewState =
+type ReviewState =
   | "queued"
   | "reviewing"
   | "posting"
@@ -366,7 +366,7 @@ export function decideReview(facts: ReviewFacts): Result<ReviewTransition, Refus
   return rule === undefined ? refuse("review_defect", "No rule matched.") : rule.decide(facts);
 }
 
-export type ReviewAction =
+type ReviewAction =
   | {
       kind: "action";
       action:

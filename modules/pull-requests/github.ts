@@ -3,7 +3,7 @@ import { z } from "zod";
 import { ReviewRequests } from "../review-requests/main.ts";
 import { GithubApi } from "../github-api/main.ts";
 
-export type GithubReadFailure = {
+type GithubReadFailure = {
   reason: "github_failed" | "github_uncertain" | "github_invalid_response";
   detail: string;
 };
@@ -358,7 +358,7 @@ export function observePullRequest(repository: string, number: number) {
   ).map(({ data }) => observation(data));
 }
 
-export type GithubEffectFailure = {
+type GithubEffectFailure = {
   reason: "github_failed" | "github_uncertain";
   detail: string;
 };

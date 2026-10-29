@@ -17,13 +17,17 @@ const eligible: Observation = {
 };
 
 test("only a fresh observation with all five merge conditions and the local head merges", () => {
-  expect(decideMerge({ observed: eligible, localHead: "h1" })).toEqual({
+  expect(decideMerge({ stackRelayed: true, observed: eligible, localHead: "h1" })).toEqual({
     result: "merge",
     head: "h1",
     method: "squash",
   });
   expect(
-    decideMerge({ observed: { ...eligible, mergeMethod: "rebase" }, localHead: "h1" }),
+    decideMerge({
+      stackRelayed: true,
+      observed: { ...eligible, mergeMethod: "rebase" },
+      localHead: "h1",
+    }),
   ).toMatchObject({ result: "merge", method: "rebase" });
 });
 
@@ -38,7 +42,11 @@ test("each missing condition refuses with its own explanation", () => {
     [{ defaultBranch: null }, "the default branch as base"],
   ];
   for (const [change, text] of cases) {
-    const decision = decideMerge({ observed: { ...eligible, ...change }, localHead: "h1" });
+    const decision = decideMerge({
+      stackRelayed: true,
+      observed: { ...eligible, ...change },
+      localHead: "h1",
+    });
     expect(decision).toMatchObject({ result: "refused", reason: "pr_merge_blocked" });
     expect("detail" in decision ? decision.detail : "").toContain(text);
   }
@@ -58,19 +66,27 @@ test("a stacked PR whose relay has not finished does not merge, even on the defa
 });
 
 test("a different local head and a closed PR refuse, and a merged PR is only verified", () => {
-  expect(decideMerge({ observed: eligible, localHead: "h0" })).toMatchObject({
+  expect(decideMerge({ stackRelayed: true, observed: eligible, localHead: "h0" })).toMatchObject({
     result: "refused",
     reason: "pr_head_mismatch",
   });
-  expect(decideMerge({ observed: eligible, localHead: null })).toMatchObject({
+  expect(decideMerge({ stackRelayed: true, observed: eligible, localHead: null })).toMatchObject({
     reason: "pr_head_mismatch",
   });
   expect(
-    decideMerge({ observed: { ...eligible, state: "CLOSED" }, localHead: "h1" }),
+    decideMerge({
+      stackRelayed: true,
+      observed: { ...eligible, state: "CLOSED" },
+      localHead: "h1",
+    }),
   ).toMatchObject({ result: "refused", reason: "pr_not_open" });
   // A merged PR needs no gate, because no merge request follows.
   expect(
-    decideMerge({ observed: { ...eligible, state: "MERGED", approved: false }, localHead: "h0" }),
+    decideMerge({
+      stackRelayed: true,
+      observed: { ...eligible, state: "MERGED", approved: false },
+      localHead: "h0",
+    }),
   ).toEqual({ result: "verify" });
 });
 
@@ -124,7 +140,7 @@ test("each refusal names every missing condition and carries the observed condit
     defaultBase: true,
     stackRelayed: true,
   };
-  expect(decideMerge({ observed: eligible, localHead: null })).toEqual({
+  expect(decideMerge({ stackRelayed: true, observed: eligible, localHead: null })).toEqual({
     result: "refused",
     reason: "pr_head_mismatch",
     detail: `The PR head is h1, but the worktree is at no commit. Push or reconcile first. ${nothing}`,
@@ -137,7 +153,11 @@ test("each refusal names every missing condition and carries the observed condit
 
 test("a single missing condition is named alone", () => {
   expect(
-    decideMerge({ observed: { ...eligible, unresolvedThreads: 1 }, localHead: "h1" }),
+    decideMerge({
+      stackRelayed: true,
+      observed: { ...eligible, unresolvedThreads: 1 },
+      localHead: "h1",
+    }),
   ).toMatchObject({
     detail: "The PR needs no unresolved review thread. Nothing was merged or changed.",
   });

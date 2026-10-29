@@ -37,9 +37,12 @@ function item(id: string, change: Record<string, unknown> = {}) {
 }
 
 test("nothing new decides nothing and changes no progress", () => {
-  expect(decideWait({ progress: empty, observed: open })).toEqual({ result: "none" });
+  expect(decideWait({ stackRelayed: true, progress: empty, observed: open })).toEqual({
+    result: "none",
+  });
   expect(
     decideWait({
+      stackRelayed: true,
       progress: { seen: ["a"], failures: ["h1:lint"], eligibleHead: null },
       observed: {
         ...open,
@@ -60,7 +63,7 @@ test("new feedback is reported once and an empty commented review only holds inl
       item("d", { kind: "review", body: "Text.", reviewState: "COMMENTED" }),
     ],
   };
-  const decision = decideWait({ progress: empty, observed });
+  const decision = decideWait({ stackRelayed: true, progress: empty, observed });
   expect(decision).toEqual({
     result: "reported",
     events: [
@@ -72,7 +75,9 @@ test("new feedback is reported once and an empty commented review only holds inl
     progress: { seen: ["a", "c", "d"], failures: [], eligibleHead: null },
   });
   if (decision.result !== "reported") return;
-  expect(decideWait({ progress: decision.progress, observed })).toEqual({ result: "none" });
+  expect(decideWait({ stackRelayed: true, progress: decision.progress, observed })).toEqual({
+    result: "none",
+  });
 });
 
 test("a failing check is reported once per head, and pending or passing checks are not", () => {
@@ -81,18 +86,24 @@ test("a failing check is reported once per head, and pending or passing checks a
     { name: "test", state: "pending" as const, url: null },
     { name: "types", state: "passing" as const, url: null },
   ];
-  const first = decideWait({ progress: empty, observed: { ...open, checks } });
+  const first = decideWait({ stackRelayed: true, progress: empty, observed: { ...open, checks } });
   expect(first).toEqual({
     result: "reported",
     events: [{ kind: "checks_failed", head: "h1", checks: checks.slice(0, 1) }],
     progress: { seen: [], failures: ["h1:lint"], eligibleHead: null },
   });
   if (first.result !== "reported") return;
-  expect(decideWait({ progress: first.progress, observed: { ...open, checks } })).toEqual({
+  expect(
+    decideWait({ stackRelayed: true, progress: first.progress, observed: { ...open, checks } }),
+  ).toEqual({
     result: "none",
   });
   expect(
-    decideWait({ progress: first.progress, observed: { ...open, head: "h2", checks } }),
+    decideWait({
+      stackRelayed: true,
+      progress: first.progress,
+      observed: { ...open, head: "h2", checks },
+    }),
   ).toMatchObject({ events: [{ kind: "checks_failed", head: "h2" }] });
 });
 
@@ -102,7 +113,7 @@ test("eligibility needs all five merge conditions and is reported once per head"
     approved: true,
     checks: [{ name: "ci", state: "passing" as const, url: null }],
   };
-  expect(mergeConditions(eligible)).toEqual({
+  expect(mergeConditions(eligible, true)).toEqual({
     approved: true,
     checksPassing: true,
     threadsResolved: true,
@@ -125,26 +136,40 @@ test("eligibility needs all five merge conditions and is reported once per head"
     { ...eligible, checks: [{ name: "ci", state: "pending" as const, url: null }] },
     { ...eligible, checks: [] },
   ])
-    expect(decideWait({ progress: empty, observed: blocked })).toEqual({ result: "none" });
-  const first = decideWait({ progress: empty, observed: eligible });
+    expect(decideWait({ stackRelayed: true, progress: empty, observed: blocked })).toEqual({
+      result: "none",
+    });
+  const first = decideWait({ stackRelayed: true, progress: empty, observed: eligible });
   expect(first).toEqual({
     result: "reported",
     events: [{ kind: "merge_eligible", head: "h1" }],
     progress: { seen: [], failures: [], eligibleHead: "h1" },
   });
   if (first.result !== "reported") return;
-  expect(decideWait({ progress: first.progress, observed: eligible })).toEqual({ result: "none" });
+  expect(decideWait({ stackRelayed: true, progress: first.progress, observed: eligible })).toEqual({
+    result: "none",
+  });
   expect(
-    decideWait({ progress: first.progress, observed: { ...eligible, head: "h2" } }),
+    decideWait({
+      stackRelayed: true,
+      progress: first.progress,
+      observed: { ...eligible, head: "h2" },
+    }),
   ).toMatchObject({ events: [{ kind: "merge_eligible", head: "h2" }] });
 });
 
 test("a merged or closed PR ends the wait first and keeps progress", () => {
   const progress = { seen: ["a"], failures: [], eligibleHead: "h1" };
   expect(
-    decideWait({ progress, observed: { ...open, state: "MERGED", feedback: [item("b")] } }),
+    decideWait({
+      stackRelayed: true,
+      progress,
+      observed: { ...open, state: "MERGED", feedback: [item("b")] },
+    }),
   ).toEqual({ result: "not_open", events: [{ kind: "pr_merged" }], progress });
-  expect(decideWait({ progress, observed: { ...open, state: "CLOSED" } })).toEqual({
+  expect(
+    decideWait({ stackRelayed: true, progress, observed: { ...open, state: "CLOSED" } }),
+  ).toEqual({
     result: "not_open",
     events: [{ kind: "pr_closed" }],
     progress,
@@ -155,7 +180,9 @@ test("the same facts give the same decision and the input progress is not change
   const progress = empty;
   const observed = { ...open, feedback: [item("a")] };
   const before = structuredClone(progress);
-  expect(decideWait({ progress, observed })).toEqual(decideWait({ progress, observed }));
+  expect(decideWait({ stackRelayed: true, progress, observed })).toEqual(
+    decideWait({ stackRelayed: true, progress, observed }),
+  );
   expect(progress).toEqual(before);
 });
 
@@ -167,7 +194,9 @@ test("an Operator review from the owner's account ends a wait alone", () => {
     reviewState: "COMMENTED",
     body: "No blockers.",
   });
-  expect(decideWait({ progress: empty, observed: { ...open, feedback: [review] } })).toEqual({
+  expect(
+    decideWait({ stackRelayed: true, progress: empty, observed: { ...open, feedback: [review] } }),
+  ).toEqual({
     result: "reported",
     events: [{ kind: "feedback", items: [review] }],
     progress: { seen: ["review"], failures: [], eligibleHead: null },
@@ -176,17 +205,26 @@ test("an Operator review from the owner's account ends a wait alone", () => {
 
 test("the owner's own items never end a wait alone and are reported with the next event", () => {
   const own = item("own", { fromViewer: true, author: "owner" });
-  expect(decideWait({ progress: empty, observed: { ...open, feedback: [own] } })).toEqual({
+  expect(
+    decideWait({ stackRelayed: true, progress: empty, observed: { ...open, feedback: [own] } }),
+  ).toEqual({
     result: "none",
   });
   const other = item("other");
-  expect(decideWait({ progress: empty, observed: { ...open, feedback: [own, other] } })).toEqual({
+  expect(
+    decideWait({
+      stackRelayed: true,
+      progress: empty,
+      observed: { ...open, feedback: [own, other] },
+    }),
+  ).toEqual({
     result: "reported",
     events: [{ kind: "feedback", items: [own, other] }],
     progress: { seen: ["own", "other"], failures: [], eligibleHead: null },
   });
   expect(
     decideWait({
+      stackRelayed: true,
       progress: empty,
       observed: { ...open, feedback: [own], checks: [{ name: "ci", state: "failing", url: null }] },
     }),
@@ -196,7 +234,13 @@ test("the owner's own items never end a wait alone and are reported with the nex
 test("a report while not eligible keeps the recorded eligible head", () => {
   const progress = { seen: [], failures: [], eligibleHead: "h0" };
   const blank = item("blank", { kind: "review", body: "  \n", reviewState: "COMMENTED" });
-  expect(decideWait({ progress, observed: { ...open, feedback: [blank, item("a")] } })).toEqual({
+  expect(
+    decideWait({
+      stackRelayed: true,
+      progress,
+      observed: { ...open, feedback: [blank, item("a")] },
+    }),
+  ).toEqual({
     result: "reported",
     events: [{ kind: "feedback", items: [item("a")] }],
     progress: { seen: ["a"], failures: [], eligibleHead: "h0" },
@@ -208,12 +252,15 @@ test("recorded progress parses with every field, and one failing check is not pa
   expect(progressSchema.parse(progress)).toEqual(progress);
   expect(progressSchema.safeParse({ seen: [], failures: [] }).success).toBe(false);
   expect(
-    mergeConditions({
-      ...open,
-      checks: [
-        { name: "a", state: "passing", url: null },
-        { name: "b", state: "failing", url: null },
-      ],
-    }).checksPassing,
+    mergeConditions(
+      {
+        ...open,
+        checks: [
+          { name: "a", state: "passing", url: null },
+          { name: "b", state: "failing", url: null },
+        ],
+      },
+      true,
+    ).checksPassing,
   ).toBe(false);
 });

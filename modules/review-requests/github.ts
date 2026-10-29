@@ -30,7 +30,7 @@ export type PullRequestFacts = {
   /** Review requests for a user, newest last. A renewed request names the posting account. */
   reviewRequests: { reviewer: string; createdAt: string }[];
 };
-export type ThreadComment = {
+type ThreadComment = {
   id: string;
   author: string | null;
   body: string;
@@ -314,7 +314,7 @@ export function readPullRequest(target: Target) {
   });
 }
 
-export type PostedReview = { id: string; url: string; event: string };
+type PostedReview = { id: string; url: string; event: string };
 export type PostOutcome =
   | { status: "posted"; review: PostedReview }
   | { status: "failed" | "uncertain"; detail: string };

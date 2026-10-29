@@ -4,10 +4,10 @@ import { headLimitSchema, type Round } from "./request.ts";
 import { counts, status, type ReviewEvent } from "./review-body.ts";
 
 /** A reply or a reaction that the CLI generates and an agent only transports. */
-export type SlackEffect = { key: string; kind: "reply" | "reaction"; content: string };
+type SlackEffect = { key: string; kind: "reply" | "reaction"; content: string };
 
 /** The approved reactions. They only add, so earlier reactions stay on the message. */
-export const reactions = {
+const reactions = {
   start: "eyes",
   APPROVE: "white_check_mark",
   REQUEST_CHANGES: "request-changes",

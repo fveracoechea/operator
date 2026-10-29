@@ -7,7 +7,7 @@ export const progressSchema = z.object({
   failures: z.array(z.string()),
   eligibleHead: z.string().nullable(),
 });
-export type Progress = z.infer<typeof progressSchema>;
+type Progress = z.infer<typeof progressSchema>;
 
 export type MergeConditions = {
   approved: boolean;
@@ -17,20 +17,20 @@ export type MergeConditions = {
   /** A stacked PR's parent merged and the relay finished, so no parent commit rides along. */
   stackRelayed: boolean;
 };
-export type WaitEvent =
+type WaitEvent =
   | { kind: "feedback"; items: FeedbackItem[] }
   | { kind: "checks_failed"; head: string; checks: Check[] }
   | { kind: "merge_eligible"; head: string }
   | { kind: "pr_merged" | "pr_closed" };
 // A PR without a stack parent has nothing to relay.
-type Facts = { progress: Progress; observed: Observation; stackRelayed?: boolean };
+type Facts = { progress: Progress; observed: Observation; stackRelayed: boolean };
 type Decision =
   | { result: "not_open"; events: WaitEvent[]; progress: Progress }
   | { result: "reported"; events: WaitEvent[]; progress: Progress }
   | { result: "none" };
 
 /** The five conditions that the later merge gate checks again before it merges. */
-export function mergeConditions(observed: Observation, stackRelayed = true): MergeConditions {
+export function mergeConditions(observed: Observation, stackRelayed: boolean): MergeConditions {
   return {
     approved: observed.approved,
     // Just after a push GitHub can report no checks yet, so no checks is not passing checks.

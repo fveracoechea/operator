@@ -1,7 +1,7 @@
 import { Err, Ok, type Result } from "unthrown";
 import type { AssignmentState } from "./assignment-machine.ts";
 
-export type SourceState = "open" | "finished" | "reset";
+type SourceState = "open" | "finished" | "reset";
 type Facts = { state: SourceState; assignments: AssignmentState[] };
 // A reset source stays reset. Any other source finishes once all its work is complete.
 const rules: { when: (facts: Facts) => boolean; state: SourceState }[] = [
@@ -57,7 +57,7 @@ export function decideReset(facts: {
 
 export const retentionMs = 14 * 24 * 60 * 60 * 1000;
 
-export type PruneDecision =
+type PruneDecision =
   | { prune: true; prunableAt: string }
   | {
       prune: false;

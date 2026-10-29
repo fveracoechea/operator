@@ -23,7 +23,7 @@ export type Snapshot = OkOf<ReturnType<typeof DeviceState.readReviewRequest>>;
 export type Row = NonNullable<Snapshot["request"]>;
 export type Round = Snapshot["rounds"][number];
 export type Operation = Snapshot["operations"][number];
-export type Payload = {
+type Payload = {
   insert?: Pick<Row, "id" | "repository" | "number" | "url" | "origin" | "state">;
   update?: Partial<Omit<Row, "id">>;
   round?: Round;

@@ -13,7 +13,7 @@ type Facts = {
   /** The pane that runs the command, when Herdr supplies one. */
   caller: Pane;
 };
-export type ReportTransition = {
+type ReportTransition = {
   assignmentState?: "running" | "reported" | "completed";
   sourceFinished?: boolean;
   finishLaunch?: string;

@@ -9,7 +9,7 @@ import { Projects } from "../projects/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
 
 export type Paths = ReturnType<typeof OperatorHome.resolve>;
-export type OwnerFailure = {
+type OwnerFailure = {
   reason:
     | "pr_worktree_unrecorded"
     | "pr_owner_inactive"

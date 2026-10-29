@@ -129,10 +129,12 @@ test("the worker's own pane cannot accept or return, but another server's same p
 });
 
 test("a return keeps the report state, and only a returned report resumes", () => {
-  expect(decideReport(facts({ command: "return", state: "reported", latest: submitted }))).toEqual({
+  expect<unknown>(
+    decideReport(facts({ command: "return", state: "reported", latest: submitted })),
+  ).toEqual({
     tag: "Ok",
     value: { report: { update: 1, decision: "returned" } },
-  } as never);
+  });
   const returned = { number: 1, decision: "returned", cleanupState: null };
   expect(
     decideReport(facts({ command: "resume", state: "reported", latest: returned })),

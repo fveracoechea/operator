@@ -238,7 +238,7 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
   },
 ];
 
-/** This dispatch decision uses only recorded facts. Herdr activity is never an input. */
+/** Herdr activity only raises attention for an idle worker. It never proves a result. */
 export function decideAssignment(facts: Facts): Decision {
   return (
     rules.find((rule) => rule.when(facts))?.decide(facts) ?? {

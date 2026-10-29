@@ -41,12 +41,6 @@ function splitResponse(stdout: string): { httpStatus: number; bodyText: string }
 
 const errorBody = z.object({ message: z.string().min(1) });
 
-/**
- * Runs one `gh api` call and classifies its answer by the HTTP status GitHub returned.
- * A request GitHub refused is a definite failure, because the server answered.
- * A call that never answered, or answered with a server fault, stays uncertain: a timeout does
- * not prove that the effect did not happen.
- */
 export async function callGithub(request: {
   args: string[];
   input?: string;

@@ -112,7 +112,7 @@ test("the ordered assignment table exposes only ready work, preserving active an
   });
 });
 
-test("a failed or interrupted launch offers a replacement, and activity is never an input", () => {
+test("a failed or interrupted launch offers a replacement, and activity never proves a result", () => {
   const running: AssignmentState = { key: "one", completion: "report", state: "running" };
   expect(decideAssignment({ assignment: running, dependencies: [], launch: "failed" })).toEqual({
     action: "replace_worker",
@@ -134,6 +134,15 @@ test("a failed or interrupted launch offers a replacement, and activity is never
   const reported: AssignmentState = { key: "one", completion: "report", state: "reported" };
   expect(
     decideAssignment({ assignment: reported, dependencies: [], launch: "failed" }),
+  ).toMatchObject({ action: "wait", reason: "assignment_active" });
+  // A done host neither completes a report nor makes a submitted report need attention.
+  expect(
+    decideAssignment({
+      assignment: reported,
+      dependencies: [],
+      launch: "running",
+      activity: "done",
+    }),
   ).toMatchObject({ action: "wait", reason: "assignment_active" });
 });
 
