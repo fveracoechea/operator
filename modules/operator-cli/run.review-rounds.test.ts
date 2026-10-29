@@ -500,6 +500,34 @@ test("a skip ends one PR's request and removes its reviewer, and a later request
   expect(again).toMatchObject({ state: "queued", reviewer: null });
 }, 60000);
 
+test("a reviewer folder removed by hand loses its branch only when other refs hold its commits", async () => {
+  const current = await setup();
+  await current.add();
+  const started = launchSchema.parse((await current.run(["review", "start", url])).output).data
+    .launch;
+  await rm(started.worktreePath, { recursive: true, force: true });
+  expect(await current.run(["review", "skip", url])).toMatchObject({
+    code: 0,
+    output: { data: { cleanup: { state: "done" } } },
+  });
+  expect(await current.git(current.checkout, "branch", "--list", "review/*")).toBe("");
+
+  // A commit that only the reviewer branch holds is unlanded work.
+  await current.add();
+  const again = launchSchema.parse((await current.run(["review", "start", url])).output).data
+    .launch;
+  await Bun.write(`${again.worktreePath}/notes.txt`, "unlanded\n");
+  await current.git(again.worktreePath, "add", "notes.txt");
+  await current.git(again.worktreePath, "commit", "-q", "-m", "notes");
+  await rm(again.worktreePath, { recursive: true, force: true });
+  expect(await current.run(["review", "skip", url])).toMatchObject({
+    code: 0,
+    output: { data: { cleanup: { state: "kept" } } },
+  });
+  expect(await current.git(current.checkout, "branch", "--list", "review/*")).not.toBe("");
+  expect(await current.next()).toMatchObject([{ attention: "reviewer_work_kept" }]);
+}, 60000);
+
 test("a replacement of a watching reviewer keeps the reviewed head, so new commits still start a round", async () => {
   const current = await setup();
   const { launch } = await watching(current);

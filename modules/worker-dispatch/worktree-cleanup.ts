@@ -81,6 +81,42 @@ async function unlanded(input: {
 }
 
 /**
+ * A folder removed by hand leaves its branch. The branch goes only when other branches or
+ * remote branches hold its commits, the same rule as for a present worktree.
+ */
+async function absentWorktree(input: {
+  checkout: string;
+  worktree: string;
+  branch: string | null;
+}): Promise<Outcome> {
+  const gone = `Worktree ${input.worktree} no longer exists`;
+  const { branch } = input;
+  if (branch === null || !(await branchExists(input.checkout, branch)))
+    return { state: "absent", detail: `${gone}.` };
+  // Git keeps the branch checked out in the missing worktree until its record is pruned.
+  await git(input.checkout, ["worktree", "prune"]);
+  const commits = await git(input.checkout, [
+    "rev-list",
+    "--max-count=1",
+    `refs/heads/${branch}`,
+    "--not",
+    `--exclude=${branch}`,
+    "--branches",
+    "--remotes",
+  ]);
+  if (commits !== "")
+    return {
+      state: "kept",
+      detail: `${gone}, but its branch ${branch} holds commits that no other branch or remote branch holds. Only the person can authorize its deletion.`,
+    };
+  await git(input.checkout, ["branch", "-D", branch]);
+  return {
+    state: "absent",
+    detail: `${gone}. Removed its branch ${branch}, whose commits other branches hold.`,
+  };
+}
+
+/**
  * Keep a report worktree unless Git establishes that it holds no unlanded work. Removal uses
  * the non-forcing Git command, so Git also refuses a worktree that changed after inspection.
  */
@@ -91,8 +127,7 @@ export async function cleanWorktree(input: {
   branch: string | null;
 }): Promise<Outcome> {
   const worktree = await realpath(input.worktree).catch(() => null);
-  if (worktree === null)
-    return { state: "absent", detail: `Worktree ${input.worktree} no longer exists.` };
+  if (worktree === null) return absentWorktree(input);
   const reasons = await unlanded({ ...input, worktree });
   if (reasons.length > 0)
     return {
