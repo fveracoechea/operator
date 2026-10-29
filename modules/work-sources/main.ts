@@ -329,6 +329,11 @@ export const WorkSources = {
         // A defect keeps its own channel. The map only restates the value type.
         // Stryker disable next-line ArrowFunction, ObjectLiteral: equivalent: the map callback never runs for a defect
         if (result.tag === "Defect") return result.map(() => ({ pruned, kept }));
+        // A concurrent prune that removed the source first changed it under this read.
+        if (result.tag === "Err" && result.error.reason === "source_not_found") {
+          kept.push({ ...row, prunableAt: decision.prunableAt, reason: "source_changed" });
+          continue;
+        }
         if (result.tag === "Err")
           return Err({
             reason: result.error.reason,

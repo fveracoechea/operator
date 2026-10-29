@@ -307,6 +307,22 @@ test("prune deletes an ended source only after its retention", async () => {
   expect(await shown(open)).toMatchObject({ state: "open" });
 });
 
+test("a source that a concurrent prune removed first is kept as changed, not a failure", async () => {
+  const ended = await registered(["read"]);
+  await reset(ended);
+  spyOn(Date, "now").mockReturnValue(Date.now() + 15 * day);
+  const original = DeviceState.pruneSource;
+  spyOn(DeviceState, "pruneSource").mockImplementationOnce((p, target, decide) => {
+    original(p, target, decide);
+    return original(p, target, decide);
+  });
+  expect(await WorkSources.prune({ paths, cwd: checkout })).toMatchObject({
+    tag: "Ok",
+    value: { pruned: [], kept: [{ id: ended, reason: "source_changed" }] },
+  });
+  mock.restore();
+});
+
 test("prune reports what it pruned before a failure, and a changed source stays", async () => {
   const first = await registered(["read"]);
   const second = await registered(["read"], "APP-2");
