@@ -11,6 +11,7 @@ export async function scanFiles(directory: string): Promise<string[]> {
       )
     ).toSorted();
   } catch (error) {
+    // manifest.test.ts copies this file into a package without lib/, so it imports nothing.
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       return [];
     }

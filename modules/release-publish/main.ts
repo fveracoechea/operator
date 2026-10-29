@@ -1,5 +1,4 @@
 import { sha256 } from "../../lib/sha256.ts";
-import { OperatorRelease } from "../operator-release/main.ts";
 import { createRelease, createTag } from "./github-release.ts";
 import { DeliveryPath, type DeliveryPathEvent } from "./delivery.ts";
 import { type PublicationJournal, readJournal, writeJournal } from "./journal.ts";
@@ -100,7 +99,7 @@ export const ReleasePublish = {
       const outcome: DeliveryOutcome = deliver.observed
         ? { event: "observed-published", detail: path.detail, reference: null, at: now }
         : path.path === "github-source"
-          ? await publishSource(plan)
+          ? await publishSource(plan, now)
           : await publishRegistry(plan, request, now);
       const delivered = DeliveryPath.decide(recorded, outcome.event, outcome);
       for (const effect of "refused" in delivered ? [] : delivered.effects) {
@@ -132,11 +131,6 @@ export const ReleasePublish = {
   async delivered(request: { journalPath: string }) {
     return readJournal(request.journalPath);
   },
-
-  /** The artifact this release would publish, identified by every byte it holds. */
-  async artifact(request: { artifactRoot: string }) {
-    return OperatorRelease.inspect(request);
-  },
 };
 
 function publicationStatus(
@@ -147,8 +141,7 @@ function publicationStatus(
   return delivered.length === plan.paths.length ? "published" : "partial";
 }
 
-async function publishSource(plan: ReleasePlan): Promise<DeliveryOutcome> {
-  const now = new Date().toISOString();
+async function publishSource(plan: ReleasePlan, now: string): Promise<DeliveryOutcome> {
   // A tag an earlier attempt already landed on this commit is left exactly as it is, so the
   // retry creates only the release that is still missing instead of writing the tag again.
   const alreadyTagged = plan.source.tag.status === "present" && plan.source.tag.sha === plan.commit;

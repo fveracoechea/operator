@@ -220,15 +220,13 @@ export async function buildArtifact(request: {
     return { status: "declaration-failed" as const, detail: declarations.detail };
   }
 
-  for (const directory of [SKILLS_DIRECTORY]) {
-    for (const path of await scanFiles(`${sourceRoot}/${directory}`)) {
-      if (path.endsWith(".test.ts")) continue;
-      await Bun.write(
-        `${artifactRoot}/${directory}/${path}`,
-        Bun.file(`${sourceRoot}/${directory}/${path}`),
-        { createPath: true },
-      );
-    }
+  for (const path of await scanFiles(`${sourceRoot}/${SKILLS_DIRECTORY}`)) {
+    if (path.endsWith(".test.ts")) continue;
+    await Bun.write(
+      `${artifactRoot}/${SKILLS_DIRECTORY}/${path}`,
+      Bun.file(`${sourceRoot}/${SKILLS_DIRECTORY}/${path}`),
+      { createPath: true },
+    );
   }
 
   for (const file of await scanFiles(`${sourceRoot}/modules/device-state/migrations`)) {

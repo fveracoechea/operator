@@ -1,5 +1,6 @@
 // Bun has no lstat, stat, real-path, hard-link, mode, or directory creation API.
 import { isCodedError } from "../../lib/coded-error.ts";
+import { realPathOrNull } from "../../lib/real-path.ts";
 import { chmod, link, lstat, mkdir, realpath, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { fromPromise, Ok, Err } from "unthrown";
@@ -79,29 +80,26 @@ function globalFolder(listing: string) {
   return /^(.+) node_modules \(/.exec(listing)?.[1] ?? null;
 }
 
-/** The real path, or null when nothing is there to resolve. */
-function real(file: string) {
-  return realpath(file).catch(() => null);
+/** The specifier the manifest in one install folder records for the alias, if any. */
+async function aliasSpecifier(folder: string) {
+  const manifest = Bun.file(`${folder}/package.json`);
+  if (!(await manifest.exists())) return null;
+  return globalManifest.parse(await manifest.json()).dependencies?.[PACKAGE_ALIAS] ?? null;
 }
 
 /** The specifier the manifest beside an installed package records for it, if any. */
 async function installedSpecifier(packageRoot: string) {
   const suffix = `/node_modules/${PACKAGE_ALIAS}`;
   if (!packageRoot.endsWith(suffix)) return null;
-  const manifest = Bun.file(`${packageRoot.slice(0, -suffix.length)}/package.json`);
-  if (!(await manifest.exists())) return null;
-  return globalManifest.parse(await manifest.json()).dependencies?.[PACKAGE_ALIAS] ?? null;
+  return aliasSpecifier(packageRoot.slice(0, -suffix.length));
 }
 
 /** Bun's global install folder and the specifier its manifest records for the alias. */
 async function globalInstall(listing: string) {
   const reported = globalFolder(listing);
   if (reported === null) return { root: null, specifier: null };
-  const resolved = await real(reported);
-  const manifest = Bun.file(`${reported}/package.json`);
-  const specifier = (await manifest.exists())
-    ? (globalManifest.parse(await manifest.json()).dependencies?.[PACKAGE_ALIAS] ?? null)
-    : null;
+  const resolved = await realPathOrNull(reported);
+  const specifier = await aliasSpecifier(reported);
   return { root: resolved === null ? null : { reported, real: resolved }, specifier };
 }
 
@@ -118,13 +116,13 @@ async function commandBlockers(): Promise<CommandBlocker[]> {
     return [{ reason: "executable_missing", tool: "operator", detail: missingCommand }];
   const running = await realpath(runningPackage);
   const entries = await Promise.all(
-    ["cli.ts", "cli.js"].map((entry) => real(`${running}/${entry}`)),
+    ["cli.ts", "cli.js"].map((entry) => realPathOrNull(`${running}/${entry}`)),
   );
   // Stryker disable next-line ArrowFunction: no rule: Bun.which found the command, so stat fails only when it is removed during the check
   const entry = await stat(found).catch(() => null);
   // Stryker disable next-line OptionalChaining: no rule: the entry is null only when the command is removed during the check
   const target = entry?.isFile() ? launcherTarget(await Bun.file(found).text()) : null;
-  const reached = await Promise.all([found, target ?? found].map((path) => real(path)));
+  const reached = await Promise.all([found, target ?? found].map((path) => realPathOrNull(path)));
   const blockers: CommandBlocker[] = [];
   if (!reached.some((path) => path !== null && entries.includes(path)))
     blockers.push({
