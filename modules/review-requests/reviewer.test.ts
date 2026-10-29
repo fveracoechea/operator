@@ -594,6 +594,7 @@ test("the worktree goes after the pane, and kept work stays visible", async () =
     value: { state: "done", detail: "Closed pane p1. Removed the worktree." },
   });
   expect(clean).toHaveBeenCalledWith({
+    paths: home.paths,
     checkout: home.checkout,
     worktree: "/w",
     branch: "review/b",

@@ -594,7 +594,7 @@ test("acceptance cleans the worker worktree from the controlling checkout", asyn
     },
   });
   expect(clean.mock.calls).toEqual([
-    [{ checkout: device.checkout, worktree, branch: "task/read" }],
+    [{ paths: device.paths, checkout: device.checkout, worktree, branch: "task/read" }],
   ]);
   mock.restore();
 });

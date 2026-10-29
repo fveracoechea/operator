@@ -243,12 +243,13 @@ async function closePane(request: Row): Promise<CleanupOutcome> {
   return { state: "done", detail: `Closed pane ${request.paneId}.` };
 }
 
-async function dispose(request: Row, checkout: string): Promise<CleanupOutcome> {
+async function dispose(paths: Paths, request: Row, checkout: string): Promise<CleanupOutcome> {
   const pane = await closePane(request);
   if (pane.state !== "done" || request.worktreePath === null) return pane;
   let worktree;
   try {
     worktree = await WorkerDispatch.cleanWorktree({
+      paths,
       checkout,
       worktree: request.worktreePath,
       branch: request.branch,
@@ -278,7 +279,7 @@ export function cleanupReviewer(paths: Paths, target: Target, snapshot: Snapshot
   const release = DeviceState.holdReviewRequest(paths, request.id);
   return fromPromise(async () => {
     try {
-      return await dispose(request, project.checkout);
+      return await dispose(paths, request, project.checkout);
     } finally {
       release();
     }

@@ -310,7 +310,7 @@ function returnReport(input: {
 }
 
 /** Acceptance permits closing the worker pane. It never removes unlanded work. */
-async function cleanup(checkout: string, facts: Facts) {
+async function cleanup(paths: Paths, checkout: string, facts: Facts) {
   const steps: string[] = [];
   const launch = facts.launch;
   if (launch !== null && launch.paneId !== null && ["running", "finished"].includes(launch.state)) {
@@ -341,6 +341,7 @@ async function cleanup(checkout: string, facts: Facts) {
     let outcome;
     try {
       outcome = await WorkerDispatch.cleanWorktree({
+        paths,
         checkout,
         worktree: launch.worktreePath,
         branch: launch.branch,
@@ -383,7 +384,7 @@ function accept(input: { paths: Paths; cwd: string; sourceId: string; assignment
           : { decision: "accepted", decidedAt: new Date().toISOString(), cleanupState: "pending" },
       }));
       if (recorded.tag !== "Ok") return stop(recorded);
-      const outcome = await cleanup(target.value.checkout, facts);
+      const outcome = await cleanup(input.paths, target.value.checkout, facts);
       const cleaned = DeviceState.changeReport(input.paths, decision.target, (current) =>
         decide(current, "cleanup").map((done) => ({
           update: {

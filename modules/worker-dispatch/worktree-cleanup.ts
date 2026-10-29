@@ -1,7 +1,8 @@
-// Bun has no realpath or path API.
+// Bun has no realpath API.
 import { realpath } from "node:fs/promises";
-import path from "node:path";
+import type { OperatorHome } from "../operator-home/main.ts";
 import { ToolInvocation } from "../tool-invocation/main.ts";
+import { WorktreePreparation } from "../worktree-preparation/main.ts";
 
 type Outcome = { state: "removed" | "absent" | "kept"; detail: string };
 
@@ -32,28 +33,32 @@ async function branchExists(cwd: string, branch: string) {
   return result.exitCode === 0;
 }
 
-/** A prepared project input is a dependency folder or an environment file equal to the checkout's. */
-async function preparedInput(checkout: string, worktree: string, entry: string) {
-  if (entry.split("/").includes("node_modules")) return true;
-  const name = path.basename(entry);
-  if (!/^\.env(?:\.[^/]+)?\.local$/.test(name)) return false;
-  const original = Bun.file(path.join(checkout, entry));
-  if (!(await original.exists())) return false;
-  const copy = await Bun.file(path.join(worktree, entry)).bytes();
-  return Buffer.compare(copy, await original.bytes()) === 0;
-}
-
 /** Each reason names work that only the person can authorize to delete. */
-async function unlanded(checkout: string, worktree: string, branch: string | null) {
+async function unlanded(input: {
+  paths: ReturnType<typeof OperatorHome.resolve>;
+  checkout: string;
+  worktree: string;
+  branch: string | null;
+}) {
+  const { checkout, worktree, branch } = input;
   const status = (await git(worktree, ["status", "--porcelain", "-z", "--ignored=matching"]))
     .split("\0")
     .filter((line) => line !== "");
   const reasons: string[] = [];
+  const ignored: string[] = [];
   for (const line of status) {
-    const entry = line.slice(3).replace(/\/$/, "");
-    if (!line.startsWith("!! ")) reasons.push(`changed or untracked ${entry}`);
-    else if (!(await preparedInput(checkout, worktree, entry))) reasons.push(`ignored ${entry}`);
+    if (line.startsWith("!! ")) ignored.push(line.slice(3));
+    else reasons.push(`changed or untracked ${line.slice(3).replace(/\/$/, "")}`);
   }
+  // Only what preparation wrote may go. An unclassified entry can be unlanded work.
+  const classified = await WorktreePreparation.classifyIgnored({
+    paths: input.paths,
+    worktree,
+    controller: checkout,
+    ignored,
+  });
+  for (const entry of classified.tag === "Ok" ? classified.value.unknown : ignored)
+    reasons.push(`ignored ${entry.replace(/\/$/, "")}`);
   const tips = ["HEAD"];
   const exclude: string[] = [];
   if (branch !== null) {
@@ -80,6 +85,7 @@ async function unlanded(checkout: string, worktree: string, branch: string | nul
  * the non-forcing Git command, so Git also refuses a worktree that changed after inspection.
  */
 export async function cleanWorktree(input: {
+  paths: ReturnType<typeof OperatorHome.resolve>;
   checkout: string;
   worktree: string;
   branch: string | null;
@@ -87,7 +93,7 @@ export async function cleanWorktree(input: {
   const worktree = await realpath(input.worktree).catch(() => null);
   if (worktree === null)
     return { state: "absent", detail: `Worktree ${input.worktree} no longer exists.` };
-  const reasons = await unlanded(input.checkout, worktree, input.branch);
+  const reasons = await unlanded({ ...input, worktree });
   if (reasons.length > 0)
     return {
       state: "kept",

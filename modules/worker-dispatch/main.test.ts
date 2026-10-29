@@ -310,6 +310,7 @@ test("the interface passes observation, plugin, reviewer, and cleanup calls to t
   });
   expect(
     await WorkerDispatch.cleanWorktree({
+      paths: device.paths,
       checkout: device.checkout,
       worktree: `${device.root}/gone`,
       branch: null,
