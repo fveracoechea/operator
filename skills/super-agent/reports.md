@@ -25,7 +25,7 @@ Decide whether a point needs other work. Operator does not schedule it. Create a
 Acceptance is your decision, not a human answer, as [delegation.md](delegation.md) says.
 
 Acceptance closes the worker pane and removes a report worktree only when Git shows no unlanded work.
-A kept worktree names its reason. Only the person can authorize its deletion, so tell the person.
+A kept worktree names its reason and shows in `next` as `person_decision` with `cleanup_unlanded_work`. Only the person can authorize its deletion, so tell the person. After the person removes the work, run `report accept` again.
 `retry_cleanup` means that cleanup failed or did not finish. Fix the reported cause, then run `report accept` again.
 Run acceptance on the Herdr server that runs the worker, because another server cannot close its pane.
 

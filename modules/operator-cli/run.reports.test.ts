@@ -344,7 +344,7 @@ test("returned work resumes, and a replacement keeps reports, follow-up, and cur
   ]);
 }, 60000);
 
-test("acceptance keeps a worktree with unlanded work, and failed cleanup stays in next", async () => {
+test("acceptance keeps a worktree with unlanded work for the person, and failed cleanup stays in next", async () => {
   const source = await device.register({
     trackerKey: "github:example/one#20",
     assignments: ["prototype", "probe"].map((key, index) => ({
@@ -378,7 +378,7 @@ test("acceptance keeps a worktree with unlanded work, and failed cleanup stays i
   expect(accepted.output).toMatchObject({
     data: {
       cleanup: {
-        state: "done",
+        state: "kept",
         detail: expect.stringContaining(
           "because it holds changed or untracked prototype.ts",
         ) as unknown,
@@ -387,6 +387,10 @@ test("acceptance keeps a worktree with unlanded work, and failed cleanup stays i
   });
   expect(await Bun.file(`${kept}/prototype.ts`).exists()).toBe(true);
   expect((await git(device.main, "rev-parse", "--verify", "task/prototype")).code).toBe(0);
+  // Only the person can authorize the deletion, so next shows the kept work to them.
+  expect(await device.next("prototype")).toMatchObject([
+    { action: "person_decision", reason: "cleanup_unlanded_work" },
+  ]);
 
   // A failed pane closure stays visible after the source ends, and a repeated accept retries it.
   const probe = await device.dispatch(source, "probe");
@@ -452,6 +456,22 @@ test("acceptance keeps a worktree with unlanded work, and failed cleanup stays i
   expect((await git(device.main, "rev-parse", "--verify", "task/probe")).code).not.toBe(0);
   expect(await device.next("probe")).toEqual([]);
   expect(await Bun.file(`${kept}/prototype.ts`).exists()).toBe(true);
+
+  // After the person removes the work, a repeated accept finishes the cleanup.
+  await Bun.file(`${kept}/prototype.ts`).delete();
+  const finished = await device.run([
+    "report",
+    "accept",
+    "--source",
+    source,
+    "--assignment",
+    "prototype",
+  ]);
+  expect(finished.output).toMatchObject({
+    reason: "report_cleanup_retried",
+    data: { cleanup: { state: "done" } },
+  });
+  expect(await device.next("prototype")).toEqual([]);
 }, 60000);
 
 test("a consumer brief keeps accepted content after the producer project is removed", async () => {

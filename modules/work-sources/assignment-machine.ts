@@ -25,7 +25,7 @@ type Facts = {
   /** The latest report's SuperAgent decision and cleanup, when one was submitted. */
   report?: {
     decision: "accepted" | "returned" | null;
-    cleanup: "pending" | "done" | "failed" | null;
+    cleanup: "pending" | "done" | "failed" | "kept" | null;
   };
   cleanup?: "running" | "pending" | "failed" | "done" | "unlanded_work" | "resource_mismatch";
 };
@@ -126,6 +126,13 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
       reason: report?.cleanup === "failed" ? "cleanup_failed" : "cleanup_unfinished",
       blockers: [],
     }),
+  },
+  {
+    when: ({ assignment, report }) =>
+      assignment.state === "completed" &&
+      report?.decision === "accepted" &&
+      report.cleanup === "kept",
+    decide: () => ({ action: "person_decision", reason: "cleanup_unlanded_work", blockers: [] }),
   },
   // A merge is complete, but its cleanup stays visible until every resource is disposed.
   {

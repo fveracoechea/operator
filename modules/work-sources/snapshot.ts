@@ -99,7 +99,7 @@ const reportSchema = z.object({
   decision: z.enum(["accepted", "returned"]).nullable(),
   decidedAt: z.string().nullable(),
   followUp: z.string().nullable(),
-  cleanupState: z.enum(["pending", "done", "failed"]).nullable(),
+  cleanupState: z.enum(["pending", "done", "failed", "kept"]).nullable(),
   cleanupDetail: z.string().nullable(),
 });
 export type Report = z.infer<typeof reportSchema>;

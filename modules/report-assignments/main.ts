@@ -309,47 +309,68 @@ function returnReport(input: {
   ).flatMap((result) => result);
 }
 
+async function disposeWorktree(
+  paths: Paths,
+  checkout: string,
+  target: { worktree: string; branch: string | null },
+) {
+  try {
+    return await WorkerDispatch.cleanWorktree({ paths, checkout, ...target });
+  } catch (cause) {
+    return { state: "failed" as const, detail: String(cause) };
+  }
+}
+
+/** The unique launch name proves that the recorded pane still holds this worker. */
+async function closeWorkerPane(launch: {
+  paneId: string;
+  herdrSocket: string | null;
+  name: string;
+}) {
+  // Herdr reads its server from the environment, and another server can reuse a pane id.
+  if (caller().socket !== launch.herdrSocket)
+    return {
+      state: "failed" as const,
+      detail: `Pane ${launch.paneId} belongs to another Herdr server. Repeat report accept in a pane of that server.`,
+    };
+  const agents = await Herdr.agentNames();
+  if (agents.tag !== "Ok")
+    return {
+      state: "failed" as const,
+      detail: agents.tag === "Err" ? agents.error.detail : String(agents.cause),
+    };
+  if (!agents.value.includes(launch.name))
+    return {
+      state: "done" as const,
+      detail: `Pane ${launch.paneId} no longer holds ${launch.name}.`,
+    };
+  const closed = await Herdr.closePane(launch.paneId);
+  if (closed.tag !== "Ok")
+    return {
+      state: "failed" as const,
+      detail: closed.tag === "Err" ? closed.error.detail : String(closed.cause),
+    };
+  return { state: "done" as const, detail: `Closed pane ${launch.paneId}.` };
+}
+
 /** Acceptance permits closing the worker pane. It never removes unlanded work. */
 async function cleanup(paths: Paths, checkout: string, facts: Facts) {
   const steps: string[] = [];
   const launch = facts.launch;
   if (launch !== null && launch.paneId !== null && ["running", "finished"].includes(launch.state)) {
-    // Herdr reads its server from the environment, and another server can reuse a pane id.
-    if (caller().socket !== launch.herdrSocket)
-      return {
-        state: "failed" as const,
-        detail: `Pane ${launch.paneId} belongs to another Herdr server. Repeat report accept in a pane of that server.`,
-      };
-    // The unique launch name proves that the recorded pane still holds this worker.
-    const agents = await Herdr.agentNames();
-    if (agents.tag !== "Ok")
-      return {
-        state: "failed" as const,
-        detail: agents.tag === "Err" ? agents.error.detail : String(agents.cause),
-      };
-    if (agents.value.includes(launch.name)) {
-      const closed = await Herdr.closePane(launch.paneId);
-      if (closed.tag !== "Ok")
-        return {
-          state: "failed" as const,
-          detail: closed.tag === "Err" ? closed.error.detail : String(closed.cause),
-        };
-      steps.push(`Closed pane ${launch.paneId}.`);
-    } else steps.push(`Pane ${launch.paneId} no longer holds ${launch.name}.`);
+    const pane = await closeWorkerPane({ ...launch, paneId: launch.paneId });
+    if (pane.state === "failed") return pane;
+    steps.push(pane.detail);
   }
   if (launch?.worktreePath) {
-    let outcome;
-    try {
-      outcome = await WorkerDispatch.cleanWorktree({
-        paths,
-        checkout,
-        worktree: launch.worktreePath,
-        branch: launch.branch,
-      });
-    } catch (cause) {
-      return { state: "failed" as const, detail: String(cause) };
-    }
-    steps.push(outcome.detail);
+    const worktree = await disposeWorktree(paths, checkout, {
+      worktree: launch.worktreePath,
+      branch: launch.branch,
+    });
+    if (worktree.state === "failed") return worktree;
+    steps.push(worktree.detail);
+    // Only the person can authorize the deletion of unlanded work, so it stays in next.
+    if (worktree.state === "kept") return { state: "kept" as const, detail: steps.join(" ") };
   }
   return { state: "done" as const, detail: steps.join(" ") || "No pane or worktree to clean up." };
 }

@@ -138,7 +138,7 @@ function retention(
     cleanupOpen:
       facts.cleanups.some((cleanup) => cleanup.state !== "done") ||
       facts.reports.some(
-        (report) => report.cleanupState === "pending" || report.cleanupState === "failed",
+        (report) => report.cleanupState !== null && report.cleanupState !== "done",
       ),
     workerRunning: facts.launches.some(liveWorker),
   });
