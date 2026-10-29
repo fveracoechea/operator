@@ -8,7 +8,9 @@ Install it globally from JSR with Bun, from the repository source at a full comm
 Settings and state are on the device, and each project registers once with `operator project register`.
 SuperAgents and WorkerAgents replace the old role names.
 Assignment plans, dispatch, report assignments, the PR feedback loop with the guarded merge, review requests, and source reset and prune have new commands.
-The old project setup, release selection, live probes, tracker operations, integration-branch publication, project gates, and the old role and review-posting skills are removed.
+The old project setup, release selection, live probes, tracker operations, integration-branch publication, and project gates are removed.
+The bundled `operator`, `operative`, `parallel-pr-review`, and `performance-highlights` skills are removed.
+`super-agent`, `worker-agent`, and `slack-pr-review-workflow` replace the first three.
 There are no aliases or forwarding skills.
 
 Before you update, finish all old crews and their work with the old release.

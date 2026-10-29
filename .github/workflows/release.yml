@@ -40,6 +40,9 @@ jobs:
       # with none left is the merge of that pull request, or a push that carries a released
       # version. The publish job uses that version's CHANGELOG.md section as the GitHub release
       # notes and tells the two pushes apart.
+      # GitHub starts no pull_request workflow for a PR that GITHUB_TOKEN opens, so the version PR
+      # gets no Quality or Release smoke checks. Publication stays safe, because the publish job
+      # needs quality and smoke on the merged commit.
       - id: changesets
         uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
         with:
