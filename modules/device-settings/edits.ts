@@ -24,7 +24,7 @@ export function parseEdits(sets: string[], unsets: string[]) {
   ] as const) {
     for (const raw of values) {
       const separator = raw.indexOf("=");
-      const key = action === "set" ? raw.slice(0, separator) : raw;
+      const key = action === "set" && separator !== -1 ? raw.slice(0, separator) : raw;
       const value = action === "set" ? raw.slice(separator + 1) : null;
       if (!validField(key, action, raw.slice(separator + 1))) {
         issues.push(`Unsupported settings field: ${raw}.`);

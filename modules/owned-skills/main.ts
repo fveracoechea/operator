@@ -1,9 +1,8 @@
 import { fromPromise, Ok, Err } from "unthrown";
 import { z } from "zod";
-import { checkOnly, install, type Request } from "./install.ts";
+import { checkOnly, install, releaseNames, type Request } from "./install.ts";
 // Bun has no realpath API.
 import { realpath } from "node:fs/promises";
-import path from "node:path";
 import { OperatorHome } from "../operator-home/main.ts";
 import { Environment } from "../environment/main.ts";
 import { contents, identity } from "./content.ts";
@@ -13,11 +12,8 @@ const source = Bun.fileURLToPath(new URL("../../skills/", import.meta.url));
 
 /** Owns personal copies and their device ledger. Check mode follows consumer-owned links. */
 export const OwnedSkills = {
-  async names() {
-    const names = [];
-    for await (const file of new Bun.Glob("*/SKILL.md").scan({ cwd: source }))
-      names.push(path.dirname(file));
-    return names.toSorted();
+  names() {
+    return releaseNames(source);
   },
   /** Content identities of the running release's skills, for a launch snapshot. */
   async identities() {

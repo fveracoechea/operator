@@ -27,14 +27,17 @@ export function qualify<T>(cause: Error, defect: (cause: Error) => T) {
 
 /** Every file below the folder, so a replacement sees each earlier report and supporting file. */
 export async function listFiles(directory: string) {
-  return readdir(directory, { recursive: true, withFileTypes: true })
-    .then((entries) =>
-      entries
-        .filter((entry) => entry.isFile())
-        .map((entry) => path.relative(directory, path.join(entry.parentPath, entry.name)))
-        .toSorted(),
-    )
-    .catch(() => []);
+  try {
+    const entries = await readdir(directory, { recursive: true, withFileTypes: true });
+    return entries
+      .filter((entry) => entry.isFile())
+      .map((entry) => path.relative(directory, path.join(entry.parentPath, entry.name)))
+      .toSorted();
+  } catch (cause) {
+    if (isCodedError(cause) && cause.code === "ENOENT") return [];
+    // oxlint-disable-next-line unthrown/no-throw -- The brief writer qualifies this failure.
+    throw cause;
+  }
 }
 
 export function gitBranches(checkout: string) {

@@ -1,5 +1,5 @@
 // Bun has no directory creation, lstat, or directory removal API.
-import { lstat, mkdir, rmdir, unlink } from "node:fs/promises";
+import { mkdir, rmdir, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { Database } from "bun:sqlite";
 import { z } from "zod";
@@ -52,10 +52,16 @@ async function ledger(file: string): Promise<Ledger> {
   return ledgerSchema.parse(await Bun.file(file).json());
 }
 
-async function inspect(request: Request, recorded: Ledger): Promise<{ copies: Copy[] } | Refusal> {
+/** Each release skill is a folder with a SKILL.md. */
+export async function releaseNames(source: string) {
   const names = [];
-  for await (const file of new Bun.Glob("*/SKILL.md").scan({ cwd: request.source }))
+  for await (const file of new Bun.Glob("*/SKILL.md").scan({ cwd: source }))
     names.push(path.dirname(file));
+  return names.toSorted();
+}
+
+async function inspect(request: Request, recorded: Ledger): Promise<{ copies: Copy[] } | Refusal> {
+  const names = await releaseNames(request.source);
   if (names.length === 0)
     return {
       reason: "skills_release_invalid" as const,
@@ -63,7 +69,7 @@ async function inspect(request: Request, recorded: Ledger): Promise<{ copies: Co
     };
   const copies: Copy[] = [];
   for (const host of request.hosts) {
-    for (const name of [...names.toSorted(), ...retired]) {
+    for (const name of [...names, ...retired]) {
       const root = request.paths.skillHosts[host];
       const destination = path.join(root, name);
       const source = path.join(request.source, name);
@@ -132,7 +138,8 @@ async function changeCopy(copy: Copy) {
     await writeFile(
       path.join(copy.destination, file),
       await Bun.file(path.join(copy.source, file)).bytes(),
-      (await lstat(path.join(copy.source, file))).mode % 0o1000,
+      // A linked release file gets its target's mode, as the copied bytes are the target's.
+      (await stat(path.join(copy.source, file))).mode % 0o1000,
     );
   }
   return same(await contents(copy.destination), released);

@@ -78,6 +78,8 @@ test("lists every file below a folder in sorted order, and a missing folder has 
   await mkdir(`${root}/reports/empty`);
   expect(await listFiles(`${root}/reports`)).toEqual(["a/1.md", "a/2/files/notes.md", "b.md"]);
   expect(await listFiles(`${root}/missing`)).toEqual([]);
+  // Another failure must not read as "no earlier reports" in a replacement brief.
+  await expect(listFiles(`${root}/reports/b.md`)).rejects.toMatchObject({ code: "ENOTDIR" });
 });
 
 test("lists local branches and origin branches without the remote name", async () => {

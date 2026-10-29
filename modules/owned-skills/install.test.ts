@@ -186,6 +186,7 @@ test("a release with no owned skills is invalid", async () => {
 
 test("copies follow links in the release and keep file modes", async () => {
   await Bun.write(`${root}/outside`, "linked bytes\n");
+  await chmod(`${root}/outside`, 0o640);
   await symlink(`${root}/outside`, `${request.source}/example/linked`);
   await Bun.write(`${request.source}/example/run`, "#!/bin/sh\n");
   await chmod(`${request.source}/example/run`, 0o755);
@@ -194,6 +195,7 @@ test("copies follow links in the release and keep file modes", async () => {
   const destination = `${request.paths.skillHosts.opencode}/example`;
   expect(await Bun.file(`${destination}/linked`).text()).toBe("linked bytes\n");
   expect((await lstat(`${destination}/linked`)).isFile()).toBe(true);
+  expect((await stat(`${destination}/linked`)).mode % 0o1000).toBe(0o640);
   expect((await stat(`${destination}/run`)).mode % 0o1000).toBe(0o755);
   expect((await stat(`${destination}/SKILL.md`)).mode % 0o1000).toBe(0o600);
 });

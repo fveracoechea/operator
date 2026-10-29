@@ -38,8 +38,9 @@ test.each([
   { sets: [], unsets: [], issues: ["Name at least one --set or --unset field."] },
   { sets: ["superAgent.host="], unsets: [], issues: [empty("superAgent.host")] },
   { sets: ["superAgent.host= "], unsets: [], issues: [empty("superAgent.host")] },
-  { sets: ["review.channelX"], unsets: [], issues: [empty("review.channel")] },
-  { sets: ["superAgent.host"], unsets: [], issues: [unsupported("superAgent.host")] },
+  { sets: ["review.channel"], unsets: [], issues: [empty("review.channel")] },
+  { sets: ["review.channelX"], unsets: [], issues: [unsupported("review.channelX")] },
+  { sets: ["superAgent.host"], unsets: [], issues: [empty("superAgent.host")] },
   {
     sets: ["xsuperAgent.host=opencode"],
     unsets: [],
