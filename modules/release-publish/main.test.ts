@@ -435,28 +435,9 @@ describe("the publication", () => {
   });
 });
 
-describe("the published artifact", () => {
-  test("packs every byte of the artifact into one gzipped tarball", async () => {
-    const packed = await ReleasePublish.pack({ artifactRoot });
-
-    const extracted = `${artifactRoot}-extracted`;
-    roots.push(extracted);
-    await Bun.$`mkdir -p ${extracted}`.quiet();
-    await Bun.write(`${extracted}/artifact.tgz`, packed.bytes);
-    await Bun.$`tar -xzf ${extracted}/artifact.tgz -C ${extracted}`.quiet();
-
-    expect(await Bun.file(`${extracted}/cli.js`).text()).toBe(
-      await Bun.file(`${artifactRoot}/cli.js`).text(),
-    );
-    expect(await Bun.file(`${extracted}/skills/deep-modules/SKILL.md`).exists()).toBe(true);
-    expect(await Bun.file(`${extracted}/jsr.json`).exists()).toBe(true);
-  });
-
-  test("packs the same bytes every time, so a retry sends what was approved", async () => {
-    const first = await ReleasePublish.pack({ artifactRoot });
-    const second = await ReleasePublish.pack({ artifactRoot });
-
-    expect(second.identity).toBe(first.identity);
+describe("the interface", () => {
+  test("holds only the release operations that production runs", () => {
+    expect(Object.keys(ReleasePublish)).toEqual(["plan", "publish", "check", "delivered"]);
   });
 });
 
@@ -653,26 +634,5 @@ describe("a path the record already names as delivered", () => {
     expect(await forgetful.calls()).toEqual([]);
     const delivered = await ReleasePublish.delivered({ journalPath });
     expect(delivered.state === "read" && delivered.journal.paths.jsr?.state).toBe("published");
-  });
-});
-
-describe("the tarball order", () => {
-  test("follows the byte order the artifact identity uses, not the locale", async () => {
-    await Bun.write(`${artifactRoot}/skills/deep-modules/Z-upper.md`, "upper\n");
-    await Bun.write(`${artifactRoot}/skills/deep-modules/a-lower.md`, "lower\n");
-    const packed = await ReleasePublish.pack({ artifactRoot });
-
-    const listed = `${artifactRoot}-listing`;
-    roots.push(listed);
-    await Bun.$`mkdir -p ${listed}`.quiet();
-    await Bun.write(`${listed}/artifact.tgz`, packed.bytes);
-    const names = (await Bun.$`tar -tzf ${listed}/artifact.tgz`.text())
-      .split("\n")
-      .filter((name) => name.startsWith("skills/deep-modules/"));
-
-    // `toSorted()` compares code points, so the upper-case name precedes the lower-case one.
-    expect(names.indexOf("skills/deep-modules/Z-upper.md")).toBeLessThan(
-      names.indexOf("skills/deep-modules/a-lower.md"),
-    );
   });
 });

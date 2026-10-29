@@ -1,9 +1,7 @@
-import { sha256 } from "../../lib/sha256.ts";
 import { createRelease, createTag } from "./github-release.ts";
 import { DeliveryPath, type DeliveryPathEvent } from "./delivery.ts";
 import { type PublicationJournal, readJournal, writeJournal } from "./journal.ts";
 import { checkWithClient, publishWithClient, readVersion } from "./jsr-registry.ts";
-import { scanArtifact } from "./pack.ts";
 import {
   computeReleasePlan,
   jsrSettings,
@@ -11,7 +9,6 @@ import {
   type PlanRequest,
   type ReleasePlan,
 } from "./plan.ts";
-import { packTarball } from "./tar.ts";
 
 type PublishRequest = PlanRequest & { now?: string };
 
@@ -54,18 +51,6 @@ export const ReleasePublish = {
   /** Inspects the artifact, the commit, and what is already published. Writes nothing. */
   async plan(request: PlanRequest) {
     return computeReleasePlan(request);
-  },
-
-  /**
-   * Packs one built artifact into the gzipped tarball a registry serves.
-   * The bytes are fixed by the artifact alone, so the smoke test installs exactly what a
-   * registry would hold.
-   */
-  async pack(request: { artifactRoot: string; prefix?: string }) {
-    const entries = await scanArtifact(request.artifactRoot, request.prefix ?? "");
-    const bytes = packTarball(entries);
-
-    return { bytes, entries: entries.length, identity: sha256(bytes) };
   },
 
   /**

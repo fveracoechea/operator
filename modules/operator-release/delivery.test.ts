@@ -1,12 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Environment } from "../environment/main.ts";
+import { packArtifact } from "../../scripts/tarball-fixture.ts";
 import { Database } from "bun:sqlite";
 import { registerTestDevice } from "../../scripts/device-fixture.ts";
 // Bun has no recursive copy, symlink, real-path, or directory removal API.
 import { chmod, cp, mkdir, rm, symlink } from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import { OperatorRelease } from "./main.ts";
-import { ReleasePublish } from "../release-publish/main.ts";
 import { packageSchema, jsrSchema, releaseSchema, versionSchema } from "./schemas-fixture.ts";
 import { z } from "zod";
 import {
@@ -106,7 +106,7 @@ beforeAll(async () => {
     `${registryRoot}/package.json`,
     registryManifest({ packageName: "@jsr/fveracoechea__operator", version, dependencies }),
   );
-  const packed = await ReleasePublish.pack({ artifactRoot: registryRoot, prefix: "package" });
+  const packed = await packArtifact({ artifactRoot: registryRoot, prefix: "package" });
   registry = startRegistryFake({
     packageName: "@jsr/fveracoechea__operator",
     version,

@@ -1,5 +1,7 @@
 // Bun has no invariant assertion API outside its test runner.
 import assert from "node:assert/strict";
+import { sha256 } from "../lib/sha256.ts";
+import { OperatorRelease } from "../modules/operator-release/main.ts";
 
 const BLOCK = 512;
 const encoder = new TextEncoder();
@@ -104,4 +106,30 @@ export function packTarball(
 
   // The copy gives the bytes a buffer of their own, so a caller may hand them to a request body.
   return new Uint8Array(Bun.gzipSync(tar));
+}
+
+/** Reads every published byte of one artifact, under the names it is delivered as. */
+export async function scanArtifact(artifactRoot: string, prefix: string): Promise<TarEntry[]> {
+  const root = artifactRoot.replace(/\/$/, "");
+  const paths = await OperatorRelease.contents({ artifactRoot: root });
+
+  return Promise.all(
+    paths.map(async (path) => ({
+      path: prefix === "" ? path : `${prefix}/${path}`,
+      bytes: new Uint8Array(await Bun.file(`${root}/${path}`).arrayBuffer()),
+      // The registry tarball is not trusted to keep a file mode, so the launcher never
+      // depends on one. The executable bit is recorded for the command entry point alone.
+      executable: path === "cli.js",
+    })),
+  );
+}
+
+/**
+ * Packs one built artifact into the gzipped tarball a registry serves, so a smoke test installs
+ * exactly what a registry would hold. No production path packs a tarball: the official JSR client
+ * does that on publication.
+ */
+export async function packArtifact(request: { artifactRoot: string; prefix?: string }) {
+  const bytes = packTarball(await scanArtifact(request.artifactRoot, request.prefix ?? ""));
+  return { bytes, identity: sha256(bytes) };
 }

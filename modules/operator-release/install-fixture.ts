@@ -4,7 +4,7 @@ import { cp, mkdir, symlink } from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import { z } from "zod";
 import { Environment } from "../environment/main.ts";
-import { ReleasePublish } from "../release-publish/main.ts";
+import { packArtifact } from "../../scripts/tarball-fixture.ts";
 import { OperatorRelease } from "./main.ts";
 import { registryDependencies, registryManifest, startRegistryFake } from "./registry-fixture.ts";
 import { PACKAGE_NAMES } from "./registry-install.ts";
@@ -152,7 +152,7 @@ export async function installFixture(name: string) {
       `${artifactRoot}/package.json`,
       registryManifest({ packageName: registryPackage, version, dependencies }),
     );
-    const packed = await ReleasePublish.pack({ artifactRoot, prefix: "package" });
+    const packed = await packArtifact({ artifactRoot, prefix: "package" });
     return {
       version,
       commit,
