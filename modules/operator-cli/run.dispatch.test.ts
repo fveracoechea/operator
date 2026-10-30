@@ -328,15 +328,19 @@ test("a workspace that Herdr gives no checkout is the project workspace when its
   expect(await herdrCalls()).not.toContain("workspace create");
 });
 
-test("the tab of a new or reopened worktree gets the launch name at once", async () => {
+test("a new project workspace tab gets the repository name, and a new worktree tab the launch name", async () => {
   expect((await run(["herdr", "install"])).code).toBe(0);
   const source = await register();
   const launched = await run(["dispatch", "--source", source, "--assignment", "implement"]);
   expect(launched.code, launched.stderr).toBe(0);
   const state = await herdrState();
-  const worktree = state.workspaces.find((row) => row.label === "pr-one-12-implement");
-  expect(state.tabs.filter((tab) => tab.workspaceId === worktree?.workspace_id)).toEqual([
-    { workspaceId: worktree?.workspace_id ?? "", label: "pr-one-12-implement" },
+  expect(state.workspaces.map((row) => [row.workspace_id, row.label])).toEqual([
+    ["w1", "one"],
+    ["w3", "pr-one-12-implement"],
+  ]);
+  expect(state.tabs).toEqual([
+    { workspaceId: "w1", label: "one" },
+    { workspaceId: "w3", label: "pr-one-12-implement" },
   ]);
 });
 

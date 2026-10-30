@@ -240,20 +240,35 @@ test("a release or skill read that fails on the filesystem is qualified", async 
   });
 });
 
-test("a missing project workspace is created and named after the repository", async () => {
+test("a missing project workspace is created, and it and its root tab are named after the repository", async () => {
   const create = spyOn(Herdr, "createWorkspace").mockReturnValue(
     OkAsync({ workspaceId: "w9", tabId: "t9", paneId: "p9" }),
   );
+  const rename = spyOn(Herdr, "renameTab").mockReturnValue(OkAsync(undefined));
   expect(await ensureWorkspace("/checkout", "example/team/one", null)).toMatchObject({
     tag: "Ok",
     value: "w9",
   });
   expect(create).toHaveBeenCalledWith({ cwd: "/checkout", label: "one" });
+  expect(rename).toHaveBeenCalledWith({ tabId: "t9", label: "one" });
   expect(await ensureWorkspace("/checkout", "example/one", "w1")).toMatchObject({
     tag: "Ok",
     value: "w1",
   });
   expect(create).toHaveBeenCalledTimes(1);
+  expect(rename).toHaveBeenCalledTimes(1);
+});
+
+test("a root tab rename that Herdr refuses fails the workspace start", async () => {
+  spyOn(Herdr, "createWorkspace").mockReturnValue(
+    OkAsync({ workspaceId: "w9", tabId: "t9", paneId: "p9" }),
+  );
+  const failure = { reason: "herdr_failed" as const, detail: "herdr tab rename exited 1: refused" };
+  spyOn(Herdr, "renameTab").mockReturnValue(ErrAsync(failure));
+  expect(await ensureWorkspace("/checkout", "example/one", null)).toMatchObject({
+    tag: "Err",
+    error: failure,
+  });
 });
 
 function record(worktree: string, state: string) {

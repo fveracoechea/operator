@@ -225,6 +225,30 @@ test("a workspace with no checkout is the project workspace when each of its pan
   });
 });
 
+test("a pane in a folder below the controlling checkout is in it, and a sibling folder is not", async () => {
+  const checkout = await repository("checkout");
+  await mkdir(`${checkout}/packages/x`, { recursive: true });
+  await mkdir(`${checkout}-copy`);
+  spyOn(Herdr, "workspaces").mockReturnValue(
+    OkAsync([
+      { workspaceId: "w1", label: "sibling", checkout: null, linked: false },
+      { workspaceId: "w2", label: "one", checkout: null, linked: false },
+    ]),
+  );
+  spyOn(Herdr, "panes").mockReturnValue(
+    OkAsync([
+      { paneId: "p1", tabId: "t1", workspaceId: "w1", cwd: checkout },
+      { paneId: "p2", tabId: "t2", workspaceId: "w1", cwd: `${checkout}-copy` },
+      { paneId: "p3", tabId: "t3", workspaceId: "w2", cwd: `${checkout}/packages/x` },
+      { paneId: "p4", tabId: "t4", workspaceId: "w2", cwd: checkout },
+    ]),
+  );
+  expect(await projectWorkspace(checkout)).toMatchObject({
+    tag: "Ok",
+    value: { workspaceId: "w2" },
+  });
+});
+
 test("a workspace whose checkout is the controller wins without a pane read", async () => {
   const checkout = await repository("checkout");
   spyOn(Herdr, "workspaces").mockReturnValue(

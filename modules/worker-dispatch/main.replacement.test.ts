@@ -60,6 +60,10 @@ test("a failed start stays visible with its resources, and a replacement starts 
     path: worktree,
     label: "report-one-6-survey-2",
   });
+  expect(device.herdr.renameTab).toHaveBeenLastCalledWith({
+    tabId: "t3",
+    label: "report-one-6-survey-2",
+  });
   expect(device.herdr.createWorktree).toHaveBeenCalledTimes(2);
   expect((await device.launches("survey"))[1]).toMatchObject({
     branch: "task/survey",

@@ -119,9 +119,10 @@ export function parentBase(checkout: string, branch: string) {
 }
 
 /**
- * The project workspace is the first unlinked Herdr workspace whose checkout is the controller.
- * Herdr gives no checkout for some workspaces, such as one that the person opened at the
- * checkout. Such a workspace is the project workspace when each of its panes is in the controller.
+ * The project workspace is the first unlinked Herdr workspace whose checkout is the controlling
+ * checkout. Herdr gives no checkout for some workspaces, such as one that the person opened at
+ * the checkout. Such a workspace is the project workspace when each of its panes is in the
+ * controlling checkout or in a folder below it.
  */
 export function projectWorkspace(checkout: string) {
   return Herdr.workspaces().flatMap((workspaces) => {
@@ -141,13 +142,13 @@ export function projectWorkspace(checkout: string) {
       .flatMap((workspaceId) =>
         workspaceId !== null || unknown.length === 0
           ? OkAsync(workspaceId)
-          : paneWorkspace(checkout, unknown),
+          : workspaceByPanes(checkout, unknown),
       )
       .map((workspaceId) => ({ workspaceId, labels }));
   });
 }
 
-function paneWorkspace(checkout: string, workspaces: { workspaceId: string }[]) {
+function workspaceByPanes(checkout: string, workspaces: { workspaceId: string }[]) {
   return Herdr.panes().flatMap((panes) =>
     fromSafePromise(async () => {
       for (const workspace of workspaces) {
@@ -156,7 +157,13 @@ function paneWorkspace(checkout: string, workspaces: { workspaceId: string }[]) 
           // Stryker disable next-line ConditionalExpression: equivalent: the real path of a null folder is null, which never equals the controller
           own.map(async (pane) => (pane.cwd === null ? null : realPathOrNull(pane.cwd))),
         );
-        if (places.length > 0 && places.every((place) => place === checkout))
+        if (
+          places.length > 0 &&
+          places.every(
+            (place) =>
+              place !== null && (place === checkout || place.startsWith(`${checkout}${path.sep}`)),
+          )
+        )
           return workspace.workspaceId;
       }
       return null;
