@@ -84,7 +84,8 @@ A nice to have is a follow-up, or a small fix the author may take before merge.
 Keep the three of each that matter most, and drop the rest. The three axes compete for the same caps.
 
 Give a blocker an `impact` only for a defect that breaks the app (`breaking`) or a security issue (`security`).
-An `impact` is the only cause of a request for changes. A breach of style or design is a blocker with no `impact`, and the review is a comment.
+An `impact` is the only cause of a request for changes.
+A breach of style or design is a blocker with no `impact`, and the review is a comment.
 
 Give a finding a `source` when a written rule is its cause: the skill name (`deep-modules`, `react-composition`, `unit-testing`), `project code style`, or the ADR (`ADR-0015`).
 A finding from your own analysis, for example a bug or a better pattern, needs no `source`, or it can say `best practice`.
@@ -115,7 +116,8 @@ State the defect in one sentence, then give the evidence.
 Show the code in most line comments. Use one of these:
 
 - A short fenced snippet with a language tag, from code you read at the reviewed commit.
-- A `suggestion` block, when the fix replaces only the anchored line. GitHub shows it as a change the author can apply.
+- A `suggestion` block, when the fix replaces only the anchored line.
+  GitHub shows it as a change the author can apply.
 - A small diagram or table, when the defect is a flow or a shape that code does not show.
 
 Mark a proposed correction as illustrative, unless it is a `suggestion` block.

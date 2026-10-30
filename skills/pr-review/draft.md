@@ -42,6 +42,7 @@ The draft is one JSON object. The CLI refuses unknown fields and a wrong shape b
 - Give `path` and `line` together, or neither. `path` is a file that the PR changes, relative to the repository root, with no `..`.
 - `impact` is `breaking` or `security`, and only a blocker has it.
 - `source` is optional free text of at most 100 characters.
+- `source` and `impact` replace the old `breach` field, which an earlier round's draft can still show and the CLI now refuses.
 - `checks[].kind` is `test`, `lint`, `typecheck`, `guard-break`, or `other`.
 - The draft names no event. The CLI computes it.
 - `threadReplies` names only threads that the posting account started, at most once each.

@@ -185,7 +185,7 @@ for (const host of ["opencode", "claude-code"] as const)
     );
   }, 60000);
 
-test("the event follows blockers, breaking or security defects, required CI, and the posting account", async () => {
+test("a blocker with no impact gives a comment with its line comment, and a second post is refused", async () => {
   await setup();
   const request = await add();
   await draft(request.draft, {
