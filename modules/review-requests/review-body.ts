@@ -198,6 +198,9 @@ function lineComment(finding: Finding, heading: string) {
 export function inlineComments(findings: Findings) {
   return [
     ...findings.blockers.flatMap((blocker) => lineComment(blocker, `Blocker: ${blocker.short}`)),
-    ...findings.niceToHaves.flatMap((item) => lineComment(item, "Nice to have")),
+    // A nice to have that an earlier release stored has no short.
+    ...findings.niceToHaves.flatMap((item) =>
+      lineComment(item, item.short === undefined ? "Nice to have" : `Nice to have: ${item.short}`),
+    ),
   ];
 }

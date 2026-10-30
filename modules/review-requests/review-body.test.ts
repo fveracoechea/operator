@@ -107,7 +107,7 @@ test("the body gives one short line for each located finding, and its line comme
       line: 3,
       body: "**Blocker: Guard untested** · security issue\n\nAdd a test.\n\n**Source:** ADR-0015",
     },
-    { path: "b.ts", line: 9, body: "**Nice to have**\n\nName it for its use." },
+    { path: "b.ts", line: 9, body: "**Nice to have: Rename it**\n\nName it for its use." },
   ]);
 });
 

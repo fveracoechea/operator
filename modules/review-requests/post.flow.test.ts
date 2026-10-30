@@ -482,7 +482,56 @@ test("a retry with no review on an unchanged PR posts the recorded round once", 
       commit_id: h2,
       event: "APPROVE",
       comments: [
-        { path: "feature.ts", line: 2, body: "**Nice to have**\n\nRename.", side: "RIGHT" },
+        {
+          path: "feature.ts",
+          line: 2,
+          body: "**Nice to have: Rename**\n\nRename.",
+          side: "RIGHT",
+        },
+      ],
+    },
+  ]);
+});
+
+test("a retry posts the line comments of a round that an earlier release stored", async () => {
+  reviewing();
+  await draft();
+  github({ post: () => ({ status: "uncertain", detail: "Timed out." }) });
+  await post({ paths: home.paths, url });
+  // The earlier release stored a blocker `breach` and a nice to have with no `short`.
+  const [stored] = readRequest(home.paths).rounds;
+  const legacy = DeviceState.changeReviewRequest(home.paths, { ...target, id: "r1" }, () =>
+    Ok({
+      round: {
+        ...(stored ?? expect.unreachable("The round was not stored.")),
+        draft: JSON.stringify({
+          reviewedCommit: h2,
+          summary: "S.",
+          blockers: [
+            {
+              short: "Fix it",
+              detail: "It breaks.",
+              path: "feature.ts",
+              line: 3,
+              breach: { source: "opinions", rule: "Verify every guard." },
+            },
+          ],
+          niceToHaves: [{ detail: "Rename.", path: "feature.ts", line: 2 }],
+        }),
+      },
+    }),
+  );
+  expect(legacy.tag).toBe("Ok");
+  const retried = github({ post: () => answered(review("COMMENTED")) });
+  expect(await post({ paths: home.paths, url })).toMatchObject({
+    tag: "Ok",
+    value: { reason: "review_posted" },
+  });
+  expect(retried.posts).toMatchObject([
+    {
+      comments: [
+        { path: "feature.ts", line: 3, body: "**Blocker: Fix it**\n\nIt breaks." },
+        { path: "feature.ts", line: 2, body: "**Nice to have**\n\nRename." },
       ],
     },
   ]);
