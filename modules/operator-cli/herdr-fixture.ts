@@ -18,9 +18,10 @@ const flag = (name) => { const index = args.indexOf(name); return index === -1 ?
 const key = args.slice(0, 2).join(" ");
 if (state.fail[key]) { console.error(JSON.stringify({ error: { message: state.fail[key] } })); process.exit(1); }
 const out = (result) => console.log(JSON.stringify({ id: "cli", result }));
-function pane(workspaceId) {
+// Herdr labels only a tab it creates with \`tab create\`. A workspace's root tab shows its number.
+function pane(workspaceId, cwd, label = "1") {
   state.counter++;
-  const tab = { workspaceId, tabId: workspaceId + ":t" + state.counter, paneId: workspaceId + ":p" + state.counter, label: flag("--label") ?? "1" };
+  const tab = { workspaceId, tabId: workspaceId + ":t" + state.counter, paneId: workspaceId + ":p" + state.counter, label, cwd };
   state.tabs.push(tab);
   return { pane_id: tab.paneId, tab_id: tab.tabId, workspace_id: workspaceId };
 }
@@ -43,9 +44,11 @@ async function hook(event, data) {
   }
 }
 if (key === "workspace list") out({ workspaces: state.workspaces });
-else if (key === "workspace create") { const created = workspace(flag("--cwd"), false); out({ workspace: created, root_pane: pane(created.workspace_id) }); }
+else if (key === "workspace create") { const created = workspace(flag("--cwd"), false); out({ workspace: created, root_pane: pane(created.workspace_id, flag("--cwd")) }); }
 else if (key === "tab list") out({ tabs: state.tabs.filter((tab) => tab.workspaceId === flag("--workspace")).map((tab) => ({ label: tab.label })) });
-else if (key === "tab create") out({ root_pane: pane(flag("--workspace")) });
+else if (key === "tab create") out({ root_pane: pane(flag("--workspace"), flag("--cwd"), flag("--label") ?? "1") });
+else if (key === "tab rename") { const tab = state.tabs.find((row) => row.tabId === args[2]); if (!tab) { console.log(JSON.stringify({ error: { code: "tab_not_found", message: "tab " + args[2] + " not found" } })); process.exit(1); } tab.label = args.slice(3).join(" "); out({ type: "tab_renamed" }); }
+else if (key === "pane list") out({ panes: state.tabs.filter((tab) => flag("--workspace") === undefined || tab.workspaceId === flag("--workspace")).map((tab) => ({ pane_id: tab.paneId, tab_id: tab.tabId, workspace_id: tab.workspaceId, cwd: tab.cwd })) });
 else if (key === "worktree create" || key === "worktree open") {
   const source = state.workspaces.find((row) => row.workspace_id === flag("--workspace"));
   const path = flag("--path") ?? root + "/herdr-home/worktrees/" + flag("--label");
@@ -54,7 +57,7 @@ else if (key === "worktree create" || key === "worktree open") {
     if (git.exitCode !== 0) { console.error(JSON.stringify({ error: { message: git.stderr.toString() } })); process.exit(1); }
   }
   const created = workspace(path, true);
-  const rootPane = pane(created.workspace_id);
+  const rootPane = pane(created.workspace_id, path);
   await save();
   if (key === "worktree create") await hook("worktree.created", { event: "worktree_created", data: { type: "worktree_created", worktree: { path, branch: flag("--branch") } } });
   out({ workspace: created, root_pane: rootPane, worktree: { path, branch: flag("--branch") } });
