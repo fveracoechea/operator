@@ -1,5 +1,12 @@
 # @fveracoechea/operator
 
+## 1.0.1
+
+### Patch Changes
+
+- d644662: `operator install --check` now reports missing skills as `skills_missing` with exit code 3, not as `skill_copy_conflict`.
+  A path with different contents is still a conflict, and a conflict takes precedence.
+
 ## 1.0.0
 
 ### Major Changes
