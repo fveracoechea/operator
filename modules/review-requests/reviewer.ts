@@ -264,9 +264,25 @@ async function dispose(paths: Paths, request: Row, checkout: string): Promise<Cl
 }
 
 /**
- * Disposes the reviewer of a closed or skipped request while this process holds the lease. The
- * worktree and its local branch go only when Git proves that they hold no unlanded work, and a
- * failure stays recorded until a repeated cleanup finishes.
+ * The record of a reviewer whose pane closed. A renewed round of an approved request then waits
+ * for a replacement, and a removed worktree and branch are not reopened.
+ */
+function released(request: Row, outcome: CleanupOutcome) {
+  const update: Partial<Omit<Row, "id">> = {};
+  if (outcome.state === "failed") return update;
+  if (request.launchState === "running" || request.launchState === "starting")
+    update.launchState = "interrupted";
+  if (outcome.state === "done") {
+    update.worktreePath = null;
+    update.branch = null;
+  }
+  return update;
+}
+
+/**
+ * Disposes the reviewer of an approved, closed, or skipped request while this process holds the
+ * lease. The worktree and its local branch go only when Git proves that they hold no unlanded
+ * work, and a failure stays recorded until a repeated cleanup finishes.
  */
 export function cleanupReviewer(paths: Paths, target: Target, snapshot: Snapshot) {
   const request = snapshot.request;
@@ -286,7 +302,11 @@ export function cleanupReviewer(paths: Paths, target: Target, snapshot: Snapshot
   }, qualify).flatMap((outcome) =>
     DeviceState.changeReviewRequest(paths, { ...target, id: request.id }, () =>
       Ok({
-        update: { cleanupState: outcome.state, cleanupDetail: outcome.detail },
+        update: {
+          cleanupState: outcome.state,
+          cleanupDetail: outcome.detail,
+          ...released(request, outcome),
+        },
         lease: "release" as const,
       }),
     ).map(() => outcome),
@@ -297,7 +317,8 @@ export function cleanupReviewer(paths: Paths, target: Target, snapshot: Snapshot
 export function claimCleanup(paths: Paths, target: Target, id: string) {
   return DeviceState.changeReviewRequest(paths, { ...target, id }, (current) => {
     const state = current.request?.cleanupState ?? null;
-    if (state === null || state === "done")
+    // An approved request with no recorded cleanup kept its reviewer in an earlier release.
+    if ((state === null && current.request?.state !== "approved") || state === "done")
       return Err<Failure>({
         reason: "review_cleanup_unchanged",
         detail: "The reviewer cleanup is done.",

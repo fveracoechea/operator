@@ -207,7 +207,7 @@ export const reports = sqliteTable(
 );
 
 // A review request is not an assignment. One request per PR is open until it is closed or skipped.
-// An approved request stays open, because a renewed request reopens it with the same reviewer.
+// An approved request stays open, so a renewed request reopens it. The approval releases its reviewer.
 export const reviewRequests = sqliteTable(
   "review_requests",
   {
@@ -250,7 +250,7 @@ export const reviewRequests = sqliteTable(
     resolvedThreads: text("resolved_threads"),
     // A reviewer move or prompt that a wait or a post decided and has not finished.
     sync: text(),
-    // Reviewer cleanup after the request is closed or skipped.
+    // Reviewer cleanup after the request is approved, closed, or skipped.
     cleanupState: text("cleanup_state"),
     cleanupDetail: text("cleanup_detail"),
     // The Slack message that posted the PR. Its thread gets one reply for each posted round.

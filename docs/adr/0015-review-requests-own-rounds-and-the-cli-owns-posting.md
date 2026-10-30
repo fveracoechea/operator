@@ -5,6 +5,7 @@
 Accepted - 2026-10-24.
 Decided in #228 and #233.
 Implemented in #253, with review rounds in #254 and Slack transport in #255.
+Amended 2026-10-30 in #286: an approved request releases its reviewer, and a renewed request after approval gets a replacement.
 
 ## Context
 
@@ -27,8 +28,10 @@ New commits, an author reply, an author-resolved thread, or a renewed review req
 The reviewer checks its open threads, accepts valid pushback, and explains unresolved defects.
 The CLI reopens a thread that the author resolved without fixing its defect.
 
-One reviewer and worktree retain context for the request.
+One reviewer and worktree retain context for the request until an approval.
 A missing pane gets a replacement whose brief names earlier drafts.
+An approval releases the reviewer agent, its worktree, and its local branch, and keeps the request record.
+A renewed request after approval gets a replacement reviewer in the same way.
 The worktree belongs to the PR repository's Herdr workspace, which the CLI opens if necessary.
 It does not inherit the driving SuperAgent's repository context.
 A request with no author activity for seven days while watching gets a visible stale flag, not a different lifecycle state.
@@ -69,12 +72,14 @@ The skill routes these transport actions and blocked-worker attention without re
 - The head-move limit bounds review churn but can post against an older reviewed commit with an explicit warning.
 - Slack effects cross a tool boundary and require acknowledgement, so the CLI does not claim exactly-once Slack delivery.
 - Assignment reviewers cannot supply the approval that the PR merge gate requires.
+- A replacement after approval starts without the released reviewer's code context. It reads the earlier drafts and round history instead.
 - Stable global-command hooks must prepare the correct repository's worktree before a reviewer starts.
 
 ## Alternatives considered
 
 - Reviewer assignments inside a Slack work source were rejected because review completion differs from assignment merge or report acceptance.
 - A new reviewer for every round was rejected because it loses the request's code context.
+- Keeping an approved request's reviewer until the PR closed was rejected because each approved PR then held an idle agent, Herdr workspace, and worktree with no end date.
 - Direct skill posting and pasted permission grants were rejected because they create a second write path and do not solve host permission checks.
 - Slack user or bot tokens in the CLI were rejected because the person chose MCP transport and replies under their account.
 - Agent-composed Slack status and session ledgers were rejected because resumable state and mechanical output belong to the CLI.

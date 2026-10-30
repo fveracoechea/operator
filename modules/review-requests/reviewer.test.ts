@@ -615,6 +615,48 @@ test("the worktree goes after the pane, and kept work stays visible", async () =
   });
 });
 
+test("a cleanup records the released reviewer, so a replacement does not reopen removed work", async () => {
+  socket("/s");
+  spyOn(Herdr, "agentNames").mockReturnValue(OkAsync(["reviewer"]));
+  spyOn(Herdr, "closePane").mockReturnValue(OkAsync("closed" as const));
+  const clean = spyOn(WorkerDispatch, "cleanWorktree").mockResolvedValue({
+    state: "removed",
+    detail: "Removed the worktree.",
+  });
+  const approved = { state: "approved", worktreePath: "/w", branch: "review/b" };
+  for (const launchState of ["running", "starting"]) {
+    await cleaned(closed({ ...approved, launchState }));
+    expect(readRequest(home.paths).request).toMatchObject({
+      state: "approved",
+      cleanupState: "done",
+      launchState: "interrupted",
+      worktreePath: null,
+      branch: null,
+    });
+  }
+  // A stopped reviewer keeps its launch state.
+  await cleaned(closed({ ...approved, launchState: "failed" }));
+  expect(readRequest(home.paths).request?.launchState).toBe("failed");
+  // Kept work stays recorded, so a replacement reuses it.
+  clean.mockResolvedValue({ state: "kept", detail: "Kept." });
+  await cleaned(closed({ ...approved, launchState: "running" }));
+  expect(readRequest(home.paths).request).toMatchObject({
+    cleanupState: "kept",
+    launchState: "interrupted",
+    worktreePath: "/w",
+    branch: "review/b",
+  });
+  // A failed cleanup changes no reviewer field.
+  clean.mockRejectedValue(new Error("git crash"));
+  await cleaned(closed({ ...approved, launchState: "running" }));
+  expect(readRequest(home.paths).request).toMatchObject({
+    cleanupState: "failed",
+    launchState: "running",
+    worktreePath: "/w",
+    branch: "review/b",
+  });
+});
+
 test("a cleanup that stops records nothing and releases the hold", async () => {
   const events = watchHold();
   socket("/s");
@@ -641,6 +683,14 @@ test("a cleanup is claimed only when work is left and no other process runs it",
     held({ state: "closed", cleanupState, ownerPid: null, leaseAt: null });
     expect(claimCleanup(home.paths, target, "r1")).toMatchObject(unchanged);
   }
+  held({ state: "approved", cleanupState: "done", ownerPid: null, leaseAt: null });
+  expect(claimCleanup(home.paths, target, "r1")).toMatchObject(unchanged);
+  // An earlier release kept the reviewer of an approved request and recorded no cleanup.
+  held({ state: "approved", cleanupState: null, ownerPid: null, leaseAt: null });
+  expect(claimCleanup(home.paths, target, "r1")).toMatchObject({
+    tag: "Ok",
+    value: { request: { ownerPid: process.pid } },
+  });
   expect(claimCleanup(home.paths, target, "missing")).toMatchObject(unchanged);
   held({ state: "closed", cleanupState: "failed" });
   expect(claimCleanup(home.paths, target, "r1")).toMatchObject({

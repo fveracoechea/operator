@@ -13,6 +13,7 @@ type Request = {
   head?: string | null;
   headMoves?: number;
   sync?: string | null;
+  cleanupState?: string | null;
 };
 function facts(
   command: ReviewCommand,
@@ -99,17 +100,19 @@ test("a post moves to posting once, and repeated or concurrent posts are refused
 
 test("a post result approves, watches, returns the request, or keeps it posting", () => {
   const posting = { state: "posting", launchState: "running" };
+  // The post keeps the lease, so it releases the reviewer of the approval itself.
   expect(decideReview(facts("posted", posting, { event: "APPROVE" }))).toMatchObject({
-    value: { state: "approved", lease: "release" },
+    value: { state: "approved", cleanup: true, lease: "hold" },
   });
   // An approved request is not ended, because a renewed request reopens it.
   expect(decideReview(facts("posted", posting, { event: "APPROVE" }))).not.toMatchObject({
     value: { ended: true },
   });
-  for (const event of ["COMMENT", "REQUEST_CHANGES"])
-    expect(decideReview(facts("posted", posting, { event }))).toMatchObject({
-      value: { state: "watching", lease: "release" },
-    });
+  for (const event of ["COMMENT", "REQUEST_CHANGES"]) {
+    const watched = decideReview(facts("posted", posting, { event }));
+    expect(watched).toMatchObject({ value: { state: "watching", lease: "release" } });
+    expect(watched.tag === "Ok" && watched.value.cleanup).toBeUndefined();
+  }
   expect(decideReview(facts("posted", reviewingOf()))).toMatchObject({
     error: { reason: "review_post_interrupted" },
   });
@@ -189,6 +192,26 @@ test("a renewed add or an observed trigger starts a round with the reviewer that
   expect(
     decideReview(facts("round", { state: "watching", launchState: null }, { trigger: "commits" })),
   ).toMatchObject({ value: { state: "queued", round: "commits" } });
+  // A renewal waits while the reviewer of an approved request is cleaned up.
+  const releasing = { state: "approved", launchState: "running", cleanupState: "pending" };
+  expect(decideReview(facts("add", releasing))).toMatchObject({
+    error: {
+      reason: "review_cleanup_in_progress",
+      detail:
+        "The reviewer cleanup of this approved request has not finished. Add the request again after operator review wait or operator review cleanup finishes it. Nothing changed.",
+    },
+  });
+  expect(decideReview(facts("round", releasing, { trigger: "re-request" }))).toMatchObject({
+    value: { unchanged: true },
+  });
+  for (const cleanupState of ["done", "kept", "failed"])
+    expect(
+      decideReview(facts("round", { ...releasing, cleanupState }, { trigger: "re-request" })),
+    ).toMatchObject({ value: { state: "reviewing", round: "re-request" } });
+  // A pending cleanup of an ended request is not a release.
+  expect(decideReview(facts("add", { ...releasing, state: "watching" }))).toMatchObject({
+    value: { state: "reviewing", round: "re-request" },
+  });
   // Only a renewed request reopens an approved request, and a second wait finds nothing to do.
   expect(
     decideReview(facts("round", { ...running, state: "approved" }, { trigger: "commits" })),
@@ -324,6 +347,28 @@ test("next rows show replacements, moves, approval, and unfinished cleanups", ()
   expect(reviewAction({ state: "approved", launchState: "running" }, false)).toEqual({
     kind: "wait",
     reason: "review_approved",
+  });
+  // A released reviewer of an approved request shows its unfinished cleanup.
+  const approved = { state: "approved", launchState: "interrupted" };
+  expect(reviewAction({ ...approved, cleanupState: "done" }, false)).toEqual({
+    kind: "wait",
+    reason: "review_approved",
+  });
+  expect(reviewAction({ ...approved, cleanupState: "failed" }, false)).toEqual({
+    kind: "action",
+    action: "clean_reviewer",
+    reason: "cleanup_failed",
+  });
+  expect(reviewAction({ ...approved, cleanupState: "pending" }, false)).toMatchObject({
+    reason: "cleanup_pending",
+  });
+  expect(reviewAction({ ...approved, cleanupState: "pending" }, true)).toEqual({
+    kind: "wait",
+    reason: "reviewer_cleanup",
+  });
+  expect(reviewAction({ ...approved, cleanupState: "kept" }, false)).toEqual({
+    kind: "attention",
+    reason: "reviewer_work_kept",
   });
   const ended = { state: "closed", launchState: "running" };
   expect(reviewAction({ ...ended, cleanupState: "failed" }, false)).toEqual({

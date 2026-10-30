@@ -34,6 +34,7 @@ Run it again after you act on its rows.
 - `post_review` with `review_post_uncertain`: run the `command`. It finds a review or a thread reply that GitHub created and does not post twice.
 - `wait_reviews`: a reviewer move did not finish. Run `operator review wait`. `reviewer.failure` names a move that failed.
 - `review_watching` and `review_approved`: the review is posted. `stale: true` means seven days without author activity. It is a flag, not a state.
+  An approval releases the reviewer. A renewed request after approval gives `replace_reviewer`, and the replacement gets a new worktree.
 - `clean_reviewer`: the reviewer cleanup failed. Run the `command` after you fix the cause.
 - `reviewer_work_kept` attention: the reviewer worktree holds unlanded work. Ask the person. Only the person deletes it, then run `operator review cleanup <pr-url> --json`.
 

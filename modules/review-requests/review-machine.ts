@@ -30,6 +30,7 @@ type Request = {
   head?: string | null;
   headMoves?: number;
   sync?: string | null;
+  cleanupState?: string | null;
 };
 export type ReviewFacts = {
   command: ReviewCommand;
@@ -82,6 +83,12 @@ function refuse(reason: string, detail: string) {
 function starting({ request, ownerActive }: ReviewFacts) {
   // Stryker disable next-line OptionalChaining: equivalent: a start is checked only after the missing-request rule, or for a listed request
   return request?.launchState === "starting" && ownerActive;
+}
+
+/** An approved request's reviewer cleanup has not finished, so a renewed request waits for it. */
+function releasing({ request }: ReviewFacts) {
+  // Stryker disable next-line OptionalChaining: equivalent: a renewal is checked only after the rule for a missing request
+  return request?.state === "approved" && request.cleanupState === "pending";
 }
 
 function stopped(request: Request | null) {
@@ -169,7 +176,16 @@ const tables: Record<ReviewCommand, Rule[]> = {
       when: (facts) => facts.request === null,
       decide: () => Ok({ insert: true, state: "queued" }),
     },
-    // A renewed request reopens a watching or approved request with the same reviewer.
+    {
+      when: releasing,
+      decide: () =>
+        refuse(
+          "review_cleanup_in_progress",
+          "The reviewer cleanup of this approved request has not finished. Add the request again after operator review wait or operator review cleanup finishes it.",
+        ),
+    },
+    // A renewed request reopens a watching request with its reviewer. An approved request
+    // released its reviewer, so its round waits for a replacement.
     {
       when: (facts) =>
         ["watching", "approved"].includes(
@@ -285,8 +301,9 @@ const tables: Record<ReviewCommand, Rule[]> = {
   ],
   posted: [
     {
+      // An approval releases the reviewer. The request stays, so a renewed request reopens it.
       when: (facts) => facts.request?.state === "posting" && facts.event === "APPROVE",
-      decide: () => Ok({ state: "approved", lease: "release" }),
+      decide: () => Ok({ state: "approved", cleanup: true, lease: "hold" }),
     },
     {
       when: (facts) => facts.request?.state === "posting",
@@ -313,8 +330,9 @@ const tables: Record<ReviewCommand, Rule[]> = {
   // Another wait that already started the round leaves this one with nothing to do.
   round: [
     missing,
-    // A live start places the worktree at the recorded head. The next wait sees the change.
-    { when: starting, decide: () => Ok({ unchanged: true }) },
+    // A live start places the worktree at the recorded head, and a live cleanup removes it. The
+    // next wait sees the change again.
+    { when: (facts) => starting(facts) || releasing(facts), decide: () => Ok({ unchanged: true }) },
     {
       when: (facts) =>
         // Stryker disable next-line OptionalChaining: equivalent: every rule after the missing-request rule reads a recorded request
@@ -380,7 +398,7 @@ type ReviewAction =
   | { kind: "attention"; reason: string }
   | { kind: "wait"; reason: string };
 
-type Listed = Request & { cleanupState?: string | null };
+type Listed = Request;
 
 function ended(request: Listed, ownerActive: boolean): ReviewAction {
   if (request.cleanupState === "kept") return { kind: "attention", reason: "reviewer_work_kept" };
@@ -437,8 +455,13 @@ const steps: Record<string, (request: Listed, ownerActive: boolean) => ReviewAct
       : { kind: "action", action: "post_review", reason: "review_post_uncertain" },
   watching: (request, ownerActive) =>
     replacement(request, ownerActive) ?? { kind: "wait", reason: "review_watching" },
+  // An approved request whose reviewer cleanup did not finish shows it as an ended one does.
   approved: (request, ownerActive) =>
-    replacement(request, ownerActive) ?? { kind: "wait", reason: "review_approved" },
+    replacement(request, ownerActive) ??
+    // Stryker disable next-line StringLiteral: equivalent: neither text is a cleanup state, so no recorded cleanup matches
+    (["pending", "failed", "kept"].includes(request.cleanupState ?? "")
+      ? ended(request, ownerActive)
+      : { kind: "wait", reason: "review_approved" }),
   closed: ended,
   skipped: ended,
 };
