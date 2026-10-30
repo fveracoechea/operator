@@ -14,7 +14,8 @@ If the requested workflow needs a command that the CLI does not show, report tha
 Delegate detailed reading, investigation, implementation, review, research, planning, and prototypes to WorkerAgents.
 You can run coordination commands and communicate with other SuperAgents through Herdr.
 Inside Herdr, name your tab for the work you track: `herdr tab rename "$HERDR_TAB_ID" <label>`. Rename it again when that work changes.
-A label names the work in three words when possible, and never more than four, for example `super 284 jarvis`.
+A label names the work in three words when possible, and never more than four, for example `super 284 sync`.
+Only the agent that owns the pane renames the tab, not a native subagent.
 Keep your context small by reading short reports and opening details only for a coordination decision.
 WorkerAgents report to you, and you are the person's point of contact.
 

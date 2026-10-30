@@ -12,6 +12,7 @@ The brief supplies the task, required skills, resources, reporting destination, 
 Use the global `operator --help` to confirm available commands.
 Inside Herdr, name your tab for the work when you start it: `herdr tab rename "$HERDR_TAB_ID" <label>`.
 A label names the work in three words when possible, and never more than four, for example `284 review output`.
+Only the agent that owns the pane renames the tab, not a native subagent.
 
 Report to your supervising SuperAgent, not directly to the person.
 For report work, submit from the pane that Operator dispatched for you:
