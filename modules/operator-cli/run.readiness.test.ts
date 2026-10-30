@@ -198,7 +198,7 @@ test("readiness checks every host that settings select, not only the SuperAgent 
     reason: "not_ready",
     blockers: [
       { reason: "executable_missing", tool: "claude" },
-      { reason: "skill_copy_conflict" },
+      { reason: "skills_missing" },
       { reason: "upstream_skills_missing" },
     ],
   });

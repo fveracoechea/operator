@@ -40,7 +40,10 @@ type Copy = {
   current: Contents | null;
   action: ReturnType<typeof verdict>;
 };
-type Refusal = { reason: "skills_release_invalid" | "skill_copy_conflict"; detail: string };
+type Refusal = {
+  reason: "skills_release_invalid" | "skill_copy_conflict" | "skills_missing";
+  detail: string;
+};
 const retired = ["operator", "operative"];
 
 export function checkOnly(source: string, requested: boolean) {
@@ -88,13 +91,22 @@ async function inspect(request: Request, recorded: Ledger): Promise<{ copies: Co
   }
   const conflicts = copies.filter((copy) =>
     request.check
-      ? copy.released !== null && !same(copy.current, copy.released)
+      ? copy.released !== null && copy.current !== null && !same(copy.current, copy.released)
       : copy.action === "conflict",
   );
   if (conflicts.length)
     return {
       reason: "skill_copy_conflict" as const,
       detail: `Preserve these skill paths and resolve their contents or external wiring: ${conflicts.map((copy) => copy.destination).join(", ")}`,
+    };
+  // Only check mode refuses a missing copy, because copy mode installs it.
+  const missing = copies.filter(
+    (copy) => request.check && copy.released !== null && copy.current === null,
+  );
+  if (missing.length)
+    return {
+      reason: "skills_missing" as const,
+      detail: `These skill paths are missing: ${missing.map((copy) => copy.destination).join(", ")}`,
     };
   return { copies };
 }

@@ -61,7 +61,9 @@ Install Operator one time for the device, in one of these three ways.
 
 ### JSR with Bun
 
-Add the JSR scope to `~/.bunfig.toml`:
+Add the JSR scope to Bun's global config.
+When `XDG_CONFIG_HOME` is set, Bun reads `$XDG_CONFIG_HOME/.bunfig.toml` and ignores `~/.bunfig.toml`.
+Otherwise, Bun reads `~/.bunfig.toml`.
 
 ```toml
 [install.scopes]
@@ -175,7 +177,9 @@ operator ready --json
 ```
 
 `install` copies the Operator skills into the host folders, and it does not overwrite your edits.
+`install --check` reports `skills_missing` for skills that are not installed, and `skill_copy_conflict` for skills with different contents.
 `install matt` installs Matt Pocock's skills.
+`ready` requires them, so run `install matt` for each host that settings select.
 `ready` checks `gh` and its login, `herdr`, the `operator` command, the host, and the skills.
 
 ### Assignments and dispatch

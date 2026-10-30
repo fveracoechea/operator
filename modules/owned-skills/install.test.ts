@@ -218,11 +218,18 @@ test("a repeated install keeps unchanged files and the ledger in place", async (
 
 test("check mode compares release contents and ignores retired names", async () => {
   const check = { ...request, check: true };
-  const destinations = request.hosts.map((host) => `${request.paths.skillHosts[host]}/example`);
+  const opencode = `${request.paths.skillHosts.opencode}/example`;
+  const claude = `${request.paths.skillHosts["claude-code"]}/example`;
+  expect(await install(check)).toEqual({
+    reason: "skills_missing",
+    detail: `These skill paths are missing: ${opencode}, ${claude}`,
+  });
+  await Bun.write(`${opencode}/SKILL.md`, "person edit\n", { createPath: true });
   expect(await install(check)).toEqual({
     reason: "skill_copy_conflict",
-    detail: `Preserve these skill paths and resolve their contents or external wiring: ${destinations.join(", ")}`,
+    detail: `Preserve these skill paths and resolve their contents or external wiring: ${opencode}`,
   });
+  await rm(opencode, { recursive: true });
   expect((await install(request)).reason).toBe("skills_installed");
   await Bun.write(`${request.paths.skillHosts.opencode}/operator/SKILL.md`, "old role\n", {
     createPath: true,

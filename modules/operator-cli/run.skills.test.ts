@@ -62,6 +62,18 @@ test("copies complete owned skills personally for both hosts without project wri
   expect(await Bun.file(`${root}/.agents/skills/bun/SKILL.md`).exists()).toBe(false);
 });
 
+test("check mode on a new device reports missing skills, and passes after an install", async () => {
+  const missing = await run(["--opencode", "--check"]);
+  expect(missing).toMatchObject({ code: 3, output: { reason: "skills_missing" } });
+  expect(missing.stderr).toContain(`${root}/config/opencode/skills/super-agent`);
+  expect(await Bun.file(`${root}/config/opencode`).exists()).toBe(false);
+  expect((await run(["--opencode"])).code).toBe(0);
+  expect(await run(["--opencode", "--check"])).toMatchObject({
+    code: 0,
+    output: { reason: "skills_checked" },
+  });
+});
+
 test("matching copies and their ledger stay unwritten on a repeated install", async () => {
   expect((await run(["--opencode", "--claude"])).code).toBe(0);
   const file = `${root}/home/.claude/skills/bun/SKILL.md`;
@@ -203,7 +215,7 @@ test("check mode follows complete skill links and leaves host folders and state 
 });
 
 test("missing check-only contents create no host or state folders", async () => {
-  expect((await run(["--opencode", "--claude", "--check"])).code).toBe(4);
+  expect((await run(["--opencode", "--claude", "--check"])).code).toBe(3);
   expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([
     "state/operator/operator.sqlite",
   ]);
