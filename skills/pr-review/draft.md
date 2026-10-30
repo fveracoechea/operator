@@ -8,14 +8,21 @@ The draft is one JSON object. The CLI refuses unknown fields and a wrong shape b
   "summary": "One line about the change.",
   "blockers": [
     {
-      "short": "Guard has no test",
-      "detail": "The new refusal in src/a.ts has no test that fails without it.",
+      "short": "Token leaks into logs",
+      "detail": "The new error path logs the request headers, which hold the session token.",
       "path": "src/a.ts",
       "line": 42,
-      "breach": { "source": "opinions", "rule": "Verify every guard against a deliberate break." }
+      "impact": "security"
+    },
+    {
+      "short": "Guard has no test",
+      "detail": "The new refusal in src/b.ts has no test that fails without it.",
+      "path": "src/b.ts",
+      "line": 7,
+      "source": "unit-testing"
     }
   ],
-  "niceToHaves": [{ "detail": "Name the constant for its use." }],
+  "niceToHaves": [{ "short": "Name the constant", "detail": "Name the constant for its use.", "source": "best practice" }],
   "threadReplies": [
     { "threadId": "PRRT_kwDO...", "kind": "acknowledge", "body": "Your reason holds. The guard covers it." },
     { "threadId": "PRRT_kwDP...", "kind": "explain", "body": "The file still stays open on the error path." }
@@ -31,9 +38,10 @@ The draft is one JSON object. The CLI refuses unknown fields and a wrong shape b
 ## Limits
 
 - At most three `blockers` and three `niceToHaves`.
-- A blocker's `short` has at most six words.
+- Each finding has a `short` of at most six words.
 - Give `path` and `line` together, or neither. `path` is a file that the PR changes, relative to the repository root, with no `..`.
-- `breach.source` is `opinions`, `project-skill`, or `architecture`.
+- `impact` is `breaking` or `security`, and only a blocker has it.
+- `source` is optional free text of at most 100 characters.
 - `checks[].kind` is `test`, `lint`, `typecheck`, `guard-break`, or `other`.
 - The draft names no event. The CLI computes it.
 - `threadReplies` names only threads that the posting account started, at most once each.
@@ -67,7 +75,7 @@ A valid claim removes that check from the blockers and shows it as noise.
 The CLI computes the event in this order:
 
 1. The PR author's own account posts, or the request is the reviewer of a PR assignment: `COMMENT`.
-2. A blocker names a `breach`: `REQUEST_CHANGES`, and the body names the breach.
+2. A blocker has an `impact`: `REQUEST_CHANGES`, and the body names the impact on that blocker.
 3. A blocker or a failing required check remains: `COMMENT`.
 4. No blocker remains: `APPROVE`.
 

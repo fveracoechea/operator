@@ -206,7 +206,7 @@ test("blockers, inline findings, and thread replies post as a comment, and an ex
   reviewing({ trigger: null });
   await draft({
     blockers: [{ short: "Fix it", detail: "It breaks.", path: "feature.ts", line: 3 }],
-    niceToHaves: [{ detail: "Rename it." }],
+    niceToHaves: [{ short: "Rename it", detail: "Rename it." }],
     threadReplies: [
       { threadId: "T1", kind: "explain", body: "Still wrong." },
       { threadId: "T2", kind: "acknowledge", body: "Fair." },
@@ -250,7 +250,7 @@ test("blockers, inline findings, and thread replies post as a comment, and an ex
       commit_id: h2,
       event: "COMMENT",
       comments: [
-        { path: "feature.ts", line: 3, body: "Blocker. Fix it. It breaks.", side: "RIGHT" },
+        { path: "feature.ts", line: 3, body: "**Blocker: Fix it**\n\nIt breaks.", side: "RIGHT" },
       ],
     },
   ]);
@@ -465,7 +465,9 @@ test("a lost post stays posting, and the retry finds the review by its marker in
 
 test("a retry with no review on an unchanged PR posts the recorded round once", async () => {
   reviewing();
-  await draft({ niceToHaves: [{ detail: "Rename.", path: "feature.ts", line: 2 }] });
+  await draft({
+    niceToHaves: [{ short: "Rename", detail: "Rename.", path: "feature.ts", line: 2 }],
+  });
   github({ post: () => ({ status: "uncertain", detail: "Timed out." }) });
   await post({ paths: home.paths, url });
   await draft({ summary: "A changed draft is ignored." });
@@ -479,7 +481,9 @@ test("a retry with no review on an unchanged PR posts the recorded round once", 
     {
       commit_id: h2,
       event: "APPROVE",
-      comments: [{ path: "feature.ts", line: 2, body: "Nice to have. Rename.", side: "RIGHT" }],
+      comments: [
+        { path: "feature.ts", line: 2, body: "**Nice to have**\n\nRename.", side: "RIGHT" },
+      ],
     },
   ]);
 });

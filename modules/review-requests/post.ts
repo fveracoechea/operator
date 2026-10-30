@@ -3,7 +3,13 @@ import { z } from "zod";
 // Bun has no file delete that ignores a missing file, which a retry after a crash can find.
 import { rm } from "node:fs/promises";
 import { DeviceState } from "../device-state/main.ts";
-import { checkDraft, draftSchema, type AcceptedDraft, type Draft } from "./draft.ts";
+import {
+  checkDraft,
+  draftSchema,
+  storedFindingsSchema,
+  type AcceptedDraft,
+  type Draft,
+} from "./draft.ts";
 import {
   postReview,
   readPullRequest,
@@ -586,8 +592,8 @@ function retryPost(paths: Paths, target: Target, request: Row, snapshot: Snapsho
                       detail: `GitHub has no review from the lost post, and PR #${target.number} is no longer open at ${round.reviewedCommit}. Write a new draft for the current head. Nothing was posted.`,
                     }),
                   );
-              const draft = draftSchema.parse(JSON.parse(round.draft));
-              return send(target, round, inlineComments(draft)).flatMap((outcome) =>
+              const findings = storedFindingsSchema.parse(JSON.parse(round.draft));
+              return send(target, round, inlineComments(findings)).flatMap((outcome) =>
                 finish(paths, target, request, round, outcome, next),
               );
             }),

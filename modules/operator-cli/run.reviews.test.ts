@@ -185,7 +185,7 @@ for (const host of ["opencode", "claude-code"] as const)
     );
   }, 60000);
 
-test("the event follows blockers, named breaches, required CI, and the posting account", async () => {
+test("the event follows blockers, breaking or security defects, required CI, and the posting account", async () => {
   await setup();
   const request = await add();
   await draft(request.draft, {
@@ -197,7 +197,7 @@ test("the event follows blockers, named breaches, required CI, and the posting a
         line: 1,
       },
     ],
-    niceToHaves: [{ detail: "Name the constant for its use." }],
+    niceToHaves: [{ short: "Name the constant", detail: "Name the constant for its use." }],
   });
   expect(await run(["review", "post", url])).toMatchObject({
     code: 0,
@@ -211,7 +211,7 @@ test("the event follows blockers, named breaches, required CI, and the posting a
         path: "feature.ts",
         line: 1,
         side: "RIGHT",
-        body: "Blocker. Guard has no test. Add a test for the new guard.",
+        body: "**Blocker: Guard has no test**\n\nAdd a test for the new guard.",
       },
     ],
   });
@@ -224,30 +224,28 @@ test("the event follows blockers, named breaches, required CI, and the posting a
   expect(await posted()).toHaveLength(1);
 }, 60000);
 
-test("a named strong breach requests changes, except on the posting account's own PR", async () => {
+test("a security defect requests changes, except on the posting account's own PR", async () => {
   await setup();
-  const breach = {
+  const defect = {
     blockers: [
       {
-        short: "Helper has no owner",
-        detail: "Move it into the module that calls it.",
-        breach: { source: "opinions", rule: "A helper is a module that was not named." },
+        short: "Token leaks into logs",
+        detail: "The error path logs the session token.",
+        impact: "security",
       },
     ],
   };
   const request = await add();
-  await draft(request.draft, breach);
+  await draft(request.draft, defect);
   expect(await run(["review", "post", url])).toMatchObject({
     output: { data: { event: "REQUEST_CHANGES" } },
   });
-  expect((await posted())[0]?.body).toContain(
-    "Strong breach of the opinions: A helper is a module that was not named.",
-  );
+  expect((await posted())[0]?.body).toContain("- **Token leaks into logs** · security issue");
 
   await setup();
   await github({ viewer: "author" });
   const own = await add();
-  await draft(own.draft, breach);
+  await draft(own.draft, defect);
   expect(await run(["review", "post", url])).toMatchObject({
     output: { data: { event: "COMMENT" } },
   });
@@ -294,7 +292,7 @@ test("required CI failures are blockers, and a noise claim cannot cite a changed
     output: { data: { event: "COMMENT", blockers: 1 } },
   });
   const [review] = await posted();
-  expect(review?.body).toContain("**CI check unit fails.** https://ci/unit");
+  expect(review?.body).toContain("- **CI check unit fails** · https://ci/unit");
   expect(review?.body).toContain("Required CI: 3 checks, 1 failing, 1 pending.");
   expect(review?.body).toContain("Noise: `lint` fails only in files that this PR does not change");
   expect(review?.body).not.toContain("optional");
@@ -327,7 +325,10 @@ test("draft refusals post nothing and change nothing", async () => {
       { blockers: [1, 2, 3, 4].map(() => ({ short: "Broken", detail: "Broken." })) },
       "review_draft_invalid",
     ],
-    [{ niceToHaves: [1, 2, 3, 4].map(() => ({ detail: "Later." })) }, "review_draft_invalid"],
+    [
+      { niceToHaves: [1, 2, 3, 4].map(() => ({ short: "Later", detail: "Later." })) },
+      "review_draft_invalid",
+    ],
     [
       { blockers: [{ short: "This short text has seven words now", detail: "Too long." }] },
       "review_draft_invalid",

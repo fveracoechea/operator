@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { AcceptedDraft } from "./draft.ts";
+import type { AcceptedDraft, Findings } from "./draft.ts";
 
 export type ReviewEvent = "APPROVE" | "COMMENT" | "REQUEST_CHANGES";
 export const markerPrefix = "<!-- operator-review ";
@@ -36,15 +36,15 @@ const rules: { when: (facts: EventFacts) => boolean; event: ReviewEvent }[] = [
   // An assignment reviewer posts with the owner's account, so its review is always a comment.
   { when: (facts) => facts.ownPullRequest || facts.origin === "assignment", event: "COMMENT" },
   {
-    when: (facts) => facts.accepted.draft.blockers.some((blocker) => blocker.breach !== undefined),
+    when: (facts) => facts.accepted.draft.blockers.some((blocker) => blocker.impact !== undefined),
     event: "REQUEST_CHANGES",
   },
   { when: (facts) => countBlockers(facts.accepted) > 0, event: "COMMENT" },
 ];
 
 /**
- * Request changes only for a named strong breach of the person's opinions, a project skill, or
- * the architecture. Otherwise an open blocker gives a comment, and no blocker gives approval.
+ * Request changes only for a defect that breaks the app or a security issue. A breach of style or
+ * design gives a comment like any other open blocker, and no blocker gives approval.
  */
 export function decideEvent(facts: EventFacts): ReviewEvent {
   return rules.find((rule) => rule.when(facts))?.event ?? "APPROVE";
@@ -63,8 +63,30 @@ export function approvalWaits(facts: EventFacts, event: ReviewEvent) {
   );
 }
 
-function at(finding: { path?: string; line?: number }) {
-  return finding.path === undefined ? "" : ` \`${finding.path}:${finding.line}\``;
+const impactWords = { breaking: "breaks the app", security: "security issue" } as const;
+/** A blocker or a nice to have. A nice to have has no impact, and a stored one can have no short. */
+type Finding = Omit<Findings["blockers"][number], "short"> & { short?: string };
+
+function tag(finding: { impact?: keyof typeof impactWords }) {
+  return finding.impact === undefined ? "" : ` · ${impactWords[finding.impact]}`;
+}
+
+/** The detail and the source of a finding, which its line comment or its body bullet holds. */
+function explanation(finding: Finding) {
+  return finding.source === undefined
+    ? finding.detail
+    : `${finding.detail}\n\n**Source:** ${finding.source}`;
+}
+
+/**
+ * One bullet for each finding. A finding with a line comment gets one short line, because its
+ * line comment holds the detail. A finding with no location keeps its detail in the bullet.
+ */
+function bullet(finding: Finding & { short: string }) {
+  const label = `- **${finding.short}**${tag(finding)}`;
+  return finding.path === undefined || finding.line === undefined
+    ? `${label}\n${explanation(finding).replaceAll(/^(?=.)/gm, "  ")}`
+    : `${label} · \`${finding.path}:${finding.line}\``;
 }
 
 /** The status words of a review, shared by the GitHub body and the Slack reply. */
@@ -125,44 +147,30 @@ export function renderReview(input: {
   const explained = openThreads(draft);
   const blockers = countBlockers(input.accepted);
   const limit = input.headLimit ?? null;
-  const breaches = draft.blockers.flatMap((blocker) =>
-    blocker.breach === undefined
-      ? []
-      : [
-          `Strong breach of the ${blocker.breach.source}: ${blocker.breach.rule.replace(/[.!?]$/, "")}.`,
-        ],
-  );
   const sections = [
     `${input.marker}\n**${status(input.event, blockers)}**${counts(blockers, draft.niceToHaves.length)}${limit === null ? "" : ` · reviewed at ${limit.reviewedCommit.slice(0, 7)}`}`,
     limit === null
       ? ""
       : `The PR head moved ${limit.moves} times during this review, so this review covers ${limit.reviewedCommit}, not the current head ${limit.head}.`,
     draft.summary,
-    breaches.join("\n"),
     blockers === 0
       ? "No blockers."
       : [
           "**Blockers**",
-          ...draft.blockers.map(
-            (blocker, index) =>
-              `${index + 1}. **${blocker.short}.** ${blocker.detail}${at(blocker)}`,
-          ),
+          ...draft.blockers.map(bullet),
           ...failingChecks.map(
-            (check, index) =>
-              `${draft.blockers.length + index + 1}. **CI check ${check.name} fails.**${check.url === null ? "" : ` ${check.url}`}`,
+            (check) =>
+              `- **CI check ${check.name} fails**${check.url === null ? "" : ` · ${check.url}`}`,
           ),
           ...(explained === 0
             ? []
             : [
-                `${draft.blockers.length + failingChecks.length + 1}. **${explained} review thread${explained === 1 ? " stays" : "s stay"} open.** The thread replies explain the remaining defects.`,
+                `- **${explained} review thread${explained === 1 ? " stays" : "s stay"} open** · the thread replies explain the remaining defects`,
               ]),
         ].join("\n"),
     draft.niceToHaves.length === 0
       ? ""
-      : [
-          "**Nice to have**",
-          ...draft.niceToHaves.map((item, index) => `${index + 1}. ${item.detail}${at(item)}`),
-        ].join("\n"),
+      : ["**Nice to have**", ...draft.niceToHaves.map(bullet)].join("\n"),
     ["**Checks**", ...checkLines(input.accepted, input.requiredChecks)].join("\n"),
   ];
   return {
@@ -171,24 +179,25 @@ export function renderReview(input: {
   };
 }
 
-/** Inline comments for findings with a location. They depend on the draft alone. */
-export function inlineComments(draft: AcceptedDraft["draft"]) {
+function lineComment(finding: Finding, heading: string) {
+  return finding.path === undefined || finding.line === undefined
+    ? []
+    : [
+        {
+          path: finding.path,
+          line: finding.line,
+          body: `**${heading}**${tag(finding)}\n\n${explanation(finding)}`,
+        },
+      ];
+}
+
+/**
+ * Inline comments for findings with a location. They depend on the findings alone, so a stored
+ * draft from an earlier release gives them too.
+ */
+export function inlineComments(findings: Findings) {
   return [
-    ...draft.blockers.flatMap((blocker) =>
-      blocker.path === undefined || blocker.line === undefined
-        ? []
-        : [
-            {
-              path: blocker.path,
-              line: blocker.line,
-              body: `Blocker. ${blocker.short}. ${blocker.detail}`,
-            },
-          ],
-    ),
-    ...draft.niceToHaves.flatMap((item) =>
-      item.path === undefined || item.line === undefined
-        ? []
-        : [{ path: item.path, line: item.line, body: `Nice to have. ${item.detail}` }],
-    ),
+    ...findings.blockers.flatMap((blocker) => lineComment(blocker, `Blocker: ${blocker.short}`)),
+    ...findings.niceToHaves.flatMap((item) => lineComment(item, "Nice to have")),
   ];
 }
