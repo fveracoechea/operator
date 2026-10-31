@@ -24,6 +24,8 @@ describe("a commit command with a Co-Authored-By trailer", () => {
     ['git  -C  repo  commit -m "Co-Authored-By: A <a@b.c>"'],
     ['git --no-pager -P --work-tree=repo commit -m "Co-Authored-By: A <a@b.c>"'],
     ['cd repo && git add . && git commit -m "Co-Authored-By: A <a@b.c>"'],
+    ["cat > /tmp/m <<'EOF'\nfix: x\n\nCo-Authored-By: A <a@b.c>\nEOF\ngit commit -F /tmp/m"],
+    ['MSG="fix: x\n\nCo-Authored-By: A <a@b.c>"; git commit -m "$MSG"'],
     ["git commit -F - <<'EOF'\nfix: x\n\nCo-Authored-By: A <a@b.c>\nEOF"],
   ])("is refused: %s", async (command) => {
     expect(await commitHasTrailer(command, root)).toBe(true);
@@ -48,7 +50,6 @@ describe("a command that is allowed", () => {
     ['git log --grep "Co-Authored-By: A"'],
     ['git commit-tree HEAD^{tree} -m "Co-Authored-By: A <a@b.c>"'],
     ['echo "Co-Authored-By: A" > notes.txt'],
-    ['echo "Co-Authored-By: A" > notes.txt && git commit -m "fix: x"'],
     ["git commit --amend --no-edit"],
     ["git commit"],
   ])("%s", async (command) => {
@@ -60,6 +61,14 @@ describe("a command that is allowed", () => {
     expect(await commitHasTrailer("git commit -F clean.txt", root)).toBe(false);
     expect(await commitHasTrailer("git commit -F missing.txt", root)).toBe(false);
     expect(await commitHasTrailer(`git commit -F ${root}`, root)).toBe(false);
+    expect(await commitHasTrailer("git commit -F 'a\u0000b'", root)).toBe(false);
+  });
+
+  test("a -F before the commit belongs to another command", async () => {
+    await Bun.write(`${root}/pattern.txt`, "Co-Authored-By: A <a@b.c>\n");
+    expect(
+      await commitHasTrailer('grep -F pattern.txt notes && git commit -m "fix: x"', root),
+    ).toBe(false);
   });
 
   test("a message on standard input is read from the command, not from a file named -", async () => {
