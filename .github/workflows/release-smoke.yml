@@ -60,6 +60,9 @@ jobs:
 
   nix:
     name: Nix package on ${{ matrix.os }}
+    # A pull request skips the Nix package. A called workflow reads its caller's event, so the
+    # release workflow runs this job on main before it publishes.
+    if: github.event_name != 'pull_request'
     runs-on: ${{ matrix.os }}
     strategy:
       # Both supported systems report, so one red system does not hide the other.
@@ -99,8 +102,8 @@ jobs:
             modules/operator-cli/run.reports.test.ts \
             -t "finish with no human stop|a manual request reviews the PR repository|report"
       # Consumers pin a github: input, which takes its commit time from the GitHub archive and not
-      # from a local checkout. The checked-out commit, a pull request merge commit included, is in
-      # this repository, so the archive of the same commit must hold the same artifact.
+      # from a local checkout. The checked-out commit is in this repository, so the archive of the
+      # same commit must hold the same artifact.
       - name: Compare the github input that consumers pin
         run: |
           nix build -L --out-link result-github "github:${{ github.repository }}/$(git rev-parse HEAD)"
