@@ -45,7 +45,12 @@ stateDiagram-v2
 - `ready`: the assignment waits for its dependencies.
   A pull request dependency must be open or merged, and a report dependency must be completed.
 - `running`: a WorkerAgent works in its own Herdr pane or worktree.
-- `pr-open`: the WorkerAgent answers review feedback and failing checks, then merges after an approving review.
+- `pr-open`: with internal review on, the default, the implementer opens a draft PR and stops.
+  The SuperAgent closes the implementer's pane and dispatches a fresh WorkerAgent into the same worktree.
+  That reviewer checks the draft against the issue, the standards, and the skills that the brief names, and it applies the valid findings in at most two rounds.
+  It posts one summary comment, marks the PR ready with `gh pr ready`, and then owns the PR.
+  The owner answers review feedback and failing checks, then merges after an approving review.
+  With internal review off, the implementer opens a ready PR and owns it to the merge.
 - `reported`: the SuperAgent accepts the report, or returns it with a follow-up.
 - `merged` and `completed`: the work is done, and the CLI removes the branch, pane, and worktree.
   Work that did not land stays until you decide.
@@ -223,6 +228,9 @@ operator cleanup --source <source-id> --assignment <key> --json
 The WorkerAgent runs the `pr` commands in its worktree.
 `pr wait` reports new feedback, failing checks, and a merged parent pull request.
 `pr merge` merges only with an approving review, passing checks, and no unresolved thread.
+Internal review is on by default, and `review.internal` set to `false` in settings turns it off for the device.
+A plan's `internalReview` field sets it for all its assignments, and a PR assignment's `internalReview` field sets it for that assignment.
+The most specific value wins.
 
 ### Reviews
 
@@ -237,4 +245,7 @@ operator review cleanup <pr-url> --json
 ```
 
 A reviewer agent writes a draft with the `pr-review` skill, and only `review post` posts it.
+With `review.assignments` set to `true`, each PR assignment also gets this reviewer after its PR is open.
+It posts a comment and is separate from internal review.
+In this release, `pr associate` queues it while the PR is still a draft, so keep `review.assignments` off while internal review is on.
 With `review.channel`, `review.repos`, and `review.authors` in settings, `review wait --slack` takes review requests from Slack.
