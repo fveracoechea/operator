@@ -23,6 +23,26 @@ A stuck owner whose pane is still open cannot be replaced.
 Close its pane with Herdr only after you inspect the worktree, then dispatch the replacement.
 A `merge_eligible` report from the owner is not a merge. The owner runs `operator pr merge --json`, which checks GitHub again. Never merge for the owner.
 
+## Internal review
+
+An internal review is on by default for each PR assignment, and an assignment, a plan, or `review.internal` can turn it off.
+With it on, the implementer opens a draft PR, associates it, tells you that the draft is ready for internal review, and stops.
+A fresh reviewer then takes over the same worktree and owns the PR until its merge.
+In this release, you do the handoff, and Operator does not record or check the review.
+
+1. After that message, `next` shows `owner_attention` with `pr_owner_idle` for the assignment. This is the handoff point, not a stuck owner.
+2. Inspect the worktree: `git status --short` prints nothing, and `git status -sb` shows no commits ahead of the remote. Otherwise ask the implementer to commit and push.
+3. Close the implementer's pane with `herdr pane close <pane>`.
+4. `next` then shows `replace_worker` with `worker_interrupted`. Dispatch it. The new launch reopens the worktree, and its brief makes it the internal reviewer.
+
+Keep these rules while a PR is a draft:
+
+- Keep `review.assignments` off. If it is on, `review next` shows `start_reviewer` for the draft. Run that command only after the PR is ready.
+- Ask nobody to approve the PR. The owner runs the guarded merge only after the PR is ready, also when a wait reports `merge_eligible` for the draft.
+
+To skip a running internal review, on the person's instruction, tell the owner to mark the draft ready with no comment.
+If internal review is off when you dispatch the reviewer, its brief does not make it the reviewer. Tell that owner to mark the draft ready with `gh pr ready`, then to run its PR feedback loop.
+
 ## Cleanup after a verified merge
 
 The merge starts cleanup in its own process. It deletes the remote branch, closes the owner's pane, and removes the worktree in that order, and stops at the first failure.
