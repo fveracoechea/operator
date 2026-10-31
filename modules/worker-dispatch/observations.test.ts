@@ -191,6 +191,100 @@ test("no matching workspace gives none, and a Herdr failure passes through", asy
   expect(await projectWorkspace(checkout)).toMatchObject({ tag: "Err", error: failure });
 });
 
+test("a workspace with no checkout is the project workspace when each of its panes is in the controller", async () => {
+  const checkout = await repository("checkout");
+  await symlink(checkout, `${root}/link`);
+  spyOn(Herdr, "workspaces").mockReturnValue(
+    OkAsync([
+      { workspaceId: "w1", label: "empty", checkout: null, linked: false },
+      { workspaceId: "w2", label: "mixed", checkout: null, linked: false },
+      { workspaceId: "w3", label: "unknown", checkout: null, linked: false },
+      { workspaceId: "w4", label: "other", checkout: root, linked: false },
+      { workspaceId: "w5", label: "one", checkout: null, linked: false },
+      { workspaceId: "w6", label: "two", checkout: null, linked: false },
+    ]),
+  );
+  function pane(workspaceId: string, cwd: string | null) {
+    return { paneId: `${workspaceId}:p`, tabId: `${workspaceId}:t`, workspaceId, cwd };
+  }
+  spyOn(Herdr, "panes").mockReturnValue(
+    OkAsync([
+      pane("w2", checkout),
+      pane("w2", root),
+      pane("w3", checkout),
+      pane("w3", null),
+      pane("w4", checkout),
+      pane("w5", checkout),
+      pane("w5", `${root}/link`),
+      pane("w6", checkout),
+    ]),
+  );
+  expect(await projectWorkspace(checkout)).toMatchObject({
+    tag: "Ok",
+    value: { workspaceId: "w5", labels: ["empty", "mixed", "unknown", "other", "one", "two"] },
+  });
+});
+
+test("a pane in a folder below the controlling checkout is in it, and a sibling folder is not", async () => {
+  const checkout = await repository("checkout");
+  await mkdir(`${checkout}/packages/x`, { recursive: true });
+  await mkdir(`${checkout}-copy`);
+  spyOn(Herdr, "workspaces").mockReturnValue(
+    OkAsync([
+      { workspaceId: "w1", label: "sibling", checkout: null, linked: false },
+      { workspaceId: "w2", label: "one", checkout: null, linked: false },
+    ]),
+  );
+  spyOn(Herdr, "panes").mockReturnValue(
+    OkAsync([
+      { paneId: "p1", tabId: "t1", workspaceId: "w1", cwd: checkout },
+      { paneId: "p2", tabId: "t2", workspaceId: "w1", cwd: `${checkout}-copy` },
+      { paneId: "p3", tabId: "t3", workspaceId: "w2", cwd: `${checkout}/packages/x` },
+      { paneId: "p4", tabId: "t4", workspaceId: "w2", cwd: checkout },
+    ]),
+  );
+  expect(await projectWorkspace(checkout)).toMatchObject({
+    tag: "Ok",
+    value: { workspaceId: "w2" },
+  });
+});
+
+test("a workspace whose checkout is the controller wins without a pane read", async () => {
+  const checkout = await repository("checkout");
+  spyOn(Herdr, "workspaces").mockReturnValue(
+    OkAsync([
+      { workspaceId: "w1", label: "panes", checkout: null, linked: false },
+      { workspaceId: "w2", label: "one", checkout, linked: false },
+    ]),
+  );
+  const panes = spyOn(Herdr, "panes").mockReturnValue(
+    OkAsync([{ paneId: "p1", tabId: "t1", workspaceId: "w1", cwd: checkout }]),
+  );
+  expect(await projectWorkspace(checkout)).toMatchObject({
+    tag: "Ok",
+    value: { workspaceId: "w2" },
+  });
+  expect(panes).not.toHaveBeenCalled();
+});
+
+test("panes are read only for a workspace with no checkout, and a pane read failure passes through", async () => {
+  const checkout = await repository("checkout");
+  const workspaces = spyOn(Herdr, "workspaces").mockReturnValue(
+    OkAsync([{ workspaceId: "w1", label: "other", checkout: root, linked: false }]),
+  );
+  const failure = { reason: "herdr_failed" as const, detail: "refused" };
+  const panes = spyOn(Herdr, "panes").mockReturnValue(ErrAsync(failure));
+  expect(await projectWorkspace(checkout)).toMatchObject({
+    tag: "Ok",
+    value: { workspaceId: null },
+  });
+  expect(panes).not.toHaveBeenCalled();
+  workspaces.mockReturnValue(
+    OkAsync([{ workspaceId: "w1", label: "one", checkout: null, linked: false }]),
+  );
+  expect(await projectWorkspace(checkout)).toMatchObject({ tag: "Err", error: failure });
+});
+
 function paths() {
   return OperatorHome.resolve({
     ...Environment.read(),

@@ -97,12 +97,11 @@ export function launchSettings(paths: Paths, checkout: string, profile: string |
 }
 
 export function ensureWorkspace(checkout: string, repository: string, workspaceId: string | null) {
-  return workspaceId === null
-    ? Herdr.createWorkspace({
-        cwd: checkout,
-        label: repository.split("/").at(-1) ?? repository,
-      }).map((created) => created.workspaceId)
-    : OkAsync(workspaceId);
+  if (workspaceId !== null) return OkAsync(workspaceId);
+  const label = repository.split("/").at(-1) ?? repository;
+  return Herdr.createWorkspace({ cwd: checkout, label }).flatMap((created) =>
+    Herdr.renameTab({ tabId: created.tabId, label }).map(() => created.workspaceId),
+  );
 }
 
 /**

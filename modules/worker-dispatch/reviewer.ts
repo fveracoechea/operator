@@ -219,6 +219,10 @@ export function launchReviewer(input: ReviewerLaunch) {
           worktreeWorkspaceId: placement.workspaceId,
         }),
       )
+      // The root tab of a worktree workspace has only a number.
+      .flatTap(({ placement, chosen }) =>
+        Herdr.renameTab({ tabId: placement.tabId, label: chosen.name }),
+      )
       .bind("preparation", ({ placement }) =>
         placement.created
           ? waitForPreparation(input.paths, placement.path, startedAt)

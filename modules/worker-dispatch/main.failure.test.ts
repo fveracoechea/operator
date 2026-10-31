@@ -1,5 +1,5 @@
 import { afterAll, afterEach, expect, mock, setSystemTime, spyOn, test } from "bun:test";
-import { OkAsync, fromPromise } from "unthrown";
+import { ErrAsync, OkAsync, fromPromise } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { dispatchDevice, removeDevices } from "./dispatch-fixture.ts";
@@ -63,6 +63,26 @@ test("a brief that cannot be written fails the recorded start", async () => {
   });
   expect(await device.launches("read")).toMatchObject([
     { state: "failed", failureReason: "dispatch_io_failed" },
+  ]);
+  expect(device.herdr.startAgent).not.toHaveBeenCalled();
+});
+
+test("a tab rename that Herdr refuses fails the start after the worktree is recorded", async () => {
+  await using device = await dispatchDevice();
+  device.herdr.renameTab.mockReturnValue(
+    ErrAsync({ reason: "herdr_failed", detail: "herdr tab rename exited 1: refused" }),
+  );
+  expect(await WorkerDispatch.dispatch(device.request("impl"))).toMatchObject({
+    tag: "Err",
+    error: { reason: "launch_failed" },
+  });
+  expect(await device.launches("impl")).toMatchObject([
+    {
+      state: "failed",
+      failureReason: "herdr_failed",
+      tabId: "t2",
+      worktreePath: `${device.root}/worktrees/pr-one-4-impl`,
+    },
   ]);
   expect(device.herdr.startAgent).not.toHaveBeenCalled();
 });
