@@ -47,31 +47,77 @@ test("rejects unsupported, duplicate, and target-free flags before installation"
     ["install", "--claude", "--force"],
     ["install", "--check"],
     ["install", "matt"],
-    ["install", "matt", "--claude", "--check"],
-    ["install", "matt", "--json"],
+    ["install", "matt", "--claude"],
+    ["install", "matt", "--opencode", "--claude"],
   ])
     expect(await runSkills(args, paths, true)).toBe(false);
   for (const spy of Object.values(called)) expect(spy).not.toHaveBeenCalled();
 });
 
-test("installs owned skills for the selected hosts in host order", async () => {
+test("checks owned skills for the selected hosts in host order and starts no upstream work", async () => {
   const called = spies();
-  quiet();
-  await runSkills(["install", "--claude", "--json", "--opencode"], paths, true);
+  const { error } = quiet();
+  await runSkills(["install", "--check", "--claude", "--json", "--opencode"], paths, true);
   expect(called.owned).toHaveBeenLastCalledWith({
+    paths,
+    hosts: ["opencode", "claude-code"],
+    check: true,
+  });
+  await runSkills(["install", "--claude", "--check"], paths, true);
+  expect(called.owned).toHaveBeenLastCalledWith({ paths, hosts: ["claude-code"], check: true });
+  expect(called.upstream).not.toHaveBeenCalled();
+  expect(error).not.toHaveBeenCalled();
+});
+
+test("installs owned skills, then upstream skills after it states the replacement policy", async () => {
+  const called = spies();
+  const { log, error } = quiet();
+  await runSkills(["install", "--claude", "--json", "--opencode"], paths, true);
+  expect(called.owned).toHaveBeenCalledWith({
     paths,
     hosts: ["opencode", "claude-code"],
     check: false,
   });
-  await runSkills(["install", "--check", "--claude"], paths, true);
-  expect(called.owned).toHaveBeenLastCalledWith({ paths, hosts: ["claude-code"], check: true });
-  await runSkills(["install", "--opencode"], paths, true);
-  expect(called.owned).toHaveBeenLastCalledWith({ paths, hosts: ["opencode"], check: false });
-  expect(called.upstream).not.toHaveBeenCalled();
-  expect(called.hook).toHaveBeenCalledTimes(2);
+  expect(error).toHaveBeenCalledWith(UpstreamSkills.replacementPolicy());
+  expect(called.upstream).toHaveBeenCalledWith(["opencode", "claude-code"], paths);
+  expect(called.owned.mock.invocationCallOrder[0]).toBeLessThan(
+    called.upstream.mock.invocationCallOrder[0] ?? 0,
+  );
+  expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
+    reason: "skills_installed",
+    data: { owned: true, upstream: { upstream: true } },
+  });
 });
 
-test("the Claude Code hook follows the check mode that the skills report", async () => {
+test("an owned refusal starts no upstream work", async () => {
+  const called = spies();
+  called.owned.mockReturnValue(
+    ErrAsync({ reason: "skill_copy_conflict", detail: "edited" }) as never,
+  );
+  const { log, error } = quiet();
+  await runSkills(["install", "--opencode"], paths, true);
+  expect(called.upstream).not.toHaveBeenCalled();
+  expect(error).not.toHaveBeenCalledWith(UpstreamSkills.replacementPolicy());
+  expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
+    reason: "skill_copy_conflict",
+  });
+  expect(process.exitCode).toBe(4);
+});
+
+test("an upstream refusal after the owned install is the command result", async () => {
+  const called = spies();
+  called.upstream.mockReturnValue(
+    ErrAsync({ reason: "upstream_install_unconfirmed", detail: "partial" }) as never,
+  );
+  const { log } = quiet();
+  await runSkills(["install", "--opencode"], paths, true);
+  expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
+    reason: "upstream_install_unconfirmed",
+  });
+  expect(process.exitCode).toBe(5);
+});
+
+test("the Claude Code hook follows the check mode that the owned skills report", async () => {
   const called = spies();
   quiet();
   for (const checkOnly of [true, false]) {
@@ -81,32 +127,23 @@ test("the Claude Code hook follows the check mode that the skills report", async
     await runSkills(["install", "--claude"], paths, true);
     expect(called.hook).toHaveBeenLastCalledWith({ paths, check: checkOnly });
   }
+  called.hook.mockClear();
+  await runSkills(["install", "--opencode"], paths, true);
+  expect(called.hook).not.toHaveBeenCalled();
 });
 
 test.each([
   ["claude_hook_missing", 3],
   ["claude_settings_external", 4],
   ["claude_settings_invalid", 4],
-] as const)("a hook refusal %s exits %d after the skills install", async (reason, code) => {
+] as const)("a hook refusal %s exits %d after the skill installs", async (reason, code) => {
   const called = spies();
   called.hook.mockReturnValue(ErrAsync({ reason, detail: "add the entry" }));
   const { log } = quiet();
   await runSkills(["install", "--claude"], paths, true);
+  expect(called.upstream).toHaveBeenCalled();
   expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({ reason });
   expect(process.exitCode).toBe(code);
-});
-
-test("installs upstream skills after it states the replacement policy", async () => {
-  const called = spies();
-  const { log, error } = quiet();
-  await runSkills(["install", "matt", "--opencode", "--claude"], paths, true);
-  expect(error).toHaveBeenCalledWith(UpstreamSkills.replacementPolicy());
-  expect(called.upstream).toHaveBeenCalledWith(["opencode", "claude-code"], paths);
-  expect(called.owned).not.toHaveBeenCalled();
-  expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
-    reason: "upstream_installed",
-    data: { upstream: true },
-  });
 });
 
 test("prints a completed install as compact JSON or as indented text", async () => {
@@ -118,7 +155,7 @@ test("prints a completed install as compact JSON or as indented text", async () 
     outcome: "completed",
     reason: "skills_installed",
     blockers: [],
-    data: { owned: true, claudeHook: "installed" },
+    data: { owned: true, upstream: { upstream: true }, claudeHook: "installed" },
   };
   process.exitCode = 7;
   expect(await runSkills(["install", "--claude"], paths, true)).toBe(true);
@@ -126,7 +163,7 @@ test("prints a completed install as compact JSON or as indented text", async () 
   expect(process.exitCode).toBe(0);
   expect(await runSkills(["install", "--claude"], paths, false)).toBe(true);
   expect(log).toHaveBeenLastCalledWith(JSON.stringify(expected, null, 2));
-  expect(error).not.toHaveBeenCalled();
+  expect(error).toHaveBeenCalledWith(UpstreamSkills.replacementPolicy());
 });
 
 test.each([

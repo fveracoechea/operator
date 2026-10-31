@@ -1,5 +1,36 @@
 # @fveracoechea/operator
 
+## 2.0.0
+
+### Major Changes
+
+- 8878458: `operator install --opencode | --claude` now also installs the upstream skills globally, so one command follows each install or update of Operator.
+  After the owned skills, it installs Matt Pocock's productivity and engineering skills, `unslop` from `cursor/plugins`, and `show-me` from `humanlayer/skills`.
+  Each repository is pinned to its current full commit, and the pinned `skills` installer gets one positive skill list for each repository.
+  An owned refusal stops the command before the upstream install, and `--check` checks only the owned skills.
+  The JSON result adds an `upstream` field with the installer version, the hosts, and the repository, commit, and skills of each source.
+  `operator install matt` is removed, with no alias. Run `operator install` instead.
+  `operator ready` still requires only `code-review` from the upstream skills.
+
+## 1.2.0
+
+### Minor Changes
+
+- 4cf14c4: Internal review of a draft PR is on by default (ADR-0020).
+  A PR brief now tells the implementer to open a draft PR, run `operator pr associate`, tell the SuperAgent, and stop. When a PR is already recorded, the brief tells the owner of a draft PR that it is the internal reviewer.
+  `operator config apply --set review.internal=false` turns internal review off for the device. A plan's `internalReview` field turns it off or on for all its assignments, and a PR assignment's `internalReview` field turns it off or on for that assignment. The most specific value wins. A report assignment refuses the field.
+  With internal review off, the brief is unchanged and the implementer opens a ready PR.
+
+### Patch Changes
+
+- 620ff52: Rewrite the `no-slop` skill.
+  It now adds ASD-STE100 Simplified Technical English rules, a buzzword rule, and a business casual voice.
+  It has one topic each for GitHub text, Slack messages, and replies to the person.
+  Rule ids that other skills cite do not change.
+- 2c2e93d: The `worker-agent` skill has a new `internal-review` topic for the internal reviewer of a draft PR: its inputs, the Spec, Standards, and Skills axes, at most two rounds, one summary comment, and `gh pr ready`.
+  Its pull-requests topic tells an implementer with internal review on to commit and push everything, open a draft PR, associate it, and stop.
+  The `super-agent` pull-requests topic covers the manual handoff from the implementer to the reviewer, the skip, and two rules while a PR is a draft: keep `review.assignments` off, and approve or merge no draft.
+
 ## 1.1.0
 
 ### Minor Changes

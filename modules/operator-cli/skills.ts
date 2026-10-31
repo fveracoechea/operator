@@ -1,8 +1,8 @@
+import { OkAsync } from "unthrown";
 import { ClaudeHook } from "../claude-hook/main.ts";
 import { OwnedSkills } from "../owned-skills/main.ts";
 import { UpstreamSkills } from "../upstream-skills/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
-import { OkAsync } from "unthrown";
 import { respond } from "./output.ts";
 
 const skillExitCodes = {
@@ -16,8 +16,7 @@ const skillExitCodes = {
 
 function skillArgs(args: string[]) {
   if (args[0] !== "install") return null;
-  const upstream = args[1] === "matt";
-  const flags = args.slice(upstream ? 2 : 1);
+  const flags = args.slice(1);
   if (
     new Set(flags).size !== flags.length ||
     flags.some((flag) => !["--opencode", "--claude", "--check", "--json"].includes(flag))
@@ -27,10 +26,13 @@ function skillArgs(args: string[]) {
   if (flags.includes("--opencode")) hosts.push("opencode");
   if (flags.includes("--claude")) hosts.push("claude-code");
   if (hosts.length === 0) return null;
-  if (upstream && flags.includes("--check")) return null;
-  return { upstream, hosts, check: flags.includes("--check") };
+  return { hosts, check: flags.includes("--check") };
 }
 
+/**
+ * Installs owned skills, then delegates the upstream skills. A check starts no upstream work.
+ * The Claude Code commit hook comes last, so a settings refusal leaves the skills installed.
+ */
 export async function runSkills(
   args: string[],
   paths: ReturnType<typeof OperatorHome.resolve>,
@@ -38,19 +40,25 @@ export async function runSkills(
 ) {
   const parsed = skillArgs(args);
   if (parsed === null) return false;
-  const { upstream, hosts, check } = parsed;
-  if (upstream) console.error(UpstreamSkills.replacementPolicy());
-  const result = upstream
-    ? await UpstreamSkills.install(hosts, paths)
-    : await OwnedSkills.install({ paths, hosts, check }).flatMap((skills) =>
-        // The Claude Code commit hook installs with the skills, and a Nix release only checks it.
-        hosts.includes("claude-code")
-          ? ClaudeHook.install({ paths, check: skills.data.checkOnly }).map((claudeHook) => ({
-              ...skills,
-              data: { ...skills.data, claudeHook },
-            }))
-          : OkAsync(skills),
-      );
+  const { hosts, check } = parsed;
+  const result = await OwnedSkills.install({ paths, hosts, check })
+    .flatMap((owned) => {
+      if (check) return OkAsync(owned);
+      console.error(UpstreamSkills.replacementPolicy());
+      return UpstreamSkills.install(hosts, paths).map((upstream) => ({
+        reason: owned.reason,
+        data: { ...owned.data, upstream: upstream.data },
+      }));
+    })
+    .flatMap((installed) =>
+      // A Nix release only checks the hook, as it only checks the owned skills.
+      hosts.includes("claude-code")
+        ? ClaudeHook.install({ paths, check: installed.data.checkOnly }).map((claudeHook) => ({
+            ...installed,
+            data: { ...installed.data, claudeHook },
+          }))
+        : OkAsync(installed),
+    );
   respond({
     operation: "install",
     result,

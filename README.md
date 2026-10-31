@@ -45,7 +45,12 @@ stateDiagram-v2
 - `ready`: the assignment waits for its dependencies.
   A pull request dependency must be open or merged, and a report dependency must be completed.
 - `running`: a WorkerAgent works in its own Herdr pane or worktree.
-- `pr-open`: the WorkerAgent answers review feedback and failing checks, then merges after an approving review.
+- `pr-open`: with internal review on, the default, the implementer opens a draft PR and stops.
+  The SuperAgent closes the implementer's pane and dispatches a fresh WorkerAgent into the same worktree.
+  That reviewer checks the draft against the issue, the standards, and the skills that the brief names, and it applies the valid findings in at most two rounds.
+  It posts one summary comment, marks the PR ready with `gh pr ready`, and then owns the PR.
+  The owner answers review feedback and failing checks, then merges after an approving review.
+  With internal review off, the implementer opens a ready PR and owns it to the merge.
 - `reported`: the SuperAgent accepts the report, or returns it with a follow-up.
 - `merged` and `completed`: the work is done, and the CLI removes the branch, pane, and worktree.
   Work that did not land stays until you decide.
@@ -58,6 +63,7 @@ A source is `open` until each assignment is merged or completed, and then it is 
 
 Bun 1.4.0 or later is required, except with Nix, which brings its own Bun.
 Install Operator one time for the device, in one of these three ways.
+To move to a new release, follow [Update Operator](https://github.com/fveracoechea/operator/blob/main/docs/update.md).
 
 ### JSR with Bun
 
@@ -80,7 +86,6 @@ bun "$OPERATOR_PACKAGE/cli.js" install launcher --json
 operator --version --json
 ```
 
-To update, run the same `bun add -g` command again.
 Keep `--exact`, because `install launcher` refuses a release without an exact version, and `ready` reports one.
 
 ### Repository source
@@ -122,8 +127,6 @@ Then register the project:
 operator project register --json
 operator --version --json
 ```
-
-To update, change the tag and rebuild your configuration.
 
 ### PATH
 
@@ -172,16 +175,22 @@ WorkerAgents use the SuperAgent's host and model, unless a profile under `profil
 ```sh
 operator install --opencode --claude --json
 operator install --opencode --claude --check --json
-operator install matt --opencode --claude --json
 operator ready --json
 ```
 
+Run `install` after each install or update of Operator, for each host that settings select.
 `install` copies the Operator skills into the host folders, and it does not overwrite your edits.
+Then it installs these upstream skills globally with the pinned `skills` installer, at the current commit of each repository:
+
+- Matt Pocock's skills from the `skills/productivity` and `skills/engineering` folders of `mattpocock/skills`, except names that Operator owns.
+- `unslop` from `cursor/plugins`.
+- `show-me` from `humanlayer/skills`.
+
+The upstream installer can replace your edits to those skills.
 `install --claude` also adds the commit hook to `~/.claude/settings.json`. The hook runs `operator claude hook` before a git command and blocks a commit whose message has a Co-Authored-By trailer.
 When that file is a link, for example into a dotfiles repository, `install` changes nothing and reports `claude_settings_external` with the hook entry to add.
-`install --check` reports `skills_missing` for skills that are not installed, `skill_copy_conflict` for skills with different contents, and `claude_hook_missing` when Claude Code settings do not run the commit hook.
-`install matt` installs Matt Pocock's skills.
-`ready` requires them, so run `install matt` for each host that settings select.
+`ready` requires the Operator skills and Matt's `code-review` skill.
+`install --check` checks the Operator skills, and with `--claude` the commit hook. It reports `skills_missing` for skills that are not installed, `skill_copy_conflict` for skills with different contents, and `claude_hook_missing` when Claude Code settings do not run the commit hook.
 `ready` checks `gh` and its login, `herdr`, the `operator` command, the host, the skills, and the commit hook on Claude Code.
 
 ### Assignments and dispatch
@@ -225,6 +234,9 @@ operator cleanup --source <source-id> --assignment <key> --json
 The WorkerAgent runs the `pr` commands in its worktree.
 `pr wait` reports new feedback, failing checks, and a merged parent pull request.
 `pr merge` merges only with an approving review, passing checks, and no unresolved thread.
+Internal review is on by default, and `review.internal` set to `false` in settings turns it off for the device.
+A plan's `internalReview` field sets it for all its assignments, and a PR assignment's `internalReview` field sets it for that assignment.
+The most specific value wins.
 
 ### Reviews
 
@@ -239,4 +251,7 @@ operator review cleanup <pr-url> --json
 ```
 
 A reviewer agent writes a draft with the `pr-review` skill, and only `review post` posts it.
+With `review.assignments` set to `true`, each PR assignment also gets this reviewer after its PR is open.
+It posts a comment and is separate from internal review.
+In this release, `pr associate` queues it while the PR is still a draft, so keep `review.assignments` off while internal review is on.
 With `review.channel`, `review.repos`, and `review.authors` in settings, `review wait --slack` takes review requests from Slack.

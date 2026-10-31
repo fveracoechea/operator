@@ -5,14 +5,20 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { Environment } from "../environment/main.ts";
 import { registerTestDevice } from "../../scripts/device-fixture.ts";
+import { writeUpstreamTools } from "../../scripts/upstream-tools-fixture.ts";
 
 let root = "";
+// Install also runs the upstream installer, so fake upstream tools sit outside the device root.
+let tools = "";
 const cli = Bun.fileURLToPath(new URL("../../cli.ts", import.meta.url));
 beforeEach(async () => {
   root = await mkdtemp(path.join(tmpdir(), "operator-claude-hook-"));
+  tools = await mkdtemp(path.join(tmpdir(), "operator-claude-hook-tools-"));
+  await writeUpstreamTools(tools);
 });
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });
+  await rm(tools, { recursive: true, force: true });
 });
 
 async function run(args: string[], stdin = "") {
@@ -22,6 +28,7 @@ async function run(args: string[], stdin = "") {
       HOME: `${root}/home`,
       XDG_CONFIG_HOME: `${root}/config`,
       XDG_STATE_HOME: `${root}/state`,
+      PATH: `${tools}/tools`,
       BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
     }),
     stdin: new TextEncoder().encode(stdin),

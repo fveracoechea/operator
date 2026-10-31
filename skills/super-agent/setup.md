@@ -6,18 +6,17 @@ A JSR install has no command until its package CLI runs `install launcher --json
 A source install gets its command from Bun, and a Nix install from its package.
 Do not install or select a release inside a project.
 
-Use `operator install --opencode --claude --json` for complete owned skills in both personal host locations.
+After each install or update of the release, use `operator install --opencode --claude --json`.
+It copies complete owned skills into both personal host locations, then installs the upstream skills globally: Matt Pocock's productivity and engineering skills, `unslop`, and `show-me`.
 Select only one host flag when needed.
-Use `operator install --opencode --claude --check --json` for a content-only check.
-Nix installations always check owned contents and leave consumer-owned links unchanged.
+Use `operator install --opencode --claude --check --json` for a content-only check of owned skills. It installs no upstream skills.
+Nix installations always check owned contents and leave consumer-owned links unchanged, and they still install the upstream skills.
+An owned conflict stops the command before the upstream install.
 A conflict requires the person to preserve or move their edits, or change their external wiring.
-Operator does not overwrite a modified skill or install permission rules.
+Operator does not overwrite a modified owned skill or install permission rules.
+The pinned upstream installer owns upstream replacement and its lock, and can replace local edits without an Operator preview.
 `--claude` also adds the commit hook to Claude Code user settings. The hook only denies a commit with a Co-Authored-By trailer.
 A linked or read-only settings file stays unchanged, and the refusal names the hook entry for the person to add to its owner, such as their dotfiles.
-
-Use `operator install matt --opencode --claude --json` for an explicit global upstream install.
-Select only the required host flags.
-The pinned upstream installer owns replacement and its lock, and can replace local edits without an Operator preview.
 Inspect failed or interrupted installs before requesting another install.
 
 Use `operator ready --json` to check current static prerequisites, including a pinned global command that runs this release, for every host that device settings select.

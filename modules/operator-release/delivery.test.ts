@@ -774,14 +774,49 @@ test("installed source and registry CLIs copy complete skills to both hosts and 
     const database = await Bun.file(
       `${environment.XDG_STATE_HOME}/operator/operator.sqlite`,
     ).bytes();
+    const tools = `${root}/${delivery.name}-readiness-tools`;
+    // The global command runs this installed release, as Bun's link or the launcher would, and
+    // the fake upstream tools keep each install off the network.
+    await mkdir(tools, { recursive: true });
+    await symlink(`${installed}/${delivery.entry}`, `${tools}/operator`);
+    for (const tool of ["gh", "herdr", "opencode", "claude", "git", "bun"]) {
+      const script =
+        tool === "gh"
+          ? `if(JSON.stringify(process.argv.slice(2))!==JSON.stringify(["auth","status","--hostname","github.com"])) process.exit(99);`
+          : tool === "git"
+            ? `const a=process.argv.slice(2); if(a[0]==="clone") { for(const folder of {"https://github.com/cursor/plugins.git":["pstack/skills/unslop"],"https://github.com/humanlayer/skills.git":["plugins/show-me/skills/show-me"]}[a.at(-2)] ?? ["skills/engineering/code-review","skills/engineering/bun","skills/productivity/super-agent"]) await Bun.write(a.at(-1)+"/"+folder+"/SKILL.md","---\\nname: "+folder.split("/").at(-1)+"\\n---\\n",{createPath:true}); } else console.log("${"a".repeat(40)}");`
+            : tool === "bun"
+              ? `await Bun.write(${JSON.stringify(`${environment.HOME}/.agents/skills/code-review/SKILL.md`)},"independent upstream skill\\n",{createPath:true}); await Bun.write(${JSON.stringify(`${environment.HOME}/.claude/skills/code-review/SKILL.md`)},"independent upstream skill\\n",{createPath:true}); const a=process.argv.slice(2); console.log(JSON.stringify(a.slice(a.indexOf("--skill")+1,-2).map(name=>({name,status:"installed"}))));`
+              : "process.exit(99);";
+      await Bun.write(`${tools}/${tool}`, `#!${process.execPath}\n${script}`, { createPath: true });
+      await chmod(`${tools}/${tool}`, 0o755);
+    }
+    const controlled = { ...environment, PATH: tools };
     for (const flags of [
       ["--opencode"],
       ["--claude"],
       ["--opencode", "--claude"],
       ["--opencode", "--claude", "--check"],
     ]) {
-      const result = await run([...command, "install", ...flags, "--json"], checkout, environment);
+      const result = await run([...command, "install", ...flags, "--json"], checkout, controlled);
       expect(result.exitCode, result.stderr).toBe(0);
+      if (!flags.includes("--check"))
+        expect(JSON.parse(result.stdout)).toMatchObject({
+          data: {
+            upstream: {
+              installerVersion: "1.7.4",
+              sources: [
+                {
+                  repository: "mattpocock/skills",
+                  commit: "a".repeat(40),
+                  skills: ["code-review"],
+                },
+                { repository: "cursor/plugins", skills: ["unslop"] },
+                { repository: "humanlayer/skills", skills: ["show-me"] },
+              ],
+            },
+          },
+        });
     }
     const hosts = [
       `${environment.HOME}/.claude/skills`,
@@ -799,33 +834,6 @@ test("installed source and registry CLIs copy complete skills to both hosts and 
           );
       }
     }
-    const tools = `${root}/${delivery.name}-readiness-tools`;
-    // The global command runs this installed release, as Bun's link or the launcher would.
-    await mkdir(tools, { recursive: true });
-    await symlink(`${installed}/${delivery.entry}`, `${tools}/operator`);
-    for (const tool of ["gh", "herdr", "opencode", "claude", "git", "bun"]) {
-      const script =
-        tool === "gh"
-          ? `if(JSON.stringify(process.argv.slice(2))!==JSON.stringify(["auth","status","--hostname","github.com"])) process.exit(99);`
-          : tool === "git"
-            ? `const a=process.argv.slice(2); if(a[0]==="clone") { for(const name of ["code-review","bun","super-agent"]) await Bun.write(a.at(-1)+"/skills/"+name+"/SKILL.md","---\\nname: "+name+"\\n---\\n",{createPath:true}); } else console.log("${"a".repeat(40)}");`
-            : tool === "bun"
-              ? `await Bun.write(${JSON.stringify(`${environment.HOME}/.agents/skills/code-review/SKILL.md`)},"independent upstream skill\\n",{createPath:true}); await Bun.write(${JSON.stringify(`${environment.HOME}/.claude/skills/code-review/SKILL.md`)},"independent upstream skill\\n",{createPath:true}); console.log(JSON.stringify([{name:"code-review",status:"installed"}]));`
-              : "process.exit(99);";
-      await Bun.write(`${tools}/${tool}`, `#!${process.execPath}\n${script}`, { createPath: true });
-      await chmod(`${tools}/${tool}`, 0o755);
-    }
-    const controlled = { ...environment, PATH: tools };
-    const upstream = await run(
-      [...command, "install", "matt", "--opencode", "--claude", "--json"],
-      checkout,
-      controlled,
-    );
-    expect(upstream.exitCode, upstream.stderr).toBe(0);
-    expect(JSON.parse(upstream.stdout)).toMatchObject({
-      reason: "upstream_installed",
-      data: { installerVersion: "1.7.4", commit: "a".repeat(40), skills: ["code-review"] },
-    });
     for (const host of ["opencode", "claude-code"]) {
       const edit = ["--set", `superAgent.host=${host}`];
       const plan = await run(
@@ -858,7 +866,7 @@ test("installed source and registry CLIs copy complete skills to both hosts and 
     const updated = await run(
       [...command, "install", "--opencode", "--claude", "--json"],
       checkout,
-      environment,
+      controlled,
     );
     expect(updated.exitCode, updated.stderr).toBe(0);
     for (const host of hosts)
@@ -869,7 +877,7 @@ test("installed source and registry CLIs copy complete skills to both hosts and 
     const conflict = await run(
       [...command, "install", "--opencode", "--claude", "--json"],
       checkout,
-      environment,
+      controlled,
     );
     expect(conflict.exitCode).toBe(4);
     expect(await Bun.file(`${hosts[0]}/deep-modules/module-shape.md`).text()).toBe(

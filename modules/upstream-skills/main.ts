@@ -28,90 +28,134 @@ function qualify<T>(cause: Error, defect: (cause: Error) => T) {
   return defect(cause);
 }
 
+// Each source names one repository. A source with a folder selects only the skill in that folder.
+// A source with sections selects every skill under those folders that the release does not own.
+const sources: Array<{ repository: string; folder?: string; sections?: string[] }> = [
+  { repository: "mattpocock/skills", sections: ["skills/productivity", "skills/engineering"] },
+  { repository: "cursor/plugins", folder: "pstack/skills/unslop" },
+  { repository: "humanlayer/skills", folder: "plugins/show-me/skills/show-me" },
+];
+
+async function resolve(directory: string, source: (typeof sources)[number], owned: string[]) {
+  const { repository, folder, sections = [] } = source;
+  const checkout = `${directory}/${repository}`;
+  const clone = await ToolInvocation.run({
+    tool: "git",
+    args: ["clone", "--depth", "1", "--", `https://github.com/${repository}.git`, checkout],
+    cwd: directory,
+    timeoutMs: 60000,
+  });
+  if (clone.status !== "completed" || clone.exitCode !== 0)
+    return {
+      reason: "upstream_resolution_failed" as const,
+      detail: `Cannot read the current revision of ${repository}. No installer was invoked.`,
+    };
+  const revision = await ToolInvocation.run({
+    tool: "git",
+    args: ["rev-parse", "HEAD"],
+    cwd: checkout,
+    timeoutMs: 10000,
+  });
+  if (revision.status !== "completed" || revision.exitCode !== 0)
+    return {
+      reason: "upstream_resolution_failed" as const,
+      detail: `Cannot resolve a full commit of ${repository}. No installer was invoked.`,
+    };
+  const commit = commitIdentity(revision.stdout);
+  const documents = [];
+  if (folder !== undefined) {
+    const file = Bun.file(`${checkout}/${folder}/SKILL.md`);
+    if (!(await file.exists()))
+      return {
+        reason: "upstream_catalog_invalid" as const,
+        detail: `${repository} has no skill at ${folder}. No installer was invoked.`,
+      };
+    documents.push(await file.text());
+  } else
+    for (const section of sections)
+      for await (const file of new Bun.Glob(`${section}/**/SKILL.md`).scan({ cwd: checkout }))
+        documents.push(await Bun.file(`${checkout}/${file}`).text());
+  return {
+    repository,
+    commit,
+    skills: roster(documents, owned),
+    // The tree address keeps another copy of the same name elsewhere in the repository out.
+    address:
+      folder === undefined
+        ? `${repository}#${commit}`
+        : `https://github.com/${repository}/tree/${commit}/${folder}`,
+  };
+}
+
 async function install(hosts: Host[]) {
-  const directory = await mkdtemp(path.join(tmpdir(), "operator-matt-"));
+  const directory = await mkdtemp(path.join(tmpdir(), "operator-upstream-"));
   try {
-    const clone = await ToolInvocation.run({
-      tool: "git",
-      args: [
-        "clone",
-        "--depth",
-        "1",
-        "--",
-        "https://github.com/mattpocock/skills.git",
-        `${directory}/repository`,
-      ],
-      cwd: directory,
-      timeoutMs: 60000,
-    });
-    if (clone.status !== "completed" || clone.exitCode !== 0)
-      return {
-        reason: "upstream_resolution_failed" as const,
-        detail: "Cannot read the current Matt skills revision. No installer was invoked.",
-      };
-    const revision = await ToolInvocation.run({
-      tool: "git",
-      args: ["rev-parse", "HEAD"],
-      cwd: `${directory}/repository`,
-      timeoutMs: 10000,
-    });
-    if (revision.status !== "completed" || revision.exitCode !== 0)
-      return {
-        reason: "upstream_resolution_failed" as const,
-        detail: "Cannot resolve a full Matt skills commit. No installer was invoked.",
-      };
-    const commit = commitIdentity(revision.stdout);
-    const documents = [];
-    for await (const file of new Bun.Glob("**/SKILL.md").scan({ cwd: `${directory}/repository` }))
-      documents.push(await Bun.file(`${directory}/repository/${file}`).text());
     const owned = await OwnedSkills.names();
-    const skills = roster(documents, owned);
-    if (owned.length === 0 || skills.length === 0)
+    const resolved = [];
+    for (const source of sources) {
+      const outcome = await resolve(directory, source, owned);
+      if (outcome.detail !== undefined) return outcome;
+      resolved.push(outcome);
+    }
+    if (owned.length === 0 || resolved.some((source) => source.skills.length === 0))
       return {
         reason: "upstream_catalog_invalid" as const,
         detail:
-          "A complete owned catalog and a nonempty upstream roster are required. No installer was invoked.",
+          "A complete owned catalog and a nonempty roster for each upstream source are required. No installer was invoked.",
       };
-    const args = [
-      "x",
-      "--bun",
-      `skills@${installerVersion}`,
-      "add",
-      `mattpocock/skills#${commit}`,
-      "--global",
-      "--agent",
-      ...hosts,
-      "--skill",
-      ...skills,
-      "--yes",
-      "--json",
-    ];
-    const result = await ToolInvocation.run({
-      tool: "bun",
-      args,
-      cwd: directory,
-      timeoutMs: 120000,
-    });
-    if (result.status === "unavailable")
-      return { reason: "upstream_installer_unavailable" as const, detail: result.detail };
-    if (result.status === "no-answer")
+    const names = resolved.flatMap((source) => source.skills);
+    const repeated = names.find((name, index) => names.indexOf(name) !== index);
+    if (repeated !== undefined)
       return {
-        reason: "upstream_install_unconfirmed" as const,
-        detail: `${result.detail} ${replacementPolicy}`,
+        reason: "upstream_catalog_invalid" as const,
+        detail: `More than one upstream source selects ${repeated}. No installer was invoked.`,
       };
-    if (result.exitCode !== 0)
-      return {
-        reason: "upstream_install_failed" as const,
-        detail: `${result.stderr} ${replacementPolicy}`,
-      };
-    if (!installed(result.stdout, skills))
-      return {
-        reason: "upstream_install_unconfirmed" as const,
-        detail: `The installer did not confirm every selected skill. ${replacementPolicy}`,
-      };
+    for (const { repository, address, skills } of resolved) {
+      const result = await ToolInvocation.run({
+        tool: "bun",
+        args: [
+          "x",
+          "--bun",
+          `skills@${installerVersion}`,
+          "add",
+          address,
+          "--global",
+          "--agent",
+          ...hosts,
+          "--skill",
+          ...skills,
+          "--yes",
+          "--json",
+        ],
+        cwd: directory,
+        timeoutMs: 120000,
+      });
+      if (result.status === "unavailable")
+        return { reason: "upstream_installer_unavailable" as const, detail: result.detail };
+      if (result.status === "no-answer")
+        return {
+          reason: "upstream_install_unconfirmed" as const,
+          detail: `${repository}: ${result.detail} ${replacementPolicy}`,
+        };
+      if (result.exitCode !== 0)
+        return {
+          reason: "upstream_install_failed" as const,
+          detail: `${repository}: ${result.stderr} ${replacementPolicy}`,
+        };
+      if (!installed(result.stdout, skills))
+        return {
+          reason: "upstream_install_unconfirmed" as const,
+          detail: `${repository}: The installer did not confirm every selected skill. ${replacementPolicy}`,
+        };
+    }
     return {
       reason: "upstream_installed" as const,
-      data: { installerVersion, commit, hosts, skills, replacementPolicy },
+      data: {
+        installerVersion,
+        hosts,
+        sources: resolved.map(({ repository, commit, skills }) => ({ repository, commit, skills })),
+        replacementPolicy,
+      },
     };
   } finally {
     await rm(directory, { recursive: true });

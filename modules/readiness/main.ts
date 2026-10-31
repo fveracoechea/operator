@@ -49,7 +49,7 @@ async function checkHost(paths: ReturnType<typeof OperatorHome.resolve>, host: H
   else if (upstream.value.length > 0)
     blockers.push({
       reason: "upstream_skills_missing",
-      detail: `Run operator install matt ${flag}. Missing required skill files: ${upstream.value.join(", ")}`,
+      detail: `Run operator install ${flag}. Missing required skill files: ${upstream.value.join(", ")}`,
     });
   if (host === "claude-code") {
     const hook = await ClaudeHook.install({ paths, check: true });

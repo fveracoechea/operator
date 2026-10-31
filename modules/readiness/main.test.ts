@@ -135,7 +135,7 @@ describe("static blockers", () => {
           {
             reason: "upstream_skills_missing",
             detail:
-              "Run operator install matt --opencode. Missing required skill files: /one/SKILL.md, /two/SKILL.md",
+              "Run operator install --opencode. Missing required skill files: /one/SKILL.md, /two/SKILL.md",
           },
         ],
       }),
@@ -273,8 +273,7 @@ describe("static blockers", () => {
           { reason: "github_auth_failed", detail: "Run gh auth login for github.com." },
           {
             reason: "upstream_skills_missing",
-            detail:
-              "Run operator install matt --claude. Missing required skill files: /claude/SKILL.md",
+            detail: "Run operator install --claude. Missing required skill files: /claude/SKILL.md",
           },
         ],
       }),
