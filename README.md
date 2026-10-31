@@ -177,14 +177,20 @@ WorkerAgents use the SuperAgent's host and model, unless a profile under `profil
 ```sh
 operator install --opencode --claude --json
 operator install --opencode --claude --check --json
-operator install matt --opencode --claude --json
 operator ready --json
 ```
 
+Run `install` after each install or update of Operator, for each host that settings select.
 `install` copies the Operator skills into the host folders, and it does not overwrite your edits.
-`install --check` reports `skills_missing` for skills that are not installed, and `skill_copy_conflict` for skills with different contents.
-`install matt` installs Matt Pocock's skills.
-`ready` requires them, so run `install matt` for each host that settings select.
+Then it installs these upstream skills globally with the pinned `skills` installer, at the current commit of each repository:
+
+- Matt Pocock's skills from the `skills/productivity` and `skills/engineering` folders of `mattpocock/skills`, except names that Operator owns.
+- `unslop` from `cursor/plugins`.
+- `show-me` from `humanlayer/skills`.
+
+The upstream installer can replace your edits to those skills.
+`ready` requires the Operator skills and Matt's `code-review` skill.
+`install --check` checks only the Operator skills. It reports `skills_missing` for skills that are not installed, and `skill_copy_conflict` for skills with different contents.
 `ready` checks `gh` and its login, `herdr`, the `operator` command, the host, and the skills.
 
 ### Assignments and dispatch

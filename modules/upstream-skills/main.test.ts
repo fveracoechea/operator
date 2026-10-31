@@ -43,41 +43,6 @@ test("presence follows independently revised links without an Operator content l
   });
 });
 
-test.each(["no-answer", "failed"] as const)(
-  "an installer %s is not silently retried or called complete",
-  async (status) => {
-    const calls: string[] = [];
-    const spy = spyOn(ToolInvocation, "run").mockImplementation(async (input) => {
-      calls.push(input.tool);
-      if (input.args[0] === "clone") {
-        await Bun.write(
-          `${input.args.at(-1)}/code-review/SKILL.md`,
-          "---\nname: code-review\n---\n",
-          { createPath: true },
-        );
-        return { status: "completed", exitCode: 0, stdout: "", stderr: "" };
-      }
-      if (input.tool === "git")
-        return { status: "completed", exitCode: 0, stdout: "a".repeat(40), stderr: "" };
-      return status === "no-answer"
-        ? { status: "no-answer", detail: "interrupted" }
-        : { status: "completed", exitCode: 1, stdout: "", stderr: "failed" };
-    });
-    try {
-      expect(await UpstreamSkills.install(["opencode"], paths())).toMatchObject({
-        tag: "Err",
-        error: {
-          reason:
-            status === "no-answer" ? "upstream_install_unconfirmed" : "upstream_install_failed",
-        },
-      });
-      expect(calls).toEqual(["git", "git", "bun"]);
-    } finally {
-      spy.mockRestore();
-    }
-  },
-);
-
 test("unexpected programming defects remain defects", async () => {
   const spy = spyOn(ToolInvocation, "run").mockImplementation(() => {
     // oxlint-disable-next-line unthrown/no-throw -- Inject a defect at the public external-tool boundary.
@@ -103,29 +68,121 @@ function done(stdout: string): Answer {
 // An unfinished answer is refused even when it carries an exit code.
 const unfinished = { status: "no-answer" as const, detail: "interrupted", exitCode: 0 };
 
-function upstream(answers: { clone?: Answer; revision?: Answer; installer?: Answer }) {
+// Each upstream repository, by the clone URL, and the skill folders that its fixture holds.
+const fixtures: Record<string, string[]> = {
+  // Only the productivity and engineering folders count, so a skill elsewhere, and the invalid
+  // frontmatter of an in-progress skill, never reach the roster.
+  "https://github.com/mattpocock/skills.git": [
+    "skills/engineering/code-review",
+    "skills/engineering/bun",
+    "skills/productivity/tdd",
+    "skills/misc/setup-pre-commit",
+    "skills/in-progress/software-factory",
+    "skills/productivity-notes/drafts",
+  ],
+  "https://github.com/cursor/plugins.git": [
+    "pstack/skills/unslop",
+    "harness/pstack/claude-code/skills/unslop",
+    "pstack/skills/swarm",
+  ],
+  "https://github.com/humanlayer/skills.git": [
+    "plugins/show-me/skills/show-me",
+    "plugins/rpi/skills/rpi",
+  ],
+};
+
+/** Writes the fixture skill folders into one clone destination. */
+async function writeClone(args: string[], extra: string[]) {
+  for (const folder of [...(fixtures[String(args.at(-2))] ?? []), ...extra])
+    await Bun.write(
+      `${args.at(-1)}/${folder}/SKILL.md`,
+      folder.includes("in-progress")
+        ? "---\nname: [unclosed\n---\n"
+        : `---\nname: ${folder.split("/").at(-1)}\n---\n`,
+      { createPath: true },
+    );
+}
+
+/** Confirms every selected skill, as a complete installer answer does. */
+function confirmAll(args: string[]) {
+  const names = args.slice(args.indexOf("--skill") + 1, -2);
+  return done(JSON.stringify(names.map((name) => ({ name, status: "installed" }))));
+}
+
+/** Answers each source in order. A given answer applies only to the source or installer at `at`. */
+function upstream(answers: {
+  clone?: Answer;
+  revision?: Answer;
+  installer?: Answer;
+  at?: number;
+  extra?: string;
+}) {
   const calls: Parameters<typeof ToolInvocation.run>[0][] = [];
+  const at = answers.at ?? 0;
+  const extra = answers.extra === undefined ? [] : [`skills/engineering/${answers.extra}`];
+  let clones = 0;
+  let installs = 0;
   const spy = spyOn(ToolInvocation, "run").mockImplementation(async (input) => {
     calls.push(input);
     if (input.args[0] === "clone") {
-      for (const name of ["code-review", "bun", "tdd"])
-        await Bun.write(
-          `${input.args.at(-1)}/skills/${name}/SKILL.md`,
-          `---\nname: ${name}\n---\n`,
-          { createPath: true },
-        );
-      return answers.clone ?? done("");
+      await writeClone(input.args, clones === 0 ? extra : []);
+      return clones++ === at ? (answers.clone ?? done("")) : done("");
     }
-    if (input.tool === "git") return answers.revision ?? done(`${commit}\n`);
-    return (
-      answers.installer ??
-      done('[{"name":"code-review","status":"installed"},{"name":"tdd","status":"installed"}]')
-    );
+    if (input.tool === "git")
+      return (clones - 1 === at ? answers.revision : undefined) ?? done(`${commit}\n`);
+    return (installs++ === at ? answers.installer : undefined) ?? confirmAll(input.args);
   });
   return { calls, spy };
 }
 
-test("installs the non-owned upstream roster at the resolved commit and removes its clone", async () => {
+function resolution(directory: string, repository: string) {
+  return [
+    {
+      tool: "git",
+      args: [
+        "clone",
+        "--depth",
+        "1",
+        "--",
+        `https://github.com/${repository}.git`,
+        `${directory}/${repository}`,
+      ],
+      cwd: directory,
+      timeoutMs: 60000,
+    },
+    {
+      tool: "git",
+      args: ["rev-parse", "HEAD"],
+      cwd: `${directory}/${repository}`,
+      timeoutMs: 10000,
+    },
+  ];
+}
+
+function installer(directory: string, source: string, skills: string[]) {
+  return {
+    tool: "bun",
+    args: [
+      "x",
+      "--bun",
+      "skills@1.7.4",
+      "add",
+      source,
+      "--global",
+      "--agent",
+      "opencode",
+      "claude-code",
+      "--skill",
+      ...skills,
+      "--yes",
+      "--json",
+    ],
+    cwd: directory,
+    timeoutMs: 120000,
+  };
+}
+
+test("installs every source at its resolved commit with a positive roster and removes the clones", async () => {
   const { calls, spy } = upstream({});
   try {
     expect(await UpstreamSkills.install(["opencode", "claude-code"], paths())).toEqual(
@@ -133,58 +190,37 @@ test("installs the non-owned upstream roster at the resolved commit and removes 
         reason: "upstream_installed",
         data: {
           installerVersion: "1.7.4",
-          commit,
           hosts: ["opencode", "claude-code"],
-          skills: ["code-review", "tdd"],
+          sources: [
+            { repository: "mattpocock/skills", commit, skills: ["code-review", "tdd"] },
+            { repository: "cursor/plugins", commit, skills: ["unslop"] },
+            { repository: "humanlayer/skills", commit, skills: ["show-me"] },
+          ],
           replacementPolicy: policy,
         },
       }),
     );
     const directory = calls[0]?.cwd ?? "";
-    expect(directory.startsWith(path.join(tmpdir(), "operator-matt-"))).toBe(true);
+    expect(directory.startsWith(path.join(tmpdir(), "operator-upstream-"))).toBe(true);
     expect(calls).toEqual([
-      {
-        tool: "git",
-        args: [
-          "clone",
-          "--depth",
-          "1",
-          "--",
-          "https://github.com/mattpocock/skills.git",
-          `${directory}/repository`,
-        ],
-        cwd: directory,
-        timeoutMs: 60000,
-      },
-      {
-        tool: "git",
-        args: ["rev-parse", "HEAD"],
-        cwd: `${directory}/repository`,
-        timeoutMs: 10000,
-      },
-      {
-        tool: "bun",
-        args: [
-          "x",
-          "--bun",
-          "skills@1.7.4",
-          "add",
-          `mattpocock/skills#${commit}`,
-          "--global",
-          "--agent",
-          "opencode",
-          "claude-code",
-          "--skill",
-          "code-review",
-          "tdd",
-          "--yes",
-          "--json",
-        ],
-        cwd: directory,
-        timeoutMs: 120000,
-      },
+      ...resolution(directory, "mattpocock/skills"),
+      ...resolution(directory, "cursor/plugins"),
+      ...resolution(directory, "humanlayer/skills"),
+      installer(directory, `mattpocock/skills#${commit}`, ["code-review", "tdd"]),
+      installer(
+        directory,
+        `https://github.com/cursor/plugins/tree/${commit}/pstack/skills/unslop`,
+        ["unslop"],
+      ),
+      installer(
+        directory,
+        `https://github.com/humanlayer/skills/tree/${commit}/plugins/show-me/skills/show-me`,
+        ["show-me"],
+      ),
     ]);
-    expect(await Bun.file(`${directory}/repository/skills/tdd/SKILL.md`).exists()).toBe(false);
+    expect(
+      await Bun.file(`${directory}/mattpocock/skills/skills/productivity/tdd/SKILL.md`).exists(),
+    ).toBe(false);
     expect(UpstreamSkills.replacementPolicy()).toBe(policy);
   } finally {
     spy.mockRestore();
@@ -195,40 +231,40 @@ test.each([
   [
     "clone unavailable",
     { clone: { status: "unavailable", tool: "git", detail: "absent" } },
-    "Cannot read the current Matt skills revision. No installer was invoked.",
+    "Cannot read the current revision of mattpocock/skills. No installer was invoked.",
     1,
   ],
   [
     "clone failed",
-    { clone: { status: "completed", exitCode: 128, stdout: "", stderr: "denied" } },
-    "Cannot read the current Matt skills revision. No installer was invoked.",
-    1,
+    { clone: { status: "completed", exitCode: 128, stdout: "", stderr: "denied" }, at: 1 },
+    "Cannot read the current revision of cursor/plugins. No installer was invoked.",
+    3,
   ],
   [
     "clone unfinished",
-    { clone: unfinished },
-    "Cannot read the current Matt skills revision. No installer was invoked.",
-    1,
+    { clone: unfinished, at: 2 },
+    "Cannot read the current revision of humanlayer/skills. No installer was invoked.",
+    5,
   ],
   [
     "revision unfinished",
     { revision: unfinished },
-    "Cannot resolve a full Matt skills commit. No installer was invoked.",
+    "Cannot resolve a full commit of mattpocock/skills. No installer was invoked.",
     2,
   ],
   [
     "revision unavailable",
-    { revision: { status: "no-answer", detail: "interrupted" } },
-    "Cannot resolve a full Matt skills commit. No installer was invoked.",
-    2,
+    { revision: { status: "no-answer", detail: "interrupted" }, at: 1 },
+    "Cannot resolve a full commit of cursor/plugins. No installer was invoked.",
+    4,
   ],
   [
     "revision failed",
-    { revision: { status: "completed", exitCode: 1, stdout: commit, stderr: "" } },
-    "Cannot resolve a full Matt skills commit. No installer was invoked.",
-    2,
+    { revision: { status: "completed", exitCode: 1, stdout: commit, stderr: "" }, at: 2 },
+    "Cannot resolve a full commit of humanlayer/skills. No installer was invoked.",
+    6,
   ],
-] as const)("a %s resolution stops before the installer", async (_name, answers, detail, count) => {
+] as const)("a %s resolution stops before any installer", async (_name, answers, detail, count) => {
   const { calls, spy } = upstream(answers);
   try {
     expect(await UpstreamSkills.install(["opencode"], paths())).toEqual(
@@ -243,33 +279,44 @@ test.each([
 test.each([
   [
     { status: "unavailable", tool: "bun", detail: "bun is not on the path." },
+    0,
     { reason: "upstream_installer_unavailable", detail: "bun is not on the path." },
   ],
   [
     { status: "no-answer", detail: "bun x ended on SIGTERM." },
-    { reason: "upstream_install_unconfirmed", detail: `bun x ended on SIGTERM. ${policy}` },
+    1,
+    {
+      reason: "upstream_install_unconfirmed",
+      detail: `cursor/plugins: bun x ended on SIGTERM. ${policy}`,
+    },
   ],
   [
     { status: "completed", exitCode: 1, stdout: "", stderr: "lock held" },
-    { reason: "upstream_install_failed", detail: `lock held ${policy}` },
+    2,
+    { reason: "upstream_install_failed", detail: `humanlayer/skills: lock held ${policy}` },
   ],
   [
     done('[{"name":"code-review","status":"installed"}]'),
+    0,
     {
       reason: "upstream_install_unconfirmed",
-      detail: `The installer did not confirm every selected skill. ${policy}`,
+      detail: `mattpocock/skills: The installer did not confirm every selected skill. ${policy}`,
     },
   ],
-] as const)("an installer answer %j is a refusal", async (installer, error) => {
-  const { spy } = upstream({ installer });
-  try {
-    expect(await UpstreamSkills.install(["opencode"], paths())).toEqual(Err(error));
-  } finally {
-    spy.mockRestore();
-  }
-});
+] as const)(
+  "an installer answer %j is a refusal that stops later sources",
+  async (installer, at, error) => {
+    const { calls, spy } = upstream({ installer, at });
+    try {
+      expect(await UpstreamSkills.install(["opencode"], paths())).toEqual(Err(error));
+      expect(calls.filter((call) => call.tool === "bun")).toHaveLength(at + 1);
+    } finally {
+      spy.mockRestore();
+    }
+  },
+);
 
-test("an invalid commit, an empty owned catalog, or an owned-only roster is an invalid catalog", async () => {
+test("an invalid commit, an empty owned catalog, an owned-only roster, or a repeated name is an invalid catalog", async () => {
   const { calls, spy } = upstream({ revision: done("main") });
   try {
     expect(await UpstreamSkills.install(["opencode"], paths())).toMatchObject({
@@ -281,20 +328,75 @@ test("an invalid commit, an empty owned catalog, or an owned-only roster is an i
     const invalid = Err({
       reason: "upstream_catalog_invalid" as const,
       detail:
-        "A complete owned catalog and a nonempty upstream roster are required. No installer was invoked.",
+        "A complete owned catalog and a nonempty roster for each upstream source are required. No installer was invoked.",
     });
     const owned = spyOn(OwnedSkills, "names").mockResolvedValue([]);
     const empty = upstream({});
     expect(await UpstreamSkills.install(["opencode"], paths())).toEqual(invalid);
-    expect(empty.calls).toHaveLength(2);
+    expect(empty.calls).toHaveLength(6);
     owned.mockResolvedValue(["code-review", "bun", "tdd"]);
     expect(await UpstreamSkills.install(["opencode"], paths())).toEqual(invalid);
-    expect(empty.calls).toHaveLength(4);
+    owned.mockResolvedValue(["show-me"]);
+    expect(await UpstreamSkills.install(["opencode"], paths())).toEqual(invalid);
+    expect(empty.calls.filter((call) => call.tool === "bun")).toEqual([]);
+    mock.restore();
+    const repeated = upstream({ extra: "unslop" });
+    expect(await UpstreamSkills.install(["opencode"], paths())).toEqual(
+      Err({
+        reason: "upstream_catalog_invalid",
+        detail: "More than one upstream source selects unslop. No installer was invoked.",
+      }),
+    );
+    expect(repeated.calls.filter((call) => call.tool === "bun")).toEqual([]);
   } finally {
     mock.restore();
   }
 });
 
+test("a pinned folder that the upstream repository moved is an invalid catalog", async () => {
+  const moved = fixtures["https://github.com/humanlayer/skills.git"];
+  fixtures["https://github.com/humanlayer/skills.git"] = ["skills/show-me"];
+  const { calls, spy } = upstream({});
+  try {
+    expect(await UpstreamSkills.install(["opencode"], paths())).toEqual(
+      Err({
+        reason: "upstream_catalog_invalid",
+        detail:
+          "humanlayer/skills has no skill at plugins/show-me/skills/show-me. No installer was invoked.",
+      }),
+    );
+    expect(calls.filter((call) => call.tool === "bun")).toEqual([]);
+  } finally {
+    fixtures["https://github.com/humanlayer/skills.git"] = moved ?? [];
+    spy.mockRestore();
+  }
+});
+
+test("an interrupted or failed installer is not silently retried or called complete", async () => {
+  for (const [installer, reason] of [
+    [{ status: "no-answer", detail: "interrupted" }, "upstream_install_unconfirmed"],
+    [{ status: "completed", exitCode: 1, stdout: "", stderr: "failed" }, "upstream_install_failed"],
+  ] as const) {
+    const { calls, spy } = upstream({ installer });
+    try {
+      expect(await UpstreamSkills.install(["opencode"], paths())).toMatchObject({
+        tag: "Err",
+        error: { reason },
+      });
+      expect(calls.map((call) => call.tool)).toEqual([
+        "git",
+        "git",
+        "git",
+        "git",
+        "git",
+        "git",
+        "bun",
+      ]);
+    } finally {
+      spy.mockRestore();
+    }
+  }
+});
 test.each(["ENOENT", "ENOTDIR", "EACCES", "EPERM", "EIO", "ENOSPC", "EROFS", "ELOOP"])(
   "a %s failure is an upstream I/O refusal",
   async (code) => {

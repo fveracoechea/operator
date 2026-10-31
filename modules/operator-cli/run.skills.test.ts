@@ -7,12 +7,21 @@ import { Environment } from "../environment/main.ts";
 import { sha256 } from "../../lib/sha256.ts";
 import { Database } from "bun:sqlite";
 import { registerTestDevice } from "../../scripts/device-fixture.ts";
+import {
+  upstreamCalls,
+  upstreamCommit,
+  writeUpstreamTools,
+} from "../../scripts/upstream-tools-fixture.ts";
 
 let root = "";
+// Fake upstream tools live outside the device root, so the effect checks below do not see them.
+let tools = "";
 let databaseBefore: ArrayBuffer;
 const cli = Bun.fileURLToPath(new URL("../../cli.ts", import.meta.url));
 beforeEach(async () => {
   root = await mkdtemp(path.join(tmpdir(), "operator-owned-skills-"));
+  tools = await mkdtemp(path.join(tmpdir(), "operator-owned-skills-tools-"));
+  await writeUpstreamTools(tools);
   databaseBefore = await registerTestDevice(root);
 });
 afterEach(async () => {
@@ -22,6 +31,7 @@ afterEach(async () => {
     );
   } finally {
     await rm(root, { recursive: true, force: true });
+    await rm(tools, { recursive: true, force: true });
   }
 });
 
@@ -32,6 +42,7 @@ async function run(args: string[]) {
       HOME: `${root}/home`,
       XDG_CONFIG_HOME: `${root}/config`,
       XDG_STATE_HOME: `${root}/state`,
+      PATH: `${tools}/tools`,
       BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
     }),
     stdout: "pipe",
@@ -49,6 +60,7 @@ test("copies complete owned skills personally for both hosts without project wri
   const result = await run(["--opencode", "--claude"]);
   expect(result.code, result.stderr).toBe(0);
   expect(result.output).toMatchObject({ reason: "skills_installed" });
+  expect(result.stderr).toContain("replacement");
   for (const host of [`${root}/config/opencode/skills`, `${root}/home/.claude/skills`]) {
     expect(await Bun.file(`${host}/deep-modules/module-shape.md`).text()).toBe(
       await Bun.file(new URL("../../skills/deep-modules/module-shape.md", import.meta.url)).text(),
@@ -60,6 +72,71 @@ test("copies complete owned skills personally for both hosts without project wri
     databaseBefore,
   );
   expect(await Bun.file(`${root}/.agents/skills/bun/SKILL.md`).exists()).toBe(false);
+});
+
+function installer(source: string, skills: string[]) {
+  return [
+    "x",
+    "--bun",
+    "skills@1.7.4",
+    "add",
+    source,
+    "--global",
+    "--agent",
+    "opencode",
+    "claude-code",
+    "--skill",
+    ...skills,
+    "--yes",
+    "--json",
+  ];
+}
+
+test("installs every upstream source after the owned skills with explicit global hosts", async () => {
+  const result = await run(["--opencode", "--claude"]);
+  expect(result.code, result.stderr).toBe(0);
+  expect(result.output).toMatchObject({
+    reason: "skills_installed",
+    data: {
+      hosts: ["opencode", "claude-code"],
+      upstream: {
+        installerVersion: "1.7.4",
+        hosts: ["opencode", "claude-code"],
+        sources: [
+          {
+            repository: "mattpocock/skills",
+            commit: upstreamCommit,
+            skills: ["code-review", "tdd"],
+          },
+          { repository: "cursor/plugins", commit: upstreamCommit, skills: ["unslop"] },
+          { repository: "humanlayer/skills", commit: upstreamCommit, skills: ["show-me"] },
+        ],
+      },
+    },
+  });
+  expect(await upstreamCalls(tools)).toEqual([
+    installer(`mattpocock/skills#${upstreamCommit}`, ["code-review", "tdd"]),
+    installer(`https://github.com/cursor/plugins/tree/${upstreamCommit}/pstack/skills/unslop`, [
+      "unslop",
+    ]),
+    installer(
+      `https://github.com/humanlayer/skills/tree/${upstreamCommit}/plugins/show-me/skills/show-me`,
+      ["show-me"],
+    ),
+  ]);
+  expect(await Bun.file(`${root}/skills-lock.json`).exists()).toBe(false);
+});
+
+test("a check and an owned refusal start no upstream installer", async () => {
+  expect((await run(["--opencode", "--check"])).code).toBe(3);
+  await mkdir(`${root}/home/.claude/skills`, { recursive: true });
+  await chmod(`${root}/home/.claude/skills`, 0o555);
+  try {
+    expect((await run(["--claude"])).code).toBe(4);
+  } finally {
+    await chmod(`${root}/home/.claude/skills`, 0o755);
+  }
+  expect(await upstreamCalls(tools)).toEqual([]);
 });
 
 test("check mode on a new device reports missing skills, and passes after an install", async () => {
@@ -269,11 +346,9 @@ test("an install waits for the owned writer before judging its partial contents"
 }, 15000);
 
 test.each(
-  [["--claude", "--claude"], ["--unknown"], ["matt", "plan", "--claude"], ["--check"]].map(
-    (args) => ({
-      args,
-    }),
-  ),
+  [["--claude", "--claude"], ["--unknown"], ["matt", "--claude"], ["--check"]].map((args) => ({
+    args,
+  })),
 )("invalid flags %j have no effects", async ({ args }) => {
   expect((await run(args)).code).toBe(2);
   expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([
