@@ -11,6 +11,7 @@ const eventSchema = z.object({
   hook_event_name: z.string(),
   tool_name: z.string(),
   // Only Bash input has a command. Other tools describe no command to check.
+  // Stryker disable next-line StringLiteral: equivalent: any text that is not a git commit has no trailer
   tool_input: z.looseObject({ command: z.string().catch("") }),
   cwd: z.string(),
 });
@@ -34,9 +35,11 @@ export const ClaudeHook = {
     return fromThrowable(
       () => eventSchema.parse(JSON.parse(event)),
       (cause, defect) =>
+        // Stryker disable next-line ConditionalExpression: equivalent: JSON.parse and the schema throw only these errors
         cause instanceof SyntaxError || cause instanceof z.ZodError
           ? {
               reason: "claude_hook_event_invalid" as const,
+              // Stryker disable next-line StringLiteral: no rule: the diagnostic wording is not a promised result
               detail: "Claude Code did not describe a hook event.",
             }
           : defect(cause),
@@ -50,6 +53,7 @@ export const ClaudeHook = {
             (await commitHasTrailer(parsed.tool_input.command, parsed.cwd))
               ? deny
               : "",
+          // Stryker disable next-line ArrowFunction: equivalent: commitHasTrailer reads a message file with a fallback, so it never rejects
           (cause, defect) => defect(cause),
         ),
       );
@@ -64,7 +68,19 @@ export const ClaudeHook = {
         return installHook({ file: input.paths.claudeSettings, check: input.check });
       },
       (cause, defect) =>
-        isCodedError(cause) && ["EACCES", "EPERM", "EROFS", "EIO", "EISDIR"].includes(cause.code)
+        isCodedError(cause) &&
+        [
+          "ENOENT",
+          "EACCES",
+          "EPERM",
+          "EIO",
+          "EROFS",
+          "ENOSPC",
+          "ENOTDIR",
+          "EISDIR",
+          "EEXIST",
+          "ELOOP",
+        ].includes(cause.code)
           ? { reason: "claude_settings_io_failed" as const, detail: String(cause) }
           : defect(cause),
     ).flatMap((outcome) => ("detail" in outcome ? Err(outcome) : Ok(outcome.reason)));

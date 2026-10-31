@@ -4,13 +4,17 @@ import path from "node:path";
 const trailer = /co-authored-by\s*[:=]/i;
 // Global options such as -C path or -c key=value can stand between git and commit.
 const commit = /\bgit(?:\s+(?:-[cC]\s+\S+|--?[\w.-]+(?:=\S+)?))*\s+commit(?![\w-])/;
-const messageFile = /(?:^|\s)(?:-F\s*|--file[=\s]+)(?:"([^"]+)"|'([^']+)'|(\S+))/g;
+const messageFile = /\s(?:-F\s*|--file[=\s]+)(?:"([^"]+)"|'([^']+)'|(\S+))/g;
+
+// A missing file, a folder, or an unreadable file holds no message that the hook can read.
+// Stryker disable next-line BlockStatement: equivalent: any text with no trailer reads as no trailer
+function noMessage() {
+  // Stryker disable next-line StringLiteral: equivalent: any text with no trailer reads as no trailer
+  return "";
+}
 
 async function fileText(file: string) {
-  // A missing file, a folder, or an unreadable file holds no message that the hook can read.
-  return Bun.file(file)
-    .text()
-    .catch(() => "");
+  return Bun.file(file).text().catch(noMessage);
 }
 
 /**
@@ -21,8 +25,11 @@ async function fileText(file: string) {
 export async function commitHasTrailer(command: string, cwd: string) {
   const found = commit.exec(command);
   if (found === null) return false;
-  if (trailer.test(command)) return true;
-  for (const match of command.slice(found.index).matchAll(messageFile)) {
+  // Text before the commit belongs to other commands.
+  const rest = command.slice(found.index);
+  if (trailer.test(rest)) return true;
+  for (const match of rest.matchAll(messageFile)) {
+    // Stryker disable next-line StringLiteral: equivalent: the last group matches whenever the quoted groups do not
     const name = match[1] ?? match[2] ?? match[3] ?? "-";
     if (name !== "-" && trailer.test(await fileText(path.resolve(cwd, name)))) return true;
   }

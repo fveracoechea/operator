@@ -2,7 +2,7 @@
 import { lstat, mkdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import { isCodedError } from "../../lib/coded-error.ts";
+import { isCodedError, type CodedError } from "../../lib/coded-error.ts";
 import { writeFile } from "../../lib/write-file.ts";
 
 const command = "operator claude hook";
@@ -19,7 +19,7 @@ const settingsSchema = z.looseObject({
       PreToolUse: z
         .array(
           z.looseObject({
-            hooks: z.array(z.looseObject({ command: z.unknown().optional() })).optional(),
+            hooks: z.array(z.looseObject({})).optional(),
           }),
         )
         .optional(),
@@ -38,8 +38,14 @@ async function linked(file: string) {
   // A path that cannot be read is no link, and the write that follows reports its failure.
   return lstat(file).then(
     (entry) => entry.isSymbolicLink(),
+    // Stryker disable next-line ArrowFunction: equivalent: no answer and false both mean no link
     () => false,
   );
+}
+
+/** A write that the file system refuses: the settings file belongs to someone else. */
+export function refusedWrite(cause: CodedError) {
+  return ["EACCES", "EPERM", "EROFS"].includes(cause.code);
 }
 
 /** The parsed settings, or null when the file is not a settings object. */
@@ -95,10 +101,11 @@ export async function installHook(input: { file: string; check: boolean }): Prom
     await writeFile(
       input.file,
       new TextEncoder().encode(`${JSON.stringify(next, null, 2)}\n`),
+      // Stryker disable next-line ArrowFunction: equivalent: no answer and null both give the default mode
       ((await stat(input.file).catch(() => null))?.mode ?? 0o600) % 0o1000,
     );
   } catch (cause) {
-    if (isCodedError(cause) && ["EACCES", "EPERM", "EROFS"].includes(cause.code)) return external;
+    if (isCodedError(cause) && refusedWrite(cause)) return external;
     // oxlint-disable-next-line unthrown/no-throw -- The module boundary qualifies filesystem failures.
     throw cause;
   }

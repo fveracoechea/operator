@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { hookEntry, installHook } from "./settings.ts";
+import { hookEntry, installHook, refusedWrite } from "./settings.ts";
 
 let root = "";
 let file = "";
@@ -18,7 +18,16 @@ afterEach(async () => {
 
 test("a new device gets a settings file with only the hook", async () => {
   expect(await installHook({ file, check: false })).toEqual({ reason: "installed" });
-  expect(await Bun.file(file).json()).toEqual({ hooks: { PreToolUse: [hookEntry] } });
+  expect(await Bun.file(file).json()).toEqual({
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: "Bash",
+          hooks: [{ type: "command", if: "Bash(git *)", command: "operator claude hook" }],
+        },
+      ],
+    },
+  });
 });
 
 test("the hook joins existing settings and hooks without changing them", async () => {
@@ -91,13 +100,35 @@ test("a read-only settings folder belongs to its owner", async () => {
   });
 });
 
-test.each([["{broken"], ["[]"], ['{"hooks":{"PreToolUse":{}}}']])(
-  "settings that are not a settings object are refused: %s",
-  async (text) => {
-    await Bun.write(file, text, { createPath: true });
-    expect(await installHook({ file, check: false })).toMatchObject({
-      reason: "claude_settings_invalid",
-    });
-    expect(await Bun.file(file).text()).toBe(text);
-  },
-);
+test.each([
+  ["{broken"],
+  ["[]"],
+  ['{"hooks":{"PreToolUse":{}}}'],
+  ['{"hooks":{"PreToolUse":[{"hooks":{}}]}}'],
+])("settings that are not a settings object are refused: %s", async (text) => {
+  await Bun.write(file, text, { createPath: true });
+  const result = await installHook({ file, check: false });
+  expect(result).toMatchObject({ reason: "claude_settings_invalid" });
+  expect("detail" in result && result.detail).toContain(file);
+  expect(await Bun.file(file).text()).toBe(text);
+});
+
+test("an unreadable settings file is a file system failure, not invalid settings", async () => {
+  await Bun.write(file, "{}\n", { createPath: true });
+  await chmod(file, 0o000);
+  await expect(installHook({ file, check: true })).rejects.toMatchObject({ code: "EACCES" });
+});
+
+test("a settings path under a file is a file system failure", async () => {
+  await Bun.write(`${root}/.claude`, "not a folder\n");
+  // The platform names the failure EEXIST or ENOTDIR.
+  await expect(installHook({ file, check: false })).rejects.toThrow(/EEXIST|ENOTDIR/);
+});
+
+test.each(["EACCES", "EPERM", "EROFS"])("a %s write belongs to the file owner", (code) => {
+  expect(refusedWrite(Object.assign(new Error("failed"), { code }))).toBe(true);
+});
+
+test("other write failures are not a refusal", () => {
+  expect(refusedWrite(Object.assign(new Error("failed"), { code: "EIO" }))).toBe(false);
+});

@@ -19,7 +19,10 @@ describe("a commit command with a Co-Authored-By trailer", () => {
     ],
     ['git commit --amend -m "fix: x" -m "Co-Authored-By: A <a@b.c>"'],
     ['git commit --trailer "Co-authored-by=A <a@b.c>" -m "fix: x"'],
+    ['git commit --trailer "Co-authored-by = A <a@b.c>" -m "fix: x"'],
     ['git -C repo -c user.name=A commit -m "Co-Authored-By: A <a@b.c>"'],
+    ['git  -C  repo  commit -m "Co-Authored-By: A <a@b.c>"'],
+    ['git --no-pager -P --work-tree=repo commit -m "Co-Authored-By: A <a@b.c>"'],
     ['cd repo && git add . && git commit -m "Co-Authored-By: A <a@b.c>"'],
     ["git commit -F - <<'EOF'\nfix: x\n\nCo-Authored-By: A <a@b.c>\nEOF"],
   ])("is refused: %s", async (command) => {
@@ -31,6 +34,10 @@ describe("a commit command with a Co-Authored-By trailer", () => {
     expect(await commitHasTrailer("git commit -F message.txt", root)).toBe(true);
     expect(await commitHasTrailer(`git commit --file="${root}/message.txt"`, "/")).toBe(true);
     expect(await commitHasTrailer("git commit --amend --file message.txt", root)).toBe(true);
+    expect(await commitHasTrailer("git commit --file  message.txt", root)).toBe(true);
+    expect(await commitHasTrailer("git commit -Fmessage.txt", root)).toBe(true);
+    await Bun.write(`${root}/my message.txt`, "fix: x\n\nCo-Authored-By: A <a@b.c>\n");
+    expect(await commitHasTrailer("git commit -F 'my message.txt'", root)).toBe(true);
   });
 });
 
@@ -41,6 +48,7 @@ describe("a command that is allowed", () => {
     ['git log --grep "Co-Authored-By: A"'],
     ['git commit-tree HEAD^{tree} -m "Co-Authored-By: A <a@b.c>"'],
     ['echo "Co-Authored-By: A" > notes.txt'],
+    ['echo "Co-Authored-By: A" > notes.txt && git commit -m "fix: x"'],
     ["git commit --amend --no-edit"],
     ["git commit"],
   ])("%s", async (command) => {
@@ -52,5 +60,10 @@ describe("a command that is allowed", () => {
     expect(await commitHasTrailer("git commit -F clean.txt", root)).toBe(false);
     expect(await commitHasTrailer("git commit -F missing.txt", root)).toBe(false);
     expect(await commitHasTrailer(`git commit -F ${root}`, root)).toBe(false);
+  });
+
+  test("a message on standard input is read from the command, not from a file named -", async () => {
+    await Bun.write(`${root}/-`, "Co-Authored-By: A <a@b.c>\n");
+    expect(await commitHasTrailer("git commit -F - <<'EOF'\nfix: x\nEOF", root)).toBe(false);
   });
 });

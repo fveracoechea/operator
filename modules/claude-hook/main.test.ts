@@ -1,4 +1,4 @@
-import { afterAll, expect, expectTypeOf, test } from "bun:test";
+import { afterAll, expect, expectTypeOf, spyOn, test } from "bun:test";
 // Bun has no temporary-directory, chmod, or recursive removal API.
 import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -59,6 +59,7 @@ test("every other event gets no answer, so Claude Code keeps its own permission 
     event('git commit -m "Co-Authored-By: A"', { tool_name: "Write" }),
     event('git commit -m "Co-Authored-By: A"', { hook_event_name: "PostToolUse" }),
     event("", { tool_input: { file_path: "a.ts" } }),
+    event("", { tool_input: { command: ['git commit -m "Co-Authored-By: A"'] } }),
   ])
     expect(await ClaudeHook.answer(input)).toMatchObject({ tag: "Ok", value: "" });
 });
@@ -105,4 +106,42 @@ test("an unreadable settings file is a filesystem failure, not a defect", async 
 test("tests cannot reach a settings file outside a temporary root", async () => {
   const real = OperatorHome.resolve(Environment.parse({ HOME: "/Users/nobody", NODE_ENV: "test" }));
   expect(await ClaudeHook.install({ paths: real, check: true })).toMatchObject({ tag: "Defect" });
+});
+
+test.each([
+  "ENOENT",
+  "EACCES",
+  "EPERM",
+  "EIO",
+  "EROFS",
+  "ENOSPC",
+  "ENOTDIR",
+  "EISDIR",
+  "EEXIST",
+  "ELOOP",
+])("a %s failure is a settings I/O refusal", async (code) => {
+  const spy = spyOn(OperatorHome, "guardTemporaryTests").mockImplementation(() => {
+    // oxlint-disable-next-line unthrown/no-throw -- Inject a coded failure at the public module boundary.
+    throw Object.assign(new Error("failed"), { code });
+  });
+  try {
+    expect(await ClaudeHook.install({ paths, check: false })).toMatchObject({
+      tag: "Err",
+      error: { reason: "claude_settings_io_failed", detail: "Error: failed" },
+    });
+  } finally {
+    spy.mockRestore();
+  }
+});
+
+test("other coded failures remain defects", async () => {
+  const spy = spyOn(OperatorHome, "guardTemporaryTests").mockImplementation(() => {
+    // oxlint-disable-next-line unthrown/no-throw -- Inject a coded failure at the public module boundary.
+    throw Object.assign(new Error("busy"), { code: "EBUSY" });
+  });
+  try {
+    expect(await ClaudeHook.install({ paths, check: false })).toMatchObject({ tag: "Defect" });
+  } finally {
+    spy.mockRestore();
+  }
 });
