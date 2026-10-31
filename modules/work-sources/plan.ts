@@ -36,6 +36,8 @@ const shared = {
 export const planSchema = z
   .strictObject({
     trackerKey: key,
+    // Internal review of a draft PR. An assignment's value wins over the plan's. ADR-0020.
+    internalReview: z.boolean().optional(),
     assignments: z.array(
       z.union([
         z.strictObject({
@@ -43,6 +45,7 @@ export const planSchema = z
           completion: z.literal("pr"),
           resources: z.literal("worktree"),
           branch,
+          internalReview: z.boolean().optional(),
         }),
         z.strictObject({
           ...shared,

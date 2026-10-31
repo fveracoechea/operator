@@ -4,8 +4,9 @@ export type Edit = { path: string; value: string | null };
 
 function validField(key: string, action: string, value: string) {
   if (/^(superAgent|workerAgent)\.(host|model|reasoningEffort)$/.test(key)) return true;
-  // The optional assignment reviewer is the only boolean setting.
-  if (key === "review.assignments") return action === "unset" || ["true", "false"].includes(value);
+  // The optional assignment reviewer and internal review are the boolean settings.
+  if (key === "review.assignments" || key === "review.internal")
+    return action === "unset" || ["true", "false"].includes(value);
   // The settings schema validates the channel id, the repositories, and the logins.
   if (reviewEdits.has(key)) return true;
   const [group, name, field, ...extra] = key.split(".");
@@ -96,6 +97,13 @@ const reviewEdits = new Map<string, (review: Review, value: string | null) => vo
     (review, value) => {
       if (value === null) delete review.assignments;
       else review.assignments = value === "true";
+    },
+  ],
+  [
+    "review.internal",
+    (review, value) => {
+      if (value === null) delete review.internal;
+      else review.internal = value === "true";
     },
   ],
   [
