@@ -432,7 +432,7 @@ test("each posted round gets one reply and an additive reaction, with later-roun
   // A lost GitHub answer records no Slack effect until the retry finds the review.
   await current.draft(draft, current.head, {
     blockers,
-    niceToHaves: [{ detail: "Name the cursor after Slack." }],
+    niceToHaves: [{ short: "Name the cursor", detail: "Name the cursor after Slack." }],
   });
   await current.github({ postUncertain: true });
   expect((await current.run(["review", "post", url])).output.reason).toBe("github_uncertain");

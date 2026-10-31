@@ -103,6 +103,11 @@ async function draft(file: string, change: Record<string, unknown> = {}) {
   );
 }
 
+/** Waits until another process makes the condition true. The test timeout bounds the wait. */
+async function until(condition: () => Promise<boolean>) {
+  while (!(await condition())) await Bun.sleep(20);
+}
+
 async function next() {
   const read = await run(["review", "next"]);
   return z.object({ data: z.object({ requests: z.array(z.looseObject({})) }) }).parse(read.output)
@@ -185,7 +190,7 @@ for (const host of ["opencode", "claude-code"] as const)
     );
   }, 60000);
 
-test("the event follows blockers, named breaches, required CI, and the posting account", async () => {
+test("a blocker with no impact gives a comment with its line comment, and a second post is refused", async () => {
   await setup();
   const request = await add();
   await draft(request.draft, {
@@ -197,7 +202,7 @@ test("the event follows blockers, named breaches, required CI, and the posting a
         line: 1,
       },
     ],
-    niceToHaves: [{ detail: "Name the constant for its use." }],
+    niceToHaves: [{ short: "Name the constant", detail: "Name the constant for its use." }],
   });
   expect(await run(["review", "post", url])).toMatchObject({
     code: 0,
@@ -211,7 +216,7 @@ test("the event follows blockers, named breaches, required CI, and the posting a
         path: "feature.ts",
         line: 1,
         side: "RIGHT",
-        body: "Blocker. Guard has no test. Add a test for the new guard.",
+        body: "**Blocker: Guard has no test**\n\nAdd a test for the new guard.",
       },
     ],
   });
@@ -224,30 +229,28 @@ test("the event follows blockers, named breaches, required CI, and the posting a
   expect(await posted()).toHaveLength(1);
 }, 60000);
 
-test("a named strong breach requests changes, except on the posting account's own PR", async () => {
+test("a security defect requests changes, except on the posting account's own PR", async () => {
   await setup();
-  const breach = {
+  const defect = {
     blockers: [
       {
-        short: "Helper has no owner",
-        detail: "Move it into the module that calls it.",
-        breach: { source: "opinions", rule: "A helper is a module that was not named." },
+        short: "Token leaks into logs",
+        detail: "The error path logs the session token.",
+        impact: "security",
       },
     ],
   };
   const request = await add();
-  await draft(request.draft, breach);
+  await draft(request.draft, defect);
   expect(await run(["review", "post", url])).toMatchObject({
     output: { data: { event: "REQUEST_CHANGES" } },
   });
-  expect((await posted())[0]?.body).toContain(
-    "Strong breach of the opinions: A helper is a module that was not named.",
-  );
+  expect((await posted())[0]?.body).toContain("- **Token leaks into logs** · security issue");
 
   await setup();
   await github({ viewer: "author" });
   const own = await add();
-  await draft(own.draft, breach);
+  await draft(own.draft, defect);
   expect(await run(["review", "post", url])).toMatchObject({
     output: { data: { event: "COMMENT" } },
   });
@@ -294,7 +297,7 @@ test("required CI failures are blockers, and a noise claim cannot cite a changed
     output: { data: { event: "COMMENT", blockers: 1 } },
   });
   const [review] = await posted();
-  expect(review?.body).toContain("**CI check unit fails.** https://ci/unit");
+  expect(review?.body).toContain("- **CI check unit fails** · https://ci/unit");
   expect(review?.body).toContain("Required CI: 3 checks, 1 failing, 1 pending.");
   expect(review?.body).toContain("Noise: `lint` fails only in files that this PR does not change");
   expect(review?.body).not.toContain("optional");
@@ -327,7 +330,10 @@ test("draft refusals post nothing and change nothing", async () => {
       { blockers: [1, 2, 3, 4].map(() => ({ short: "Broken", detail: "Broken." })) },
       "review_draft_invalid",
     ],
-    [{ niceToHaves: [1, 2, 3, 4].map(() => ({ detail: "Later." })) }, "review_draft_invalid"],
+    [
+      { niceToHaves: [1, 2, 3, 4].map(() => ({ short: "Later", detail: "Later." })) },
+      "review_draft_invalid",
+    ],
     [
       { blockers: [{ short: "This short text has seven words now", detail: "Too long." }] },
       "review_draft_invalid",
@@ -368,18 +374,20 @@ test("two simultaneous posts reach GitHub once, and a lost answer is found, not 
   await setup();
   const request = await add();
   await draft(request.draft);
-  await github({ postDelayMs: 1500 });
-  const [first, second] = await Promise.all([
-    run(["review", "post", url]),
-    Bun.sleep(400).then(() => run(["review", "post", url])),
+  // GitHub holds the first post's answer, so the second post starts while the first holds the lease.
+  await github({ postHold: true });
+  const first = run(["review", "post", url]);
+  const held = await Promise.race([
+    until(() => Bun.file(`${root}/post-held`).exists()).then(() => true),
+    first.then(() => false),
   ]);
-  // Either process can take the lease first. Exactly one posts.
-  const results = [first, second].map((result) => ({
-    code: result.code,
-    reason: result.output.reason,
-  }));
-  expect(results).toContainEqual({ code: 0, reason: "review_posted" });
-  expect(results).toContainEqual({ code: 4, reason: "review_post_in_progress" });
+  expect(held).toBe(true);
+  expect(await run(["review", "post", url])).toMatchObject({
+    code: 4,
+    output: { reason: "review_post_in_progress" },
+  });
+  await Bun.write(`${root}/post-release`, "");
+  expect(await first).toMatchObject({ code: 0, output: { reason: "review_posted" } });
   expect(await posted()).toHaveLength(1);
 
   await setup();

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { checkDraft, draftSchema } from "./draft.ts";
+import { checkDraft, draftSchema, storedFindingsSchema } from "./draft.ts";
 import type { PullRequestFacts } from "./github.ts";
 
 const head = "a".repeat(40);
@@ -36,14 +36,20 @@ function draft(change: Record<string, unknown> = {}) {
 
 test("the schema limits findings, short text, locations, and unknown fields", () => {
   const blocker = { short: "Broken guard", detail: "Fix it." };
+  const later = { short: "Later", detail: "Later." };
   expect(draftSchema.safeParse({ reviewedCommit: head, summary: "S" }).success).toBe(true);
   for (const invalid of [
     { blockers: [blocker, blocker, blocker, blocker] },
-    { niceToHaves: [1, 2, 3, 4].map(() => ({ detail: "Later." })) },
+    { niceToHaves: [1, 2, 3, 4].map(() => later) },
     { blockers: [{ ...blocker, short: "one two three four five six seven" }] },
+    { niceToHaves: [{ ...later, short: "one two three four five six seven" }] },
+    { niceToHaves: [{ detail: "Later." }] },
     { blockers: [{ ...blocker, path: "src/a.ts" }] },
-    { niceToHaves: [{ detail: "Later.", line: 3 }] },
-    { blockers: [{ ...blocker, breach: { source: "taste", rule: "Mine." } }] },
+    { niceToHaves: [{ ...later, line: 3 }] },
+    { blockers: [{ ...blocker, breach: { source: "opinions", rule: "Mine." } }] },
+    { blockers: [{ ...blocker, impact: "style" }] },
+    { niceToHaves: [{ ...later, impact: "security" }] },
+    { blockers: [{ ...blocker, source: "x".repeat(101) }] },
     { event: "APPROVE" },
     { summary: "Two\nlines" },
     { reviewedCommit: "abc" },
@@ -58,7 +64,7 @@ test("the schema limits findings, short text, locations, and unknown fields", ()
       reviewedCommit: head,
       summary: "S",
       blockers: [blocker, blocker, blocker],
-      niceToHaves: [{ detail: "A." }, { detail: "B." }, { detail: "C.", path: "x", line: 1 }],
+      niceToHaves: [later, later, { ...later, path: "x", line: 1 }],
     }).success,
   ).toBe(true);
 });
@@ -67,7 +73,11 @@ test("each refusal names its cause and posts nothing", () => {
   const cases: [Record<string, unknown>, Partial<PullRequestFacts>, string][] = [
     [{ reviewedCommit: "b".repeat(40) }, {}, "review_head_moved"],
     [{ checks: [{ kind: "guard-break", command: "x", exitCode: 0 }] }, {}, "review_draft_invalid"],
-    [{ niceToHaves: [{ detail: "D.", path: "src/b.ts", line: 1 }] }, {}, "review_draft_invalid"],
+    [
+      { niceToHaves: [{ short: "S", detail: "D.", path: "src/b.ts", line: 1 }] },
+      {},
+      "review_draft_invalid",
+    ],
     [
       { noise: [{ check: "lint", files: ["x.ts"], reason: "R." }] },
       { filesComplete: false },
@@ -132,7 +142,7 @@ test("a failing required check is a blocker fact unless a valid noise claim cove
   // A finding path is not checked when the read did not return every changed file.
   expect(
     checkDraft(
-      draft({ niceToHaves: [{ detail: "D.", path: "later.ts", line: 1 }] }),
+      draft({ niceToHaves: [{ short: "S", detail: "D.", path: "later.ts", line: 1 }] }),
       pr({ filesComplete: false }),
     ).tag,
   ).toBe("Ok");
@@ -171,41 +181,48 @@ test("a draft defaults to no findings, trims its text, and keeps one spelling of
     noise: [],
   });
   const paths = ["src//a.ts", "a./b.ts", "./", "dir/"].map(
-    (path) => draft({ niceToHaves: [{ detail: "D.", path, line: 1 }] }).niceToHaves[0]?.path,
+    (path) =>
+      draft({ niceToHaves: [{ short: "S", detail: "D.", path, line: 1 }] }).niceToHaves[0]?.path,
   );
   expect(paths).toEqual(["src/a.ts", "a./b.ts", "", "dir/"]);
   expect(
     draft({
-      blockers: ["opinions", "project-skill", "architecture"].map((source) => ({
+      blockers: ["breaking", "security"].map((impact) => ({
         short: "one  two three four five six",
         detail: "D.",
-        breach: { source, rule: "R." },
+        source: "  deep-modules  ",
+        impact,
       })),
       checks: ["test", "lint", "typecheck", "guard-break", "other"].map((kind) => ({
         kind,
         command: "c",
         exitCode: 1,
       })),
-    }).blockers.map((blocker) => blocker.breach?.source),
-  ).toEqual(["opinions", "project-skill", "architecture"]);
+    }).blockers.map(({ impact, source }) => ({ impact, source })),
+  ).toEqual([
+    { impact: "breaking", source: "deep-modules" },
+    { impact: "security", source: "deep-modules" },
+  ]);
 });
 
 test("each invalid draft field names its rule", () => {
   const blocker = { short: "Short", detail: "D." };
-  expect(issues({ niceToHaves: [{ detail: "D.", path: "/abs", line: 1 }] })).toEqual([
+  expect(issues({ niceToHaves: [{ ...blocker, path: "/abs", line: 1 }] })).toEqual([
     "Give a path relative to the repository root, without ..",
   ]);
-  expect(issues({ niceToHaves: [{ detail: "D.", path: "a/../b", line: 1 }] })).toEqual([
+  expect(issues({ niceToHaves: [{ ...blocker, path: "a/../b", line: 1 }] })).toEqual([
     "Give a path relative to the repository root, without ..",
   ]);
   expect(issues({ blockers: [{ ...blocker, short: "a b c d e f g" }] })).toEqual([
-    "A blocker's short description has at most six words.",
+    "A finding's short description has at most six words.",
   ]);
-  expect(issues({ blockers: [{ ...blocker, breach: {} }] })).toHaveLength(2);
+  expect(issues({ niceToHaves: [{ ...blocker, short: "a b c d e f g" }] })).toEqual([
+    "A finding's short description has at most six words.",
+  ]);
   expect(issues({ reviewedCommit: `x${head}` })).toEqual(["Use the full 40-character commit."]);
   expect(issues({ reviewedCommit: `${head}x` })).toEqual(["Use the full 40-character commit."]);
   expect(issues({ summary: "a\nb" })).toEqual(["Write the summary on one line."]);
-  expect(issues({ niceToHaves: [{ detail: "D.", line: 1 }] })).toEqual([
+  expect(issues({ niceToHaves: [{ ...blocker, line: 1 }] })).toEqual([
     "Give a finding both path and line, or neither.",
   ]);
   expect(
@@ -294,4 +311,25 @@ test("reported checks, findings with no location, and replies among other thread
       { threads: [thread(), thread({ id: "U", startedByViewer: false })] },
     ),
   ).toBeNull();
+});
+
+test("a stored draft from an earlier release still gives its findings", () => {
+  const stored = {
+    reviewedCommit: head,
+    summary: "S",
+    blockers: [
+      {
+        short: "Guard untested",
+        detail: "D.",
+        breach: { source: "opinions", rule: "Verify every guard." },
+      },
+    ],
+    niceToHaves: [{ detail: "Later.", path: "a.ts", line: 2 }],
+  };
+  expect(draftSchema.safeParse(stored).success).toBe(false);
+  expect(storedFindingsSchema.parse(stored)).toEqual({
+    blockers: [{ short: "Guard untested", detail: "D." }],
+    niceToHaves: [{ detail: "Later.", path: "a.ts", line: 2 }],
+  });
+  expect(storedFindingsSchema.parse({})).toEqual({ blockers: [], niceToHaves: [] });
 });

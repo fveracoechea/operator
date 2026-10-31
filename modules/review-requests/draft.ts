@@ -20,20 +20,22 @@ const location = {
   path: repositoryPath().optional(),
   line: z.number().int().positive().optional(),
 };
-const breach = z.strictObject({
-  source: z.enum(["opinions", "project-skill", "architecture"]),
-  rule: text(200),
-});
-const blocker = z.strictObject({
+const finding = {
   short: text(80).refine(
     (value) => value.split(/\s+/).length <= 6,
-    "A blocker's short description has at most six words.",
+    "A finding's short description has at most six words.",
   ),
   detail: text(2000),
   ...location,
-  breach: breach.optional(),
+  /** Where the finding comes from: a skill, the project code style, an ADR, or best practice. */
+  source: text(100).optional(),
+};
+const blocker = z.strictObject({
+  ...finding,
+  /** Only a defect that breaks the app or a security issue requests changes. */
+  impact: z.enum(["breaking", "security"]).optional(),
 });
-const niceToHave = z.strictObject({ detail: text(2000), ...location });
+const niceToHave = z.strictObject(finding);
 
 /** The reviewer's draft. The CLI computes the review event, so the draft names none. */
 export const draftSchema = z
@@ -81,6 +83,17 @@ export const draftSchema = z
         });
   });
 export type Draft = z.infer<typeof draftSchema>;
+
+/**
+ * The findings of a stored round draft, which a later round reads again. A draft from an earlier
+ * release can have a blocker `breach` and a nice to have with no `short`, so this shape drops
+ * unknown fields and does not require a nice-to-have short.
+ */
+export const storedFindingsSchema = z.object({
+  blockers: z.array(z.object(blocker.shape)).default([]),
+  niceToHaves: z.array(z.object(niceToHave.shape).partial({ short: true })).default([]),
+});
+export type Findings = z.infer<typeof storedFindingsSchema>;
 export type AcceptedDraft = {
   draft: Draft;
   /** Failing required CI checks that no valid noise claim covers. They are blocker facts. */

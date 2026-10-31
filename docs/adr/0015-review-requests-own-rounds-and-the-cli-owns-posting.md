@@ -5,6 +5,7 @@
 Accepted - 2026-10-24.
 Decided in #228 and #233.
 Implemented in #253, with review rounds in #254 and Slack transport in #255.
+Amended 2026-10-30 in #284: only a defect that breaks the app or a security issue requests changes, and a breach of style or design gives a comment.
 
 ## Context
 
@@ -41,8 +42,9 @@ A repository without CI gets only the reviewer's reported checks.
 The review rules prioritize the person's opinions, project skills, architecture, patterns, and best practices.
 Findings are limited to three blockers and three nice-to-haves.
 
-`REQUEST_CHANGES` requires a strong breach of the person's opinions, project skills, or architecture, named in the review body.
-Otherwise, an open blocker permits only a comment, and no blocker permits approval.
+`REQUEST_CHANGES` requires a blocker that breaks the app or is a security issue, named in the review body.
+A request for changes is too strong for a breach of the person's opinions, project skills, or architecture.
+Any other open blocker, such a breach included, permits only a comment, and no blocker permits approval.
 Approval with an open blocker is refused.
 The person's own PRs always receive comments.
 An approved request stops watching later commits, while a renewed GitHub review request can start another round.

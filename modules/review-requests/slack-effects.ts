@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { draftSchema } from "./draft.ts";
+import { storedFindingsSchema } from "./draft.ts";
 import type { Round } from "./request.ts";
 import { counts, headLimitSchema, status, type ReviewEvent } from "./review-body.ts";
 
@@ -27,7 +27,9 @@ export function startEffects(): SlackEffect[] {
 /** The open blockers of a posted round. A round from before this record uses its draft. */
 function blockersOf(round: Round) {
   if (round.blockers !== null) return z.array(z.string()).parse(JSON.parse(round.blockers));
-  return draftSchema.parse(JSON.parse(round.draft)).blockers.map((blocker) => blocker.short);
+  return storedFindingsSchema
+    .parse(JSON.parse(round.draft))
+    .blockers.map((blocker) => blocker.short);
 }
 
 function eventOf(round: Round): ReviewEvent {
@@ -41,7 +43,7 @@ function eventOf(round: Round): ReviewEvent {
  */
 export function replyText(rounds: Round[], round: Round, fallbackUrl: string) {
   const blockers = blockersOf(round);
-  const niceToHaves = draftSchema.parse(JSON.parse(round.draft)).niceToHaves.length;
+  const niceToHaves = storedFindingsSchema.parse(JSON.parse(round.draft)).niceToHaves.length;
   const previous = rounds.findLast((row) => row.outcome === "posted" && row.number < round.number);
   const before = previous === undefined ? 0 : blockersOf(previous).length;
   const progress =
