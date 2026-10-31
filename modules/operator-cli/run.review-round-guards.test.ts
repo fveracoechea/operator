@@ -87,7 +87,7 @@ test.each([
     file: "review-requests/rounds.ts",
     replacements: [['if (facts.state === "approved")', 'if (facts.state === "none")']],
     testFile: "operator-cli/run.review-approval.test.ts",
-    pattern: "an approval releases the reviewer",
+    pattern: "an approval cleans up the reviewer",
   },
   {
     name: "lost reply found by its marker",

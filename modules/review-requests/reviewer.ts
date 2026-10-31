@@ -264,10 +264,10 @@ async function dispose(paths: Paths, request: Row, checkout: string): Promise<Cl
 }
 
 /**
- * The record of a reviewer whose pane closed. A renewed round of an approved request then waits
- * for a replacement, and a removed worktree and branch are not reopened.
+ * The reviewer fields after a cleanup. A closed pane makes a renewed round of an approved request
+ * wait for a replacement, and a removed worktree and branch are not reopened.
  */
-function released(request: Row, outcome: CleanupOutcome) {
+function cleanupUpdate(request: Row, outcome: CleanupOutcome) {
   const update: Partial<Omit<Row, "id">> = {};
   if (outcome.state === "failed") return update;
   if (request.launchState === "running" || request.launchState === "starting")
@@ -300,17 +300,28 @@ export function cleanupReviewer(paths: Paths, target: Target, snapshot: Snapshot
       release();
     }
   }, qualify).flatMap((outcome) =>
-    DeviceState.changeReviewRequest(paths, { ...target, id: request.id }, () =>
-      Ok({
-        update: {
-          cleanupState: outcome.state,
-          cleanupDetail: outcome.detail,
-          ...released(request, outcome),
-        },
-        lease: "release" as const,
-      }),
+    // Only the process that still holds the request records the outcome.
+    DeviceState.changeReviewRequest(paths, { ...target, id: request.id }, (current) =>
+      current.request?.ownerPid === process.pid
+        ? Ok({
+            update: {
+              cleanupState: outcome.state,
+              cleanupDetail: outcome.detail,
+              ...cleanupUpdate(current.request, outcome),
+            },
+            lease: "release" as const,
+          })
+        : Err<Failure>({
+            reason: "review_lease_lost",
+            detail: "Another process took this review request. Nothing more was recorded.",
+          }),
     ).map(() => outcome),
   );
+}
+
+/** The outcome of a cleanup for a caller that reports it, with a stopped cleanup as failed. */
+export function cleanupResult(result: Awaited<ReturnType<typeof cleanupReviewer>>) {
+  return result.tag === "Ok" ? result.value : { state: "failed" as const, ...failureOf(result) };
 }
 
 /** A refusal for a cleanup that another process runs, or that has nothing left to do. */
@@ -328,6 +339,7 @@ export function claimCleanup(paths: Paths, target: Target, id: string) {
         reason: "review_cleanup_in_progress",
         detail: "Another process cleans up this reviewer now. Nothing changed.",
       });
-    return Ok({ lease: "hold" as const });
+    // A pending cleanup holds a renewal, and a wait resumes it when this process stops.
+    return Ok({ update: { cleanupState: "pending" }, lease: "hold" as const });
   });
 }

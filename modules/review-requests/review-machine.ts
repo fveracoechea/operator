@@ -86,7 +86,7 @@ function starting({ request, ownerActive }: ReviewFacts) {
 }
 
 /** An approved request's reviewer cleanup has not finished, so a renewed request waits for it. */
-function releasing({ request }: ReviewFacts) {
+function cleaningUp({ request }: ReviewFacts) {
   // Stryker disable next-line OptionalChaining: equivalent: a renewal is checked only after the rule for a missing request
   return request?.state === "approved" && request.cleanupState === "pending";
 }
@@ -154,6 +154,16 @@ function endRules(state: "closed" | "skipped"): Rule[] {
       decide: () =>
         refuse("review_post_in_progress", "Another process posts this review now. Wait for it."),
     },
+    // A live cleanup of an approved request holds its pane and worktree.
+    {
+      // Stryker disable next-line OptionalChaining: equivalent: every rule after the missing-request rule reads a recorded request
+      when: (facts) => facts.ownerActive && facts.request?.cleanupState === "pending",
+      decide: () =>
+        refuse(
+          "review_cleanup_in_progress",
+          "Another process cleans up this reviewer now. End the request after it finishes.",
+        ),
+    },
     // A wait that moves or prompts the reviewer holds its pane and worktree.
     {
       // Stryker disable next-line OptionalChaining: equivalent: every rule after the missing-request rule reads a recorded request
@@ -177,15 +187,15 @@ const tables: Record<ReviewCommand, Rule[]> = {
       decide: () => Ok({ insert: true, state: "queued" }),
     },
     {
-      when: releasing,
+      when: cleaningUp,
       decide: () =>
         refuse(
           "review_cleanup_in_progress",
           "The reviewer cleanup of this approved request has not finished. Add the request again after operator review wait or operator review cleanup finishes it.",
         ),
     },
-    // A renewed request reopens a watching request with its reviewer. An approved request
-    // released its reviewer, so its round waits for a replacement.
+    // A renewed request reopens a watching request with its reviewer. The approval cleaned up the
+    // reviewer of an approved request, so its round waits for a replacement.
     {
       when: (facts) =>
         ["watching", "approved"].includes(
@@ -202,6 +212,26 @@ const tables: Record<ReviewCommand, Rule[]> = {
     {
       when: starting,
       decide: () => refuse("review_start_in_progress", "Another process starts this reviewer."),
+    },
+    // A cleanup removes the worktree that a start reopens.
+    {
+      // Stryker disable next-line OptionalChaining: equivalent: every rule after the missing-request rule reads a recorded request
+      when: (facts) => facts.request?.cleanupState === "pending",
+      decide: () =>
+        refuse(
+          "review_cleanup_in_progress",
+          "The reviewer cleanup of this request has not finished. Start the reviewer after operator review wait or operator review cleanup finishes it.",
+        ),
+    },
+    // Unlanded work that a cleanup kept stays with the person, so no replacement reuses it.
+    {
+      // Stryker disable next-line OptionalChaining: equivalent: every rule after the missing-request rule reads a recorded request
+      when: (facts) => facts.request?.cleanupState === "kept",
+      decide: () =>
+        refuse(
+          "reviewer_work_kept",
+          "The reviewer worktree holds unlanded work. Ask the person. Only the person deletes it, then run operator review cleanup.",
+        ),
     },
     {
       // Stryker disable next-line OptionalChaining: equivalent: every rule after the missing-request rule reads a recorded request
@@ -301,7 +331,7 @@ const tables: Record<ReviewCommand, Rule[]> = {
   ],
   posted: [
     {
-      // An approval releases the reviewer. The request stays, so a renewed request reopens it.
+      // An approval cleans up the reviewer. The request stays, so a renewed request reopens it.
       when: (facts) => facts.request?.state === "posting" && facts.event === "APPROVE",
       decide: () => Ok({ state: "approved", cleanup: true, lease: "hold" }),
     },
@@ -332,7 +362,10 @@ const tables: Record<ReviewCommand, Rule[]> = {
     missing,
     // A live start places the worktree at the recorded head, and a live cleanup removes it. The
     // next wait sees the change again.
-    { when: (facts) => starting(facts) || releasing(facts), decide: () => Ok({ unchanged: true }) },
+    {
+      when: (facts) => starting(facts) || cleaningUp(facts),
+      decide: () => Ok({ unchanged: true }),
+    },
     {
       when: (facts) =>
         // Stryker disable next-line OptionalChaining: equivalent: every rule after the missing-request rule reads a recorded request
@@ -432,6 +465,8 @@ function replacement(request: Listed, ownerActive: boolean): ReviewAction | null
 }
 
 function reviewing(request: Listed, ownerActive: boolean): ReviewAction {
+  // A renewal after a cleanup that kept unlanded work waits for the person.
+  if (request.cleanupState === "kept") return { kind: "attention", reason: "reviewer_work_kept" };
   const started = replacement(request, ownerActive);
   if (started !== null) return started;
   if (stopped(request))

@@ -657,6 +657,33 @@ test("a cleanup records the released reviewer, so a replacement does not reopen 
   });
 });
 
+test("a cleanup whose request another process took records nothing", async () => {
+  socket("/s");
+  const other = { ownerPid: process.pid + 1, leaseAt: new Date().toISOString() };
+  spyOn(Herdr, "agentNames").mockImplementation(() => {
+    DeviceState.changeReviewRequest(home.paths, { ...target, id: "r1" }, () =>
+      Ok({ update: other }),
+    );
+    return OkAsync(["someone"]);
+  });
+  spyOn(WorkerDispatch, "cleanWorktree").mockResolvedValue({ state: "removed", detail: "Gone." });
+  const snapshot = closed({ state: "approved", worktreePath: "/w", branch: "review/b" });
+  expect<unknown>(await cleaned(snapshot)).toEqual({
+    tag: "Err",
+    error: {
+      reason: "review_lease_lost",
+      detail: "Another process took this review request. Nothing more was recorded.",
+    },
+  });
+  expect(readRequest(home.paths).request).toMatchObject({
+    ...other,
+    cleanupState: "pending",
+    launchState: "running",
+    worktreePath: "/w",
+    branch: "review/b",
+  });
+});
+
 test("a cleanup that stops records nothing and releases the hold", async () => {
   const events = watchHold();
   socket("/s");
@@ -689,7 +716,7 @@ test("a cleanup is claimed only when work is left and no other process runs it",
   held({ state: "approved", cleanupState: null, ownerPid: null, leaseAt: null });
   expect(claimCleanup(home.paths, target, "r1")).toMatchObject({
     tag: "Ok",
-    value: { request: { ownerPid: process.pid } },
+    value: { request: { ownerPid: process.pid, cleanupState: "pending" } },
   });
   expect(claimCleanup(home.paths, target, "missing")).toMatchObject(unchanged);
   held({ state: "closed", cleanupState: "failed" });
@@ -700,9 +727,10 @@ test("a cleanup is claimed only when work is left and no other process runs it",
       detail: "Another process cleans up this reviewer now. Nothing changed.",
     },
   });
+  // The claim records the cleanup as pending, so a renewal waits and a wait resumes a stop.
   held({ state: "closed", cleanupState: "failed", ownerPid: null, leaseAt: null });
   expect(claimCleanup(home.paths, target, "r1")).toMatchObject({
     tag: "Ok",
-    value: { request: { ownerPid: process.pid } },
+    value: { request: { ownerPid: process.pid, cleanupState: "pending" } },
   });
 });

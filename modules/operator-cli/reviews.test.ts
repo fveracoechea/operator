@@ -243,6 +243,7 @@ test.each([
   ["review_reviewer_moving", 4],
   ["review_request_open", 4],
   ["review_cleanup_in_progress", 4],
+  ["reviewer_work_kept", 4],
   ["review_lease_lost", 4],
   ["slack_cursor_moved", 4],
   ["slack_effect_failed", 1],

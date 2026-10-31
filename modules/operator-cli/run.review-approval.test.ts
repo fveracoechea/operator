@@ -23,20 +23,35 @@ const launchSchema = z.object({
   }),
 });
 
+const paneSchema = z.object({ reviewer: z.object({ paneId: z.string() }) });
+
 async function started(current: Device) {
   const request = await current.add();
   const start = await current.run(["review", "start", url]);
   expect(start.code, start.stderr).toBe(0);
-  return { request, launch: launchSchema.parse(start.output).data.launch };
+  const pane = paneSchema.parse((await current.next())[0]).reviewer.paneId;
+  return { request, launch: launchSchema.parse(start.output).data.launch, pane };
 }
 
-function paneCloses(calls: string[][]) {
-  return calls.filter((call) => call.slice(0, 2).join(" ") === "pane close");
+/** The panes that Herdr was asked to close, in order. */
+async function closedPanes(current: Device) {
+  return (await current.herdrCalls())
+    .filter((call) => call.slice(0, 2).join(" ") === "pane close")
+    .map((call) => call[2]);
 }
 
-test("an approval releases the reviewer, and a renewed request gets a replacement with the earlier rounds", async () => {
+async function renew(current: Device) {
+  await current.pullRequest({
+    reviewRequests: [{ reviewer: "owner", createdAt: new Date().toISOString() }],
+  });
+  const waited = await current.run(["review", "wait", "--timeout", "1"]);
+  expect(waited.code, waited.stderr).toBe(0);
+  return waited.output;
+}
+
+test("an approval cleans up the reviewer, and a renewed request gets a replacement with the earlier rounds", async () => {
   const current = await setup();
-  const { request, launch } = await started(current);
+  const { request, launch, pane } = await started(current);
   await current.draft(request.draft, current.head);
   expect(await current.run(["review", "post", url])).toMatchObject({
     code: 0,
@@ -45,7 +60,7 @@ test("an approval releases the reviewer, and a renewed request gets a replacemen
       data: { state: "approved", event: "APPROVE", cleanup: { state: "done" } },
     },
   });
-  expect(paneCloses(await current.herdrCalls())).toHaveLength(1);
+  expect(await closedPanes(current)).toEqual([pane]);
   expect(await stat(launch.worktreePath).catch(() => null)).toBeNull();
   expect(await current.git(current.checkout, "branch", "--list", "review/*")).toBe("");
   // The request record stays, so a renewed request can reopen it.
@@ -68,26 +83,19 @@ test("an approval releases the reviewer, and a renewed request gets a replacemen
   expect(await current.run(["review", "wait", "--timeout", "1"])).toMatchObject({
     output: { reason: "review_wait_timed_out" },
   });
-  await current.pullRequest({
-    reviewRequests: [{ reviewer: "owner", createdAt: new Date().toISOString() }],
-  });
-  const waited = await current.run(["review", "wait", "--timeout", "1"]);
-  expect(waited).toMatchObject({
-    code: 0,
-    output: {
-      data: {
-        events: [{ kind: "round_started", trigger: "re-request" }],
-        requests: [
-          {
-            state: "reviewing",
-            action: "replace_reviewer",
-            command: `operator review start ${url}`,
-          },
-        ],
-      },
+  expect(await renew(current)).toMatchObject({
+    data: {
+      events: [{ kind: "round_started", trigger: "re-request" }],
+      requests: [
+        {
+          state: "reviewing",
+          action: "replace_reviewer",
+          command: `operator review start ${url}`,
+        },
+      ],
     },
   });
-  // No prompt goes to the released reviewer.
+  // No prompt goes to the reviewer that the cleanup closed.
   expect(await current.prompts()).toHaveLength(before);
 
   const replaced = await current.run(["review", "start", url]);
@@ -104,7 +112,7 @@ test("an approval releases the reviewer, and a renewed request gets a replacemen
   const history = `${request.brief.replace(/brief\.md$/, "")}rounds/1.json`;
   expect(brief).toContain(`Draft: \`${history}\``);
   expect(await Bun.file(history).json()).toMatchObject({ reviewedCommit: current.head });
-  // The cleanup of the released reviewer does not describe the replacement.
+  // The cleanup of the earlier reviewer does not describe the replacement.
   expect(await current.next()).toMatchObject([
     { state: "reviewing", reviewer: { state: "running" }, cleanup: null },
   ]);
@@ -112,13 +120,14 @@ test("an approval releases the reviewer, and a renewed request gets a replacemen
 
 test("an approval keeps unlanded reviewer work until the person removes it and cleans up", async () => {
   const current = await setup();
-  const { request, launch } = await started(current);
+  const { request, launch, pane } = await started(current);
   await Bun.write(`${launch.worktreePath}/notes.txt`, "unlanded\n");
   await current.draft(request.draft, current.head);
   expect(await current.run(["review", "post", url])).toMatchObject({
     code: 0,
     output: { data: { state: "approved", cleanup: { state: "kept" } } },
   });
+  expect(await closedPanes(current)).toEqual([pane]);
   expect(await Bun.file(`${launch.worktreePath}/notes.txt`).text()).toBe("unlanded\n");
   expect(await current.next()).toMatchObject([
     { state: "approved", attention: "reviewer_work_kept", cleanup: { state: "kept" } },
@@ -134,10 +143,46 @@ test("an approval keeps unlanded reviewer work until the person removes it and c
   expect(await current.next()).toMatchObject([{ state: "approved", wait: "review_approved" }]);
 }, 60000);
 
-test("a cleanup releases the reviewer of a request that an earlier release approved", async () => {
+test("a renewal after kept work gets no replacement until the person cleans up", async () => {
   const current = await setup();
-  const { launch } = await started(current);
-  // An earlier release kept the reviewer of an approved request and recorded no cleanup.
+  const { request, launch } = await started(current);
+  await Bun.write(`${launch.worktreePath}/notes.txt`, "unlanded\n");
+  await current.draft(request.draft, current.head);
+  expect((await current.run(["review", "post", url])).output).toMatchObject({
+    data: { state: "approved", cleanup: { state: "kept" } },
+  });
+
+  // The renewal moves the request, and the kept work stays with the person.
+  expect(await renew(current)).toMatchObject({
+    data: {
+      events: [{ kind: "round_started", trigger: "re-request" }],
+      requests: [{ state: "reviewing", attention: "reviewer_work_kept" }],
+    },
+  });
+  expect(await current.run(["review", "start", url])).toMatchObject({
+    code: 4,
+    output: { reason: "reviewer_work_kept" },
+  });
+  expect(await Bun.file(`${launch.worktreePath}/notes.txt`).text()).toBe("unlanded\n");
+
+  await rm(`${launch.worktreePath}/notes.txt`);
+  expect(await current.run(["review", "cleanup", url])).toMatchObject({
+    code: 0,
+    output: { reason: "reviewer_cleaned", data: { cleanup: { state: "done" } } },
+  });
+  expect(await current.next()).toMatchObject([
+    { state: "reviewing", action: "replace_reviewer", reviewer: { worktreePath: null } },
+  ]);
+  const replaced = await current.run(["review", "start", url]);
+  expect(replaced).toMatchObject({ code: 0, output: { reason: "reviewer_replaced" } });
+  const replacement = launchSchema.parse(replaced.output).data.launch;
+  expect(await Bun.file(`${replacement.worktreePath}/notes.txt`).exists()).toBe(false);
+}, 60000);
+
+test("a cleanup closes the reviewer of a request that an earlier Operator version approved", async () => {
+  const current = await setup();
+  const { launch, pane } = await started(current);
+  // An earlier Operator version kept the reviewer of an approved request and recorded no cleanup.
   current.sql("UPDATE review_requests SET state = 'approved'");
   expect(await current.next()).toMatchObject([
     { state: "approved", wait: "review_approved", cleanup: null },
@@ -146,7 +191,7 @@ test("a cleanup releases the reviewer of a request that an earlier release appro
     code: 0,
     output: { reason: "reviewer_cleaned", data: { cleanup: { state: "done" } } },
   });
-  expect(paneCloses(await current.herdrCalls())).toHaveLength(1);
+  expect(await closedPanes(current)).toEqual([pane]);
   expect(await stat(launch.worktreePath).catch(() => null)).toBeNull();
   expect(await current.git(current.checkout, "branch", "--list", "review/*")).toBe("");
   expect(await current.run(["review", "cleanup", url])).toMatchObject({

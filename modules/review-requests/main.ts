@@ -11,7 +11,7 @@ import {
   type Outcome,
   type Paths,
 } from "./request.ts";
-import { claimCleanup, cleanupReviewer, failureOf, launch, syncReviewer } from "./reviewer.ts";
+import { claimCleanup, cleanupResult, cleanupReviewer, launch, syncReviewer } from "./reviewer.ts";
 import { rows, wait } from "./watch.ts";
 import { acknowledge, ingest, slackActions } from "./slack.ts";
 import type { Target } from "./github.ts";
@@ -127,7 +127,7 @@ function start(input: { paths: Paths; url: string; profile?: string }) {
 }
 
 /**
- * Posts the reviewer's draft. An approval releases the reviewer in the same command. A release
+ * Posts the reviewer's draft. An approval cleans up the reviewer in the same command. A cleanup
  * that stops before it ends is finished by the next wait, and a failed one stays visible.
  */
 function postReview(input: { paths: Paths; url: string }) {
@@ -138,15 +138,21 @@ function postReview(input: { paths: Paths; url: string }) {
         DeviceState.readReviewRequest(input.paths, target)
           .toAsync()
           .flatMap((snapshot): AsyncResult<Outcome, Failure> => {
-            // Of the posts that succeed, only an approval keeps the lease for its release.
+            // Of the posts that succeed, only an approval keeps the lease for its cleanup.
             // Stryker disable next-line OptionalChaining: equivalent: a successful post always leaves its request
             if (snapshot.request?.ownerPid !== process.pid) return OkAsync(posted);
-            return fromPromise(async () => {
-              const cleaned = await cleanupReviewer(input.paths, target, snapshot);
-              const cleanup =
-                cleaned.tag === "Ok" ? cleaned.value : { state: "failed", ...failureOf(cleaned) };
-              return { ...posted, data: { ...posted.data, cleanup } };
-            }, qualify);
+            return fromPromise(
+              async () => cleanupResult(await cleanupReviewer(input.paths, target, snapshot)),
+              qualify,
+            ).flatMap((cleanup) =>
+              // The result shows the reviewer after its cleanup.
+              DeviceState.readReviewRequest(input.paths, target)
+                .toAsync()
+                .map((after) => ({
+                  ...posted,
+                  data: { ...posted.data, ...summary(input.paths, after), cleanup },
+                })),
+            );
           }),
       ),
   );
@@ -168,15 +174,20 @@ function skip(input: { paths: Paths; url: string }) {
     );
 }
 
-/** An approved request keeps its record, so its reviewer is cleaned up while it stays open. */
+/**
+ * An approved request keeps its record, so its reviewer is cleaned up while it stays open. A
+ * renewal moves a request whose cleanup kept unlanded work, and that work stays for a cleanup.
+ */
 function cleanupTarget(paths: Paths, target: Target) {
   return DeviceState.readReviewRequest(paths, target).flatMap((snapshot) => {
-    if (snapshot.request?.state === "approved")
-      return claimCleanup(paths, target, snapshot.request.id);
-    if (snapshot.request !== null)
+    const request = snapshot.request;
+    if (request?.state === "approved" || ["kept", "pending"].includes(request?.cleanupState ?? ""))
+      // Stryker disable next-line OptionalChaining, StringLiteral: equivalent: both conditions above hold only for a recorded request
+      return claimCleanup(paths, target, request?.id ?? "");
+    if (request !== null)
       return Err<Failure>({
         reason: "review_request_open",
-        detail: `The review request of PR #${target.number} is ${snapshot.request.state}. Only an approved, closed, or skipped request is cleaned up. Nothing changed.`,
+        detail: `The review request of PR #${target.number} is ${request.state}. Only an approved, closed, or skipped request, or one with kept reviewer work, is cleaned up. Nothing changed.`,
       });
     return snapshot.ended === null
       ? Err<Failure>({

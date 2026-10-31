@@ -386,7 +386,7 @@ test("a cleanup refuses an open request and a request with no cleanup left", asy
     error: {
       reason: "review_request_open",
       detail:
-        "The review request of PR #7 is queued. Only an approved, closed, or skipped request is cleaned up. Nothing changed.",
+        "The review request of PR #7 is queued. Only an approved, closed, or skipped request, or one with kept reviewer work, is cleaned up. Nothing changed.",
     },
   });
   expect(await ReviewRequests.cleanup({ paths: home.paths, url: "nope" })).toMatchObject({

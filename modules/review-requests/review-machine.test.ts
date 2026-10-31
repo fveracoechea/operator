@@ -359,7 +359,9 @@ test("next rows show replacements, moves, approval, and unfinished cleanups", ()
     action: "clean_reviewer",
     reason: "cleanup_failed",
   });
-  expect(reviewAction({ ...approved, cleanupState: "pending" }, false)).toMatchObject({
+  expect(reviewAction({ ...approved, cleanupState: "pending" }, false)).toEqual({
+    kind: "action",
+    action: "clean_reviewer",
     reason: "cleanup_pending",
   });
   expect(reviewAction({ ...approved, cleanupState: "pending" }, true)).toEqual({
@@ -376,7 +378,9 @@ test("next rows show replacements, moves, approval, and unfinished cleanups", ()
     action: "clean_reviewer",
     reason: "cleanup_failed",
   });
-  expect(reviewAction({ ...ended, cleanupState: "pending" }, false)).toMatchObject({
+  expect(reviewAction({ ...ended, cleanupState: "pending" }, false)).toEqual({
+    kind: "action",
+    action: "clean_reviewer",
     reason: "cleanup_pending",
   });
   expect(reviewAction({ ...ended, cleanupState: "pending" }, true)).toEqual({
@@ -387,6 +391,49 @@ test("next rows show replacements, moves, approval, and unfinished cleanups", ()
     kind: "attention",
     reason: "reviewer_work_kept",
   });
+});
+
+test("a cleanup of an open request holds it against a start and an end", () => {
+  const cleaning = { state: "approved", launchState: "interrupted", cleanupState: "pending" };
+  for (const ownerActive of [true, false])
+    expect<unknown>(decideReview(facts("start", cleaning, { ownerActive }))).toEqual({
+      tag: "Err",
+      error: {
+        reason: "review_cleanup_in_progress",
+        detail:
+          "The reviewer cleanup of this request has not finished. Start the reviewer after operator review wait or operator review cleanup finishes it. Nothing changed.",
+      },
+    });
+  // A live cleanup holds the pane and the worktree, so the request cannot end under it.
+  for (const command of ["close", "skip"] as const) {
+    expect(decideReview(facts(command, cleaning, { ownerActive: true }))).toMatchObject({
+      error: { reason: "review_cleanup_in_progress" },
+    });
+    // A cleanup whose process stopped is repeated by the end's own cleanup.
+    expect(decideReview(facts(command, cleaning))).toMatchObject({
+      value: { ended: true, cleanup: true, lease: "hold" },
+    });
+  }
+  expect(decideReview(facts("start", { ...cleaning, cleanupState: "done" }))).toMatchObject({
+    value: { launchState: "starting", replace: true },
+  });
+});
+
+test("kept reviewer work stays with the person, so a renewal gets no replacement until a cleanup", () => {
+  const kept = { state: "reviewing", launchState: "interrupted", cleanupState: "kept" };
+  expect<unknown>(decideReview(facts("start", kept))).toEqual({
+    tag: "Err",
+    error: {
+      reason: "reviewer_work_kept",
+      detail:
+        "The reviewer worktree holds unlanded work. Ask the person. Only the person deletes it, then run operator review cleanup. Nothing changed.",
+    },
+  });
+  expect(reviewAction(kept, false)).toEqual({ kind: "attention", reason: "reviewer_work_kept" });
+  // A renewal still moves the request.
+  expect(
+    decideReview(facts("round", { ...kept, state: "approved" }, { trigger: "re-request" })),
+  ).toMatchObject({ value: { state: "reviewing", round: "re-request" } });
 });
 
 test("a live reviewer move holds the request, and only its own process finishes it", () => {
