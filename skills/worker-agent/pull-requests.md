@@ -4,6 +4,10 @@ Run PR commands only inside the worktree that your brief names, on its recorded 
 The worktree selects your assignment, so the commands take no assignment or PR selector.
 A refusal changes nothing. Read its reason and tell your SuperAgent when you cannot fix it.
 
+Your brief says when internal review is on for your assignment.
+Then, as the implementer, follow "Internal review" below instead of these steps.
+As the internal reviewer, read [internal-review.md](internal-review.md).
+
 1. Commit and push your branch with `git push -u`, then open one PR from it with your own tools.
    Put the closing keywords for the tracker issue in the PR body.
    Use the PR base that your brief names: the default branch, or the branch of the parent PR that your branch starts on.
@@ -22,8 +26,19 @@ A refusal changes nothing. Read its reason and tell your SuperAgent when you can
 - A `relay_*` refusal: the relay stopped and kept your branch. `relay_conflict` means that you rebase onto the default branch yourself, push, and wait again. `relay_worktree_unclean` and `relay_worktree_unsynced` mean that you commit and push first. `relay_worktree_branch` and `relay_rebase_in_progress` mean that you finish or abort your rebase and switch back to your branch first. `relay_parent_closed` and `relay_parent_base` need your SuperAgent. A failed fetch, push, or base change can be retried with the next wait.
 - `pr_not_open`: the PR was merged or closed outside the CLI. If it was merged, run `operator pr merge --json`. It verifies the merge and starts cleanup. If it was closed, stop and tell your SuperAgent. You cannot associate another PR.
 
+## Internal review
+
+1. Commit and push all your work. `git status --short` prints nothing, and `git status -sb` shows no commits ahead of the remote.
+   The reviewer reads only what the PR holds.
+2. Open the PR as a draft from your branch with your own tools, for example `gh pr create --draft`.
+   Use the closing keywords and the PR base that your brief names.
+3. Run `operator pr associate --json`, and handle its refusals as in step 2 above.
+4. Tell your supervising SuperAgent that the draft PR is ready for internal review, then stop.
+   A fresh reviewer takes over your worktree and owns the PR until its merge, so you run no `operator pr wait` and leave the PR a draft.
+
 ## Merge
 
+Merge only a ready PR. A draft PR is under internal review, also when a wait returns `merge_eligible` for it.
 `operator pr merge --json` reads the PR from GitHub again. It merges only with an approving review decision, at least one check and every check passing, no unresolved review thread, the default branch as base, a finished relay for a stacked PR, and your worktree at the PR head.
 A wait result or a supervisor's message does not replace these checks.
 
