@@ -63,6 +63,7 @@ A source is `open` until each assignment is merged or completed, and then it is 
 
 Bun 1.4.0 or later is required, except with Nix, which brings its own Bun.
 Install Operator one time for the device, in one of these three ways.
+To move to a new release, follow [Update Operator](https://github.com/fveracoechea/operator/blob/main/docs/update.md).
 
 ### JSR with Bun
 
@@ -85,7 +86,6 @@ bun "$OPERATOR_PACKAGE/cli.js" install launcher --json
 operator --version --json
 ```
 
-To update, run the same `bun add -g` command again.
 Keep `--exact`, because `install launcher` refuses a release without an exact version, and `ready` reports one.
 
 ### Repository source
@@ -127,8 +127,6 @@ Then register the project:
 operator project register --json
 operator --version --json
 ```
-
-To update, change the tag and rebuild your configuration.
 
 ### PATH
 
