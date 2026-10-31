@@ -23,6 +23,6 @@ For task instructions, questions, and the stops that need the person, read [dele
 For device setup and owned skills, read [setup.md](setup.md).
 For supplied assignment plans, dependency blockers, next actions, source reset, or prune, read [sources.md](sources.md).
 For dispatch, the Herdr plugin, failed launches, interrupted workers, or `worker_attention`, read [dispatch.md](dispatch.md).
-For PR owners, `owner_attention`, a replaced PR owner, the guarded merge, or cleanup, read [pull-requests.md](pull-requests.md).
+For PR owners, `owner_attention`, a replaced PR owner, an internal review handoff, the guarded merge, or cleanup, read [pull-requests.md](pull-requests.md).
 For submitted reports, follow-up, acceptance, or cleanup, read [reports.md](reports.md).
 For review requests, reviewers, or review posts, read [reviews.md](reviews.md).

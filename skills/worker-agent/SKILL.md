@@ -30,3 +30,4 @@ When the SuperAgent returns follow-up instructions, run `operator report resume 
 
 Read [responsibility.md](responsibility.md) when asking questions or using native subagents.
 Read [pull-requests.md](pull-requests.md) when your brief has a PR completion type.
+Read [internal-review.md](internal-review.md) when your brief makes you the internal reviewer of a draft PR.
