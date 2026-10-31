@@ -118,7 +118,7 @@ test("help lists the commands that the guard reads", () => {
   const { commands } = implemented();
   expect(commands.has("review slack-done")).toBe(true);
   expect(commands.has("install")).toBe(true);
-  expect(commands.has("install matt")).toBe(true);
+  expect(commands.has("install matt")).toBe(false);
   expect(commands.has("--version")).toBe(true);
   expect(commands.has("next")).toBe(true);
   expect(commands.has("crew next")).toBe(false);
@@ -130,6 +130,7 @@ test("the guard refuses removed and invented commands", () => {
     "crew next",
     "review report",
     "install latest",
+    "install matt",
     "cleanup remove",
     "next later",
   ])

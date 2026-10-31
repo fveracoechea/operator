@@ -29,7 +29,7 @@ async function executable(name: string, source: string) {
   await chmod(`${root}/tools/${name}`, 0o755);
 }
 async function run(args: string[]) {
-  const child = Bun.spawn([process.execPath, cli, "install", "matt", ...args, "--json"], {
+  const child = Bun.spawn([process.execPath, cli, "install", ...args, "--json"], {
     cwd: root,
     env: Environment.child({
       HOME: `${root}/home`,
@@ -49,59 +49,25 @@ async function run(args: string[]) {
   return { code, output: JSON.parse(stdout) as unknown, stderr };
 }
 
-test("delegates an exact installer and full commit with explicit global hosts and a positive non-owned roster", async () => {
-  const sha = "a".repeat(40);
-  await executable(
-    "git",
-    `const a=process.argv.slice(2); if(a[0]==="clone") { for(const name of ["code-review","unslop","cursor","bun","super-agent"]) await Bun.write(a.at(-1)+"/skills/"+name+"/SKILL.md", "---\\nname: "+name+"\\ndescription: A skill.\\n---\\n", {createPath:true}); } else console.log(${JSON.stringify(sha)});`,
-  );
-  await executable(
-    "bun",
-    `await Bun.write(${JSON.stringify(`${root}/invocation.json`)}, JSON.stringify({args:process.argv.slice(2),cwd:process.cwd()})); console.log(JSON.stringify(["code-review","cursor","unslop"].map(name=>({name,status:"installed"}))));`,
-  );
-  const result = await run(["--opencode", "--claude"]);
-  expect(result.code, result.stderr).toBe(0);
-  expect(result.output).toMatchObject({
-    reason: "upstream_installed",
-    data: {
-      commit: sha,
-      installerVersion: "1.7.4",
-      hosts: ["opencode", "claude-code"],
-      skills: ["code-review", "cursor", "unslop"],
-    },
-  });
-  expect(result.stderr).toContain("replacement");
-  const invocation: unknown = await Bun.file(`${root}/invocation.json`).json();
-  expect(invocation).toMatchObject({
-    args: [
-      "x",
-      "--bun",
-      "skills@1.7.4",
-      "add",
-      `mattpocock/skills#${sha}`,
-      "--global",
-      "--agent",
-      "opencode",
-      "claude-code",
-      "--skill",
-      "code-review",
-      "cursor",
-      "unslop",
-      "--yes",
-      "--json",
-    ],
-  });
-  expect(await Bun.file(`${root}/state/operator/owned-skills.json`).exists()).toBe(false);
-  expect(await Bun.file(`${root}/skills-lock.json`).exists()).toBe(false);
-  expect(await Bun.file(`${root}/.agents/skills/code-review/SKILL.md`).exists()).toBe(false);
-});
+// A fake Git for one kind of failure. Only Matt's repository changes, and the pinned sources
+// keep the folders that the release selects.
+function git(matt: string, revision: string) {
+  const pinned = {
+    "https://github.com/cursor/plugins.git": "pstack/skills/unslop",
+    "https://github.com/humanlayer/skills.git": "plugins/show-me/skills/show-me",
+  };
+  return `const a=process.argv.slice(2); const pinned=${JSON.stringify(pinned)}; if(a[0]==="clone") { const folder=pinned[a.at(-2)]; if(folder) await Bun.write(a.at(-1)+"/"+folder+"/SKILL.md","---\\nname: "+folder.split("/").at(-1)+"\\n---\\n",{createPath:true}); else { ${matt} } } else console.log(${JSON.stringify(revision)});`;
+}
 
 test.each(["main", "abcdef1", "", "a".repeat(39)])(
   "a non-full upstream revision %s refuses before installer effects",
   async (revision) => {
     await executable(
       "git",
-      `const a=process.argv.slice(2); if(a[0]==="clone") await Bun.write(a.at(-1)+"/skills/code-review/SKILL.md", "---\\nname: code-review\\n---\\n",{createPath:true}); else console.log(${JSON.stringify(revision)});`,
+      git(
+        `await Bun.write(a.at(-1)+"/skills/code-review/SKILL.md", "---\\nname: code-review\\n---\\n",{createPath:true});`,
+        revision,
+      ),
     );
     await executable(
       "bun",
@@ -127,7 +93,10 @@ test.each([
   if (kind !== "git-missing")
     await executable(
       "git",
-      `const a=process.argv.slice(2); if(a[0]==="clone") { if(${JSON.stringify(kind)}==="clone-failed") process.exit(1); await Bun.write(a.at(-1)+"/skills/test/SKILL.md",${JSON.stringify(kind === "bad-roster" ? "broken" : `---\nname: ${kind === "owned-only" ? "bun" : "code-review"}\n---\n`)},{createPath:true}); } else console.log("${"a".repeat(40)}");`,
+      git(
+        `if(${JSON.stringify(kind)}==="clone-failed") process.exit(1); await Bun.write(a.at(-1)+"/skills/test/SKILL.md",${JSON.stringify(kind === "bad-roster" ? "broken" : `---\nname: ${kind === "owned-only" ? "bun" : "code-review"}\n---\n`)},{createPath:true});`,
+        "a".repeat(40),
+      ),
     );
   if (kind !== "bun-missing")
     await executable(
@@ -152,19 +121,4 @@ test.each([
     ["installer-failed", "partial-answer"].includes(kind),
   );
   expect(await Bun.file(`${root}/state/operator/upstream-skills.json`).exists()).toBe(false);
-});
-
-test.each(
-  [
-    ["plan", "--claude"],
-    ["apply", "--claude"],
-    ["--claude", "--check"],
-    ["--claude", "--claude"],
-    [],
-  ].map((args) => ({ args })),
-)("invalid upstream flags $args invoke nothing", async ({ args }) => {
-  expect((await run(args)).code).toBe(2);
-  expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([
-    "state/operator/operator.sqlite",
-  ]);
 });

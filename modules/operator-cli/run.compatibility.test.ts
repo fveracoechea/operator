@@ -231,7 +231,6 @@ test.each([
     ["next"],
     ["host", "models", "--host", "opencode"],
     ["install", "--opencode"],
-    ["install", "matt", "--claude"],
     ["ready"],
     ["wake", "check"],
     ["wait"],

@@ -139,7 +139,7 @@ in
     cat ready.json
     ${jq}/bin/jq -e '.reason == "ready" and .blockers == []' ready.json
 
-    operator install --claude --opencode --json > install.json
+    operator install --claude --opencode --check --json > install.json
     ${jq}/bin/jq -e '.reason == "skills_checked" and .data.checkOnly == true' install.json
     test "$before" = "$(hosts)"
 
@@ -155,21 +155,28 @@ in
     linkClaude worker-agent
 
     # Delegated upstream installation runs the package's Bun, which no other PATH entry supplies.
-    # A local Matt repository and an unreachable registry keep the attempt off the network.
-    mkdir -p $TMPDIR/matt/tdd
-    printf -- '---\nname: tdd\n---\n' > $TMPDIR/matt/tdd/SKILL.md
-    ${git}/bin/git -C $TMPDIR/matt init -q
-    ${git}/bin/git -C $TMPDIR/matt add .
-    ${git}/bin/git -C $TMPDIR/matt -c user.name=fixture -c user.email=fixture@example.com commit -qm fixture
-    printf '[url "file://%s"]\n\tinsteadOf = https://github.com/mattpocock/skills.git\n' \
-      $TMPDIR/matt > $TMPDIR/gitconfig
+    # Local upstream repositories and an unreachable registry keep the attempt off the network.
+    # The owned links are complete again, so the owned part only checks them.
+    : > $TMPDIR/gitconfig
+    upstream() {
+      mkdir -p $TMPDIR/$1/$2
+      printf -- '---\nname: %s\n---\n' $(basename $2) > $TMPDIR/$1/$2/SKILL.md
+      ${git}/bin/git -C $TMPDIR/$1 init -q
+      ${git}/bin/git -C $TMPDIR/$1 add .
+      ${git}/bin/git -C $TMPDIR/$1 -c user.name=fixture -c user.email=fixture@example.com commit -qm fixture
+      printf '[url "file://%s"]\n\tinsteadOf = https://github.com/%s.git\n' \
+        $TMPDIR/$1 $3 >> $TMPDIR/gitconfig
+    }
+    upstream matt tdd mattpocock/skills
+    upstream cursor pstack/skills/unslop cursor/plugins
+    upstream humanlayer plugins/show-me/skills/show-me humanlayer/skills
     status=0
     env GIT_CONFIG_GLOBAL=$TMPDIR/gitconfig BUN_CONFIG_REGISTRY=http://127.0.0.1:9/ \
-      PATH=$TMPDIR/profile/bin:$TMPDIR/tools operator install matt --claude --json > matt.json \
+      PATH=$TMPDIR/profile/bin:$TMPDIR/tools operator install --claude --json > upstream.json \
       || status=$?
-    cat matt.json
+    cat upstream.json
     test $status != 0
-    ${jq}/bin/jq -e '.reason == "upstream_install_failed"' matt.json
+    ${jq}/bin/jq -e '.reason == "upstream_install_failed"' upstream.json
 
     cp ready.json $out
   '';
