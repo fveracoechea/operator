@@ -266,6 +266,15 @@ function database() {
   return `${root}/state/operator/operator.sqlite`;
 }
 
+/** Waits until the fake gh writes its hold marker. */
+async function held(marker: string) {
+  const deadline = Date.now() + 30000;
+  while (!(await Bun.file(`${root}/${marker}`).exists())) {
+    expect(Date.now()).toBeLessThan(deadline);
+    await Bun.sleep(20);
+  }
+}
+
 async function exists(file: string) {
   return (await realpath(file).catch(() => null)) !== null;
 }
@@ -377,7 +386,10 @@ test("every merge refusal leaves GitHub and device state unchanged", async () =>
 test("a lost merge answer and a concurrent merge are verified and recorded once", async () => {
   const source = await setup("opencode");
   const worker = await openPullRequest(source);
-  await github({ mergeLost: true });
+  // The merge's cleanup removes the worktree that both commands run in. The cleanup waits at its
+  // remote branch step until both commands answer, so the second command never starts or runs
+  // in a removed folder.
+  await github({ mergeLost: true, cleanupHold: true });
   const both = await Promise.all([
     run(["pr", "merge"], worker.worktreePath),
     run(["pr", "merge"], worker.worktreePath),
@@ -388,6 +400,9 @@ test("a lost merge answer and a concurrent merge are verified and recorded once"
   expect(reasons.filter((reason) => reason === "pr_merged")).toHaveLength(1);
   for (const reason of reasons)
     expect(reason).toBeOneOf(["pr_merged", "pr_merge_unchanged", "pr_owner_inactive"]);
+  await held("cleanup-held");
+  expect(await exists(worker.worktreePath)).toBe(true);
+  await Bun.write(`${root}/cleanup-release`, "");
   expect(await settled(source)).toMatchObject({ state: "done" });
   const state = await shown(source);
   expect(state.cleanups).toHaveLength(1);

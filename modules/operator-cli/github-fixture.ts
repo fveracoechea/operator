@@ -7,6 +7,8 @@
  * `head` reports its branch head there. `mergeLost` applies a merge and then answers 502, and
  * `deleteLost` answers 502 without deleting. `postHold` writes `post-held` after a review post is
  * recorded, then holds the answer until the test writes `post-release` or removes its root.
+ * `cleanupHold` holds each remote branch read and deletion the same way, with `cleanup-held` and
+ * `cleanup-release`.
  * It is not evidence of the live GitHub integration.
  */
 export function fakeGithubScript(root: string) {
@@ -39,6 +41,8 @@ if (path?.includes("/pulls/") && method === "PUT") {
   process.exit(0);
 }
 if (path?.includes("/git/ref")) {
+  // A failed test removes its root, which also ends the hold.
+  if (state.cleanupHold) { await Bun.write(root + "/cleanup-held", ""); while (!(await Bun.file(root + "/cleanup-release").exists()) && (await Bun.file(stateFile).exists())) await Bun.sleep(20); }
   const branch = path.split("/heads/")[1];
   if (method === "DELETE") {
     if (state.deleteLost) status(502, "Bad Gateway", { message: "upstream fault" });
