@@ -83,8 +83,12 @@ A blocker is a defect the author fixes before the PR merges.
 A nice to have is a follow-up, or a small fix the author may take before merge.
 Keep the three of each that matter most, and drop the rest. The three axes compete for the same caps.
 
-Name a `breach` on a blocker only for a strong breach of the person's opinions, a project skill, or the architecture.
-Give the rule in its own words. A named breach is the only cause of a request for changes.
+Give a blocker an `impact` only for a defect that breaks the app (`breaking`) or a security issue (`security`).
+An `impact` is the only cause of a request for changes.
+A breach of style or design is a blocker with no `impact`, and the review is a comment.
+
+Give a finding a `source` when a written rule is its cause: the skill name (`deep-modules`, `react-composition`, `unit-testing`), `project code style`, or the ADR (`ADR-0015`).
+A finding from your own analysis, for example a bug or a better pattern, needs no `source`, or it can say `best practice`.
 
 ## 6. Write the draft
 
@@ -104,9 +108,20 @@ With a review brief, stay in your pane after the post. Operator prompts you when
 
 ## Finding text
 
+The review body shows one line for each anchored finding: its `short`, its `impact`, and its location.
+The `detail` and the `source` go in the line comment.
+A finding with no `path` and `line` keeps its `detail` in the body, so anchor every finding that has a line.
+
 State the defect in one sentence, then give the evidence.
-Add a short fenced code example with a language tag only when it shows the defect or the correction more clearly than prose.
-Ground every snippet in code you read at the reviewed commit, and mark a proposed correction as illustrative.
+Show the code in most line comments. Use one of these:
+
+- A short fenced snippet with a language tag, from code you read at the reviewed commit.
+- A `suggestion` block, when the fix replaces only the anchored line.
+  GitHub shows it as a change the author can apply.
+- A small diagram or table, when the defect is a flow or a shape that code does not show.
+
+Mark a proposed correction as illustrative, unless it is a `suggestion` block.
+Use bullets and bold text when a finding has more than one part, for example two call sites or a cause and an effect.
 
 ## Voice
 

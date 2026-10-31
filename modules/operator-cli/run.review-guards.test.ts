@@ -100,7 +100,7 @@ test.each([
       ['["queued", "reviewing"].includes', '["queued", "reviewing", "watching"].includes'],
     ],
     testFile: "operator-cli/run.reviews.test.ts",
-    pattern: "the event follows blockers",
+    pattern: "a blocker with no impact gives a comment",
   },
   {
     name: "live reviewer start",

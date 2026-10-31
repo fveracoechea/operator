@@ -5,7 +5,8 @@
  * applies the next queued change, so a test can script what later polls observe. A `parentQueue`
  * scripts the parent reads the same way. With a `remote` bare repository, a PR without a scripted
  * `head` reports its branch head there. `mergeLost` applies a merge and then answers 502, and
- * `deleteLost` answers 502 without deleting.
+ * `deleteLost` answers 502 without deleting. `postHold` writes `post-held` after a review post is
+ * recorded, then holds the answer until the test writes `post-release` or removes its root.
  * It is not evidence of the live GitHub integration.
  */
 export function fakeGithubScript(root: string) {
@@ -64,7 +65,8 @@ if (reviewsPath) {
   pr.reviews = [...(pr.reviews ?? []), { id, state: payload.event, body: payload.body, author: state.viewer ?? "owner" }];
   await Bun.write(stateFile, JSON.stringify(state));
   if (state.postUncertain) { state.postUncertain = false; await Bun.write(stateFile, JSON.stringify(state)); console.log("HTTP/2.0 502 Bad Gateway\\r\\n\\r\\n" + JSON.stringify({ message: "lost" })); process.exit(1); }
-  if (state.postDelayMs) await Bun.sleep(state.postDelayMs);
+  // A failed test removes its root, which also ends the hold.
+  if (state.postHold) { await Bun.write(root + "/post-held", ""); while (!(await Bun.file(root + "/post-release").exists()) && (await Bun.file(stateFile).exists())) await Bun.sleep(20); }
   answer({ node_id: id, html_url: "https://github.com/r/" + id, state: { APPROVE: "APPROVED", REQUEST_CHANGES: "CHANGES_REQUESTED", COMMENT: "COMMENTED" }[payload.event], commit_id: payload.commit_id });
   process.exit(0);
 }

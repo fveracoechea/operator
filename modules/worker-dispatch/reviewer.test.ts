@@ -124,6 +124,7 @@ test("a first start creates a worktree at the PR head and starts the reviewer on
     base: project.head,
   });
   expect(doubles.openWorktree).not.toHaveBeenCalled();
+  expect(doubles.renameTab).toHaveBeenCalledWith({ tabId: "t2", label: "review-7" });
   expect(doubles.startAgent).toHaveBeenCalledWith({
     name: "review-7",
     kind: "claude",
@@ -280,6 +281,7 @@ test("a recorded worktree at the PR head is reopened on its own branch", async (
     path: worktree,
     label: "review-7",
   });
+  expect(doubles.renameTab).toHaveBeenCalledWith({ tabId: "t3", label: "review-7" });
   expect(recorded[2]).toEqual({
     tabId: "t3",
     paneId: "p3",

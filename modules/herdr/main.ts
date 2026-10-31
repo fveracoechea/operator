@@ -24,6 +24,9 @@ const workspaceList = z.object({
     ),
   }),
 });
+const paneList = z.object({
+  result: z.object({ panes: z.array(pane.extend({ cwd: z.string().nullish() })) }),
+});
 const tabList = z.object({ result: z.object({ tabs: z.array(z.object({ label: z.string() })) }) });
 const agentList = z.object({
   result: z.object({ agents: z.array(z.object({ name: z.string().nullish() })) }),
@@ -135,6 +138,17 @@ export const Herdr = {
       value.result.tabs.map((tab) => tab.label),
     );
   },
+  /** Every pane in every workspace, with the folder its shell is in when Herdr knows it. */
+  panes() {
+    return invoke(["pane", "list"], paneList).map((value) =>
+      value.result.panes.map((row) => ({
+        paneId: row.pane_id,
+        tabId: row.tab_id,
+        workspaceId: row.workspace_id,
+        cwd: row.cwd ?? null,
+      })),
+    );
+  },
   createTab(input: { workspaceId: string; cwd: string; label: string }) {
     return invoke(
       [
@@ -153,6 +167,10 @@ export const Herdr = {
       tabId: value.result.root_pane.tab_id,
       paneId: value.result.root_pane.pane_id,
     }));
+  },
+  /** Herdr gives the root tab of a new workspace only its number. */
+  renameTab(input: { tabId: string; label: string }) {
+    return invoke(["tab", "rename", input.tabId, input.label], z.unknown()).map(() => undefined);
   },
   /** A `base` commit starts the new branch there, for example on a parent PR's branch. */
   createWorktree(input: { workspaceId: string; branch: string; label: string; base?: string }) {

@@ -103,6 +103,27 @@ test("a round from before the blocker record uses its draft, and a missing URL u
   );
 });
 
+test("a round that an earlier release stored gives its blockers and nice to haves", () => {
+  const old = round({
+    blockers: null,
+    draft: JSON.stringify({
+      reviewedCommit: head,
+      summary: "One line.",
+      blockers: [
+        {
+          short: "Guard has no test",
+          detail: "Add one.",
+          breach: { source: "opinions", rule: "Verify every guard." },
+        },
+      ],
+      niceToHaves: [{ detail: "Later." }],
+    }),
+  });
+  expect(replyText([old], old, "u")).toBe(
+    `Needs changes · 1 blocker, 1 nice to have · ${link}\n• Guard has no test`,
+  );
+});
+
 test("each round adds its outcome reaction and one reply, keyed so a retry adds nothing", () => {
   expect(startEffects()).toEqual([{ key: "reaction:eyes", kind: "reaction", content: "eyes" }]);
   for (const [event, reaction] of [

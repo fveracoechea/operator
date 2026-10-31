@@ -159,6 +159,7 @@ async function herdrState() {
         }),
       ),
       plugins: z.array(z.object({ id: z.string(), root: z.string() })),
+      tabs: z.array(z.object({ workspaceId: z.string(), label: z.string() })),
     })
     .parse(await Bun.file(`${root}/herdr-state.json`).json());
 }
@@ -305,6 +306,42 @@ test("read-only report work gets a tab in the project workspace and a device-sta
       },
     },
   });
+});
+
+test("a workspace that Herdr gives no checkout is the project workspace when its panes are in the checkout", async () => {
+  await setHerdr({
+    workspaces: [
+      { workspace_id: "w8", label: "notes" },
+      { workspace_id: "w9", label: "one" },
+    ],
+    tabs: [
+      { workspaceId: "w8", tabId: "w8:t1", paneId: "w8:p1", label: "1", cwd: root },
+      { workspaceId: "w9", tabId: "w9:t1", paneId: "w9:p1", label: "1", cwd: checkout },
+    ],
+  });
+  expect((await run(["herdr", "install"])).code).toBe(0);
+  const source = await register();
+  const launched = await run(["dispatch", "--source", source, "--assignment", "investigate"]);
+  expect(launched.code, launched.stderr).toBe(0);
+  expect(launched.output).toMatchObject({ data: { workspaceId: "w9" } });
+  expect((await herdrState()).workspaces.map((row) => row.workspace_id)).toEqual(["w8", "w9"]);
+  expect(await herdrCalls()).not.toContain("workspace create");
+});
+
+test("a new project workspace tab gets the repository name, and a new worktree tab the launch name", async () => {
+  expect((await run(["herdr", "install"])).code).toBe(0);
+  const source = await register();
+  const launched = await run(["dispatch", "--source", source, "--assignment", "implement"]);
+  expect(launched.code, launched.stderr).toBe(0);
+  const state = await herdrState();
+  expect(state.workspaces.map((row) => [row.workspace_id, row.label])).toEqual([
+    ["w1", "one"],
+    ["w3", "pr-one-12-implement"],
+  ]);
+  expect(state.tabs).toEqual([
+    { workspaceId: "w1", label: "one" },
+    { workspaceId: "w3", label: "pr-one-12-implement" },
+  ]);
 });
 
 test("worktree work prepares the new Herdr worktree before the agent starts", async () => {
