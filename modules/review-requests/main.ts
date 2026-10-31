@@ -79,7 +79,7 @@ function start(input: { paths: Paths; url: string; profile?: string }) {
             head: transition.replace === true ? (current.request?.head ?? pr.head) : pr.head,
             failureReason: null,
             failureDetail: null,
-            // A cleanup of a released reviewer does not describe the new one.
+            // The cleanup of an earlier reviewer does not describe the new one.
             cleanupState: null,
             cleanupDetail: null,
           },

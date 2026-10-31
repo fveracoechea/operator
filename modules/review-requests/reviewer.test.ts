@@ -615,7 +615,7 @@ test("the worktree goes after the pane, and kept work stays visible", async () =
   });
 });
 
-test("a cleanup records the released reviewer, so a replacement does not reopen removed work", async () => {
+test("a cleanup records the closed reviewer, so a replacement does not reopen removed work", async () => {
   socket("/s");
   spyOn(Herdr, "agentNames").mockReturnValue(OkAsync(["reviewer"]));
   spyOn(Herdr, "closePane").mockReturnValue(OkAsync("closed" as const));
@@ -712,7 +712,7 @@ test("a cleanup is claimed only when work is left and no other process runs it",
   }
   held({ state: "approved", cleanupState: "done", ownerPid: null, leaseAt: null });
   expect(claimCleanup(home.paths, target, "r1")).toMatchObject(unchanged);
-  // An earlier release kept the reviewer of an approved request and recorded no cleanup.
+  // An earlier Operator version kept the reviewer of an approved request and recorded no cleanup.
   held({ state: "approved", cleanupState: null, ownerPid: null, leaseAt: null });
   expect(claimCleanup(home.paths, target, "r1")).toMatchObject({
     tag: "Ok",

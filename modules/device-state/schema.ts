@@ -207,7 +207,7 @@ export const reports = sqliteTable(
 );
 
 // A review request is not an assignment. One request per PR is open until it is closed or skipped.
-// An approved request stays open, so a renewed request reopens it. The approval releases its reviewer.
+// An approved request stays open, so a renewed request reopens it. The approval cleans up its reviewer.
 export const reviewRequests = sqliteTable(
   "review_requests",
   {

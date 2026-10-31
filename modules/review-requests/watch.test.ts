@@ -533,6 +533,43 @@ test("a pending cleanup whose process stopped is finished by the next wait", asy
   expect(readRequest(home.paths).request?.cleanupState).toBe("done");
 });
 
+test("a pending cleanup of an approved request whose process stopped is finished by the next wait", async () => {
+  seedRequest(home.paths, {
+    state: "approved",
+    head: h1,
+    ...running,
+    paneId: "p1",
+    worktreePath: "/w",
+    branch: "review/b",
+    cleanupState: "pending",
+  });
+  const close = spyOn(Herdr, "closePane").mockReturnValue(OkAsync("closed" as const));
+  spyOn(WorkerDispatch, "cleanWorktree").mockResolvedValue({ state: "removed", detail: "Gone." });
+  expect(await waited()).toEqual({
+    reason: "review_events_observed",
+    data: {
+      events: [
+        {
+          url,
+          kind: "reviewer_cleaned",
+          cleanup: { state: "done", detail: "Closed pane p1. Gone." },
+        },
+      ],
+      requests: [expect.objectContaining({ state: "approved", wait: "review_approved" })],
+      slack: null,
+    },
+  });
+  expect(close).toHaveBeenCalledWith("p1");
+  expect(readRequest(home.paths).request).toMatchObject({
+    state: "approved",
+    cleanupState: "done",
+    launchState: "interrupted",
+    worktreePath: null,
+    branch: null,
+    ownerPid: null,
+  });
+});
+
 test("a pending cleanup that fails is reported as failed", async () => {
   seedRequest(home.paths, { state: "closed", cleanupState: "pending", paneId: "p1" });
   let reads = 0;

@@ -328,7 +328,7 @@ export function cleanupResult(result: Awaited<ReturnType<typeof cleanupReviewer>
 export function claimCleanup(paths: Paths, target: Target, id: string) {
   return DeviceState.changeReviewRequest(paths, { ...target, id }, (current) => {
     const state = current.request?.cleanupState ?? null;
-    // An approved request with no recorded cleanup kept its reviewer in an earlier release.
+    // An approved request with no recorded cleanup kept its reviewer in an earlier Operator version.
     if ((state === null && current.request?.state !== "approved") || state === "done")
       return Err<Failure>({
         reason: "review_cleanup_unchanged",

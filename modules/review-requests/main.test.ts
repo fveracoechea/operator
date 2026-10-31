@@ -304,7 +304,7 @@ async function posting(state: string) {
   return spyOn(Herdr, "closePane").mockReturnValue(OkAsync("closed" as const));
 }
 
-test("an approval releases the reviewer and keeps the request", async () => {
+test("an approval cleans up the reviewer and keeps the request", async () => {
   const close = await posting("APPROVED");
   spyOn(WorkerDispatch, "cleanWorktree").mockResolvedValue({
     state: "removed",
@@ -317,6 +317,8 @@ test("an approval releases the reviewer and keeps the request", async () => {
       data: {
         state: "approved",
         event: "APPROVE",
+        // The result shows the reviewer after its cleanup.
+        reviewer: { state: "interrupted", worktreePath: null, branch: null },
         cleanup: { state: "done", detail: "Closed pane p1. Removed the worktree." },
       },
     },
@@ -327,23 +329,25 @@ test("an approval releases the reviewer and keeps the request", async () => {
     cleanupState: "done",
     launchState: "interrupted",
     worktreePath: null,
+    branch: null,
     ownerPid: null,
   });
 });
 
-test("a comment keeps the reviewer, and a release that stops is left to the next wait", async () => {
+test("a comment keeps the reviewer", async () => {
   const close = await posting("COMMENTED");
   expect(await ReviewRequests.post(input())).toMatchObject({
     tag: "Ok",
-    value: { data: { state: "watching", cleanup: null } },
+    value: { data: { state: "watching", reviewer: { state: "running" }, cleanup: null } },
   });
   expect(close).not.toHaveBeenCalled();
-  await home.remove();
-  home = await reviewHome();
+  expect(readRequest(home.paths).request).toMatchObject({ ownerPid: null, worktreePath: "/w" });
+});
 
+test("a cleanup that stops after an approval is left to the next wait", async () => {
   await posting("APPROVED");
   spyOn(Herdr, "agentNames").mockRejectedValue(coded("EIO"));
-  // The review is posted, so the post succeeds and shows the failed release.
+  // The review is posted, so the post succeeds and shows the failed cleanup.
   expect(await ReviewRequests.post(input())).toMatchObject({
     tag: "Ok",
     value: {
@@ -353,22 +357,64 @@ test("a comment keeps the reviewer, and a release that stops is left to the next
   expect(readRequest(home.paths).request?.cleanupState).toBe("pending");
 });
 
-test("a cleanup releases the reviewer of an approved request once", async () => {
-  seedRequest(home.paths, { state: "approved", launchState: "running" });
+test("a cleanup closes the reviewer of an approved request once", async () => {
+  seedRequest(home.paths, {
+    state: "approved",
+    launchState: "running",
+    name: "reviewer",
+    paneId: "p1",
+    herdrSocket: "/sock",
+    worktreePath: "/w",
+    branch: "review/b",
+  });
+  spyOn(Herdr, "agentNames").mockReturnValue(OkAsync(["reviewer"]));
+  const close = spyOn(Herdr, "closePane").mockReturnValue(OkAsync("closed" as const));
+  const clean = spyOn(WorkerDispatch, "cleanWorktree").mockResolvedValue({
+    state: "removed",
+    detail: "Removed the worktree.",
+  });
   expect(await ReviewRequests.cleanup(input())).toMatchObject({
     tag: "Ok",
     value: {
       reason: "reviewer_cleaned",
-      data: { state: "approved", cleanup: { state: "done" } },
+      data: {
+        state: "approved",
+        cleanup: { state: "done", detail: "Closed pane p1. Removed the worktree." },
+      },
     },
+  });
+  expect(close).toHaveBeenCalledWith("p1");
+  expect(clean).toHaveBeenCalledWith({
+    paths: home.paths,
+    checkout: home.checkout,
+    worktree: "/w",
+    branch: "review/b",
   });
   expect(readRequest(home.paths).request).toMatchObject({
     state: "approved",
     launchState: "interrupted",
+    cleanupState: "done",
+    worktreePath: null,
+    branch: null,
+    ownerPid: null,
   });
   expect(await ReviewRequests.cleanup(input())).toMatchObject({
     tag: "Err",
     error: { reason: "review_cleanup_unchanged" },
+  });
+});
+
+test("a cleanup removes kept work of a renewed request, and leaves a failed one to its reviewer", async () => {
+  seedRequest(home.paths, { state: "reviewing", launchState: "interrupted", cleanupState: "kept" });
+  expect(await ReviewRequests.cleanup(input())).toMatchObject({
+    tag: "Ok",
+    value: { reason: "reviewer_cleaned", data: { state: "reviewing", cleanup: { state: "done" } } },
+  });
+  // A failed cleanup can leave its reviewer running, and the renewed round goes to it.
+  change({ cleanupState: "failed" });
+  expect(await ReviewRequests.cleanup(input())).toMatchObject({
+    tag: "Err",
+    error: { reason: "review_request_open" },
   });
 });
 
