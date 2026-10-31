@@ -209,7 +209,7 @@ async function resume(paths: Paths, row: Listed): Promise<Event[]> {
       {
         url: request.url,
         kind: "reviewer_cleaned",
-        cleanup: cleaned.tag === "Ok" ? cleaned.value : { state: "failed" },
+        cleanup: cleanupResult(cleaned),
       },
     ];
   }

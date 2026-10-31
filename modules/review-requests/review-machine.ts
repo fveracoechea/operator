@@ -154,7 +154,7 @@ function endRules(state: "closed" | "skipped"): Rule[] {
       decide: () =>
         refuse("review_post_in_progress", "Another process posts this review now. Wait for it."),
     },
-    // A live cleanup of an approved request holds its pane and worktree.
+    // A live cleanup of an open request holds its pane and worktree.
     {
       // Stryker disable next-line OptionalChaining: equivalent: every rule after the missing-request rule reads a recorded request
       when: (facts) => facts.ownerActive && facts.request?.cleanupState === "pending",
@@ -292,6 +292,16 @@ const tables: Record<ReviewCommand, Rule[]> = {
         refuse(
           "review_post_in_progress",
           "Another process posts this review now. Do not repeat it.",
+        ),
+    },
+    // A post takes the lease, and the cleanup then could not record its outcome.
+    {
+      // Stryker disable next-line OptionalChaining: equivalent: every rule after the missing-request rule reads a recorded request
+      when: (facts) => facts.ownerActive && facts.request?.cleanupState === "pending",
+      decide: () =>
+        refuse(
+          "review_cleanup_in_progress",
+          "Another process cleans up this reviewer now. Post after it finishes.",
         ),
     },
     {
@@ -444,7 +454,19 @@ function ended(request: Listed, ownerActive: boolean): ReviewAction {
   };
 }
 
+/**
+ * A renewed request whose reviewer cleanup is pending or kept work gets the cleanup step, because
+ * a start refuses both. A failed cleanup can leave its reviewer running, so the round goes on.
+ */
+function cleanupStep(request: Listed, ownerActive: boolean) {
+  return request.cleanupState === "pending" || request.cleanupState === "kept"
+    ? ended(request, ownerActive)
+    : null;
+}
+
 function queued(request: Listed, ownerActive: boolean): ReviewAction {
+  const cleanup = cleanupStep(request, ownerActive);
+  if (cleanup !== null) return cleanup;
   if (request.launchState === "starting")
     return ownerActive
       ? { kind: "wait", reason: "reviewer_starting" }
@@ -465,9 +487,7 @@ function replacement(request: Listed, ownerActive: boolean): ReviewAction | null
 }
 
 function reviewing(request: Listed, ownerActive: boolean): ReviewAction {
-  // A renewal after a cleanup that kept unlanded work waits for the person.
-  if (request.cleanupState === "kept") return { kind: "attention", reason: "reviewer_work_kept" };
-  const started = replacement(request, ownerActive);
+  const started = cleanupStep(request, ownerActive) ?? replacement(request, ownerActive);
   if (started !== null) return started;
   if (stopped(request))
     return {

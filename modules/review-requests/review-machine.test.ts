@@ -441,6 +441,44 @@ test("kept reviewer work stays with the person, so a renewal gets no replacement
   ).toMatchObject({ value: { state: "reviewing", round: "re-request" } });
 });
 
+test("next gives the cleanup step of a renewed request, as start does", () => {
+  for (const state of ["reviewing", "queued"]) {
+    const request = { state, launchState: "interrupted" };
+    expect(reviewAction({ ...request, cleanupState: "kept" }, false)).toEqual({
+      kind: "attention",
+      reason: "reviewer_work_kept",
+    });
+    expect(reviewAction({ ...request, cleanupState: "pending" }, true)).toEqual({
+      kind: "wait",
+      reason: "reviewer_cleanup",
+    });
+    expect(reviewAction({ ...request, cleanupState: "pending" }, false)).toEqual({
+      kind: "action",
+      action: "clean_reviewer",
+      reason: "cleanup_pending",
+    });
+  }
+  // A failed cleanup can leave its reviewer running, and the renewed round goes to it.
+  expect(
+    reviewAction({ state: "reviewing", launchState: "running", cleanupState: "failed" }, false),
+  ).toEqual({ kind: "wait", reason: "review_draft" });
+});
+
+test("a post waits while a live cleanup holds the request", () => {
+  const cleaning = { state: "reviewing", launchState: "interrupted", cleanupState: "pending" };
+  expect<unknown>(decideReview(facts("post", cleaning, { ownerActive: true }))).toEqual({
+    tag: "Err",
+    error: {
+      reason: "review_cleanup_in_progress",
+      detail:
+        "Another process cleans up this reviewer now. Post after it finishes. Nothing changed.",
+    },
+  });
+  expect(decideReview(facts("post", cleaning))).toMatchObject({
+    value: { state: "posting", lease: "hold" },
+  });
+});
+
 test("a live reviewer move holds the request, and only its own process finishes it", () => {
   const moving = { state: "reviewing", launchState: "running", sync: "{}" };
   for (const command of ["skip", "close"] as const)

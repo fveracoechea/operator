@@ -581,7 +581,13 @@ test("a pending cleanup that fails is reported as failed", async () => {
     return { ...environment, HERDR_SOCKET_PATH: "/sock" };
   });
   expect((await waited()).data).toMatchObject({
-    events: [{ url, kind: "reviewer_cleaned", cleanup: { state: "failed" } }],
+    events: [
+      {
+        url,
+        kind: "reviewer_cleaned",
+        cleanup: { state: "failed", reason: "review_io_failed", detail: "Error: failed EACCES" },
+      },
+    ],
   });
 });
 
