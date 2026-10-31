@@ -16,6 +16,7 @@ const input = {
   pullRequest: null,
   dependencyReports: [],
   stack: null,
+  internalReview: false,
 };
 
 test("the brief carries the task, resources, results, and earlier history", () => {
@@ -290,5 +291,53 @@ test("an open PR's loop lists each step, and dependency reports are separate blo
     }),
   ).toContain(
     "Implement the accepted report.\n\n## Accepted dependency reports\n\nThe SuperAgent accepted these reports of the assignments that this work depends on.\nCheck whether each unresolved point applies to your task. Tell your supervising SuperAgent about each point that does.\n\n### `a` report 1\n\nReference: `r`\n\n> c\n\nUnresolved points:\n\n- None.\n\n### `b` report 2\n\nReference: `r`\n\n> c\n\nUnresolved points:\n\n- None.\n\n## Grilling authority",
+  );
+});
+
+test("with internal review on, the implementer opens a draft PR, associates it, and stops", () => {
+  const brief = renderBrief({ ...input, internalReview: true });
+  expect(brief).toContain(`## PR feedback loop
+
+Internal review is on for this assignment.
+Open one draft PR from your branch with your own tools. Use closing keywords for tracker issues.
+Target the default branch.
+Push with \`git push -u\`, so Git records the remote of your branch.
+Then run \`operator pr associate --json\` in your worktree.
+Do not mark the PR ready for review. A fresh reviewer takes over the PR and owns it until its merge.
+Tell your supervising SuperAgent that the draft PR is ready for internal review, then stop.
+
+## Earlier reports`);
+  expect(brief).not.toContain("operator pr wait");
+  expect(brief).not.toContain("operator pr merge");
+});
+
+test("with internal review on, the owner of a recorded draft PR is its internal reviewer", () => {
+  const brief = renderBrief({
+    ...input,
+    internalReview: true,
+    pullRequest: { number: 7, url: "https://github.com/example/one/pull/7" },
+  });
+  expect(brief).toContain(`## PR feedback loop
+
+PR #7 is already open for this assignment: https://github.com/example/one/pull/7.
+Internal review is on for this assignment.
+If the PR is a draft, you are its internal reviewer. Read the \`internal-review.md\` topic of the \`worker-agent\` skill before you start.
+Do not use the PR body or earlier owner messages as evidence.
+Read its reviews, comments, unresolved threads, and checks before you wait.
+Inspect the worktree first. Keep work that is not landed.
+Run \`operator pr wait --json\` in your worktree`);
+  expect(brief).toContain("After `merge_eligible`, run `operator pr merge --json`.");
+});
+
+test("with internal review off, the brief names no draft and no internal reviewer", () => {
+  for (const pullRequest of [null, { number: 7, url: "https://github.com/example/one/pull/7" }]) {
+    const brief = renderBrief({ ...input, pullRequest });
+    expect(brief).not.toMatch(/draft|internal review/i);
+  }
+});
+
+test("a report brief ignores internal review", () => {
+  expect(renderBrief({ ...input, completion: "report", internalReview: true })).not.toMatch(
+    /draft|internal review/i,
   );
 });

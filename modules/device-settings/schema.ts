@@ -34,6 +34,8 @@ export const settingsSchema = z.strictObject({
     .strictObject({
       // The optional reviewer of each associated PR assignment is off by default.
       assignments: z.boolean().optional(),
+      // Internal review of each draft PR is on while this is unset. ADR-0020.
+      internal: z.boolean().optional(),
       // The author policy of the watched Slack channel. Without a channel, Operator reads no Slack.
       channel: slackChannelSchema.optional(),
       repos: z.array(repositorySchema).optional(),

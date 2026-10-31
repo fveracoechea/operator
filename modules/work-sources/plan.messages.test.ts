@@ -101,3 +101,39 @@ test("dependency refusals name the assignment and the dependency", () => {
     ),
   ).toEqual([]);
 });
+
+test("internal review is an optional switch of a plan and of each PR assignment", () => {
+  const plan = planSchema.parse({
+    ...assignments(
+      { ...pr, internalReview: true },
+      { ...pr, key: "urgent", internalReview: false },
+    ),
+    internalReview: false,
+  });
+  expect(plan.internalReview).toBe(false);
+  expect(plan.assignments.map((row) => row.completion === "pr" && row.internalReview)).toEqual([
+    true,
+    false,
+  ]);
+  // Unset stays unset, so dispatch can tell an absent value from a set one.
+  const unset = planSchema.parse(assignments(pr));
+  expect(unset).not.toHaveProperty("internalReview");
+  expect(unset.assignments[0]).not.toHaveProperty("internalReview");
+  expect(messages({ ...assignments(pr), internalReview: "off" })).toEqual([
+    ["invalid_type", "Invalid input: expected boolean, received string"],
+  ]);
+});
+
+test("a report assignment refuses the internal review switch and names the field", () => {
+  for (const row of [report, { ...report, resources: "worktree", branch: "reports/2" }]) {
+    const result = planSchema.safeParse(assignments({ ...row, internalReview: false }));
+    expect(result.success ? [] : result.error.issues).toEqual([
+      {
+        code: "unrecognized_keys",
+        keys: ["internalReview"],
+        path: ["assignments", 0],
+        message: 'Unrecognized key: "internalReview"',
+      },
+    ]);
+  }
+});

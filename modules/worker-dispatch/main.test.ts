@@ -6,8 +6,10 @@ import { Herdr } from "../herdr/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { OperatorRelease } from "../operator-release/main.ts";
 import { OwnedSkills } from "../owned-skills/main.ts";
+import { WorkSources } from "../work-sources/main.ts";
 import { dispatchDevice, git, removeDevices, resolved } from "./dispatch-fixture.ts";
 import { WorkerDispatch } from "./main.ts";
+import type { Paths } from "./observations.ts";
 
 afterEach(() => {
   mock.restore();
@@ -177,6 +179,67 @@ test("worktree work gets a new prepared worktree on its branch and an OpenCode a
   expect(brief).toContain(`worktree \`${worktree}\` on branch \`task/impl\``);
   expect(brief).toContain("Target the default branch.");
   expect(brief).toContain("`operator pr associate --json`");
+  // No plan or device value is set, so internal review is on.
+  expect(brief).toContain("Open one draft PR from your branch");
+});
+
+function briefOf(device: { paths: Paths }, sourceId: string, assignment: string) {
+  return Bun.file(
+    OperatorHome.assignmentFiles(device.paths, {
+      repository: "example/one",
+      sourceId,
+      assignment,
+    }).brief,
+  ).text();
+}
+
+test("a plan that turns internal review off gives a ready PR, and an assignment can turn it on", async () => {
+  await using device = await dispatchDevice();
+  const pr = { completion: "pr", resources: "worktree", dependencies: [], instructions: "Fix." };
+  await Bun.write(
+    `${device.root}/urgent.json`,
+    JSON.stringify({
+      trackerKey: "github:example/one#9",
+      internalReview: false,
+      assignments: [
+        { ...pr, key: "urgent", trackerKey: "github:example/one#10", branch: "task/urgent" },
+        {
+          ...pr,
+          key: "checked",
+          trackerKey: "github:example/one#11",
+          branch: "task/checked",
+          internalReview: true,
+        },
+      ],
+    }),
+  );
+  const registered = await WorkSources.register({
+    paths: device.paths,
+    cwd: device.checkout,
+    file: `${device.root}/urgent.json`,
+  });
+  const sourceId = registered.tag === "Ok" ? registered.value.id : "";
+  for (const assignment of ["urgent", "checked"])
+    expect(
+      await WorkerDispatch.dispatch({ ...device.request(assignment), sourceId }),
+    ).toMatchObject({ tag: "Ok" });
+  const urgent = await briefOf(device, sourceId, "urgent");
+  expect(urgent).toContain("Open one PR from your branch");
+  expect(urgent).not.toMatch(/draft|internal review/i);
+  expect(await briefOf(device, sourceId, "checked")).toContain(
+    "Open one draft PR from your branch",
+  );
+});
+
+test("a device that turns internal review off gives a ready PR", async () => {
+  await using device = await dispatchDevice();
+  const shown = await DeviceSettings.show(device.paths);
+  const config = shown.tag === "Ok" ? shown.value.data.config : {};
+  await Bun.write(device.paths.config, JSON.stringify({ ...config, review: { internal: false } }));
+  expect(await WorkerDispatch.dispatch(device.request("impl"))).toMatchObject({ tag: "Ok" });
+  const brief = await briefOf(device, device.sourceId, "impl");
+  expect(brief).toContain("Open one PR from your branch");
+  expect(brief).not.toMatch(/draft|internal review/i);
 });
 
 test("a missing project workspace is created, and no tab list is read", async () => {

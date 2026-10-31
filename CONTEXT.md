@@ -164,8 +164,18 @@ It retains the owner's working context rather than requiring a fresh writer for 
 
 **PR merge gate**:
 The conditions that the CLI checks before it merges a PR.
-They require approval, passing checks, no unresolved review threads, and a default-branch base.
+They require approval, passing checks, no unresolved review threads, a default-branch base, a PR that is not a draft, and an internal review that ended ready or was skipped.
 _Avoid_: project gate
+
+**Internal review**:
+The unpublished review of a draft PR by a fresh WorkerAgent that takes over the PR assignment from its implementer.
+The reviewer applies the valid findings, moves the PR to ready with one summary comment, and then owns the PR to its merge.
+It is on by default, and an assignment, a plan, or the device setting can turn it off.
+_Avoid_: self-review, pre-PR review, internal review request
+
+**Internal review round**:
+One review of the whole PR diff against its base at a recorded head, followed by the fixes for its valid findings.
+An internal review has at most two rounds.
 
 **Source reset**:
 The end of one work source on the person's instruction, with merged PR assignments and completed reports preserved and incomplete assignments abandoned.
@@ -192,6 +202,7 @@ It is a planning convention for agents, not a CLI tracker state machine.
 **Review request**:
 A separate record for review rounds on one PR, originating from Slack or the optional reviewer of a PR assignment.
 It is not an assignment and does not wait for merge to deliver a review.
+An internal review is not a review request.
 _Avoid_: Slack review, PR review job
 
 **Review round**:
