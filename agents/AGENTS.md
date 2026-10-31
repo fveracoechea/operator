@@ -4,7 +4,7 @@
   - read a neighboring pane, its output, or its agent
   - run a command or a helper agent in a sibling pane without stealing focus
   - wait for a server, a test run, or another agent to finish
-  - run a long-lived process, such as a localhost dev server, in a new pane
+  - run a long-lived process, such as a localhost dev server, in a new tab
   - give each parallel task or sub-agent its own Herdr worktree
   - name your tab for your work with `herdr tab rename "$HERDR_TAB_ID" <label>`. Use 3 words, 4 at most. Only the agent that owns the pane renames it, not a sub-agent.
 - Talk in ASD-STE100 Simplified Technical English.
