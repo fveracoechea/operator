@@ -7,7 +7,7 @@ A source install gets its command from Bun, and a Nix install from its package.
 Do not install or select a release inside a project.
 
 After each install or update of the release, use `operator install --opencode --claude --json`.
-It copies complete owned skills into both personal host locations, then installs the upstream skills globally: Matt Pocock's skills, `unslop`, and `show-me`.
+It copies complete owned skills into both personal host locations, then installs the upstream skills globally: Matt Pocock's productivity and engineering skills, `unslop`, and `show-me`.
 Select only one host flag when needed.
 Use `operator install --opencode --claude --check --json` for a content-only check of owned skills. It installs no upstream skills.
 Nix installations always check owned contents and leave consumer-owned links unchanged, and they still install the upstream skills.

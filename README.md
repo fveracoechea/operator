@@ -179,7 +179,7 @@ Run `install` after each install or update of Operator, for each host that setti
 `install` copies the Operator skills into the host folders, and it does not overwrite your edits.
 Then it installs these upstream skills globally with the pinned `skills` installer, at the current commit of each repository:
 
-- Matt Pocock's skills from `mattpocock/skills`, except names that Operator owns.
+- Matt Pocock's skills from the `skills/productivity` and `skills/engineering` folders of `mattpocock/skills`, except names that Operator owns.
 - `unslop` from `cursor/plugins`.
 - `show-me` from `humanlayer/skills`.
 

@@ -784,7 +784,7 @@ test("installed source and registry CLIs copy complete skills to both hosts and 
         tool === "gh"
           ? `if(JSON.stringify(process.argv.slice(2))!==JSON.stringify(["auth","status","--hostname","github.com"])) process.exit(99);`
           : tool === "git"
-            ? `const a=process.argv.slice(2); if(a[0]==="clone") { for(const folder of {"https://github.com/cursor/plugins.git":["pstack/skills/unslop"],"https://github.com/humanlayer/skills.git":["plugins/show-me/skills/show-me"]}[a.at(-2)] ?? ["skills/code-review","skills/bun","skills/super-agent"]) await Bun.write(a.at(-1)+"/"+folder+"/SKILL.md","---\\nname: "+folder.split("/").at(-1)+"\\n---\\n",{createPath:true}); } else console.log("${"a".repeat(40)}");`
+            ? `const a=process.argv.slice(2); if(a[0]==="clone") { for(const folder of {"https://github.com/cursor/plugins.git":["pstack/skills/unslop"],"https://github.com/humanlayer/skills.git":["plugins/show-me/skills/show-me"]}[a.at(-2)] ?? ["skills/engineering/code-review","skills/engineering/bun","skills/productivity/super-agent"]) await Bun.write(a.at(-1)+"/"+folder+"/SKILL.md","---\\nname: "+folder.split("/").at(-1)+"\\n---\\n",{createPath:true}); } else console.log("${"a".repeat(40)}");`
             : tool === "bun"
               ? `await Bun.write(${JSON.stringify(`${environment.HOME}/.agents/skills/code-review/SKILL.md`)},"independent upstream skill\\n",{createPath:true}); await Bun.write(${JSON.stringify(`${environment.HOME}/.claude/skills/code-review/SKILL.md`)},"independent upstream skill\\n",{createPath:true}); const a=process.argv.slice(2); console.log(JSON.stringify(a.slice(a.indexOf("--skill")+1,-2).map(name=>({name,status:"installed"}))));`
               : "process.exit(99);";

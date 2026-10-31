@@ -167,7 +167,7 @@ in
       printf '[url "file://%s"]\n\tinsteadOf = https://github.com/%s.git\n' \
         $TMPDIR/$1 $3 >> $TMPDIR/gitconfig
     }
-    upstream matt tdd mattpocock/skills
+    upstream matt skills/productivity/tdd mattpocock/skills
     upstream cursor pstack/skills/unslop cursor/plugins
     upstream humanlayer plugins/show-me/skills/show-me humanlayer/skills
     status=0

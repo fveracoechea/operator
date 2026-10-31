@@ -70,7 +70,16 @@ const unfinished = { status: "no-answer" as const, detail: "interrupted", exitCo
 
 // Each upstream repository, by the clone URL, and the skill folders that its fixture holds.
 const fixtures: Record<string, string[]> = {
-  "https://github.com/mattpocock/skills.git": ["skills/code-review", "skills/bun", "skills/tdd"],
+  // Only the productivity and engineering folders count, so a skill elsewhere, and the invalid
+  // frontmatter of an in-progress skill, never reach the roster.
+  "https://github.com/mattpocock/skills.git": [
+    "skills/engineering/code-review",
+    "skills/engineering/bun",
+    "skills/productivity/tdd",
+    "skills/misc/setup-pre-commit",
+    "skills/in-progress/software-factory",
+    "skills/productivity-notes/drafts",
+  ],
   "https://github.com/cursor/plugins.git": [
     "pstack/skills/unslop",
     "harness/pstack/claude-code/skills/unslop",
@@ -87,10 +96,10 @@ async function writeClone(args: string[], extra: string[]) {
   for (const folder of [...(fixtures[String(args.at(-2))] ?? []), ...extra])
     await Bun.write(
       `${args.at(-1)}/${folder}/SKILL.md`,
-      `---\nname: ${folder.split("/").at(-1)}\n---\n`,
-      {
-        createPath: true,
-      },
+      folder.includes("in-progress")
+        ? "---\nname: [unclosed\n---\n"
+        : `---\nname: ${folder.split("/").at(-1)}\n---\n`,
+      { createPath: true },
     );
 }
 
@@ -110,7 +119,7 @@ function upstream(answers: {
 }) {
   const calls: Parameters<typeof ToolInvocation.run>[0][] = [];
   const at = answers.at ?? 0;
-  const extra = answers.extra === undefined ? [] : [`skills/${answers.extra}`];
+  const extra = answers.extra === undefined ? [] : [`skills/engineering/${answers.extra}`];
   let clones = 0;
   let installs = 0;
   const spy = spyOn(ToolInvocation, "run").mockImplementation(async (input) => {
@@ -209,9 +218,9 @@ test("installs every source at its resolved commit with a positive roster and re
         ["show-me"],
       ),
     ]);
-    expect(await Bun.file(`${directory}/mattpocock/skills/skills/tdd/SKILL.md`).exists()).toBe(
-      false,
-    );
+    expect(
+      await Bun.file(`${directory}/mattpocock/skills/skills/productivity/tdd/SKILL.md`).exists(),
+    ).toBe(false);
     expect(UpstreamSkills.replacementPolicy()).toBe(policy);
   } finally {
     spy.mockRestore();

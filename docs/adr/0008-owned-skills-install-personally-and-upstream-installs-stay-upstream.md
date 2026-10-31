@@ -27,9 +27,10 @@ When a release renames a skill, it replaces an old-name managed copy only when t
 There are no forwarding skills, and Nix users change their own links.
 
 Operator delegates global upstream skill installation to an exact upstream installer version.
-The release names a fixed list of upstream sources: Matt Pocock's skills repository, and single skill folders that the person chose from other repositories.
+The release names a fixed list of upstream sources: the productivity and engineering sections of Matt Pocock's skills repository, and single skill folders that the person chose from other repositories.
 Each source resolves its own full repository commit before any installer runs.
-A repository source selects every skill that Operator does not own, and a folder source selects only the skill in its folder, so another copy of that name elsewhere in the repository stays out.
+A section source selects every skill in its sections that Operator does not own, and other sections of that repository, such as in-progress or miscellaneous work, stay out.
+A folder source selects only the skill in its folder, so another copy of that name elsewhere in the repository stays out.
 Operator supplies explicit global scope, selected hosts, and a positive list for each source.
 A name that two sources select, an owned name in a folder source, or a missing folder stops the install before any installer runs.
 The upstream installer owns its global copies, links, lock record, and replacement behavior.
@@ -64,5 +65,6 @@ The supervisor skill starts from the global CLI, and the worker skill starts fro
 - A separate upstream command beside the owned install was rejected because the person wants one step after each install or update, and two install paths drift.
 - An install hook inside the package manager was rejected because Bun does not run an untrusted package's install scripts by default, and Nix builds have no network.
 - Selecting a folder source's skill by name across its whole repository was rejected because those repositories hold more than one copy of some names.
+- Taking every section of Matt Pocock's repository was rejected because in-progress skills are unfinished, and one unreadable skill there stopped every install.
 
 Related: ADR-0002, skills use task-specific disclosure; ADR-0004, device ownership; ADR-0007, running-release authority; ADR-0009, static readiness; ADR-0014, both supported hosts need their skills; ADR-0017, role skill names and safe rename.

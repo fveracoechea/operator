@@ -65,7 +65,7 @@ test.each(["main", "abcdef1", "", "a".repeat(39)])(
     await executable(
       "git",
       git(
-        `await Bun.write(a.at(-1)+"/skills/code-review/SKILL.md", "---\\nname: code-review\\n---\\n",{createPath:true});`,
+        `await Bun.write(a.at(-1)+"/skills/engineering/code-review/SKILL.md", "---\\nname: code-review\\n---\\n",{createPath:true});`,
         revision,
       ),
     );
@@ -94,7 +94,7 @@ test.each([
     await executable(
       "git",
       git(
-        `if(${JSON.stringify(kind)}==="clone-failed") process.exit(1); await Bun.write(a.at(-1)+"/skills/test/SKILL.md",${JSON.stringify(kind === "bad-roster" ? "broken" : `---\nname: ${kind === "owned-only" ? "bun" : "code-review"}\n---\n`)},{createPath:true});`,
+        `if(${JSON.stringify(kind)}==="clone-failed") process.exit(1); await Bun.write(a.at(-1)+"/skills/engineering/test/SKILL.md",${JSON.stringify(kind === "bad-roster" ? "broken" : `---\nname: ${kind === "owned-only" ? "bun" : "code-review"}\n---\n`)},{createPath:true});`,
         "a".repeat(40),
       ),
     );

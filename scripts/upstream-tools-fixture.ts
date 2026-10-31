@@ -8,13 +8,18 @@ export const upstreamCommit = "a".repeat(40);
 /**
  * Writes fake `git` and `bun` commands to `<root>/tools`, so a command test that puts only that
  * folder on PATH reaches no network and no real upstream installer. Each clone holds the skill
- * folders that the matching upstream repository has, with the owned `bun` among Matt's skills,
- * and the fake installer confirms every selected skill. Each installer call appends its
- * arguments as one JSON line to `<root>/upstream-calls.jsonl`.
+ * folders that the matching upstream repository has, with the owned `bun` and an out-of-scope
+ * `misc` skill among Matt's skills. The fake installer confirms every selected skill, and each
+ * installer call appends its arguments as one JSON line to `<root>/upstream-calls.jsonl`.
  */
 export async function writeUpstreamTools(root: string) {
   const folders = {
-    "https://github.com/mattpocock/skills.git": ["skills/code-review", "skills/bun", "skills/tdd"],
+    "https://github.com/mattpocock/skills.git": [
+      "skills/engineering/code-review",
+      "skills/engineering/bun",
+      "skills/productivity/tdd",
+      "skills/misc/setup-pre-commit",
+    ],
     "https://github.com/cursor/plugins.git": ["pstack/skills/unslop"],
     "https://github.com/humanlayer/skills.git": ["plugins/show-me/skills/show-me"],
   };

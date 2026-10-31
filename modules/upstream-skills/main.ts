@@ -28,16 +28,16 @@ function qualify<T>(cause: Error, defect: (cause: Error) => T) {
   return defect(cause);
 }
 
-// Each source names one repository. A source with a folder selects only the skill in that folder,
-// and a source without one selects every skill in the repository that the release does not own.
-const sources = [
-  { repository: "mattpocock/skills" },
+// Each source names one repository. A source with a folder selects only the skill in that folder.
+// A source with sections selects every skill under those folders that the release does not own.
+const sources: Array<{ repository: string; folder?: string; sections?: string[] }> = [
+  { repository: "mattpocock/skills", sections: ["skills/productivity", "skills/engineering"] },
   { repository: "cursor/plugins", folder: "pstack/skills/unslop" },
   { repository: "humanlayer/skills", folder: "plugins/show-me/skills/show-me" },
 ];
 
 async function resolve(directory: string, source: (typeof sources)[number], owned: string[]) {
-  const { repository, folder } = source;
+  const { repository, folder, sections = [] } = source;
   const checkout = `${directory}/${repository}`;
   const clone = await ToolInvocation.run({
     tool: "git",
@@ -72,8 +72,9 @@ async function resolve(directory: string, source: (typeof sources)[number], owne
       };
     documents.push(await file.text());
   } else
-    for await (const file of new Bun.Glob("**/SKILL.md").scan({ cwd: checkout }))
-      documents.push(await Bun.file(`${checkout}/${file}`).text());
+    for (const section of sections)
+      for await (const file of new Bun.Glob(`${section}/**/SKILL.md`).scan({ cwd: checkout }))
+        documents.push(await Bun.file(`${checkout}/${file}`).text());
   return {
     repository,
     commit,
