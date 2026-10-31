@@ -245,5 +245,7 @@ operator review cleanup <pr-url> --json
 ```
 
 A reviewer agent writes a draft with the `pr-review` skill, and only `review post` posts it.
-With `review.assignments` set to `true`, each PR assignment also gets this reviewer after its PR is open. It posts a comment and is separate from internal review.
+With `review.assignments` set to `true`, each PR assignment also gets this reviewer after its PR is open.
+It posts a comment and is separate from internal review.
+In this release, `pr associate` queues it while the PR is still a draft, so keep `review.assignments` off while internal review is on.
 With `review.channel`, `review.repos`, and `review.authors` in settings, `review wait --slack` takes review requests from Slack.
