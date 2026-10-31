@@ -12,6 +12,8 @@ Use `operator install --opencode --claude --check --json` for a content-only che
 Nix installations always check owned contents and leave consumer-owned links unchanged.
 A conflict requires the person to preserve or move their edits, or change their external wiring.
 Operator does not overwrite a modified skill or install permission rules.
+`--claude` also adds the commit hook to Claude Code user settings. The hook only denies a commit with a Co-Authored-By trailer.
+A linked or read-only settings file stays unchanged, and the refusal names the hook entry for the person to add to its owner, such as their dotfiles.
 
 Use `operator install matt --opencode --claude --json` for an explicit global upstream install.
 Select only the required host flags.
@@ -20,7 +22,7 @@ Inspect failed or interrupted installs before requesting another install.
 
 Use `operator ready --json` to check current static prerequisites, including a pinned global command that runs this release, for every host that device settings select.
 Resolve every returned blocker before delegated work.
-The check follows skill links and requires complete owned contents and upstream `code-review` presence.
+The check follows skill links and requires complete owned contents, upstream `code-review` presence, and the commit hook on Claude Code.
 It launches no host or probe and writes no readiness record.
 Slack tools are not a core prerequisite on either host. Only the Slack review workflow needs them, on Claude Code.
 A ready result does not prove host loading or provider access.

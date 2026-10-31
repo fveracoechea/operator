@@ -1,11 +1,16 @@
+import { ClaudeHook } from "../claude-hook/main.ts";
 import { OwnedSkills } from "../owned-skills/main.ts";
 import { UpstreamSkills } from "../upstream-skills/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
+import { OkAsync } from "unthrown";
 import { respond } from "./output.ts";
 
 const skillExitCodes = {
   skill_copy_conflict: 4,
   skills_missing: 3,
+  claude_hook_missing: 3,
+  claude_settings_external: 4,
+  claude_settings_invalid: 4,
   upstream_install_unconfirmed: 5,
 };
 
@@ -35,9 +40,17 @@ export async function runSkills(
   if (parsed === null) return false;
   const { upstream, hosts, check } = parsed;
   if (upstream) console.error(UpstreamSkills.replacementPolicy());
-  const result = await (upstream
-    ? UpstreamSkills.install(hosts, paths)
-    : OwnedSkills.install({ paths, hosts, check }));
+  const result = upstream
+    ? await UpstreamSkills.install(hosts, paths)
+    : await OwnedSkills.install({ paths, hosts, check }).flatMap((skills) =>
+        // The Claude Code commit hook installs with the skills, and a Nix release only checks it.
+        hosts.includes("claude-code")
+          ? ClaudeHook.install({ paths, check: skills.data.checkOnly }).map((claudeHook) => ({
+              ...skills,
+              data: { ...skills.data, claudeHook },
+            }))
+          : OkAsync(skills),
+      );
   respond({
     operation: "install",
     result,

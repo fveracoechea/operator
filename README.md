@@ -177,10 +177,12 @@ operator ready --json
 ```
 
 `install` copies the Operator skills into the host folders, and it does not overwrite your edits.
-`install --check` reports `skills_missing` for skills that are not installed, and `skill_copy_conflict` for skills with different contents.
+`install --claude` also adds the commit hook to `~/.claude/settings.json`. The hook runs `operator claude hook` before a git command and blocks a commit whose message has a Co-Authored-By trailer.
+When that file is a link, for example into a dotfiles repository, `install` changes nothing and reports `claude_settings_external` with the hook entry to add.
+`install --check` reports `skills_missing` for skills that are not installed, `skill_copy_conflict` for skills with different contents, and `claude_hook_missing` when Claude Code settings do not run the commit hook.
 `install matt` installs Matt Pocock's skills.
 `ready` requires them, so run `install matt` for each host that settings select.
-`ready` checks `gh` and its login, `herdr`, the `operator` command, the host, and the skills.
+`ready` checks `gh` and its login, `herdr`, the `operator` command, the host, the skills, and the commit hook on Claude Code.
 
 ### Assignments and dispatch
 
