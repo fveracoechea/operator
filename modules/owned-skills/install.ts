@@ -5,7 +5,7 @@ import { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { OperatorHome } from "../operator-home/main.ts";
 import { contents, info, same, verdict, writable, type Contents } from "./content.ts";
-import { writeFile } from "./write-file.ts";
+import { writeFile } from "../../lib/write-file.ts";
 
 export type Paths = ReturnType<typeof OperatorHome.resolve>;
 export type Host = keyof Paths["skillHosts"];

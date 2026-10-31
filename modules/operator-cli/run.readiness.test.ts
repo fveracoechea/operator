@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 // Bun has no temporary-directory or recursive removal API.
+import { writeClaudeHookSettings } from "./command-fixture.ts";
 import { chmod, cp, mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -75,6 +76,7 @@ async function configure(host: string) {
   await Bun.write(`${folder}/placeholder`, "", { createPath: true });
   await rm(folder, { recursive: true });
   await symlink(`${root}/release`, folder);
+  await writeClaudeHookSettings(`${root}/home`);
   const upstream = host === "opencode" ? `${root}/home/.agents/skills` : folder;
   await Bun.write(
     `${root}/independent-code-review/SKILL.md`,

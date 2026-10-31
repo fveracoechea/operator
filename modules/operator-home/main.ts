@@ -74,6 +74,7 @@ export const OperatorHome = {
       ownedSkills: path.join(stateRoot, "owned-skills.json"),
       skillsLock: path.join(stateRoot, "owned-skills-lock.sqlite"),
       herdrPlugin: path.join(stateRoot, "herdr-plugin"),
+      claudeSettings: path.join(environment.HOME, ".claude/settings.json"),
     };
   },
   registrationDatabase(paths: { stateRoot: string }, nonce: string) {
