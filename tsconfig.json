@@ -18,6 +18,7 @@
   "include": [
     "cli.ts",
     "cli.test.ts",
+    "drizzle.config.ts",
     "modules/**/*.ts",
     "lib/**/*.ts",
     "scripts/**/*.ts",
