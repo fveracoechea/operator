@@ -6,7 +6,7 @@ The device is updated when `operator ready --json` returns `"reason": "ready"` o
 
 One installed release serves every project on the device, so one update covers all projects.
 The first command of the new release migrates device state when the release ships a migration.
-ADR-0007 records this decision.
+[ADR-0007](adr/0007-one-running-release-serves-the-device-and-migrates-state.md) records this decision.
 
 ## 1. Make the device idle
 
@@ -27,6 +27,7 @@ The step is done when the device is idle and you know the target version.
 
 Use the same install method as before.
 Record the current version from `operator --version --json`, so you can install it again if you must.
+The step is done when the install command or the rebuild exits with code 0.
 
 ### JSR with Bun
 
@@ -88,15 +89,15 @@ If it refuses, go to [Refusals](#refusals).
 Run these commands in this order.
 Give `install` the flag of each host that your settings select, as `operator config show --json` reports.
 
-1. JSR only: run `operator install launcher --json`.
+1. On a JSR install, run `operator install launcher --json`.
    It returns `launcher_current` when the launcher already runs the global package.
 2. Run `operator install --opencode --claude --json`.
-   On JSR and source installs, it replaces unchanged copies of the owned skills with the new release's contents.
+   On JSR and source installs, it writes each owned skill that is missing or unchanged since the last install.
    It returns `skills_installed`, or `skills_already_installed` when the contents already match.
    On Nix, it only checks your links and returns `skills_checked`.
 3. Run `operator herdr install --json`.
    It returns `herdr_plugin_updated` when the release changed the plugin manifest, and `herdr_plugin_unchanged` otherwise.
-   A dispatch refuses with `herdr_plugin_outdated` until you run this command.
+   A dispatch or a reviewer start refuses with `herdr_plugin_outdated` until you run this command.
 
 The step is done when each command returns one of the reasons above.
 
@@ -124,7 +125,7 @@ Read the `detail` first, because it names the path or the command to fix.
 
 | Reason | Cause | Action |
 | --- | --- | --- |
-| `state_migration_blocked` | Active work holds the migration. Every command refuses, also `--version`. | Install the previous release again. Finish that work, then update again. |
+| `state_migration_blocked` | Active work holds the migration. Every command refuses, also `--version`. | Install the recorded previous release again. Finish that work, then update again. |
 | `state_incompatible` | The device state is newer than the running release, or its history is unknown. | Install the release that last migrated the state, or a later one. |
 | `state_backup_failed` | The backup before the migration failed. Nothing was migrated. | Fix the cause in `detail`, then run the command again. |
 | `state_corrupt` | The device database failed its integrity check. | Stop. Give the person the backup path in `detail`. Operator does not repair state. |
