@@ -1,6 +1,6 @@
 ---
 name: deep-modules
-description: 'Use when adding or changing a feature in a TypeScript app: a screen and its data, where new or shared code goes, a sub-module, or a module test.'
+description: 'Use when adding or changing a feature in a TypeScript app: a screen and its data, where new or shared code goes, a sub-module, error handling in a module, or a module test.'
 ---
 
 # Deep modules
@@ -60,5 +60,6 @@ The entry files differ, and [module-shape.md](module-shape.md) lists the set for
 - **Reading environment variables or keeping per-request state in a module**: [server-state.md](server-state.md).
 - **Designing or reviewing an interface, or deciding whether a module earns its place**: [interface-design.md](interface-design.md).
 - **Writing a test for a module, or for code that uses one**: [module-tests.md](module-tests.md).
+- **Returning a failure as a Result, folding it for the client, or matching its error tags**: [errors-as-values.md](errors-as-values.md).
 
 A TanStack Start server function inside a module, with its `$` name, its validator and its envelope, is in the `tanstack-tools` skill, topic `start-server-functions.md`.
