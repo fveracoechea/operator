@@ -1,5 +1,40 @@
 # @fveracoechea/operator
 
+## 1.1.0
+
+### Minor Changes
+
+- 896fedd: A posted review is shorter and requests changes less often.
+  The main comment gives the result, the counts, and one short bullet for each finding.
+  The detail of an anchored finding is only in its line comment.
+  `REQUEST_CHANGES` now needs a blocker with an `impact` of `breaking` or `security`.
+  A breach of style or design is a comment.
+  Each finding in a review draft can name its `source`, such as a skill, the project code style, an ADR, or best practice.
+  It replaces the `breach` field, which the draft now refuses.
+  A nice to have now needs a `short` of at most six words.
+  The `pr-review` skill asks for a snippet, a `suggestion` block, or a diagram in most line comments.
+
+### Patch Changes
+
+- acba2b5: Sync the `react-composition` skill with Jarvis.
+  The state machine topic now has one short document search example beside each rule.
+  A new rule says that the transition, not the part, refuses an event that the status does not accept.
+- 23b821e: An approval now cleans up the reviewer of a review request.
+  `operator review post` closes the reviewer pane and removes its worktree and local branch.
+  Its result has a `cleanup` field.
+  The request record stays, so a renewed review request after approval starts a new round.
+  `operator review next` gives that round to a replacement reviewer, which reads the earlier drafts.
+  `operator review cleanup` now accepts an approved request.
+  It also cleans up the reviewers that earlier Operator versions kept after an approval.
+  Unlanded reviewer work stays with the person, and a failed cleanup stays visible, as for a closed or skipped request.
+  A renewed request after a cleanup that kept unlanded work gets no replacement until the person runs `operator review cleanup`.
+- 67471e1: Dispatch and reviewer starts now find an open project workspace by its panes when Herdr gives the workspace no checkout.
+  Each pane must be in the controlling checkout or in a folder below it. Operator creates a project workspace only when none is open.
+  Operator labels the root tab of a new project workspace with the repository name, and the root tab of each new or reopened worktree with the launch name. Before, these tabs showed only a number.
+  The `super-agent` and `worker-agent` skills tell an agent to name its own Herdr tab for its work, in three words when possible and never more than four.
+- acba2b5: Sync the `deep-modules` skill with Jarvis.
+  A new topic, `errors-as-values.md`, tells a module to return each expected failure as a Result, to fold the Result once at the client boundary, and to match each error tag with no catch-all.
+
 ## 1.0.1
 
 ### Patch Changes
