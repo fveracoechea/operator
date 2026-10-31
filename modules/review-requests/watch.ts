@@ -16,7 +16,7 @@ import {
   type Row,
   type Snapshot,
 } from "./request.ts";
-import { cleanupReviewer, failureOf, syncReviewer } from "./reviewer.ts";
+import { cleanupResult, cleanupReviewer, failureOf, syncReviewer } from "./reviewer.ts";
 import { decideWatch, type WatchDecision } from "./rounds.ts";
 import { slackActions, type SlackView } from "./slack.ts";
 
@@ -110,7 +110,7 @@ async function close(paths: Paths, target: Target, request: Row, prState: string
       url: request.url,
       kind: "review_closed",
       prState,
-      cleanup: cleaned.tag === "Ok" ? cleaned.value : { state: "failed", ...failureOf(cleaned) },
+      cleanup: cleanupResult(cleaned),
     },
   ];
 }
@@ -209,7 +209,7 @@ async function resume(paths: Paths, row: Listed): Promise<Event[]> {
       {
         url: request.url,
         kind: "reviewer_cleaned",
-        cleanup: cleaned.tag === "Ok" ? cleaned.value : { state: "failed" },
+        cleanup: cleanupResult(cleaned),
       },
     ];
   }

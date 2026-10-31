@@ -86,8 +86,8 @@ test.each([
     name: "approved request ignores commits",
     file: "review-requests/rounds.ts",
     replacements: [['if (facts.state === "approved")', 'if (facts.state === "none")']],
-    testFile: rounds,
-    pattern: "every round trigger starts a round",
+    testFile: "operator-cli/run.review-approval.test.ts",
+    pattern: "an approval cleans up the reviewer",
   },
   {
     name: "lost reply found by its marker",

@@ -169,9 +169,11 @@ test("a clean draft of the live head approves once and ends the round with its S
   expect(calls.posts[0]?.comments).toBeUndefined();
   expect(calls.posts[0]?.body.startsWith(`${marker}\n**Approved**`)).toBe(true);
   const after = readRequest(home.paths);
+  // The post keeps the lease for the reviewer cleanup, which the review command runs next.
   expect(after.request).toMatchObject({
     state: "approved",
-    ownerPid: null,
+    ownerPid: process.pid,
+    cleanupState: "pending",
     trigger: null,
     headMoves: 0,
     failureReason: null,

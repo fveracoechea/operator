@@ -5,6 +5,7 @@ import { DeviceState } from "../device-state/main.ts";
 import { Environment } from "../environment/main.ts";
 import { GithubApi } from "../github-api/main.ts";
 import { Herdr } from "../herdr/main.ts";
+import { OperatorHome } from "../operator-home/main.ts";
 import { WorkerDispatch } from "../worker-dispatch/main.ts";
 import {
   answered,
@@ -277,12 +278,158 @@ test("a skip ends the request and cleans up its reviewer", async () => {
   });
 });
 
+/** A reviewer that posts the given GitHub review state for a clean draft of the live head. */
+async function posting(state: string) {
+  seedRequest(home.paths, {
+    state: "reviewing",
+    launchState: "running",
+    head: h2,
+    name: "reviewer",
+    paneId: "p1",
+    herdrSocket: "/sock",
+    worktreePath: "/w",
+    branch: "review/b",
+  });
+  await Bun.write(
+    OperatorHome.reviewFiles(home.paths, { repository: "example/one", requestId: "r1" }).draft,
+    JSON.stringify({ reviewedCommit: h2, summary: "S." }),
+    { createPath: true },
+  );
+  spyOn(GithubApi, "call").mockImplementation(async (request) =>
+    answered(
+      request.args[0] === "graphql" ? prAnswer() : { node_id: "R1", html_url: `${url}#r1`, state },
+    ),
+  );
+  spyOn(Herdr, "agentNames").mockReturnValue(OkAsync(["reviewer"]));
+  return spyOn(Herdr, "closePane").mockReturnValue(OkAsync("closed" as const));
+}
+
+test("an approval cleans up the reviewer and keeps the request", async () => {
+  const close = await posting("APPROVED");
+  spyOn(WorkerDispatch, "cleanWorktree").mockResolvedValue({
+    state: "removed",
+    detail: "Removed the worktree.",
+  });
+  expect(await ReviewRequests.post(input())).toMatchObject({
+    tag: "Ok",
+    value: {
+      reason: "review_posted",
+      data: {
+        state: "approved",
+        event: "APPROVE",
+        // The result shows the reviewer after its cleanup.
+        reviewer: { state: "interrupted", worktreePath: null, branch: null },
+        cleanup: { state: "done", detail: "Closed pane p1. Removed the worktree." },
+      },
+    },
+  });
+  expect(close).toHaveBeenCalledWith("p1");
+  expect(readRequest(home.paths).request).toMatchObject({
+    state: "approved",
+    cleanupState: "done",
+    launchState: "interrupted",
+    worktreePath: null,
+    branch: null,
+    ownerPid: null,
+  });
+});
+
+test("a comment keeps the reviewer", async () => {
+  const close = await posting("COMMENTED");
+  expect(await ReviewRequests.post(input())).toMatchObject({
+    tag: "Ok",
+    value: { data: { state: "watching", reviewer: { state: "running" }, cleanup: null } },
+  });
+  expect(close).not.toHaveBeenCalled();
+  expect(readRequest(home.paths).request).toMatchObject({ ownerPid: null, worktreePath: "/w" });
+});
+
+test("a cleanup that stops after an approval is left to the next wait", async () => {
+  await posting("APPROVED");
+  spyOn(Herdr, "agentNames").mockRejectedValue(coded("EIO"));
+  // The review is posted, so the post succeeds and shows the failed cleanup.
+  expect(await ReviewRequests.post(input())).toMatchObject({
+    tag: "Ok",
+    value: {
+      data: { state: "approved", cleanup: { state: "failed", reason: "review_io_failed" } },
+    },
+  });
+  expect(readRequest(home.paths).request?.cleanupState).toBe("pending");
+});
+
+test("a cleanup closes the reviewer of an approved request once", async () => {
+  seedRequest(home.paths, {
+    state: "approved",
+    launchState: "running",
+    name: "reviewer",
+    paneId: "p1",
+    herdrSocket: "/sock",
+    worktreePath: "/w",
+    branch: "review/b",
+  });
+  spyOn(Herdr, "agentNames").mockReturnValue(OkAsync(["reviewer"]));
+  const close = spyOn(Herdr, "closePane").mockReturnValue(OkAsync("closed" as const));
+  const clean = spyOn(WorkerDispatch, "cleanWorktree").mockResolvedValue({
+    state: "removed",
+    detail: "Removed the worktree.",
+  });
+  expect(await ReviewRequests.cleanup(input())).toMatchObject({
+    tag: "Ok",
+    value: {
+      reason: "reviewer_cleaned",
+      data: {
+        state: "approved",
+        cleanup: { state: "done", detail: "Closed pane p1. Removed the worktree." },
+      },
+    },
+  });
+  expect(close).toHaveBeenCalledWith("p1");
+  expect(clean).toHaveBeenCalledWith({
+    paths: home.paths,
+    checkout: home.checkout,
+    worktree: "/w",
+    branch: "review/b",
+  });
+  expect(readRequest(home.paths).request).toMatchObject({
+    state: "approved",
+    launchState: "interrupted",
+    cleanupState: "done",
+    worktreePath: null,
+    branch: null,
+    ownerPid: null,
+  });
+  expect(await ReviewRequests.cleanup(input())).toMatchObject({
+    tag: "Err",
+    error: { reason: "review_cleanup_unchanged" },
+  });
+});
+
+test("a cleanup removes kept work of a renewed request, and leaves a failed one to its reviewer", async () => {
+  seedRequest(home.paths, { state: "reviewing", launchState: "interrupted", cleanupState: "kept" });
+  expect(await ReviewRequests.cleanup(input())).toMatchObject({
+    tag: "Ok",
+    value: { reason: "reviewer_cleaned", data: { state: "reviewing", cleanup: { state: "done" } } },
+  });
+  // A cleanup of kept work whose process stopped is repeated.
+  change({ cleanupState: "pending" });
+  expect(await ReviewRequests.cleanup(input())).toMatchObject({
+    tag: "Ok",
+    value: { reason: "reviewer_cleaned", data: { state: "reviewing" } },
+  });
+  // A failed cleanup can leave its reviewer running, and the renewed round goes to it.
+  change({ cleanupState: "failed" });
+  expect(await ReviewRequests.cleanup(input())).toMatchObject({
+    tag: "Err",
+    error: { reason: "review_request_open" },
+  });
+});
+
 test("a cleanup refuses an open request and a request with no cleanup left", async () => {
   expect(await ReviewRequests.cleanup(input())).toMatchObject({
     tag: "Err",
     error: {
       reason: "review_cleanup_unchanged",
-      detail: "No closed or skipped request of PR #7 has a reviewer cleanup left.",
+      detail: "No approved, closed, or skipped request of PR #7 has a reviewer cleanup left.",
     },
   });
   seedRequest(home.paths);
@@ -291,7 +438,7 @@ test("a cleanup refuses an open request and a request with no cleanup left", asy
     error: {
       reason: "review_request_open",
       detail:
-        "The review request of PR #7 is queued. Only a closed or skipped request is cleaned up. Nothing changed.",
+        "The review request of PR #7 is queued. Only an approved, closed, or skipped request, or one with kept reviewer work, is cleaned up. Nothing changed.",
     },
   });
   expect(await ReviewRequests.cleanup({ paths: home.paths, url: "nope" })).toMatchObject({

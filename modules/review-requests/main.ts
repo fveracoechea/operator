@@ -11,7 +11,7 @@ import {
   type Outcome,
   type Paths,
 } from "./request.ts";
-import { claimCleanup, cleanupReviewer, launch, syncReviewer } from "./reviewer.ts";
+import { claimCleanup, cleanupResult, cleanupReviewer, launch, syncReviewer } from "./reviewer.ts";
 import { rows, wait } from "./watch.ts";
 import { acknowledge, ingest, slackActions } from "./slack.ts";
 import type { Target } from "./github.ts";
@@ -79,6 +79,9 @@ function start(input: { paths: Paths; url: string; profile?: string }) {
             head: transition.replace === true ? (current.request?.head ?? pr.head) : pr.head,
             failureReason: null,
             failureDetail: null,
+            // The cleanup of an earlier reviewer does not describe the new one.
+            cleanupState: null,
+            cleanupDetail: null,
           },
         }))
           .toAsync()
@@ -123,6 +126,38 @@ function start(input: { paths: Paths; url: string; profile?: string }) {
     );
 }
 
+/**
+ * Posts the reviewer's draft. An approval cleans up the reviewer in the same command. A cleanup
+ * that stops before it ends is finished by the next wait, and a failed one stays visible.
+ */
+function postReview(input: { paths: Paths; url: string }) {
+  return post(input).flatMap((posted) =>
+    parseTarget(input.url)
+      .toAsync()
+      .flatMap((target) =>
+        DeviceState.readReviewRequest(input.paths, target)
+          .toAsync()
+          .flatMap((snapshot): AsyncResult<Outcome, Failure> => {
+            // Of the posts that succeed, only an approval keeps the lease for its cleanup.
+            // Stryker disable next-line OptionalChaining: equivalent: a successful post always leaves its request
+            if (snapshot.request?.ownerPid !== process.pid) return OkAsync(posted);
+            return fromPromise(
+              async () => cleanupResult(await cleanupReviewer(input.paths, target, snapshot)),
+              qualify,
+            ).flatMap((cleanup) =>
+              // The result shows the reviewer after its cleanup.
+              DeviceState.readReviewRequest(input.paths, target)
+                .toAsync()
+                .map((after) => ({
+                  ...posted,
+                  data: { ...posted.data, ...summary(input.paths, after), cleanup },
+                })),
+            );
+          }),
+      ),
+  );
+}
+
 /** Ends one PR's request without a post and cleans up its reviewer. A skip names no author. */
 function skip(input: { paths: Paths; url: string }) {
   return parseTarget(input.url)
@@ -139,17 +174,29 @@ function skip(input: { paths: Paths; url: string }) {
     );
 }
 
+/**
+ * An approved request keeps its record, so its reviewer is cleaned up while it stays open. A
+ * renewal moves a request whose cleanup kept unlanded work, and that work stays for a cleanup.
+ */
 function cleanupTarget(paths: Paths, target: Target) {
   return DeviceState.readReviewRequest(paths, target).flatMap((snapshot) => {
-    if (snapshot.request !== null)
+    const request = snapshot.request;
+    if (
+      request?.state === "approved" ||
+      request?.cleanupState === "kept" ||
+      request?.cleanupState === "pending"
+    )
+      // Stryker disable next-line OptionalChaining, StringLiteral: equivalent: both conditions above hold only for a recorded request
+      return claimCleanup(paths, target, request?.id ?? "");
+    if (request !== null)
       return Err<Failure>({
         reason: "review_request_open",
-        detail: `The review request of PR #${target.number} is ${snapshot.request.state}. Only a closed or skipped request is cleaned up. Nothing changed.`,
+        detail: `The review request of PR #${target.number} is ${request.state}. Only an approved, closed, or skipped request, or one with kept reviewer work, is cleaned up. Nothing changed.`,
       });
     return snapshot.ended === null
       ? Err<Failure>({
           reason: "review_cleanup_unchanged",
-          detail: `No closed or skipped request of PR #${target.number} has a reviewer cleanup left.`,
+          detail: `No approved, closed, or skipped request of PR #${target.number} has a reviewer cleanup left.`,
         })
       : claimCleanup(paths, target, snapshot.ended.id);
   });
@@ -196,7 +243,7 @@ export const ReviewRequests = {
     return start(input);
   },
   post(input: { paths: Paths; url: string }) {
-    return post(input);
+    return postReview(input);
   },
   skip(input: { paths: Paths; url: string }) {
     return skip(input);

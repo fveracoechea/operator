@@ -89,33 +89,30 @@ for (const host of ["opencode", "claude-code"] as const)
       "Review round 2 of PR #7 started, because of an author reply.",
     );
     await current.draft(request.draft, current.head, {
+      blockers: [blocker],
       threadReplies: [{ threadId: "T1", kind: "acknowledge", body: "Your reason holds." }],
     });
     expect(await current.run(["review", "post", url])).toMatchObject({
       code: 0,
-      output: { data: { state: "approved", event: "APPROVE", review: { round: 2 } } },
+      output: { data: { state: "watching", event: "COMMENT", review: { round: 2 } } },
     });
     expect(await wait(current)).toMatchObject({ reason: "review_wait_timed_out" });
 
-    // An approved request ignores new commits, and a renewed request reopens it.
-    const moved = await current.push(current.head, "later.ts");
-    expect(await wait(current)).toMatchObject({ reason: "review_wait_timed_out" });
+    // A renewed review request on GitHub.
     await current.pullRequest({ reviewRequests: [{ reviewer: "owner", createdAt: now() }] });
     expect(await wait(current)).toMatchObject({
       data: { events: [{ kind: "round_started", trigger: "re-request" }] },
     });
-    // The PR moved while it was approved, so the round also moves the worktree.
     expect((await current.prompts()).at(-1)).toContain(
-      `because of a renewed review request. PR #7 moved from ${current.head} to ${moved} by a fast-forward.`,
+      "Review round 3 of PR #7 started, because of a renewed review request.",
     );
-    expect(await current.git(launch.worktreePath, "rev-parse", "HEAD")).toBe(moved);
     // A post moved the last draft away, so a new round cannot post it again.
     expect(await Bun.file(request.draft).exists()).toBe(false);
     expect(await current.run(["review", "post", url])).toMatchObject({
       code: 3,
       output: { reason: "review_draft_missing" },
     });
-    await current.draft(request.draft, moved, { blockers: [blocker] });
+    await current.draft(request.draft, current.head, { blockers: [blocker] });
     expect(await current.run(["review", "post", url])).toMatchObject({
       code: 0,
       output: { data: { state: "watching", event: "COMMENT", review: { round: 3 } } },
@@ -137,11 +134,11 @@ for (const host of ["opencode", "claude-code"] as const)
     expect(await wait(current)).toMatchObject({
       data: { events: [{ kind: "round_started", trigger: "resolved" }] },
     });
-    await current.draft(request.draft, moved, { blockers: [blocker] });
+    await current.draft(request.draft, current.head, { blockers: [blocker] });
     expect((await current.run(["review", "post", url])).code).toBe(0);
 
     // New commits by a fast-forward move the worktree and name only the new commits.
-    const forward = await current.push(moved, "next.ts");
+    const forward = await current.push(current.head, "next.ts");
     expect(await wait(current)).toMatchObject({
       data: {
         events: [
@@ -154,7 +151,7 @@ for (const host of ["opencode", "claude-code"] as const)
       },
     });
     expect(await current.git(launch.worktreePath, "rev-parse", "HEAD")).toBe(forward);
-    expect((await current.prompts()).at(-1)).toContain(`git log ${moved}..${forward}`);
+    expect((await current.prompts()).at(-1)).toContain(`git log ${current.head}..${forward}`);
 
     // A renewed manual request of a watching request is a round too.
     await current.draft(request.draft, forward, { blockers: [blocker] });
