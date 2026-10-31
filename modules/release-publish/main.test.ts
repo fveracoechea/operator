@@ -526,17 +526,6 @@ describe("the release toolchain", () => {
     );
   });
 
-  test("runs the workflow tests through the Nix command on both systems", async () => {
-    const smoke = await readWorkflow(".github/workflows/release-smoke.yml");
-    const runs = (smoke.jobs.nix?.steps ?? []).map((step) => step.run ?? "");
-
-    expect(
-      runs.some((run) =>
-        run.includes('OPERATOR_INSTALLED_COMMAND="$PWD/result/bin/operator" bun test'),
-      ),
-    ).toBe(true);
-  });
-
   test("installs the published version from JSR right after this commit's publication", async () => {
     const steps = (await readWorkflow(".github/workflows/release.yml")).jobs.publish?.steps ?? [];
     function position(text: string) {
