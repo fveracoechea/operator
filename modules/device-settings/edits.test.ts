@@ -179,6 +179,28 @@ test("the optional assignment reviewer is a boolean that is off until it is set"
   expect(settingsSchema.safeParse({ review: { assignments: "true" } }).success).toBe(false);
 });
 
+test("internal review is a boolean that stays unset until the person turns it off or on", () => {
+  for (const value of ["no", "0", "FALSE", ""])
+    expect(parseEdits([`review.internal=${value}`], []).issues).toEqual([
+      `Unsupported settings field: review.internal=${value}.`,
+    ]);
+  const off = editConfig(
+    settingsSchema.parse({ review: { assignments: true } }),
+    parseEdits(["review.internal=false"], []).edits ?? [],
+  );
+  expect(off.success && off.data.review).toEqual({ assignments: true, internal: false });
+  const on = editConfig(off.success ? off.data : settingsSchema.parse({}), [
+    { path: "review.internal", value: "true" },
+  ]);
+  expect(on.success && on.data.review).toEqual({ assignments: true, internal: true });
+  const unset = editConfig(
+    off.success ? off.data : settingsSchema.parse({}),
+    parseEdits([], ["review.internal"]).edits ?? [],
+  );
+  expect(unset.success && unset.data.review).toEqual({ assignments: true });
+  expect(settingsSchema.safeParse({ review: { internal: "false" } }).success).toBe(false);
+});
+
 test("edits the Slack author policy as a channel id, lowercase repositories, and GitHub logins", () => {
   const edits = parseEdits(
     [

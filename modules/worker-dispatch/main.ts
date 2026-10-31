@@ -1,11 +1,13 @@
 import { realPathOrNull } from "../../lib/real-path.ts";
 import { DoAsync, Err, Ok, OkAsync, fromPromise, fromSafePromise, type AsyncOkOf } from "unthrown";
+import { DeviceSettings } from "../device-settings/main.ts";
 import { DeviceState } from "../device-state/main.ts";
 import { Herdr } from "../herdr/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
 import { WorkSources } from "../work-sources/main.ts";
 import { renderBrief } from "./brief.ts";
+import { internalReview } from "./internal-review.ts";
 import { launchReviewer, moveReviewer, type ReviewerLaunch } from "./reviewer.ts";
 import { cleanWorktree } from "./worktree-cleanup.ts";
 import { ensureWorkspace, launchSettings, preparedAgain } from "./launch-checks.ts";
@@ -72,6 +74,16 @@ function assignmentFacts(input: Request) {
               dependencyReports: WorkSources.dependencyReports(source, planned.key),
             });
       })
+      // Each launch resolves internal review again, so a replacement follows current settings.
+      .bind("internalReview", ({ source, planned }) =>
+        DeviceSettings.show(input.paths).map(({ data }) =>
+          internalReview({
+            assignment: planned.completion === "pr" ? planned.internalReview : undefined,
+            plan: source.plan.internalReview,
+            device: data.config.review?.internal,
+          }),
+        ),
+      )
       .let(
         "pullRequest",
         ({ source }) =>
@@ -214,6 +226,7 @@ function writeBrief(
         pullRequest: settings.pullRequest,
         dependencyReports: settings.planned.dependencyReports,
         stack: settings.stack,
+        internalReview: settings.internalReview,
       });
       await Bun.write(files.brief, text);
       return files.brief;

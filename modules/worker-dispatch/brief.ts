@@ -17,6 +17,8 @@ type BriefInput = {
   dependencyReports: ReturnType<typeof WorkSources.dependencyReports>;
   /** The open parent PR that this PR stacks on, when it has one. */
   stack: { assignment: string; number: number; branch: string } | null;
+  /** The launch's resolved internal review value. Only a PR assignment uses it. ADR-0020. */
+  internalReview: boolean;
 };
 
 function list(files: string[], directory: string) {
@@ -63,6 +65,21 @@ function feedbackLoop(input: BriefInput) {
     input.stack === null
       ? "Target the default branch."
       : `Your branch starts on \`${input.stack.branch}\`, the branch of PR #${input.stack.number} of assignment \`${input.stack.assignment}\`. Target that branch as the PR base.`;
+  // With internal review on, the implementer's work ends at associate, and a reviewer owns the PR.
+  if (input.pullRequest === null && input.internalReview)
+    return `
+## PR feedback loop
+
+${[
+  "Internal review is on for this assignment.",
+  "Open one draft PR from your branch with your own tools. Use closing keywords for tracker issues.",
+  base,
+  "Push with `git push -u`, so Git records the remote of your branch.",
+  "Then run `operator pr associate --json` in your worktree.",
+  "Do not mark the PR ready for review. A fresh reviewer takes over the PR and owns it until its merge.",
+  "Tell your supervising SuperAgent that the draft PR is ready for internal review, then stop.",
+].join("\n")}
+`;
   const opened =
     input.pullRequest === null
       ? [
@@ -73,6 +90,13 @@ function feedbackLoop(input: BriefInput) {
         ]
       : [
           `PR #${input.pullRequest.number} is already open for this assignment: ${input.pullRequest.url}.`,
+          ...(input.internalReview
+            ? [
+                "Internal review is on for this assignment.",
+                "If the PR is a draft, you are its internal reviewer. Read the `internal-review.md` topic of the `worker-agent` skill before you start.",
+                "Do not use the PR body or earlier owner messages as evidence.",
+              ]
+            : []),
           "Read its reviews, comments, unresolved threads, and checks before you wait.",
           "Inspect the worktree first. Keep work that is not landed.",
         ];
