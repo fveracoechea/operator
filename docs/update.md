@@ -95,6 +95,8 @@ Give `install` the flag of each host that your settings select, as `operator con
    On JSR and source installs, it writes each owned skill that is missing or unchanged since the last install.
    It returns `skills_installed`, or `skills_already_installed` when the contents already match.
    On Nix, it only checks your links and returns `skills_checked`.
+   Then, on every install method, it installs the upstream skills globally and reports them in `data.upstream`.
+   The upstream installer can replace your edits to those skills.
 3. Run `operator herdr install --json`.
    It returns `herdr_plugin_updated` when the release changed the plugin manifest, and `herdr_plugin_unchanged` otherwise.
    A dispatch or a reviewer start refuses with `herdr_plugin_outdated` until you run this command.
@@ -112,8 +114,7 @@ operator ready --json
 The step is done when the result has `"reason": "ready"` and an empty `blockers` list.
 
 `ready` checks that the owned skills match the new release.
-It checks only that the required Matt Pocock skills exist, not their revision.
-Run `operator install matt` with the same host flags only when `ready` reports `upstream_skills_missing`.
+It checks only that the required upstream skills exist, not their revision.
 
 A running host session keeps the skills that it loaded at its start.
 Start a new SuperAgent session after the update.
@@ -136,7 +137,8 @@ Read the `detail` first, because it names the path or the command to fix.
 | `launcher_conflict` | Another file is at the launcher path. | Give the path to the person. Operator does not replace it. |
 | `skill_copy_conflict` | A skill copy has local edits, or a Nix link points to other contents. | JSR and source: keep the edits elsewhere, then remove the copy and install again. Nix: fix the link and rebuild. |
 | `skills_missing` | A skill of the new release has no link or copy. | JSR and source: run `install` without `--check`. Nix: add the link and rebuild. |
-| `upstream_skills_missing` | A required Matt Pocock skill is missing. | Run `operator install matt` with the host flags. |
+| `upstream_skills_missing` | A required upstream skill is missing. | Run `operator install` with the host flags. |
+| `upstream_resolution_failed`, `upstream_installer_unavailable`, `upstream_install_failed`, `upstream_install_unconfirmed` | The upstream install failed after the owned skills were done. | Fix the cause in `detail`, then run `operator install` again. |
 | `herdr_plugin_conflict` | Herdr links another directory under the Operator plugin id. | Give the linked directory to the person. Operator does not replace it. |
 | `herdr_plugin_outdated`, `herdr_plugin_missing` | A dispatch found a plugin manifest from another release, or none. | Run `operator herdr install`. |
 
