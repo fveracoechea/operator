@@ -302,6 +302,7 @@ export function cleanupReviewer(paths: Paths, target: Target, snapshot: Snapshot
   }, qualify).flatMap((outcome) =>
     // Only the process that still holds the request records the outcome.
     DeviceState.changeReviewRequest(paths, { ...target, id: request.id }, (current) =>
+      // Stryker disable next-line OptionalChaining: equivalent: the change reads the request by its id, so it always exists
       current.request?.ownerPid === process.pid
         ? Ok({
             update: {

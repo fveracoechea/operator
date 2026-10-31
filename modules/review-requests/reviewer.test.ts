@@ -9,7 +9,14 @@ import { WorkerDispatch } from "../worker-dispatch/main.ts";
 import { renderReviewerBrief } from "./brief.ts";
 import { h1, h2, readRequest, reviewHome, seedRequest, target, url } from "./home-fixture.ts";
 import { files, type Round, type Row, type Snapshot } from "./request.ts";
-import { claimCleanup, cleanupReviewer, failureOf, launch, syncReviewer } from "./reviewer.ts";
+import {
+  claimCleanup,
+  cleanupResult,
+  cleanupReviewer,
+  failureOf,
+  launch,
+  syncReviewer,
+} from "./reviewer.ts";
 
 type Home = Awaited<ReturnType<typeof reviewHome>>;
 let home: Home;
@@ -681,6 +688,20 @@ test("a cleanup whose request another process took records nothing", async () =>
     launchState: "running",
     worktreePath: "/w",
     branch: "review/b",
+  });
+});
+
+test("a cleanup result is its outcome, or a failure with the cause of a stopped cleanup", async () => {
+  socket("/s");
+  spyOn(Herdr, "agentNames").mockReturnValue(OkAsync(["someone"]));
+  expect<unknown>(cleanupResult(await cleaned(closed()))).toEqual({
+    state: "done",
+    detail: "Pane p1 no longer holds reviewer.",
+  });
+  expect<unknown>(cleanupResult(await cleaned({ ...closed(), project: null }))).toEqual({
+    state: "failed",
+    reason: "review_defect",
+    detail: "The cleanup lost its request.",
   });
 });
 

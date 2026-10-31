@@ -406,8 +406,13 @@ test("a cleanup of an open request holds it against a start and an end", () => {
     });
   // A live cleanup holds the pane and the worktree, so the request cannot end under it.
   for (const command of ["close", "skip"] as const) {
-    expect(decideReview(facts(command, cleaning, { ownerActive: true }))).toMatchObject({
-      error: { reason: "review_cleanup_in_progress" },
+    expect<unknown>(decideReview(facts(command, cleaning, { ownerActive: true }))).toEqual({
+      tag: "Err",
+      error: {
+        reason: "review_cleanup_in_progress",
+        detail:
+          "Another process cleans up this reviewer now. End the request after it finishes. Nothing changed.",
+      },
     });
     // A cleanup whose process stopped is repeated by the end's own cleanup.
     expect(decideReview(facts(command, cleaning))).toMatchObject({

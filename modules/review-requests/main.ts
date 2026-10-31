@@ -181,7 +181,11 @@ function skip(input: { paths: Paths; url: string }) {
 function cleanupTarget(paths: Paths, target: Target) {
   return DeviceState.readReviewRequest(paths, target).flatMap((snapshot) => {
     const request = snapshot.request;
-    if (request?.state === "approved" || ["kept", "pending"].includes(request?.cleanupState ?? ""))
+    if (
+      request?.state === "approved" ||
+      request?.cleanupState === "kept" ||
+      request?.cleanupState === "pending"
+    )
       // Stryker disable next-line OptionalChaining, StringLiteral: equivalent: both conditions above hold only for a recorded request
       return claimCleanup(paths, target, request?.id ?? "");
     if (request !== null)

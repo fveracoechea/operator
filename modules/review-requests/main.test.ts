@@ -410,6 +410,12 @@ test("a cleanup removes kept work of a renewed request, and leaves a failed one 
     tag: "Ok",
     value: { reason: "reviewer_cleaned", data: { state: "reviewing", cleanup: { state: "done" } } },
   });
+  // A cleanup of kept work whose process stopped is repeated.
+  change({ cleanupState: "pending" });
+  expect(await ReviewRequests.cleanup(input())).toMatchObject({
+    tag: "Ok",
+    value: { reason: "reviewer_cleaned", data: { state: "reviewing" } },
+  });
   // A failed cleanup can leave its reviewer running, and the renewed round goes to it.
   change({ cleanupState: "failed" });
   expect(await ReviewRequests.cleanup(input())).toMatchObject({
