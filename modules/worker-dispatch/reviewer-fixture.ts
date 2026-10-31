@@ -129,6 +129,8 @@ export function reviewerDoubles(project: Awaited<ReturnType<typeof reviewerProje
     workspaces: spyOn(Herdr, "workspaces").mockReturnValue(
       OkAsync([{ workspaceId: "w1", label: "one", checkout, linked: false }]),
     ),
+    panes: spyOn(Herdr, "panes").mockReturnValue(OkAsync([])),
+    renameTab: spyOn(Herdr, "renameTab").mockReturnValue(OkAsync(undefined)),
     agentNames: spyOn(Herdr, "agentNames").mockReturnValue(OkAsync([])),
     tabLabels: spyOn(Herdr, "tabLabels").mockReturnValue(OkAsync([])),
     createWorkspace: spyOn(Herdr, "createWorkspace").mockReturnValue(

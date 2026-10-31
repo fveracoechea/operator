@@ -3,7 +3,7 @@ import { realPathOrNull } from "../../lib/real-path.ts";
 // Bun has no directory listing or path API.
 import { readdir } from "node:fs/promises";
 import path from "node:path";
-import { Err, Ok, fromPromise, fromSafePromise } from "unthrown";
+import { Err, Ok, OkAsync, fromPromise, fromSafePromise } from "unthrown";
 import { DeviceState } from "../device-state/main.ts";
 import { Herdr } from "../herdr/main.ts";
 import type { OperatorHome } from "../operator-home/main.ts";
@@ -118,21 +118,55 @@ export function parentBase(checkout: string, branch: string) {
   ).flatMap((result) => result);
 }
 
-/** The project workspace is the unlinked Herdr workspace whose checkout is the controller. */
+/**
+ * The project workspace is the first unlinked Herdr workspace whose checkout is the controlling
+ * checkout. Herdr gives no checkout for some workspaces, such as one that the person opened at
+ * the checkout. Such a workspace is the project workspace when each of its panes is in the
+ * controlling checkout or in a folder below it.
+ */
 export function projectWorkspace(checkout: string) {
-  return Herdr.workspaces().flatMap((workspaces) =>
-    fromSafePromise(async () => {
-      let workspaceId: string | null = null;
+  return Herdr.workspaces().flatMap((workspaces) => {
+    const labels = workspaces.map((workspace) => workspace.label);
+    const unknown = workspaces.filter((workspace) => workspace.checkout === null);
+    return fromSafePromise(async () => {
       for (const workspace of workspaces)
         if (
-          workspaceId === null &&
           !workspace.linked &&
           // Stryker disable next-line ConditionalExpression: equivalent: the real path of a missing checkout is null, which never equals the controller
           workspace.checkout !== null &&
           (await realPathOrNull(workspace.checkout)) === checkout
         )
-          workspaceId = workspace.workspaceId;
-      return { workspaceId, labels: workspaces.map((workspace) => workspace.label) };
+          return workspace.workspaceId;
+      return null;
+    })
+      .flatMap((workspaceId) =>
+        workspaceId !== null || unknown.length === 0
+          ? OkAsync(workspaceId)
+          : workspaceByPanes(checkout, unknown),
+      )
+      .map((workspaceId) => ({ workspaceId, labels }));
+  });
+}
+
+function workspaceByPanes(checkout: string, workspaces: { workspaceId: string }[]) {
+  return Herdr.panes().flatMap((panes) =>
+    fromSafePromise(async () => {
+      for (const workspace of workspaces) {
+        const own = panes.filter((pane) => pane.workspaceId === workspace.workspaceId);
+        const places = await Promise.all(
+          // Stryker disable next-line ConditionalExpression: equivalent: the real path of a null folder is null, which never equals the controller
+          own.map(async (pane) => (pane.cwd === null ? null : realPathOrNull(pane.cwd))),
+        );
+        if (
+          places.length > 0 &&
+          places.every(
+            (place) =>
+              place !== null && (place === checkout || place.startsWith(`${checkout}${path.sep}`)),
+          )
+        )
+          return workspace.workspaceId;
+      }
+      return null;
     }),
   );
 }

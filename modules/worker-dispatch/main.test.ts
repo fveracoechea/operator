@@ -73,6 +73,7 @@ test("read-only work gets a tab in the project workspace, a brief, and a running
   expect(herdr.tabLabels).toHaveBeenCalledWith("w1");
   expect(herdr.createTab).toHaveBeenCalledWith({ workspaceId: "w1", cwd: checkout, label: name });
   expect(herdr.createWorktree).not.toHaveBeenCalled();
+  expect(herdr.renameTab).not.toHaveBeenCalled();
   expect(herdr.startAgent).toHaveBeenCalledWith({
     name,
     kind: "claude",
@@ -146,6 +147,7 @@ test("worktree work gets a new prepared worktree on its branch and an OpenCode a
     label: name,
     base: undefined,
   });
+  expect(device.herdr.renameTab).toHaveBeenCalledWith({ tabId: "t2", label: name });
   expect(device.herdr.createTab).not.toHaveBeenCalled();
   expect(device.herdr.startAgent).toHaveBeenCalledWith({
     name,

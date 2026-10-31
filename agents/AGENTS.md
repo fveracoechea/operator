@@ -6,6 +6,7 @@
   - wait for a server, a test run, or another agent to finish
   - run a long-lived process, such as a localhost dev server, in a new pane
   - give each parallel task or sub-agent its own Herdr worktree
+  - name your tab for your work with `herdr tab rename "$HERDR_TAB_ID" <label>`. Use 3 words, 4 at most. Only the agent that owns the pane renames it, not a sub-agent.
 - Talk in ASD-STE100 Simplified Technical English.
 - Start a bug fix by reproducing it end to end, the way a user hits it. Change code only after the reproduction is red.
 - Treat lint errors, failing tests, and flaky tests as blockers. Fix them before you report the task done.

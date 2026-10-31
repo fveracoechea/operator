@@ -237,48 +237,63 @@ function launchEffects(input: {
   function record(change: Parameters<typeof DeviceState.updateLaunch>[2]) {
     return DeviceState.updateLaunch(request.paths, input.id, change);
   }
-  return DoAsync()
-    .bind("workspaceId", () =>
-      ensureWorkspace(checkout, repository, resources.workspace.workspaceId),
-    )
-    .flatTap(({ workspaceId }) => record({ workspaceId }))
-    .bind("placement", ({ workspaceId }) =>
-      place({ workspaceId, checkout, name, branch, reuse: resources.reuse, base: resources.base }),
-    )
-    .flatTap(({ placement }) =>
-      record({
-        tabId: placement.tabId,
+  return (
+    DoAsync()
+      .bind("workspaceId", () =>
+        ensureWorkspace(checkout, repository, resources.workspace.workspaceId),
+      )
+      .flatTap(({ workspaceId }) => record({ workspaceId }))
+      .bind("placement", ({ workspaceId }) =>
+        place({
+          workspaceId,
+          checkout,
+          name,
+          branch,
+          reuse: resources.reuse,
+          base: resources.base,
+        }),
+      )
+      .flatTap(({ placement }) =>
+        record({
+          tabId: placement.tabId,
+          paneId: placement.paneId,
+          worktreePath: placement.worktreePath,
+          worktreeWorkspaceId: placement.worktreeWorkspaceId,
+        }),
+      )
+      // A new tab has its label already. The root tab of a worktree workspace has only a number.
+      .flatTap(({ placement }) =>
+        placement.worktreePath === null
+          ? OkAsync(undefined)
+          : Herdr.renameTab({ tabId: placement.tabId, label: name }),
+      )
+      .bind("preparation", ({ placement }) => {
+        if (placement.worktreePath === null) return OkAsync(null);
+        // A new worktree gets its preparation from the Herdr hook. A reopened one gets no event.
+        return resources.reuse === null
+          ? waitForPreparation(request.paths, placement.worktreePath, input.startedAt)
+          : preparedAgain(request.paths, placement.worktreePath);
+      })
+      .bind("brief", ({ placement }) => writeBrief(request, settings, placement, branch))
+      .flatTap(({ placement }) =>
+        Herdr.startAgent({
+          name,
+          kind: settings.launch.host === "claude-code" ? "claude" : "opencode",
+          paneId: placement.paneId,
+          args: settings.launch.command.args,
+        }),
+      )
+      .flatTap(({ brief }) => Herdr.prompt({ name, text: `Read ${brief} and follow it.` }))
+      .flatTap(() => record({ state: "running" }))
+      .map(({ workspaceId, placement, preparation, brief }) => ({
+        brief,
+        workspaceId,
         paneId: placement.paneId,
         worktreePath: placement.worktreePath,
-        worktreeWorkspaceId: placement.worktreeWorkspaceId,
-      }),
-    )
-    .bind("preparation", ({ placement }) => {
-      if (placement.worktreePath === null) return OkAsync(null);
-      // A new worktree gets its preparation from the Herdr hook. A reopened one gets no event.
-      return resources.reuse === null
-        ? waitForPreparation(request.paths, placement.worktreePath, input.startedAt)
-        : preparedAgain(request.paths, placement.worktreePath);
-    })
-    .bind("brief", ({ placement }) => writeBrief(request, settings, placement, branch))
-    .flatTap(({ placement }) =>
-      Herdr.startAgent({
-        name,
-        kind: settings.launch.host === "claude-code" ? "claude" : "opencode",
-        paneId: placement.paneId,
-        args: settings.launch.command.args,
-      }),
-    )
-    .flatTap(({ brief }) => Herdr.prompt({ name, text: `Read ${brief} and follow it.` }))
-    .flatTap(() => record({ state: "running" }))
-    .map(({ workspaceId, placement, preparation, brief }) => ({
-      brief,
-      workspaceId,
-      paneId: placement.paneId,
-      worktreePath: placement.worktreePath,
-      branch,
-      preparation,
-    }));
+        branch,
+        preparation,
+      }))
+  );
 }
 
 function reserve(request: Request, settings: Settings, resources: Resources, startedAt: string) {
