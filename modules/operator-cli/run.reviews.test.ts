@@ -103,6 +103,11 @@ async function draft(file: string, change: Record<string, unknown> = {}) {
   );
 }
 
+/** Waits until another process makes the condition true. The test timeout bounds the wait. */
+async function until(condition: () => Promise<boolean>) {
+  while (!(await condition())) await Bun.sleep(20);
+}
+
 async function next() {
   const read = await run(["review", "next"]);
   return z.object({ data: z.object({ requests: z.array(z.looseObject({})) }) }).parse(read.output)
@@ -369,18 +374,20 @@ test("two simultaneous posts reach GitHub once, and a lost answer is found, not 
   await setup();
   const request = await add();
   await draft(request.draft);
-  await github({ postDelayMs: 1500 });
-  const [first, second] = await Promise.all([
-    run(["review", "post", url]),
-    Bun.sleep(400).then(() => run(["review", "post", url])),
+  // GitHub holds the first post's answer, so the second post starts while the first holds the lease.
+  await github({ postHold: true });
+  const first = run(["review", "post", url]);
+  const held = await Promise.race([
+    until(() => Bun.file(`${root}/post-held`).exists()).then(() => true),
+    first.then(() => false),
   ]);
-  // Either process can take the lease first. Exactly one posts.
-  const results = [first, second].map((result) => ({
-    code: result.code,
-    reason: result.output.reason,
-  }));
-  expect(results).toContainEqual({ code: 0, reason: "review_posted" });
-  expect(results).toContainEqual({ code: 4, reason: "review_post_in_progress" });
+  expect(held).toBe(true);
+  expect(await run(["review", "post", url])).toMatchObject({
+    code: 4,
+    output: { reason: "review_post_in_progress" },
+  });
+  await Bun.write(`${root}/post-release`, "");
+  expect(await first).toMatchObject({ code: 0, output: { reason: "review_posted" } });
   expect(await posted()).toHaveLength(1);
 
   await setup();
