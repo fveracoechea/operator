@@ -8,7 +8,7 @@ import { z } from "zod";
 import { Environment } from "../environment/main.ts";
 import { fakeGithubScript } from "./github-fixture.ts";
 import { fakeHerdrScript } from "./herdr-fixture.ts";
-import { fixtureCommand } from "./command-fixture.ts";
+import { fixtureCommand, writeClaudeHookSettings } from "./command-fixture.ts";
 
 const command = fixtureCommand();
 const gitEnv = {
@@ -209,6 +209,7 @@ export async function reviewDevice(host: "opencode" | "claude-code" = "opencode"
   await Bun.write(`${root}/upstream/code-review/SKILL.md`, "upstream\n", { createPath: true });
   await mkdir(upstream, { recursive: true });
   await symlink(`${root}/upstream/code-review`, `${upstream}/code-review`);
+  await writeClaudeHookSettings(`${root}/home`);
   expect((await run(["project", "register"], checkout)).code).toBe(0);
   expect((await run(["herdr", "install"], checkout)).code).toBe(0);
   // Fetches from the GitHub remote reach the local bare repository after registration.

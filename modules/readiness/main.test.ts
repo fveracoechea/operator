@@ -4,6 +4,7 @@ import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { ErrAsync, fromPromise, Ok, OkAsync } from "unthrown";
+import { ClaudeHook } from "../claude-hook/main.ts";
 import { DeviceSettings } from "../device-settings/main.ts";
 import { Environment } from "../environment/main.ts";
 import { GlobalLauncher } from "../global-launcher/main.ts";
@@ -118,6 +119,7 @@ describe("static blockers", () => {
     const upstream = stub(UpstreamSkills, "check").mockReturnValue(
       OkAsync(["/one/SKILL.md", "/two/SKILL.md"]),
     );
+    const hook = stub(ClaudeHook, "install");
     expect(await Readiness.check(device)).toEqual(
       Ok({
         blockers: [
@@ -141,6 +143,7 @@ describe("static blockers", () => {
     expect(tools).not.toHaveBeenCalled();
     expect(owned).toHaveBeenCalledWith({ paths: device, hosts: ["opencode"], check: true });
     expect(upstream).toHaveBeenCalledWith(device, "opencode");
+    expect(hook).not.toHaveBeenCalled();
   });
 
   test("checks authentication when gh exists and names the Claude Code host", async () => {
@@ -154,6 +157,9 @@ describe("static blockers", () => {
     stub(UpstreamSkills, "check").mockReturnValue(
       ErrAsync({ reason: "upstream_io_failed" as const, detail: "denied" }),
     );
+    const hook = stub(ClaudeHook, "install").mockReturnValue(
+      ErrAsync({ reason: "claude_hook_missing" as const, detail: "Add the hook." }),
+    );
     tools.mockResolvedValueOnce({ status: "completed", exitCode: 1, stdout: "", stderr: "" });
     expect(await Readiness.check(device)).toEqual(
       Ok({
@@ -166,9 +172,11 @@ describe("static blockers", () => {
               "Unreadable. Run operator install --claude, or update consumer-owned Nix links.",
           },
           { reason: "upstream_io_failed", detail: "denied" },
+          { reason: "claude_hook_missing", detail: "Add the hook." },
         ],
       }),
     );
+    expect(hook).toHaveBeenCalledWith({ paths: device, check: true });
     expect(tools).toHaveBeenCalledWith({
       tool: "gh",
       args: ["auth", "status", "--hostname", "github.com"],
@@ -180,6 +188,7 @@ describe("static blockers", () => {
     );
     stub(UpstreamSkills, "check").mockReturnValue(OkAsync([]));
     stub(GlobalLauncher, "check").mockReturnValue(OkAsync([]));
+    hook.mockReturnValue(OkAsync("already_installed" as const));
     expect(await Readiness.check(device)).toEqual(
       Ok({
         blockers: [{ reason: "github_auth_failed", detail: "Run gh auth login for github.com." }],
@@ -221,6 +230,14 @@ describe("static blockers", () => {
     );
     upstream.mockReturnValue(defect());
     await expectInjectedDefect(device);
+    const claude = await scenario({ host: "claude-code", tools: ["gh", "herdr", "claude"] });
+    stub(GlobalLauncher, "check").mockReturnValue(OkAsync([]));
+    stub(OwnedSkills, "install").mockReturnValue(
+      OkAsync({ reason: "skills_checked" as const, data: { hosts: [], checkOnly: true } }),
+    );
+    stub(UpstreamSkills, "check").mockReturnValue(OkAsync([]));
+    stub(ClaudeHook, "install").mockReturnValue(defect());
+    await expectInjectedDefect(claude);
   });
 
   test("a throw from a checked interface is a defect with its cause", async () => {
@@ -245,6 +262,7 @@ describe("static blockers", () => {
       OkAsync({ reason: "skills_checked" as const, data: { hosts: [], checkOnly: true } }),
     );
     stub(UpstreamSkills, "check").mockReturnValue(OkAsync(["/claude/SKILL.md"]));
+    stub(ClaudeHook, "install").mockReturnValue(OkAsync("installed" as const));
     // An unfinished answer is refused even when it carries an exit code.
     const unfinished = { status: "no-answer" as const, detail: "interrupted", exitCode: 0 };
     tools.mockResolvedValueOnce(unfinished);

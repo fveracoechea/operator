@@ -2,6 +2,7 @@ import { afterEach, expect, mock, spyOn, test } from "bun:test";
 // Bun has no platform temporary-root API.
 import { tmpdir } from "node:os";
 import { ErrAsync, fromSafePromise, OkAsync } from "unthrown";
+import { ClaudeHook } from "../claude-hook/main.ts";
 import { Environment } from "../environment/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { OwnedSkills } from "../owned-skills/main.ts";
@@ -32,6 +33,7 @@ function spies() {
     upstream: spyOn(UpstreamSkills, "install").mockReturnValue(
       OkAsync({ reason: "upstream_installed", data: { upstream: true } }) as never,
     ),
+    hook: spyOn(ClaudeHook, "install").mockReturnValue(OkAsync("installed" as const)),
   };
 }
 
@@ -115,6 +117,35 @@ test("an upstream refusal after the owned install is the command result", async 
   expect(process.exitCode).toBe(5);
 });
 
+test("the Claude Code hook follows the check mode that the owned skills report", async () => {
+  const called = spies();
+  quiet();
+  for (const checkOnly of [true, false]) {
+    called.owned.mockReturnValue(
+      OkAsync({ reason: "skills_checked", data: { hosts: [], checkOnly } }) as never,
+    );
+    await runSkills(["install", "--claude"], paths, true);
+    expect(called.hook).toHaveBeenLastCalledWith({ paths, check: checkOnly });
+  }
+  called.hook.mockClear();
+  await runSkills(["install", "--opencode"], paths, true);
+  expect(called.hook).not.toHaveBeenCalled();
+});
+
+test.each([
+  ["claude_hook_missing", 3],
+  ["claude_settings_external", 4],
+  ["claude_settings_invalid", 4],
+] as const)("a hook refusal %s exits %d after the skill installs", async (reason, code) => {
+  const called = spies();
+  called.hook.mockReturnValue(ErrAsync({ reason, detail: "add the entry" }));
+  const { log } = quiet();
+  await runSkills(["install", "--claude"], paths, true);
+  expect(called.upstream).toHaveBeenCalled();
+  expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({ reason });
+  expect(process.exitCode).toBe(code);
+});
+
 test("prints a completed install as compact JSON or as indented text", async () => {
   spies();
   const { log, error } = quiet();
@@ -124,7 +155,7 @@ test("prints a completed install as compact JSON or as indented text", async () 
     outcome: "completed",
     reason: "skills_installed",
     blockers: [],
-    data: { owned: true, upstream: { upstream: true } },
+    data: { owned: true, upstream: { upstream: true }, claudeHook: "installed" },
   };
   process.exitCode = 7;
   expect(await runSkills(["install", "--claude"], paths, true)).toBe(true);

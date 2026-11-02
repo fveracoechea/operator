@@ -66,11 +66,16 @@ Its checkout has no legacy project-local Operator folder.
 
 **Ready**:
 The result of the current static readiness checks, not proof that an agent or provider will work.
-Required tools, GitHub authentication, and required skill contents must pass those checks.
+Required tools, GitHub authentication, required skill contents, and the commit hook on Claude Code must pass those checks.
 
 **Static readiness check**:
-A current observation of required executable availability, GitHub authentication, or required skill files.
+A current observation of required executable availability, GitHub authentication, required skill files, or the commit hook entry in Claude Code settings.
 It launches no agent and retains no live-probe evidence.
+
+**Commit hook**:
+Operator's Claude Code hook, `operator claude hook`, which denies a `git commit` whose message carries a Co-Authored-By trailer.
+It never allows a tool. `operator install --claude` adds it to the person's Claude Code user settings.
+_Avoid_: permission rule, attribution setting
 
 **Operator release**:
 One matched version of the CLI, its owned skills, and its shipped database migrations.

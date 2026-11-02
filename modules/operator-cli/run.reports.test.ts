@@ -80,6 +80,13 @@ async function permissionFiles() {
     dot: true,
   }))
     if (!file.includes("node_modules")) found.push(file);
+  // The fixture's Claude Code settings hold only the commit hook. A permission rule would show here.
+  const claude = found.indexOf("home/.claude/settings.json");
+  if (
+    claude !== -1 &&
+    !(await Bun.file(`${device.root}/home/.claude/settings.json`).text()).includes("permissions")
+  )
+    found.splice(claude, 1);
   return found;
 }
 

@@ -1,6 +1,5 @@
 // Bun has no atomic rename API.
 import { open, rename, unlink } from "node:fs/promises";
-import { info } from "./content.ts";
 
 /** Replaces the file in one rename, so a reader never sees a partial file. */
 export async function writeFile(file: string, bytes: Uint8Array, mode = 0o600) {
@@ -12,6 +11,6 @@ export async function writeFile(file: string, bytes: Uint8Array, mode = 0o600) {
     await rename(temporary, file);
   } finally {
     await handle.close();
-    if ((await info(temporary)) !== null) await unlink(temporary);
+    if (await Bun.file(temporary).exists()) await unlink(temporary);
   }
 }

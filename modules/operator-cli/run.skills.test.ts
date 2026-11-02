@@ -276,10 +276,15 @@ test("check mode follows complete skill links and leaves host folders and state 
   await cp(source, `${root}/package skills`, { recursive: true });
   await mkdir(`${root}/home/.claude`, { recursive: true });
   await symlink(`${root}/package skills`, `${root}/home/.claude/skills`);
+  const settings = { hooks: { PreToolUse: [{ hooks: [{ command: "operator claude hook" }] }] } };
+  await Bun.write(`${root}/home/.claude/settings.json`, JSON.stringify(settings));
   const link = await readlink(`${root}/home/.claude/skills`);
   expect(await run(["--claude", "--check"])).toMatchObject({
     code: 0,
-    output: { reason: "skills_checked", data: { checkOnly: true } },
+    output: {
+      reason: "skills_checked",
+      data: { checkOnly: true, claudeHook: "already_installed" },
+    },
   });
   expect(await readlink(`${root}/home/.claude/skills`)).toBe(link);
   expect(await Bun.file(`${root}/state/operator/owned-skills.json`).exists()).toBe(false);
@@ -292,7 +297,10 @@ test("check mode follows complete skill links and leaves host folders and state 
 });
 
 test("missing check-only contents create no host or state folders", async () => {
-  expect((await run(["--opencode", "--claude", "--check"])).code).toBe(3);
+  expect(await run(["--opencode", "--claude", "--check"])).toMatchObject({
+    code: 3,
+    output: { reason: "skills_missing" },
+  });
   expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root, dot: true }))).toEqual([
     "state/operator/operator.sqlite",
   ]);
