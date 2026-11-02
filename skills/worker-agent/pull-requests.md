@@ -23,8 +23,16 @@ As the internal reviewer, read [internal-review.md](internal-review.md).
 - `pr_events_observed` with `merge_eligible`: all five merge conditions held at that head. Run `operator pr merge --json`, unless your SuperAgent told you not to merge.
 - `pr_wait_timed_out`: nothing new arrived. Wait again unless your SuperAgent told you to stop. Your SuperAgent sees the timeout until your next wait starts.
 - `pr_events_observed` with `parent_relayed`: your parent PR merged. The CLI rebased your branch onto the default branch, pushed it, and changed the PR base. Pull nothing. Your worktree is at the new head. Wait again.
-- A `relay_*` refusal: the relay stopped and kept your branch. `relay_conflict` means that you rebase onto the default branch yourself, push, and wait again. `relay_worktree_unclean` and `relay_worktree_unsynced` mean that you commit and push first. `relay_worktree_branch` and `relay_rebase_in_progress` mean that you finish or abort your rebase and switch back to your branch first. `relay_parent_closed` and `relay_parent_base` need your SuperAgent. A failed fetch, push, or base change can be retried with the next wait.
+- A `relay_*` refusal: the relay stopped and kept your branch. `relay_conflict` means that you rebase onto the default branch yourself with Git, push, and wait again. `relay_worktree_unclean` and `relay_worktree_unsynced` mean that you commit and push first. `relay_worktree_branch` and `relay_rebase_in_progress` mean that you finish or abort your rebase and switch back to your branch first. `relay_parent_closed` and `relay_parent_base` need your SuperAgent. A failed fetch, push, or base change can be retried with the next wait.
 - `pr_not_open`: the PR was merged or closed outside the CLI. If it was merged, run `operator pr merge --json`. It verifies the merge and starts cleanup. If it was closed, stop and tell your SuperAgent. You cannot associate another PR.
+
+## Stacked PRs
+
+Operator owns a stack of PRs. The relay rebases, pushes, and changes the base after a parent merges, and `operator pr merge` merges.
+Use `gh stack view --json` only to read a stack. Run no other `gh stack` command, also when the `gh-stack` skill loads.
+
+- `gh stack sync` and `gh stack rebase` rewrite every branch in the stack and update the clean worktrees of other WorkerAgents.
+- `gh stack merge` merges every PR below its target at once, without the checks of `operator pr merge`.
 
 ## Internal review
 

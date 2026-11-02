@@ -59,6 +59,12 @@ Check whether each unresolved point applies to your task. Tell your supervising 
 ${reports.join("\n")}`;
 }
 
+/** The relay and the guarded merge own a stack, so a `gh stack` write would race them. ADR-0010. */
+const stackRule = [
+  "Use `gh stack view --json` only to read a stack.",
+  "Run no other `gh stack` command, because the relay and `operator pr merge` own the rebase, push, base change, and merge.",
+];
+
 function feedbackLoop(input: BriefInput) {
   if (input.completion !== "pr") return "";
   const base =
@@ -74,6 +80,7 @@ ${[
   "Internal review is on for this assignment.",
   "Open one draft PR from your branch with your own tools. Use closing keywords for tracker issues.",
   base,
+  ...(input.stack === null ? [] : stackRule),
   "Push with `git push -u`, so Git records the remote of your branch.",
   "Then run `operator pr associate --json` in your worktree.",
   "Do not mark the PR ready for review. A fresh reviewer takes over the PR and owns it until its merge.",
@@ -109,6 +116,7 @@ Check each claim in feedback, reply, and push fixes to the same PR.
 A \`pr_wait_timed_out\` result is visible to your SuperAgent until you wait again.
 When a stacked PR's parent merges, the wait rebases your branch onto the default branch, pushes it, and changes the PR base.
 It returns \`parent_relayed\`, or a \`relay_*\` blocker that you resolve before you wait again. Keep all work.
+${stackRule.join("\n")}
 After \`merge_eligible\`, run \`operator pr merge --json\`. It checks GitHub again, merges, and then closes this pane.
 PR commands select your assignment only through this worktree.
 `;
