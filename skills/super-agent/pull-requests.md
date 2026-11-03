@@ -7,6 +7,8 @@ Association moves the assignment to `pr-open`, which permits dependent assignmen
 A dependent PR assignment starts on the open parent PR's branch and targets that branch.
 After the parent merges, the child owner's wait relays the child onto the default branch. `next` shows the PR's `stack` with its parent and relay state.
 A PR assignment with several open parent PRs waits with `dependencies_pending` until all but one merge.
+The relay and the owner's `operator pr merge` own every rebase, push, base change, and merge of a stack.
+Use `gh stack view --json` only to read a stack. Run no other `gh stack` command, and ask no owner to run one.
 
 `next` shows each PR with its number, URL, and last wait state.
 

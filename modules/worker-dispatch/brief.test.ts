@@ -76,6 +76,23 @@ test("a stacked PR targets its parent's branch, and the brief names the relay", 
   expect(renderBrief(input)).toContain("Target the default branch.");
 });
 
+test("a PR brief allows only the read-only gh stack command, also for a stacked draft", () => {
+  const rule = `Use \`gh stack view --json\` only to read a stack.
+Run no other \`gh stack\` command, because the relay and \`operator pr merge\` own the rebase, push, base change, and merge.`;
+  const stack = { assignment: "parent", number: 6, branch: "task/1-parent" };
+  for (const brief of [
+    renderBrief(input),
+    renderBrief({
+      ...input,
+      pullRequest: { number: 7, url: "https://github.com/example/one/pull/7" },
+    }),
+    renderBrief({ ...input, stack, internalReview: true }),
+  ])
+    expect(brief.split(rule)).toHaveLength(2);
+  expect(renderBrief({ ...input, internalReview: true })).not.toContain("gh stack");
+  expect(renderBrief({ ...input, completion: "report" })).not.toContain("gh stack");
+});
+
 test("a report brief names the submission, resume, and authority rules", () => {
   const brief = renderBrief({
     ...input,
@@ -200,6 +217,8 @@ Check each claim in feedback, reply, and push fixes to the same PR.
 A \`pr_wait_timed_out\` result is visible to your SuperAgent until you wait again.
 When a stacked PR's parent merges, the wait rebases your branch onto the default branch, pushes it, and changes the PR base.
 It returns \`parent_relayed\`, or a \`relay_*\` blocker that you resolve before you wait again. Keep all work.
+Use \`gh stack view --json\` only to read a stack.
+Run no other \`gh stack\` command, because the relay and \`operator pr merge\` own the rebase, push, base change, and merge.
 After \`merge_eligible\`, run \`operator pr merge --json\`. It checks GitHub again, merges, and then closes this pane.
 PR commands select your assignment only through this worktree.
 
