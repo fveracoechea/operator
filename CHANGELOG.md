@@ -1,5 +1,12 @@
 # @fveracoechea/operator
 
+## 2.1.1
+
+### Patch Changes
+
+- 2abfc18: The `worker-agent` and `super-agent` skills and the PR brief now allow only `gh stack view --json` from the gh-stack extension.
+  The relay and `operator pr merge` own every rebase, push, base change, and merge of a stack, so another `gh stack` command would race them.
+
 ## 2.1.0
 
 ### Minor Changes
