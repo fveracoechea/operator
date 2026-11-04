@@ -40,6 +40,8 @@ const launchSchema = z.object({
   failureDetail: z.string().nullable(),
   activity: z.string().nullable(),
   activityAt: z.string().nullable(),
+  // The resolved internal review value of this start. Older releases recorded none.
+  internalReview: z.boolean().nullable(),
   abandoned: z.boolean(),
 });
 export type Launch = z.infer<typeof launchSchema>;
@@ -115,6 +117,83 @@ const cleanupSchema = z.object({
 });
 export type Cleanup = z.infer<typeof cleanupSchema>;
 
+// The internal review and its handoff. ADR-0020.
+const internalReviewSchema = z.object({
+  assignment: z.string(),
+  state: z.enum(["reviewing", "ready", "skipped"]),
+  implementerLaunchId: z.string(),
+  handoffState: z.enum(["pending", "failed", "done"]),
+  handoffDetail: z.string().nullable(),
+  handoffRunning: z.boolean(),
+  startedAt: z.string(),
+  updatedAt: z.string(),
+});
+export type InternalReview = z.infer<typeof internalReviewSchema>;
+
+export const findingSchema = z.strictObject({
+  axis: z.enum(["Spec", "Standards", "Skills"]),
+  severity: z.enum(["blocker", "nice-to-have"]),
+  location: z.string().trim().min(1),
+  claim: z.string().trim().min(1),
+});
+export type Finding = z.infer<typeof findingSchema>;
+
+const roundSchema = z.object({
+  assignment: z.string(),
+  number: z.number().int().positive(),
+  launchId: z.string(),
+  head: z.string(),
+  findings: z.string().transform((text) => z.array(findingSchema).parse(JSON.parse(text))),
+  recordedAt: z.string(),
+});
+export type InternalReviewRound = z.infer<typeof roundSchema>;
+
+function reportsConsistent(source: {
+  assignments: { key: string; completion: string }[];
+  launches: Launch[];
+  reports: Report[];
+}) {
+  // A report belongs to a report assignment and to one of its launches. A launch already shows
+  // that its assignment left the ready state.
+  return source.reports.every(
+    (report) =>
+      source.assignments.some(
+        (row) => row.key === report.assignment && row.completion === "report",
+      ) &&
+      source.launches.some(
+        (launch) => launch.assignment === report.assignment && launch.id === report.launchId,
+      ),
+  );
+}
+
+/** Only an associated PR records an internal review, from one of its assignment's launches. */
+function reviewsConsistent(source: {
+  launches: Launch[];
+  pullRequests: PullRequest[];
+  internalReviews: InternalReview[];
+  internalReviewRounds: InternalReviewRound[];
+}) {
+  return (
+    source.internalReviews.every(
+      (review) =>
+        source.pullRequests.some((pr) => pr.assignment === review.assignment) &&
+        source.launches.some(
+          (launch) =>
+            launch.assignment === review.assignment && launch.id === review.implementerLaunchId,
+        ),
+    ) &&
+    source.internalReviewRounds.every((round) =>
+      source.internalReviews.some((review) => review.assignment === round.assignment),
+    )
+  );
+}
+
+function recordsConsistent(
+  source: Parameters<typeof reportsConsistent>[0] & Parameters<typeof reviewsConsistent>[0],
+) {
+  return reportsConsistent(source) && reviewsConsistent(source);
+}
+
 export function decodeSource(input: StoredSource) {
   const source = {
     ...input.source,
@@ -125,6 +204,8 @@ export function decodeSource(input: StoredSource) {
     pullRequests: z.array(pullRequestSchema).parse(input.pullRequests),
     reports: z.array(reportSchema).parse(input.reports),
     cleanups: z.array(cleanupSchema).parse(input.cleanups),
+    internalReviews: z.array(internalReviewSchema).parse(input.internalReviews),
+    internalReviewRounds: z.array(roundSchema).parse(input.internalReviewRounds),
   };
   const consistent =
     source.trackerKey === source.plan.trackerKey &&
@@ -173,21 +254,10 @@ export function decodeSource(input: StoredSource) {
         (cleanup.step === null) === (cleanup.state === "done") &&
         source.assignments.some((row) => row.key === cleanup.assignment),
     );
-  // A report belongs to a report assignment and to one of its launches. A launch already shows
-  // that its assignment left the ready state.
-  const validReports = source.reports.every(
-    (report) =>
-      source.assignments.some(
-        (row) => row.key === report.assignment && row.completion === "report",
-      ) &&
-      source.launches.some(
-        (launch) => launch.assignment === report.assignment && launch.id === report.launchId,
-      ),
-  );
   const validLifecycle =
     validLaunches &&
     validPullRequests &&
-    validReports &&
+    recordsConsistent(source) &&
     validMerges &&
     validState &&
     (source.state === "open" ? source.endedAt === null : source.endedAt !== null);

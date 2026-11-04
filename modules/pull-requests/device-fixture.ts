@@ -423,7 +423,9 @@ export function associationBody(
           nodes: prs.map((pr) => ({
             number: pr.number,
             url: `https://github.com/${repository}/pull/${pr.number}`,
+            isDraft: false,
             baseRefName: pr.base,
+            headRefOid: "head-1",
             headRefName: pr.head ?? "task/other",
             headRepository: pr.owner === null ? null : { nameWithOwner: pr.owner ?? repository },
           })),

@@ -32,7 +32,7 @@ import {
   readPreparation,
   renewLaunch,
   renewPreparation,
-  type LaunchRow,
+  type LaunchReservation,
 } from "./launches.ts";
 import {
   worktreeOwners,
@@ -42,6 +42,14 @@ import {
   recordPullRequestMerge,
   renewPullRequestRelay,
 } from "./pull-requests.ts";
+import {
+  claimHandoff,
+  failHandoff,
+  finishImplementer,
+  recordInternalReviewRound,
+  renewHandoff,
+  startHandoff,
+} from "./internal-reviews.ts";
 import { leaseRenewMs } from "./leases.ts";
 import { claimCleanup, advanceCleanup, renewCleanup, startCleanup } from "./cleanups.ts";
 
@@ -126,12 +134,7 @@ export const DeviceState = {
       "Register the project explicitly before registering a source.",
     );
   },
-  reserveLaunch(
-    paths: Paths,
-    checkout: string,
-    repository: string,
-    launch: Omit<LaunchRow, "attempt" | "ownerPid" | "leaseAt">,
-  ) {
+  reserveLaunch(paths: Paths, checkout: string, repository: string, launch: LaunchReservation) {
     return writing(paths, (client) => reserveLaunch(client, checkout, repository, launch));
   },
   updateLaunch(paths: Paths, id: string, change: Parameters<typeof updateLaunch>[2]) {
@@ -174,14 +177,45 @@ export const DeviceState = {
   worktreeOwners(paths: Paths) {
     return reading(paths, (client) => worktreeOwners(client));
   },
-  /** With `review`, the association also queues the optional assignment-origin review request. */
+  /**
+   * With `review`, the association also queues the optional assignment-origin review request.
+   * With `internalReview`, it records the internal review and its pending handoff.
+   */
   associatePullRequest(
     paths: Paths,
     launchId: string,
     pr: Parameters<typeof associatePullRequest>[2],
     review = false,
+    internalReview = false,
   ) {
-    return writing(paths, (client) => associatePullRequest(client, launchId, pr, review));
+    return writing(paths, (client) =>
+      associatePullRequest(client, launchId, pr, review, internalReview),
+    );
+  },
+  claimHandoff(paths: Paths, repository: string, sourceId: string, assignment: string) {
+    return writing(paths, (client) => claimHandoff(client, repository, sourceId, assignment));
+  },
+  startHandoff(paths: Paths, sourceId: string, assignment: string, pid: number) {
+    return writing(paths, (client) => startHandoff(client, sourceId, assignment, pid));
+  },
+  failHandoff(paths: Paths, sourceId: string, assignment: string, detail: string) {
+    return writing(paths, (client) => failHandoff(client, sourceId, assignment, detail));
+  },
+  /** Renew this process's lease on a running handoff until the returned stop runs. */
+  holdHandoff(paths: Paths, sourceId: string, assignment: string) {
+    return hold(() => writing(paths, (client) => renewHandoff(client, sourceId, assignment)));
+  },
+  /** Ends the implementer launch whose pane the handoff closed. */
+  finishImplementer(paths: Paths, launchId: string) {
+    return writing(paths, (client) => finishImplementer(client, launchId));
+  },
+  /** Records one internal review round when the caller's rule permits it on the facts read in the write. */
+  recordInternalReviewRound<E extends { reason: string; detail: string }>(
+    paths: Paths,
+    launchId: string,
+    decide: Parameters<typeof recordInternalReviewRound<E>>[2],
+  ) {
+    return writing(paths, (client) => recordInternalReviewRound(client, launchId, decide));
   },
   /** Apply one review-request transition that the caller's rule decides from the active request. */
   changeReviewRequest<E>(

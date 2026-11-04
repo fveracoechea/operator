@@ -28,6 +28,8 @@ const input = {
   pullRequests: [],
   reports: [],
   cleanups: [],
+  internalReviews: [],
+  internalReviewRounds: [],
 };
 test("decodes persisted plans and strips storage-only assignment fields", () => {
   expect(decodeSource(input)).toMatchObject({
@@ -153,6 +155,7 @@ test("a PR open assignment needs its recorded PR, and only PR work past running 
     failureDetail: null,
     activity: null,
     activityAt: null,
+    internalReview: null,
     ownerPid: null,
     leaseAt: null,
     abandoned: false,
@@ -168,6 +171,8 @@ test("a PR open assignment needs its recorded PR, and only PR work past running 
     pullRequests: [pr],
     reports: [],
     cleanups: [],
+    internalReviews: [],
+    internalReviewRounds: [],
   };
   expect(decodeSource(open).pullRequests).toEqual([
     {
@@ -222,6 +227,7 @@ test("a stored report belongs to a started report assignment and one of its laun
     failureDetail: null,
     activity: null,
     activityAt: null,
+    internalReview: null,
     ownerPid: null,
     leaseAt: null,
     abandoned: false,
@@ -316,6 +322,8 @@ test("a merged PR assignment needs its verified merge and its cleanup, and nothi
     pullRequests: [pr],
     reports: [],
     cleanups: [cleanup],
+    internalReviews: [],
+    internalReviewRounds: [],
   };
   expect(decodeSource(merged).cleanups).toEqual([
     {
@@ -349,6 +357,8 @@ test("a merged PR assignment needs its verified merge and its cleanup, and nothi
       ...open,
       pullRequests: [{ ...pr, mergedHead: null, mergeCommit: null }],
       cleanups: [],
+      internalReviews: [],
+      internalReviewRounds: [],
     }).assignments,
   ).toEqual([{ key: "change", completion: "pr", state: "pr-open" }]);
 });

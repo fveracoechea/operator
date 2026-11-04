@@ -25,6 +25,8 @@ import {
 } from "./observations.ts";
 
 type Request = { paths: Paths; cwd: string; sourceId: string; assignment: string };
+/** The internal review handoff starts the reviewer while next shows the handoff as a wait. */
+type DispatchRequest = Request & { handoff?: boolean };
 type Facts = AsyncOkOf<ReturnType<typeof assignmentFacts>>;
 type Settings = Facts & AsyncOkOf<ReturnType<typeof launchSettings>>;
 type Resources = AsyncOkOf<ReturnType<typeof chooseResources>>;
@@ -44,7 +46,7 @@ function notDispatchable(assignment: string) {
   });
 }
 
-function assignmentFacts(input: Request) {
+function assignmentFacts(input: DispatchRequest) {
   return (
     DoAsync()
       .bind("project", () => Projects.current(input).map(({ data }) => data))
@@ -57,13 +59,16 @@ function assignmentFacts(input: Request) {
       .bind("next", () => WorkSources.next(input))
       .bind("planned", ({ source, next }) => {
         const planned = source.plan.assignments.find((row) => row.key === input.assignment);
+        // A running handoff is a wait in next, so only the handoff reads the waits.
         const action = next.sources
-          .flatMap((row) => row.actions)
+          .flatMap((row) => (input.handoff === true ? [...row.actions, ...row.waits] : row.actions))
           .find(
             (row) =>
               "assignment" in row &&
               row.assignment === input.assignment &&
-              (row.action === "ready_assignment" || row.action === "replace_worker"),
+              (row.action === "ready_assignment" ||
+                row.action === "replace_worker" ||
+                (input.handoff === true && row.reason === "internal_review_handoff")),
           );
         // Stryker disable next-line ConditionalExpression: equivalent: next gives a dispatch action only for a planned assignment
         return planned === undefined || action === undefined
@@ -74,20 +79,34 @@ function assignmentFacts(input: Request) {
               dependencyReports: WorkSources.dependencyReports(source, planned.key),
             });
       })
-      // Each launch resolves internal review again, so a replacement follows current settings.
-      .bind("internalReview", ({ source, planned }) =>
-        DeviceSettings.show(input.paths).map(({ data }) =>
-          internalReview({
-            assignment: planned.completion === "pr" ? planned.internalReview : undefined,
-            plan: source.plan.internalReview,
-            device: data.config.review?.internal,
-          }),
-        ),
-      )
       .let(
         "pullRequest",
         ({ source }) =>
           source.pullRequests.find((row) => row.assignment === input.assignment) ?? null,
+      )
+      .let("review", ({ source }) => {
+        const review = source.internalReviews.find((row) => row.assignment === input.assignment);
+        return review === undefined
+          ? null
+          : {
+              state: review.state,
+              rounds: source.internalReviewRounds.filter(
+                (round) => round.assignment === input.assignment,
+              ),
+            };
+      })
+      // Only a start before the PR exists resolves internal review. After that, the recorded
+      // review decides, so a settings change cannot drop a review that already started.
+      .bind("internalReview", ({ source, planned, pullRequest, review }) =>
+        pullRequest !== null
+          ? OkAsync(review !== null)
+          : DeviceSettings.show(input.paths).map(({ data }) =>
+              internalReview({
+                assignment: planned.completion === "pr" ? planned.internalReview : undefined,
+                plan: source.plan.internalReview,
+                device: data.config.review?.internal,
+              }),
+            ),
       )
       // A PR stacks on the branch of its one open parent PR. Next waits while several are open.
       .let("stack", ({ source, planned }) => {
@@ -227,6 +246,7 @@ function writeBrief(
         dependencyReports: settings.planned.dependencyReports,
         stack: settings.stack,
         internalReview: settings.internalReview,
+        review: settings.review,
       });
       await Bun.write(files.brief, text);
       return files.brief;
@@ -342,6 +362,8 @@ function reserve(request: Request, settings: Settings, resources: Resources, sta
       failureDetail: null,
       activity: null,
       activityAt: null,
+      // A report assignment has no internal review.
+      internalReview: settings.planned.completion === "pr" ? settings.internalReview : null,
     },
   );
 }
@@ -434,7 +456,7 @@ function launch(request: Request, settings: Settings, resources: Resources) {
     );
 }
 
-function dispatch(request: Request) {
+function dispatch(request: DispatchRequest) {
   return assignmentFacts(request).flatMap((facts) =>
     launchSettings(request.paths, facts.project.checkout, facts.planned.profile).flatMap(
       (settings) =>
@@ -447,7 +469,7 @@ function dispatch(request: Request) {
 
 /** Launches WorkerAgents through Herdr and handles the stable plugin hooks. */
 export const WorkerDispatch = {
-  dispatch(input: Request) {
+  dispatch(input: DispatchRequest) {
     return dispatch(input);
   },
   observe(input: { paths: Paths }) {

@@ -84,6 +84,8 @@ test("the module reads one snapshot and reports ended reset sources without disp
         pullRequests: [],
         reports: [],
         cleanups: [],
+        internalReviews: [],
+        internalReviewRounds: [],
       },
     ]),
   );
@@ -139,6 +141,7 @@ test("a dependent carries the latest accepted report of each direct dependency",
       failureDetail: null,
       activity: null,
       activityAt: null,
+      internalReview: null,
       ownerPid: null,
       leaseAt: null,
       abandoned: false,
@@ -203,6 +206,8 @@ test("a dependent carries the latest accepted report of each direct dependency",
       report("survey", 1, null),
     ],
     cleanups: [],
+    internalReviews: [],
+    internalReviewRounds: [],
   });
   // An undecided or returned report is not accepted content, and gaps do not skip a level.
   expect(WorkSources.dependencyReports(source, "use")).toEqual([

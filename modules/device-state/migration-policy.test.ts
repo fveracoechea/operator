@@ -233,3 +233,30 @@ test("a live reviewer move or reviewer cleanup blocks an upgrade once its record
     expect(idleForMigration(db, 9).tag).toBe("Ok");
   }
 });
+
+test("a live internal review handoff blocks an upgrade once its records exist", () => {
+  using db = new Database(":memory:");
+  db.exec(
+    "CREATE TABLE assignments (state TEXT); CREATE TABLE project_removals (repository TEXT); CREATE TABLE launches (state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE worktree_preparations (state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE cleanups (state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE review_requests (state TEXT, launch_state TEXT, owner_pid INTEGER, lease_at TEXT); CREATE TABLE internal_reviews (owner_pid INTEGER, lease_at TEXT)",
+  );
+  const lease = new Date().toISOString();
+  const stoppedPid = Bun.spawnSync([process.execPath, "--version"]).pid;
+  for (const [pid, blocked] of [
+    [process.pid, true],
+    [stoppedPid, false],
+    [null, false],
+  ] as const) {
+    db.exec("DELETE FROM internal_reviews");
+    db.query("INSERT INTO internal_reviews VALUES (?, ?)").run(pid, lease);
+    expect(idleForMigration(db, 12).tag, `${pid}`).toBe(blocked ? "Err" : "Ok");
+    // Before the migration that adds the table, the guard does not read it.
+    expect(idleForMigration(db, 11).tag).toBe("Ok");
+  }
+  db.query("INSERT INTO internal_reviews VALUES (?, ?)").run(process.pid, lease);
+  expect(idleForMigration(db, 12)).toMatchObject({
+    error: {
+      detail:
+        "Migration is waiting for a running internal review handoff to finish. No handler ran.",
+    },
+  });
+});

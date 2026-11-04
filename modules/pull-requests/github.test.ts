@@ -222,8 +222,10 @@ describe("GitHub reads and effects", () => {
               ].map(([head, owner, number]) => ({
                 number,
                 url: `u${number}`,
+                isDraft: number === 7,
                 baseRefName: "main",
                 headRefName: head,
+                headRefOid: `h${number}`,
                 headRepository: owner === null ? null : { nameWithOwner: owner },
               })),
             },
@@ -233,7 +235,9 @@ describe("GitHub reads and effects", () => {
     );
     expect<unknown>(await openPullRequests("owner/one", "task/1")).toEqual({
       tag: "Ok",
-      value: [{ number: 7, url: "u7", base: "main", defaultBranch: "main" }],
+      value: [
+        { number: 7, url: "u7", base: "main", defaultBranch: "main", draft: true, head: "h7" },
+      ],
     });
     const args = call.mock.calls[0]?.[0].args ?? [];
     expect(args.slice(0, 2)).toEqual(["graphql", "-f"]);
@@ -253,8 +257,10 @@ describe("GitHub reads and effects", () => {
                 {
                   number: 7,
                   url: "u7",
+                  isDraft: false,
                   baseRefName: "dev",
                   headRefName: "task/1",
+                  headRefOid: "h7",
                   headRepository: { nameWithOwner: "owner/one" },
                 },
               ],
@@ -265,7 +271,7 @@ describe("GitHub reads and effects", () => {
     );
     expect<unknown>(await openPullRequests("owner/one", "task/1")).toEqual({
       tag: "Ok",
-      value: [{ number: 7, url: "u7", base: "dev", defaultBranch: null }],
+      value: [{ number: 7, url: "u7", base: "dev", defaultBranch: null, draft: false, head: "h7" }],
     });
   });
 

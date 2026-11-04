@@ -13,6 +13,7 @@ import {
 } from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
 import { ownerGone } from "./leases.ts";
+import { finishHandoff, handoffDispatchable } from "./internal-reviews.ts";
 
 export type LaunchRow = typeof launches.$inferSelect;
 export type PreparationRow = typeof worktreePreparations.$inferSelect;
@@ -33,6 +34,13 @@ type LaunchResources = Partial<
     "workspaceId" | "tabId" | "paneId" | "worktreePath" | "worktreeWorkspaceId" | "branch"
   >
 >;
+
+// A start that does not resolve internal review, for example a report assignment, records none.
+export type LaunchReservation = Omit<
+  LaunchRow,
+  "attempt" | "ownerPid" | "leaseAt" | "internalReview"
+> &
+  Partial<Pick<LaunchRow, "internalReview">>;
 
 const abandonedDetail =
   "The dispatching process stopped before it recorded a launch outcome. Its recorded resources stay.";
@@ -68,6 +76,20 @@ function dispatchable(
   );
 }
 
+/** The ordinary dispatch rule, or a reviewer start after the implementer's handoff ended it. */
+function startable(
+  db: Db,
+  assignment: string | undefined,
+  latest: LaunchRow | undefined,
+  abandoned: boolean,
+  now: number,
+) {
+  if (assignment === "pr-open" && handoffDispatchable(db, latest, now)) return true;
+  // Stryker disable next-line ConditionalExpression: equivalent: a ready assignment has no launch, so it has no returned report
+  const returned = latest !== undefined && latestReturned(db, latest.sourceId, latest.assignment);
+  return dispatchable(assignment, latest?.state, abandoned, returned);
+}
+
 /** A report that the SuperAgent returned with follow-up needs a worker again. */
 function latestReturned(db: Db, sourceId: string, assignment: string) {
   const report = db
@@ -84,7 +106,7 @@ export function reserveLaunch(
   client: Database,
   checkout: string,
   repository: string,
-  launch: Omit<LaunchRow, "attempt" | "ownerPid" | "leaseAt">,
+  launch: LaunchReservation,
 ) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db): Result<LaunchRow, LaunchFailure> => {
@@ -121,11 +143,7 @@ export function reserveLaunch(
         .get();
       const now = Date.now();
       const abandoned = latest?.state === "starting" && ownerGone(latest, now);
-      const returned = latestReturned(db, source.id, launch.assignment);
-      if (
-        source.state !== "open" ||
-        !dispatchable(assignment?.state, latest?.state, abandoned, returned)
-      )
+      if (source.state !== "open" || !startable(db, assignment?.state, latest, abandoned, now))
         return Err({
           reason: "assignment_not_dispatchable",
           detail: `Assignment ${launch.assignment} changed before dispatch. Read next actions again. Nothing was launched.`,
@@ -139,12 +157,15 @@ export function reserveLaunch(
       const attempt = (latest?.attempt ?? 0) + 1;
       if (abandoned) endAbandoned(db, latest.id, now);
       const row = {
+        internalReview: null,
         ...launch,
         attempt,
         ownerPid: process.pid,
         leaseAt: new Date(now).toISOString(),
       };
       db.insert(launches).values(row).run();
+      // Any start after the implementer's ends a pending internal review handoff.
+      finishHandoff(db, source.id, launch.assignment);
       // A replaced PR owner keeps its open PR. A returned report resumes as running.
       db.update(assignments)
         .set({ state: "running" })

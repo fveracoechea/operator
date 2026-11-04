@@ -28,6 +28,8 @@ type Facts = {
     cleanup: "pending" | "done" | "failed" | "kept" | null;
   };
   cleanup?: "running" | "pending" | "failed" | "done" | "unlanded_work" | "resource_mismatch";
+  /** The internal review handoff from the implementer to the reviewer, until a reviewer starts. */
+  handoff?: "running" | "stopped" | "failed";
 };
 type Decision = {
   action:
@@ -38,6 +40,7 @@ type Decision = {
     | "review_report"
     | "resume_worker"
     | "retry_cleanup"
+    | "retry_handoff"
     | "person_decision"
     | "wait"
     | "ended";
@@ -64,7 +67,10 @@ type Decision = {
     | "worker_interrupted"
     | "report_submitted"
     | "follow_up_returned"
-    | "cleanup_unfinished";
+    | "cleanup_unfinished"
+    | "internal_review_handoff"
+    | "internal_review_handoff_failed"
+    | "internal_review_handoff_stopped";
   blockers: {
     assignment: string;
     completion: "pr" | "report";
@@ -168,6 +174,27 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
   {
     when: ({ assignment, report }) => assignment.state === "reported" && report?.decision === null,
     decide: () => ({ action: "review_report", reason: "report_submitted", blockers: [] }),
+  },
+  // The implementer's session ends at the handoff by design, so it is not an interrupted worker.
+  {
+    when: ({ assignment, handoff }) => assignment.state === "pr-open" && handoff === "running",
+    decide: () => ({ action: "wait", reason: "internal_review_handoff", blockers: [] }),
+  },
+  {
+    when: ({ assignment, handoff }) => assignment.state === "pr-open" && handoff === "failed",
+    decide: () => ({
+      action: "retry_handoff",
+      reason: "internal_review_handoff_failed",
+      blockers: [],
+    }),
+  },
+  {
+    when: ({ assignment, handoff }) => assignment.state === "pr-open" && handoff === "stopped",
+    decide: () => ({
+      action: "retry_handoff",
+      reason: "internal_review_handoff_stopped",
+      blockers: [],
+    }),
   },
   {
     when: (facts) => active(facts) && facts.launch === "failed",
