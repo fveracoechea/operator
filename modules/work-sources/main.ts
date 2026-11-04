@@ -1,4 +1,4 @@
-import { fromPromise, fromThrowable, Ok, Err, type Result } from "unthrown";
+import { fromPromise, fromThrowable, Ok, Err, type AsyncResult, type Result } from "unthrown";
 import { z } from "zod";
 import { DeviceState } from "../device-state/main.ts";
 import { Projects } from "../projects/main.ts";
@@ -14,6 +14,8 @@ import {
   type Report,
 } from "./snapshot.ts";
 import { OperatorHome } from "../operator-home/main.ts";
+import { Environment } from "../environment/main.ts";
+import { actionSet } from "./coordination.ts";
 import { decideReport } from "./report-machine.ts";
 import { qualify } from "./failures.ts";
 
@@ -96,18 +98,22 @@ function cleanupFact(cleanup: Cleanup | undefined) {
 
 function readProject(input: Input & { sourceId?: string }) {
   return Projects.current(input).flatMap(({ data: project }) =>
-    DeviceState.readSources(input.paths, project.repository, input.sourceId).flatMap((rows) =>
-      fromThrowable(
-        () => ({ project, sources: rows.map(decodeSource) }),
-        (cause, defect) =>
-          cause instanceof z.ZodError || cause instanceof SyntaxError
-            ? {
-                reason: "state_corrupt" as const,
-                detail: "Stored source records are invalid. They were not repaired.",
-              }
-            : defect(cause),
-      )(),
-    ),
+    readSources(input, project.repository).map((sources) => ({ project, sources })),
+  );
+}
+
+function readSources(input: Input & { sourceId?: string }, repository: string) {
+  return DeviceState.readSources(input.paths, repository, input.sourceId).flatMap((rows) =>
+    fromThrowable(
+      () => rows.map(decodeSource),
+      (cause, defect) =>
+        cause instanceof z.ZodError || cause instanceof SyntaxError
+          ? {
+              reason: "state_corrupt" as const,
+              detail: "Stored source records are invalid. They were not repaired.",
+            }
+          : defect(cause),
+    )(),
   );
 }
 
@@ -348,11 +354,15 @@ export const WorkSources = {
     });
   },
   next(input: Input & { sourceId?: string }) {
-    const now = Date.now();
-    // Decoding already refused rows that do not match their plan.
-    return read(input).map((sources) => ({
-      sources: sources.map((source) => nextActions(input, source, now)),
-    }));
+    return read(input).map((sources) => nextAnswer(input, sources));
+  },
+  /**
+   * Block until the set of non-wait actions differs from the set that the scope's last wait
+   * returned, or until the timeout ends, and return the normal next answer. The returned set is
+   * recorded, so a change between two waits returns at once, also after a restart.
+   */
+  wait(input: Input & { sourceId?: string; timeoutSeconds: number }) {
+    return coordinationWait(input);
   },
   /** The report lifecycle rule. Device state applies it inside the transaction that read its facts. */
   decideReport(
@@ -368,6 +378,69 @@ export const WorkSources = {
 };
 
 type Source = ReturnType<typeof decodeSource>;
+type CoordinationScope = { repository: string; scope: string };
+type ReadFailure = { reason: string; detail: string };
+
+function nextAnswer(input: Input, sources: Source[]) {
+  const now = Date.now();
+  // Decoding already refused rows that do not match their plan.
+  return { sources: sources.map((source) => nextActions(input, source, now)) };
+}
+
+// A wait reads only local device state, so it can read often.
+const coordinationPollMs = 2000;
+
+function coordinationWait(input: Input & { sourceId?: string; timeoutSeconds: number }) {
+  const deadline = Date.now() + input.timeoutSeconds * 1000;
+  return Projects.current(input).flatMap(({ data: project }) => {
+    const target = { repository: project.repository, scope: input.sourceId ?? "" };
+    const paneId = Environment.read().HERDR_PANE_ID ?? null;
+    return DeviceState.startCoordinationWait(input.paths, target, paneId)
+      .toAsync()
+      .flatMap((returned) => {
+        // The lease shows that this wait still runs, so other operations can tell.
+        const release = DeviceState.holdCoordinationWait(input.paths, target);
+        return fromPromise(
+          async () => {
+            try {
+              return await watchActions(input, target, returned, deadline);
+            } finally {
+              release();
+            }
+          },
+          // Stryker disable next-line ArrowFunction: equivalent: the watch returns its failures as values, so only a defect reaches this mapping
+          (cause, defect) => defect(cause),
+        ).flatMap((result) => result);
+      });
+  });
+}
+
+/** Reads next actions until their set differs from the returned set or the deadline passes. */
+function watchActions(
+  input: Input & { sourceId?: string },
+  target: CoordinationScope,
+  returned: string | null,
+  deadline: number,
+): AsyncResult<{ reason: string; data: ReturnType<typeof nextAnswer> }, ReadFailure> {
+  // The project was resolved once, so each read touches only device state.
+  const read = readSources(input, target.repository).map((sources) => nextAnswer(input, sources));
+  return read.toAsync().flatMap((answer) => {
+    const current = actionSet(answer);
+    const changed = current !== returned;
+    // Stryker disable next-line EqualityOperator: no rule: Operator promises no result for a read that ends in the same millisecond as the deadline
+    if (changed || Date.now() >= deadline)
+      return DeviceState.finishCoordinationWait(input.paths, target, current)
+        .toAsync()
+        .map(() => ({
+          reason: changed ? "next_actions_changed" : "next_wait_timed_out",
+          data: answer,
+        }));
+    return fromPromise(
+      () => Bun.sleep(Math.min(coordinationPollMs, deadline - Date.now())),
+      (cause, defect) => defect(cause),
+    ).flatMap(() => watchActions(input, target, returned, deadline));
+  });
+}
 
 function dependencyReports(source: Source, assignment: string) {
   const planned = source.plan.assignments.find((row) => row.key === assignment);

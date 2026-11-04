@@ -19,10 +19,29 @@ A PR dependency permits work at `pr-open` or `merged`.
 A report dependency waits for accepted `completed`, not submitted `reported`.
 Plans are fixed after registration. Independent work needs an assignment in a new plan.
 
-Registration launches no worker, and next actions change no state.
+Registration launches no worker, and next actions change no state. A wait records only the set it returned.
 Start a `ready_assignment` candidate with `operator dispatch`, as [dispatch.md](dispatch.md) describes.
 An empty plan ends immediately.
 A repeated parent requires the prior source to have ended and gets a new source identity.
+
+## Coordination wait
+
+WorkerAgents reach you through recorded state, never through text in your pane.
+`operator next --wait --json` blocks until the set of next actions other than waits changes, then returns the normal next answer with `next_actions_changed`.
+It returns `next_wait_timed_out` with the unchanged answer after `--timeout <seconds>`, 300 by default.
+Select one source with `--source <source-id>`. Each scope compares against the set that its last wait returned, so a change between two waits returns at once.
+A scope that never returned a set returns at once.
+The pane that last ran the wait or dispatched a source's work supervises that source. A wait without `--source` claims only open sources that no pane supervises yet, so run it from your own pane.
+
+Run the wait as a background command, so its result arrives as a new turn and never mixes with the person's typing:
+
+- Claude Code: the Bash tool with `run_in_background`.
+- OpenCode: the shell tool's background mode.
+
+Keep the host's command timeout above the wait timeout.
+Handle each result, then start the next wait before you end your turn.
+While a wait runs, the person can still prompt you. Answer, and leave the wait running.
+A host without background commands runs the wait in the foreground when the person asks you to watch.
 
 ## Reset and prune
 

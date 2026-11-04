@@ -13,6 +13,7 @@ import {
 } from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
 import { ownerGone } from "./leases.ts";
+import { superviseSource } from "./sources.ts";
 
 export type LaunchRow = typeof launches.$inferSelect;
 export type PreparationRow = typeof worktreePreparations.$inferSelect;
@@ -85,6 +86,7 @@ export function reserveLaunch(
   checkout: string,
   repository: string,
   launch: Omit<LaunchRow, "attempt" | "ownerPid" | "leaseAt">,
+  supervisingPane: string | null = null,
 ) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db): Result<LaunchRow, LaunchFailure> => {
@@ -145,6 +147,7 @@ export function reserveLaunch(
         leaseAt: new Date(now).toISOString(),
       };
       db.insert(launches).values(row).run();
+      superviseSource(db, source.id, supervisingPane);
       // A replaced PR owner keeps its open PR. A returned report resumes as running.
       db.update(assignments)
         .set({ state: "running" })

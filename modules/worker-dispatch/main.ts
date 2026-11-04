@@ -2,6 +2,7 @@ import { realPathOrNull } from "../../lib/real-path.ts";
 import { DoAsync, Err, Ok, OkAsync, fromPromise, fromSafePromise, type AsyncOkOf } from "unthrown";
 import { DeviceSettings } from "../device-settings/main.ts";
 import { DeviceState } from "../device-state/main.ts";
+import { Environment } from "../environment/main.ts";
 import { Herdr } from "../herdr/main.ts";
 import { OperatorHome } from "../operator-home/main.ts";
 import { Projects } from "../projects/main.ts";
@@ -343,6 +344,8 @@ function reserve(request: Request, settings: Settings, resources: Resources, sta
       activity: null,
       activityAt: null,
     },
+    // The dispatching pane supervises the source.
+    Environment.read().HERDR_PANE_ID ?? null,
   );
 }
 

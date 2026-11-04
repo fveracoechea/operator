@@ -26,6 +26,8 @@ export const sources = sqliteTable(
     registeredAt: text("registered_at").notNull(),
     endedAt: text("ended_at"),
     plan: text().notNull(),
+    // The Herdr pane that last ran the source's coordination wait or dispatched its work.
+    supervisingPane: text("supervising_pane"),
   },
   (table) => [
     uniqueIndex("one_open_parent")
@@ -348,4 +350,24 @@ export const slackEffects = sqliteTable(
     failure: text(),
   },
   (table) => [uniqueIndex("one_effect_per_key").on(table.requestId, table.key)],
+);
+
+// The coordination wait of one scope: one source, or every source of the project when empty.
+// The last returned set of non-wait actions lets a new wait return a change that came between waits.
+export const coordinationWaits = sqliteTable(
+  "coordination_waits",
+  {
+    repository: text()
+      .notNull()
+      .references(() => projects.repository, { onDelete: "cascade" }),
+    scope: text().notNull(),
+    actions: text(),
+    returnedAt: text("returned_at"),
+    // The waiting process, its lease, and its Herdr pane. A gone process or a stale lease is no wait.
+    ownerPid: integer("owner_pid"),
+    leaseAt: text("lease_at"),
+    paneId: text("pane_id"),
+    startedAt: text("started_at"),
+  },
+  (table) => [primaryKey({ columns: [table.repository, table.scope] })],
 );
