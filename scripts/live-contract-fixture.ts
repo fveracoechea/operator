@@ -14,9 +14,10 @@ export async function ok<T, E>(pending: PromiseLike<Result<T, E>>): Promise<T> {
   return result.value;
 }
 
+/** Whether Git created the repository with one commit on main. */
 async function initRepository(repo: string) {
   await mkdir(repo);
-  for (const args of [
+  return [
     ["init", "-q", "-b", "main"],
     [
       "-c",
@@ -29,8 +30,7 @@ async function initRepository(repo: string) {
       "-m",
       "init",
     ],
-  ])
-    expect(Bun.spawnSync(["git", "-C", repo, ...args]).exitCode).toBe(0);
+  ].every((args) => Bun.spawnSync(["git", "-C", repo, ...args]).exitCode === 0);
 }
 
 /**
@@ -53,9 +53,18 @@ export async function startHerdrServer() {
     HERDR_WORKSPACE_ID: undefined,
   };
   const herdr = Bun.which("herdr", { PATH: Environment.read().PATH });
-  if (herdr === null)
+  if (herdr === null) {
+    await rm(root, { recursive: true, force: true });
     // oxlint-disable-next-line unthrown/no-throw -- A live contract cannot run without the vendor command.
     throw new Error("herdr is not on PATH, so the Herdr contract cannot run.");
+  }
+  const repo = `${root}/repo`;
+  // A failed setup step before the server starts leaves no server or spy to clean up.
+  if (!(await initRepository(repo))) {
+    await rm(root, { recursive: true, force: true });
+    // oxlint-disable-next-line unthrown/no-throw -- The contract has no repository to run against.
+    throw new Error(`Git could not create the contract repository in ${repo}.`);
+  }
   const server = Bun.spawn([herdr, "server"], {
     cwd: root,
     // The server takes its socket from the config folder, not from a caller's socket path.
@@ -81,12 +90,11 @@ export async function startHerdrServer() {
     }
     await Bun.sleep(100);
   }
+  // The spy is the last step, so no failure path leaves it in place for the next contract file.
   const child = Environment.child.bind(Environment);
   const spy = spyOn(Environment, "child").mockImplementation((overrides) =>
     child({ ...isolated, ...overrides }),
   );
-  const repo = `${root}/repo`;
-  await initRepository(repo);
   return {
     root,
     socket,

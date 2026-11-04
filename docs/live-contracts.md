@@ -5,7 +5,7 @@ The unit tests replace each one with a controlled fake, so they cannot see a ven
 The live contract tests run the installed commands and fail a named test when an answer changes.
 
 They are opt-in.
-`bun run test` and CI never run them, because Bun discovers only `*.test.ts` files.
+`bun run test` and CI never run them, because Bun discovers only test and spec files, such as `*.test.ts`.
 `operator ready` never runs them either, because readiness checks only static prerequisites ([ADR-0009](adr/0009-readiness-checks-static-prerequisites-without-live-probes.md)).
 
 ## Run them

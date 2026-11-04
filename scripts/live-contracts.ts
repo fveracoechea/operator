@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { Environment } from "../modules/environment/main.ts";
 
-// Live contracts run the installed Herdr, OpenCode, and Claude Code. Bun discovers only
-// `*.test.ts`, so `bun run test` never finds a `*.contract.ts` file, and readiness never runs one
+// Live contracts run the installed Herdr, OpenCode, and Claude Code. Bun discovers only test and
+// spec files, so `bun run test` never finds a `*.contract.ts` file, and readiness never runs one
 // (ADR-0009). This runner records the versions each run met, so a vendor change that breaks a
 // contract fails a named test beside the version that broke it.
 const root = process.cwd();
@@ -23,15 +23,16 @@ if (files.length === 0) {
   console.error("live-contracts: no modules/**/*.contract.ts file to run.");
   process.exit(2);
 }
-const manifest = z
-  .object({ dependencies: z.record(z.string(), z.string()) })
-  .parse(await Bun.file(new URL("../package.json", import.meta.url)).json());
+// The installed SDK, not the range that package.json declares, is what the contracts load.
+const installed = z
+  .object({ version: z.string() })
+  .parse(await Bun.file(Bun.resolveSync(`${sdk}/package.json`, import.meta.dir)).json());
 const versions = {
   bun: Bun.version,
   herdr: version("herdr"),
   opencode: version("opencode"),
   claude: version("claude"),
-  [sdk]: manifest.dependencies[sdk] ?? null,
+  [sdk]: installed.version,
 };
 console.error(`live-contracts: running against ${JSON.stringify(versions)}`);
 

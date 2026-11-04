@@ -8,10 +8,12 @@ import { Environment } from "../modules/environment/main.ts";
 
 const scriptPath = new URL("./live-contracts.ts", import.meta.url).pathname;
 const sdkVersion = z
-  .object({ dependencies: z.record(z.string(), z.string()) })
-  .parse(await Bun.file(new URL("../package.json", import.meta.url)).json()).dependencies[
-  "@anthropic-ai/claude-agent-sdk"
-];
+  .object({ version: z.string() })
+  .parse(
+    await Bun.file(
+      Bun.resolveSync("@anthropic-ai/claude-agent-sdk/package.json", import.meta.dir),
+    ).json(),
+  ).version;
 const roots: string[] = [];
 afterAll(async () => {
   await Promise.all(roots.map((root) => rm(root, { recursive: true, force: true })));

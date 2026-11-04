@@ -68,17 +68,19 @@ test("herdr worktree create and open place a linked worktree, and worktree remov
   await ok(Herdr.removeWorktree({ workspaceId: created.workspaceId, force: true }));
   expect(await Bun.file(`${created.path}/.git`).exists()).toBe(false);
 
-  Bun.spawnSync([
-    "git",
-    "-C",
-    repo,
-    "worktree",
-    "add",
-    "-q",
-    `${server.root}/opened`,
-    "-b",
-    "opened",
-  ]);
+  expect(
+    Bun.spawnSync([
+      "git",
+      "-C",
+      repo,
+      "worktree",
+      "add",
+      "-q",
+      `${server.root}/opened`,
+      "-b",
+      "opened",
+    ]).exitCode,
+  ).toBe(0);
   const opened = await ok(
     Herdr.openWorktree({
       workspaceId: base.workspaceId,
