@@ -19,7 +19,7 @@ function router(frontmatter: string[], body: string[] = []): string {
 
 const validFrontmatter = ["name: sample", "description: Use when the sample fires."];
 
-function description(length: number): string {
+function descriptionLine(length: number): string {
   return `description: ${"a".repeat(length)}`;
 }
 
@@ -89,8 +89,8 @@ test("refuses a router over 150 lines", async () => {
 test("accepts skill descriptions that total 2200 characters", async () => {
   expect(
     await checkSkills({
-      "first/SKILL.md": router(["name: first", description(1100)]),
-      "second/SKILL.md": router(["name: second", description(1100)]),
+      "first/SKILL.md": router(["name: first", descriptionLine(1100)]),
+      "second/SKILL.md": router(["name: second", descriptionLine(1100)]),
     }),
   ).toEqual({ exitCode: 0, stderr: "", stdout: "" });
 });
@@ -98,8 +98,8 @@ test("accepts skill descriptions that total 2200 characters", async () => {
 test("refuses skill descriptions that total over 2200 characters", async () => {
   expect(
     await checkSkills({
-      "first/SKILL.md": router(["name: first", description(1100)]),
-      "second/SKILL.md": router(["name: second", description(1101)]),
+      "first/SKILL.md": router(["name: first", descriptionLine(1100)]),
+      "second/SKILL.md": router(["name: second", descriptionLine(1101)]),
     }),
   ).toEqual({
     exitCode: 1,

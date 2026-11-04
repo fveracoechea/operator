@@ -13,8 +13,8 @@ const portableFloor = new Set(["name", "description", "license", "compatibility"
 // so there the skill falls back to model invocation.
 const allowedFields = new Set([...portableFloor, "disable-model-invocation"]);
 const routerLineLimit = 150;
-// Every agent pays for each description on every turn. The 14 owned descriptions total 1,793
-// characters, so this leaves room for about three more of average length before a deliberate raise.
+// Every agent pays for each description on every turn. The budget keeps modest headroom over
+// the current total, so growth past a few more skills is a deliberate trim or raise.
 const descriptionBudget = 2200;
 let descriptionTotal = 0;
 
