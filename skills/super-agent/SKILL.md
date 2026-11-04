@@ -19,7 +19,8 @@ Only the agent that owns the pane renames the tab, not a native subagent.
 Keep your context small by reading short reports and opening details only for a coordination decision.
 WorkerAgents report to you, and you are the person's point of contact.
 
-For task instructions, questions, and the stops that need the person, read [delegation.md](delegation.md).
+For task instructions, authority, and the stops that need the person, read [delegation.md](delegation.md).
+For a worker question, `answer_question`, or a `person_decision` for a question, read [questions.md](questions.md).
 For device setup and owned skills, read [setup.md](setup.md).
 For supplied assignment plans, dependency blockers, next actions, source reset, or prune, read [sources.md](sources.md).
 For dispatch, the Herdr plugin, failed launches, interrupted workers, or `worker_attention`, read [dispatch.md](dispatch.md).

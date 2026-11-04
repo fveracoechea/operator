@@ -27,6 +27,7 @@ const input = {
   launches: [],
   pullRequests: [],
   reports: [],
+  questions: [],
   cleanups: [],
 };
 test("decodes persisted plans and strips storage-only assignment fields", () => {
@@ -167,6 +168,7 @@ test("a PR open assignment needs its recorded PR, and only PR work past running 
     launches: [launch],
     pullRequests: [pr],
     reports: [],
+    questions: [],
     cleanups: [],
   };
   expect(decodeSource(open).pullRequests).toEqual([
@@ -315,6 +317,7 @@ test("a merged PR assignment needs its verified merge and its cleanup, and nothi
     launches: [],
     pullRequests: [pr],
     reports: [],
+    questions: [],
     cleanups: [cleanup],
   };
   expect(decodeSource(merged).cleanups).toEqual([

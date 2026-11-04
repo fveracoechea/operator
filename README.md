@@ -222,6 +222,20 @@ operator report return --source <source-id> --assignment <key> --file <follow-up
 The WorkerAgent submits and resumes from its own pane.
 Only the SuperAgent accepts or returns a report.
 
+### Worker questions
+
+```sh
+operator question ask --file <question.json> --json
+operator question wait --key <key> --timeout 300 --json
+operator question withdraw --key <key> --json
+operator question escalate --source <source-id> --assignment <key> --key <question> --json
+operator question answer --source <source-id> --assignment <key> --key <question> --by super-agent --file <answer.md> --json
+```
+
+The WorkerAgent asks, waits for the answer, and withdraws from its own pane.
+`next` shows an open question as `answer_question`, and a question that the SuperAgent escalates to the person as `person_decision`.
+Only the SuperAgent answers, and `--by person` records an answer that the person gave.
+
 ### Pull requests
 
 ```sh

@@ -4,7 +4,7 @@ import { Err, Ok, type Result } from "unthrown";
 import { checkHistory, transaction, type Db } from "./database.ts";
 import { ownerGone } from "./leases.ts";
 import { assignments, launches, reports, sources } from "./schema.ts";
-import { controlledSource } from "./sources.ts";
+import { abandonQuestions, controlledSource } from "./sources.ts";
 import type { StateFailure } from "./failures.ts";
 
 export type ReportRow = typeof reports.$inferSelect;
@@ -33,7 +33,8 @@ export type ReportChange = {
 
 type TargetFailure = StateFailure | { reason: string; detail: string };
 
-function locate(db: Db, target: ReportTarget) {
+/** The assignment that a worker pane or a SuperAgent selector names. */
+export function locate(db: Db, target: ReportTarget) {
   if (target.by === "pane") {
     const launch = db
       .select()
@@ -151,6 +152,7 @@ function apply(db: Db, facts: ReportFacts, change: ReportChange) {
       .set({ state: change.assignmentState })
       .where(and(eq(assignments.sourceId, sourceId), eq(assignments.key, key)))
       .run();
+  if (change.assignmentState === "completed") abandonQuestions(db, sourceId, [key]);
   if (change.source !== undefined)
     db.update(sources).set(change.source).where(eq(sources.id, sourceId)).run();
   // An accepted report ends its running launch, so the later pane close is not an interruption.

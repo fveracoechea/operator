@@ -46,6 +46,7 @@ import { leaseRenewMs } from "./leases.ts";
 import { claimCleanup, advanceCleanup, renewCleanup, startCleanup } from "./cleanups.ts";
 
 import { changeReport, readReport, type ReportTarget } from "./reports.ts";
+import { changeQuestion, readQuestion } from "./questions.ts";
 import {
   changeReviewRequest,
   readReviewRequest,
@@ -147,6 +148,18 @@ export const DeviceState = {
   },
   readReport(paths: Paths, target: ReportTarget) {
     return reading(paths, (client) => readReport(client, target));
+  },
+  /** Apply one question transition that the caller's rule decides from facts read in the same transaction. */
+  changeQuestion<E extends { reason: string; detail: string }>(
+    paths: Paths,
+    target: ReportTarget,
+    key: string,
+    decide: Parameters<typeof changeQuestion<E>>[3],
+  ) {
+    return writing(paths, (client) => changeQuestion(client, target, key, decide));
+  },
+  readQuestion(paths: Paths, target: ReportTarget, key: string) {
+    return reading(paths, (client) => readQuestion(client, target, key));
   },
   launchNames(paths: Paths) {
     return reading(paths, (client) => launchNames(client));
