@@ -3,6 +3,7 @@
 ## Status
 
 Accepted - 2026-10-31.
+Amended 2026-11-04: the same hook also guards a SuperAgent's turn end on the Stop event, and only that branch reads device state (ADR-0022).
 
 ## Context
 
@@ -16,7 +17,8 @@ The person asked for the rule to move out of the instructions and into a Claude 
 It reads one hook event on standard input and denies a Bash `git commit` whose message carries a Co-Authored-By trailer.
 The deny reason tells the agent to remove the trailer and commit again.
 It never allows a tool, so Claude Code keeps its own permission flow.
-It reads no device state, so it runs before the state compatibility check and works on a device with blocked or missing state.
+The commit check reads no device state, so it runs before the state compatibility check and works on a device with blocked or missing state.
+The same hook also handles the Stop event as the turn-end guard of ADR-0022, which reads device state and allows the stop when that state is unusable.
 
 The hook acts before the commit, through `PreToolUse`.
 A `PostToolUse` check would find the trailer only after the commit exists, and would need a history rewrite to fix it.
@@ -53,4 +55,4 @@ It grants nothing and passes no permission mode. It only denies one kind of comm
 - Writing through a linked settings file was rejected because the link target belongs to the person's dotfiles.
 - A rule in the global agent instructions was rejected because the agent can skip it, and it costs context on every run.
 
-Related: ADR-0008, consumer-owned links stay unchanged; ADR-0009, readiness checks static facts; ADR-0014, Operator installs no permission rules.
+Related: ADR-0022, the turn-end guard shares this hook; ADR-0008, consumer-owned links stay unchanged; ADR-0009, readiness checks static facts; ADR-0014, Operator installs no permission rules.

@@ -2,7 +2,7 @@
 
 Shared language for Operator's declarative and deterministic agent coordination workflow.
 The CLI owns the workflow state machines, performs the mechanical steps, and gives agents and subagents the applicable next actions.
-These definitions describe the implemented design.
+These definitions describe the implemented design and the accepted decisions that later work builds on.
 
 ## Roles and authority
 
@@ -22,6 +22,7 @@ _Avoid_: Operative, Crew member, Agent as a role
 **Rules of the person**:
 The five rules that require delegation by SuperAgents, the PR merge gate, preservation of unlanded work, reporting through the supervising SuperAgent, and minimum SuperAgent context usage.
 They permit coordination commands and communication between SuperAgents through Herdr without transferring the workers' tasks to a supervisor.
+A WorkerAgent reaches its SuperAgent only through recorded Operator state, never through text typed into the SuperAgent's pane.
 
 **SuperAgent decision**:
 A decision within the authority that the assignment instructions delegate to a SuperAgent.
@@ -161,7 +162,42 @@ The worker resumes the assignment with those instructions and the prior reports 
 
 **Next actions**:
 The CLI's applicable actions and waits derived from recorded workflow state and observed facts.
-They include ready work, PR actions, reports awaiting acceptance, interrupted workers, failed cleanup, and ended sources, without a second agent-maintained schedule.
+They include ready work, PR actions, reports awaiting acceptance, open worker questions, unacknowledged steering messages, interrupted workers, failed cleanup, and ended sources, without a second agent-maintained schedule.
+
+**Coordination wait**:
+The SuperAgent's blocking read of next actions, which returns when the set of actions other than waits changes or its timeout ends.
+The SuperAgent runs it in the background, so its host delivers the result as a notification rather than as typed input.
+_Avoid_: poll, watcher, worker ping
+
+**Supervising pane**:
+The Herdr pane that Operator records as the SuperAgent of a source, from the pane that last dispatched its work or ran its coordination wait.
+
+**Worker question**:
+A keyed question that a WorkerAgent records for its supervising SuperAgent, which stays open in next actions until it is answered on the record.
+A question that the SuperAgent passes to the person is a person decision until the human answer is recorded.
+_Avoid_: blocker message, grilling message
+
+**Steering message**:
+A recorded instruction from a SuperAgent to a running WorkerAgent, which stays pending until the worker acknowledges it.
+An answer to a worker question reaches the worker as a steering message.
+_Avoid_: nudge, pane message
+
+**Turn-end guard**:
+The Stop branch of Operator's Claude Code hook, which keeps a SuperAgent from ending its turn while it supervises running work and no coordination wait runs.
+It blocks once in a row, and OpenCode has no equivalent.
+
+**Doorbell**:
+A short fixed line that the CLI types into a worker's pane to name a pending record, and that carries no instruction of its own.
+Only a worker pane gets a doorbell, because no person types there.
+
+**Running cap**:
+A plan's optional limit on its assignments with a starting or live worker, above which next actions list none of its ready assignments.
+_Avoid_: quota, capacity setting
+
+**Promotion**:
+The SuperAgent's acceptance of a report that also adds a PR assignment, which takes over the report's worktree and, while it runs, its worker.
+The report keeps its completion type, and the PR assignment is a new record.
+_Avoid_: conversion, report upgrade
 
 **PR feedback loop**:
 The owner WorkerAgent's repeated response to new reviews, comments, failing CI, or a merged parent PR through the CLI's wait operation.

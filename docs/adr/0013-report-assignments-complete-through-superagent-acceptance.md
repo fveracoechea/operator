@@ -6,6 +6,7 @@ Accepted - 2026-10-24.
 Decided in #233.
 Implemented for submission, return, resume, acceptance, and cleanup in #248.
 Reset and prune are implemented in #252.
+Amended 2026-11-04: acceptance can promote a report into a new PR assignment that keeps the worker and its worktree (ADR-0023).
 
 ## Context
 
@@ -21,6 +22,7 @@ A WorkerAgent submits a durable report through the CLI with a short conclusion, 
 Herdr activity or a completion event proves neither submission nor acceptance.
 
 The supervising SuperAgent accepts the report or returns specific follow-up instructions.
+An acceptance can also promote the report, which adds a PR assignment that takes over the report's worktree and, while it runs, its worker.
 Submission alone does not unblock dependencies.
 Returned work resumes as running when the worker resumes.
 A stopped or failed worker leaves its incomplete work available for replacement, with the brief, earlier reports, and follow-up instructions preserved.
@@ -35,6 +37,7 @@ Reports and assignment instructions carry the authority distinction.
 
 Reports and supporting files live in device state.
 Acceptance permits automatic pane closure, but a report worktree stays unless the CLI can establish that it holds no unlanded work.
+A promotion keeps the pane and the worktree, because the promoted PR assignment owns them.
 Only the person can authorize deletion of unlanded work.
 Read-only report work has no worktree to remove.
 
@@ -60,4 +63,4 @@ Reset preserves completed reports and abandons incomplete ones, and source prune
 - A separate planning-record and approval protocol was rejected because the report and instruction contract covers this exchange.
 - A cross-project dependency engine and indefinite retention were rejected in favor of Herdr coordination and consumer-owned brief content.
 
-Related: ADR-0001, reports and interruptions appear in next actions; ADR-0003, completion-type-specific transitions; ADR-0010, PR completion is separate; ADR-0011, briefs and resource selection; ADR-0012, reset and retention; ADR-0014, profiles and native subagents; ADR-0017, supervision boundary.
+Related: ADR-0001, reports and interruptions appear in next actions; ADR-0003, completion-type-specific transitions; ADR-0010, PR completion is separate; ADR-0011, briefs and resource selection; ADR-0012, reset and retention; ADR-0014, profiles and native subagents; ADR-0017, supervision boundary; ADR-0023, promotion at acceptance.
