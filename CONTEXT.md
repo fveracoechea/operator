@@ -231,7 +231,7 @@ Only the person can authorize its deletion.
 
 **Cleanup**:
 The CLI's disposal of resources after verified completion, with failures kept visible in next actions.
-PR merge permits remote-branch deletion, pane closure, and worktree removal, while report acceptance permits pane closure but not deletion of unlanded work.
+PR merge permits remote-branch deletion, pane closure, and worktree removal, while report acceptance permits pane closure but not deletion of unlanded work, and a promotion keeps both the pane and the worktree.
 
 **Canonical map**:
 A wayfinder map's baseline body plus every explicit amendment comment.

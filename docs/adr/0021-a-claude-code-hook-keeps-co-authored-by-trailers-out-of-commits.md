@@ -29,12 +29,13 @@ An agent cannot use an editor, and a reused message passed the hook when it was 
 `operator install --claude` adds one `PreToolUse` group to the person's Claude Code user settings, after the groups that the person has, and one `Stop` group for the turn-end guard.
 The `PreToolUse` group matches Bash and filters on `Bash(git *)`, so the hook does not start on other commands.
 A settings file that already runs the hook command in a group for each event is installed, and the file stays unwritten.
+A file that has only one of the groups gets the missing one.
 Check mode, a Nix release, and readiness only read the settings.
 A linked or read-only settings file belongs to its owner, such as a dotfiles repository, as linked skills do in ADR-0008.
-Operator then refuses the write and names the exact group to add.
+Operator then refuses the write and names the exact groups to add.
 
 The hook is not a permission rule in the sense of ADR-0014.
-It grants nothing and passes no permission mode. It only denies one kind of commit message that the person asked to keep out.
+It grants nothing and passes no permission mode. It only denies one kind of commit message that the person asked to keep out, and blocks a SuperAgent's turn end once.
 
 ## Consequences
 

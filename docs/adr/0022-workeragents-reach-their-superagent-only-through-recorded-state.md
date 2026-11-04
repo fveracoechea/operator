@@ -33,6 +33,7 @@ A change that happened between two waits therefore returns at once, also after a
 A wait does not return just because a non-wait action exists, because a person decision that the SuperAgent left for the person would then end every wait at once.
 The CLI also records each running wait with its process, so other operations can tell whether a SuperAgent is waiting.
 The pane that last ran the wait or dispatched a source's work is that source's supervising pane.
+A wait without a source claims only the open sources that have no supervising pane yet, so one SuperAgent's wait never takes over another's sources.
 
 The SuperAgent runs the wait as a background command, so the host delivers its result as a new turn rather than as typed input.
 On Claude Code this is a Bash command run in the background: the session continues, and the command's exit wakes the agent with its output.
@@ -87,7 +88,7 @@ The OpenCode SuperAgent starts the wait because its skill says so, which is a ru
 
 - A worker's "report submitted" message: the coordination wait returns the report awaiting acceptance.
 - A worker's "draft PR ready for internal review" message: the coordination wait returns the idle PR owner after the implementer stops, which is the handoff point until ADR-0020's CLI handoff records it.
-- A worker's "merge started" message: the coordination wait returns the ended assignment, or the failed cleanup, after the merge and its cleanup.
+- A worker's "merge started" message: the coordination wait returns the ended assignment, or the cleanup retry or person decision, after the merge and its cleanup.
   A running merge or cleanup is a wait, so the SuperAgent learns of the merge only when it ends.
 - A refusal that the worker cannot fix: a worker question with the refusal as its content.
 - A status reply: the record answers first, through next actions, PR wait results, reports, and Herdr agent state.
