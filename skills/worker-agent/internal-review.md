@@ -9,7 +9,7 @@ Follow each limit below as written.
 
 ## 1. Read the inputs
 
-Your inputs are the tracker issue, the assignment instructions in your brief, the PR base, and the diff.
+Your inputs are the tracker issue, the assignment instructions and acceptance criteria in your brief, the PR base, and the diff.
 
 - Read the issue with the tracker's own CLI, for example `gh issue view <number> --comments`.
 - Read the diff with `gh pr diff <number>`, and the base and head with `gh pr view <number> --json baseRefName,headRefOid,isDraft`.
@@ -25,11 +25,11 @@ An internal review round is one review of the whole PR diff against its base at 
 
 Check three axes:
 
-- Spec: the change does what the issue asks, and nothing that the issue excludes.
+- Spec: the change does what the issue asks, and nothing that the issue excludes. When your brief has acceptance criteria, the change also meets each one. They are the person's own words, and they win over the instructions.
 - Standards: the change follows the documented standards, the repository patterns, and the person's opinions in `my-opinions`.
 - Skills: the change follows each skill that the assignment instructions name. Cite the skill and its rule for each Skills finding.
 
-Load the `code-review` skill for Spec and Standards, with the PR base as its fixed point and the issue as its spec.
+Load the `code-review` skill for Spec and Standards, with the PR base as its fixed point. Give it the issue and the brief's acceptance criteria as its spec.
 Do the Skills axis yourself.
 Read the checks with `gh pr checks <number>`. A failing check is a blocker finding.
 

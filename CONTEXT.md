@@ -143,6 +143,10 @@ _Avoid_: Crew frontier
 The device-state task instructions supplied to a WorkerAgent by an absolute reference at launch.
 It identifies the assignment's task, skills, resources, result locations, and reporting contract, with earlier reports and follow-up instructions for a replacement.
 
+**Intent**:
+The person's own words for a plan or an assignment, copied verbatim by the SuperAgent and kept apart from its instructions.
+The brief shows it as the acceptance criteria, and an assignment's intent wins over the plan's.
+
 **Dispatch**:
 The CLI's launch of a WorkerAgent through Herdr with a resolved start profile and a brief from the running release's template.
 An assignment that changes project files uses an isolated worktree, while read-only work can use a project-workspace pane.

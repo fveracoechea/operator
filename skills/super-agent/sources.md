@@ -11,6 +11,9 @@ Use `worktree` and a Git `branch` name for PRs and reports that change project f
 An optional `profile` names an existing device start profile.
 Dependencies name unique assignment keys within this plan.
 Instructions state your delegated authority and when the WorkerAgent must ask the person.
+An optional `intent` on the plan or on an assignment holds the person's own words for the work. An assignment's `intent` wins over the plan's.
+Copy the person's words verbatim into `intent`. Put your interpretation, scope, and build steps in `instructions`.
+The brief shows `intent` as the acceptance criteria, and the internal reviewer judges the Spec axis against it.
 
 Inspect the saved source with `operator source show --source <source-id> --json`.
 Read `operator next --json`, or select one project source with `--source <source-id>`.

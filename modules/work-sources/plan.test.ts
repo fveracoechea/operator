@@ -93,3 +93,27 @@ test("accepts an out-of-order diamond graph without reordering the supplied plan
       .assignments.map((assignment) => assignment.key),
   ).toEqual(["last", "left", "read", "right"]);
 });
+test("keeps the person's intent on the plan and on an assignment, apart from the instructions", () => {
+  const plan = planSchema.parse({
+    trackerKey: "APP-1",
+    intent: "  Fix the flaky test.  ",
+    assignments: [
+      { ...report, intent: "Only the merge test." },
+      { ...report, key: "write" },
+    ],
+  });
+  expect(plan.intent).toBe("Fix the flaky test.");
+  expect(plan.assignments.map((assignment) => assignment.intent)).toEqual([
+    "Only the merge test.",
+    undefined,
+  ]);
+  expect(plan.assignments[0]?.instructions).toBe("Read the code.");
+});
+test.each([{ intent: " " }, { assignments: [{ ...report, intent: "" }] }])(
+  "refuses a blank intent %j",
+  (change) => {
+    expect(planSchema.safeParse({ trackerKey: "APP-1", assignments: [], ...change }).success).toBe(
+      false,
+    );
+  },
+);
