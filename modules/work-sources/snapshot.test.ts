@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { decodeSource } from "./snapshot.ts";
+import { storedLaunch, storedPromotion, storedReport, storedSource } from "./source-fixture.ts";
 
 const input = {
   source: {
@@ -28,6 +29,7 @@ const input = {
   pullRequests: [],
   reports: [],
   cleanups: [],
+  promotions: [],
 };
 test("decodes persisted plans and strips storage-only assignment fields", () => {
   expect(decodeSource(input)).toMatchObject({
@@ -168,6 +170,7 @@ test("a PR open assignment needs its recorded PR, and only PR work past running 
     pullRequests: [pr],
     reports: [],
     cleanups: [],
+    promotions: [],
   };
   expect(decodeSource(open).pullRequests).toEqual([
     {
@@ -316,6 +319,7 @@ test("a merged PR assignment needs its verified merge and its cleanup, and nothi
     pullRequests: [pr],
     reports: [],
     cleanups: [cleanup],
+    promotions: [],
   };
   expect(decodeSource(merged).cleanups).toEqual([
     {
@@ -349,6 +353,67 @@ test("a merged PR assignment needs its verified merge and its cleanup, and nothi
       ...open,
       pullRequests: [{ ...pr, mergedHead: null, mergeCommit: null }],
       cleanups: [],
+      promotions: [],
     }).assignments,
   ).toEqual([{ key: "change", completion: "pr", state: "pr-open" }]);
+});
+
+test("a promoted PR assignment joins the plan with the accepted report as its dependency", () => {
+  const read = storedSource([{ key: "read", completion: "report", state: "completed" }], {
+    launches: [
+      storedLaunch("read", { state: "finished", worktreePath: "/worktrees/read" }),
+      storedLaunch("build", { resources: "worktree", worktreePath: "/worktrees/read" }),
+    ],
+    reports: [storedReport("read", { decision: "accepted", cleanupState: "done" })],
+  });
+  const { assignment, promotion } = storedPromotion("read", "build");
+  const valid = {
+    ...read,
+    assignments: [...read.assignments, assignment],
+    promotions: [promotion],
+  };
+  const decoded = decodeSource(valid);
+  expect(decoded.plan.assignments.map((row) => row.key)).toEqual(["read"]);
+  expect(decoded.assignments).toEqual([
+    { key: "read", completion: "report", state: "completed" },
+    { key: "build", completion: "pr", state: "running" },
+  ]);
+  expect(decoded.planned[1]).toEqual({
+    key: "build",
+    trackerKey: "APP-build",
+    instructions: "Build build.",
+    profile: undefined,
+    dependencies: ["read"],
+    completion: "pr",
+    resources: "worktree",
+    branch: "task/build",
+    internalReview: undefined,
+    promotion: {
+      assignment: "build",
+      report: "read",
+      reportNumber: 1,
+      trackerKey: "APP-build",
+      instructions: "Build build.",
+      branch: "task/build",
+      internalReview: null,
+      worktreePath: "/worktrees/read",
+      handoverLaunchId: "l-build",
+      promotedAt: "2026-01-04T00:00:00.000Z",
+    },
+  });
+  // A promotion without its row, of a report that is not accepted, or of an unknown report is corrupt.
+  for (const change of [
+    { promotions: [] },
+    { assignments: read.assignments },
+    { promotions: [{ ...promotion, report: "other" }] },
+    { promotions: [{ ...promotion, reportNumber: 2 }] },
+    { reports: [storedReport("read", { decision: "returned" })] },
+    {
+      assignments: [
+        { sourceId: "one", key: "read", completion: "report", state: "reported" },
+        assignment,
+      ],
+    },
+  ])
+    expect(() => decodeSource({ ...valid, ...change })).toThrow();
 });

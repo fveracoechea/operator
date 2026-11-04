@@ -13,6 +13,7 @@ import { decodeSource } from "./snapshot.ts";
 import {
   storedCleanup,
   storedLaunch,
+  storedPromotion,
   storedPullRequest,
   storedReport,
   storedSource,
@@ -549,6 +550,68 @@ test("an abandoned start offers a replacement worker", async () => {
   expect(result.tag === "Ok" ? result.value.sources[0]?.actions[0] : null).toMatchObject({
     action: "replace_worker",
     reason: "launch_abandoned",
+  });
+});
+
+/** Report `read` promoted into `build`, whose launch took over the worker. */
+function promoted(build: Partial<ReturnType<typeof storedLaunch>> = {}, state = "running") {
+  const read = storedSource([{ key: "read", completion: "report", state: "completed" }], {
+    launches: [
+      storedLaunch("read", { state: "finished", worktreePath: "/worktrees/read" }),
+      ...(state === "ready"
+        ? []
+        : [
+            storedLaunch("build", {
+              resources: "worktree",
+              worktreePath: "/worktrees/read",
+              ...build,
+            }),
+          ]),
+    ],
+    reports: [storedReport("read", { decision: "accepted", cleanupState: "done" })],
+  });
+  const { assignment, promotion } = storedPromotion("read", "build", {
+    state,
+    handoverLaunchId: state === "ready" ? null : "l-build",
+  });
+  return { ...read, assignments: [...read.assignments, assignment], promotions: [promotion] };
+}
+
+test("a worker that took over a promoted report shows notify_worker until Herdr sees it", async () => {
+  stored([promoted()]);
+  const unseen = await next();
+  expect(unseen.tag === "Ok" ? unseen.value.sources[0]?.actions : null).toEqual([
+    expect.objectContaining({
+      assignment: "build",
+      action: "notify_worker",
+      reason: "assignment_promoted",
+      brief: `${files}/build/brief.md`,
+      dependencyReports: [expect.objectContaining({ assignment: "read", report: 1 })],
+    }),
+  ]);
+  stored([promoted({ activity: "working", activityAt: "2026-01-05T00:00:00.000Z" })]);
+  const seen = await next();
+  expect(seen.tag === "Ok" ? seen.value.sources[0] : null).toMatchObject({
+    actions: [],
+    waits: [{ assignment: "build", reason: "assignment_active" }],
+  });
+  // A later replacement of the handover launch is an ordinary start.
+  stored([promoted({ id: "l-other", attempt: 2 })]);
+  const replaced = await next();
+  expect(replaced.tag === "Ok" ? replaced.value.sources[0]?.waits : null).toMatchObject([
+    { assignment: "build", reason: "assignment_active" },
+  ]);
+  expect(replaced.tag === "Ok" ? replaced.value.sources[0]?.waits[0] : null).not.toHaveProperty(
+    "brief",
+  );
+});
+
+test("a promoted report whose worker stopped offers its PR assignment for dispatch", async () => {
+  stored([promoted({}, "ready")]);
+  const result = await next();
+  expect(result.tag === "Ok" ? result.value.sources[0] : null).toMatchObject({
+    state: "open",
+    actions: [{ assignment: "build", action: "ready_assignment" }],
   });
 });
 

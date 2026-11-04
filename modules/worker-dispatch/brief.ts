@@ -19,6 +19,8 @@ type BriefInput = {
   stack: { assignment: string; number: number; branch: string } | null;
   /** The launch's resolved internal review value. Only a PR assignment uses it. ADR-0020. */
   internalReview: boolean;
+  /** The accepted report that this PR assignment was promoted from. ADR-0023. */
+  promotion: { report: string; number: number } | null;
 };
 
 function list(files: string[], directory: string) {
@@ -57,6 +59,18 @@ The SuperAgent accepted these reports of the assignments that this work depends 
 Check whether each unresolved point applies to your task. Tell your supervising SuperAgent about each point that does.
 
 ${reports.join("\n")}`;
+}
+
+/** The promoted worktree can hold prototype changes that the PR must not keep. ADR-0023. */
+function promotion(input: BriefInput) {
+  if (input.promotion === null) return "";
+  return `
+## Promotion
+
+The SuperAgent promoted report ${input.promotion.number} of \`${input.promotion.report}\` into this PR assignment.
+You work in that report's worktree, and its accepted report is listed above.
+The worktree can hold prototype changes that the PR must not keep. Clean the branch before your first push.
+`;
 }
 
 /** The relay and the guarded merge own a stack, so a `gh stack` write would race them. ADR-0010. */
@@ -170,7 +184,7 @@ Read all of it before you start.
 - Start profile: ${input.profile === null ? "the device default" : `\`${input.profile}\``}.
 
 ${input.instructions}
-${dependencyReports(input)}
+${dependencyReports(input)}${promotion(input)}
 ## Grilling authority
 
 The task instructions state who answers questions and what the SuperAgent may decide.
