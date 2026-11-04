@@ -22,6 +22,7 @@ function blocked(conditions: MergeConditions) {
     conditions.checksPassing ? null : "at least one check with every check passing",
     conditions.threadsResolved ? null : "no unresolved review thread",
     conditions.defaultBase ? null : "the default branch as base",
+    conditions.notDraft ? null : "the ready-for-review state",
     conditions.stackRelayed ? null : "a finished parent-merge relay",
   ].filter((text) => text !== null);
   return `The PR needs ${missing.join(", ")}. ${nothing}`;
@@ -66,7 +67,7 @@ const rules: { when: (facts: Facts) => boolean; decide: (facts: Facts) => Decisi
 
 /**
  * The PR merge gate over a fresh observation. A wait result or a supervisor's claim is never an
- * input, so only GitHub's current approval, checks, threads, and base permit the merge.
+ * input, so only GitHub's current approval, checks, threads, base, and draft state permit the merge.
  */
 export function decideMerge(facts: Facts): Decision {
   return (

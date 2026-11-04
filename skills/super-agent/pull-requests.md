@@ -40,7 +40,7 @@ In this release, you do the handoff, and Operator does not record or check the r
 Keep these rules while a PR is a draft:
 
 - Keep `review.assignments` off. If it is on, `review next` shows `start_reviewer` for the draft. Run that command only after the PR is ready.
-- Ask nobody to approve the PR. The owner runs the guarded merge only after the PR is ready, also when a wait reports `merge_eligible` for the draft.
+- Ask nobody to approve the PR.
 
 To skip a running internal review, on the person's instruction, tell the owner to mark the draft ready with no comment.
 If internal review is off when you dispatch the reviewer, its brief does not make it the reviewer. Tell that owner to mark the draft ready with `gh pr ready`, then to run its PR feedback loop.
