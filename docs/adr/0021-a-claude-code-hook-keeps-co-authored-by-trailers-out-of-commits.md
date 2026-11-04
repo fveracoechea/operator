@@ -26,9 +26,9 @@ The hook reads the message from the command text, which holds `-m` values, hered
 A message from an editor, from `--no-edit`, or from a reused commit is not in the command, so the hook allows it.
 An agent cannot use an editor, and a reused message passed the hook when it was first written.
 
-`operator install --claude` adds one `PreToolUse` group to the person's Claude Code user settings, after the groups that the person has.
-The group matches Bash and filters on `Bash(git *)`, so the hook does not start on other commands.
-A settings file that already runs the hook command in any `PreToolUse` group is installed, and the file stays unwritten.
+`operator install --claude` adds one `PreToolUse` group to the person's Claude Code user settings, after the groups that the person has, and one `Stop` group for the turn-end guard.
+The `PreToolUse` group matches Bash and filters on `Bash(git *)`, so the hook does not start on other commands.
+A settings file that already runs the hook command in a group for each event is installed, and the file stays unwritten.
 Check mode, a Nix release, and readiness only read the settings.
 A linked or read-only settings file belongs to its owner, such as a dotfiles repository, as linked skills do in ADR-0008.
 Operator then refuses the write and names the exact group to add.
@@ -38,7 +38,7 @@ It grants nothing and passes no permission mode. It only denies one kind of comm
 
 ## Consequences
 
-- A device whose Claude Code settings live in a dotfiles repository is not ready until the person adds the group to that repository.
+- A device whose Claude Code settings live in a dotfiles repository is not ready until the person adds both groups to that repository.
 - An agent can still commit a trailer through an editor message, a reused commit, or a command that hides the message from the hook.
   The hook is a nudge, and there is no CI check of commit trailers.
 - A hook that cannot read its event exits 1, and Claude Code runs the command. A broken hook fails open.

@@ -20,9 +20,8 @@ Implementation, review, reading, investigation, research, triage, planning, and 
 _Avoid_: Operative, Crew member, Agent as a role
 
 **Rules of the person**:
-The five rules that require delegation by SuperAgents, the PR merge gate, preservation of unlanded work, reporting through the supervising SuperAgent, and minimum SuperAgent context usage.
+The five rules that require delegation by SuperAgents, the PR merge gate, preservation of unlanded work, reporting to the supervising SuperAgent through recorded Operator state rather than text typed into its pane, and minimum SuperAgent context usage.
 They permit coordination commands and communication between SuperAgents through Herdr without transferring the workers' tasks to a supervisor.
-A WorkerAgent reaches its SuperAgent only through recorded Operator state, never through text typed into the SuperAgent's pane.
 
 **SuperAgent decision**:
 A decision within the authority that the assignment instructions delegate to a SuperAgent.
@@ -70,11 +69,11 @@ The result of the current static readiness checks, not proof that an agent or pr
 Required tools, GitHub authentication, required skill contents, and the commit hook on Claude Code must pass those checks.
 
 **Static readiness check**:
-A current observation of required executable availability, GitHub authentication, required skill files, or the commit hook entry in Claude Code settings.
+A current observation of required executable availability, GitHub authentication, required skill files, or the Claude Code hook entries in Claude Code settings.
 It launches no agent and retains no live-probe evidence.
 
 **Commit hook**:
-Operator's Claude Code hook, `operator claude hook`, which denies a `git commit` whose message carries a Co-Authored-By trailer.
+Operator's Claude Code hook, `operator claude hook`, which denies a `git commit` whose message carries a Co-Authored-By trailer and, on the Stop event, acts as the turn-end guard.
 It never allows a tool. `operator install --claude` adds it to the person's Claude Code user settings.
 _Avoid_: permission rule, attribution setting
 
@@ -116,7 +115,7 @@ A running worker keeps that selection, while a replacement uses the settings res
 ## Delegated work
 
 **Work source**:
-A registered plan of assignments, dependencies, and tracker keys supplied by a SuperAgent, not read from a tracker by the CLI.
+A registered plan of assignments, dependencies, and tracker keys supplied by a SuperAgent, not read from a tracker by the CLI, plus any PR assignments that promotion adds.
 Each registration has a new identity, and a source is ended when it is finished or reset.
 
 **Assignment**:
@@ -170,7 +169,7 @@ The SuperAgent runs it in the background, so its host delivers the result as a n
 _Avoid_: poll, watcher, worker ping
 
 **Supervising pane**:
-The Herdr pane that Operator records as the SuperAgent of a source, from the pane that last dispatched its work or ran its coordination wait.
+The Herdr pane that Operator records as the SuperAgent of a source: the pane that last dispatched its work or ran its coordination wait.
 
 **Worker question**:
 A keyed question that a WorkerAgent records for its supervising SuperAgent, which stays open in next actions until it is answered on the record.
@@ -178,24 +177,24 @@ A question that the SuperAgent passes to the person is a person decision until t
 _Avoid_: blocker message, grilling message
 
 **Steering message**:
-A recorded instruction from a SuperAgent to a running WorkerAgent, which stays pending until the worker acknowledges it.
+A recorded instruction from a SuperAgent, or from an operation that it runs, to a running WorkerAgent, which stays pending until the worker acknowledges it.
 An answer to a worker question reaches the worker as a steering message.
 _Avoid_: nudge, pane message
 
 **Turn-end guard**:
 The Stop branch of Operator's Claude Code hook, which keeps a SuperAgent from ending its turn while it supervises running work and no coordination wait runs.
-It blocks once in a row, and OpenCode has no equivalent.
+It blocks at most once in a row, and OpenCode has no equivalent.
 
 **Doorbell**:
 A short fixed line that the CLI types into a worker's pane to name a pending record, and that carries no instruction of its own.
 Only a worker pane gets a doorbell, because no person types there.
 
 **Running cap**:
-A plan's optional limit on its assignments with a starting or live worker, above which next actions list none of its ready assignments.
+A plan's optional limit on its assignments with a starting or live worker, at which next actions list none of its ready assignments.
 _Avoid_: quota, capacity setting
 
 **Promotion**:
-The SuperAgent's acceptance of a report that also adds a PR assignment, which takes over the report's worktree and, while it runs, its worker.
+The SuperAgent's acceptance of a report that also adds a PR assignment, which takes over the report's worktree, and also its worker when that worker still runs.
 The report keeps its completion type, and the PR assignment is a new record.
 _Avoid_: conversion, report upgrade
 

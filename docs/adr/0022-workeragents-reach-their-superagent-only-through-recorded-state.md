@@ -4,6 +4,7 @@
 
 Accepted - 2026-11-04.
 Decided in #313.
+Amends ADR-0021.
 
 ## Context
 
@@ -31,11 +32,12 @@ The CLI records the set that it last returned for each scope, and a new wait com
 A change that happened between two waits therefore returns at once, also after a restart.
 A wait does not return just because a non-wait action exists, because a person decision that the SuperAgent left for the person would then end every wait at once.
 The CLI also records each running wait with its process, so other operations can tell whether a SuperAgent is waiting.
-The pane that runs the wait or dispatches a source's work is that source's supervising pane.
+The pane that last ran the wait or dispatched a source's work is that source's supervising pane.
 
 The SuperAgent runs the wait as a background command, so the host delivers its result as a new turn rather than as typed input.
 On Claude Code this is a Bash command run in the background: the session continues, and the command's exit wakes the agent with its output.
-On OpenCode it is the shell tool's background mode: its exit posts a synthetic message that resumes the session, and messages that the server admits do not touch the TUI's unsent prompt.
+On OpenCode it is the shell tool's background mode, whose exit posts a synthetic message that resumes the session.
+Messages that the OpenCode server admits do not touch the TUI's unsent prompt.
 Herdr offers no way to hand text to an agent other than typing it: agent prompts and pane sends both type into the pane, and Herdr notifications reach the person, not the agent.
 A host that cannot deliver a background result gets no typed fallback.
 Its SuperAgent reads next actions when the person prompts it or runs the wait in the foreground, and the cost is a later reaction to worker events.
@@ -47,7 +49,7 @@ The worker identifies its assignment the same way as PR operations, through its 
 The question lifecycle is an explicit state machine with the states open, awaiting person, answered, withdrawn, and abandoned.
 
 An open question appears in next actions as a question to answer, ahead of the idle-worker attention for the same assignment.
-The SuperAgent answers within its grilling authority, or moves the question to awaiting person, which next actions show as a person decision.
+The SuperAgent answers within its grilling authority, or moves the question to awaiting person, which next actions show as `person_decision`.
 Every answer is recorded with `by: super-agent | person`.
 `person` applies only when the person gave the answer, and an answer that the SuperAgent infers or accepts stays `super-agent`.
 The worker can withdraw a question that it no longer needs.
@@ -61,7 +63,7 @@ It is typed into the worker's pane, which no person types into.
 The worker reads the message from the record and acknowledges it, and the acknowledgement can carry a short reply.
 The steering lifecycle is an explicit state machine with the states pending, acknowledged, replied, closed, and abandoned.
 A reply appears in next actions until the SuperAgent closes the message.
-A message that stays pending past a fixed period, or whose doorbell failed, appears as worker attention.
+A message that stays pending past a fixed period, or whose doorbell failed, appears as `worker_attention`.
 The SuperAgent can ring the doorbell of a pending message again.
 
 An answer to a worker question reaches the worker as a steering message, so delivery, the doorbell, and acknowledgement have one implementation.
@@ -71,7 +73,8 @@ Report follow-up keeps its own recorded return and resume, because acceptance de
 ### Turn-end guard
 
 On Claude Code, Operator's existing Claude Code hook also handles the Stop event.
-In a supervising pane, it blocks the end of a turn while next actions for that pane's sources show a running worker and no recorded coordination wait runs, and its reason tells the agent to start the wait in the background.
+In a supervising pane, it blocks the end of a turn while that pane's sources have a running worker and no recorded coordination wait runs.
+Its reason tells the agent to start the wait in the background.
 It blocks at most once in a row, so a SuperAgent that the person told to stop can still stop.
 Unlike the commit check, this branch reads device state, and it allows the stop when the state is missing, blocked, or unreadable.
 The install adds the Stop group beside the commit group, and readiness checks both.
@@ -83,8 +86,9 @@ The OpenCode SuperAgent starts the wait because its skill says so, which is a ru
 ### What each mechanism replaces
 
 - A worker's "report submitted" message: the coordination wait returns the report awaiting acceptance.
-- A worker's "draft PR ready for internal review" message: the coordination wait returns the handoff action after the PR is associated.
-- A worker's "merge started" message: the coordination wait returns the cleanup and the ended assignment after the merge is recorded.
+- A worker's "draft PR ready for internal review" message: the coordination wait returns the idle PR owner after the implementer stops, which is the handoff point until ADR-0020's CLI handoff records it.
+- A worker's "merge started" message: the coordination wait returns the ended assignment, or the failed cleanup, after the merge and its cleanup.
+  A running merge or cleanup is a wait, so the SuperAgent learns of the merge only when it ends.
 - A refusal that the worker cannot fix: a worker question with the refusal as its content.
 - A status reply: the record answers first, through next actions, PR wait results, reports, and Herdr agent state.
   A SuperAgent that needs more sends a steering message, and the worker's acknowledgement carries the reply.
