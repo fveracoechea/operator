@@ -22,7 +22,7 @@ A WorkerAgent submits a durable report through the CLI with a short conclusion, 
 Herdr activity or a completion event proves neither submission nor acceptance.
 
 The supervising SuperAgent accepts the report or returns specific follow-up instructions.
-An acceptance can also promote the report, which adds a PR assignment that takes over the report's worktree and, while it runs, its worker.
+An acceptance can also promote the report, which adds a PR assignment that takes over the report's worktree, and also its worker when that worker still runs.
 Submission alone does not unblock dependencies.
 Returned work resumes as running when the worker resumes.
 A stopped or failed worker leaves its incomplete work available for replacement, with the brief, earlier reports, and follow-up instructions preserved.
