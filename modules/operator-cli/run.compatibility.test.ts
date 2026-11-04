@@ -133,7 +133,7 @@ test("startup upgrades matching older history before a state-free handler and ve
     output: { reason: "version_reported" },
   });
   using db = new Database(`${root}/state/operator/operator.sqlite`, { readonly: true });
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(11);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(12);
   expect(db.query("SELECT * FROM sources").all()).toEqual([]);
   const copies = await backups();
   expect(copies).toHaveLength(1);
@@ -345,7 +345,7 @@ test("device-wide active assignments and migration-specific held records stop st
     output: { reason: "state_migration_blocked" },
   });
   expect((await backups()).toSorted()).toEqual(copies.toSorted());
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(11);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(12);
   db.exec("UPDATE sources SET state = 'finished'");
   expect((await run(["--version"], entry)).code).toBe(0);
   expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(12);
@@ -423,7 +423,7 @@ Database.prototype.serialize = function(...args) {
   );
   expect(await backups()).toHaveLength(1);
   using db = new Database(`${root}/state/operator/operator.sqlite`, { readonly: true });
-  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(11);
+  expect(db.query("SELECT * FROM __drizzle_migrations").all()).toHaveLength(12);
 });
 
 test("a pending migration has a definite writer timeout and never runs its handler", async () => {

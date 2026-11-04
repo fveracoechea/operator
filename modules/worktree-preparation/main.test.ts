@@ -140,6 +140,55 @@ test.each(["bun.lock", "bun.lockb"])(
   },
 );
 
+test("the install records the ignored files that its lifecycle scripts wrote", async () => {
+  await Bun.write(`${worktree}/bun.lock`, "lock\n");
+  git(worktree, "add", "bun.lock");
+  await Bun.write(`${worktree}/ignored.txt`, "before\n");
+  install(async () => {
+    await Bun.write(`${worktree}/.husky/_/.gitignore`, "*\n", { createPath: true });
+    await Bun.write(`${worktree}/.husky/_/h`, "hook\n");
+    await Bun.write(`${worktree}/node_modules/pkg/index.js`, "x\n", { createPath: true });
+    return { status: "completed", exitCode: 0, stdout: "", stderr: "" };
+  });
+  expect((await WorktreePreparation.prepare({ paths, worktree })).tag).toBe("Ok");
+  const read = DeviceState.readPreparation(paths, worktree);
+  const installed = read.tag === "Ok" ? read.value?.installed : null;
+  expect(JSON.parse(installed ?? "null")).toEqual([
+    {
+      path: ".husky/_/.gitignore",
+      hash: new Bun.CryptoHasher("sha256").update("*\n").digest("hex"),
+    },
+    { path: ".husky/_/h", hash: new Bun.CryptoHasher("sha256").update("hook\n").digest("hex") },
+  ]);
+  const ignored = [".husky/_/.gitignore", ".husky/_/h", "ignored.txt", "node_modules/"];
+  expect(
+    await WorktreePreparation.classifyIgnored({ paths, worktree, controller, ignored }),
+  ).toEqual(
+    Ok({
+      generated: [".husky/_/.gitignore", ".husky/_/h", "node_modules/"],
+      unknown: ["ignored.txt"],
+    }),
+  );
+});
+
+test("an install whose ignored files Git cannot list records no install output", async () => {
+  await Bun.write(`${worktree}/bun.lock`, "lock\n");
+  spyOn(ToolInvocation, "run").mockImplementation(async (input) => {
+    if (input.tool === process.execPath) {
+      await Bun.write(`${worktree}/.husky/_/h`, "hook\n", { createPath: true });
+      return { status: "completed", exitCode: 0, stdout: "", stderr: "" };
+    }
+    // Only the worktree listings fail. The controller still lists its environment files.
+    return input.args.includes("ls-files") && input.args.includes(worktree)
+      ? { status: "completed", exitCode: 128, stdout: "", stderr: "fatal" }
+      : run(input);
+  });
+  expect((await WorktreePreparation.prepare({ paths, worktree })).tag).toBe("Ok");
+  expect(DeviceState.readPreparation(paths, worktree)).toMatchObject({
+    value: { state: "prepared", installed: null },
+  });
+});
+
 test.each([
   {
     name: "its error output",
