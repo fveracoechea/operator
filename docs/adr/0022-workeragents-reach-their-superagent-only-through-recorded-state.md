@@ -3,6 +3,7 @@
 ## Status
 
 Accepted - 2026-11-04.
+Decided in #313.
 
 ## Context
 
