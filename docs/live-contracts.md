@@ -19,7 +19,7 @@ When a contract fails, it prints the failed test and those versions again, then 
 When every contract passes, it writes the date, the versions, and the contract files to [live-contracts.json](live-contracts.json).
 Commit that file when you want to record a new verified set of versions.
 
-To run one family, pass its file to Bun with a `./` prefix, for example `bun test ./modules/herdr/main.contract.ts`.
+To run one family, pass its file to Bun with a `./` prefix and the runner's timeout, for example `bun test --timeout=60000 ./modules/herdr/main.contract.ts`.
 A run of a single file records no versions.
 
 ## What they cover
