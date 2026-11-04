@@ -93,3 +93,13 @@ test("accepts an out-of-order diamond graph without reordering the supplied plan
       .assignments.map((assignment) => assignment.key),
   ).toEqual(["last", "left", "read", "right"]);
 });
+test("accepts an optional positive whole running cap", () => {
+  expect(planSchema.parse({ trackerKey: "APP-1", maxRunning: 2, assignments: [] }).maxRunning).toBe(
+    2,
+  );
+  expect(planSchema.parse({ trackerKey: "APP-1", assignments: [] }).maxRunning).toBeUndefined();
+  for (const maxRunning of [0, -1, 1.5, "2", null])
+    expect(planSchema.safeParse({ trackerKey: "APP-1", maxRunning, assignments: [] }).success).toBe(
+      false,
+    );
+});

@@ -398,7 +398,17 @@ function pullRequestFacts(pullRequest: PullRequest | undefined) {
   };
 }
 
+/** The plan's assignments whose latest worker starts or runs. Each holds one place under the cap. */
+function runningCount(source: Source) {
+  return source.plan.assignments.filter((assignment) => {
+    const launch = source.launches.findLast((row) => row.assignment === assignment.key);
+    return launch !== undefined && liveWorker(launch);
+  }).length;
+}
+
 function decide(input: Input, source: Source) {
+  const { maxRunning } = source.plan;
+  const running = runningCount(source);
   return source.plan.assignments.map((assignment) => {
     // Decoding matched each planned key to one stored row.
     const current = assignmentStateSchema.parse(
@@ -425,11 +435,14 @@ function decide(input: Input, source: Source) {
           ? undefined
           : { decision: report.decision, cleanup: report.cleanupState },
       cleanup: cleanupFact(cleanup),
+      capReached: maxRunning !== undefined && running >= maxRunning,
     });
+    const cap =
+      decision.reason === "running_cap_reached" ? { runningCap: { maxRunning, running } } : {};
     return described(
       input,
       source,
-      { assignment: assignment.key, ...decision },
+      { assignment: assignment.key, ...decision, ...cap },
       { assignment: assignment.key, launch, pullRequest, report, cleanup },
     );
   });

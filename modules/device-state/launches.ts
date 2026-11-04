@@ -24,7 +24,8 @@ export type LaunchFailure =
         | "source_not_found"
         | "assignment_not_dispatchable"
         | "launch_name_taken"
-        | "launch_not_starting";
+        | "launch_not_starting"
+        | "running_cap_reached";
       detail: string;
     };
 type LaunchResources = Partial<
@@ -79,12 +80,64 @@ function latestReturned(db: Db, sourceId: string, assignment: string) {
   return report?.decision === "returned";
 }
 
-/** Reserve the assignment before any external effect, so a second dispatch cannot start it. */
+/** The source's assignments whose latest launch runs or starts with a live owner. */
+function runningAssignments(db: Db, sourceId: string, now: number) {
+  const latest = new Map<string, LaunchRow>();
+  for (const row of db
+    .select()
+    .from(launches)
+    .where(eq(launches.sourceId, sourceId))
+    .orderBy(launches.attempt)
+    .all())
+    latest.set(row.assignment, row);
+  return [...latest.values()].filter(
+    (row) => row.state === "running" || (row.state === "starting" && !ownerGone(row, now)),
+  ).length;
+}
+
+/** Why the assignment cannot start now, or null when it can. */
+function startRefusal(
+  db: Db,
+  facts: {
+    source: { id: string; state: string };
+    key: string;
+    assignment: string | undefined;
+    latest: string | undefined;
+    abandoned: boolean;
+    maxRunning: number | undefined;
+    now: number;
+  },
+): LaunchFailure | null {
+  const { source, key, assignment, maxRunning } = facts;
+  const returned = latestReturned(db, source.id, key);
+  if (source.state !== "open" || !dispatchable(assignment, facts.latest, facts.abandoned, returned))
+    return {
+      reason: "assignment_not_dispatchable",
+      detail: `Assignment ${key} changed before dispatch. Read next actions again. Nothing was launched.`,
+    };
+  // Only ready work waits for a place. A replacement continues started work. ADR-0006.
+  if (
+    assignment === "ready" &&
+    maxRunning !== undefined &&
+    runningAssignments(db, source.id, facts.now) >= maxRunning
+  )
+    return {
+      reason: "running_cap_reached",
+      detail: `The plan's running cap of ${maxRunning} is reached. Read next actions again after a worker ends. Nothing was launched.`,
+    };
+  return null;
+}
+
+/**
+ * Reserve the assignment before any external effect, so a second dispatch cannot start it. The
+ * plan's running cap is checked in the same transaction, so two dispatches cannot both pass it.
+ */
 export function reserveLaunch(
   client: Database,
   checkout: string,
   repository: string,
   launch: Omit<LaunchRow, "attempt" | "ownerPid" | "leaseAt">,
+  maxRunning?: number,
 ) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db): Result<LaunchRow, LaunchFailure> => {
@@ -121,15 +174,16 @@ export function reserveLaunch(
         .get();
       const now = Date.now();
       const abandoned = latest?.state === "starting" && ownerGone(latest, now);
-      const returned = latestReturned(db, source.id, launch.assignment);
-      if (
-        source.state !== "open" ||
-        !dispatchable(assignment?.state, latest?.state, abandoned, returned)
-      )
-        return Err({
-          reason: "assignment_not_dispatchable",
-          detail: `Assignment ${launch.assignment} changed before dispatch. Read next actions again. Nothing was launched.`,
-        });
+      const refused = startRefusal(db, {
+        source,
+        key: launch.assignment,
+        assignment: assignment?.state,
+        latest: latest?.state,
+        abandoned,
+        maxRunning,
+        now,
+      });
+      if (refused !== null) return Err(refused);
       if (db.select().from(launches).where(eq(launches.name, launch.name)).get())
         return Err({
           reason: "launch_name_taken",
