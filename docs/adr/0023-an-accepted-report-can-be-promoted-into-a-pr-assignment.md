@@ -11,7 +11,7 @@ Amends ADR-0012 and ADR-0013.
 A report assignment often ends with the conclusion that the work should be built.
 The SuperAgent then registered a new source with a PR assignment that depended on the accepted report, and a fresh worker started without the investigation's context or the worktree that held its prototypes.
 Acceptance closed the report worker's pane, so that context was gone before the next registration.
-The comparison with firstmate recommended against a change because a new source already gave the same result.
+A comparison with firstmate, another agent coordination tool, recommended against a change because a new source already gave the same result.
 The person ordered promotion despite its conflict with fixed completion types and registered plans.
 
 ## Decision
@@ -22,7 +22,8 @@ The report assignment completes as an accepted report, so its dependents unblock
 The same source gains one new PR assignment, with instructions and a tracker key that the SuperAgent supplies, and the accepted report as its dependency.
 
 The PR assignment takes over the report assignment's worktree.
-When the report worker still runs, the CLI keeps its pane open, refreshes its brief from the PR template, and tells it through a steering message to read the new brief.
+When the report worker still runs, the CLI keeps its pane open and refreshes its brief from the PR template.
+The promotion records a steering message from the SuperAgent that tells the worker to read the new brief.
 That worker becomes the PR owner with its investigation context.
 When the worker has stopped, the PR assignment starts like any replacement, in the same worktree, with the accepted report among its earlier reports.
 The worktree's branch takes the PR assignment's name before its first push, so names keep showing the task type.
