@@ -321,6 +321,11 @@ test("a handoff that cannot close the implementer's pane stays retryable, and th
         ],
       },
     });
+  // A retry that meets the same Herdr failure exits as a dispatch does.
+  expect(await run(["handoff", "--source", source, "--assignment", "implement"])).toMatchObject({
+    code: 1,
+    output: { reason: "herdr_failed" },
+  });
   await herdrFail({});
   expect(await run(["handoff", "--source", source, "--assignment", "implement"])).toMatchObject({
     code: 0,
