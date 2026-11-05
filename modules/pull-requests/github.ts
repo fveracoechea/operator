@@ -22,7 +22,7 @@ const pullRequestQuery = `query($owner: String!, $name: String!, $number: Int!) 
     defaultBranchRef { name }
     viewerDefaultMergeMethod
     pullRequest(number: $number) {
-      state baseRefName headRefName headRefOid reviewDecision
+      state isDraft baseRefName headRefName headRefOid reviewDecision
       mergeCommit { oid }
       reviews(last: 100) { nodes { id state body url author { login } } }
       comments(last: 100) { nodes { id body url author { login } } }
@@ -50,6 +50,7 @@ const pullRequestAnswer = z.object({
         baseRefName: z.string(),
         headRefName: z.string(),
         headRefOid: z.string(),
+        isDraft: z.boolean(),
         reviewDecision: z.string().nullable(),
         mergeCommit: z.object({ oid: z.string() }).nullable(),
         reviews: z.object({
@@ -172,6 +173,7 @@ export type Observation = {
   mergeMethod: "merge" | "squash" | "rebase";
   base: string;
   defaultBranch: string | null;
+  draft: boolean;
   approved: boolean;
   /** Counts each thread past the read as unresolved, because the gate cannot see it. */
   unresolvedThreads: number;
@@ -317,6 +319,7 @@ export function observation(data: z.infer<typeof pullRequestAnswer>["data"]): Ob
           : "rebase",
     base: pr.baseRefName,
     defaultBranch: data.repository.defaultBranchRef?.name ?? null,
+    draft: pr.isDraft,
     approved: pr.reviewDecision === "APPROVED",
     unresolvedThreads:
       threads.nodes.filter((thread) => !thread.isResolved).length + unread(threads),

@@ -76,6 +76,6 @@ Write no line-level review comments and no other PR comments.
 ## 6. Own the PR to its merge
 
 After the PR is ready, follow [pull-requests.md](pull-requests.md) from step 3 on: run `operator pr wait --json`, handle each result, and run the guarded merge on `merge_eligible`.
-A draft is never merged. Run `operator pr wait --json` only after the PR is ready.
+Run `operator pr wait --json` only after the PR is ready.
 
 If the SuperAgent tells you that the person skipped the internal review, stop the review, run `gh pr ready <number>` with no comment, and continue with step 6.
