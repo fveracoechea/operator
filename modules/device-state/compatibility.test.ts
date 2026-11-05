@@ -90,6 +90,14 @@ test("an older history upgrades once behind a verified backup, and retention kee
     expect(db.query("SELECT name FROM sqlite_master WHERE name = 'slack_effects'").all()).toEqual([
       { name: "slack_effects" },
     ]);
+    expect(
+      db
+        .query(
+          "SELECT name FROM sqlite_master WHERE name IN ('internal_reviews', 'internal_review_rounds') ORDER BY name",
+        )
+        .all(),
+    ).toEqual([{ name: "internal_review_rounds" }, { name: "internal_reviews" }]);
+    expect(db.query("SELECT internal_review FROM launches").all()).toEqual([]);
   }
   const first = await backups(paths.backups);
   expect(first).toHaveLength(1);

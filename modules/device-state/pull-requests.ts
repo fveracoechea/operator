@@ -4,7 +4,15 @@ import { Err, Ok, type Result } from "unthrown";
 import { z } from "zod";
 import { checkHistory, transaction, type Db } from "./database.ts";
 import { ownerGone } from "./leases.ts";
-import { assignments, cleanups, launches, projects, pullRequests, sources } from "./schema.ts";
+import {
+  assignments,
+  cleanups,
+  internalReviews,
+  launches,
+  projects,
+  pullRequests,
+  sources,
+} from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
 import { requestAssignmentReview } from "./review-requests.ts";
 import { abandonQuestions } from "./sources.ts";
@@ -18,7 +26,8 @@ export type PullRequestFailure =
         | "pr_already_associated"
         | "pr_owned_elsewhere"
         | "pr_not_associated"
-        | "pr_branch_mismatch";
+        | "pr_branch_mismatch"
+        | "internal_review_not_recorded";
       detail: string;
     };
 
@@ -42,6 +51,9 @@ export function worktreeOwners(client: Database) {
           assignmentState: assignments.state,
           pullRequest: pullRequests.number,
           relay: pullRequests.relay,
+          internalReview: launches.internalReview,
+          reviewState: internalReviews.state,
+          implementerLaunchId: internalReviews.implementerLaunchId,
         })
         .from(launches)
         .innerJoin(sources, eq(sources.id, launches.sourceId))
@@ -58,6 +70,13 @@ export function worktreeOwners(client: Database) {
           and(
             eq(pullRequests.sourceId, launches.sourceId),
             eq(pullRequests.assignment, launches.assignment),
+          ),
+        )
+        .leftJoin(
+          internalReviews,
+          and(
+            eq(internalReviews.sourceId, launches.sourceId),
+            eq(internalReviews.assignment, launches.assignment),
           ),
         )
         .where(isNotNull(launches.worktreePath))
@@ -77,7 +96,7 @@ export function worktreeOwners(client: Database) {
  * Every PR write checks again that this launch is the running latest start of an open PR
  * assignment. A replaced or interrupted owner cannot change the assignment or its progress.
  */
-function activeOwner(db: Db, launchId: string) {
+export function activeOwner(db: Db, launchId: string) {
   const owner = db
     .select({ launch: launches, source: sources, assignment: assignments })
     .from(launches)
@@ -117,6 +136,29 @@ function activeOwner(db: Db, launchId: string) {
   return Ok(owner);
 }
 
+/**
+ * Records a new internal review in the association's own write. Its handoff is pending and held
+ * by the associating process until the handoff process that it starts takes it over.
+ */
+function insertInternalReview(
+  db: Db,
+  review: { sourceId: string; assignment: string; implementerLaunchId: string },
+) {
+  const now = new Date().toISOString();
+  db.insert(internalReviews)
+    .values({
+      ...review,
+      state: "reviewing",
+      handoffState: "pending",
+      handoffDetail: null,
+      startedAt: now,
+      updatedAt: now,
+      ownerPid: process.pid,
+      leaseAt: now,
+    })
+    .run();
+}
+
 function current(db: Db, sourceId: string, assignment: string) {
   return db
     .select()
@@ -125,12 +167,16 @@ function current(db: Db, sourceId: string, assignment: string) {
     .get();
 }
 
-/** One PR moves its assignment from running to PR open. A repeated association changes nothing. */
+/**
+ * One PR moves its assignment from running to PR open. A repeated association changes nothing.
+ * With internal review on, the same write records the review and its pending handoff.
+ */
 export function associatePullRequest(
   client: Database,
   launchId: string,
   pr: Pick<PullRequestRow, "number" | "url" | "branch" | "relay">,
   review = false,
+  internalReview = false,
 ) {
   return transaction(client, true, () =>
     checkHistory(client).flatMap((db) =>
@@ -190,6 +236,12 @@ export function associatePullRequest(
             .set({ state: "pr-open" })
             .where(and(eq(assignments.sourceId, source.id), eq(assignments.key, assignment.key)))
             .run();
+          if (internalReview)
+            insertInternalReview(db, {
+              sourceId: source.id,
+              assignment: assignment.key,
+              implementerLaunchId: launchId,
+            });
           if (review)
             requestAssignmentReview(db, {
               repository: source.repository,

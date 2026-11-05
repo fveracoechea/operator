@@ -156,7 +156,7 @@ if (args.includes("PATCH")) {
   answer({ number, base: { ref: pr.baseRefName } });
 } else if (query.includes("pullRequests(")) {
   const branch = field("branch");
-  answer({ data: { repository: { defaultBranchRef: { name: state.defaultBranch ?? "main" }, pullRequests: nodes(state.pulls.filter((pr) => pr.headRefName === branch && pr.state === "OPEN").map((pr) => ({ number: pr.number, url: pr.url, baseRefName: pr.baseRefName ?? "main", headRefName: pr.headRefName, headRepository: { nameWithOwner: pr.headRepository } }))) } } });
+  answer({ data: { repository: { defaultBranchRef: { name: state.defaultBranch ?? "main" }, pullRequests: nodes(state.pulls.filter((pr) => pr.headRefName === branch && pr.state === "OPEN").map((pr) => ({ number: pr.number, url: pr.url, isDraft: pr.isDraft ?? false, baseRefName: pr.baseRefName ?? "main", headRefName: pr.headRefName, headRefOid: headOf(pr), headRepository: { nameWithOwner: pr.headRepository } }))) } } });
 } else if (query.includes("RelayParent")) {
   const number = Number(field("number"));
   const index = state.pulls.findIndex((pr) => pr.number === number);

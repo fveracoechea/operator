@@ -130,3 +130,58 @@ test("an idle host needs attention only for running work with a running launch",
     decision("wait", "assignment_active"),
   );
 });
+
+test("an internal review handoff is a wait while it runs, and a retry after it stops", () => {
+  // The implementer's idle, interrupted, or finished session is the planned end of its work.
+  for (const launch of ["running", "interrupted", "finished"] as const)
+    expect<unknown>(
+      decide(prRow("pr-open"), { launch, activity: "idle", handoff: "running" }),
+    ).toEqual(decision("wait", "internal_review_handoff"));
+  expect<unknown>(
+    decide(prRow("pr-open"), { launch: "running", activity: "idle", handoff: "failed" }),
+  ).toEqual(decision("retry_handoff", "internal_review_handoff_failed"));
+  expect<unknown>(decide(prRow("pr-open"), { launch: "interrupted", handoff: "stopped" })).toEqual(
+    decision("retry_handoff", "internal_review_handoff_stopped"),
+  );
+  // Once a reviewer starts, the handoff is no fact, and its launch decides as any owner's.
+  expect<unknown>(decide(prRow("pr-open"), { launch: "failed" })).toEqual(
+    decision("replace_worker", "launch_failed"),
+  );
+  // Only an open PR has a handoff.
+  for (const state of ["running", "merged"] as const)
+    expect<unknown>(decide(prRow(state), { launch: "running", handoff: "running" })).not.toEqual(
+      decision("wait", "internal_review_handoff"),
+    );
+  expect<unknown>(decide(prRow("running"), { launch: "running", handoff: "failed" })).not.toEqual(
+    decision("retry_handoff", "internal_review_handoff_failed"),
+  );
+  expect<unknown>(decide(prRow("running"), { launch: "running", handoff: "stopped" })).not.toEqual(
+    decision("retry_handoff", "internal_review_handoff_stopped"),
+  );
+});
+
+test("a running internal review is a wait until its reviewer starts the PR wait", () => {
+  expect<unknown>(
+    decide(prRow("pr-open"), { launch: "running", pullRequest: "idle", reviewing: true }),
+  ).toEqual(decision("wait", "internal_review_running"));
+  // The reviewer waits on the PR only after it marks it ready, so the feedback loop runs.
+  expect<unknown>(
+    decide(prRow("pr-open"), { launch: "running", pullRequest: "waiting", reviewing: true }),
+  ).toEqual(decision("wait", "pr_feedback_loop"));
+  expect<unknown>(
+    decide(prRow("pr-open"), { launch: "running", pullRequest: "idle", reviewing: false }),
+  ).toEqual(decision("wait", "pr_feedback_loop"));
+  // Only an open PR has a running review.
+  expect<unknown>(
+    decide(prRow("running"), { launch: "running", pullRequest: "idle", reviewing: true }),
+  ).toEqual(decision("wait", "assignment_active"));
+  // An idle reviewer still needs attention.
+  expect<unknown>(
+    decide(prRow("pr-open"), {
+      launch: "running",
+      pullRequest: "idle",
+      activity: "idle",
+      reviewing: true,
+    }),
+  ).toEqual(decision("owner_attention", "pr_owner_idle"));
+});

@@ -89,6 +89,8 @@ export const launches = sqliteTable(
     // The dispatching process and its lease. A gone process or a stale lease ends a start.
     ownerPid: integer("owner_pid"),
     leaseAt: text("lease_at"),
+    // The resolved internal review value of this start. Older releases recorded none.
+    internalReview: integer("internal_review", { mode: "boolean" }),
   },
   (table) => [
     foreignKey({
@@ -207,6 +209,59 @@ export const cleanups = sqliteTable(
     foreignKey({
       columns: [table.sourceId, table.assignment],
       foreignColumns: [assignments.sourceId, assignments.key],
+    }),
+  ],
+);
+
+// The internal review of one PR assignment. The implementer's draft association records it.
+export const internalReviews = sqliteTable(
+  "internal_reviews",
+  {
+    sourceId: text("source_id").notNull(),
+    assignment: text().notNull(),
+    // reviewing, then ready or skipped.
+    state: text().notNull(),
+    // The implementer launch whose session the handoff ends.
+    implementerLaunchId: text("implementer_launch_id")
+      .notNull()
+      .references(() => launches.id),
+    // The handoff to the reviewer: pending until the reviewer launch is reserved, or failed.
+    handoffState: text("handoff_state").notNull(),
+    handoffDetail: text("handoff_detail"),
+    startedAt: text("started_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+    // The handoff process and its lease. A gone process or a stale lease is a stopped handoff.
+    ownerPid: integer("owner_pid"),
+    leaseAt: text("lease_at"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sourceId, table.assignment] }),
+    foreignKey({
+      columns: [table.sourceId, table.assignment],
+      foreignColumns: [assignments.sourceId, assignments.key],
+    }),
+  ],
+);
+
+// Each round of an internal review, with the head it reviewed and its validated findings.
+export const internalReviewRounds = sqliteTable(
+  "internal_review_rounds",
+  {
+    sourceId: text("source_id").notNull(),
+    assignment: text().notNull(),
+    number: integer().notNull(),
+    launchId: text("launch_id")
+      .notNull()
+      .references(() => launches.id),
+    head: text().notNull(),
+    findings: text().notNull(),
+    recordedAt: text("recorded_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sourceId, table.assignment, table.number] }),
+    foreignKey({
+      columns: [table.sourceId, table.assignment],
+      foreignColumns: [internalReviews.sourceId, internalReviews.assignment],
     }),
   ],
 );

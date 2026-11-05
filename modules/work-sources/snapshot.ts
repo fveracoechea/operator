@@ -40,6 +40,8 @@ const launchSchema = z.object({
   failureDetail: z.string().nullable(),
   activity: z.string().nullable(),
   activityAt: z.string().nullable(),
+  // The resolved internal review value of this start. Older releases recorded none.
+  internalReview: z.boolean().nullable(),
   abandoned: z.boolean(),
 });
 export type Launch = z.infer<typeof launchSchema>;
@@ -115,6 +117,37 @@ const cleanupSchema = z.object({
 });
 export type Cleanup = z.infer<typeof cleanupSchema>;
 
+// The internal review and its handoff. ADR-0020.
+const internalReviewSchema = z.object({
+  assignment: z.string(),
+  state: z.enum(["reviewing", "ready", "skipped"]),
+  implementerLaunchId: z.string(),
+  handoffState: z.enum(["pending", "failed", "done"]),
+  handoffDetail: z.string().nullable(),
+  handoffRunning: z.boolean(),
+  startedAt: z.string(),
+  updatedAt: z.string(),
+});
+export type InternalReview = z.infer<typeof internalReviewSchema>;
+
+export const findingSchema = z.strictObject({
+  axis: z.enum(["Spec", "Standards", "Skills"]),
+  severity: z.enum(["blocker", "nice-to-have"]),
+  location: z.string().trim().min(1),
+  claim: z.string().trim().min(1),
+});
+export type Finding = z.infer<typeof findingSchema>;
+
+const roundSchema = z.object({
+  assignment: z.string(),
+  number: z.number().int().positive(),
+  launchId: z.string(),
+  head: z.string(),
+  findings: z.string().transform((text) => z.array(findingSchema).parse(JSON.parse(text))),
+  recordedAt: z.string(),
+});
+export type InternalReviewRound = z.infer<typeof roundSchema>;
+
 // A question is answered once, with the authority of its answer. Next actions show the unanswered.
 const questionSchema = z.object({
   assignment: z.string(),
@@ -165,18 +198,43 @@ function validQuestions(source: {
   );
 }
 
+/** Only an associated PR records an internal review, from one of its assignment's launches. */
+function reviewsConsistent(source: {
+  launches: Launch[];
+  pullRequests: PullRequest[];
+  internalReviews: InternalReview[];
+  internalReviewRounds: InternalReviewRound[];
+}) {
+  return (
+    source.internalReviews.every(
+      (review) =>
+        source.pullRequests.some((pr) => pr.assignment === review.assignment) &&
+        source.launches.some(
+          (launch) =>
+            launch.assignment === review.assignment && launch.id === review.implementerLaunchId,
+        ),
+    ) &&
+    source.internalReviewRounds.every((round) =>
+      source.internalReviews.some((review) => review.assignment === round.assignment),
+    )
+  );
+}
+
 /**
  * A report belongs to a report assignment and to one of its launches, and so does a question to
  * its own assignment. A launch already shows that its assignment left the ready state.
  */
-function validRecords(source: {
-  assignments: { key: string; completion: string; state: string }[];
-  launches: { id: string; assignment: string }[];
-  reports: { assignment: string; launchId: string }[];
-  questions: Question[];
-}) {
+function validRecords(
+  source: {
+    assignments: { key: string; completion: string; state: string }[];
+    launches: Launch[];
+    reports: { assignment: string; launchId: string }[];
+    questions: Question[];
+  } & Parameters<typeof reviewsConsistent>[0],
+) {
   return (
     validQuestions(source) &&
+    reviewsConsistent(source) &&
     source.reports.every(
       (report) =>
         source.assignments.some(
@@ -271,6 +329,8 @@ export function decodeSource(input: StoredSource) {
     pullRequests: z.array(pullRequestSchema).parse(input.pullRequests),
     reports: z.array(reportSchema).parse(input.reports),
     cleanups: z.array(cleanupSchema).parse(input.cleanups),
+    internalReviews: z.array(internalReviewSchema).parse(input.internalReviews),
+    internalReviewRounds: z.array(roundSchema).parse(input.internalReviewRounds),
     questions: z.array(questionSchema).parse(input.questions),
   };
   const promotions = z.array(promotionSchema).parse(input.promotions);

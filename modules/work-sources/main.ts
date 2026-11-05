@@ -17,7 +17,9 @@ import { assignmentStateSchema, decideAssignment } from "./assignment-machine.ts
 import { decidePrune, decideReset, decideSource } from "./source-machine.ts";
 import {
   decodeSource,
+  findingSchema,
   type Cleanup,
+  type InternalReview,
   type Launch,
   type PullRequest,
   type Question,
@@ -96,6 +98,27 @@ function cleanupSummary(cleanup: Cleanup) {
     state: cleanup.running ? "running" : cleanup.state,
     failure: cleanup.reason === null ? null : { reason: cleanup.reason, detail: cleanup.detail },
     updatedAt: cleanup.updatedAt,
+  };
+}
+
+function reviewSummary(source: Source, review: InternalReview) {
+  return {
+    state: review.state,
+    rounds: source.internalReviewRounds
+      .filter((round) => round.assignment === review.assignment)
+      .map((round) => ({
+        number: round.number,
+        head: round.head,
+        findings: round.findings.length,
+        blockers: round.findings.filter((finding) => finding.severity === "blocker").length,
+      })),
+    handoff: {
+      state:
+        review.handoffState === "pending" && !review.handoffRunning
+          ? "stopped"
+          : review.handoffState,
+      detail: review.handoffDetail,
+    },
   };
 }
 
@@ -238,6 +261,22 @@ export const WorkSources = {
    */
   dependencyReports(source: Source, assignment: string) {
     return dependencyReports(source, assignment);
+  },
+  /**
+   * Validates the findings of one internal review round: each has an axis, a severity, a
+   * location, and a claim, and nothing else. ADR-0020.
+   */
+  parseFindings(text: string) {
+    return fromThrowable(
+      () => z.strictObject({ findings: z.array(findingSchema) }).parse(JSON.parse(text)).findings,
+      (cause, defect) =>
+        cause instanceof z.ZodError || cause instanceof SyntaxError
+          ? {
+              reason: "internal_review_findings_invalid" as const,
+              detail: `The findings file must hold JSON {"findings": [...]}, where each finding has only axis (Spec, Standards, or Skills), severity (blocker or nice-to-have), location, and claim. ${cause instanceof z.ZodError ? z.prettifyError(cause).replaceAll("\n", " ") : cause.message} Nothing was recorded.`,
+            }
+          : defect(cause),
+    )();
   },
   /** The source state that follows from its assignment states, for writes that end work. */
   stateAfter(assignments: { key: string; completion: string; state: string }[]) {
@@ -513,6 +552,13 @@ function dependencyReports(source: Source, assignment: string) {
   });
 }
 
+/** A handoff that a reviewer start ended is no longer a fact. */
+function handoffFact(review: InternalReview | undefined) {
+  if (review === undefined || review.handoffState === "done") return undefined;
+  if (review.handoffState === "failed") return "failed";
+  return review.handoffRunning ? "running" : "stopped";
+}
+
 function pullRequestFacts(pullRequest: PullRequest | undefined) {
   if (pullRequest === undefined) return {};
   return {
@@ -586,6 +632,7 @@ function decideAssignmentRow(
   const pullRequest = source.pullRequests.find((pr) => pr.assignment === assignment.key);
   const report = source.reports.findLast((row) => row.assignment === assignment.key);
   const cleanup = source.cleanups.find((row) => row.assignment === assignment.key);
+  const review = source.internalReviews.find((row) => row.assignment === assignment.key);
   const decision = decideAssignment({
     assignment: current,
     dependencies,
@@ -603,6 +650,8 @@ function decideAssignmentRow(
       launch !== undefined &&
       launch.id === assignment.promotion?.handoverLaunchId &&
       launch.activity === null,
+    handoff: handoffFact(review),
+    reviewing: review?.state === "reviewing",
     capReached: maxRunning !== undefined && running >= maxRunning,
   });
   const cap =
@@ -611,7 +660,7 @@ function decideAssignmentRow(
     input,
     source,
     { assignment: assignment.key, ...decision, ...cap },
-    { assignment: assignment.key, launch, pullRequest, report, cleanup },
+    { assignment: assignment.key, launch, pullRequest, report, cleanup, review },
   );
 }
 
@@ -626,6 +675,7 @@ function described<T extends object>(
     pullRequest: PullRequest | undefined;
     report: Report | undefined;
     cleanup: Cleanup | undefined;
+    review?: InternalReview | undefined;
   },
 ) {
   const row: T & {
@@ -633,6 +683,7 @@ function described<T extends object>(
     pullRequest?: object;
     report?: object;
     cleanup?: object;
+    internalReview?: object;
     brief?: string;
     dependencyReports?: ReturnType<typeof dependencyReports>;
   } = { ...decision };
@@ -641,6 +692,7 @@ function described<T extends object>(
   if (pullRequest !== undefined) row.pullRequest = pullRequestSummary(pullRequest);
   if (report !== undefined) row.report = reportSummary(input, source.repository, source.id, report);
   if (cleanup !== undefined) row.cleanup = cleanupSummary(cleanup);
+  if (records.review !== undefined) row.internalReview = reviewSummary(source, records.review);
   // The worker reads its refreshed brief only after the SuperAgent tells it to.
   if ("action" in decision && decision.action === "notify_worker")
     row.brief = OperatorHome.assignmentFiles(input.paths, {
