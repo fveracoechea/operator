@@ -2,7 +2,7 @@ import { Err, Ok, fromPromise } from "unthrown";
 import { z } from "zod";
 import { DeviceState } from "../device-state/main.ts";
 import { answerKey, answerSchema, questionSchema } from "./content.ts";
-import { acknowledge, ring, steering } from "./steering.ts";
+import { acknowledge, pendingMessage, ring, steering } from "./steering.ts";
 import { qualify } from "./failures.ts";
 import {
   caller,
@@ -143,22 +143,12 @@ function answer(input: Selector & { by: AnswerAuthority; file: string }) {
           const answeredAt = now();
           return {
             update: { answer: text, answeredBy: input.by, answeredAt, state },
-            message: {
-              sourceId: facts.source.id,
-              assignment: facts.assignment.key,
+            message: pendingMessage(facts, {
               key,
-              // Stryker disable next-line OptionalChaining, StringLiteral: equivalent: an unanswered question belongs to a running launch, so the launch is never null here
-              launchId: facts.launch?.id ?? "",
               message: text,
               questionKey: input.key,
               sentAt: answeredAt,
-              state: "pending",
-              rungAt: null,
-              doorbellFailure: null,
-              acknowledgedAt: null,
-              reply: null,
-              endedAt: null,
-            },
+            }),
           };
         }),
       );

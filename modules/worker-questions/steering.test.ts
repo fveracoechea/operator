@@ -1,4 +1,6 @@
-import { afterEach, beforeEach, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
+import { Err, fromSafePromise } from "unthrown";
+import { Herdr } from "../herdr/main.ts";
 // Bun has no recursive removal API.
 import { rm } from "node:fs/promises";
 import { WorkSources } from "../work-sources/main.ts";
@@ -157,6 +159,23 @@ test("a failed doorbell keeps the message pending as worker attention until a ri
   });
   expect(await WorkerQuestions.ring(selector(sourceId))).toMatchObject({
     error: { reason: "message_not_open" },
+  });
+});
+
+test("a doorbell records nothing on a message that ended while it rang", async () => {
+  const sourceId = await device.source();
+  device.launch(sourceId);
+  const file = await device.write("m.json", JSON.stringify({ key: "focus", message: "Stop." }));
+  device.inPane(superPane);
+  // The SuperAgent closes the message while Herdr types its doorbell, and the doorbell fails.
+  spyOn(Herdr, "prompt").mockImplementation(() =>
+    fromSafePromise(async () => okValue(await WorkerQuestions.close(selector(sourceId)))).flatMap(
+      () => Err({ reason: "herdr_failed" as const, detail: "herdr agent exited 1: gone" }),
+    ),
+  );
+  expect(okValue(await WorkerQuestions.send({ ...selector(sourceId), file }))).toMatchObject({
+    reason: "message_sent",
+    data: { state: "closed", rungAt: null, doorbellFailure: null },
   });
 });
 

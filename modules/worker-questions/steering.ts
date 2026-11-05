@@ -67,19 +67,47 @@ function recorded(paths: Paths, target: Target, key: string) {
 /**
  * Type the fixed doorbell line into the worker's pane, outside any write transaction, then record
  * the attempt. A failed doorbell keeps the message pending and shows it as worker attention.
+ * A message that the worker or the SuperAgent ended while the doorbell rang keeps its record.
  */
 export async function ring(paths: Paths, target: Target, key: string, worker: string) {
   const typed = await Herdr.prompt({ name: worker, text: doorbell(key) });
   if (typed.tag === "Defect") return stop(typed);
   const failure = typed.tag === "Err" ? `${typed.error.reason}: ${typed.error.detail}` : null;
-  return DeviceState.changeMessage(paths, target, key, () =>
-    Ok({ update: { rungAt: now(), doorbellFailure: failure } }),
+  return DeviceState.changeMessage(paths, target, key, (facts) =>
+    Ok(
+      facts.message?.state === "pending"
+        ? { update: { rungAt: now(), doorbellFailure: failure } }
+        : {},
+    ),
   ).flatMap(() => recorded(paths, target, key));
 }
 
 function launchName(facts: Facts) {
   // Stryker disable next-line OptionalChaining, StringLiteral: equivalent: a send or ring needs a running launch, so the launch is never null here
   return facts.launch?.name ?? "";
+}
+
+/** A new pending message, to the latest launch of its assignment, that no doorbell rang yet. */
+export function pendingMessage(
+  facts: Pick<Facts, "source" | "assignment" | "launch">,
+  sent: { key: string; message: string; sentAt: string; questionKey?: string },
+): Row {
+  return {
+    sourceId: facts.source.id,
+    assignment: facts.assignment.key,
+    key: sent.key,
+    // Stryker disable next-line OptionalChaining, StringLiteral: equivalent: a send or an answer belongs to a launch, so the launch is never null here
+    launchId: facts.launch?.id ?? "",
+    message: sent.message,
+    questionKey: sent.questionKey ?? null,
+    sentAt: sent.sentAt,
+    state: "pending",
+    rungAt: null,
+    doorbellFailure: null,
+    acknowledgedAt: null,
+    reply: null,
+    endedAt: null,
+  };
 }
 
 function send(input: Omit<Selector, "key"> & { file: string }) {
@@ -89,23 +117,8 @@ function send(input: Omit<Selector, "key"> & { file: string }) {
       if (target.tag !== "Ok") return stop(target);
       const sent = messageSchema.parse(JSON.parse(await Bun.file(input.file).text()));
       const changed = DeviceState.changeMessage(input.paths, target.value, sent.key, (facts) =>
-        decide(facts, "send").map(({ state }) => ({
-          insert: {
-            sourceId: facts.source.id,
-            assignment: facts.assignment.key,
-            key: sent.key,
-            // Stryker disable next-line OptionalChaining, StringLiteral: equivalent: sending needs a running launch, so the launch is never null here
-            launchId: facts.launch?.id ?? "",
-            message: sent.message,
-            questionKey: null,
-            sentAt: now(),
-            state,
-            rungAt: null,
-            doorbellFailure: null,
-            acknowledgedAt: null,
-            reply: null,
-            endedAt: null,
-          },
+        decide(facts, "send").map(() => ({
+          insert: pendingMessage(facts, { key: sent.key, message: sent.message, sentAt: now() }),
         })),
       );
       if (changed.tag !== "Ok") return stop(changed);
