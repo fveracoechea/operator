@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { Environment } from "../environment/main.ts";
+import { writeHostHooks } from "./command-fixture.ts";
 import { fakeHerdrScript } from "./herdr-fixture.ts";
 
 let root = "";
@@ -132,6 +133,7 @@ beforeEach(async () => {
   await Bun.write(`${root}/upstream/code-review/SKILL.md`, "upstream\n", { createPath: true });
   await mkdir(`${root}/home/.agents/skills`, { recursive: true });
   await symlink(`${root}/upstream/code-review`, `${root}/home/.agents/skills/code-review`);
+  await writeHostHooks(root);
 
   expect((await run(["project", "register"])).code).toBe(0);
   await Bun.write(`${root}/plan.json`, JSON.stringify(plan));

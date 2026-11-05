@@ -94,9 +94,12 @@ function markdownMentions(text: string) {
   return mentions;
 }
 
-/** Every command that a next action, a refusal, or a brief names in source text. */
+/**
+ * Every command that a next action, a refusal, or a brief names in source text. A mention ends at
+ * a backslash, because a string escape such as the newline in the usage text is not part of it.
+ */
 function sourceMentions(text: string) {
-  return [...text.matchAll(/(?<![\w@/.-])operator ((?:--)?[a-z][a-z-]*(?: \S+)?)/g)]
+  return [...text.matchAll(/(?<![\w@/.-])operator ((?:--)?[a-z][a-z-]*(?: [^\s\\]+)?)/g)]
     .map((m) => m[1] ?? "")
     .filter((mention) => !mention.startsWith("command"));
 }

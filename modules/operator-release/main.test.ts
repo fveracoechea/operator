@@ -82,7 +82,10 @@ describe("the release artifact", () => {
       new Bun.Glob("**/*").scan({ cwd: artifactRoot, dot: true }),
     );
 
-    expect(paths.filter((path) => path.endsWith(".ts") && !path.endsWith(".d.ts"))).toEqual([]);
+    // OpenCode loads its plugin file as written, so that one file ships as TypeScript.
+    expect(paths.filter((path) => path.endsWith(".ts") && !path.endsWith(".d.ts"))).toEqual([
+      "modules/opencode-plugin/plugin.ts",
+    ]);
     expect(paths.filter((path) => path.includes(".test."))).toEqual([]);
   });
 
