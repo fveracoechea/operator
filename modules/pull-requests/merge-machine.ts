@@ -89,8 +89,9 @@ export function verifiedMerge(observed: Observation, head: string | null) {
 
 // The background merge gets two minutes of reads, one each second, before the owner repeats it.
 export const mergeRequestReads = 120;
+export const mergeRequestReadMs = 1000;
 
-type Followed =
+type MergeRequestStep =
   | { result: "read"; uuid: string }
   | { result: "verify"; refusal: { reason: string; detail: string } | null };
 
@@ -98,7 +99,7 @@ type Followed =
  * The next step after one state of a background merge request. Every final state and every
  * stopped read is verified against the PR, because only GitHub's merged PR proves the merge.
  */
-export function followMergeRequest(request: MergeRequest, reads: number): Followed {
+export function followMergeRequest(request: MergeRequest, reads: number): MergeRequestStep {
   if (request.status === "merged") return { result: "verify", refusal: null };
   if (request.status === "failed")
     return { result: "verify", refusal: { reason: "pr_merge_refused", detail: request.message } };

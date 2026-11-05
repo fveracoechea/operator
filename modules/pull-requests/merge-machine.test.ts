@@ -204,5 +204,4 @@ test("a background merge request is read while it runs, and every end is verifie
   };
   expect(followMergeRequest({ ...request, status: "pending" }, mergeRequestReads)).toEqual(running);
   expect(followMergeRequest({ ...request, uuid: null, status: "pending" }, 0)).toEqual(running);
-  expect(mergeRequestReads).toBe(120);
 });

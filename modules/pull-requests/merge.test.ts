@@ -349,7 +349,14 @@ test("a background merge is read until it ends, and pr_merged waits for GitHub's
 
   // A read that GitHub refuses or loses ends the reads, and the PR state still decides.
   for (const [read, error] of [
-    [failed("Not Found", 404), { reason: "pr_merge_refused", detail: "github_refused: Not Found" }],
+    [
+      failed("Not Found", 404),
+      {
+        reason: "pr_merge_unverified",
+        detail:
+          "GitHub did not answer the merge request read: github_refused: Not Found. Nothing was recorded. Repeat operator pr merge.",
+      },
+    ],
     [
       uncertain("gh ended on SIGTERM"),
       { reason: "github_uncertain", detail: "gh ended on SIGTERM" },
@@ -369,6 +376,24 @@ test("a background merge is read until it ends, and pr_merged waits for GitHub's
       "pull_request",
     ]);
   }
+
+  // A request that GitHub already runs for this PR is not a refusal, and the PR state decides.
+  device.calls.length = 0;
+  device.answer((args) =>
+    requestKind(args) === "merge"
+      ? failed("A merge request already exists for this pull request.", 409)
+      : succeeded(pullRequestBody({ head })),
+  );
+  expect<unknown>(await merge(input)).toEqual({
+    tag: "Err",
+    error: {
+      reason: "pr_merge_unverified",
+      detail:
+        "GitHub still runs the merge request: GitHub already runs a merge request for this PR. Nothing was recorded. Repeat operator pr merge.",
+    },
+  });
+  expect(device.calls.map(requestKind)).toEqual(["pull_request", "merge", "pull_request"]);
+  expect(assignmentState(device)).toBe("pr-open");
 });
 
 test("a refused or lost merge answer still records a merge that landed", async () => {

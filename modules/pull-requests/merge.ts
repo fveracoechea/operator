@@ -6,10 +6,14 @@ import {
   mergePullRequest,
   observePullRequest,
   readMergeRequest,
-  type MergeRequest,
   type Observation,
 } from "./github.ts";
-import { decideMerge, followMergeRequest, verifiedMerge } from "./merge-machine.ts";
+import {
+  decideMerge,
+  followMergeRequest,
+  mergeRequestReadMs,
+  verifiedMerge,
+} from "./merge-machine.ts";
 import { relaySchema } from "./relay.ts";
 import { qualify, resolveOwner, type Owner, type Paths } from "./owner.ts";
 
@@ -139,12 +143,17 @@ function guarded(
 
 type Answer = Awaited<ReturnType<typeof mergePullRequest>>;
 
-function refusal(answer: Exclude<Answer, { tag: "Ok" }>) {
+function refusal(answer: Exclude<Answer, { tag: "Ok" }>, read: boolean) {
   if (answer.tag === "Defect") return { reason: "pr_defect", detail: String(answer.cause) };
-  return {
-    reason: answer.error.reason === "github_failed" ? "pr_merge_refused" : answer.error.reason,
-    detail: answer.error.detail,
-  };
+  if (answer.error.reason !== "github_failed")
+    return { reason: answer.error.reason, detail: answer.error.detail };
+  // GitHub accepted the request before a read failed, so the merge can still land.
+  return read
+    ? {
+        reason: "pr_merge_unverified",
+        detail: `GitHub did not answer the merge request read: ${answer.error.detail}. Nothing was recorded. Repeat operator pr merge.`,
+      }
+    : { reason: "pr_merge_refused", detail: answer.error.detail };
 }
 
 /**
@@ -158,11 +167,10 @@ async function requestMerge(
 ): Promise<Failure | null> {
   let answer: Answer = await mergePullRequest(repository, { number, ...merge });
   for (let reads = 0; ; reads += 1) {
-    if (answer.tag !== "Ok") return refusal(answer);
-    const request: MergeRequest = answer.value;
-    const next = followMergeRequest(request, reads);
+    if (answer.tag !== "Ok") return refusal(answer, reads > 0);
+    const next = followMergeRequest(answer.value, reads);
     if (next.result === "verify") return next.refusal;
-    await Bun.sleep(1000);
+    await Bun.sleep(mergeRequestReadMs);
     answer = await readMergeRequest(repository, number, next.uuid);
   }
 }

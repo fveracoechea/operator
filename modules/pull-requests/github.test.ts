@@ -413,6 +413,23 @@ describe("GitHub reads and effects", () => {
     expect<unknown>(await readMergeRequest("owner/one", 7, "u1")).toMatchObject({
       tag: "Defect",
     });
+    // A 409 names a request that already runs, so the merge stays pending without its id.
+    github(() => ({
+      status: "failed",
+      code: "http_409",
+      detail: "A merge request already exists for this pull request.",
+      httpStatus: 409,
+    }));
+    expect<unknown>(
+      await mergePullRequest("owner/one", { number: 7, head: "h1", method: "squash" }),
+    ).toEqual({
+      tag: "Ok",
+      value: {
+        status: "pending",
+        uuid: null,
+        message: "GitHub already runs a merge request for this PR.",
+      },
+    });
   });
 
   test("a remote branch reads as its commit, or null when GitHub has no such branch", async () => {

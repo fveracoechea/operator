@@ -362,19 +362,27 @@ type GithubEffectFailure = {
   detail: string;
 };
 
-/** A merge request's state: `pending` runs in the background, and the others are final. */
-export type MergeRequest = {
-  status: "pending" | "merged" | "enqueued" | "failed";
-  uuid: string | null;
-  message: string;
-};
-
 const mergeRequestAnswer = z.object({
   status: z.enum(["pending", "merged", "enqueued", "failed"]),
   details: z.object({ message: z.string(), uuid: z.string().optional() }),
 });
 
-function mergeRequest(answer: Awaited<ReturnType<typeof GithubApi.call>>) {
+/** A merge request's state: `pending` runs in the background, and the others are final. */
+export type MergeRequest = {
+  status: z.infer<typeof mergeRequestAnswer>["status"];
+  uuid: string | null;
+  message: string;
+};
+
+function mergeRequestResult(answer: Awaited<ReturnType<typeof GithubApi.call>>) {
+  // GitHub answers 409 while an earlier request for this PR still runs, and the gh failure
+  // keeps no uuid to read, so the merge stays pending for the caller to verify.
+  if (answer.status === "failed" && answer.httpStatus === 409)
+    return Ok<MergeRequest>({
+      status: "pending",
+      uuid: null,
+      message: "GitHub already runs a merge request for this PR.",
+    });
   if (answer.status === "failed")
     return Err<GithubEffectFailure>({
       reason: "github_failed",
@@ -423,7 +431,7 @@ export function mergePullRequest(
         timeoutMs: 60000,
       }),
     (cause, defect) => defect(cause),
-  ).flatMap(mergeRequest);
+  ).flatMap(mergeRequestResult);
 }
 
 /** The current state of one background merge request. */
@@ -435,7 +443,7 @@ export function readMergeRequest(repository: string, number: number, uuid: strin
         timeoutMs: 60000,
       }),
     (cause, defect) => defect(cause),
-  ).flatMap(mergeRequest);
+  ).flatMap(mergeRequestResult);
 }
 
 const refAnswer = z.object({ object: z.object({ sha: z.string() }) });
