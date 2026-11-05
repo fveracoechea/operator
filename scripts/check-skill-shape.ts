@@ -1,6 +1,7 @@
 // Bun has no path manipulation API.
 import path from "node:path";
 import { z } from "zod";
+import { superAgentMessages } from "../lib/superagent-messages.ts";
 
 const { relative, resolve, sep } = path;
 
@@ -13,6 +14,7 @@ const portableFloor = new Set(["name", "description", "license", "compatibility"
 // so there the skill falls back to model invocation.
 const allowedFields = new Set([...portableFloor, "disable-model-invocation"]);
 const routerLineLimit = 150;
+const workerSkill = "worker-agent";
 // Every agent pays for each description on every turn. The budget keeps modest headroom over
 // the current total, so growth past a few more skills is a deliberate trim or raise.
 const descriptionBudget = 2200;
@@ -106,6 +108,20 @@ async function checkTopicFiles(directory: string, text: string): Promise<void> {
   }
 }
 
+async function checkWorkerMessages(): Promise<void> {
+  const skillDirectory = resolve(skillsRoot, workerSkill);
+  for await (const file of new Bun.Glob("**/*.md").scan({ cwd: skillDirectory, onlyFiles: true })) {
+    const filePath = resolve(skillDirectory, file);
+    const reportedPath = normalized(relative(process.cwd(), filePath));
+    const text = await Bun.file(filePath).text();
+    for (const { line } of superAgentMessages(text)) {
+      errors.push(
+        `${reportedPath}:${line}: a worker reaches its SuperAgent only through recorded state, not a message`,
+      );
+    }
+  }
+}
+
 for await (const routerPath of new Bun.Glob("*/SKILL.md").scan({
   cwd: skillsRoot,
   onlyFiles: true,
@@ -124,6 +140,10 @@ for await (const routerPath of new Bun.Glob("*/SKILL.md").scan({
   }
 
   await checkTopicFiles(directory, text);
+}
+
+if (await Bun.file(resolve(skillsRoot, workerSkill, "SKILL.md")).exists()) {
+  await checkWorkerMessages();
 }
 
 if (descriptionTotal > descriptionBudget) {

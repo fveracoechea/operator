@@ -89,8 +89,8 @@ Load each project skill that the changed code needs.
 
 ## Reporting
 
-- Report to your supervising SuperAgent through Herdr, not directly to the person.
-- Give the posted event and the review URL from the post result.
+- Report to your supervising SuperAgent only through recorded Operator state, not directly to the person. Never type into its pane.
+- The CLI records each post, and the SuperAgent's \`operator review wait\` returns it, so send no message about it.
 - Herdr activity does not prove that the review is posted.
 `;
 }

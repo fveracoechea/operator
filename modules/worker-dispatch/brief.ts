@@ -80,7 +80,7 @@ ${row.unresolved.length === 0 ? "- None." : row.unresolved.map((point) => `- ${p
 ## Accepted dependency reports
 
 The SuperAgent accepted these reports of the assignments that this work depends on.
-Check whether each unresolved point applies to your task. Tell your supervising SuperAgent about each point that does.
+Check whether each unresolved point applies to your task. Record a question for your supervising SuperAgent about each point that does.
 
 ${reports.join("\n")}`;
 }
@@ -194,8 +194,8 @@ PR commands select your assignment only through this worktree.
 
 function prSteps(directory: string) {
   return [
-    "- Give a short conclusion, evidence references, unresolved points, and paths to detailed files.",
-    `- Put detailed supporting files in \`${directory}\`.`,
+    "- In the PR body, give a short conclusion, evidence references, and unresolved points.",
+    `- Put detailed supporting files in \`${directory}\`, where your SuperAgent reads them.`,
   ].join("\n");
 }
 
@@ -205,7 +205,7 @@ function reportSteps(directory: string) {
     "- Write a JSON report outside the project checkout with `conclusion`, `evidence`, `unresolved`, and optional `decisions` and `files`.",
     "- `evidence` and `unresolved` are lists of short text. `files` lists absolute paths of detailed supporting files.",
     "- Each decision has `question`, `answer`, and `by`. Use `person` only for an answer that the person gave. Use `super-agent` for a SuperAgent decision.",
-    "- Submit it from this pane with `operator report submit --file <path> --json`, then tell your supervising SuperAgent.",
+    "- Submit it from this pane with `operator report submit --file <path> --json`. Your SuperAgent's coordination wait returns it, so send no message.",
     `- Operator stores the report and copies of the supporting files in \`${directory}\`.`,
     "- Submission does not complete the assignment. The SuperAgent accepts the report or returns follow-up instructions.",
     "- When you receive follow-up instructions, run `operator report resume --json` in this pane before you continue, then submit a new report.",
@@ -245,7 +245,7 @@ ${acceptanceCriteria(input)}${dependencyReports(input)}${promotion(input)}
 
 The task instructions state who answers questions and what the SuperAgent may decide.
 Do the work within this task without asking for approval of each command or step. Decide what the instructions and the repository settle, and record those decisions in your report or PR.
-Send each question to your supervising SuperAgent, not to the person.
+Ask each question of your supervising SuperAgent, not of the person.
 Record it with \`operator question ask\` from this pane, and read the answer with \`operator question wait\`, as the \`worker-agent\` skill describes.
 The SuperAgent asks the person when the instructions require human participation, when a question is outside its delegated authority, or when that authority is unclear.
 A SuperAgent answer is a SuperAgent decision, not a human answer, also after it accepts your work.
@@ -253,7 +253,7 @@ A SuperAgent answer is a SuperAgent decision, not a human answer, also after it 
 ## Native subagents
 
 Native host subagents work inside this assignment, and you remain responsible for their work and evidence.
-Work that needs its own scheduling, dependencies, or acceptance needs a separate assignment. Ask your supervising SuperAgent for it.
+Work that needs its own scheduling, dependencies, or acceptance needs a separate assignment. Request it in a recorded question to your supervising SuperAgent.
 
 ## Skills
 
@@ -267,7 +267,7 @@ ${resources.join("\n")}
 
 ## Results and reporting
 
-- Report to your supervising SuperAgent through Herdr, not directly to the person.
+- Report to your supervising SuperAgent only through recorded Operator state, not directly to the person. Never type into its pane.
 ${input.completion === "report" ? reportSteps(input.reports.directory) : prSteps(input.reports.directory)}
 - Herdr activity does not prove that the work is submitted or complete.
 ${feedbackLoop(input)}

@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { superAgentMessages } from "../../lib/superagent-messages.ts";
 import { renderBrief } from "./brief.ts";
 
 const input = {
@@ -185,7 +186,7 @@ const authority = `## Grilling authority
 
 The task instructions state who answers questions and what the SuperAgent may decide.
 Do the work within this task without asking for approval of each command or step. Decide what the instructions and the repository settle, and record those decisions in your report or PR.
-Send each question to your supervising SuperAgent, not to the person.
+Ask each question of your supervising SuperAgent, not of the person.
 Record it with \`operator question ask\` from this pane, and read the answer with \`operator question wait\`, as the \`worker-agent\` skill describes.
 The SuperAgent asks the person when the instructions require human participation, when a question is outside its delegated authority, or when that authority is unclear.
 A SuperAgent answer is a SuperAgent decision, not a human answer, also after it accepts your work.
@@ -193,7 +194,7 @@ A SuperAgent answer is a SuperAgent decision, not a human answer, also after it 
 ## Native subagents
 
 Native host subagents work inside this assignment, and you remain responsible for their work and evidence.
-Work that needs its own scheduling, dependencies, or acceptance needs a separate assignment. Ask your supervising SuperAgent for it.
+Work that needs its own scheduling, dependencies, or acceptance needs a separate assignment. Request it in a recorded question to your supervising SuperAgent.
 
 ## Skills
 
@@ -226,9 +227,9 @@ ${authority}
 
 ## Results and reporting
 
-- Report to your supervising SuperAgent through Herdr, not directly to the person.
-- Give a short conclusion, evidence references, unresolved points, and paths to detailed files.
-- Put detailed supporting files in \`/state/reports\`.
+- Report to your supervising SuperAgent only through recorded Operator state, not directly to the person. Never type into its pane.
+- In the PR body, give a short conclusion, evidence references, and unresolved points.
+- Put detailed supporting files in \`/state/reports\`, where your SuperAgent reads them.
 - Herdr activity does not prove that the work is submitted or complete.
 
 ## PR feedback loop
@@ -293,11 +294,11 @@ ${authority}
 
 ## Results and reporting
 
-- Report to your supervising SuperAgent through Herdr, not directly to the person.
+- Report to your supervising SuperAgent only through recorded Operator state, not directly to the person. Never type into its pane.
 - Write a JSON report outside the project checkout with \`conclusion\`, \`evidence\`, \`unresolved\`, and optional \`decisions\` and \`files\`.
 - \`evidence\` and \`unresolved\` are lists of short text. \`files\` lists absolute paths of detailed supporting files.
 - Each decision has \`question\`, \`answer\`, and \`by\`. Use \`person\` only for an answer that the person gave. Use \`super-agent\` for a SuperAgent decision.
-- Submit it from this pane with \`operator report submit --file <path> --json\`, then tell your supervising SuperAgent.
+- Submit it from this pane with \`operator report submit --file <path> --json\`. Your SuperAgent's coordination wait returns it, so send no message.
 - Operator stores the report and copies of the supporting files in \`/state/reports\`.
 - Submission does not complete the assignment. The SuperAgent accepts the report or returns follow-up instructions.
 - When you receive follow-up instructions, run \`operator report resume --json\` in this pane before you continue, then submit a new report.
@@ -334,7 +335,7 @@ test("an open PR's loop lists each step, and dependency reports are separate blo
       ],
     }),
   ).toContain(
-    "Implement the accepted report.\n\n## Accepted dependency reports\n\nThe SuperAgent accepted these reports of the assignments that this work depends on.\nCheck whether each unresolved point applies to your task. Tell your supervising SuperAgent about each point that does.\n\n### `a` report 1\n\nReference: `r`\n\n> c\n\nUnresolved points:\n\n- None.\n\n### `b` report 2\n\nReference: `r`\n\n> c\n\nUnresolved points:\n\n- None.\n\n## Grilling authority",
+    "Implement the accepted report.\n\n## Accepted dependency reports\n\nThe SuperAgent accepted these reports of the assignments that this work depends on.\nCheck whether each unresolved point applies to your task. Record a question for your supervising SuperAgent about each point that does.\n\n### `a` report 1\n\nReference: `r`\n\n> c\n\nUnresolved points:\n\n- None.\n\n### `b` report 2\n\nReference: `r`\n\n> c\n\nUnresolved points:\n\n- None.\n\n## Grilling authority",
   );
 });
 
@@ -456,6 +457,35 @@ test("a report brief ignores internal review", () => {
   expect(renderBrief({ ...input, completion: "report", internalReview: true })).not.toMatch(
     /draft|internal review/i,
   );
+});
+
+test("no brief tells the worker to message its SuperAgent, which it reaches only through records", () => {
+  const dependency = {
+    assignment: "a",
+    report: 1,
+    reference: "r",
+    conclusion: "c",
+    unresolved: ["u"],
+  };
+  for (const brief of [
+    input,
+    { ...input, internalReview: true },
+    { ...input, pullRequest: { number: 7, url: "https://github.com/example/one/pull/7" } },
+    {
+      ...input,
+      pullRequest: { number: 7, url: "https://github.com/example/one/pull/7" },
+      review: { state: "reviewing" as const, rounds: [], readyHead: null },
+    },
+    {
+      ...input,
+      pullRequest: { number: 7, url: "https://github.com/example/one/pull/7" },
+      review: { state: "skipped" as const, rounds: [], readyHead: "h" },
+    },
+    { ...input, stack: { assignment: "parent", number: 6, branch: "task/1" } },
+    { ...input, promotion: { report: "survey", number: 2 } },
+    { ...input, completion: "report" as const, branch: null, dependencyReports: [dependency] },
+  ])
+    expect(superAgentMessages(renderBrief(brief))).toEqual([]);
 });
 
 test("a promoted PR brief names the report and asks to clean the branch before its first push", () => {
