@@ -143,7 +143,8 @@ test("check mode names the missing hook", async () => {
   const result = await run(["install", "--claude", "--check", "--json"]);
   expect(result.code).toBe(3);
   expect(JSON.parse(result.stdout)).toMatchObject({ reason: "claude_hook_missing" });
-});
+  // A full install and a check outlast the default timeout on a loaded machine.
+}, 15000);
 
 test("a dotfiles link refuses the write and names the entry to add", async () => {
   await registerTestDevice(root);

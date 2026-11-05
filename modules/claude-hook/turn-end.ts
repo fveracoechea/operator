@@ -6,7 +6,7 @@ import { WorkSources } from "../work-sources/main.ts";
 function block(sources: string[]) {
   return JSON.stringify({
     decision: "block",
-    reason: `This pane supervises running work in ${sources.join(", ")}, and no coordination wait runs from it. Start operator next --wait --json as a background command from the project checkout, so worker events reach you as a new turn, then end your turn.`,
+    reason: `This pane supervises running work in ${sources.join(", ")}, and no coordination wait runs from it. Start operator next --wait --json as a background command from the project checkout. Worker events then reach you as a new turn, so end your turn after you start it.`,
   });
 }
 

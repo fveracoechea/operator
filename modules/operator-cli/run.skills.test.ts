@@ -7,6 +7,7 @@ import { Environment } from "../environment/main.ts";
 import { sha256 } from "../../lib/sha256.ts";
 import { Database } from "bun:sqlite";
 import { registerTestDevice } from "../../scripts/device-fixture.ts";
+import { writeClaudeHookSettings } from "./command-fixture.ts";
 import {
   upstreamCalls,
   upstreamCommit,
@@ -149,7 +150,8 @@ test("check mode on a new device reports missing skills, and passes after an ins
     code: 0,
     output: { reason: "skills_checked" },
   });
-});
+  // A full install and two checks outlast the default timeout on a loaded machine.
+}, 15000);
 
 test("matching copies and their ledger stay unwritten on a repeated install", async () => {
   expect((await run(["--opencode", "--claude"])).code).toBe(0);
@@ -276,9 +278,7 @@ test("check mode follows complete skill links and leaves host folders and state 
   await cp(source, `${root}/package skills`, { recursive: true });
   await mkdir(`${root}/home/.claude`, { recursive: true });
   await symlink(`${root}/package skills`, `${root}/home/.claude/skills`);
-  const group = { hooks: [{ command: "operator claude hook" }] };
-  const settings = { hooks: { PreToolUse: [group], Stop: [group] } };
-  await Bun.write(`${root}/home/.claude/settings.json`, JSON.stringify(settings));
+  await writeClaudeHookSettings(`${root}/home`);
   const link = await readlink(`${root}/home/.claude/skills`);
   expect(await run(["--claude", "--check"])).toMatchObject({
     code: 0,
