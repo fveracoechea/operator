@@ -157,6 +157,23 @@ test("an idle session whose own background wait runs starts no Operator process"
   expect(hooks.synthetic).toHaveBeenCalledTimes(1);
 });
 
+test("a background wait that ran restores the allowance, so a woken turn is guarded again", async () => {
+  const hooks = await setup();
+  await answer("Start the wait.");
+  await hooks.idle({ sessionID: "ses_1" });
+  await hooks.idle({ sessionID: "ses_1" });
+  expect(hooks.synthetic).toHaveBeenCalledTimes(1);
+  // The SuperAgent started the wait, and its notice woke the session after a worker event.
+  await hooks.idle({
+    sessionID: "ses_1",
+    background: [{ kind: "shell", sessionID: "ses_1", command: "operator next --wait --json" }],
+  });
+  await hooks.idle({ sessionID: "ses_1" });
+  expect(hooks.synthetic).toHaveBeenCalledTimes(2);
+  await hooks.idle({ sessionID: "ses_1" });
+  expect(hooks.synthetic).toHaveBeenCalledTimes(2);
+});
+
 test("an idle session with no reason, or a refused continuation, goes idle", async () => {
   const hooks = await setup();
   await hooks.idle({ sessionID: "ses_1" });

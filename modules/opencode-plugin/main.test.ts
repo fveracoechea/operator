@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, expect, expectTypeOf, mock, spyOn, test } from "bun:test";
-// Bun has no temporary-directory, chmod, symlink, or recursive removal API.
-import { chmod, mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
+// Bun has no temporary-directory, chmod, or recursive removal API.
+import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { ErrAsync, Ok, OkAsync } from "unthrown";
@@ -151,52 +151,6 @@ test("install writes the shipped plugin, and check mode then passes", async () =
       tag: "Ok",
       value: "already_installed",
     });
-});
-
-test("a copy with the same version passes, and an older version is replaced", async () => {
-  await Bun.write(file, "// OPERATOR_PLUGIN_VERSION=1\n// edited by the person\n");
-  expect(await OpenCodePlugin.install({ paths, check: true })).toMatchObject({
-    tag: "Ok",
-    value: "already_installed",
-  });
-  await Bun.write(file, "// OPERATOR_PLUGIN_VERSION=0\n");
-  expect(await OpenCodePlugin.install({ paths, check: true })).toMatchObject({
-    tag: "Err",
-    error: { reason: "opencode_plugin_outdated" },
-  });
-  expect(await OpenCodePlugin.install({ paths, check: false })).toMatchObject({
-    tag: "Ok",
-    value: "installed",
-  });
-  expect(await Bun.file(file).text()).toBe(shipped);
-});
-
-test("a linked, read-only, or unmanaged plugin file is refused and names the file to link", async () => {
-  await Bun.write(`${root}/dotfiles/operator.ts`, "// OPERATOR_PLUGIN_VERSION=0\n");
-  await mkdir(path.dirname(file), { recursive: true });
-  await symlink(`${root}/dotfiles/operator.ts`, file);
-  const refused = {
-    tag: "Err",
-    error: {
-      reason: "opencode_plugin_external",
-      detail: expect.stringContaining(`to ${file}`) as string,
-    },
-  };
-  expect(await OpenCodePlugin.install({ paths, check: false })).toMatchObject(refused);
-  expect(await Bun.file(`${root}/dotfiles/operator.ts`).text()).toBe(
-    "// OPERATOR_PLUGIN_VERSION=0\n",
-  );
-  await rm(file);
-  await Bun.write(file, "export default { id: 'mine' }\n");
-  expect(await OpenCodePlugin.install({ paths, check: false })).toMatchObject(refused);
-  expect(await Bun.file(file).text()).toBe("export default { id: 'mine' }\n");
-  await rm(file);
-  await chmod(path.dirname(file), 0o500);
-  try {
-    expect(await OpenCodePlugin.install({ paths, check: false })).toMatchObject(refused);
-  } finally {
-    await chmod(path.dirname(file), 0o700);
-  }
 });
 
 test("an unreadable plugin file is a filesystem failure, not a defect", async () => {

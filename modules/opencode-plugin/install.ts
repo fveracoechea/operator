@@ -13,6 +13,11 @@ export const pluginFile = Bun.fileURLToPath(new URL("./plugin.ts", import.meta.u
 
 const marker = /^\/\/ OPERATOR_PLUGIN_VERSION=(\d+)$/m;
 
+/** The version that a plugin file's marker names, or undefined for a file with no marker. */
+function versionOf(text: string | null) {
+  return text === null ? undefined : marker.exec(text)?.[1];
+}
+
 type Outcome =
   | { reason: "installed" | "already_installed" }
   | {
@@ -52,9 +57,9 @@ async function written(file: string, text: string) {
 export async function installPlugin(input: { file: string; check: boolean }): Promise<Outcome> {
   const text = await Bun.file(pluginFile).text();
   const current = (await Bun.file(input.file).exists()) ? await Bun.file(input.file).text() : null;
-  const installed = current === null ? undefined : marker.exec(current)?.[1];
-  if (installed !== undefined && installed === marker.exec(text)?.[1])
-    return { reason: "already_installed" };
+  const installed = versionOf(current);
+  const version = versionOf(text);
+  if (installed !== undefined && installed === version) return { reason: "already_installed" };
   const entry = `link or copy ${pluginFile} to ${input.file}`;
   if (input.check)
     return installed === undefined
@@ -64,7 +69,7 @@ export async function installPlugin(input: { file: string; check: boolean }): Pr
         }
       : {
           reason: "opencode_plugin_outdated",
-          detail: `${input.file} is an older Operator plugin. Run operator install --opencode, or ${entry}`,
+          detail: `${input.file} is Operator plugin version ${installed}, and this release runs version ${version}. Run operator install --opencode, or ${entry}`,
         };
   const external = {
     reason: "opencode_plugin_external" as const,

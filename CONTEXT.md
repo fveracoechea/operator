@@ -66,7 +66,7 @@ Its checkout has no legacy project-local Operator folder.
 
 **Ready**:
 The result of the current static readiness checks, not proof that an agent or provider will work.
-Required tools, GitHub authentication, required skill contents, and the commit hook on Claude Code must pass those checks.
+Required tools, GitHub authentication, required skill contents, and the commit hook on Claude Code or the plugin on OpenCode must pass those checks.
 
 **Static readiness check**:
 A current observation of required executable availability, GitHub authentication, required skill files, the Claude Code hook entries in Claude Code settings, or the version marker of the OpenCode plugin file.
@@ -79,7 +79,7 @@ _Avoid_: permission rule, attribution setting
 
 **OpenCode plugin**:
 Operator's file in OpenCode's global plugins folder, which runs `operator opencode hook` for the same two guards as the commit hook.
-It refuses a shell `git commit` with a Co-Authored-By trailer, and continues a SuperAgent's idle session at most once for each person prompt.
+It refuses a shell `git commit` with a Co-Authored-By trailer, and continues a SuperAgent's idle session at most once in a row.
 `operator install --opencode` writes it, and readiness checks its version marker.
 
 **Operator release**:

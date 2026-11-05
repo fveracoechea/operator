@@ -86,7 +86,9 @@ It asks `operator opencode hook`, and on a reason it admits one synthetic messag
 The decision and its reason live in one place that both hosts call.
 
 OpenCode 2.2.5 still names the hook experimental, and OpenCode bounds no loop that a plugin starts, so the plugin bounds its own.
-It continues a session at most once for each person prompt: the session's `prompt` hook, which synthetic messages and background notices do not run, resets the allowance.
+It continues a session at most once in a row, as the Claude Code guard does.
+The allowance resets on the session's `prompt` hook, which person prompts and slash commands run and synthetic messages and background notices do not, and when the idle event shows a background wait of the session running.
+Another continuation therefore needs a person prompt or a wait that ran in between, so a woken turn that ends without a wait gets the guard again and the loop stays bounded.
 The idle event lists the background shells that still run, with their commands, so a session that already runs `operator next --wait` in the background skips the check without starting `operator`.
 OpenCode's own goal feature drives its continuation through the same hook.
 The earlier rejection rested on the missing loop cap and on the cost of a plugin. The prompt hook now gives a cap that needs no Operator state, and the commit check of ADR-0021 shares the plugin.
@@ -117,6 +119,8 @@ The plugin treats a failed, slow, or missing `operator` command as no opinion, a
 - An OpenCode SuperAgent, the device default, gets the guard only while the plugin file is current and OpenCode keeps the experimental idle hook's name and shape. A change there turns the guard off silently, and the version marker does not detect it.
 - The OpenCode guard depends on Herdr's session mapping, so a session outside Herdr gets no guard.
 - The plugin's allowance lives in the server's memory, so a server restart allows one more continuation.
+- The plugin runs `operator` from the shared server's `PATH`. A server whose `PATH` lacks the command gets no guard, and readiness cannot see the server's `PATH`.
+- The plugin stops `operator` after ten seconds and takes no opinion, so a slow Herdr or device state turns the guard off for that turn end.
 - On Claude Code, whether a background result that arrives while the person types keeps the unsent prompt intact rests on the documented queueing of input, not on a test.
 
 ## Alternatives considered

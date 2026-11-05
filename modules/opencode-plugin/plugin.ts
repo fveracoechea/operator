@@ -54,15 +54,17 @@ async function ask(event: string) {
 export default {
   id: "operator",
   async setup(ctx: Context) {
-    // Sessions that got a continuation since the person's last prompt. Synthetic messages and
-    // background notices do not run the prompt hook, so a session continues at most once for each
-    // person prompt, as OpenCode bounds no loop of its own.
+    // Sessions that got a continuation since the person's last prompt or since a background wait
+    // was seen running. Synthetic messages and background notices do not run the prompt hook, so
+    // a session continues at most once in a row, as OpenCode bounds no loop of its own: another
+    // continuation needs a person prompt or a wait that ran in between.
     const continued = new Set<string>();
     await ctx.session.hook("prompt", (event) => {
       continued.delete(event.sessionID);
     });
     await ctx.tool.hook("execute.before", async (event) => {
-      // Operator reads the shell input. The text test only keeps other commands from starting it.
+      // Operator reads the shell input. A test of all its text keeps other commands from starting
+      // it, and a false match costs only one Operator run.
       if (event.tool !== "shell" || !commit.test(JSON.stringify(event.input) ?? "")) return;
       const reason = await ask(
         JSON.stringify({
@@ -76,7 +78,6 @@ export default {
       if (reason !== "") throw new Error(reason);
     });
     await ctx.session.hook("experimental.idle", async (event) => {
-      if (continued.has(event.sessionID)) return;
       // A wait that this session runs in the background wakes it when the wait returns.
       const waiting = (event.background ?? []).some(
         (work) =>
@@ -84,7 +85,11 @@ export default {
           work.sessionID === event.sessionID &&
           wait.test(work.command ?? ""),
       );
-      if (waiting) return;
+      if (waiting) {
+        continued.delete(event.sessionID);
+        return;
+      }
+      if (continued.has(event.sessionID)) return;
       const reason = await ask(
         JSON.stringify({
           event: "session.idle",

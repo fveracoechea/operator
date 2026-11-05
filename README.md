@@ -192,7 +192,7 @@ Before a git command, the hook blocks a commit whose message has a Co-Authored-B
 At the end of a SuperAgent's turn, the hook is the turn-end guard: while the sources that its Herdr pane supervises have running work and no `next --wait` from that pane runs, it blocks the end once and tells the SuperAgent to start the wait in the background. Missing or unusable device state lets the turn end.
 When that file is a link, for example into a dotfiles repository, `install` changes nothing and reports `claude_settings_external` with the hook groups to add.
 `install --opencode` also writes Operator's OpenCode plugin to `~/.config/opencode/plugins/operator.ts`, which runs `operator opencode hook` with the same two guards.
-It refuses a shell `git commit` with a Co-Authored-By trailer, and when a SuperAgent's session goes idle under the same condition, it continues the session once for each person prompt with the same reason.
+It refuses a shell `git commit` with a Co-Authored-By trailer, and when a SuperAgent's session goes idle under the same condition, it continues the session once with the same reason. Another continuation needs a person prompt or a background wait that ran in between.
 A wait that the session already runs in the background skips the check. The plugin finds the session's pane through Herdr, because one OpenCode server runs every session.
 A linked plugin file or folder, or a file there that Operator did not write, stays unchanged, and `install` reports `opencode_plugin_external` with the file to link. A Nix install ships the plugin at `share/opencode/plugins/operator.ts` for the consumer to link.
 `ready` requires the Operator skills and Matt's `code-review` skill.

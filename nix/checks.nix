@@ -143,7 +143,8 @@ in
     ${jq}/bin/jq -e '.reason == "ready" and .blockers == []' ready.json
 
     operator install --claude --opencode --check --json > install.json
-    ${jq}/bin/jq -e '.reason == "skills_checked" and .data.checkOnly == true' install.json
+    ${jq}/bin/jq -e '.reason == "skills_checked" and .data.checkOnly == true
+      and .data.opencodePlugin == "already_installed"' install.json
     test "$before" = "$(hosts)"
 
     # A missing consumer link is a blocker that names the Nix links, and nothing repairs it.
