@@ -21,6 +21,7 @@ Registration, readiness, dispatch, worker replacement, report acceptance and ret
 Decide what the instructions and the project context settle, and record the decision. Bring the person only these stops:
 
 - The instructions require human participation, a question is outside your authority, or the authority is unclear. The person owns the goal.
+- `person_decision` with `question_awaiting_person`. Ask the person, then record the answer as [questions.md](questions.md) describes.
 - A new external authority, for example a host trust, login, or permission prompt. Operator does not grant host permissions.
 - `person_decision` with `cleanup_unlanded_work`, and its deletion with `cleanup --person-instructed`. Only the person can delete work that did not land.
 - `person_decision` with `cleanup_resource_mismatch`. Operator never removes an unrecorded path, so the person moves it away.

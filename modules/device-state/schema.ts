@@ -243,6 +243,34 @@ export const reports = sqliteTable(
   ],
 );
 
+// A WorkerAgent's question to its supervising SuperAgent, keyed within its assignment.
+// Only the SuperAgent answers, and the answer records who decided.
+export const workerQuestions = sqliteTable(
+  "worker_questions",
+  {
+    sourceId: text("source_id").notNull(),
+    assignment: text().notNull(),
+    key: text().notNull(),
+    launchId: text("launch_id")
+      .notNull()
+      .references(() => launches.id),
+    question: text().notNull(),
+    askedAt: text("asked_at").notNull(),
+    state: text().notNull(),
+    answer: text(),
+    answeredBy: text("answered_by"),
+    answeredAt: text("answered_at"),
+    endedAt: text("ended_at"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sourceId, table.assignment, table.key] }),
+    foreignKey({
+      columns: [table.sourceId, table.assignment],
+      foreignColumns: [assignments.sourceId, assignments.key],
+    }),
+  ],
+);
+
 // A review request is not an assignment. One request per PR is open until it is closed or skipped.
 // An approved request stays open, so a renewed request reopens it. The approval cleans up its reviewer.
 export const reviewRequests = sqliteTable(

@@ -19,6 +19,7 @@ import {
   type Cleanup,
   type Launch,
   type PullRequest,
+  type Question,
   type Report,
 } from "./snapshot.ts";
 import { OperatorHome } from "../operator-home/main.ts";
@@ -498,6 +499,21 @@ function pullRequestFacts(pullRequest: PullRequest | undefined) {
   };
 }
 
+// An unanswered question explains an idle worker, so the question replaces that attention.
+const idleReasons = new Set(["worker_idle", "pr_owner_idle"]);
+
+/** The SuperAgent answers an open question. A question that it moved to the person waits on the person. */
+function questionAction(question: Question) {
+  const open = question.state === "open";
+  return {
+    assignment: question.assignment,
+    action: open ? ("answer_question" as const) : ("person_decision" as const),
+    reason: open ? ("question_open" as const) : ("question_awaiting_person" as const),
+    blockers: [],
+    question: { key: question.key, question: question.question, askedAt: question.askedAt },
+  };
+}
+
 /** The plan's assignments whose latest worker starts or runs. Each holds one place under the cap. */
 function runningCount(source: Source) {
   // An ended assignment frees its place when the merge or acceptance is recorded, while its pane
@@ -514,50 +530,67 @@ function runningCount(source: Source) {
 }
 
 function decide(input: Input, source: Source) {
-  const { maxRunning } = source.plan;
   const running = runningCount(source);
-  return source.planned.map((assignment) => {
-    // Decoding matched each planned key to one stored row.
-    const current = assignmentStateSchema.parse(
-      source.assignments.find((row) => row.key === assignment.key),
-    );
-    const dependencies = z
-      .array(assignmentStateSchema)
-      .parse(
-        assignment.dependencies.map((key) => source.assignments.find((row) => row.key === key)),
-      );
-    const launch = source.launches.findLast((row) => row.assignment === assignment.key);
-    const pullRequest = source.pullRequests.find((pr) => pr.assignment === assignment.key);
-    const report = source.reports.findLast((row) => row.assignment === assignment.key);
-    const cleanup = source.cleanups.find((row) => row.assignment === assignment.key);
-    const decision = decideAssignment({
-      assignment: current,
-      dependencies,
-      // A start whose dispatching process stopped can be replaced.
-      launch: launch?.abandoned === true ? "abandoned" : launch?.state,
-      ...pullRequestFacts(pullRequest),
-      activity: launch?.activity,
-      report:
-        report === undefined
-          ? undefined
-          : { decision: report.decision, cleanup: report.cleanupState },
-      cleanup: cleanupFact(cleanup),
-      // The worker that took over a promoted report has not been seen since the promotion.
-      handover:
-        launch !== undefined &&
-        launch.id === assignment.promotion?.handoverLaunchId &&
-        launch.activity === null,
-      capReached: maxRunning !== undefined && running >= maxRunning,
-    });
-    const cap =
-      decision.reason === "running_cap_reached" ? { runningCap: { maxRunning, running } } : {};
-    return described(
-      input,
-      source,
-      { assignment: assignment.key, ...decision, ...cap },
-      { assignment: assignment.key, launch, pullRequest, report, cleanup },
-    );
+  return source.planned.flatMap((assignment) => {
+    const questions = source.questions
+      .filter(
+        (row) =>
+          row.assignment === assignment.key &&
+          (row.state === "open" || row.state === "awaiting_person"),
+      )
+      .map(questionAction);
+    const decision = decideAssignmentRow(input, source, assignment, running);
+    return questions.length > 0 && idleReasons.has(decision.reason)
+      ? questions
+      : [...questions, decision];
   });
+}
+
+function decideAssignmentRow(
+  input: Input,
+  source: Source,
+  assignment: Source["planned"][number],
+  running: number,
+) {
+  const { maxRunning } = source.plan;
+  // Decoding matched each planned key to one stored row.
+  const current = assignmentStateSchema.parse(
+    source.assignments.find((row) => row.key === assignment.key),
+  );
+  const dependencies = z
+    .array(assignmentStateSchema)
+    .parse(assignment.dependencies.map((key) => source.assignments.find((row) => row.key === key)));
+  const launch = source.launches.findLast((row) => row.assignment === assignment.key);
+  const pullRequest = source.pullRequests.find((pr) => pr.assignment === assignment.key);
+  const report = source.reports.findLast((row) => row.assignment === assignment.key);
+  const cleanup = source.cleanups.find((row) => row.assignment === assignment.key);
+  const decision = decideAssignment({
+    assignment: current,
+    dependencies,
+    // A start whose dispatching process stopped can be replaced.
+    launch: launch?.abandoned === true ? "abandoned" : launch?.state,
+    ...pullRequestFacts(pullRequest),
+    activity: launch?.activity,
+    report:
+      report === undefined
+        ? undefined
+        : { decision: report.decision, cleanup: report.cleanupState },
+    cleanup: cleanupFact(cleanup),
+    // The worker that took over a promoted report has not been seen since the promotion.
+    handover:
+      launch !== undefined &&
+      launch.id === assignment.promotion?.handoverLaunchId &&
+      launch.activity === null,
+    capReached: maxRunning !== undefined && running >= maxRunning,
+  });
+  const cap =
+    decision.reason === "running_cap_reached" ? { runningCap: { maxRunning, running } } : {};
+  return described(
+    input,
+    source,
+    { assignment: assignment.key, ...decision, ...cap },
+    { assignment: assignment.key, launch, pullRequest, report, cleanup },
+  );
 }
 
 /** Adds the recorded facts that the SuperAgent reads beside each decision. */

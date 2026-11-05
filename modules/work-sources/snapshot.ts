@@ -115,6 +115,80 @@ const cleanupSchema = z.object({
 });
 export type Cleanup = z.infer<typeof cleanupSchema>;
 
+// A question is answered once, with the authority of its answer. Next actions show the unanswered.
+const questionSchema = z.object({
+  assignment: z.string(),
+  key: z.string(),
+  launchId: z.string(),
+  question: z.string(),
+  askedAt: z.string(),
+  state: z.enum(["open", "awaiting_person", "answered", "withdrawn", "abandoned"]),
+  answer: z.string().nullable(),
+  answeredBy: z.enum(["super-agent", "person"]).nullable(),
+  answeredAt: z.string().nullable(),
+  endedAt: z.string().nullable(),
+});
+export type Question = z.infer<typeof questionSchema>;
+
+/** An answer exists exactly when the question is answered, and only an ended question has an end. */
+function validQuestion(question: Question) {
+  const answered = question.state === "answered";
+  const unanswered = question.state === "open" || question.state === "awaiting_person";
+  return (
+    (question.answer !== null) === answered &&
+    (question.answeredBy !== null) === answered &&
+    (question.answeredAt !== null) === answered &&
+    (question.endedAt === null) === (answered || unanswered)
+  );
+}
+
+/** An ended assignment leaves no question unanswered. */
+function validQuestions(source: {
+  assignments: { key: string; state: string }[];
+  launches: { id: string; assignment: string }[];
+  questions: Question[];
+}) {
+  return source.questions.every(
+    (question) =>
+      validQuestion(question) &&
+      source.launches.some(
+        (launch) => launch.assignment === question.assignment && launch.id === question.launchId,
+      ) &&
+      !(
+        ["open", "awaiting_person"].includes(question.state) &&
+        source.assignments.some(
+          (row) =>
+            row.key === question.assignment &&
+            ["merged", "completed", "abandoned"].includes(row.state),
+        )
+      ),
+  );
+}
+
+/**
+ * A report belongs to a report assignment and to one of its launches, and so does a question to
+ * its own assignment. A launch already shows that its assignment left the ready state.
+ */
+function validRecords(source: {
+  assignments: { key: string; completion: string; state: string }[];
+  launches: { id: string; assignment: string }[];
+  reports: { assignment: string; launchId: string }[];
+  questions: Question[];
+}) {
+  return (
+    validQuestions(source) &&
+    source.reports.every(
+      (report) =>
+        source.assignments.some(
+          (row) => row.key === report.assignment && row.completion === "report",
+        ) &&
+        source.launches.some(
+          (launch) => launch.assignment === report.assignment && launch.id === report.launchId,
+        ),
+    )
+  );
+}
+
 const promotionSchema = z.object({
   assignment: z.string(),
   report: z.string(),
@@ -197,6 +271,7 @@ export function decodeSource(input: StoredSource) {
     pullRequests: z.array(pullRequestSchema).parse(input.pullRequests),
     reports: z.array(reportSchema).parse(input.reports),
     cleanups: z.array(cleanupSchema).parse(input.cleanups),
+    questions: z.array(questionSchema).parse(input.questions),
   };
   const promotions = z.array(promotionSchema).parse(input.promotions);
   const assignments = withPromotions(source.plan, promotions);
@@ -243,22 +318,11 @@ export function decodeSource(input: StoredSource) {
         (cleanup.step === null) === (cleanup.state === "done") &&
         source.assignments.some((row) => row.key === cleanup.assignment),
     );
-  // A report belongs to a report assignment and to one of its launches. A launch already shows
-  // that its assignment left the ready state.
-  const validReports = source.reports.every(
-    (report) =>
-      source.assignments.some(
-        (row) => row.key === report.assignment && row.completion === "report",
-      ) &&
-      source.launches.some(
-        (launch) => launch.assignment === report.assignment && launch.id === report.launchId,
-      ),
-  );
   const validLifecycle =
     validPromotions &&
     validLaunches &&
     validPullRequests &&
-    validReports &&
+    validRecords(source) &&
     validMerges &&
     validState &&
     (source.state === "open" ? source.endedAt === null : source.endedAt !== null);

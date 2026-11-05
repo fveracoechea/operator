@@ -7,6 +7,7 @@ import { ownerGone } from "./leases.ts";
 import { assignments, cleanups, launches, projects, pullRequests, sources } from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
 import { requestAssignmentReview } from "./review-requests.ts";
+import { abandonQuestions } from "./sources.ts";
 
 export type PullRequestRow = typeof pullRequests.$inferSelect;
 export type PullRequestFailure =
@@ -341,6 +342,7 @@ export function recordPullRequestMerge(
           .set({ state: "merged" })
           .where(and(eq(assignments.sourceId, source.id), eq(assignments.key, assignment.key)))
           .run();
+        abandonQuestions(db, source.id, [assignment.key]);
         db.insert(cleanups)
           .values({
             sourceId: source.id,

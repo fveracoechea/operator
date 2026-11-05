@@ -85,6 +85,7 @@ test("the module reads one snapshot and reports ended reset sources without disp
         reports: [],
         cleanups: [],
         promotions: [],
+        questions: [],
       },
     ]),
   );
@@ -205,6 +206,7 @@ test("a dependent carries the latest accepted report of each direct dependency",
     ],
     cleanups: [],
     promotions: [],
+    questions: [],
   });
   // An undecided or returned report is not accepted content, and gaps do not skip a level.
   expect(WorkSources.dependencyReports(source, "use")).toEqual([

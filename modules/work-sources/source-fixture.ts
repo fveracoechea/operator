@@ -57,6 +57,7 @@ export function storedSource(
     reports: rows.reports ?? [],
     cleanups: rows.cleanups ?? [],
     promotions: rows.promotions ?? [],
+    questions: rows.questions ?? [],
   };
 }
 
@@ -192,5 +193,25 @@ export function storedPromotion(
       promotedAt: "2026-01-04T00:00:00.000Z",
       ...promotion,
     },
+  };
+}
+
+export function storedQuestion(
+  assignment: string,
+  change: Partial<Stored["questions"][number]> = {},
+): Stored["questions"][number] {
+  return {
+    sourceId,
+    assignment,
+    key: "scope",
+    launchId: `l-${assignment}`,
+    question: `Is ${assignment} in scope?`,
+    askedAt: "2026-01-03T00:00:00.000Z",
+    state: "open",
+    answer: null,
+    answeredBy: null,
+    answeredAt: null,
+    endedAt: null,
+    ...change,
   };
 }

@@ -15,6 +15,7 @@ import {
   pullRequests,
   reports,
   sources,
+  workerQuestions,
 } from "./schema.ts";
 import type { StateFailure } from "./failures.ts";
 import { OperatorHome } from "../operator-home/main.ts";
@@ -92,6 +93,7 @@ export function readSources(client: Database, repository: string, sourceId?: str
           reports: (typeof reports.$inferSelect)[];
           cleanups: (typeof cleanups.$inferSelect & { running: boolean })[];
           promotions: (typeof promotions.$inferSelect)[];
+          questions: (typeof workerQuestions.$inferSelect)[];
         }[],
         SourceFailure
       > => {
@@ -161,6 +163,12 @@ export function readSources(client: Database, repository: string, sourceId?: str
               .from(promotions)
               .where(eq(promotions.sourceId, source.id))
               .orderBy(asc(promotions.promotedAt), asc(promotions.assignment))
+              .all(),
+            questions: db
+              .select()
+              .from(workerQuestions)
+              .where(eq(workerQuestions.sourceId, source.id))
+              .orderBy(asc(workerQuestions.askedAt), asc(workerQuestions.key))
               .all(),
           })),
         );
@@ -301,6 +309,7 @@ export function resetSource<E extends { reason: string; detail: string }>(
               .set({ state: "abandoned" })
               .where(and(eq(assignments.sourceId, source.id), inArray(assignments.key, abandon)))
               .run();
+            abandonQuestions(db, source.id, abandon);
             db.update(sources)
               .set({ state: "reset", endedAt })
               .where(eq(sources.id, source.id))
@@ -359,6 +368,7 @@ export function pruneSource(
  * keeps its own lifecycle, so it stays.
  */
 export function deleteSourceRecords(db: Db, ids: string[]) {
+  db.delete(workerQuestions).where(inArray(workerQuestions.sourceId, ids)).run();
   db.delete(coordinationWaits).where(inArray(coordinationWaits.scope, ids)).run();
   db.delete(promotions).where(inArray(promotions.sourceId, ids)).run();
   db.delete(reports).where(inArray(reports.sourceId, ids)).run();
@@ -367,4 +377,19 @@ export function deleteSourceRecords(db: Db, ids: string[]) {
   db.delete(launches).where(inArray(launches.sourceId, ids)).run();
   db.delete(assignments).where(inArray(assignments.sourceId, ids)).run();
   db.delete(sources).where(inArray(sources.id, ids)).run();
+}
+
+/** A question that is unanswered when its assignment ends can no longer be answered. */
+export function abandonQuestions(db: Db, sourceId: string, keys: string[]) {
+  // An empty list matches no question.
+  db.update(workerQuestions)
+    .set({ state: "abandoned", endedAt: new Date().toISOString() })
+    .where(
+      and(
+        eq(workerQuestions.sourceId, sourceId),
+        inArray(workerQuestions.assignment, keys),
+        inArray(workerQuestions.state, ["open", "awaiting_person"]),
+      ),
+    )
+    .run();
 }
