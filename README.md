@@ -199,6 +199,7 @@ When that file is a link, for example into a dotfiles repository, `install` chan
 operator source register --file /absolute/path/assignments.json --json
 operator source show --source <source-id> --json
 operator next --json
+operator next --wait --timeout 300 --json
 operator herdr install --json
 operator dispatch --source <source-id> --assignment <key> --json
 operator source reset --source <source-id> --person-instructed --json
@@ -207,6 +208,8 @@ operator source prune --json
 
 The SuperAgent reads the tracker and gives the CLI a JSON plan.
 `next` returns the next actions and writes nothing.
+`next --wait` blocks until the next actions other than waits change, or until its timeout, and then returns the normal next answer.
+The SuperAgent runs it in the background, so worker events reach it without text typed into its pane.
 `herdr install` links the Herdr plugin that prepares each worktree and records worker activity.
 `dispatch` starts a ready assignment in a Herdr pane or worktree.
 

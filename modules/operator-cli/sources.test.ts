@@ -32,6 +32,9 @@ function spies() {
     reset: spyOn(WorkSources, "reset").mockReturnValue(OkAsync({ id: "x" }) as never),
     prune: spyOn(WorkSources, "prune").mockReturnValue(OkAsync({ id: "p" }) as never),
     next: spyOn(WorkSources, "next").mockReturnValue(OkAsync({ id: "n" }) as never),
+    wait: spyOn(WorkSources, "wait").mockReturnValue(
+      OkAsync({ reason: "next_wait_timed_out", data: { sources: [] } }) as never,
+    ),
   };
 }
 
@@ -59,6 +62,21 @@ test("parses only the delivered source and next commands", () => {
     file: undefined,
     sourceId: undefined,
     personInstructed: false,
+  });
+  expect(sourceArgs(["next", "--wait", "--json"])).toEqual({
+    operation: "next_wait",
+    sourceId: undefined,
+    personInstructed: false,
+    timeoutSeconds: 300,
+  });
+  expect(sourceArgs(["next", "--timeout", "0", "--source", "id", "--wait"])).toEqual({
+    operation: "next_wait",
+    sourceId: "id",
+    personInstructed: false,
+    timeoutSeconds: 0,
+  });
+  expect(sourceArgs(["next", "--wait", "--timeout", "99999"])).toMatchObject({
+    timeoutSeconds: 99999,
   });
   expect(sourceArgs(["source", "reset", "--person-instructed", "--source", "id"])).toEqual({
     operation: "reset",
@@ -91,6 +109,16 @@ test.each(
     ["next", "--json", "--json"],
     ["next", "--unknown"],
     ["next", "--person-instructed"],
+    ["next", "--wait", "--wait"],
+    ["next", "--timeout", "10"],
+    ["next", "--wait", "--timeout"],
+    ["next", "--wait", "--timeout", "--json"],
+    ["next", "--wait", "--timeout", "-1"],
+    ["next", "--wait", "--timeout", "1.5"],
+    ["next", "--wait", "--timeout", "100000"],
+    ["next", "--wait", "--timeout", "1", "--timeout", "2"],
+    ["source", "show", "--source", "id", "--wait"],
+    ["source", "prune", "--timeout", "1"],
     ["source", "reset"],
     ["source", "reset", "--person-instructed"],
     ["source", "reset", "--source", "id", "--person-instructed", "--person-instructed"],
@@ -157,6 +185,38 @@ test("passes each command to the matching source operation and names its result"
   for (const name of ["register", "show", "reset", "prune"] as const)
     expect(called[name]).toHaveBeenCalledTimes(1);
   expect(called.next).toHaveBeenCalledTimes(2);
+  expect(called.wait).not.toHaveBeenCalled();
+});
+
+test("passes a wait to the coordination wait, which names its own result", async () => {
+  const called = spies();
+  const { log, error } = quiet();
+  const cwd = process.cwd();
+  await runSources(["next", "--wait", "--source", "s4", "--timeout", "12"], paths, true);
+  expect(called.wait).toHaveBeenCalledWith({ paths, cwd, sourceId: "s4", timeoutSeconds: 12 });
+  expect(JSON.parse(String(log.mock.lastCall?.[0]))).toEqual({
+    schemaVersion: 1,
+    operation: "next_wait",
+    outcome: "completed",
+    reason: "next_wait_timed_out",
+    blockers: [],
+    data: { sources: [] },
+  });
+  called.wait.mockReturnValue(ErrAsync({ reason: "state_busy", detail: "busy" }) as never);
+  await runSources(["next", "--wait"], paths, true);
+  expect(called.wait).toHaveBeenLastCalledWith({
+    paths,
+    cwd,
+    sourceId: undefined,
+    timeoutSeconds: 300,
+  });
+  expect(JSON.parse(String(log.mock.lastCall?.[0]))).toMatchObject({
+    operation: "next_wait",
+    reason: "state_busy",
+  });
+  expect(error).toHaveBeenCalledWith("operator: busy");
+  expect(process.exitCode).toBe(1);
+  expect(called.next).not.toHaveBeenCalled();
 });
 
 test("prints a completed operation as compact JSON or as indented text", async () => {

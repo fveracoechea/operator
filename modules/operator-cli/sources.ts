@@ -3,6 +3,7 @@ import type { OperatorHome } from "../operator-home/main.ts";
 import { respond } from "./output.ts";
 
 const sourceCommands = ["register", "show", "reset", "prune"] as const;
+const defaultTimeoutSeconds = 300;
 
 // Each operation's value flag. Only prune and next run without their value.
 const valueFlags = {
@@ -23,19 +24,48 @@ export function sourceArgs(args: string[]) {
   const operation = sourceOperation(group, command);
   // Stryker disable next-line ConditionalExpression: equivalent: an unknown operation has no value flag and is not next or prune, so the later checks refuse every input
   if (operation === undefined) return null;
-  const flags = sourceFlags(
-    args.slice(operation === "next" ? 1 : 2),
-    valueFlags[operation],
-    operation === "reset",
-  );
+  // Only next waits, so every other operation keeps a timeout or a wait flag as unknown.
+  const waiting =
+    operation === "next"
+      ? waitFlags(args.slice(1))
+      : { flags: args.slice(2), wait: false, timeoutSeconds: undefined };
+  if (waiting === null) return null;
+  const flags = sourceFlags(waiting.flags, valueFlags[operation], operation === "reset");
   if (flags === null) return null;
   const { value, personInstructed } = flags;
+  if (waiting.wait)
+    return {
+      operation: "next_wait" as const,
+      sourceId: value,
+      personInstructed,
+      timeoutSeconds: waiting.timeoutSeconds ?? defaultTimeoutSeconds,
+    };
   if (operation === "next" || operation === "prune")
     return { operation, sourceId: value, personInstructed };
   if (value === undefined) return null;
   return operation === "register"
     ? { operation, file: value, personInstructed }
     : { operation, sourceId: value, personInstructed };
+}
+
+/** Takes the wait flags of next and leaves its other flags. A timeout belongs only to a wait. */
+function waitFlags(flags: string[]) {
+  const others: string[] = [];
+  let wait = false;
+  let timeoutSeconds: number | undefined;
+  const rest = flags.values();
+  for (const flag of rest) {
+    if (flag === "--wait" && !wait) wait = true;
+    else if (flag === "--timeout" && timeoutSeconds === undefined) {
+      // An absent value reads as "undefined", which the pattern refuses.
+      const seconds = String(rest.next().value);
+      if (!/^\d{1,5}$/.test(seconds)) return null;
+      timeoutSeconds = Number(seconds);
+    } else if (flag === "--wait" || flag === "--timeout") return null;
+    else others.push(flag);
+  }
+  if (timeoutSeconds !== undefined && !wait) return null;
+  return { flags: others, wait, timeoutSeconds };
 }
 
 function sourceFlags(flags: string[], valueFlag: string | null, instructed: boolean) {
@@ -74,8 +104,10 @@ const completed = {
   next: "next_actions_read",
 } as const;
 
+type Parsed = NonNullable<ReturnType<typeof sourceArgs>>;
+
 function execute(
-  parsed: NonNullable<ReturnType<typeof sourceArgs>>,
+  parsed: Exclude<Parsed, { operation: "next_wait" }>,
   input: { paths: ReturnType<typeof OperatorHome.resolve>; cwd: string },
 ) {
   if (parsed.operation === "register") return WorkSources.register({ ...input, file: parsed.file });
@@ -97,11 +129,25 @@ export async function runSources(
 ) {
   const parsed = sourceArgs(args);
   if (parsed === null) return false;
-  const result = await execute(parsed, { paths, cwd: process.cwd() });
-  const operation = parsed.operation === "next" ? "next" : `source_${parsed.operation}`;
+  const input = { paths, cwd: process.cwd() };
+  // A wait names its own result: the changed actions or the timeout.
+  const result =
+    parsed.operation === "next_wait"
+      ? await WorkSources.wait({
+          ...input,
+          sourceId: parsed.sourceId,
+          timeoutSeconds: parsed.timeoutSeconds,
+        })
+      : (await execute(parsed, input)).map((data) => ({
+          reason: completed[parsed.operation],
+          data,
+        }));
+  const operation = parsed.operation.startsWith("next")
+    ? parsed.operation
+    : `source_${parsed.operation}`;
   respond({
     operation,
-    result: result.map((data) => ({ reason: completed[parsed.operation], data })),
+    result,
     exitCodes: sourceExitCodes,
     defect: "source_defect",
     json,
