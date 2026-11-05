@@ -18,7 +18,7 @@ import {
   readSources,
   resetSource,
   pruneSource,
-  type SourceRow as StoredSource,
+  type StoredSource,
   type AssignmentRow as StoredAssignment,
 } from "./sources.ts";
 
@@ -44,6 +44,12 @@ import {
 } from "./pull-requests.ts";
 import { leaseRenewMs } from "./leases.ts";
 import { claimCleanup, advanceCleanup, renewCleanup, startCleanup } from "./cleanups.ts";
+import {
+  finishCoordinationWait,
+  renewCoordinationWait,
+  startCoordinationWait,
+  type CoordinationScope,
+} from "./coordination-waits.ts";
 
 import { changeReport, readReport, type ReportTarget } from "./reports.ts";
 import {
@@ -132,9 +138,10 @@ export const DeviceState = {
     repository: string,
     launch: Omit<LaunchRow, "attempt" | "ownerPid" | "leaseAt">,
     maxRunning?: number,
+    supervisingPane: string | null = null,
   ) {
     return writing(paths, (client) =>
-      reserveLaunch(client, checkout, repository, launch, maxRunning),
+      reserveLaunch(client, checkout, repository, launch, maxRunning, supervisingPane),
     );
   },
   updateLaunch(paths: Paths, id: string, change: Parameters<typeof updateLaunch>[2]) {
@@ -261,6 +268,17 @@ export const DeviceState = {
   /** Renew this process's lease on a running cleanup until the returned stop runs. */
   holdCleanup(paths: Paths, sourceId: string, assignment: string) {
     return hold(() => writing(paths, (client) => renewCleanup(client, sourceId, assignment)));
+  },
+  /** Record this process as the scope's running coordination wait and read its last returned set. */
+  startCoordinationWait(paths: Paths, target: CoordinationScope, paneId: string | null) {
+    return writing(paths, (client) => startCoordinationWait(client, target, paneId));
+  },
+  finishCoordinationWait(paths: Paths, target: CoordinationScope, actions: string) {
+    return writing(paths, (client) => finishCoordinationWait(client, target, actions));
+  },
+  /** Renew this process's lease on a running coordination wait until the returned stop runs. */
+  holdCoordinationWait(paths: Paths, target: CoordinationScope) {
+    return hold(() => writing(paths, (client) => renewCoordinationWait(client, target)));
   },
   /** Renew this process's claim on a PR relay until the returned stop runs. */
   holdPullRequestRelay(paths: Paths, sourceId: string, assignment: string) {

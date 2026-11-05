@@ -18,6 +18,7 @@ A label names the work in three words when possible, and never more than four, f
 Only the agent that owns the pane renames the tab, not a native subagent.
 Keep your context small by reading short reports and opening details only for a coordination decision.
 WorkerAgents report to you, and you are the person's point of contact.
+Between coordination steps, keep `operator next --wait --json` running as a background command, so worker events reach you as a new turn. [sources.md](sources.md) describes the wait.
 
 For task instructions, questions, and the stops that need the person, read [delegation.md](delegation.md).
 For device setup and owned skills, read [setup.md](setup.md).
